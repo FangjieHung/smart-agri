@@ -1,0 +1,19 @@
+/* Quill 編輯器輸出內容的排版樣式。獨立於主題系統，顏色/字體固定。
+   任何 app（無論有無套 theme-pack）皆可 @use。 */
+.ql-editor {
+  font-family: "Noto Sans TC", system-ui, sans-serif;
+  line-height: 1.7;
+  color: #1f2933;
+
+  h1 { font-size: 1.5rem; font-weight: 700; margin: 1.2em 0 0.5em; }
+  h2 { font-size: 1.25rem; font-weight: 700; margin: 1.1em 0 0.5em; }
+  p { margin: 0 0 0.75em; }
+  ul, ol { margin: 0 0 0.75em; padding-left: 1.5em; }
+  blockquote {
+    margin: 0 0 0.75em;
+    padding-left: 1em;
+    border-left: 3px solid #cbd2d9;
+    color: #52606d;
+  }
+  a { color: #2563eb; text-decoration: underline; }
+}

@@ -1,0 +1,233 @@
+:host {
+  display: block;
+}
+
+.dt-wrap {
+  overflow-x: auto;
+}
+
+.dt-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-top: 1rem;
+}
+
+.dt-batch-toolbar {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-left: 1rem;
+}
+
+.dt-table {
+  width: 100%;
+  font-size: 0.875rem;
+}
+
+.dt-table thead tr {
+  text-align: left;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.dt-table th {
+  color: var(--mat-sys-on-surface-variant);
+  font-weight: 500;
+  padding: 0.75rem 1rem;
+}
+
+.dt-table td {
+  padding: 0.75rem 1rem;
+  color: inherit;
+}
+
+.dt-selection-head,
+.dt-selection-cell {
+  width: 3rem;
+  min-width: 3rem;
+  padding-right: 0.5rem !important;
+  padding-left: 1rem !important;
+}
+
+.dt-selection-checkbox {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--mat-sys-primary);
+  cursor: pointer;
+}
+
+.dt-selection-control,
+.dt-batch-select-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  cursor: pointer;
+}
+
+.dt-selection-checkbox:focus-visible {
+  outline: 2px solid var(--mat-sys-primary);
+  outline-offset: 2px;
+}
+
+.dt-table tbody tr {
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+.dt-table tbody tr:last-child {
+  border-bottom: 0;
+}
+
+// rowClickable 為 true 時整列可點擊導航；hover 底色沿用 .ui-nav-pill / app-tab 既有的
+// --mat-sys-surface-container-high token，與其他可點擊 pill/nav 元件維持一致觀感。
+.dt-row--clickable {
+  cursor: pointer;
+
+  &:hover {
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: -2px;
+  }
+}
+
+// 保養提醒的行級底色，沿用 .ui-chip--danger / .ui-chip--warning 相同的 design token
+.dt-row--danger {
+  background: var(--app-danger-bg);
+}
+
+.dt-row--warning {
+  background: var(--app-warning-bg);
+}
+
+.dt-align-start {
+  text-align: left;
+}
+
+.dt-align-end {
+  text-align: right;
+}
+
+.dt-empty {
+  font-size: 0.875rem;
+  color: var(--mat-sys-on-surface-variant);
+  padding: 0.75rem 1rem;
+}
+
+// 桌機所有欄位本就可見，展開鈕僅在手機出現
+.dt-expand-head,
+.dt-expand-cell {
+  display: none;
+}
+
+.dt-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mat-sys-on-surface-variant);
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  // scroll 模式：保留表格形態，改為橫向捲動（合併儲存格的報表硬拆成卡片會讀不懂）
+  .dt-wrap--scroll {
+    overflow-x: auto;
+  }
+
+  .dt-wrap:not(.dt-wrap--scroll) {
+    .dt-table,
+    .dt-table tbody,
+    .dt-table tr,
+    .dt-table td {
+      display: block;
+      width: auto;
+    }
+
+    // 視覺隱藏而非 display:none —— SheetJS 會跳過 display:none 的節點，
+    // 否則手機上匯出的 Excel 會少掉標題列。
+    .dt-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      white-space: nowrap;
+      clip-path: inset(50%);
+    }
+
+    // 每列是一張卡片。這裡刻意不設 background：.dt-row--danger / --warning
+    // 的提醒底色靠繼承生效，設了會把它們蓋掉。
+    .dt-table tbody tr {
+      border: 1px solid var(--mat-sys-outline-variant);
+      border-radius: var(--mat-sys-corner-medium, 12px);
+      padding: 0.75rem 0.875rem;
+      margin-bottom: 0.625rem;
+    }
+
+    .dt-table tbody tr:last-child {
+      margin-bottom: 0;
+    }
+
+    // 標籤與值並排而非上下堆疊：短值（車牌、里程）本來就佔不滿一行，
+    // 堆疊等於每個欄位吃兩行、右半邊留白。並排讓卡片高度砍半，也比較好掃。
+    .dt-table td {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.25rem 0.75rem;
+      padding: 0.3125rem 0;
+      text-align: left; // 手機版一律靠左，覆蓋 dt-align-end
+    }
+
+    .dt-table td.dt-selection-cell {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      min-width: 0;
+      padding: 0 0 0.5rem !important;
+    }
+
+    .dt-table td.dt-selection-cell::before {
+      content: none;
+    }
+
+    .dt-table td::before {
+      content: attr(data-label);
+      flex: 0 0 5.25rem;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: var(--mat-sys-on-surface-variant);
+    }
+
+    .dt-table td.is-secondary {
+      display: none;
+    }
+
+    .dt-table tbody tr.is-expanded td.is-secondary {
+      display: block;
+    }
+
+    .dt-expand-cell {
+      display: block;
+      padding: 0.25rem 0 0;
+    }
+
+    .dt-expand-cell::before {
+      content: none; // 展開鈕不需要 data-label
+    }
+
+    tr.is-expanded .dt-expand-btn svg {
+      transform: rotate(180deg);
+    }
+  }
+}

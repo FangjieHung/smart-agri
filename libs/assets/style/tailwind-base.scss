@@ -1,0 +1,8 @@
+/* 共用 Tailwind v4 base：跨子專案一致的間距與斷點基準。
+   顏色不放這裡（由 theme-pack 或各 app 決定），避免與主題系統衝突。 */
+@theme {
+  // --breakpoint-xs: 24rem;
+  // --spacing-page: 1.5rem;
+
+  --font-display: "Noto Sans TC", "Noto Serif TC", "sans-serif";
+}

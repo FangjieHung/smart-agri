@@ -1,0 +1,32 @@
+<ng-template appHeaderToolbar>
+  <app-page-toolbar [showSearch]="false" />
+</ng-template>
+
+<div class="shell-container">
+  <section class="ui-card p-4 sm:p-6">
+    <div class="ui-card-header">
+      <div>
+        <p class="ui-text-caption">總覽</p>
+        <h1 class="ui-text-title">農場數據監控儀表板</h1>
+      </div>
+    </div>
+    <div class="stat-grid mt-4">
+      <div class="stat-card">
+        <h3 class="text-2xl font-bold">24.5 °C</h3>
+        <p class="stat-card__label">當前溫室均溫</p>
+      </div>
+      <div class="stat-card">
+        <h3 class="text-2xl font-bold">68 %</h3>
+        <p class="stat-card__label">土壤平均濕度</p>
+      </div>
+      <div class="stat-card">
+        <h3 class="text-2xl font-bold">12</h3>
+        <p class="stat-card__label">運作中感測節點</p>
+      </div>
+      <div class="stat-card">
+        <h3 class="text-2xl font-bold">0</h3>
+        <p class="stat-card__label">異常警報數</p>
+      </div>
+    </div>
+  </section>
+</div>

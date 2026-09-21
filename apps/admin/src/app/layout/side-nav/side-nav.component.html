@@ -1,0 +1,137 @@
+<div class="sidenav-inner" [class.collapsed]="collapsed()">
+  <div class="brand">
+    <div class="brand-mark">SA</div>
+    @if (!collapsed()) {
+      <div class="brand-copy">
+        <h1>{{ t.app.title }}</h1>
+        <p>{{ t.layout.subtitle }}</p>
+      </div>
+    }
+    @if (!isMobile()) {
+      <button
+        mat-icon-button
+        type="button"
+        class="collapse-toggle"
+        (click)="toggleCollapse.emit()"
+      >
+        <span class="material-symbols-rounded" aria-hidden="true">{{ collapsed() ? 'chevron_right' : 'chevron_left' }}</span>
+      </button>
+    }
+  </div>
+
+  <nav class="nav-list" [attr.aria-label]="t.layout.navAriaLabel">
+    @for (item of navItems(); track item.label) {
+      @if (!isNavGroup(item)) {
+        <a
+          class="nav-link"
+          [routerLink]="item.route"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: true }"
+          [matTooltip]="collapsed() ? item.label : ''"
+          matTooltipPosition="right"
+          (click)="navClick.emit()"
+        >
+          <span class="material-symbols-rounded nav-icon" aria-hidden="true">{{ item.icon }}</span>
+          @if (!collapsed()) {
+            <span>{{ item.label }}</span>
+          }
+        </a>
+      }
+
+      @if (isNavGroup(item)) {
+        <button
+          #groupOrigin="cdkOverlayOrigin"
+          cdkOverlayOrigin
+          type="button"
+          class="nav-link nav-group-trigger"
+          [class.active]="isGroupActive(item)"
+          [matTooltip]="collapsed() ? item.label : ''"
+          matTooltipPosition="right"
+          (click)="toggleGroup.emit(item.label)"
+        >
+          <span class="material-symbols-rounded nav-icon" aria-hidden="true">{{ item.icon }}</span>
+          @if (!collapsed()) {
+            <span>{{ item.label }}</span>
+          }
+          @if (!collapsed()) {
+            <span
+              class="material-symbols-rounded nav-group-caret"
+              [class.open]="openGroupLabel() === item.label"
+              aria-hidden="true"
+            >
+              expand_more
+            </span>
+          }
+        </button>
+
+        @if (!collapsed() && openGroupLabel() === item.label) {
+          <div class="nav-subgroup">
+            @for (child of item.children; track child.route) {
+              <a
+                class="nav-sublink"
+                [routerLink]="child.route"
+                routerLinkActive="active"
+                [routerLinkActiveOptions]="{ exact: true }"
+                (click)="navClick.emit()"
+              >
+                <span class="material-symbols-rounded nav-icon" aria-hidden="true">{{ child.icon }}</span>
+                <span>{{ child.label }}</span>
+              </a>
+            }
+          </div>
+        }
+
+        @if (collapsed()) {
+          <ng-template
+            cdkConnectedOverlay
+            [cdkConnectedOverlayOrigin]="groupOrigin"
+            [cdkConnectedOverlayOpen]="openGroupLabel() === item.label"
+            [cdkConnectedOverlayPositions]="flyoutPositions()"
+            [cdkConnectedOverlayHasBackdrop]="true"
+            cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+            (backdropClick)="toggleGroup.emit(item.label)"
+            (detach)="groupDetach.emit()"
+          >
+            <div class="nav-flyout">
+              @for (child of item.children; track child.route) {
+                <a
+                  class="nav-flyout-item"
+                  [routerLink]="child.route"
+                  routerLinkActive="active"
+                  [routerLinkActiveOptions]="{ exact: true }"
+                  (click)="navClick.emit()"
+                >
+                  <span class="material-symbols-rounded nav-icon" aria-hidden="true">{{ child.icon }}</span>
+                  <span>{{ child.label }}</span>
+                </a>
+              }
+            </div>
+          </ng-template>
+        }
+      }
+    }
+  </nav>
+
+  <div class="sidenav-footer">
+    <button [matMenuTriggerFor]="menu" class="user-card">
+      <div class="avatar">SA</div>
+      @if (!collapsed()) {
+        <div>
+          <strong>{{ t.layout.adminUser }}</strong>
+          <p>{{ t.layout.loggedIn }}</p>
+        </div>
+      }
+    </button>
+
+    <mat-menu #menu="matMenu">
+      <a mat-menu-item data-menu-action="settings" [routerLink]="['/settings']">
+        <span class="material-symbols-rounded nav-icon" aria-hidden="true">settings</span>
+        <span>設定</span>
+      </a>
+      <button mat-menu-item data-menu-action="logout" type="button" (click)="auth.logout()">
+        <span class="material-symbols-rounded nav-icon" aria-hidden="true">logout</span>
+        <span>登出</span>
+      </button>
+    </mat-menu>
+  </div>
+</div>

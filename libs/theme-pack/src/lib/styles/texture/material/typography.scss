@@ -1,0 +1,34 @@
+// src/styles/texture/material/typography.scss
+[data-paradigm='material'] {
+  /* 大數字（StatCard 的 hero number） */
+  .ui-text-display {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  /* 頁面大標 */
+  .ui-text-title {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 1.5rem;
+    letter-spacing: 0.02em;
+    color: var(--mat-sys-on-surface);
+  }
+
+  .ui-text-subtitle {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.5;
+    color: var(--mat-sys-on-surface);
+  }
+
+  /* 卡片內小節標（quiet label + bold heading 的 quiet 半部） */
+  .ui-text-caption {
+    font-size: 13px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}

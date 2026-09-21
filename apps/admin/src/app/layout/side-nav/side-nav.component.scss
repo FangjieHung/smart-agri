@@ -1,0 +1,237 @@
+:host {
+  display: contents;
+}
+
+.sidenav-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+  flex: 0 0 auto;
+}
+
+.collapsed .brand {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.collapse-toggle {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.collapsed .collapse-toggle {
+  margin-left: 0;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--mat-sys-primary) 78%, white),
+    var(--mat-sys-primary)
+  );
+  color: var(--app-shell-on);
+  font-weight: 800;
+  font-size: 1.1rem;
+}
+
+.brand-copy h1 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.brand-copy p {
+  margin: 2px 0 0;
+  color: var(--app-shell-on-muted);
+  font-size: 0.85rem;
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
+}
+
+.nav-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.nav-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: var(--app-shell-on-muted);
+  text-decoration: none;
+  transition:
+    background 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--app-shell-on);
+  transform: translateX(2px);
+}
+
+.nav-icon {
+  width: 24px;
+  text-align: center;
+}
+
+.collapsed .nav-link,
+.collapsed .nav-group-trigger {
+  justify-content: center;
+  padding: 12px 0;
+}
+
+.nav-group-trigger {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-group-caret {
+  margin-left: auto;
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+  transition: transform 180ms ease;
+}
+
+.nav-group-caret.open {
+  transform: rotate(180deg);
+}
+
+.nav-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 2px 26px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.nav-sublink {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  color: var(--app-shell-on-muted);
+  text-decoration: none;
+  transition:
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.nav-sublink:hover,
+.nav-sublink.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--app-shell-on);
+}
+
+.nav-flyout {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--app-shell-bg);
+  color: var(--app-shell-on);
+  box-shadow: var(--mat-sys-level4);
+}
+
+.nav-flyout-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--app-shell-on-muted);
+  text-decoration: none;
+  transition:
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.nav-flyout-item:hover,
+.nav-flyout-item.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--app-shell-on);
+}
+
+.sidenav-footer {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.collapsed .user-card {
+  justify-content: center;
+  padding: 10px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--mat-sys-primary);
+  font-weight: 700;
+}
+
+.user-card strong {
+  display: block;
+  font-size: 0.95rem;
+}
+
+.user-card p {
+  margin: 2px 0 0;
+  color: var(--app-shell-on-muted);
+  font-size: 0.8rem;
+}

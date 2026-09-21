@@ -1,0 +1,54 @@
+// src/styles/texture/material/status.scss
+[data-paradigm='material'] {
+  .ui-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: var(--mat-sys-corner-full);
+    padding: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .ui-chip__dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .ui-chip--positive {
+    background: var(--app-positive-bg);
+    color: var(--app-positive-fg);
+    .ui-chip__dot {
+      background: var(--app-positive-dot);
+    }
+  }
+  .ui-chip--info {
+    background: var(--app-info-bg);
+    color: var(--app-info-fg);
+    .ui-chip__dot {
+      background: var(--app-info-dot);
+    }
+  }
+  .ui-chip--neutral {
+    background: var(--app-neutral-bg);
+    color: var(--app-neutral-fg);
+    .ui-chip__dot {
+      background: var(--app-neutral-dot);
+    }
+  }
+  .ui-chip--warning {
+    background: var(--app-warning-bg);
+    color: var(--app-warning-fg);
+    .ui-chip__dot {
+      background: var(--app-warning-dot);
+    }
+  }
+  .ui-chip--danger {
+    background: var(--app-danger-bg);
+    color: var(--app-danger-fg);
+    .ui-chip__dot {
+      background: var(--app-danger-dot);
+    }
+  }
+}

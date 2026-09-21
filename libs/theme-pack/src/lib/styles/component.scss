@@ -1,0 +1,24 @@
+// src/styles/component.scss
+// 主題無關的全域 reset 與 body 基礎（原 base.scss + _skeleton.scss 合併）。
+// 視覺造型交給質地包（texture），顏色交給配色包（color-themes）——
+// 消費端三者各自 @use：texture/registry、color-themes/<theme>/tokens、component。
+body {
+  color-scheme: light;
+  background: var(--mat-sys-background);
+  color: var(--mat-sys-on-surface);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0;
+  height: 100%;
+}
+
+.mat-drawer-content {
+  max-height: 100svh;
+}
+
+.shell-container {
+  @apply flex flex-col;
+  height: 100%;
+  min-height: 100%;
+}

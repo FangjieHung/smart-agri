@@ -1,0 +1,126 @@
+:host {
+  display: contents;
+}
+
+.responsive-panel-wrapper {
+  display: contents;
+}
+
+.responsive-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  overflow: hidden;
+}
+
+.responsive-panel__header {
+  @apply flex flex-col items-center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 0;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+}
+
+// Opt-in (see showHeaderDivider input): drops the border-bottom for consumers whose header
+// visually continues into projected tab content (e.g. calendar-view's mat-tab-group in the body)
+// instead of a hard rule. The padding-bottom replaces the ~8px the border used to visually
+// close off, so the heading doesn't sit flush against whatever renders directly below it.
+.responsive-panel__header--borderless {
+  border-bottom: none;
+  padding-bottom: 0.5rem;
+}
+
+.responsive-panel__heading-group {
+  @apply flex items-center w-full;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.responsive-panel__heading {
+  margin: 0;
+  font-weight: 700;
+}
+
+.responsive-panel__header-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+
+  // No content projected into [panelHeaderTabs] (e.g. calendar-view, which puts its
+  // mat-tab-group in the panel body instead): collapse the wrapper so it doesn't reserve the
+  // flex gap from .responsive-panel__header or any box of its own.
+  &:empty {
+    display: none;
+  }
+  // Projected content (e.g. mat-tab-nav-bar) manages its own overflow/pagination based on its
+  // *own* measured width, not on flex-shrink (Material tab headers ship with flex-shrink: 0).
+  // Without forcing it to fill this wrapper, it renders at its intrinsic content width and just
+  // gets hard-clipped by .responsive-panel's overflow: hidden instead of showing pagination arrows.
+  ::ng-deep > * {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+.responsive-panel__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.25rem;
+  margin-left: auto;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.responsive-panel__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+
+  // Projected content (e.g. mat-tab-group) must fill the remaining height itself so its own
+  // internal scroll region (not this wrapper) is what scrolls, keeping tab headers in view.
+  ::ng-deep > * {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
+.responsive-panel:not(.responsive-panel--narrow) {
+  flex: 0 1 clamp(320px, 32vw, 480px);
+  height: 100%;
+  min-width: 0;
+}
+
+.responsive-panel--narrow {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  border-radius: var(--mat-sys-corner-large) var(--mat-sys-corner-large) 0 0;
+  z-index: 101;
+  animation: responsive-panel-slide-up 0.2s ease-out;
+}
+
+.responsive-panel__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 40%);
+  z-index: 100;
+}
+
+@keyframes responsive-panel-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

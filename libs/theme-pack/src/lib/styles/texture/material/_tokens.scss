@@ -1,0 +1,22 @@
+// src/styles/texture/material/_tokens.scss
+// 只放造型：圓角、陰影、字體。值照搬自原 styles.scss 行 87–104。
+:root[data-paradigm='material'] {
+  --mat-sys-corner-small: 10px; // 原 --radius-sm
+  --mat-sys-corner-medium: 16px; // 原 --radius-md
+  --mat-sys-corner-large: 22px; // 原 --radius-lg
+  --mat-sys-corner-extra-large: 28px; // 原 --radius-xl
+  --mat-sys-corner-full: 999px; // 原 --radius-pill
+  --mat-sys-level1: 0 1px 2px rgba(35, 34, 32, 0.04);
+  --mat-sys-level2: 0 2px 8px rgba(35, 34, 32, 0.05);
+  --mat-sys-level3: 0 8px 24px rgba(35, 34, 32, 0.07);
+  --mat-sys-level4: 0 16px 40px rgba(35, 34, 32, 0.1);
+
+  // 字體：中英分軌（spec §6）。中文固定、英文依質地。
+  --font-zh: 'Noto Sans TC', system-ui, sans-serif;
+  --font-en: 'Plus Jakarta Sans', 'Inter';
+  --font-display: var(--font-en), var(--font-zh);
+  --font-body: 'Inter', var(--font-zh);
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --mat-button-tonal-horizontal-padding: 1rem;
+}

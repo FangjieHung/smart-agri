@@ -1,0 +1,13 @@
+// src/styles/texture/material/table.scss
+[data-paradigm='material'] {
+  /* Material 元件微調對齊 Verdant */
+  .mat-mdc-dialog-surface {
+    border-radius: var(--mat-sys-corner-extra-large) !important;
+  }
+  .mat-mdc-table {
+    background: transparent !important;
+  }
+  .mat-mdc-snack-bar-container .mdc-snackbar__surface {
+    border-radius: var(--mat-sys-corner-medium) !important;
+  }
+}

@@ -1,0 +1,35 @@
+export const ZH_TW = {
+  app: {
+    title: '智慧農業後台',
+  },
+  layout: {
+    subtitle: 'Smart Agri Admin',
+    adminUser: '農場管理員',
+    loggedIn: '已登入',
+    copyright: 'BBD Smart Agriculture. All rights reserved.',
+    navAriaLabel: '主要導航',
+  },
+  nav: {
+    dashboard: '儀表板',
+    settings: '系統設定',
+  },
+  common: {
+    search: '搜尋...',
+    clearSearch: '清除搜尋',
+    submitSearch: '搜尋',
+    collapseSearch: '收合搜尋',
+    clearFilters: '清除篩選',
+    all: '全部',
+    exportExcel: '匯出 Excel',
+    selectAll: '全選',
+    deselectAll: '取消全選',
+    selectRow: '選取列',
+    batchDelete: '批次刪除',
+    selectedCount: '已選取 {count} 項',
+    exportSelected: '匯出已選取',
+    expandRow: '展開列',
+    collapseRow: '收合列',
+    exportFailedText: '匯出失敗',
+    storageReset: '本機快取已重設為預設種子資料',
+  },
+};

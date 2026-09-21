@@ -1,0 +1,105 @@
+// src/styles/texture/material/form.scss
+// mat-form-field appearance="fill" 造型：去掉底部線、全面大圓角，單行控制項膠囊化。
+//
+// 優先用 Angular Material 22 官方 token（--mat-form-field-filled-*）；
+// 只有官方 token 蓋不到的兩處才寫選擇器，各自標註原因。
+
+[data-paradigm='material'] {
+  /* ── 1. 造型基準：填色欄位的圓角 ───────────────────────────────
+     --app-field-shape 是本檔內部變數，單一數值同時餵給「官方上緣 token」
+     與「下緣補丁」，確保四角永遠同步。 */
+  .mat-mdc-text-field-wrapper.mdc-text-field--filled {
+    // 預設：單行控制項（input / select / date-range）→ 膠囊
+    --app-field-shape: var(--mat-sys-corner-medium);
+
+    // 官方 token：只作用於 border-top-left/right-radius
+    --mat-form-field-filled-container-shape: var(--app-field-shape);
+
+    // 補丁：官方沒有下緣圓角 token，只能直接補這兩個 longhand
+    border-bottom-left-radius: var(--app-field-shape);
+    border-bottom-right-radius: var(--app-field-shape);
+  }
+
+  // 多行 textarea 用大圓角，膠囊會讓長文字區塊變形
+  .mat-mdc-text-field-wrapper.mdc-text-field--filled.mdc-text-field--textarea {
+    --app-field-shape: var(--mat-sys-corner-medium);
+  }
+
+  /* ── 2. 去掉底部 active indicator（兩條都要）──────────────────
+     ::before = idle／hover 那條（預設 1px）
+     ::after  = focus 時加粗那條（預設 2px）
+     兩個高度歸零即整條消失，不必動 display 或顏色。 */
+  .mat-mdc-form-field {
+    --mat-form-field-filled-active-indicator-height: 0;
+    --mat-form-field-filled-focus-active-indicator-height: 0;
+  }
+
+  /* ── 3. hover／focus state layer 跟著切圓角 ────────────────────
+     補丁：.mat-mdc-form-field-focus-overlay 是 inset:0 的絕對定位層且無
+     border-radius，不處理的話 hover 會露出方角。 */
+  .mat-mdc-form-field-focus-overlay {
+    border-radius: inherit;
+  }
+
+  /* ── 4. 膠囊的左右內距 ─────────────────────────────────────────
+     官方無水平內距 token（wrapper 寫死 16px）。膠囊圓角會吃掉邊角空間，
+     文字貼著弧線，故加寬到 20px；textarea 維持官方 16px。 */
+  .mat-mdc-text-field-wrapper.mdc-text-field--filled:not(.mdc-text-field--textarea) {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  // 有 icon 前後綴時 Material 會把該側 padding 歸零，icon 會頂到弧線上
+  .mat-mdc-form-field-has-icon-prefix
+    .mat-mdc-text-field-wrapper.mdc-text-field--filled:not(.mdc-text-field--textarea) {
+    padding-left: 8px;
+  }
+  .mat-mdc-form-field-has-icon-suffix
+    .mat-mdc-text-field-wrapper.mdc-text-field--filled:not(.mdc-text-field--textarea) {
+    padding-right: 8px;
+  }
+
+  /* ── 5. 欄位群組：相連欄位併成一個膠囊 ─────────────────────────
+     .ui-field-group 內的欄位左右相接，中間的圓角歸零、只留最外兩端，
+     相接處補一條 hairline divider。官方完全沒有群組概念，整段都是自訂。 */
+  .ui-field-group {
+    display: flex;
+    align-items: stretch;
+    gap: 0; // 群組要無縫相接，任何間隙都會破壞膠囊外形
+  }
+
+  // 非第一個 → 收掉左側圓角；非最後一個 → 收掉右側圓角。
+  // 用 :not(:first-child)/:not(:last-child) 而非 :nth-child，欄位數量可任意擴充。
+  .ui-field-group > *:not(:first-child) .mat-mdc-text-field-wrapper.mdc-text-field--filled {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  .ui-field-group > *:not(:last-child) .mat-mdc-text-field-wrapper.mdc-text-field--filled {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  /* divider：畫在相接處左緣。
+     .mdc-text-field 本身已是 position:relative + overflow:hidden，
+     不必另外建立定位脈絡；上下內縮 10px 讓線不頂到欄位邊緣。
+     用 ::before 是安全的——官方的 ::before 規則都掛在 .mdc-line-ripple
+     與 .mdc-text-field__ripple 上，wrapper 自己這一個沒被佔用。 */
+  .ui-field-group > *:not(:first-child) .mat-mdc-text-field-wrapper.mdc-text-field--filled::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 10px;
+    width: 1px;
+    background: var(--mat-sys-outline-variant);
+    z-index: 1;
+  }
+
+  // 群組內的膠囊左右內距只在最外兩端需要加寬，中間維持官方 16px
+  .ui-field-group > *:not(:first-child) .mat-mdc-text-field-wrapper.mdc-text-field--filled:not(.mdc-text-field--textarea) {
+    padding-left: 16px;
+  }
+  .ui-field-group > *:not(:last-child) .mat-mdc-text-field-wrapper.mdc-text-field--filled:not(.mdc-text-field--textarea) {
+    padding-right: 16px;
+  }
+}

@@ -1,0 +1,160 @@
+<div class="dt-toolbar">
+  @if (selectable() && !isCustom()) {
+    <div class="dt-selection-head">
+      <label class="dt-batch-select-all">
+        <input
+          type="checkbox"
+          class="dt-selection-checkbox"
+          [checked]="allSelected()"
+          [indeterminate]="partiallySelected()"
+          [attr.aria-label]="allSelected() ? labels().deselectAll : labels().selectAll"
+          (change)="toggleAllSelection()"
+        />
+      </label>
+    </div>
+  }
+
+  @if (canExport() || (selectable() && !isCustom() && selectedCount() > 0)) {
+    <div class="dt-batch-toolbar" role="toolbar" [attr.aria-label]="labels().selectedCount.replace('{count}', selectedCount().toString())">
+    @if (selectable() && !isCustom() && selectedCount() > 0) {
+        @if (showBatchDelete()) {
+          <button
+            type="button" matButton="tonal"
+            class="dt-batch-delete-btn"
+            [attr.aria-label]="labels().batchDelete"
+            (click)="deleteSelected()"
+          >
+            <span class="material-symbols-rounded" aria-hidden="true">delete</span>
+            {{ labels().batchDelete }}
+          </button>
+        }
+        <button
+          type="button" matButton="tonal"
+          class="dt-export-selected-btn"
+          [attr.aria-label]="labels().exportSelected"
+          (click)="runSelectedExport()"
+        >
+          <span class="material-symbols-rounded" aria-hidden="true">download</span>
+          {{ labels().exportSelected }}
+        </button>
+        @if (batchActionsDirective(); as batchActions) {
+          <ng-container
+            [ngTemplateOutlet]="batchActions.template"
+            [ngTemplateOutletContext]="{ $implicit: selectedRows() }"
+          />
+        }
+      }
+    
+    @if (canExport() && selectedCount() === 0) {
+      <button
+        type="button" matButton="tonal"
+        class="dt-export-btn"
+        [attr.aria-label]="labels().exportExcel"
+        (click)="runExport()"
+      >
+        <span class="material-symbols-rounded" aria-hidden="true">download</span>
+        {{ labels().exportExcel }}
+      </button>
+    }
+    </div>
+  }
+</div>
+<div class="dt-wrap" [class.dt-wrap--scroll]="mobileMode() === 'scroll'">
+  @if (isEmpty()) {
+    <p class="dt-empty">{{ emptyText() }}</p>
+  } @else {
+    <table class="dt-table" #tableEl>
+      @if (isCustom()) {
+        <thead>
+          <ng-container [ngTemplateOutlet]="headDirective()!.template" />
+        </thead>
+        <tbody>
+          <ng-container [ngTemplateOutlet]="bodyDirective()!.template" />
+        </tbody>
+      } @else {
+        <thead>
+          <tr>
+            @if (selectable()) {
+              <th scope="col" class="dt-selection-head">
+                <label class="dt-selection-control">
+                  <input
+                    type="checkbox"
+                    class="dt-selection-checkbox"
+                    [checked]="allSelected()"
+                    [indeterminate]="partiallySelected()"
+                    [attr.aria-label]="allSelected() ? labels().deselectAll : labels().selectAll"
+                    (change)="toggleAllSelection()"
+                  />
+                </label>
+              </th>
+            }
+            @for (col of resolvedColumns(); track col.key) {
+              <th scope="col" [class]="'dt-align-' + (col.align ?? 'start')">{{ col.label }}</th>
+            }
+            @if (hasSecondary()) {
+              <th scope="col" class="dt-expand-head"></th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (row of rows(); track rowId()(row)) {
+            <tr
+              [class]="rowClass()(row)"
+              [class.is-expanded]="isExpanded(row)"
+              [class.dt-row--clickable]="rowClickable()"
+              [attr.tabindex]="rowClickable() ? 0 : null"
+              (click)="onRowClick(row)"
+              (keydown.enter)="onRowKeydown(row, $event)"
+              (keydown.space)="onRowKeydown(row, $event)"
+            >
+              @if (selectable()) {
+                <td class="dt-selection-cell" data-label="" (click)="$event.stopPropagation()">
+                  <label class="dt-selection-control">
+                    <input
+                      type="checkbox"
+                      class="dt-selection-checkbox"
+                      [checked]="isSelected(row)"
+                      [attr.aria-label]="rowSelectionLabel(row)"
+                      (change)="toggleRowSelection(row)"
+                    />
+                  </label>
+                </td>
+              }
+              @for (col of resolvedColumns(); track col.key) {
+                <td
+                  [attr.data-label]="col.label"
+                  [class]="'dt-align-' + (col.align ?? 'start')"
+                  [class.is-secondary]="!col.primary"
+                >
+                  @if (cellTemplates().get(col.key); as tpl) {
+                    <ng-container
+                      [ngTemplateOutlet]="tpl"
+                      [ngTemplateOutletContext]="cellContext(row)"
+                    />
+                  } @else {
+                    {{ valueOf(row, col.key) }}
+                  }
+                </td>
+              }
+              @if (hasSecondary()) {
+                <td class="dt-expand-cell" (click)="$event.stopPropagation()">
+                  <button
+                    type="button"
+                    class="dt-expand-btn"
+                    [attr.aria-expanded]="isExpanded(row)"
+                    [attr.aria-label]="isExpanded(row) ? labels().collapseRow : labels().expandRow"
+                    (click)="toggle(row)"
+                  >
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                      <path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" />
+                    </svg>
+                  </button>
+                </td>
+              }
+            </tr>
+          }
+        </tbody>
+      }
+    </table>
+  }
+</div>

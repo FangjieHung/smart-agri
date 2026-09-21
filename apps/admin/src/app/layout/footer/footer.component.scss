@@ -1,0 +1,14 @@
+:host {
+  display: contents;
+}
+
+.app-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.75rem;
+}

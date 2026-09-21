@@ -1,0 +1,19 @@
+@use '@angular/material' as mat;
+
+:host {
+  display: block;
+}
+
+.filter-select {
+  width: 140px;
+
+  @include mat.form-field-overrides (
+    (
+      container-height: 44px,
+      container-vertical-padding: 10px,
+      filled-with-label-container-padding-top: 10px,
+      filled-with-label-container-padding-bottom: 10px,
+      filled-label-display: none,
+    )
+  );
+}

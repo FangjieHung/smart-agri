@@ -1,0 +1,28 @@
+@use 'tailwindcss';
+@use 'assets/style/tailwind-base';
+@use '@angular/material' as mat;
+@use 'theme-pack/src/lib/styles/texture/registry' as *;
+@use 'theme-pack/src/lib/styles/color-themes/registry' as *;
+@use 'theme-pack/src/lib/styles/component';
+
+/* ============================================================
+   Angular Material：主題（色彩/造型 token 由
+   src/styles/color-themes/verdant/_tokens.scss 與
+   src/styles/texture/material/_tokens.scss 提供）
+   ============================================================ */
+html {
+  height: 100%;
+  @include mat.theme(
+    (
+      color: (
+        primary: mat.$green-palette,
+        tertiary: mat.$cyan-palette,
+      ),
+      typography: (
+        plain-family: 'Inter, "Noto Sans TC", system-ui, sans-serif',
+        brand-family: '"Plus Jakarta Sans", "Noto Sans TC", system-ui, sans-serif',
+      ),
+      density: 0,
+    )
+  );
+}

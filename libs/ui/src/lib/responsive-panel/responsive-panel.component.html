@@ -1,0 +1,56 @@
+@if (renderContent()) {
+  <div #panelWrapper class="responsive-panel-wrapper">
+    @if (isNarrow()) {
+      <div
+        class="responsive-panel__backdrop"
+        role="button"
+        tabindex="0"
+        [attr.aria-label]="closeLabel()"
+        (click)="closed.emit()"
+        (keydown.enter)="closed.emit()"
+        (keydown.space)="$event.preventDefault(); closed.emit()"
+      ></div>
+    }
+    <div
+      #panel
+      class="responsive-panel"
+      [class.responsive-panel--narrow]="isNarrow()"
+      [attr.tabindex]="isNarrow() ? '0' : null"
+      [attr.role]="isNarrow() ? 'dialog' : null"
+      [attr.aria-modal]="isNarrow() ? 'true' : null"
+      [attr.aria-labelledby]="heading() ? headingId : null"
+      [attr.aria-label]="heading() ? null : closeLabel()"
+      (keydown)="onTrapKeydown($event)"
+    >
+      <div
+        class="responsive-panel__header"
+        [class.responsive-panel__header--borderless]="!showHeaderDivider()"
+      >
+        <div class="responsive-panel__heading-group">
+          @if (heading()) {
+            <h2 [id]="headingId" class="responsive-panel__heading">{{ heading() }}</h2>
+          }
+          <ng-content select="[panelHeaderExtra]" />
+
+          @if (showCloseButton()) {
+            <button
+              type="button"
+              class="responsive-panel__close"
+              [attr.aria-label]="closeLabel()"
+              (click)="closed.emit()"
+            >
+              <span class="material-symbols-rounded" aria-hidden="true">close</span>
+            </button>
+          }
+        </div>
+
+        <div class="responsive-panel__header-tabs">
+          <ng-content select="[panelHeaderTabs]" />
+        </div>
+      </div>
+      <div class="responsive-panel__body">
+        <ng-content />
+      </div>
+    </div>
+  </div>
+}

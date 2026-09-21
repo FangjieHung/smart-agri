@@ -1,0 +1,13 @@
+<mat-form-field class="filter-select" subscriptSizing="dynamic">
+  <mat-select
+    [ngModel]="value()"
+    (ngModelChange)="value.set($event)"
+    [placeholder]="label()"
+    [aria-label]="label()"
+  >
+    <mat-option [value]="null">{{ t.common.all }}</mat-option>
+    @for (opt of options(); track opt.value) {
+      <mat-option [value]="opt.value">{{ opt.label }}</mat-option>
+    }
+  </mat-select>
+</mat-form-field>

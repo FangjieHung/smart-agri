@@ -1,0 +1,92 @@
+// src/styles/color-themes/verdant/_tokens.scss
+// 只放顏色。值照搬自原 styles.scss。
+:root[data-theme='verdant'] {
+  // 主題私有底層色階（僅本檔使用，供下方 M3 token 引用）
+  --_sage-100: #e0efe1;
+  --_sage-500: #5fa06a;
+  --_sage-600: #4a8656;
+  --_sage-700: #3b6b45;
+  --_sage-800: #305537;
+  --_teal-50: #eef3f5;
+  --_teal-100: #d7e3e8;
+  --_teal-200: #aec5cf;
+  --_teal-300: #7fa2b0;
+  --_teal-500: #3a6373;
+  --_teal-600: #294c5a;
+  --_teal-700: #1f3a48;
+  --_teal-800: #172c37;
+  --_teal-900: #101f27;
+  --_cream-0: #ffffff;
+  --_cream-25: #fcfbf8;
+  --_cream-50: #f7f5f0;
+  --_cream-100: #efece4;
+  --_cream-200: #e3dfd4;
+  --_cream-300: #d0cbbd;
+  --_cream-500: #8b8574;
+  --_cream-600: #6d685a;
+  --_cream-900: #232220;
+
+  // M3 顏色 token（對應原 styles.scss 行 165–186）
+  --mat-sys-primary: var(--_sage-600);
+  --mat-sys-on-primary: #ffffff;
+  --mat-sys-primary-container: var(--_sage-100);
+  --mat-sys-on-primary-container: var(--_sage-800);
+  --mat-sys-secondary: var(--_teal-600);
+  --mat-sys-on-secondary: #ffffff;
+  --mat-sys-secondary-container: var(--_teal-100);
+  --mat-sys-on-secondary-container: var(--_teal-800);
+  --mat-sys-background: var(--_cream-50);
+  --mat-sys-surface: var(--_cream-0);
+  --mat-sys-surface-container-lowest: var(--_cream-0);
+  --mat-sys-surface-container-low: var(--_cream-25);
+  --mat-sys-surface-container: var(--_cream-25);
+  --mat-sys-surface-container-high: var(--_cream-50);
+  --mat-sys-surface-container-highest: var(--_cream-100);
+  --mat-sys-on-surface: var(--_cream-900);
+  --mat-sys-surface-variant: var(--_cream-100); /* filled input 等元件底色的 fallback 來源 */
+  --mat-sys-on-surface-variant: var(--_cream-600);
+  --mat-sys-outline: var(--_cream-300);
+  --mat-sys-outline-variant: var(--_cream-200);
+  --mat-sys-inverse-surface: var(--_teal-700);
+  --mat-sys-inverse-on-surface: #ffffff;
+  --mat-sys-error: #a13f34;
+  --mat-sys-on-error: #ffffff;
+  --mat-sys-error-container: #fbe8e6;
+  --mat-sys-on-error-container: #a13f34;
+
+  // app 擴充狀態色（M3 缺 success/warning/info；danger 沿用 error）
+  --app-positive-bg: var(--_sage-100);
+  --app-positive-fg: var(--_sage-700);
+  --app-positive-dot: var(--_sage-500);
+  --app-info-bg: var(--_teal-50);
+  --app-info-fg: var(--_teal-700);
+  --app-info-dot: var(--_teal-500);
+  --app-neutral-bg: var(--_cream-100);
+  --app-neutral-fg: var(--_cream-600);
+  --app-neutral-dot: var(--_cream-500);
+  --app-warning-bg: #fbf1dd;
+  --app-warning-fg: #8a6416;
+  --app-warning-dot: #e0a530;
+  --app-danger-bg: #fbe8e6;
+  --app-danger-fg: #a13f34;
+  --app-danger-dot: #e2584a;
+
+  // 時間軸圖表色
+  --app-viz-1: var(--_teal-700);
+  --app-viz-2: var(--_teal-500);
+  --app-viz-3: var(--_teal-300);
+  --app-viz-4: var(--_cream-300);
+
+  // app 側欄擴充色（M3 無「常駐深色導覽軌」token；保留 Verdant 招牌深色側欄外觀）
+  --app-shell-bg: var(--_teal-900); /* 深色側欄背景（原 teal-900） */
+  --app-shell-on: #ffffff; /* 側欄主要文字/nav（原 #fff） */
+  --app-shell-on-muted: var(--_teal-200); /* 側欄次要文字（原 teal-200） */
+
+  // topbar 半透明底（搭配 backdrop blur 的毛玻璃感，讓內容捲動時透出底色）
+  --app-topbar-bg: color-mix(in srgb, var(--_cream-0) 82%, transparent);
+
+  // 日曆範圍選取／hover 預覽的連接底色。Material 預設吃 primary-container(sage-100)，
+  // 疊在面板底 surface-container-high(cream-50) 上綠色通道幾乎沒差；改用 sage-500 淡化，
+  // 維持辨識度又不搶走端點日的實心圓。
+  --app-calendar-range-fill: color-mix(in srgb, var(--_sage-500) 20%, var(--_cream-50));
+}

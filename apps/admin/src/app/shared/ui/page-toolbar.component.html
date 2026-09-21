@@ -1,0 +1,78 @@
+<div class="page-toolbar">
+  <div class="flex flex-col flex-auto items-end justify-end gap-2 max-w-lg md:flex-row">
+    @if (showSearch()) {
+      <button
+        #toggleBtn
+        type="button"
+        class="search__toggle"
+        [class.search__toggle--active]="expanded()"
+        [attr.aria-label]="expanded() ? t.common.collapseSearch : t.common.search"
+        [attr.aria-expanded]="expanded()"
+        [attr.aria-controls]="searchInputId"
+        (mousedown)="$event.preventDefault()"
+        (click)="toggle()"
+      >
+        <span class="material-symbols-rounded" aria-hidden="true">search</span>
+      </button>
+
+      <div class="search-row" [class.search-row--expanded]="expanded()">
+        <div class="search-row__inner">
+          <div class="search" [class.search--expanded]="expanded()" (keydown.escape)="onEscape()">
+            <input
+              #searchInput
+              [id]="searchInputId"
+              type="text"
+              class="search__input"
+              [tabindex]="expanded() ? 0 : -1"
+              [attr.aria-label]="placeholder()"
+              [placeholder]="placeholder()"
+              [ngModel]="query()"
+              (ngModelChange)="query.set($event)"
+              (keydown.enter)="submitQuery()"
+              (blur)="collapseIfEmpty()"
+            />
+
+            @if (query()) {
+              <button
+                type="button"
+                class="search__clear"
+                [attr.aria-label]="t.common.clearSearch"
+                (mousedown)="$event.preventDefault()"
+                (click)="clearKeepFocus()"
+              >
+                <span class="material-symbols-rounded" aria-hidden="true">close</span>
+              </button>
+            }
+
+            @if (query().trim()) {
+              <button
+                type="button"
+                matButton="tonal"
+                class="w-20"
+                [attr.aria-label]="t.common.submitSearch"
+                (mousedown)="$event.preventDefault()"
+                (click)="submitQuery()"
+              >{{ t.common.submitSearch }}
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+    <div class="toolbar-actions">
+      <ng-content select="[actions]" />
+    </div>
+  </div>
+
+  <div class="filters">
+    <ng-content select="[filters]" />
+
+    @if (activeFilterCount() > 0) {
+      <button mat-button class="clear-btn" type="button" (click)="clearAll.emit()">
+        <span class="material-symbols-rounded" aria-hidden="true">close</span>
+        {{ t.common.clearFilters }}
+      </button>
+    }
+  </div>
+</div>

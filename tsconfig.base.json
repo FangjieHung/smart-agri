@@ -1,0 +1,14 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "preserve",
+    "skipLibCheck": true,
+    "paths": {
+      "@smart-agri/theme-pack": ["./libs/theme-pack/src/index.ts"],
+      "@smart-agri/ui": ["./libs/ui/src/index.ts"]
+    }
+  }
+}

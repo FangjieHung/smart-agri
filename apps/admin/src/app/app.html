@@ -1,0 +1,40 @@
+<div class="app-shell">
+  <mat-sidenav-container class="sidenav-container">
+    <mat-sidenav
+      #drawer
+      class="app-sidenav"
+      [class.collapsed]="!isMobile && collapsed"
+      [mode]="isMobile ? 'over' : 'side'"
+      [opened]="isMobile ? isSidenavOpen : true"
+      (closedStart)="isSidenavOpen = false"
+      (transitionend)="onSidenavTransitionEnd()"
+    >
+      <app-side-nav
+        [navItems]="navItems"
+        [collapsed]="collapsed"
+        [isMobile]="isMobile"
+        [openGroupLabel]="openGroupLabel"
+        [currentGroupLabel]="currentGroupLabel"
+        [flyoutPositions]="flyoutPositions"
+        (toggleCollapse)="toggleCollapsed()"
+        (toggleGroup)="toggleGroup($event)"
+        (navClick)="onNavClick()"
+        (groupDetach)="openGroupLabel = null"
+      />
+    </mat-sidenav>
+
+    <mat-sidenav-content class="content-area">
+      <app-header
+        [currentTitle]="currentTitle"
+        [currentGroupLabel]="currentGroupLabel"
+        (menuToggle)="toggleSidenav()"
+      />
+
+      <main class="page-shell">
+        <router-outlet />
+      </main>
+
+      <app-footer />
+    </mat-sidenav-content>
+  </mat-sidenav-container>
+</div>

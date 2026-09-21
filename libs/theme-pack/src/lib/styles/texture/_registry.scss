@@ -1,0 +1,11 @@
+// src/styles/texture/_registry.scss
+// 掛出每個質地軸的完整輸出：造型 token + 全部元件 recipe（card/form/datepicker/buttons/table/status/typography）。
+// 各質地的 CSS 都用 [data-paradigm='x'] 選擇器包住，多質地並存不衝突，執行期用 data-paradigm 挑一個。
+@forward 'material/tokens';
+@forward 'material/card';
+@forward 'material/form';
+@forward 'material/datepicker';
+@forward 'material/buttons';
+@forward 'material/table';
+@forward 'material/status';
+@forward 'material/typography';

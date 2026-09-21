@@ -1,0 +1,56 @@
+:host {
+  display: contents;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.5rem .75rem;
+  padding: 1rem 1.75rem;
+}
+
+.topbar-toolbar {
+  display: contents;
+}
+
+.topbar-title h2 {
+  font-size: 1.5rem;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface);
+
+  @variant min-[768px] {
+    font-size: 2rem;
+  }
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+  font-size: 0.8rem;
+}
+
+.breadcrumb-sep {
+  width: 16px;
+  height: 16px;
+  font-size: 16px;
+}
+
+.menu-toggle {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .menu-toggle {
+    display: inline-flex;
+  }
+
+  .topbar {
+    padding: 16px 18px;
+    gap: 12px;
+  }
+}

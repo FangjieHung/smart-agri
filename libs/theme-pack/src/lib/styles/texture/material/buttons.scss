@@ -1,0 +1,39 @@
+// src/styles/texture/material/buttons.scss
+[data-paradigm='material'] {
+  /* 頂部導覽膠囊 */
+  .ui-nav-pill {
+    padding: 10px 20px;
+    border-radius: var(--mat-sys-corner-full);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--mat-sys-on-surface-variant);
+    transition:
+      background 120ms cubic-bezier(0.4, 0, 0.2, 1),
+      color 120ms cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+  }
+  .ui-nav-pill:hover {
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface);
+  }
+  .ui-nav-pill.is-active {
+    background: var(--mat-sys-primary);
+    color: var(--mat-sys-on-primary);
+  }
+
+  /* 互動手感：按下微縮 */
+  .mat-mdc-unelevated-button:active,
+  .mat-mdc-raised-button:active,
+  .mat-mdc-outlined-button:active,
+  .ui-nav-pill:active {
+    transform: scale(0.97);
+  }
+}
+
+.mdc-icon-button.mat-mdc-icon-button,
+.mat-mdc-button-base,
+.mat-mdc-menu-item-text,
+.mdc-button__label {
+  @apply flex items-center;
+  gap: .5rem;
+}

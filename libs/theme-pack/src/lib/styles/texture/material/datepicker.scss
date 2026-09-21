@@ -1,0 +1,33 @@
+// src/styles/texture/material/datepicker.scss
+// mat-calendar 的日期範圍連接底色，以及 hover 預覽的語彙切換。
+//
+// 優先用 Angular Material 22 官方 token；只有官方沒開 token 的那一處才寫選擇器並標註原因。
+
+[data-paradigm='material'] {
+  /* ── 1. 範圍連接底色 ──────────────────────────────────────────
+     官方 token --mat-datepicker-calendar-date-in-range-state-background-color
+     的預設值是 --mat-sys-primary-container。midnight 的 primary-container 與
+     面板底 surface-container-high 同為 ink-600（字面同值）→ 算出來完全一樣，
+     看起來像沒有底色。改綁配色包的 --app-calendar-range-fill，由各配色自行決定
+     混色比例（深色需要的比例比淺色高）。 */
+  .mat-calendar,
+  .mat-datepicker-content {
+    --mat-datepicker-calendar-date-in-range-state-background-color: var(--app-calendar-range-fill);
+  }
+
+  /* ── 2. hover 預覽改用「填滿」語彙 ────────────────────────────
+     官方預覽是虛線外框（.mat-calendar-body-cell-preview 的 dashed border-top/bottom/
+     left/right），沒有對應 token 可調。本專案的預覽語彙是填滿，填色由上面那條
+     in-range 負責，這裡只需關掉虛線，免得填色上又浮一圈框線。
+
+     必須帶上 state class：官方那三條的權重是 (0,2,0)，而元件的 inline style 會晚於
+     本檔注入，只寫 [data-paradigm] .mat-calendar-body-cell-preview 同為 (0,2,0)
+     會因後到者勝而蓋不掉。多帶一層把權重拉到 (0,3,0)。 */
+  .mat-calendar-body-in-preview,
+  .mat-calendar-body-preview-start,
+  .mat-calendar-body-preview-end {
+    .mat-calendar-body-cell-preview {
+      border: 0;
+    }
+  }
+}

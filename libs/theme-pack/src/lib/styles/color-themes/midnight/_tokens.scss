@@ -1,0 +1,81 @@
+// src/styles/color-themes/midnight/_tokens.scss
+// 只放顏色。造型（shape/shadow/font）沿用共用 material 造型包，不在此覆寫。
+:root[data-theme='midnight'] {
+  // 主題私有底層色階（僅本檔使用，供下方 M3 token 引用）
+  --_ink-900: #0e1626;
+  --_ink-800: #16203a;
+  --_ink-700: #1e2b4a;
+  --_ink-600: #2a3a5f;
+  --_blue-300: #7aa2ff;
+  --_blue-400: #5b86f0;
+  --_blue-500: #4169d6;
+  --_slate-100: #e6ecf5;
+  --_slate-300: #b3c0d6;
+  --_slate-500: #7f8ca6;
+
+  // M3 顏色 token
+  --mat-sys-primary: var(--_blue-400);
+  --mat-sys-on-primary: #ffffff;
+  --mat-sys-primary-container: var(--_ink-600);
+  --mat-sys-on-primary-container: var(--_blue-300);
+  --mat-sys-secondary: var(--_blue-500);
+  --mat-sys-on-secondary: #ffffff;
+  --mat-sys-secondary-container: var(--_ink-600);
+  --mat-sys-on-secondary-container: var(--_slate-100);
+  --mat-sys-background: var(--_ink-900);
+  --mat-sys-surface: var(--_ink-800);
+  --mat-sys-surface-container-lowest: var(--_ink-900);
+  --mat-sys-surface-container-low: var(--_ink-800);
+  --mat-sys-surface-container: var(--_ink-700);
+  --mat-sys-surface-container-high: var(--_ink-600);
+  --mat-sys-surface-container-highest: var(--_ink-600);
+  --mat-sys-on-surface: var(--_slate-100);
+  --mat-sys-surface-variant: var(--_ink-700); /* filled input 等元件底色的 fallback 來源 */
+  --mat-sys-on-surface-variant: var(--_slate-300);
+  --mat-sys-outline: var(--_slate-500);
+  --mat-sys-outline-variant: var(--_ink-600);
+  --mat-sys-inverse-surface: var(--_slate-100);
+  --mat-sys-inverse-on-surface: var(--_ink-900);
+  --mat-sys-error: #ff6b5e;
+  --mat-sys-on-error: #2a0a08;
+  --mat-sys-error-container: #4a1512;
+  --mat-sys-on-error-container: #ffb4ac;
+
+  // app 擴充狀態色（M3 缺 success/warning/info；danger 沿用 error）
+  --app-positive-bg: #12331f;
+  --app-positive-fg: #7fe0a0;
+  --app-positive-dot: #4fbf7a;
+  --app-info-bg: var(--_ink-600);
+  --app-info-fg: var(--_blue-300);
+  --app-info-dot: var(--_blue-400);
+  --app-neutral-bg: var(--_ink-700);
+  --app-neutral-fg: var(--_slate-300);
+  --app-neutral-dot: var(--_slate-500);
+  --app-warning-bg: #3d3111;
+  --app-warning-fg: #f0c96a;
+  --app-warning-dot: #e0a530;
+  --app-danger-bg: #4a1512;
+  --app-danger-fg: #ff9a8f;
+  --app-danger-dot: #ff6b5e;
+
+  // 時間軸圖表色
+  --app-viz-1: var(--_blue-500);
+  --app-viz-2: var(--_blue-400);
+  --app-viz-3: var(--_ink-600);
+  --app-viz-4: var(--_slate-500);
+
+  // app 側欄擴充色（M3 無「常駐深色導覽軌」token；midnight 側欄比 surface 更深）
+  --app-shell-bg: var(--_ink-900); /* 側欄：最深，比 surface 更深 */
+  --app-shell-on: var(--_slate-100); /* 側欄主要文字：亮 */
+  --app-shell-on-muted: var(--_slate-300); /* 側欄次要文字：較暗 */
+
+  // topbar 半透明底（搭配 backdrop blur 的毛玻璃感，讓內容捲動時透出底色）
+  --app-topbar-bg: color-mix(in srgb, var(--_ink-800) 82%, transparent);
+
+  // 日曆範圍選取／hover 預覽的連接底色。Material 預設吃 primary-container，而本主題的
+  // primary-container 與面板底 surface-container-high 同為 ink-600（字面同值）→ 等於沒有底色。
+  // 改用 blue-400 疊上去；深色需要比淺色更高的混色比例才看得出來。
+  --app-calendar-range-fill: color-mix(in srgb, var(--_blue-400) 30%, var(--_ink-600));
+
+  color-scheme: dark;
+}

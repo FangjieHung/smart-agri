@@ -1,0 +1,50 @@
+<section class="ui-card settings-page p-4 sm:p-6" aria-labelledby="settings-title">
+  <div class="ui-card-header">
+    <div>
+      <p class="ui-text-caption">系統</p>
+      <h1 id="settings-title" class="ui-text-title">系統設定</h1>
+    </div>
+  </div>
+  <div class="appearance-settings" aria-labelledby="appearance-title">
+    <div>
+      <p class="ui-text-caption">外觀</p>
+      <h2 id="appearance-title" class="ui-text-subtitle">外觀設定</h2>
+    </div>
+
+    <div class="theme-row">
+      <span class="theme-row__label">質地</span>
+      <div class="theme-row__options" role="group" aria-label="質地">
+        @for (option of texture; track option.id) {
+          <button
+            type="button"
+            class="theme-pill"
+            [class.is-active]="theme.paradigm() === option.id"
+            [attr.aria-pressed]="theme.paradigm() === option.id"
+            [attr.data-paradigm-id]="option.id"
+            (click)="onParadigm(option.id)"
+          >
+            {{ option.label }}
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="theme-row">
+      <span class="theme-row__label">配色</span>
+      <div class="theme-row__options" role="group" aria-label="配色">
+        @for (option of colorThemes; track option.id) {
+          <button
+            type="button"
+            class="theme-pill"
+            [class.is-active]="theme.theme() === option.id"
+            [attr.aria-pressed]="theme.theme() === option.id"
+            [attr.data-theme-id]="option.id"
+            (click)="onTheme(option.id)"
+          >
+            {{ option.label }}
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+</section>

@@ -4,6 +4,8 @@
 @use 'theme-pack/src/lib/styles/texture/registry' as *;
 @use 'theme-pack/src/lib/styles/color-themes/registry' as *;
 @use 'theme-pack/src/lib/styles/component';
+@use './styles/tokens';
+@use './styles/utilities';
 
 /* ============================================================
    Angular Material：主題（色彩/造型 token 由

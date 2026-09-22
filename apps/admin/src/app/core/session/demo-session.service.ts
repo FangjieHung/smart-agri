@@ -1,7 +1,7 @@
 import { Injectable, signal } from '@angular/core';
 import type { AccountId } from '../domain/account.model';
 import type { AssistantId } from '../domain/assistant.model';
-import { DEMO_SECURITY_NOTICE } from '../data/demo-repository';
+import { DEMO_SECURITY_NOTICE } from '../repositories/demo-repository';
 
 export type DemoAssistantTab =
   'overview' | 'data-sources' | 'test' | 'publishing';

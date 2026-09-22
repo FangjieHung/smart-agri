@@ -15,7 +15,19 @@ import type {
   TrialAnswerView,
   TrialQuestionView,
 } from '../domain/assistant-draft.model';
-import type { DatabaseView } from '../domain/database.model';
+import type {
+  CreateDatabaseInput,
+  DatabaseDetailView,
+  DatabaseFieldError,
+  DatabaseFieldView,
+  DatabaseId,
+  DatabaseSummaryView,
+  DatabaseTemplateView,
+  DatabaseTrackingView,
+  DatabaseTrialAnswers,
+  DatabaseTrialPreviewView,
+  DatabaseView,
+} from '../domain/database.model';
 import type {
   AssistantAnalyticsView,
   AuthorizedFormInput,
@@ -49,7 +61,9 @@ export type RepositoryPermissionDeniedReason =
   | 'assistant-configuration'
   | 'authorized-form'
   | 'assistant-draft'
-  | 'knowledge-base';
+  | 'knowledge-base'
+  | 'database'
+  | 'database-records';
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -97,6 +111,29 @@ export interface SharingValidationFailedView {
 export type UpdateKnowledgeSharingResult =
   | RepositoryView<KnowledgeSharingView>
   | SharingValidationFailedView;
+
+export interface CreateDatabaseValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly message: string;
+}
+
+export type CreateDatabaseResult =
+  | RepositoryView<DatabaseSummaryView>
+  | CreateDatabaseValidationFailedView;
+
+export interface DatabaseFieldsValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly errors: readonly DatabaseFieldError[];
+  readonly message: string;
+}
+
+export type UpdateDatabaseFieldsResult =
+  | RepositoryView<readonly DatabaseFieldView[]>
+  | DatabaseFieldsValidationFailedView;
+
+export type PreviewDatabaseEntryResult =
+  | RepositoryView<DatabaseTrialPreviewView>
+  | DatabaseFieldsValidationFailedView;
 
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
 export type DemoKeyValueStorage = Pick<
@@ -211,6 +248,46 @@ export interface DemoRepository extends DemoScenarioController {
     knowledgeBaseId: KnowledgeBaseId,
     sharing: KnowledgeSharingView,
   ): UpdateKnowledgeSharingResult;
+  /** 資料庫入口先問「你要收集什麼」；只有可管理資料來源的帳號可以取得模板。 */
+  listDatabaseTemplates(
+    viewerAccountId: AccountId,
+  ): RepositoryView<readonly DatabaseTemplateView[]>;
+  /** 目前帳號擁有的資料庫摘要；非指定資料管理者看不到紀錄數量。 */
+  listDatabaseSummaries(
+    viewerAccountId: AccountId,
+  ): RepositoryView<readonly DatabaseSummaryView[]>;
+  createDatabaseFromTemplate(
+    viewerAccountId: AccountId,
+    input: CreateDatabaseInput,
+  ): CreateDatabaseResult;
+  /**
+   * 資料庫詳情。id 來自網址、未經驗證；不存在或無權限時一律回傳相同的
+   * permission-denied，訊息不包含資源名稱。
+   */
+  getDatabaseDetail(
+    viewerAccountId: AccountId,
+    databaseId: string,
+  ): RepositoryView<DatabaseDetailView>;
+  /** 儲存表單欄位；只接受六種欄位類型，不支援條件跳題或公式。 */
+  updateDatabaseFields(
+    viewerAccountId: AccountId,
+    databaseId: DatabaseId,
+    fields: readonly DatabaseFieldView[],
+  ): UpdateDatabaseFieldsResult;
+  /** 試填：以目前已儲存的表單驗證答案並回傳預覽，不會建立紀錄。 */
+  previewDatabaseEntry(
+    viewerAccountId: AccountId,
+    databaseId: DatabaseId,
+    answers: DatabaseTrialAnswers,
+  ): PreviewDatabaseEntryResult;
+  /**
+   * 收集紀錄與比較。只有指定資料管理者可查看，且只包含使用者明確同意提交的紀錄；
+   * 本次／上次／首次差異與文字摘要皆在此預先算好。
+   */
+  getDatabaseTracking(
+    viewerAccountId: AccountId,
+    databaseId: string,
+  ): RepositoryView<DatabaseTrackingView>;
 }
 
 export const DEMO_SECURITY_NOTICE =

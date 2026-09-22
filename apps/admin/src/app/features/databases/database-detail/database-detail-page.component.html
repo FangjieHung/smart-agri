@@ -1,0 +1,121 @@
+@let result = view();
+<section class="workspace-page">
+  @if (result === null || result.status === 'loading') {
+    <app-page-header title="資料庫" />
+    <app-state-panel state="loading" title="正在載入資料庫" />
+  } @else if (result.status === 'permission-denied') {
+    <app-page-header title="資料庫" />
+    <app-state-panel
+      state="permission-denied"
+      title="無法查看這個資料庫"
+      description="這個資料庫可能不存在，或你沒有存取權限。若需要使用，請向擁有者申請授權。"
+      recoveryLabel="返回資料庫列表"
+      (recover)="returnToList()"
+    />
+  } @else {
+    @let detail = result.data;
+    <app-page-header [title]="detail.summary.name" [description]="detail.summary.purpose">
+      <a page-header-actions class="page-back" routerLink="/app/databases">返回資料庫列表</a>
+    </app-page-header>
+
+    @if (result.status === 'partial-failure') {
+      <p class="notice" role="status">{{ result.message }} 其他內容仍可正常使用。</p>
+    }
+
+    <nav class="tabs" aria-label="資料庫頁籤">
+      @for (tab of tabs; track tab.id) {
+        <a
+          [routerLink]="['/app/databases', databaseId(), tab.id]"
+          queryParamsHandling="preserve"
+          [class.active]="tab.id === activeTab().id"
+          [attr.aria-current]="tab.id === activeTab().id ? 'page' : null"
+        >{{ tab.label }}</a>
+      }
+    </nav>
+
+    <section class="tab-panel" aria-labelledby="database-tab-title">
+      <h2 id="database-tab-title">{{ activeTab().label }}</h2>
+
+      @switch (activeTab().id) {
+        @case ('form') {
+          <app-form-designer
+            [fields]="detail.fields"
+            [errors]="fieldErrors()"
+            [feedback]="designerFeedback()"
+            (save)="saveFields(detail, $event)"
+          />
+          <app-form-trial [fields]="detail.fields" [result]="trialResult()" (trial)="runTrial(detail, $event)" />
+        }
+        @case ('assistants') {
+          <p class="hint">同一個資料庫可以同時連接多個助理，助理只會寫入使用者同意提交的資料。</p>
+          @if (detail.connectedAssistants.length > 0) {
+            <ul class="assistant-list">
+              @for (assistant of detail.connectedAssistants; track assistant.id) {
+                @let status = assistantStatus(assistant.status);
+                <li>
+                  <a [routerLink]="['/app/assistants', assistant.id, 'data-sources']">{{ assistant.name }}</a>
+                  <app-status-badge [label]="status.label" [tone]="status.tone" />
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="empty">尚未連接任何助理。可在建立或設定助理時，於「資料來源」加入此資料庫。</p>
+          }
+        }
+        @case ('access') {
+          <dl class="access-list">
+            <div><dt>擁有者</dt><dd>{{ detail.access.owner.displayName }}</dd></div>
+            <div>
+              <dt>指定資料管理者</dt>
+              <dd>
+                @for (manager of detail.access.dataManagers; track manager.id; let last = $last) {
+                  {{ manager.displayName }}@if (!last) {、}
+                } @empty {
+                  尚未指定
+                }
+              </dd>
+            </div>
+            <div>
+              <dt>你的權限</dt>
+              <dd>{{ detail.access.viewerIsDataManager ? '可查看收集紀錄與趨勢比較' : '可管理表單設定，不能查看收集紀錄' }}</dd>
+            </div>
+          </dl>
+          <ul class="rules">
+            <li>只有指定資料管理者可以查看結構化紀錄，且僅限使用者明確同意提交的資料。</li>
+            <li>表單送出前會顯示接收單位、收集目的、可查看者與敏感資料提示，使用者可撤回或申請刪除。</li>
+            <li>一般使用者只能查看自己的紀錄；分享資料庫不會連帶開放其他助理、資料或對話。</li>
+          </ul>
+        }
+        @default {
+          @let records = tracking();
+          @if (records === null || records.status === 'loading') {
+            <app-state-panel state="loading" title="正在載入收集紀錄" />
+          } @else if (records.status === 'permission-denied') {
+            <app-state-panel
+              state="permission-denied"
+              title="無法查看收集紀錄"
+              description="只有指定的資料管理者可以查看收集紀錄與趨勢比較。"
+            />
+          } @else if (selectedSubject(); as subject) {
+            <div class="subject-picker">
+              <label for="subject-select">追蹤對象</label>
+              <select id="subject-select" (change)="selectSubject($event)">
+                @for (option of subjects(); track option.id) {
+                  <option [value]="option.id" [selected]="option.id === subject.id">{{ option.displayName }}（{{ option.records.length }} 筆）</option>
+                }
+              </select>
+              <p class="hint">只顯示使用者明確同意提交的紀錄；已撤回同意的紀錄不會出現。</p>
+            </div>
+            @if (activeTab().id === 'records') {
+              <app-records-table [subject]="subject" />
+            } @else {
+              <app-trend-view [subject]="subject" />
+            }
+          } @else {
+            <p class="empty">還沒有收集紀錄。連接助理並由使用者同意提交後，紀錄會依追蹤對象出現在這裡。</p>
+          }
+        }
+      }
+    </section>
+  }
+</section>

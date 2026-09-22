@@ -1,0 +1,20 @@
+@let current = subject();
+<ol class="timeline" [attr.aria-label]="current.displayName + '的紀錄時間軸'">
+  @for (record of current.records; track record.id; let index = $index, count = $count) {
+    @let marker = position(index, count);
+    <li>
+      <div class="record-head">
+        <time [attr.datetime]="record.recordedAt">{{ record.dateLabel }}</time>
+        @if (marker) {
+          <span class="marker" [attr.data-position]="marker">{{ marker }}</span>
+        }
+        <span class="source">來源：{{ sourceLabel(record.source) }}</span>
+      </div>
+      <dl>
+        @for (entry of record.entries; track entry.fieldId) {
+          <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
+        }
+      </dl>
+    </li>
+  }
+</ol>

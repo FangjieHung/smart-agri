@@ -1,0 +1,59 @@
+@let result = comparison();
+@if (result.status === 'insufficient-records') {
+  <section class="insufficient-records" role="status" aria-labelledby="insufficient-title">
+    <h3 id="insufficient-title">紀錄還不夠，暫不顯示趨勢</h3>
+    <p>{{ result.message }}</p>
+    <p class="hint">為避免誤導，紀錄不足時不會產生比較結論。</p>
+  </section>
+} @else {
+  <section class="trend-conclusion" aria-labelledby="conclusion-title">
+    <h3 id="conclusion-title">變化摘要</h3>
+    <p class="hint">{{ result.summary }}</p>
+    <ul>
+      @for (metric of result.metrics; track metric.fieldId) {
+        <li [attr.data-direction]="metric.direction">{{ metric.summary }}</li>
+      }
+    </ul>
+  </section>
+
+  <div class="table-scroll">
+    <table class="comparison-table">
+      <caption>{{ subject().displayName }}：本次／上次／首次比較</caption>
+      <thead>
+        <tr>
+          <th scope="col">指標</th>
+          <th scope="col">首次</th>
+          <th scope="col">上次</th>
+          <th scope="col">本次</th>
+          <th scope="col">較上次</th>
+          <th scope="col">較首次</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (metric of result.metrics; track metric.fieldId) {
+          <tr>
+            <th scope="row">{{ metric.label }}</th>
+            <td>{{ metric.first.display }}</td>
+            <td>{{ metric.previous.display }}</td>
+            <td>{{ metric.current.display }}</td>
+            <td [attr.data-direction]="metric.direction">{{ metric.changeFromPreviousLabel }}</td>
+            <td>{{ metric.changeFromFirstLabel }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="charts">
+    @for (metric of result.metrics; track metric.fieldId) {
+      <app-trend-chart
+        [title]="metric.label"
+        [points]="chartPoints(metric)"
+        [min]="metric.axis.min"
+        [max]="metric.axis.max"
+        [summary]="metric.summary"
+      />
+    }
+  </div>
+  <p class="hint">差異值由 Demo 資料預先計算；AI 只會把算好的差異轉成文字，不負責計算數字。</p>
+}

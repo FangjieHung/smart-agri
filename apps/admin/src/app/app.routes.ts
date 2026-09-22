@@ -68,7 +68,19 @@ export const routes: Routes = [
   {
     path: 'app/databases',
     canActivate: [demoSessionGuard],
-    loadComponent: workspacePlaceholder,
+    loadComponent: () =>
+      import('./features/databases/database-list/database-list-page.component').then(
+        (m) => m.DatabaseListPageComponent,
+      ),
+  },
+  { path: 'app/databases/:id', redirectTo: 'app/databases/:id/form', pathMatch: 'full' },
+  {
+    path: 'app/databases/:id/:tab',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/databases/database-detail/database-detail-page.component').then(
+        (m) => m.DatabaseDetailPageComponent,
+      ),
   },
   {
     path: 'app/activity',

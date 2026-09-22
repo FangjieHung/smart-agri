@@ -1,0 +1,105 @@
+<form class="designer" (submit)="submit($event)" novalidate>
+  <p class="hint">支援文字、數字、日期、單選、多選與量尺欄位；可調整順序、選項與必填設定。</p>
+
+  @if (errors().length > 0) {
+    <div class="error-summary" role="alert">
+      <p>還有欄位需要修正，表單尚未儲存。</p>
+      @for (message of formErrors(); track message) {
+        <p>{{ message }}</p>
+      }
+    </div>
+  }
+
+  <ol class="field-list" aria-label="表單欄位">
+    @for (field of draft(); track field.id; let index = $index, first = $first, last = $last) {
+      @let error = errorFor(field.id);
+      <li class="field-editor" [attr.data-field-id]="field.id">
+        <div class="field-grid">
+          <div class="control">
+            <label [for]="'field-label-' + field.id">欄位名稱</label>
+            <input
+              type="text"
+              [id]="'field-label-' + field.id"
+              [value]="field.label"
+              [attr.aria-invalid]="error ? 'true' : null"
+              [attr.aria-describedby]="error ? 'field-error-' + field.id : null"
+              (input)="patch(index, { label: value($event) })"
+            />
+          </div>
+          <div class="control">
+            <label [for]="'field-type-' + field.id">欄位類型</label>
+            <select [id]="'field-type-' + field.id" (change)="changeType(index, value($event))">
+              @for (type of types; track type) {
+                <option [value]="type" [selected]="type === field.type">{{ typeLabels[type] }}</option>
+              }
+            </select>
+          </div>
+          <label class="check" [for]="'field-required-' + field.id">
+            <input
+              type="checkbox"
+              [id]="'field-required-' + field.id"
+              [checked]="field.required"
+              (change)="patch(index, { required: checked($event) })"
+            />
+            必填
+          </label>
+        </div>
+
+        @if (isChoice(field.type)) {
+          <div class="control">
+            <label [for]="'field-options-' + field.id">選項（每行一個）</label>
+            <textarea
+              rows="3"
+              [id]="'field-options-' + field.id"
+              [value]="optionsText(field)"
+              (input)="setOptions(index, value($event))"
+            ></textarea>
+          </div>
+        } @else if (field.type === 'number') {
+          <div class="control narrow">
+            <label [for]="'field-unit-' + field.id">單位（選填）</label>
+            <input type="text" [id]="'field-unit-' + field.id" [value]="field.unit" (input)="patch(index, { unit: value($event) })" />
+          </div>
+        } @else if (field.type === 'scale' && field.scale) {
+          <div class="scale-grid">
+            <div class="control">
+              <label [for]="'field-scale-min-' + field.id">最小值</label>
+              <input type="number" step="1" [id]="'field-scale-min-' + field.id" [value]="field.scale.min" (input)="patchScale(index, { min: numberValue($event) })" />
+            </div>
+            <div class="control">
+              <label [for]="'field-scale-max-' + field.id">最大值</label>
+              <input type="number" step="1" [id]="'field-scale-max-' + field.id" [value]="field.scale.max" (input)="patchScale(index, { max: numberValue($event) })" />
+            </div>
+            <div class="control">
+              <label [for]="'field-scale-min-label-' + field.id">最小值說明</label>
+              <input type="text" [id]="'field-scale-min-label-' + field.id" [value]="field.scale.minLabel" (input)="patchScale(index, { minLabel: value($event) })" />
+            </div>
+            <div class="control">
+              <label [for]="'field-scale-max-label-' + field.id">最大值說明</label>
+              <input type="text" [id]="'field-scale-max-label-' + field.id" [value]="field.scale.maxLabel" (input)="patchScale(index, { maxLabel: value($event) })" />
+            </div>
+          </div>
+        }
+
+        @if (error) {
+          <p class="field-error" [id]="'field-error-' + field.id">{{ error }}</p>
+        }
+
+        <div class="field-actions">
+          <button type="button" class="ghost" [disabled]="first" [attr.aria-label]="'上移「' + displayName(field) + '」'" (click)="move(index, -1)">上移</button>
+          <button type="button" class="ghost" [disabled]="last" [attr.aria-label]="'下移「' + displayName(field) + '」'" (click)="move(index, 1)">下移</button>
+          <button type="button" class="ghost danger" [attr.aria-label]="'刪除「' + displayName(field) + '」'" (click)="remove(index)">刪除</button>
+        </div>
+      </li>
+    } @empty {
+      <li class="empty">目前沒有欄位，先新增一個欄位。</li>
+    }
+  </ol>
+
+  <div class="designer-actions">
+    <button type="button" class="ui-button secondary" (click)="add()">新增欄位</button>
+    <button type="submit" class="ui-button">儲存表單</button>
+  </div>
+  <p class="designer-feedback" role="status">{{ feedback() }}</p>
+  <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage() }}</p>
+</form>

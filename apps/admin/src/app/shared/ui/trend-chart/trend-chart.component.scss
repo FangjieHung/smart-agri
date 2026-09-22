@@ -1,0 +1,18 @@
+:host { display: block; min-inline-size: 0; }
+
+.trend-chart { display: grid; gap: var(--space-3); margin: 0; }
+svg { inline-size: 100%; max-inline-size: 36rem; block-size: auto; overflow: visible; }
+.axis { stroke: var(--color-border); stroke-width: 1; }
+.grid { stroke: var(--color-border); stroke-dasharray: 4 4; }
+.tick { fill: var(--color-text-secondary); font-size: 11px; }
+.line { fill: none; stroke: var(--color-accent); stroke-width: 2.5; stroke-linejoin: round; }
+circle { fill: var(--color-surface); stroke: var(--color-accent); stroke-width: 2; }
+circle.current { fill: var(--color-accent); }
+
+figcaption { font-weight: 600; }
+
+table { inline-size: 100%; max-inline-size: 24rem; border-collapse: collapse; font-size: var(--font-size-caption); }
+caption { padding-block-end: var(--space-1); color: var(--color-text-secondary); text-align: start; }
+th, td { padding: var(--space-1) var(--space-2); border-bottom: var(--border-default); text-align: start; }
+thead th { color: var(--color-text-secondary); font-weight: 600; }
+tbody th { font-weight: 500; }

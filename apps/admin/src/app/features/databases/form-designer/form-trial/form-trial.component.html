@@ -1,0 +1,82 @@
+<section class="trial" aria-labelledby="trial-title">
+  <h3 id="trial-title">試填表單</h3>
+  <p class="demo-note">Demo：試填使用已儲存的表單，只檢查欄位並預覽結果，不會儲存任何紀錄。</p>
+
+  <form class="trial-form" (submit)="submit($event)" novalidate>
+    @if (message()) {
+      <p class="error-summary" role="alert">{{ message() }}</p>
+    }
+
+    @for (field of fields(); track field.id) {
+      @let error = errorFor(field.id);
+      @let controlId = 'trial-' + field.id;
+      @if (field.type === 'single-choice' || field.type === 'multiple-choice' || field.type === 'scale') {
+        <fieldset class="group" [attr.aria-describedby]="error ? 'trial-error-' + field.id : null">
+          <legend>{{ field.label }}@if (field.required) {<span class="required">（必填）</span>}</legend>
+          <div class="options" [class.scale]="field.type === 'scale'">
+            @if (field.type === 'scale') {
+              @for (step of scaleSteps(field); track step) {
+                <label class="option">
+                  <input type="radio" [name]="controlId" [value]="step" [checked]="textAnswer(field.id) === '' + step" (change)="setText(field.id, $event)" />
+                  {{ step }}
+                </label>
+              }
+            } @else {
+              @for (option of field.options; track option) {
+                @if (field.type === 'single-choice') {
+                  <label class="option">
+                    <input type="radio" [name]="controlId" [value]="option" [checked]="isChosen(field.id, option)" (change)="setText(field.id, $event)" />
+                    {{ option }}
+                  </label>
+                } @else {
+                  <label class="option">
+                    <input type="checkbox" [name]="controlId" [value]="option" [checked]="isChosen(field.id, option)" (change)="toggle(field, option, $event)" />
+                    {{ option }}
+                  </label>
+                }
+              }
+            }
+          </div>
+          @if (field.scale; as scale) {
+            <p class="hint">{{ scale.min }} = {{ scale.minLabel }}，{{ scale.max }} = {{ scale.maxLabel }}</p>
+          }
+        </fieldset>
+      } @else {
+        <div class="control">
+          <label [for]="controlId">{{ field.label }}@if (field.required) {<span class="required">（必填）</span>}</label>
+          <div class="input-row">
+            <input
+              [type]="inputType(field)"
+              [id]="controlId"
+              [required]="field.required"
+              [value]="textAnswer(field.id)"
+              [attr.inputmode]="field.type === 'number' ? 'decimal' : null"
+              [attr.aria-invalid]="error ? 'true' : null"
+              [attr.aria-describedby]="error ? 'trial-error-' + field.id : null"
+              (input)="setText(field.id, $event)"
+            />
+            @if (field.unit) {
+              <span class="unit">{{ field.unit }}</span>
+            }
+          </div>
+        </div>
+      }
+      @if (error) {
+        <p class="field-error" [id]="'trial-error-' + field.id">{{ error }}</p>
+      }
+    }
+
+    <button type="submit" class="ui-button">送出試填</button>
+  </form>
+
+  @if (preview(); as data) {
+    <section class="trial-preview" role="status" aria-labelledby="trial-preview-title">
+      <h4 id="trial-preview-title">試填結果（不會儲存）</h4>
+      <dl>
+        @for (entry of data.entries; track entry.fieldId) {
+          <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
+        }
+      </dl>
+    </section>
+  }
+</section>

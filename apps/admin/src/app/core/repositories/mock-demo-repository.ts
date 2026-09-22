@@ -22,6 +22,15 @@ import type {
   ConversationId,
   StructuredSubmissionView,
 } from '../domain/conversation.model';
+import type {
+  CreatedDatabaseId,
+  DatabaseDetailView,
+  DatabaseFieldView,
+  DatabaseId,
+  DatabaseSummaryView,
+  DatabaseTrackingView,
+  DatabaseView,
+} from '../domain/database.model';
 import {
   KNOWLEDGE_DOCUMENT_STATUSES,
   needsKnowledgeAttention,
@@ -37,16 +46,27 @@ import {
   type KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
 import type { PublishingChannelView } from '../domain/publishing.model';
+import {
+  compareRecords,
+  evaluateTrial,
+  normalizeField,
+  toRecordView,
+  validateFields,
+} from './database-tracking';
 import { DEMO_SEED, type DemoSeed } from './demo-seed';
+import type { DatabaseCollectionFixture, DatabaseRecordFixture } from './demo-seed-databases';
 import { createMemoryStorage } from './memory-storage';
 import type {
   CreateAssistantResult,
+  CreateDatabaseResult,
   DemoKeyValueStorage,
   DemoRepository,
   DemoScenario,
   PermissionDeniedRepositoryView,
   RepositoryPermissionDeniedReason,
   RepositoryView,
+  PreviewDatabaseEntryResult,
+  UpdateDatabaseFieldsResult,
   UpdateKnowledgeSharingResult,
 } from './demo-repository';
 
@@ -210,6 +230,44 @@ function connectableKnowledgeStatus(
   return 'ready';
 }
 
+const CREATED_DATABASES_KEY = 'sme-demo:created-databases';
+const DATABASE_FIELDS_KEY_PREFIX = 'sme-demo:database-fields:';
+
+interface StoredCreatedDatabase {
+  readonly view: DatabaseView;
+  readonly collection: DatabaseCollectionFixture;
+}
+
+interface StoredDatabaseFields {
+  readonly version: 1;
+  readonly savedAt: string;
+  readonly fields: readonly DatabaseFieldView[];
+}
+
+function isStoredCreatedDatabase(value: unknown): value is StoredCreatedDatabase {
+  if (!isRecord(value) || !isRecord(value['view']) || !isRecord(value['collection'])) return false;
+  const view = value['view'];
+  const collection = value['collection'];
+  return (
+    typeof view['id'] === 'string' &&
+    view['id'].startsWith('database-created-') &&
+    typeof view['ownerAccountId'] === 'string' &&
+    typeof view['name'] === 'string' &&
+    Array.isArray(collection['fields']) &&
+    Array.isArray(collection['dataManagerAccountIds'])
+  );
+}
+
+function isStoredDatabaseFields(value: unknown): value is StoredDatabaseFields {
+  return (
+    isRecord(value) &&
+    value['version'] === 1 &&
+    typeof value['savedAt'] === 'string' &&
+    Array.isArray(value['fields']) &&
+    value['fields'].every((field) => isRecord(field) && typeof field['id'] === 'string')
+  );
+}
+
 const DATABASE_STATUS: Record<
   DemoSeed['databases'][number]['status'],
   ConnectableSourceStatus
@@ -310,7 +368,7 @@ export class MockDemoRepository implements DemoRepository {
   listDatabases(
     viewerAccountId: AccountId,
   ): ReturnType<DemoRepository['listDatabases']> {
-    const databases = this.seed.databases.filter(
+    const databases = this.databases().filter(
       (database) => database.ownerAccountId === viewerAccountId,
     );
 
@@ -749,6 +807,265 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(saved);
   }
 
+  listDatabaseTemplates(
+    viewerAccountId: AccountId,
+  ): ReturnType<DemoRepository['listDatabaseTemplates']> {
+    if (!this.canManageDataSources(viewerAccountId)) return this.createDatabasePermissionDenied();
+    return this.applyScenario(this.seed.databaseTemplates);
+  }
+
+  listDatabaseSummaries(
+    viewerAccountId: AccountId,
+  ): ReturnType<DemoRepository['listDatabaseSummaries']> {
+    return this.applyScenario(
+      this.databases()
+        .filter((database) => database.ownerAccountId === viewerAccountId)
+        .map((database) => this.toDatabaseSummary(database, viewerAccountId)),
+    );
+  }
+
+  createDatabaseFromTemplate(
+    viewerAccountId: AccountId,
+    input: Parameters<DemoRepository['createDatabaseFromTemplate']>[1],
+  ): CreateDatabaseResult {
+    if (!this.canManageDataSources(viewerAccountId)) return this.createDatabasePermissionDenied();
+
+    const template = this.seed.databaseTemplates.find((candidate) => candidate.id === input.templateId);
+    if (template === undefined) {
+      return immutableCopy({ status: 'validation-failed', message: '請選擇一個模板。' });
+    }
+    const name = input.name.trim();
+    if (name.length === 0) {
+      return immutableCopy({ status: 'validation-failed', message: '請輸入資料庫名稱。' });
+    }
+    if (name.length > 40) {
+      return immutableCopy({ status: 'validation-failed', message: '資料庫名稱請在 40 個字以內。' });
+    }
+
+    const view: DatabaseView = {
+      id: this.nextCreatedDatabaseId(),
+      ownerAccountId: viewerAccountId,
+      name,
+      status: 'connected',
+      accessMode: 'read-only',
+      tableCount: 1,
+      lastSyncedAt: this.now().toISOString(),
+    };
+    const collection: DatabaseCollectionFixture = {
+      purpose: template.description,
+      templateName: template.name,
+      dataManagerAccountIds: [viewerAccountId],
+      fields: template.fields,
+    };
+    this.storage.setItem(
+      CREATED_DATABASES_KEY,
+      JSON.stringify([...this.createdDatabases(), { view, collection }]),
+    );
+
+    return this.applyScenario(this.toDatabaseSummary(view, viewerAccountId));
+  }
+
+  getDatabaseDetail(
+    viewerAccountId: AccountId,
+    databaseId: string,
+  ): ReturnType<DemoRepository['getDatabaseDetail']> {
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+
+    const collection = this.databaseCollection(database.id);
+    const displayName = (id: AccountId) => ({
+      id,
+      displayName: this.seed.accounts.find((account) => account.id === id)?.displayName ?? '已停用的帳號',
+    });
+    const detail: DatabaseDetailView = {
+      summary: this.toDatabaseSummary(database, viewerAccountId),
+      fields: collection.fields,
+      connectedAssistants: this.assistants()
+        .filter(
+          (assistant) =>
+            assistant.ownerAccountId === viewerAccountId &&
+            assistant.databaseIds.includes(database.id),
+        )
+        .map(({ id, name, status }) => ({ id, name, status })),
+      access: {
+        owner: displayName(database.ownerAccountId),
+        dataManagers: collection.dataManagerAccountIds.map(displayName),
+        viewerIsDataManager: collection.dataManagerAccountIds.includes(viewerAccountId),
+      },
+    };
+
+    return this.applyScenario(detail);
+  }
+
+  updateDatabaseFields(
+    viewerAccountId: AccountId,
+    databaseId: DatabaseId,
+    fields: readonly DatabaseFieldView[],
+  ): UpdateDatabaseFieldsResult {
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+
+    const normalized = fields.map(normalizeField);
+    const errors = validateFields(normalized);
+    if (errors.length > 0) {
+      return immutableCopy({ status: 'validation-failed', errors, message: '還有欄位需要修正，表單尚未儲存。' });
+    }
+
+    const record: StoredDatabaseFields = {
+      version: 1,
+      savedAt: this.now().toISOString(),
+      fields: normalized,
+    };
+    this.storage.setItem(DATABASE_FIELDS_KEY_PREFIX + database.id, JSON.stringify(record));
+
+    return this.applyScenario(normalized);
+  }
+
+  previewDatabaseEntry(
+    viewerAccountId: AccountId,
+    databaseId: DatabaseId,
+    answers: Parameters<DemoRepository['previewDatabaseEntry']>[2],
+  ): PreviewDatabaseEntryResult {
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+
+    const outcome = evaluateTrial(this.databaseCollection(database.id).fields, answers);
+    if ('errors' in outcome) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: outcome.errors,
+        message: '試填內容還有需要修正的地方。',
+      });
+    }
+
+    return this.applyScenario({ saved: false as const, entries: outcome.entries });
+  }
+
+  getDatabaseTracking(
+    viewerAccountId: AccountId,
+    databaseId: string,
+  ): ReturnType<DemoRepository['getDatabaseTracking']> {
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+    if (!this.databaseCollection(database.id).dataManagerAccountIds.includes(viewerAccountId)) {
+      return this.permissionDenied(
+        'database-records',
+        '只有指定的資料管理者可以查看收集紀錄。',
+      );
+    }
+
+    const records = this.consentedRecords(database.id);
+    const tracking: DatabaseTrackingView = {
+      databaseId: database.id,
+      subjects: this.seed.trackedSubjects
+        .filter((subject) => subject.databaseId === database.id)
+        .map((subject) => {
+          const chronological = records.filter((record) => record.subjectId === subject.id);
+          return {
+            id: subject.id,
+            displayName: subject.displayName,
+            records: [...chronological].reverse().map(toRecordView),
+            comparison: compareRecords(chronological),
+          };
+        })
+        .filter((subject) => subject.records.length > 0),
+    };
+
+    return this.applyScenario(tracking);
+  }
+
+  private databases(): readonly DatabaseView[] {
+    return [...this.seed.databases, ...this.createdDatabases().map((entry) => entry.view)];
+  }
+
+  private createdDatabases(): readonly StoredCreatedDatabase[] {
+    const stored = parseJson(this.storage.getItem(CREATED_DATABASES_KEY));
+    return Array.isArray(stored) ? stored.filter(isStoredCreatedDatabase) : [];
+  }
+
+  private nextCreatedDatabaseId(): CreatedDatabaseId {
+    const existing = new Set<string>(this.createdDatabases().map((entry) => entry.view.id));
+    let sequence = this.now().getTime();
+    while (existing.has(`database-created-${sequence}`)) sequence += 1;
+
+    return `database-created-${sequence}`;
+  }
+
+  private ownedDatabase(viewerAccountId: AccountId, databaseId: string): DatabaseView | undefined {
+    return this.databases().find(
+      (database) => database.id === databaseId && database.ownerAccountId === viewerAccountId,
+    );
+  }
+
+  /** 收集設定；使用者儲存過的欄位會覆蓋模板或 fixture 的欄位。 */
+  private databaseCollection(databaseId: DatabaseId): DatabaseCollectionFixture {
+    const base =
+      (this.seed.databaseCollections as Partial<Record<DatabaseId, DatabaseCollectionFixture>>)[databaseId] ??
+      this.createdDatabases().find((entry) => entry.view.id === databaseId)?.collection ?? {
+        purpose: '',
+        templateName: '空白模板',
+        dataManagerAccountIds: [],
+        fields: [],
+      };
+    const stored = this.storedDatabaseFields(databaseId);
+    return stored === null ? base : { ...base, fields: stored.fields };
+  }
+
+  private storedDatabaseFields(databaseId: DatabaseId): StoredDatabaseFields | null {
+    const stored = parseJson(this.storage.getItem(DATABASE_FIELDS_KEY_PREFIX + databaseId));
+    return isStoredDatabaseFields(stored) ? stored : null;
+  }
+
+  /** 只取使用者明確同意提交的紀錄，依時間先後排列。 */
+  private consentedRecords(databaseId: DatabaseId): readonly DatabaseRecordFixture[] {
+    return this.seed.databaseRecords
+      .filter((record) => record.databaseId === databaseId && record.consentStatus === 'consented')
+      .slice()
+      .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
+  }
+
+  private toDatabaseSummary(database: DatabaseView, viewerAccountId: AccountId): DatabaseSummaryView {
+    const collection = this.databaseCollection(database.id);
+    const isDataManager = collection.dataManagerAccountIds.includes(viewerAccountId);
+    const records = this.consentedRecords(database.id);
+    const savedAt = this.storedDatabaseFields(database.id)?.savedAt ?? '';
+
+    return {
+      id: database.id,
+      name: database.name,
+      purpose: collection.purpose,
+      templateName: collection.templateName,
+      fieldCount: collection.fields.length,
+      recordCount: isDataManager ? records.length : null,
+      subjectCount: isDataManager ? new Set(records.map((record) => record.subjectId)).size : null,
+      connectedAssistantNames: this.assistants()
+        .filter(
+          (assistant) =>
+            assistant.ownerAccountId === viewerAccountId &&
+            assistant.databaseIds.includes(database.id),
+        )
+        .map((assistant) => assistant.name),
+      updatedAt: savedAt > database.lastSyncedAt ? savedAt : database.lastSyncedAt,
+    };
+  }
+
+  private canManageDataSources(viewerAccountId: AccountId): boolean {
+    return this.seed.accounts.some(
+      (account) =>
+        account.id === viewerAccountId &&
+        account.permissions.includes('manage-data-sources'),
+    );
+  }
+
+  private createDatabasePermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied('database', '只有可管理資料來源的帳號可以建立資料庫。');
+  }
+
+  /** 不存在與無權限回傳相同結果，避免透過差異推測資源是否存在。 */
+  private databasePermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied('database', '你沒有這個資料庫的存取權限，或它已不存在。');
+  }
+
   private ownedKnowledgeBase(
     viewerAccountId: AccountId,
     knowledgeBaseId: string,
@@ -892,7 +1209,7 @@ export class MockDemoRepository implements DemoRepository {
           updatedAt: knowledgeBase.lastSyncedAt,
         };
       });
-    const databases = this.seed.databases
+    const databases = this.databases()
       .filter((database) => database.ownerAccountId === viewerAccountId)
       .map(
         (database): ConnectableSourceView => ({

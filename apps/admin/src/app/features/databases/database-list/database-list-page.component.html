@@ -1,0 +1,87 @@
+@let result = view();
+<section class="workspace-page">
+  <app-page-header
+    title="資料庫"
+    description="設計收集表單、保存使用者同意提交的紀錄，並比較每次的變化；每個資料庫可以連接到多個助理。"
+  />
+
+  @if (templates().length > 0) {
+    <form class="create-panel" aria-labelledby="create-title" (submit)="create($event)" novalidate>
+      <h2 id="create-title">建立資料庫</h2>
+      <fieldset class="template-picker">
+        <legend>你要收集什麼？</legend>
+        <div class="template-grid">
+          @for (template of templates(); track template.id) {
+            <label class="template-option">
+              <input
+                type="radio"
+                name="database-template"
+                [value]="template.id"
+                [checked]="templateId() === template.id"
+                (change)="chooseTemplate(template)"
+              />
+              <span>
+                <strong>{{ template.name }}</strong>
+                <small>{{ template.description }}</small>
+              </span>
+            </label>
+          }
+        </div>
+      </fieldset>
+      <div class="name-row">
+        <div class="control">
+          <label for="database-name">資料庫名稱</label>
+          <input
+            id="database-name"
+            type="text"
+            maxlength="40"
+            [value]="name()"
+            [attr.aria-invalid]="error() ? 'true' : null"
+            [attr.aria-describedby]="error() ? 'database-name-error' : null"
+            (input)="setName($event)"
+          />
+        </div>
+        <button type="submit" class="ui-button">建立資料庫</button>
+      </div>
+      @if (error()) {
+        <p id="database-name-error" class="error" role="alert">{{ error() }}</p>
+      }
+    </form>
+  } @else if (result !== null && result.status !== 'loading') {
+    <p class="notice">只有可管理資料來源的帳號可以建立資料庫；你仍可查看自己擁有的資料庫。</p>
+  }
+
+  @if (result === null || result.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入資料庫" />
+  } @else if (result.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法查看資料庫" description="目前的帳號沒有查看資料庫的權限。" />
+  } @else {
+    @if (result.status === 'partial-failure') {
+      <p class="notice" role="status">{{ result.message }} 其他資料庫仍可正常使用。</p>
+    }
+    @if (result.data.length > 0) {
+      <ul class="database-list" aria-label="我的資料庫">
+        @for (item of result.data; track item.id) {
+          <li class="database-card">
+            <h2><a [routerLink]="['/app/databases', item.id, 'form']">{{ item.name }}</a></h2>
+            <p class="purpose">{{ item.purpose }}</p>
+            <dl>
+              <div><dt>表單</dt><dd>{{ item.fieldCount }} 個欄位・{{ item.templateName }}</dd></div>
+              <div><dt>收集紀錄</dt><dd>{{ records(item) }}</dd></div>
+              <div>
+                <dt>已連接助理</dt>
+                <dd>{{ item.connectedAssistantNames.length > 0 ? item.connectedAssistantNames.join('、') : '尚未連接' }}</dd>
+              </div>
+              <div><dt>最近更新</dt><dd><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></dd></div>
+            </dl>
+          </li>
+        }
+      </ul>
+    } @else {
+      <section class="ui-panel" aria-labelledby="empty-database-title">
+        <h2 id="empty-database-title" class="ui-panel-title">還沒有資料庫</h2>
+        <p class="ui-panel-description">資料庫負責收集結構化紀錄，並比較每次的前後變化。</p>
+      </section>
+    }
+  }
+</section>

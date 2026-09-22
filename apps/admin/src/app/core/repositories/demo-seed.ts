@@ -4,7 +4,11 @@ import type {
   TrialQuestionView,
 } from '../domain/assistant-draft.model';
 import type { AssistantConfigurationView } from '../domain/assistant.model';
-import type { DatabaseView } from '../domain/database.model';
+import type {
+  DatabaseTemplateView,
+  DatabaseView,
+  SeededDatabaseId,
+} from '../domain/database.model';
 import type {
   AssistantAnalyticsView,
   PrivateConversationView,
@@ -17,6 +21,15 @@ import type {
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
 import type { PublishingChannelView } from '../domain/publishing.model';
+import {
+  DATABASE_COLLECTIONS,
+  DATABASE_RECORDS,
+  DATABASE_TEMPLATES,
+  TRACKED_SUBJECTS,
+  type DatabaseCollectionFixture,
+  type DatabaseRecordFixture,
+  type TrackedSubjectFixture,
+} from './demo-seed-databases';
 
 export interface DemoSeed {
   readonly accounts: readonly AccountView[];
@@ -25,6 +38,10 @@ export interface DemoSeed {
   readonly knowledgeDocuments: Readonly<Record<KnowledgeBaseId, readonly KnowledgeDocumentView[]>>;
   readonly knowledgeSharing: Readonly<Record<KnowledgeBaseId, KnowledgeSharingView>>;
   readonly databases: readonly DatabaseView[];
+  readonly databaseTemplates: readonly DatabaseTemplateView[];
+  readonly databaseCollections: Readonly<Record<SeededDatabaseId, DatabaseCollectionFixture>>;
+  readonly trackedSubjects: readonly TrackedSubjectFixture[];
+  readonly databaseRecords: readonly DatabaseRecordFixture[];
   readonly privateConversations: readonly PrivateConversationView[];
   readonly structuredSubmissions: readonly StructuredSubmissionView[];
   readonly analytics: readonly AssistantAnalyticsView[];
@@ -179,7 +196,20 @@ export const DEMO_SEED: DemoSeed = {
       tableCount: 2,
       lastSyncedAt: '2026-09-17T16:00:00.000Z',
     },
+    {
+      id: 'database-staff-checkins',
+      ownerAccountId: 'account-internal-employee',
+      name: '同仁排班回報',
+      status: 'connected',
+      accessMode: 'read-only',
+      tableCount: 1,
+      lastSyncedAt: '2026-09-16T09:00:00.000Z',
+    },
   ],
+  databaseTemplates: DATABASE_TEMPLATES,
+  databaseCollections: DATABASE_COLLECTIONS,
+  trackedSubjects: TRACKED_SUBJECTS,
+  databaseRecords: DATABASE_RECORDS,
   privateConversations: [
     {
       id: 'conversation-employee-private',

@@ -1,0 +1,8 @@
+{
+  "name": "@org/assistant-demo-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "name": "assistant-demo-e2e"
+  }
+}

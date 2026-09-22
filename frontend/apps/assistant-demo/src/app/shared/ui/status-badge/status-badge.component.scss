@@ -1,0 +1,29 @@
+:host {
+  display: inline-block;
+  max-inline-size: 100%;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-control);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+
+  &[data-tone='info'] {
+    color: var(--color-accent);
+  }
+  &[data-tone='success'] {
+    color: var(--color-success);
+  }
+  &[data-tone='warning'] {
+    color: var(--color-warning);
+  }
+  &[data-tone='error'] {
+    color: var(--color-error);
+  }
+}

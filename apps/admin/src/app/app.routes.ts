@@ -93,6 +93,14 @@ export const routes: Routes = [
     loadComponent: workspacePlaceholder,
   },
   {
+    path: 'use/:assistantId',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/assistant-use/chat-shell/chat-shell-page.component').then(
+        (m) => m.ChatShellPageComponent,
+      ),
+  },
+  {
     path: 'app/settings',
     canActivate: [demoSessionGuard],
     loadComponent: () =>

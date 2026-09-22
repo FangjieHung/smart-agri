@@ -1,0 +1,38 @@
+@let info = consent();
+<form class="consent" aria-labelledby="consent-title" (submit)="submit($event)">
+  <h2 #heading id="consent-title" tabindex="-1">送出前請確認</h2>
+
+  <dl class="terms">
+    <div><dt>接收單位</dt><dd>{{ info.recipient }}</dd></div>
+    <div><dt>收集目的</dt><dd>{{ info.purpose }}</dd></div>
+    <div><dt>可查看者</dt><dd>{{ info.viewers.join('、') }}（僅限指定資料管理者）</dd></div>
+  </dl>
+
+  <p class="sensitive-notice"><strong>敏感資料提示：</strong>{{ info.sensitiveNotice }}</p>
+
+  <section class="summary" aria-labelledby="consent-summary-title">
+    <h3 id="consent-summary-title">你填寫的內容</h3>
+    <dl>
+      @for (entry of entries(); track entry.fieldId) {
+        <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
+      }
+    </dl>
+  </section>
+
+  <p class="withdrawal">{{ info.withdrawalNotice }}</p>
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <label class="agree">
+    <input id="consent-agree" type="checkbox" [checked]="agreed()" aria-describedby="consent-hint" (change)="toggle($event)" />
+    我已了解上述接收單位與用途，同意提交這些資料。
+  </label>
+  <p id="consent-hint" class="hint">{{ agreed() ? '可以送出了。' : '勾選同意後才能送出。' }}</p>
+
+  <div class="actions">
+    <button type="submit" class="consent-submit" [disabled]="!agreed()">同意並送出</button>
+    <button type="button" class="secondary" (click)="back.emit()">返回修改</button>
+  </div>
+</form>

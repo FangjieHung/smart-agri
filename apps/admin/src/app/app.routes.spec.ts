@@ -31,4 +31,13 @@ describe('app routes', () => {
       'app/databases/:id/form',
     );
   });
+
+  it('opens the end-user chat for an assistant behind the demo session guard', async () => {
+    const use = routes.find((route) => route.path === 'use/:assistantId');
+    expect(use?.canActivate?.length).toBe(1);
+    const { ChatShellPageComponent } = await import(
+      './features/assistant-use/chat-shell/chat-shell-page.component'
+    );
+    expect(await use?.loadComponent?.()).toBe(ChatShellPageComponent);
+  });
 });

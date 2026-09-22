@@ -6,6 +6,7 @@ import {
   type DatabaseFieldView,
   type DatabaseRecordEntryView,
   type DatabaseRecordValue,
+  type DatabaseTrialAnswer,
   type DatabaseRecordView,
   type DatabaseTrialAnswers,
   type MetricComparisonView,
@@ -230,4 +231,34 @@ export function evaluateTrial(fields: readonly DatabaseFieldView[], answers: Dat
   });
 
   return errors.length > 0 ? { errors } : { entries };
+}
+
+/** 已通過 evaluateTrial 驗證的答案轉成紀錄原始值；label 保存提交當下的欄位名稱。 */
+export function toRecordValues(
+  fields: readonly DatabaseFieldView[],
+  answers: DatabaseTrialAnswers,
+): DatabaseRecordValue[] {
+  return fields.map((field): DatabaseRecordValue => {
+    const raw: DatabaseTrialAnswer | undefined = answers[field.id];
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    const base = { fieldId: field.id, label: field.label };
+    switch (field.type) {
+      case 'number':
+        return { ...base, type: 'number', value: Number(text), unit: field.unit };
+      case 'scale':
+        return {
+          ...base,
+          type: 'scale',
+          value: Number(text),
+          min: field.scale?.min ?? 1,
+          max: field.scale?.max ?? 5,
+        };
+      case 'multiple-choice': {
+        const list = Array.isArray(raw) ? raw : [];
+        return { ...base, type: 'multiple-choice', value: field.options.filter((option) => list.includes(option)) };
+      }
+      default:
+        return { ...base, type: field.type, value: text };
+    }
+  });
 }

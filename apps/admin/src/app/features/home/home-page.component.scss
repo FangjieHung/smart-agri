@@ -9,3 +9,10 @@ p, ul { margin: 0; color: var(--color-text-secondary); line-height: 1.6; }
 ul { padding-inline-start: 1.25rem; }
 .home-card__text-link { align-self: end; color: var(--color-accent); font-weight: 700; text-decoration: none; }
 .home-card__text-link:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; border-radius: var(--radius-control); }
+.usable { display: grid; gap: var(--space-3); padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-container); background: var(--color-surface); box-shadow: var(--shadow-subtle); }
+.usable ul { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); padding: 0; list-style: none; }
+.usable a { display: grid; gap: var(--space-1); min-block-size: 100%; padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-control); color: var(--color-text); text-decoration: none; }
+.usable a:hover { border-color: var(--color-accent); }
+.usable a:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; }
+.usable a span { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.usable a .usable__action { color: var(--color-accent); font-weight: 700; }

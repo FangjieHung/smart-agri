@@ -6,6 +6,24 @@
     <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
   </app-page-header>
 
+  @if (usableAssistants().length > 0) {
+    <section class="usable" aria-labelledby="usable-title">
+      <h2 id="usable-title">可以使用的助理</h2>
+      <p>對話只屬於你的帳號，助理建立者看不到你的提問與回答。</p>
+      <ul>
+        @for (assistant of usableAssistants(); track assistant.id) {
+          <li>
+            <a [routerLink]="['/use', assistant.id]">
+              <strong>{{ assistant.name }}</strong>
+              <span>{{ assistant.purpose }}</span>
+              <span class="usable__action">開始對話 <span aria-hidden="true">→</span></span>
+            </a>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+
   <div class="home-grid">
     <section class="home-card home-card--primary" aria-labelledby="create-title">
       <p class="home-card__eyebrow">下一步</p>

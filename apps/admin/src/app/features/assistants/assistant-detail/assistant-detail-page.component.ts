@@ -70,6 +70,15 @@ export class AssistantDetailPageComponent {
     return result.data.find((assistant) => assistant.id === this.assistantId()) ?? null;
   });
 
+  /** 匿名使用摘要：只有次數與比例，不含任何對話文字。 */
+  protected readonly analytics = computed(() => {
+    const accountId = this.session.activeAccountId();
+    const configuration = this.configuration();
+    if (!accountId || configuration === null) return null;
+    const result = this.repository.getAssistantAnalytics(accountId, configuration.id);
+    return result.status === 'ready' || result.status === 'partial-failure' ? result.data : null;
+  });
+
   protected returnToList(): void {
     void this.router.navigateByUrl('/app/assistants');
   }

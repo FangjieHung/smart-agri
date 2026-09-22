@@ -30,6 +30,12 @@ import {
   type DatabaseRecordFixture,
   type TrackedSubjectFixture,
 } from './demo-seed-databases';
+import {
+  CHAT_PROFILES,
+  CHAT_RESPONSES,
+  type ChatProfileFixture,
+  type ChatResponseFixture,
+} from './demo-seed-chat';
 
 export interface DemoSeed {
   readonly accounts: readonly AccountView[];
@@ -48,6 +54,8 @@ export interface DemoSeed {
   readonly publishingChannels: readonly PublishingChannelView[];
   readonly assistantTemplates: readonly AssistantTemplateView[];
   readonly trialQuestions: readonly TrialQuestionFixture[];
+  readonly chatProfiles: Readonly<Partial<Record<AssistantConfigurationView['id'], ChatProfileFixture>>>;
+  readonly chatResponses: readonly ChatResponseFixture[];
 }
 
 /** 試問固定回答：不連接真實 AI，依來源與規則挑選其中一種回答。 */
@@ -399,4 +407,6 @@ export const DEMO_SEED: DemoSeed = {
       generalAnswer: null,
     },
   ],
+  chatProfiles: CHAT_PROFILES,
+  chatResponses: CHAT_RESPONSES,
 };

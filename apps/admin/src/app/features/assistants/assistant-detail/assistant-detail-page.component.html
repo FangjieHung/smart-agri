@@ -30,7 +30,27 @@
     <section class="placeholder-panel" [attr.aria-labelledby]="'tab-' + activeTab().id">
       <p class="placeholder-panel__eyebrow">助理設定</p>
       <h2 [id]="'tab-' + activeTab().id">{{ activeTab().label }}</h2>
-      <p>{{ activeTab().placeholder }}</p>
+      @switch (activeTab().id) {
+        @case ('test') {
+          <p>用使用者看到的對話畫面試問：公司資料會附引用來源，一般知識與查無資料會分開標示。你在這裡的試問只屬於你自己的帳號。</p>
+          <a class="panel-link" [routerLink]="['/use', assistantId()]">開啟使用者對話畫面 <span aria-hidden="true">→</span></a>
+        }
+        @case ('activity') {
+          @if (analytics(); as usage) {
+            <dl class="usage-summary">
+              <div><dt>對話次數（近 7 天）</dt><dd>{{ usage.conversationCount }}</dd></div>
+              <div><dt>已解決</dt><dd>{{ usage.resolvedCount }}</dd></div>
+              <div><dt>回饋為有幫助</dt><dd>{{ usage.helpfulRatingPercent }}%</dd></div>
+            </dl>
+          } @else {
+            <p>目前還沒有使用紀錄。</p>
+          }
+          <p>這裡只顯示匿名統計。對話屬於發起的帳號，助理建立者看不到使用者的對話內容；使用者同意提交的資料請到資料庫的收集紀錄查看。</p>
+        }
+        @default {
+          <p>{{ activeTab().placeholder }}</p>
+        }
+      }
     </section>
   </section>
 } @else {

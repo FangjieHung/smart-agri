@@ -1,0 +1,52 @@
+@let current = message();
+@if (current.author === 'account') {
+  <div class="bubble" data-author="account">
+    <span class="visually-hidden">你說：</span>
+    <p>{{ current.text }}</p>
+  </div>
+} @else {
+  @let reply = current.reply;
+  <article class="bubble" data-author="assistant" [attr.data-kind]="reply.kind">
+    <p class="kind">
+      <span class="visually-hidden">助理回覆，</span>{{ label(reply.kind) }}
+    </p>
+    <p>{{ reply.text }}</p>
+    @switch (reply.kind) {
+      @case ('company-data') {
+        <button
+          type="button"
+          class="citation-toggle"
+          aria-haspopup="dialog"
+          (click)="showCitations(reply.citations, $event)"
+        >
+          查看引用來源（{{ reply.citations.length }}）
+        </button>
+      }
+      @case ('general-knowledge') {
+        <p class="notice">{{ reply.notice }}</p>
+      }
+      @case ('no-result') {
+        <p class="next-title">你可以：</p>
+        <ul class="next-steps">
+          @for (step of reply.nextSteps; track step) {
+            <li>{{ step }}</li>
+          }
+        </ul>
+      }
+      @case ('form-request') {
+        @if (!formActive()) {
+          <button type="button" class="form-start" (click)="startForm.emit(reply.form)">
+            填寫表單：{{ reply.form.title }}
+          </button>
+        }
+      }
+      @case ('submission-receipt') {
+        <dl class="receipt">
+          @for (entry of reply.entries; track entry.fieldId) {
+            <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
+          }
+        </dl>
+      }
+    }
+  </article>
+}

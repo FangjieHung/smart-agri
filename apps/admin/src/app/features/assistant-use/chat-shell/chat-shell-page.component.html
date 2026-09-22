@@ -1,0 +1,102 @@
+@let state = result();
+@if (state === null || state.status === 'loading') {
+  <main class="chat-page chat-page--state">
+    <app-state-panel state="loading" title="正在開啟對話" />
+  </main>
+} @else if (state.status === 'permission-denied') {
+  <main class="chat-page chat-page--state">
+    <app-state-panel
+      state="permission-denied"
+      title="無法使用這個助理"
+      [description]="state.message"
+      recoveryLabel="返回首頁"
+      (recover)="returnHome()"
+    />
+  </main>
+} @else if (chat(); as current) {
+  <div class="chat-page">
+    <header class="chat-header">
+      <a class="back" routerLink="/app/home">返回首頁</a>
+      <div class="identity">
+        <p class="eyebrow">AI 助理</p>
+        <h1>{{ current.assistantName }}</h1>
+        <p class="purpose">{{ current.purpose }}</p>
+      </div>
+    </header>
+
+    <main class="chat-body">
+      <p class="privacy-notice"><strong>私人對話</strong>{{ current.privacyNotice }}</p>
+      <p class="welcome">{{ current.welcome }}</p>
+
+      <ol #log class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="對話內容">
+        @for (message of current.messages; track message.id) {
+          <li>
+            <app-chat-message
+              [message]="message"
+              [formActive]="isFormRequest(message) && flow().step !== 'closed'"
+              (openCitations)="openCitations($event)"
+              (startForm)="startForm($event)"
+            />
+          </li>
+        }
+      </ol>
+
+      @let activeFlow = flow();
+      @switch (activeFlow.step) {
+        @case ('form') {
+          <app-inline-form
+            [form]="activeFlow.form"
+            [answers]="activeFlow.answers"
+            [errors]="activeFlow.errors"
+            (review)="reviewForm($event)"
+            (cancelled)="cancelForm()"
+          />
+        }
+        @case ('consent') {
+          <app-consent-confirmation
+            [consent]="activeFlow.form.consent"
+            [entries]="activeFlow.entries"
+            [error]="activeFlow.error"
+            (confirmed)="confirmConsent()"
+            (back)="backToForm()"
+          />
+        }
+      }
+    </main>
+
+    <footer class="composer-area">
+      @if (current.suggestedPrompts.length > 0) {
+        <div class="suggestions" role="group" aria-label="建議問題">
+          @for (prompt of current.suggestedPrompts; track prompt.id) {
+            <button type="button" class="suggested-prompt" (click)="ask(prompt.text)">{{ prompt.text }}</button>
+          }
+        </div>
+      }
+      <form class="composer" (submit)="submitDraft($event)">
+        <label for="chat-input" class="visually-hidden">輸入你的問題</label>
+        <input
+          #composerInput
+          id="chat-input"
+          type="text"
+          autocomplete="off"
+          enterkeyhint="send"
+          placeholder="輸入你的問題"
+          [value]="draft()"
+          [attr.aria-invalid]="composerError() ? 'true' : null"
+          [attr.aria-describedby]="composerError() ? 'chat-input-error' : 'chat-input-hint'"
+          (input)="updateDraft($event)"
+        />
+        <button type="submit">送出</button>
+      </form>
+      @if (composerError()) {
+        <p id="chat-input-error" class="composer-error" role="alert">{{ composerError() }}</p>
+      } @else {
+        <p id="chat-input-hint" class="composer-hint">Demo 只會以預先準備的回答回覆，不連接真實 AI。</p>
+      }
+    </footer>
+  </div>
+
+  @if (citations(); as open) {
+    <app-citation-drawer [citations]="open.citations" (closed)="closeCitations()" />
+  }
+}

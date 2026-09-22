@@ -18,7 +18,12 @@ import type {
   AssistantSummaryView,
 } from '../domain/assistant.model';
 import type {
+  AssistantChatView,
   AuthorizedFormInput,
+  ChatFormSubmission,
+  ChatFormView,
+  ChatMessageView,
+  ChatReplyView,
   ConversationId,
   StructuredSubmissionView,
 } from '../domain/conversation.model';
@@ -29,7 +34,9 @@ import type {
   DatabaseId,
   DatabaseSummaryView,
   DatabaseTrackingView,
+  DatabaseTrialAnswers,
   DatabaseView,
+  TrackedSubjectId,
 } from '../domain/database.model';
 import {
   KNOWLEDGE_DOCUMENT_STATUSES,
@@ -50,11 +57,25 @@ import {
   compareRecords,
   evaluateTrial,
   normalizeField,
+  toRecordValues,
   toRecordView,
   validateFields,
 } from './database-tracking';
+import {
+  CHAT_GENERAL_KNOWLEDGE_NOTICE,
+  CHAT_NO_RESULT_TEXT,
+  CHAT_PRIVACY_NOTICE,
+  CHAT_SENSITIVE_NOTICE,
+  CHAT_WITHDRAWAL_NOTICE,
+  DEFAULT_CHAT_PROFILE,
+  type ChatResponseFixture,
+} from './demo-seed-chat';
 import { DEMO_SEED, type DemoSeed } from './demo-seed';
-import type { DatabaseCollectionFixture, DatabaseRecordFixture } from './demo-seed-databases';
+import type {
+  DatabaseCollectionFixture,
+  DatabaseRecordFixture,
+  TrackedSubjectFixture,
+} from './demo-seed-databases';
 import { createMemoryStorage } from './memory-storage';
 import type {
   CreateAssistantResult,
@@ -66,6 +87,9 @@ import type {
   RepositoryPermissionDeniedReason,
   RepositoryView,
   PreviewDatabaseEntryResult,
+  ReviewChatFormResult,
+  SendChatMessageResult,
+  SubmitChatFormResult,
   UpdateDatabaseFieldsResult,
   UpdateKnowledgeSharingResult,
 } from './demo-repository';
@@ -266,6 +290,46 @@ function isStoredDatabaseFields(value: unknown): value is StoredDatabaseFields {
     Array.isArray(value['fields']) &&
     value['fields'].every((field) => isRecord(field) && typeof field['id'] === 'string')
   );
+}
+
+const CHAT_KEY_PREFIX = 'sme-demo:chat:';
+const CHAT_RECORDS_KEY = 'sme-demo:chat-records';
+const MAX_QUESTION_LENGTH = 500;
+
+interface StoredChatRecord {
+  readonly version: 1;
+  readonly messages: readonly ChatMessageView[];
+}
+
+function isStoredChatRecord(value: unknown): value is StoredChatRecord {
+  return (
+    isRecord(value) &&
+    value['version'] === 1 &&
+    Array.isArray(value['messages']) &&
+    value['messages'].every(
+      (message) =>
+        isRecord(message) &&
+        typeof message['id'] === 'string' &&
+        (message['author'] === 'account' || message['author'] === 'assistant'),
+    )
+  );
+}
+
+function isStoredChatDatabaseRecord(value: unknown): value is DatabaseRecordFixture {
+  return (
+    isRecord(value) &&
+    typeof value['id'] === 'string' &&
+    value['id'].startsWith('record-chat-') &&
+    typeof value['databaseId'] === 'string' &&
+    typeof value['subjectId'] === 'string' &&
+    typeof value['recordedAt'] === 'string' &&
+    Array.isArray(value['values'])
+  );
+}
+
+interface ChatFormTarget {
+  readonly assistant: AssistantConfigurationView;
+  readonly form: ChatFormView;
 }
 
 const DATABASE_STATUS: Record<
@@ -502,7 +566,10 @@ export class MockDemoRepository implements DemoRepository {
       );
     }
 
-    return this.applyScenario(analytics);
+    return this.applyScenario({
+      ...analytics,
+      conversationCount: analytics.conversationCount + this.countChatConversations(assistantId),
+    });
   }
 
   listPublishingChannels(
@@ -957,7 +1024,7 @@ export class MockDemoRepository implements DemoRepository {
     const records = this.consentedRecords(database.id);
     const tracking: DatabaseTrackingView = {
       databaseId: database.id,
-      subjects: this.seed.trackedSubjects
+      subjects: [...this.seed.trackedSubjects, ...this.chatSubjects()]
         .filter((subject) => subject.databaseId === database.id)
         .map((subject) => {
           const chronological = records.filter((record) => record.subjectId === subject.id);
@@ -972,6 +1039,307 @@ export class MockDemoRepository implements DemoRepository {
     };
 
     return this.applyScenario(tracking);
+  }
+
+  getAssistantChat(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ReturnType<DemoRepository['getAssistantChat']> {
+    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantUsePermissionDenied();
+
+    return this.applyScenario(
+      this.toChatView(assistant, this.chatMessages(viewerAccountId, assistant.id)),
+    );
+  }
+
+  sendChatMessage(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    text: string,
+  ): SendChatMessageResult {
+    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantUsePermissionDenied();
+
+    const question = text.trim();
+    if (question.length === 0) {
+      return immutableCopy({ status: 'validation-failed', message: '請先輸入問題。' });
+    }
+    if (question.length > MAX_QUESTION_LENGTH) {
+      return immutableCopy({
+        status: 'validation-failed',
+        message: `問題請在 ${MAX_QUESTION_LENGTH} 個字以內。`,
+      });
+    }
+
+    const messages = this.chatMessages(viewerAccountId, assistant.id);
+    const createdAt = this.now().toISOString();
+    const next: readonly ChatMessageView[] = [
+      ...messages,
+      { id: `chat-message-${messages.length + 1}`, author: 'account', text: question, createdAt },
+      {
+        id: `chat-message-${messages.length + 2}`,
+        author: 'assistant',
+        reply: this.resolveChatReply(assistant, question),
+        createdAt,
+      },
+    ];
+    this.saveChatMessages(viewerAccountId, assistant.id, next);
+
+    return this.applyScenario(this.toChatView(assistant, next));
+  }
+
+  reviewChatForm(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    formId: DatabaseId,
+    answers: DatabaseTrialAnswers,
+  ): ReviewChatFormResult {
+    const target = this.chatFormTarget(viewerAccountId, assistantId, formId);
+    if (target === undefined) return this.assistantUsePermissionDenied();
+
+    const outcome = evaluateTrial(target.form.fields, answers);
+    if ('errors' in outcome) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: outcome.errors,
+        message: '還有欄位需要修正。',
+      });
+    }
+
+    return this.applyScenario({ formId: target.form.id, saved: false as const, entries: outcome.entries });
+  }
+
+  submitChatForm(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    submission: ChatFormSubmission,
+  ): SubmitChatFormResult {
+    const target = this.chatFormTarget(viewerAccountId, assistantId, submission.formId);
+    if (target === undefined) return this.assistantUsePermissionDenied();
+
+    const { assistant, form } = target;
+    const outcome = evaluateTrial(form.fields, submission.answers);
+    if ('errors' in outcome) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: outcome.errors,
+        message: '還有欄位需要修正。',
+      });
+    }
+    if (submission.consent !== true) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: [{ fieldId: null, message: '請先勾選同意，才能送出資料。' }],
+        message: '尚未同意，資料沒有送出。',
+      });
+    }
+
+    const recordedAt = this.now().toISOString();
+    const existing = this.chatRecords();
+    const record: DatabaseRecordFixture = {
+      id: `record-chat-${existing.length + 1}`,
+      databaseId: form.id,
+      subjectId: `subject-${viewerAccountId}`,
+      recordedAt,
+      source: 'assistant-conversation',
+      consentStatus: 'consented',
+      values: toRecordValues(form.fields, submission.answers),
+    };
+    this.storage.setItem(CHAT_RECORDS_KEY, JSON.stringify([...existing, record]));
+
+    const messages = this.chatMessages(viewerAccountId, assistant.id);
+    const next: readonly ChatMessageView[] = [
+      ...messages,
+      {
+        id: `chat-message-${messages.length + 1}`,
+        author: 'assistant',
+        createdAt: recordedAt,
+        reply: {
+          kind: 'submission-receipt',
+          text: `已送出。資料只會交給 ${form.consent.recipient}，你可以隨時申請撤回或刪除。`,
+          recipient: form.consent.recipient,
+          entries: outcome.entries,
+        },
+      },
+    ];
+    this.saveChatMessages(viewerAccountId, assistant.id, next);
+
+    return this.applyScenario(this.toChatView(assistant, next));
+  }
+
+  /** 可使用的助理；不存在與無權限都回傳 undefined，呼叫端回覆相同訊息。 */
+  private usableAssistant(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): AssistantConfigurationView | undefined {
+    return this.assistants().find(
+      (assistant) =>
+        assistant.id === assistantId && this.canUseAssistant(assistant, viewerAccountId),
+    );
+  }
+
+  private assistantUsePermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied('assistant-use', '你沒有使用這個助理的權限，或它已不存在。');
+  }
+
+  private chatKey(viewerAccountId: AccountId, assistantId: AssistantId): string {
+    return `${CHAT_KEY_PREFIX}${viewerAccountId}:${assistantId}`;
+  }
+
+  private chatMessages(viewerAccountId: AccountId, assistantId: AssistantId): readonly ChatMessageView[] {
+    const stored = parseJson(this.storage.getItem(this.chatKey(viewerAccountId, assistantId)));
+    return isStoredChatRecord(stored) ? stored.messages : [];
+  }
+
+  private saveChatMessages(
+    viewerAccountId: AccountId,
+    assistantId: AssistantId,
+    messages: readonly ChatMessageView[],
+  ): void {
+    const record: StoredChatRecord = { version: 1, messages };
+    this.storage.setItem(this.chatKey(viewerAccountId, assistantId), JSON.stringify(record));
+  }
+
+  /** 匿名統計只計算有對話的帳號數，不讀取任何對話文字。 */
+  private countChatConversations(assistantId: AssistantId): number {
+    return this.seed.accounts.filter(
+      (account) => this.chatMessages(account.id, assistantId).length > 0,
+    ).length;
+  }
+
+  private chatRecords(): readonly DatabaseRecordFixture[] {
+    const stored = parseJson(this.storage.getItem(CHAT_RECORDS_KEY));
+    return Array.isArray(stored) ? stored.filter(isStoredChatDatabaseRecord) : [];
+  }
+
+  /** 由對話提交的紀錄，以提交帳號作為追蹤對象。 */
+  private chatSubjects(): readonly TrackedSubjectFixture[] {
+    const seen = new Map<string, TrackedSubjectFixture>();
+    this.chatRecords().forEach((record) => {
+      const key = `${record.databaseId}|${record.subjectId}`;
+      if (seen.has(key)) return;
+      const account = this.seed.accounts.find((candidate) => `subject-${candidate.id}` === record.subjectId);
+      seen.set(key, {
+        id: record.subjectId as TrackedSubjectId,
+        databaseId: record.databaseId,
+        displayName: account?.displayName ?? '已停用的帳號',
+      });
+    });
+    return [...seen.values()];
+  }
+
+  private toChatView(
+    assistant: AssistantConfigurationView,
+    messages: readonly ChatMessageView[],
+  ): AssistantChatView {
+    const profile = this.seed.chatProfiles[assistant.id] ?? DEFAULT_CHAT_PROFILE;
+    return {
+      assistantId: assistant.id,
+      assistantName: assistant.name,
+      purpose: assistant.purpose,
+      welcome: profile.welcome,
+      privacyNotice: CHAT_PRIVACY_NOTICE,
+      suggestedPrompts: this.seed.chatResponses
+        .filter((fixture) => this.fixtureReply(assistant, fixture) !== null)
+        .map((fixture) => ({ id: fixture.id, text: fixture.prompt })),
+      messages,
+    };
+  }
+
+  /** 依關鍵字對應預先準備的回覆；對應不到或來源未連接時回覆查無資料與下一步。 */
+  private resolveChatReply(assistant: AssistantConfigurationView, question: string): ChatReplyView {
+    const normalized = question.replace(/\s+/g, '');
+    for (const fixture of this.seed.chatResponses) {
+      const matches = fixture.matchers.some((group) => group.every((keyword) => normalized.includes(keyword)));
+      if (!matches) continue;
+      const reply = this.fixtureReply(assistant, fixture);
+      if (reply !== null) return reply;
+    }
+
+    const formAvailable = this.seed.chatResponses.some(
+      (fixture) => fixture.answer.kind === 'form-request' && this.fixtureReply(assistant, fixture) !== null,
+    );
+    return {
+      kind: 'no-result',
+      text: CHAT_NO_RESULT_TEXT,
+      nextSteps: [
+        '換個說法再問一次，或點選建議問題。',
+        ...(formAvailable ? ['需要專人協助時，輸入「回報訂單問題」留下資料，客服會回覆你。'] : []),
+        '急件請直接聯絡門市客服（週一至週五 09:00–18:00）。',
+      ],
+    };
+  }
+
+  private fixtureReply(
+    assistant: AssistantConfigurationView,
+    fixture: ChatResponseFixture,
+  ): ChatReplyView | null {
+    const answer = fixture.answer;
+    switch (answer.kind) {
+      case 'company-data': {
+        const citations = answer.citations
+          .filter((citation) => assistant.knowledgeBaseIds.includes(citation.knowledgeBaseId))
+          .map((citation, index) => ({
+            id: `citation-${fixture.id}-${index + 1}` as const,
+            knowledgeBaseName:
+              this.seed.knowledgeBases.find((knowledgeBase) => knowledgeBase.id === citation.knowledgeBaseId)
+                ?.name ?? '已連接的知識庫',
+            documentName: citation.documentName,
+            excerpt: citation.excerpt,
+            updatedLabel: citation.updatedLabel,
+          }));
+        return citations.length > 0 ? { kind: 'company-data', text: answer.text, citations } : null;
+      }
+      case 'general-knowledge': {
+        const profile = this.seed.chatProfiles[assistant.id] ?? DEFAULT_CHAT_PROFILE;
+        return profile.allowGeneralKnowledge
+          ? { kind: 'general-knowledge', text: answer.text, notice: CHAT_GENERAL_KNOWLEDGE_NOTICE }
+          : null;
+      }
+      case 'form-request': {
+        const form = this.chatForm(assistant, answer.databaseId);
+        return form === null ? null : { kind: 'form-request', text: answer.text, form };
+      }
+    }
+  }
+
+  /** 助理有連接該資料庫時才提供表單；接收者與可查看者皆取自資料庫設定。 */
+  private chatForm(assistant: AssistantConfigurationView, databaseId: DatabaseId): ChatFormView | null {
+    if (!assistant.databaseIds.includes(databaseId)) return null;
+    const database = this.databases().find((candidate) => candidate.id === databaseId);
+    if (database === undefined) return null;
+
+    const collection = this.databaseCollection(database.id);
+    const nameOf = (id: AccountId) =>
+      this.seed.accounts.find((account) => account.id === id)?.displayName ?? '已停用的帳號';
+
+    return {
+      id: database.id,
+      title: database.name,
+      fields: collection.fields,
+      consent: {
+        recipient: `${nameOf(database.ownerAccountId)}（${database.name}）`,
+        purpose: collection.purpose,
+        viewers: collection.dataManagerAccountIds.map(nameOf),
+        sensitiveNotice: CHAT_SENSITIVE_NOTICE,
+        withdrawalNotice: CHAT_WITHDRAWAL_NOTICE,
+      },
+    };
+  }
+
+  private chatFormTarget(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    formId: DatabaseId,
+  ): ChatFormTarget | undefined {
+    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return undefined;
+    const offered = this.seed.chatResponses.some(
+      (fixture) => fixture.answer.kind === 'form-request' && fixture.answer.databaseId === formId,
+    );
+    const form = offered ? this.chatForm(assistant, formId) : null;
+    return form === null ? undefined : { assistant, form };
   }
 
   private databases(): readonly DatabaseView[] {
@@ -1018,7 +1386,7 @@ export class MockDemoRepository implements DemoRepository {
 
   /** 只取使用者明確同意提交的紀錄，依時間先後排列。 */
   private consentedRecords(databaseId: DatabaseId): readonly DatabaseRecordFixture[] {
-    return this.seed.databaseRecords
+    return [...this.seed.databaseRecords, ...this.chatRecords()]
       .filter((record) => record.databaseId === databaseId && record.consentStatus === 'consented')
       .slice()
       .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));

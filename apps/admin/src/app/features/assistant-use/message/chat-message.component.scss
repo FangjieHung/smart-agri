@@ -1,0 +1,59 @@
+:host { display: flex; }
+:host:has([data-author='account']) { justify-content: flex-end; }
+
+p, ul, dl { margin: 0; }
+
+.bubble {
+  display: grid;
+  gap: var(--space-2);
+  max-inline-size: min(100%, 36rem);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-container);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+
+[data-author='account'] { background: var(--color-accent); color: var(--color-on-accent); }
+
+[data-author='assistant'] {
+  border: var(--border-default);
+  border-inline-start: var(--space-1) solid var(--color-success);
+  background: var(--color-surface);
+}
+[data-kind='general-knowledge'] { border-inline-start-color: var(--color-warning); }
+[data-kind='no-result'] { border-inline-start-color: var(--color-text-secondary); }
+[data-kind='form-request'], [data-kind='submission-receipt'] { border-inline-start-color: var(--color-accent); }
+
+.kind { font-size: var(--font-size-caption); font-weight: 700; color: var(--color-success); }
+[data-kind='general-knowledge'] .kind, .notice { color: var(--color-warning); }
+[data-kind='no-result'] .kind { color: var(--color-text-secondary); }
+[data-kind='form-request'] .kind, [data-kind='submission-receipt'] .kind { color: var(--color-accent); }
+
+.notice {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--color-warning) 10%, var(--color-surface));
+  font-size: var(--font-size-caption);
+}
+
+.next-title { font-weight: 700; }
+.next-steps { padding-inline-start: var(--space-6); }
+
+button {
+  justify-self: start;
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+.form-start { background: var(--color-accent); color: var(--color-on-accent); }
+button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
+.receipt { display: grid; gap: var(--space-1); font-size: var(--font-size-caption); }
+.receipt div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.receipt dt { color: var(--color-text-secondary); }
+.receipt dd { margin: 0; font-weight: 700; }

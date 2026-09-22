@@ -42,3 +42,10 @@ p { color: var(--color-text-secondary); line-height: var(--line-height-body); }
 .created-banner { display: grid; gap: var(--space-2); padding: var(--space-4) var(--space-6); border: 1px solid color-mix(in srgb, var(--color-success) 40%, var(--color-border)); border-inline-start: var(--space-1) solid var(--color-success); border-radius: var(--radius-container); background: var(--color-surface); }
 .created-banner a { color: var(--color-accent); font-weight: 700; }
 .created-banner a:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }
+
+.panel-link { justify-self: start; color: var(--color-accent); font-weight: 700; }
+.panel-link:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }
+.usage-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-3); margin: 0; }
+.usage-summary div { display: grid; gap: var(--space-1); padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-control); }
+.usage-summary dt { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.usage-summary dd { margin: 0; color: var(--color-text); font-size: var(--font-size-heading); font-weight: 700; }

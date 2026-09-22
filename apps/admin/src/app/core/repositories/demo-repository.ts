@@ -30,7 +30,10 @@ import type {
 } from '../domain/database.model';
 import type {
   AssistantAnalyticsView,
+  AssistantChatView,
   AuthorizedFormInput,
+  ChatFormReviewView,
+  ChatFormSubmission,
   ConversationId,
   PrivateConversationView,
   StructuredSubmissionView,
@@ -63,7 +66,8 @@ export type RepositoryPermissionDeniedReason =
   | 'assistant-draft'
   | 'knowledge-base'
   | 'database'
-  | 'database-records';
+  | 'database-records'
+  | 'assistant-use';
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -133,6 +137,23 @@ export type UpdateDatabaseFieldsResult =
 
 export type PreviewDatabaseEntryResult =
   | RepositoryView<DatabaseTrialPreviewView>
+  | DatabaseFieldsValidationFailedView;
+
+export interface ChatValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly message: string;
+}
+
+export type SendChatMessageResult =
+  | RepositoryView<AssistantChatView>
+  | ChatValidationFailedView;
+
+export type ReviewChatFormResult =
+  | RepositoryView<ChatFormReviewView>
+  | DatabaseFieldsValidationFailedView;
+
+export type SubmitChatFormResult =
+  | RepositoryView<AssistantChatView>
   | DatabaseFieldsValidationFailedView;
 
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
@@ -288,6 +309,36 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     databaseId: string,
   ): RepositoryView<DatabaseTrackingView>;
+  /**
+   * 目前帳號與助理的私人對話。id 來自網址、未經驗證；不存在或無使用權限時一律回傳
+   * 相同的 permission-denied。對話只屬於發起的帳號，助理擁有者也看不到其他帳號的內容。
+   */
+  getAssistantChat(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): RepositoryView<AssistantChatView>;
+  /** 以預先準備的 response map 回覆；對應不到時回覆查無資料與下一步，不模擬 LLM。 */
+  sendChatMessage(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    text: string,
+  ): SendChatMessageResult;
+  /** 對話中表單的送出前確認：只驗證並整理填寫值，不會建立紀錄。 */
+  reviewChatForm(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    formId: DatabaseId,
+    answers: DatabaseTrialAnswers,
+  ): ReviewChatFormResult;
+  /**
+   * 使用者明確同意後才會建立結構化紀錄，並寫入該資料庫的收集紀錄；
+   * 只有指定資料管理者可在收集紀錄中看到。未同意時回傳 validation-failed。
+   */
+  submitChatForm(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    submission: ChatFormSubmission,
+  ): SubmitChatFormResult;
 }
 
 export const DEMO_SECURITY_NOTICE =

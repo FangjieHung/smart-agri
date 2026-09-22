@@ -1,0 +1,82 @@
+@let current = form();
+@let invalid = invalidIds();
+<form class="inline-form" aria-labelledby="inline-form-title" novalidate (submit)="submit($event)">
+  <h2 id="inline-form-title">{{ current.title }}</h2>
+  <p class="hint">標示「必填」的欄位需要填寫。下一步會先確認資料的接收者與用途，確認前不會送出。</p>
+
+  @if (errors().length > 0) {
+    <div id="inline-form-errors" class="errors" role="alert">
+      <p>還有欄位需要修正：</p>
+      <ul>
+        @for (error of errors(); track error.message) {
+          <li>{{ error.message }}</li>
+        }
+      </ul>
+    </div>
+  }
+
+  @for (field of current.fields; track field.id) {
+    @let id = inputId(field);
+    @let isInvalid = invalid.has(field.id);
+    @switch (field.type) {
+      @case ('single-choice') {
+        <fieldset [attr.aria-describedby]="isInvalid ? 'inline-form-errors' : null">
+          <legend>{{ field.label }}@if (field.required) {<span class="required">（必填）</span>}</legend>
+          @for (option of field.options; track option) {
+            <label class="choice">
+              <input type="radio" [name]="id" [value]="option" [checked]="checked(field.id, option)"
+                [attr.aria-invalid]="isInvalid ? 'true' : null" (change)="setText(field.id, $event)" />
+              {{ option }}
+            </label>
+          }
+        </fieldset>
+      }
+      @case ('scale') {
+        <fieldset [attr.aria-describedby]="isInvalid ? 'inline-form-errors' : null">
+          <legend>{{ field.label }}@if (field.required) {<span class="required">（必填）</span>}</legend>
+          <div class="scale">
+            @for (option of scaleOptions(field); track option) {
+              <label class="choice">
+                <input type="radio" [name]="id" [value]="option" [checked]="checked(field.id, option)"
+                  [attr.aria-invalid]="isInvalid ? 'true' : null" (change)="setText(field.id, $event)" />
+                {{ option }}
+              </label>
+            }
+          </div>
+        </fieldset>
+      }
+      @case ('multiple-choice') {
+        <fieldset [attr.aria-describedby]="isInvalid ? 'inline-form-errors' : null">
+          <legend>{{ field.label }}@if (field.required) {<span class="required">（必填）</span>}</legend>
+          @for (option of field.options; track option) {
+            <label class="choice">
+              <input type="checkbox" [value]="option" [checked]="checked(field.id, option)"
+                [attr.aria-invalid]="isInvalid ? 'true' : null" (change)="toggle(field.id, option, $event)" />
+              {{ option }}
+            </label>
+          }
+        </fieldset>
+      }
+      @default {
+        <div class="field">
+          <label [for]="id">{{ field.label }}@if (field.required) {<span class="required">（必填）</span>}</label>
+          <input
+            [id]="id"
+            [type]="field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'"
+            [attr.inputmode]="field.type === 'number' ? 'decimal' : null"
+            [value]="text(field.id)"
+            [attr.aria-invalid]="isInvalid ? 'true' : null"
+            [attr.aria-describedby]="isInvalid ? 'inline-form-errors' : null"
+            [attr.aria-required]="field.required ? 'true' : null"
+            (input)="setText(field.id, $event)"
+          />
+        </div>
+      }
+    }
+  }
+
+  <div class="actions">
+    <button type="submit" class="primary">下一步：確認同意</button>
+    <button type="button" class="secondary" (click)="cancelled.emit()">取消</button>
+  </div>
+</form>

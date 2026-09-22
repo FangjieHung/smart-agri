@@ -1,0 +1,20 @@
+@let item = document();
+<div class="document-row" [class.document-row--attention]="canRetry()">
+  <div class="document-main">
+    <span class="document-kind">{{ kindLabel() }}</span>
+    <p class="document-name">{{ item.name }}</p>
+    @if (item.issue) {
+      <p class="document-issue">{{ item.issue }}</p>
+    }
+  </div>
+  <span class="document-status" [attr.data-status]="item.status">
+    <span aria-hidden="true">{{ status().symbol }}</span>
+    <span>{{ status().label }}</span>
+  </span>
+  <time class="document-time" [attr.datetime]="item.updatedAt">{{ updatedAt() }}</time>
+  @if (canRetry()) {
+    <button type="button" class="document-retry" (click)="retry.emit(item.id)">
+      重新處理<span class="visually-hidden">{{ item.name }}</span>
+    </button>
+  }
+</div>

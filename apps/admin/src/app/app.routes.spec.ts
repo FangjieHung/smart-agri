@@ -14,4 +14,11 @@ describe('app routes', () => {
     expect(routes.find((route) => route.path === 'app/activity')?.loadComponent).toBeDefined();
     expect(routes.find((route) => route.path === 'app/channels')?.loadComponent).toBeDefined();
   });
+
+  it('opens knowledge base details on a tab route, defaulting to the content tab', () => {
+    expect(routes.find((route) => route.path === 'app/knowledge/:id/:tab')?.loadComponent).toBeDefined();
+    expect(routes.find((route) => route.path === 'app/knowledge/:id')?.redirectTo).toBe(
+      'app/knowledge/:id/content',
+    );
+  });
 });

@@ -26,6 +26,10 @@ describe('MockDemoRepository', () => {
           id: 'assistant-customer-service',
           ownerAccountId: 'account-smb-admin',
         },
+        {
+          id: 'assistant-internal-onboarding',
+          ownerAccountId: 'account-smb-admin',
+        },
       ],
     });
     expect(employeeConfigurations).toEqual({ status: 'ready', data: [] });

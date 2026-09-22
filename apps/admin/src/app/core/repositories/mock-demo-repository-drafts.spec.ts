@@ -71,7 +71,8 @@ describe('MockDemoRepository assistant creation', () => {
           id: 'knowledge-product-guide',
           type: 'knowledge-base',
           permission: 'owner',
-          summary: '12 份文件',
+          summary: '4 份文件、2 則 FAQ',
+          status: 'needs-attention',
         }),
       );
     }

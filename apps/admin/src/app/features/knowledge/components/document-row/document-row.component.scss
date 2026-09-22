@@ -1,0 +1,56 @@
+:host { display: block; }
+
+.document-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.document-row--attention { border-inline-start: var(--space-1) solid var(--color-warning); }
+.document-main { display: grid; gap: var(--space-1); min-inline-size: 0; }
+.document-kind { color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: 700; }
+.document-name { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.document-issue { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.document-time { color: var(--color-text-secondary); font-size: var(--font-size-caption); white-space: nowrap; }
+
+.document-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-control);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+
+  &[data-status='processing'] { color: var(--color-accent); }
+  &[data-status='ready'] { color: var(--color-success); }
+  &[data-status='partially-readable'] { color: var(--color-warning); }
+  &[data-status='failed'] { color: var(--color-error); }
+}
+
+.document-retry {
+  min-block-size: var(--target-size);
+  padding-inline: var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 700;
+  cursor: pointer;
+
+  &:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+}
+
+@media (max-width: 720px) {
+  .document-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .document-main { grid-column: 1 / -1; }
+  .document-retry { grid-column: 1 / -1; justify-self: start; }
+}

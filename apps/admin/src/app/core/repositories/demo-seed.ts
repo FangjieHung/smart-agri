@@ -10,13 +10,20 @@ import type {
   PrivateConversationView,
   StructuredSubmissionView,
 } from '../domain/conversation.model';
-import type { KnowledgeBaseView } from '../domain/knowledge-base.model';
+import type {
+  KnowledgeBaseId,
+  KnowledgeBaseView,
+  KnowledgeDocumentView,
+  KnowledgeSharingView,
+} from '../domain/knowledge-base.model';
 import type { PublishingChannelView } from '../domain/publishing.model';
 
 export interface DemoSeed {
   readonly accounts: readonly AccountView[];
   readonly assistants: readonly AssistantConfigurationView[];
   readonly knowledgeBases: readonly KnowledgeBaseView[];
+  readonly knowledgeDocuments: Readonly<Record<KnowledgeBaseId, readonly KnowledgeDocumentView[]>>;
+  readonly knowledgeSharing: Readonly<Record<KnowledgeBaseId, KnowledgeSharingView>>;
   readonly databases: readonly DatabaseView[];
   readonly privateConversations: readonly PrivateConversationView[];
   readonly structuredSubmissions: readonly StructuredSubmissionView[];
@@ -78,33 +85,81 @@ export const DEMO_SEED: DemoSeed = {
       ],
       databaseIds: ['database-orders', 'database-customer-records'],
     },
+    {
+      id: 'assistant-internal-onboarding',
+      ownerAccountId: 'account-smb-admin',
+      name: '內部教育訓練助理',
+      purpose: '協助同仁熟悉商品與操作流程',
+      status: 'ready',
+      audience: 'account-members',
+      sharedWithAccountIds: [],
+      knowledgeBaseIds: ['knowledge-product-guide'],
+      databaseIds: [],
+    },
   ],
   knowledgeBases: [
     {
       id: 'knowledge-product-guide',
       ownerAccountId: 'account-smb-admin',
       name: '商品使用指南',
-      status: 'ready',
-      documentCount: 12,
+      purpose: '商品規格、操作步驟與保養方式',
       lastSyncedAt: '2026-09-18T08:00:00.000Z',
     },
     {
       id: 'knowledge-refund-policy',
       ownerAccountId: 'account-smb-admin',
       name: '退換貨政策',
-      status: 'ready',
-      documentCount: 4,
+      purpose: '退貨期限、換貨條件與退款流程',
       lastSyncedAt: '2026-09-18T08:05:00.000Z',
     },
     {
       id: 'knowledge-shipping-faq',
       ownerAccountId: 'account-smb-admin',
       name: '配送常見問題',
-      status: 'ready',
-      documentCount: 7,
+      purpose: '運費、配送時間與離島配送說明',
       lastSyncedAt: '2026-09-18T08:10:00.000Z',
     },
+    {
+      id: 'knowledge-staff-notes',
+      ownerAccountId: 'account-internal-employee',
+      name: '同仁個人筆記',
+      purpose: '客服同仁自己整理的回覆筆記',
+      lastSyncedAt: '2026-09-17T09:00:00.000Z',
+    },
   ],
+  knowledgeDocuments: {
+    'knowledge-product-guide': [
+      { id: 'document-guide-specs', kind: 'document', name: '商品規格總表.pdf', status: 'ready', issue: null, updatedAt: '2026-09-18T07:40:00.000Z' },
+      { id: 'document-guide-setup', kind: 'document', name: '初次使用設定步驟.docx', status: 'ready', issue: null, updatedAt: '2026-09-18T07:45:00.000Z' },
+      { id: 'document-guide-scan', kind: 'document', name: '舊版說明書掃描檔.pdf', status: 'partially-readable', issue: '第 3–5 頁為掃描影像，無法讀取文字；其餘頁面可正常引用。', updatedAt: '2026-09-18T07:50:00.000Z' },
+      { id: 'document-guide-locked', kind: 'document', name: '保固條款（加密）.pdf', status: 'failed', issue: '檔案設有開啟密碼，無法讀取內容。請移除密碼後重新處理。', updatedAt: '2026-09-18T07:55:00.000Z' },
+      { id: 'document-guide-faq-care', kind: 'faq', name: '皮革商品可以用水清洗嗎？', status: 'ready', issue: null, updatedAt: '2026-09-18T08:00:00.000Z' },
+      { id: 'document-guide-faq-warranty', kind: 'faq', name: '保固期間是多久？', status: 'ready', issue: null, updatedAt: '2026-09-18T08:00:00.000Z' },
+    ],
+    'knowledge-refund-policy': [
+      { id: 'document-refund-policy', kind: 'document', name: '退換貨辦法 2026 版.pdf', status: 'ready', issue: null, updatedAt: '2026-09-18T08:05:00.000Z' },
+      { id: 'document-refund-flow', kind: 'document', name: '退款作業流程.docx', status: 'ready', issue: null, updatedAt: '2026-09-18T08:05:00.000Z' },
+      { id: 'document-refund-faq-window', kind: 'faq', name: '收到商品幾天內可以退貨？', status: 'ready', issue: null, updatedAt: '2026-09-18T08:05:00.000Z' },
+    ],
+    'knowledge-shipping-faq': [
+      { id: 'document-shipping-rates', kind: 'document', name: '運費與配送時間表.xlsx', status: 'ready', issue: null, updatedAt: '2026-09-18T08:10:00.000Z' },
+      { id: 'document-shipping-islands', kind: 'document', name: '離島配送說明.pdf', status: 'processing', issue: null, updatedAt: '2026-09-18T08:12:00.000Z' },
+      { id: 'document-shipping-faq-holiday', kind: 'faq', name: '連假期間會出貨嗎？', status: 'queued', issue: null, updatedAt: '2026-09-18T08:14:00.000Z' },
+    ],
+    'knowledge-staff-notes': [
+      { id: 'document-staff-notes', kind: 'document', name: '個人回覆範本.docx', status: 'ready', issue: null, updatedAt: '2026-09-17T09:00:00.000Z' },
+    ],
+  },
+  knowledgeSharing: {
+    'knowledge-product-guide': {
+      scope: 'specific-accounts',
+      sharedWithAccountIds: ['account-internal-employee'],
+      allowOriginalDownload: false,
+    },
+    'knowledge-refund-policy': { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
+    'knowledge-shipping-faq': { scope: 'public', sharedWithAccountIds: [], allowOriginalDownload: false },
+    'knowledge-staff-notes': { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
+  },
   databases: [
     {
       id: 'database-orders',

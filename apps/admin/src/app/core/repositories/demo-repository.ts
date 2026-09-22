@@ -23,7 +23,15 @@ import type {
   PrivateConversationView,
   StructuredSubmissionView,
 } from '../domain/conversation.model';
-import type { KnowledgeBaseView } from '../domain/knowledge-base.model';
+import type {
+  KnowledgeBaseDetailView,
+  KnowledgeBaseId,
+  KnowledgeBaseSummaryView,
+  KnowledgeBaseView,
+  KnowledgeDocumentId,
+  KnowledgeDocumentView,
+  KnowledgeSharingView,
+} from '../domain/knowledge-base.model';
 import type { PublishingChannelView } from '../domain/publishing.model';
 
 export type DemoScenario =
@@ -40,7 +48,8 @@ export type RepositoryPermissionDeniedReason =
   | 'private-conversation'
   | 'assistant-configuration'
   | 'authorized-form'
-  | 'assistant-draft';
+  | 'assistant-draft'
+  | 'knowledge-base';
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -79,6 +88,15 @@ export interface ValidationFailedRepositoryView {
 export type CreateAssistantResult =
   | RepositoryView<AssistantConfigurationView>
   | ValidationFailedRepositoryView;
+
+export interface SharingValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly message: string;
+}
+
+export type UpdateKnowledgeSharingResult =
+  | RepositoryView<KnowledgeSharingView>
+  | SharingValidationFailedView;
 
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
 export type DemoKeyValueStorage = Pick<
@@ -159,6 +177,40 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     draft: AssistantDraft,
   ): CreateAssistantResult;
+  /** 目前帳號擁有的知識庫摘要：文件／FAQ 數量、狀態統計、分享範圍與已連接助理。 */
+  listKnowledgeBaseSummaries(
+    viewerAccountId: AccountId,
+  ): RepositoryView<readonly KnowledgeBaseSummaryView[]>;
+  /**
+   * 知識庫詳情。id 來自網址、未經驗證；不存在或無權限時一律回傳相同的
+   * permission-denied，訊息不包含資源名稱。
+   */
+  getKnowledgeBaseDetail(
+    viewerAccountId: AccountId,
+    knowledgeBaseId: string,
+  ): RepositoryView<KnowledgeBaseDetailView>;
+  /** Demo：只新增一筆等待處理的文件紀錄，不會真正上傳檔案。 */
+  addDemoKnowledgeDocument(
+    viewerAccountId: AccountId,
+    knowledgeBaseId: KnowledgeBaseId,
+  ): RepositoryView<KnowledgeDocumentView>;
+  /** Demo：把文件往下一個處理狀態推進一步（等待處理 → 處理中 → 可使用）。 */
+  advanceKnowledgeDocument(
+    viewerAccountId: AccountId,
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+  ): RepositoryView<KnowledgeDocumentView>;
+  /** 把處理失敗或部分無法讀取的文件重新排入處理。 */
+  retryKnowledgeDocument(
+    viewerAccountId: AccountId,
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+  ): RepositoryView<KnowledgeDocumentView>;
+  updateKnowledgeSharing(
+    viewerAccountId: AccountId,
+    knowledgeBaseId: KnowledgeBaseId,
+    sharing: KnowledgeSharingView,
+  ): UpdateKnowledgeSharingResult;
 }
 
 export const DEMO_SECURITY_NOTICE =

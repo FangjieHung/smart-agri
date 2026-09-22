@@ -1,0 +1,59 @@
+<form class="sharing-form" (submit)="submit($event)" novalidate>
+  <fieldset class="group">
+    <legend>分享範圍</legend>
+    <p class="hint">分享是明確動作：分享這個知識庫不會連帶開放你的其他助理、資料或對話。</p>
+    @for (option of options; track option.value) {
+      <label class="scope-option">
+        <input
+          type="radio"
+          name="sharing-scope"
+          [value]="option.value"
+          [checked]="scope() === option.value"
+          (change)="chooseScope(option.value)"
+        />
+        <span>
+          <strong>{{ option.label }}</strong>
+          <small>{{ option.description }}</small>
+        </span>
+      </label>
+    }
+  </fieldset>
+
+  @if (scope() === 'specific-accounts') {
+    <fieldset class="group" [attr.aria-describedby]="error() ? 'sharing-error' : null">
+      <legend>可連接的帳號／團隊（已選 {{ selectedCount() }} 個）</legend>
+      @for (target of targets(); track target.id) {
+        <label class="check">
+          <input
+            type="checkbox"
+            [value]="target.id"
+            [checked]="isSelected(target.id)"
+            (change)="toggleAccount(target.id, checked($event))"
+          />
+          <span>{{ target.displayName }}</span>
+        </label>
+      }
+    </fieldset>
+  }
+
+  @if (scope() === 'public') {
+    <div class="group">
+      <p class="note">公開分享時，其他帳號只能連接使用，不能修改內容。</p>
+      <label class="check" for="allow-download">
+        <input
+          id="allow-download"
+          type="checkbox"
+          [checked]="allowDownload()"
+          (change)="allowDownload.set(checked($event))"
+        />
+        <span>允許他人下載原始文件</span>
+      </label>
+    </div>
+  }
+
+  @if (error()) {
+    <p id="sharing-error" class="error" role="alert">{{ error() }}</p>
+  }
+
+  <button type="submit" class="ui-button">儲存分享設定</button>
+</form>

@@ -51,7 +51,19 @@ export const routes: Routes = [
   {
     path: 'app/knowledge',
     canActivate: [demoSessionGuard],
-    loadComponent: workspacePlaceholder,
+    loadComponent: () =>
+      import('./features/knowledge/knowledge-list/knowledge-list-page.component').then(
+        (m) => m.KnowledgeListPageComponent,
+      ),
+  },
+  { path: 'app/knowledge/:id', redirectTo: 'app/knowledge/:id/content', pathMatch: 'full' },
+  {
+    path: 'app/knowledge/:id/:tab',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/knowledge/knowledge-detail/knowledge-detail-page.component').then(
+        (m) => m.KnowledgeDetailPageComponent,
+      ),
   },
   {
     path: 'app/databases',

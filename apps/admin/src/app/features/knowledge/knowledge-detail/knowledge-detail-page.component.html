@@ -1,0 +1,97 @@
+@let result = view();
+<section class="workspace-page">
+  @if (result === null || result.status === 'loading') {
+    <app-page-header title="知識庫" />
+    <app-state-panel state="loading" title="正在載入知識庫" />
+  } @else if (result.status === 'permission-denied') {
+    <app-page-header title="知識庫" />
+    <app-state-panel
+      state="permission-denied"
+      title="無法查看這個知識庫"
+      description="這個知識庫可能不存在，或你沒有存取權限。若需要使用，請向擁有者申請分享。"
+      recoveryLabel="返回知識庫列表"
+      (recover)="returnToList()"
+    />
+  } @else {
+    @let detail = result.data;
+    @let counts = attention(detail);
+    <app-page-header [title]="detail.summary.name" [description]="detail.summary.purpose">
+      <a page-header-actions class="page-back" routerLink="/app/knowledge">返回知識庫列表</a>
+    </app-page-header>
+
+    @if (result.status === 'partial-failure') {
+      <p class="notice" role="status">{{ result.message }} 其他內容仍可正常使用。</p>
+    }
+
+    <nav class="tabs" aria-label="知識庫頁籤">
+      @for (tab of tabs; track tab.id) {
+        <a
+          [routerLink]="['/app/knowledge', knowledgeBaseId(), tab.id]"
+          [class.active]="tab.id === activeTab().id"
+          [attr.aria-current]="tab.id === activeTab().id ? 'page' : null"
+        >{{ tab.label }}</a>
+      }
+    </nav>
+
+    <section class="tab-panel" aria-labelledby="knowledge-tab-title">
+      <h2 id="knowledge-tab-title">{{ activeTab().label }}</h2>
+
+      @switch (activeTab().id) {
+        @case ('content') {
+          <div class="content-toolbar">
+            <p class="hint">共 {{ detail.summary.documentCount }} 份文件、{{ detail.summary.faqCount }} 則 FAQ</p>
+            <div class="add-demo">
+              <button type="button" class="ui-button" aria-describedby="demo-upload-note" (click)="addDemoDocument(detail)">
+                加入示範文件
+              </button>
+              <p id="demo-upload-note" class="demo-note">Demo：不會真正上傳檔案，只模擬處理進度。</p>
+            </div>
+          </div>
+
+          @if (counts.needs > 0) {
+            <p class="attention-summary">
+              <span aria-hidden="true">!</span>
+              {{ counts.needs }} 項需要處理，其餘 {{ counts.ready }} 項仍可供助理使用。
+            </p>
+          } @else if (counts.pending > 0) {
+            <p class="processing-summary">{{ counts.pending }} 項處理中，完成後助理即可引用。</p>
+          }
+
+          <ul class="document-list" aria-label="知識庫內容">
+            @for (item of detail.documents; track item.id) {
+              <li><app-document-row [document]="item" (retry)="retryDocument(detail, $event)" /></li>
+            } @empty {
+              <li class="empty">還沒有內容，先加入一份示範文件看看處理流程。</li>
+            }
+          </ul>
+          <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage() }}</p>
+        }
+        @case ('assistants') {
+          <p class="hint">同一個知識庫可以同時提供給多個助理引用。</p>
+          @if (detail.connectedAssistants.length > 0) {
+            <ul class="assistant-list">
+              @for (assistant of detail.connectedAssistants; track assistant.id) {
+                @let status = assistantStatus(assistant.status);
+                <li>
+                  <a [routerLink]="['/app/assistants', assistant.id, 'data-sources']">{{ assistant.name }}</a>
+                  <app-status-badge [label]="status.label" [tone]="status.tone" />
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="empty">尚未連接任何助理。可在建立或設定助理時，於「資料來源」加入此知識庫。</p>
+          }
+        }
+        @case ('sharing') {
+          <p class="hint">目前分享範圍：{{ scopeLabel(detail) }}</p>
+          <app-sharing-panel
+            [sharing]="detail.sharing"
+            [targets]="detail.shareTargets"
+            (save)="saveSharing(detail, $event)"
+          />
+          <p class="sharing-feedback" role="status">{{ sharingFeedback() }}</p>
+        }
+      }
+    </section>
+  }
+</section>

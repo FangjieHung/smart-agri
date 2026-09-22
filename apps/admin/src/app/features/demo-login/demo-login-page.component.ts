@@ -1,0 +1,29 @@
+import { Component, inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { MatButtonModule } from '@angular/material/button';
+import type { AccountId } from '../../core/domain/account.model';
+import { DemoSessionService } from '../../core/session/demo-session.service';
+
+interface DemoPersona { readonly accountId: AccountId; readonly label: string; readonly detail: string; }
+
+@Component({
+  selector: 'app-demo-login-page',
+  imports: [MatButtonModule],
+  templateUrl: './demo-login-page.component.html',
+  styleUrl: './demo-login-page.component.scss',
+})
+export class DemoLoginPageComponent {
+  protected readonly personas: readonly DemoPersona[] = [
+    { accountId: 'account-smb-admin', label: 'SMB 管理者', detail: '管理助理、知識與發布管道' },
+    { accountId: 'account-internal-employee', label: '內部使用者', detail: '使用團隊已分享的助理' },
+    { accountId: 'account-external-customer', label: '外部客戶', detail: '體驗授權表單與個人追蹤' },
+  ];
+
+  private readonly session = inject(DemoSessionService);
+  private readonly router = inject(Router);
+
+  protected selectPersona(accountId: AccountId): void {
+    this.session.switchAccount(accountId);
+    void this.router.navigateByUrl('/app/home');
+  }
+}

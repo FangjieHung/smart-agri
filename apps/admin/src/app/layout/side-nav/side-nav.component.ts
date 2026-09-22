@@ -5,6 +5,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
+import { DemoSessionService } from '../../core/session/demo-session.service';
 import { ZH_TW } from '../../core/i18n/zh-tw';
 import { NavEntry, NavGroup, isNavGroup } from './nav-item.model';
 
@@ -25,6 +26,7 @@ export class SideNavComponent {
   protected readonly t = ZH_TW;
   protected readonly isNavGroup = isNavGroup;
   protected readonly auth = inject(AuthService);
+  private readonly session = inject(DemoSessionService);
 
   readonly navItems = input.required<NavEntry[]>();
   readonly collapsed = input.required<boolean>();
@@ -40,5 +42,10 @@ export class SideNavComponent {
 
   protected isGroupActive(group: NavGroup): boolean {
     return this.currentGroupLabel() === group.label;
+  }
+
+  protected logout(): void {
+    this.session.clearSession();
+    this.auth.logout();
   }
 }

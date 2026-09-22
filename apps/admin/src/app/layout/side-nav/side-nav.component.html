@@ -12,6 +12,7 @@
         mat-icon-button
         type="button"
         class="collapse-toggle"
+        [attr.aria-label]="collapsed() ? '展開側邊導覽' : '收合側邊導覽'"
         (click)="toggleCollapse.emit()"
       >
         <span class="material-symbols-rounded" aria-hidden="true">{{ collapsed() ? 'chevron_right' : 'chevron_left' }}</span>
@@ -28,6 +29,7 @@
           routerLinkActive="active"
           [routerLinkActiveOptions]="{ exact: true }"
           [matTooltip]="collapsed() ? item.label : ''"
+          [attr.aria-label]="collapsed() ? item.label : null"
           matTooltipPosition="right"
           (click)="navClick.emit()"
         >
@@ -113,7 +115,7 @@
   </nav>
 
   <div class="sidenav-footer">
-    <button [matMenuTriggerFor]="menu" class="user-card">
+    <button [matMenuTriggerFor]="menu" class="user-card" aria-label="開啟帳號選單">
       <div class="avatar">SA</div>
       @if (!collapsed()) {
         <div>
@@ -128,7 +130,7 @@
         <span class="material-symbols-rounded nav-icon" aria-hidden="true">settings</span>
         <span>設定</span>
       </a>
-      <button mat-menu-item data-menu-action="logout" type="button" (click)="auth.logout()">
+      <button mat-menu-item data-menu-action="logout" type="button" (click)="logout()">
         <span class="material-symbols-rounded nav-icon" aria-hidden="true">logout</span>
         <span>登出</span>
       </button>

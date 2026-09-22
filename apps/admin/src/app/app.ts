@@ -26,8 +26,13 @@ export class App implements OnInit {
   protected readonly t = ZH_TW;
 
   protected readonly navItems: NavEntry[] = [
-    { route: '/dashboard', label: this.t.nav.dashboard, icon: 'dashboard' },
-    { route: '/settings', label: this.t.nav.settings, icon: 'settings' },
+    { route: '/app/home', label: '首頁', icon: 'home' },
+    { route: '/app/assistants', label: '我的助理', icon: 'smart_toy' },
+    { route: '/app/knowledge', label: '知識庫', icon: 'library_books' },
+    { route: '/app/databases', label: '資料庫（數據收集）', icon: 'database' },
+    { route: '/app/activity', label: '對話與回報紀錄', icon: 'forum' },
+    { route: '/app/channels', label: '發布管道', icon: 'campaign' },
+    { route: '/app/settings', label: '團隊與設定', icon: 'settings' },
   ];
 
   private readonly navLeaves = this.navItems.flatMap((entry) =>
@@ -40,6 +45,7 @@ export class App implements OnInit {
   protected currentGroupLabel: string | null = null;
   protected openGroupLabel: string | null = null;
   protected collapsed = false;
+  protected isWorkspace = false;
 
   protected readonly flyoutPositions: ConnectedPosition[] = [
     { originX: 'end', originY: 'top', overlayX: 'start', overlayY: 'top', offsetX: 8 },
@@ -52,6 +58,7 @@ export class App implements OnInit {
   private readonly router = inject(Router);
 
   ngOnInit(): void {
+    this.isWorkspace = this.router.url.startsWith('/app');
     this.breakpointObserver.observe(['(max-width: 900px)']).subscribe((result) => {
       this.isMobile = result.matches;
       this.isSidenavOpen = !result.matches;
@@ -66,6 +73,7 @@ export class App implements OnInit {
         map(() => this.router.url),
       )
       .subscribe((url) => {
+        this.isWorkspace = url.startsWith('/app');
         const active =
           this.navLeaves.find((item) => item.route === url) ??
           this.navLeaves

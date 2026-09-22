@@ -1,0 +1,16 @@
+<main class="demo-login" aria-labelledby="demo-login-title">
+  <section class="demo-login__card">
+    <p class="demo-login__eyebrow">SME AI ASSISTANT</p>
+    <h1 id="demo-login-title">選擇 Demo 身分</h1>
+    <p class="demo-login__notice" role="status">Demo 帳號切換，不是真實驗證</p>
+    <p class="demo-login__copy">選擇不同身分，查看各自可使用的工作台內容；切換帳號時，前一位使用者的畫面狀態會被清除。</p>
+    <div class="demo-login__personas" aria-label="Demo 帳號">
+      @for (persona of personas; track persona.accountId) {
+        <button matButton="outlined" type="button" class="demo-login__persona" (click)="selectPersona(persona.accountId)">
+          <span>{{ persona.label }}</span>
+          <small>{{ persona.detail }}</small>
+        </button>
+      }
+    </div>
+  </section>
+</main>

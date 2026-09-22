@@ -1,3 +1,4 @@
+@if (isWorkspace) {
 <div class="app-shell">
   <mat-sidenav-container class="sidenav-container">
     <mat-sidenav
@@ -38,3 +39,6 @@
     </mat-sidenav-content>
   </mat-sidenav-container>
 </div>
+} @else {
+  <router-outlet />
+}

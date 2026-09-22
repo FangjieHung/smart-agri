@@ -1,0 +1,17 @@
+:host {
+  display: inline-block;
+}
+
+.source-type {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.source-type__symbol {
+  color: var(--color-accent);
+  font-size: var(--font-size-heading);
+  line-height: 1;
+}

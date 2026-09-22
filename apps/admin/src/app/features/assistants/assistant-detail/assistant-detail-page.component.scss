@@ -38,3 +38,7 @@
 h2, p { margin: 0; }
 h2 { color: var(--color-text); font-size: var(--font-size-heading); }
 p { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+
+.created-banner { display: grid; gap: var(--space-2); padding: var(--space-4) var(--space-6); border: 1px solid color-mix(in srgb, var(--color-success) 40%, var(--color-border)); border-inline-start: var(--space-1) solid var(--color-success); border-radius: var(--radius-container); background: var(--color-surface); }
+.created-banner a { color: var(--color-accent); font-weight: 700; }
+.created-banner a:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }

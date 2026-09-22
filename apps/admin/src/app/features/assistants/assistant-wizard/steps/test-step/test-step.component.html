@@ -1,0 +1,41 @@
+@let info = summary();
+@let trialError = store.fieldError('test', 'trial');
+<div class="step">
+  <dl class="summary">
+    <div><dt>助理名稱</dt><dd>{{ info.name }}</dd></div>
+    <div><dt>使用對象</dt><dd>{{ info.audience }}</dd></div>
+    <div><dt>資料來源</dt><dd>{{ info.sources }}</dd></div>
+    <div><dt>回答範圍</dt><dd>{{ info.scope }}</dd></div>
+  </dl>
+
+  <section class="group" aria-labelledby="trial-title" [attr.aria-describedby]="trialError ? 'trial-error' : 'trial-hint'">
+    <h3 id="trial-title" class="label">試問看看</h3>
+    <p id="trial-hint" class="hint">這是以範例回答模擬的預覽，不會連接真實 AI。選一個問題，確認回答方式符合預期。</p>
+    <div class="questions">
+      @for (question of store.trialQuestions(); track question.id) {
+        <button type="button" class="trial-question" (click)="store.runTrial(question.id)">
+          試問：{{ question.text }}
+        </button>
+      }
+    </div>
+    @if (trialError) {
+      <p id="trial-error" class="error" role="alert">{{ trialError }}</p>
+    }
+  </section>
+
+  <div class="answers" aria-live="polite">
+    @for (answer of store.answers(); track answer.questionId) {
+      <article class="trial-answer" [attr.data-kind]="answer.kind">
+        <p class="question">問：{{ questionText().get(answer.questionId) }}</p>
+        <p class="kind">{{ answerLabel(answer.kind) }}</p>
+        <p>{{ answer.text }}</p>
+        @if (answer.kind === 'company-data' && answer.citation; as citation) {
+          <blockquote>
+            <p>「{{ citation.excerpt }}」</p>
+            <footer>來源：{{ citation.sourceName }}</footer>
+          </blockquote>
+        }
+      </article>
+    }
+  </div>
+</div>

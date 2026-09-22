@@ -2,14 +2,21 @@ import type { AccountId } from './account.model';
 import type { DatabaseId } from './database.model';
 import type { KnowledgeBaseId } from './knowledge-base.model';
 
-export type AssistantId =
+export type SeededAssistantId =
   | 'assistant-customer-service'
   | 'assistant-internal-onboarding';
+
+/** 由建立精靈產生的助理 id，格式固定為 `assistant-created-<序號>`。 */
+export type CreatedAssistantId = `assistant-created-${number}`;
+
+export type AssistantId = SeededAssistantId | CreatedAssistantId;
 
 export type AssistantStatus = 'draft' | 'ready' | 'published' | 'paused';
 
 export type AssistantAudience =
-  'account-members' | 'authorized-external-customers';
+  | 'account-members'
+  | 'authorized-external-customers'
+  | 'members-and-external-customers';
 
 export type AssistantPermission = 'use' | 'configure' | 'publish';
 

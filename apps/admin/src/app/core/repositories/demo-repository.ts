@@ -5,6 +5,16 @@ import type {
   AssistantSourceReference,
   AssistantSummaryView,
 } from '../domain/assistant.model';
+import type {
+  AssistantDraft,
+  AssistantDraftFieldError,
+  AssistantTemplateView,
+  ConnectableSourceView,
+  SavedAssistantDraftView,
+  TrialAnswerRequest,
+  TrialAnswerView,
+  TrialQuestionView,
+} from '../domain/assistant-draft.model';
 import type { DatabaseView } from '../domain/database.model';
 import type {
   AssistantAnalyticsView,
@@ -29,7 +39,8 @@ export type RepositoryPermissionDeniedReason =
   | 'scenario'
   | 'private-conversation'
   | 'assistant-configuration'
-  | 'authorized-form';
+  | 'authorized-form'
+  | 'assistant-draft';
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -58,6 +69,22 @@ export type RepositoryView<T> =
   | LoadingRepositoryView
   | PartialFailureRepositoryView<T>
   | PermissionDeniedRepositoryView;
+
+export interface ValidationFailedRepositoryView {
+  readonly status: 'validation-failed';
+  readonly errors: readonly AssistantDraftFieldError[];
+  readonly message: string;
+}
+
+export type CreateAssistantResult =
+  | RepositoryView<AssistantConfigurationView>
+  | ValidationFailedRepositoryView;
+
+/** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
+export type DemoKeyValueStorage = Pick<
+  Storage,
+  'getItem' | 'setItem' | 'removeItem'
+>;
 
 export interface DemoScenarioController {
   setScenario(scenario: DemoScenario): void;
@@ -107,6 +134,31 @@ export interface DemoRepository extends DemoScenarioController {
   listPublishingChannels(
     viewerAccountId: AccountId,
   ): RepositoryView<readonly PublishingChannelView[]>;
+  listAssistantTemplates(): RepositoryView<readonly AssistantTemplateView[]>;
+  /** 知識庫與資料庫混合的可連接來源清單。 */
+  listConnectableSources(
+    viewerAccountId: AccountId,
+  ): RepositoryView<readonly ConnectableSourceView[]>;
+  listTrialQuestions(): RepositoryView<readonly TrialQuestionView[]>;
+  /** 以固定 fixture 模擬試問回答，不連接真實 AI。 */
+  previewTrialAnswer(
+    viewerAccountId: AccountId,
+    request: TrialAnswerRequest,
+  ): RepositoryView<TrialAnswerView>;
+  /** 草稿依帳號隔離保存；沒有草稿時 data 為 null。 */
+  getAssistantDraft(
+    viewerAccountId: AccountId,
+  ): RepositoryView<SavedAssistantDraftView | null>;
+  saveAssistantDraft(
+    viewerAccountId: AccountId,
+    draft: AssistantDraft,
+  ): RepositoryView<SavedAssistantDraftView>;
+  discardAssistantDraft(viewerAccountId: AccountId): void;
+  /** 驗證完整草稿後建立助理，成功後清除該帳號的草稿。 */
+  createAssistantFromDraft(
+    viewerAccountId: AccountId,
+    draft: AssistantDraft,
+  ): CreateAssistantResult;
 }
 
 export const DEMO_SECURITY_NOTICE =

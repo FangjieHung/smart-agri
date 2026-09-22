@@ -8,6 +8,13 @@
 
 ---
 
+> **2026-09-22 決策更新（覆蓋下方路徑）**：獨立的 `frontend/` 工作區已廢止，Demo 已併入 `apps/admin`（見 commit `1fd2d95`），`apps/admin` 為唯一前端入口，不再維護 `frontend/`。閱讀下列 tasks 時請套用路徑對照：
+> - `frontend/apps/assistant-demo/src/` → `apps/admin/src/`
+> - `frontend/apps/assistant-demo-e2e/` → `apps/admin-e2e/`
+> - `cd frontend && npx nx test assistant-demo --runInBand` → `npx nx test admin`（Angular unit-test builder + Vitest）
+> - `npx nx e2e assistant-demo-e2e --spec=...` → `npx nx e2e admin-e2e --spec=...`
+> - `npx nx build assistant-demo` → `npx nx build admin`；`frontend/README.md` → `apps/admin/README.md`
+
 ## 執行前提
 
 - 產品與 UX 決策以 `docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md` 為準。

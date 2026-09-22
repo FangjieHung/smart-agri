@@ -1,0 +1,110 @@
+@let draft = store.draft();
+<div class="step">
+  <fieldset class="group">
+    <legend>從工作目的開始</legend>
+    <p class="hint">模板只會預先填好設定，所有內容之後都可以修改。</p>
+    <div class="choice-grid">
+      @for (template of store.templates(); track template.id) {
+        <label class="choice-card">
+          <input
+            type="radio"
+            name="assistant-template"
+            [value]="template.id"
+            [checked]="draft.templateId === template.id"
+            (change)="store.applyTemplate(template.id)"
+          />
+          <span class="choice-card__title">{{ template.title }}</span>
+          <span class="choice-card__text">{{ template.description }}</span>
+        </label>
+      }
+    </div>
+  </fieldset>
+
+  @let nameError = store.fieldError('purpose', 'name');
+  <div class="field">
+    <label for="assistant-name">助理名稱</label>
+    <input
+      id="assistant-name"
+      type="text"
+      autocomplete="off"
+      [value]="draft.name"
+      [attr.aria-invalid]="nameError ? 'true' : null"
+      [attr.aria-describedby]="nameError ? 'assistant-name-error' : null"
+      (input)="store.update({ name: text($event) })"
+    />
+    @if (nameError) {
+      <p id="assistant-name-error" class="error">{{ nameError }}</p>
+    }
+  </div>
+
+  @let purposeError = store.fieldError('purpose', 'purpose');
+  <div class="field">
+    <label for="assistant-purpose">要幫忙完成的工作</label>
+    <textarea
+      id="assistant-purpose"
+      rows="3"
+      [value]="draft.purpose"
+      [attr.aria-invalid]="purposeError ? 'true' : null"
+      [attr.aria-describedby]="purposeError ? 'assistant-purpose-hint assistant-purpose-error' : 'assistant-purpose-hint'"
+      (input)="store.update({ purpose: text($event) })"
+    ></textarea>
+    <p id="assistant-purpose-hint" class="hint">例如：回答客戶關於退換貨與配送的問題。</p>
+    @if (purposeError) {
+      <p id="assistant-purpose-error" class="error">{{ purposeError }}</p>
+    }
+  </div>
+
+  <div class="field">
+    <label for="assistant-tone">回答語氣</label>
+    <select id="assistant-tone" (change)="store.update({ tone: tone($event) })">
+      @for (option of tones; track option.value) {
+        <option [value]="option.value" [selected]="draft.tone === option.value">{{ option.label }}</option>
+      }
+    </select>
+  </div>
+
+  @let audienceError = store.fieldError('purpose', 'audience');
+  @let flags = store.audienceFlags();
+  <fieldset class="group" [attr.aria-describedby]="audienceError ? 'audience-error' : null">
+    <legend>誰會使用這個助理？</legend>
+    <label class="check">
+      <input
+        id="audience-internal"
+        type="checkbox"
+        [attr.aria-invalid]="audienceError ? 'true' : null"
+        [attr.aria-describedby]="audienceError ? 'audience-error' : null"
+        [checked]="flags.internal"
+        (change)="toggleAudience('internal', $event)"
+      />
+      <span>內部員工<small>團隊同仁在平台內使用</small></span>
+    </label>
+    <label class="check">
+      <input
+        id="audience-external"
+        type="checkbox"
+        [attr.aria-invalid]="audienceError ? 'true' : null"
+        [attr.aria-describedby]="audienceError ? 'audience-error' : null"
+        [checked]="flags.external"
+        (change)="toggleAudience('external', $event)"
+      />
+      <span>外部客戶<small>透過官網、LINE 或專屬連結使用</small></span>
+    </label>
+    @if (audienceError) {
+      <p id="audience-error" class="error">{{ audienceError }}</p>
+    }
+  </fieldset>
+
+  <details class="advanced">
+    <summary>進階角色指令（選填）</summary>
+    <div class="field">
+      <label for="role-instructions">補充給助理的角色說明</label>
+      <textarea
+        id="role-instructions"
+        rows="4"
+        [value]="draft.roleInstructions"
+        (input)="store.update({ roleInstructions: text($event) })"
+      ></textarea>
+      <p class="hint">大多數情況不需要填寫；模板已包含合適的預設說明。</p>
+    </div>
+  </details>
+</div>

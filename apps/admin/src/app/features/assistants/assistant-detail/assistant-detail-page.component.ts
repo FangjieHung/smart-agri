@@ -1,3 +1,4 @@
+import { Location } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -38,6 +39,16 @@ export class AssistantDetailPageComponent {
   private readonly routeParams = toSignal(this.route.paramMap, {
     initialValue: this.route.snapshot.paramMap,
   });
+
+  /** 由建立精靈導向時帶入的一次性導覽狀態。 */
+  protected readonly justCreated = (() => {
+    const state: unknown = inject(Location).getState();
+    return (
+      typeof state === 'object' &&
+      state !== null &&
+      (state as Record<string, unknown>)['assistantCreated'] === true
+    );
+  })();
 
   protected readonly assistantId = computed(() => this.routeParams().get('id') ?? '');
   protected readonly tabs = TABS;

@@ -1,4 +1,8 @@
 import type { AccountView } from '../domain/account.model';
+import type {
+  AssistantTemplateView,
+  TrialQuestionView,
+} from '../domain/assistant-draft.model';
 import type { AssistantConfigurationView } from '../domain/assistant.model';
 import type { DatabaseView } from '../domain/database.model';
 import type {
@@ -18,6 +22,18 @@ export interface DemoSeed {
   readonly structuredSubmissions: readonly StructuredSubmissionView[];
   readonly analytics: readonly AssistantAnalyticsView[];
   readonly publishingChannels: readonly PublishingChannelView[];
+  readonly assistantTemplates: readonly AssistantTemplateView[];
+  readonly trialQuestions: readonly TrialQuestionFixture[];
+}
+
+/** 試問固定回答：不連接真實 AI，依來源與規則挑選其中一種回答。 */
+export interface TrialQuestionFixture extends TrialQuestionView {
+  readonly companyAnswer: {
+    readonly sourceId: KnowledgeBaseView['id'];
+    readonly text: string;
+    readonly excerpt: string;
+  } | null;
+  readonly generalAnswer: string | null;
 }
 
 export const DEMO_SEED: DemoSeed = {
@@ -97,6 +113,7 @@ export const DEMO_SEED: DemoSeed = {
       status: 'connected',
       accessMode: 'read-only',
       tableCount: 3,
+      lastSyncedAt: '2026-09-18T07:30:00.000Z',
     },
     {
       id: 'database-customer-records',
@@ -105,6 +122,7 @@ export const DEMO_SEED: DemoSeed = {
       status: 'connected',
       accessMode: 'read-only',
       tableCount: 2,
+      lastSyncedAt: '2026-09-17T16:00:00.000Z',
     },
   ],
   privateConversations: [
@@ -207,6 +225,93 @@ export const DEMO_SEED: DemoSeed = {
       type: 'qr-code',
       connectionStatus: 'connected',
       visibility: 'authorized-users-only',
+    },
+  ],
+  assistantTemplates: [
+    {
+      id: 'answer-customer-questions',
+      title: '回答客戶問題',
+      description: '依據商品、退換貨與配送資料回覆客戶，找不到答案時轉由專人處理。',
+      defaults: {
+        name: '客戶問答助理',
+        purpose: '回答客戶關於商品、退換貨與配送的問題',
+        tone: 'friendly',
+        roleInstructions: '回答時先確認客戶的訂單或商品，再引用公司資料說明。',
+      },
+    },
+    {
+      id: 'search-company-data',
+      title: '查詢公司資料',
+      description: '讓同仁快速查到制度、流程與商品規格。',
+      defaults: {
+        name: '公司資料查詢助理',
+        purpose: '協助同仁查詢公司制度、流程與商品資料',
+        tone: 'concise',
+        roleInstructions: '',
+      },
+    },
+    {
+      id: 'onboard-new-employees',
+      title: '協助新員工',
+      description: '回答新進同仁常見問題，帶他們熟悉工作流程。',
+      defaults: {
+        name: '新人導覽助理',
+        purpose: '回答新進同仁常見問題並說明工作流程',
+        tone: 'friendly',
+        roleInstructions: '',
+      },
+    },
+    {
+      id: 'collect-periodic-reports',
+      title: '收集定期回報',
+      description: '定期請使用者填寫回報表，整理成可比較的紀錄。',
+      defaults: {
+        name: '定期回報助理',
+        purpose: '定期收集回報內容並整理成紀錄',
+        tone: 'professional',
+        roleInstructions: '',
+      },
+    },
+    {
+      id: 'compare-changes',
+      title: '比較歷次變化',
+      description: '依據歷次紀錄說明數值的前後變化。',
+      defaults: {
+        name: '變化追蹤助理',
+        purpose: '比較歷次紀錄並說明有意義的變化',
+        tone: 'professional',
+        roleInstructions: '',
+      },
+    },
+    {
+      id: 'blank',
+      title: '空白助理',
+      description: '從空白開始，自己填寫用途與回答方式。',
+      defaults: { name: '', purpose: '', tone: 'friendly', roleInstructions: '' },
+    },
+  ],
+  trialQuestions: [
+    {
+      id: 'trial-refund-window',
+      text: '收到商品後幾天內可以申請退貨？',
+      companyAnswer: {
+        sourceId: 'knowledge-refund-policy',
+        text: '收到商品後 7 天內可以申請退貨，商品需保持完整包裝。',
+        excerpt: '消費者於收受商品後七日內，得申請退貨，商品應保持原包裝完整。',
+      },
+      generalAnswer: null,
+    },
+    {
+      id: 'trial-leather-care',
+      text: '皮革商品平常要怎麼保養？',
+      companyAnswer: null,
+      generalAnswer: '一般建議避免長時間日曬與潮濕，並定期使用皮革保養油。這不是公司資料，僅供參考。',
+    },
+    {
+      id: 'trial-unrelated-request',
+      text: '可以幫我訂下週的機票嗎？',
+      companyAnswer: null,
+      generalAnswer: null,
     },
   ],
 };

@@ -1,0 +1,74 @@
+<section class="workspace-page">
+  <app-page-header
+    title="建立新助理"
+    description="用四個步驟完成第一個可用的助理，設定會自動儲存，可以隨時離開再回來繼續。"
+  >
+    @if (store.canManage()) {
+      <p page-header-actions class="autosave" role="status" aria-live="polite">
+        {{ store.saveStatusLabel() }}
+      </p>
+    }
+  </app-page-header>
+
+  @if (store.canManage()) {
+    <nav aria-label="建立步驟">
+      <ol class="wizard-steps">
+        @for (step of steps; track step.id; let index = $index) {
+          <li [class.is-current]="step.id === currentStep()" [class.is-complete]="isComplete(step.id)">
+            @if (store.canVisit(step.id)) {
+              <a
+                [routerLink]="['/app/assistants/new', step.id]"
+                [attr.aria-current]="step.id === currentStep() ? 'step' : null"
+              >
+                <span class="wizard-steps__index" aria-hidden="true">{{ index + 1 }}</span>
+                <span>{{ step.label }}</span>
+              </a>
+            } @else {
+              <span class="wizard-steps__locked" aria-disabled="true">
+                <span class="wizard-steps__index" aria-hidden="true">{{ index + 1 }}</span>
+                <span>{{ step.label }}</span>
+              </span>
+            }
+          </li>
+        }
+      </ol>
+    </nav>
+
+    <section class="wizard-panel" aria-labelledby="wizard-step-title">
+      <header class="wizard-panel__header">
+        <p class="wizard-panel__eyebrow">步驟 {{ stepNumber() }} / 4</p>
+        <h2 id="wizard-step-title">{{ currentMeta().title }}</h2>
+        <p>{{ currentMeta().description }}</p>
+      </header>
+
+      @switch (currentStep()) {
+        @case ('purpose') { <app-purpose-step /> }
+        @case ('sources') { <app-sources-step /> }
+        @case ('rules') { <app-rules-step /> }
+        @case ('test') { <app-test-step /> }
+      }
+
+      @if (store.createError(); as createError) {
+        <p class="wizard-error" role="alert">{{ createError }}</p>
+      }
+
+      <footer class="wizard-actions">
+        @if (currentStep() !== 'purpose') {
+          <button type="button" class="wizard-back" (click)="back()">上一步</button>
+        }
+        @if (currentStep() === 'test') {
+          <button type="button" class="ui-button wizard-create" (click)="create()">建立助理</button>
+        } @else {
+          <button type="button" class="ui-button wizard-next" (click)="next()">下一步</button>
+        }
+      </footer>
+    </section>
+  } @else {
+    <app-state-panel
+      state="permission-denied"
+      title="你沒有建立助理的權限"
+      description="建立與設定助理需要管理者權限；你仍可使用團隊分享給你的助理。"
+    />
+    <a class="wizard-return" routerLink="/app/assistants">返回我的助理</a>
+  }
+</section>

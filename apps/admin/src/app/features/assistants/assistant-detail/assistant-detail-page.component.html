@@ -7,6 +7,14 @@
       <a page-header-actions class="page-back" routerLink="/app/assistants">返回我的助理</a>
     </app-page-header>
 
+    @if (justCreated) {
+      <section class="created-banner" role="status" aria-labelledby="created-title">
+        <h2 id="created-title">助理已建立</h2>
+        <p>下一步建議設定發布管道，讓團隊或客戶開始使用；也可以先回到測試頁多試問幾題。</p>
+        <a [routerLink]="['/app/assistants', assistantId(), 'publishing']">前往發布設定 <span aria-hidden="true">→</span></a>
+      </section>
+    }
+
     <nav class="tabs" aria-label="助理設定頁籤">
       @for (tab of tabs; track tab.id) {
         <a

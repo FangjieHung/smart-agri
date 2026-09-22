@@ -20,6 +20,7 @@ const STATUS_TONES: Record<AssistantSummaryView['status'], StatusTone> = {
 const AUDIENCE_LABELS: Record<AssistantSummaryView['audience'], string> = {
   'account-members': '內部團隊',
   'authorized-external-customers': '已授權外部客戶',
+  'members-and-external-customers': '內部團隊與外部客戶',
 };
 
 @Component({

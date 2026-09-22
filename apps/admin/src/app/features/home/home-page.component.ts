@@ -21,4 +21,14 @@ export class HomePageComponent {
     const result = this.repository.listUsableAssistants(accountId);
     return result.status === 'ready' ? result.data.length : 0;
   });
+
+  /** 目前帳號尚未完成的建立草稿；其他帳號的草稿不會出現在這裡。 */
+  protected readonly pendingDraft = computed(() => {
+    const accountId = this.session.activeAccountId();
+    if (!accountId) return null;
+    const result = this.repository.getAssistantDraft(accountId);
+    if (result.status !== 'ready' || result.data === null) return null;
+    const { draft } = result.data;
+    return { name: draft.name.trim() || '未命名助理', step: draft.currentStep };
+  });
 }

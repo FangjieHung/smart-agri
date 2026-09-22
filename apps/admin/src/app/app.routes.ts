@@ -31,12 +31,13 @@ export const routes: Routes = [
         (m) => m.AssistantListPageComponent,
       ),
   },
+  { path: 'app/assistants/new', redirectTo: 'app/assistants/new/purpose', pathMatch: 'full' },
   {
     path: 'app/assistants/new/:step',
     canActivate: [demoSessionGuard],
     loadComponent: () =>
-      import('./features/assistants/assistant-wizard/assistant-wizard-placeholder.component').then(
-        (m) => m.AssistantWizardPlaceholderComponent,
+      import('./features/assistants/assistant-wizard/assistant-wizard-page.component').then(
+        (m) => m.AssistantWizardPageComponent,
       ),
   },
   {

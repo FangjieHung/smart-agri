@@ -13,4 +13,5 @@ export interface DatabaseView {
   readonly status: DatabaseStatus;
   readonly accessMode: DatabaseAccessMode;
   readonly tableCount: number;
+  readonly lastSyncedAt: string;
 }

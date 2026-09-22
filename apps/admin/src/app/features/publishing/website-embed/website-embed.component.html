@@ -1,0 +1,111 @@
+@let current = draft();
+<section class="channel-panel" aria-labelledby="website-title">
+  <h3 id="website-title">官網嵌入</h3>
+  <p class="hint">設定對話按鈕的名稱、歡迎語、品牌色與位置，並限定只能嵌入在允許的網域。</p>
+
+  <form class="settings" aria-label="官網外觀與網域" novalidate (submit)="save($event)">
+    @if (errors().length > 0) {
+      <div class="error-summary" role="alert" aria-labelledby="website-error-title">
+        <p id="website-error-title">還有設定需要修正：</p>
+        <ul>
+          @for (error of errors(); track error.field) {
+            <li><a [href]="'#' + anchorFor(error.field)">{{ labelFor(error.field) }}：{{ error.message }}</a></li>
+          }
+        </ul>
+      </div>
+    }
+
+    <div class="field">
+      <label for="website-display-name">顯示名稱</label>
+      <input id="website-display-name" type="text" maxlength="40" [value]="current.displayName"
+        [attr.aria-invalid]="hasError('displayName') ? 'true' : null" (input)="setText('displayName', $event)" />
+    </div>
+
+    <div class="field">
+      <label for="website-welcome">歡迎語</label>
+      <textarea id="website-welcome" rows="2" maxlength="140" [value]="current.welcomeMessage"
+        [attr.aria-invalid]="hasError('welcomeMessage') ? 'true' : null" (input)="setText('welcomeMessage', $event)"></textarea>
+    </div>
+
+    <fieldset class="colors">
+      <legend>品牌色</legend>
+      @for (color of colors; track color.id) {
+        <label class="swatch">
+          <input type="radio" name="website-color" [id]="'website-color-' + color.id" [checked]="current.brandColor === color.id"
+            (change)="setColor(color.id)" />
+          <span class="swatch__chip" aria-hidden="true" [style.background]="color.hex"></span>{{ color.label }}
+        </label>
+      }
+    </fieldset>
+
+    <div class="field">
+      <label for="website-position">顯示位置</label>
+      <select id="website-position" (change)="setPosition($event)">
+        @for (position of positions; track position.id) {
+          <option [value]="position.id" [selected]="current.position === position.id">{{ position.label }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="website-domain-input">允許嵌入的網域</label>
+      <p id="website-domain-hint" class="caption">只填網域，例如 shop.example.com；最多 5 個。其他網站放上嵌入碼也不會顯示助理。</p>
+      <div class="domain-row">
+        <input id="website-domain-input" type="text" inputmode="url" autocomplete="off" [value]="domainInput()"
+          [attr.aria-invalid]="domainError() ? 'true' : null"
+          [attr.aria-describedby]="domainError() ? 'website-domain-hint website-domain-error' : 'website-domain-hint'"
+          (input)="setDomainInput($event)" (keydown.enter)="addDomain($event)" />
+        <button type="button" class="secondary" (click)="addDomain()">加入網域</button>
+      </div>
+      @if (domainError()) {
+        <p id="website-domain-error" class="error" role="alert">{{ domainError() }}</p>
+      }
+      @if (current.allowedDomains.length > 0) {
+        <ul class="domain-list" aria-label="已允許的網域">
+          @for (domain of current.allowedDomains; track domain) {
+            <li>
+              <span>{{ domain }}</span>
+              <button type="button" class="link" (click)="removeDomain(domain)">移除<span class="visually-hidden"> {{ domain }}</span></button>
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="caption">尚未設定任何網域，官網管道會維持「尚未設定」。</p>
+      }
+    </div>
+
+    <div class="actions"><button type="submit" class="ui-button">儲存官網設定</button></div>
+    <p class="save-status" aria-live="polite">{{ saveStatus() }}</p>
+  </form>
+
+  <section class="block" aria-labelledby="website-preview-title">
+    <div class="block__head">
+      <h4 id="website-preview-title">預覽</h4>
+      <div class="toggle" role="group" aria-label="預覽裝置">
+        <button type="button" [attr.aria-pressed]="device() === 'desktop'" (click)="device.set('desktop')">桌機</button>
+        <button type="button" [attr.aria-pressed]="device() === 'mobile'" (click)="device.set('mobile')">手機</button>
+      </div>
+    </div>
+    <div class="embed-preview" role="img" [attr.data-device]="device()" [attr.data-position]="current.position"
+      [style.--brand]="brandHex()"
+      [attr.aria-label]="(device() === 'desktop' ? '桌機' : '手機') + '預覽：' + current.displayName + '，' + current.welcomeMessage">
+      <div class="site" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="widget" aria-hidden="true">
+        <strong>{{ current.displayName }}</strong>
+        <p>{{ current.welcomeMessage }}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" aria-labelledby="website-code-title">
+    <h4 id="website-code-title">嵌入碼</h4>
+    <p class="caption">Demo 嵌入碼指向不存在的示範網址，不可用於正式環境。</p>
+    <pre class="embed-code" tabindex="0" aria-label="Demo 嵌入碼"><code>{{ view().embedCode }}</code></pre>
+    <div class="actions">
+      <button type="button" class="secondary" (click)="copy()">複製嵌入碼</button>
+      <button type="button" class="secondary" (click)="checkInstallation()">檢查安裝狀態</button>
+    </div>
+    <p class="copy-status" aria-live="polite">{{ copyStatus() }}</p>
+    <p class="install-status" aria-live="polite">{{ installText() }}</p>
+  </section>
+</section>

@@ -1,0 +1,18 @@
+@let item = channel();
+<article
+  class="channel-card"
+  [class.selected]="selected()"
+  [attr.data-status]="item.status"
+  [attr.aria-labelledby]="headingId()"
+>
+  <div class="channel-card__head">
+    <span class="channel-icon" aria-hidden="true">{{ icon() }}</span>
+    <h3 [id]="headingId()">{{ item.name }}</h3>
+  </div>
+  <p class="channel-status" [attr.data-tone]="meta().tone">
+    <span class="channel-status__symbol" aria-hidden="true">{{ meta().symbol }}</span>
+    <span class="channel-status__label">{{ meta().label }}</span>
+  </p>
+  <p class="channel-detail">{{ item.statusDetail }}</p>
+  <ng-content />
+</article>

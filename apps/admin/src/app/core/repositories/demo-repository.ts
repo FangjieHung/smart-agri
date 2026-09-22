@@ -47,7 +47,18 @@ import type {
   KnowledgeDocumentView,
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
-import type { PublishingChannelView } from '../domain/publishing.model';
+import type {
+  AssistantChannelsView,
+  AssistantPublishingView,
+  LineSettingsInput,
+  LineSetupView,
+  PlatformSharingView,
+  PublishingChannelType,
+  PublishingChannelView,
+  PublishingFieldError,
+  WebsiteEmbedSettings,
+  WebsiteEmbedView,
+} from '../domain/publishing.model';
 
 export type DemoScenario =
   | 'ready'
@@ -67,7 +78,8 @@ export type RepositoryPermissionDeniedReason =
   | 'knowledge-base'
   | 'database'
   | 'database-records'
-  | 'assistant-use';
+  | 'assistant-use'
+  | 'publishing';
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -156,6 +168,24 @@ export type SubmitChatFormResult =
   | RepositoryView<AssistantChatView>
   | DatabaseFieldsValidationFailedView;
 
+export interface PublishingValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly errors: readonly PublishingFieldError[];
+  readonly message: string;
+}
+
+export type UpdatePlatformSharingResult =
+  | RepositoryView<PlatformSharingView>
+  | PublishingValidationFailedView;
+
+export type UpdateWebsiteEmbedResult =
+  | RepositoryView<WebsiteEmbedView>
+  | PublishingValidationFailedView;
+
+export type ActivateLineChannelResult =
+  | RepositoryView<LineSetupView>
+  | PublishingValidationFailedView;
+
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
 export type DemoKeyValueStorage = Pick<
   Storage,
@@ -207,9 +237,62 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     assistantId: AssistantId,
   ): RepositoryView<AssistantAnalyticsView>;
+  /** 目前帳號擁有的助理的所有管道（每個助理固定三個）。 */
   listPublishingChannels(
     viewerAccountId: AccountId,
   ): RepositoryView<readonly PublishingChannelView[]>;
+  /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */
+  listChannelOverview(
+    viewerAccountId: AccountId,
+  ): RepositoryView<readonly AssistantChannelsView[]>;
+  /**
+   * 單一助理的三個管道設定。id 來自網址、未經驗證；不存在或非擁有者時一律回傳
+   * 相同的 permission-denied，訊息不包含資源名稱。
+   */
+  getAssistantPublishing(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): RepositoryView<AssistantPublishingView>;
+  /** 指定可在平台內使用助理的帳號；空清單代表尚未設定。 */
+  updatePlatformSharing(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    accountIds: readonly AccountId[],
+  ): UpdatePlatformSharingResult;
+  /** 儲存官網外觀與允許網域；網域變更後需重新檢查安裝狀態。 */
+  updateWebsiteEmbed(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    settings: WebsiteEmbedSettings,
+  ): UpdateWebsiteEmbedResult;
+  /** Demo：模擬檢查允許網域上是否已安裝嵌入碼，不會連線到任何網站。 */
+  checkWebsiteInstallation(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): RepositoryView<WebsiteEmbedView>;
+  /** 儲存 LINE 連接資訊並逐欄檢查；儲存後需重新傳送測試訊息才能啟用。 */
+  saveLineSettings(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    input: LineSettingsInput,
+  ): RepositoryView<LineSetupView>;
+  /** Demo：模擬傳送 LINE 測試訊息，結果寫在 lastTest，不會連接 LINE。 */
+  sendLineTestMessage(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): RepositoryView<LineSetupView>;
+  /** 測試訊息送達後才可啟用；否則回傳 validation-failed。 */
+  activateLineChannel(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ActivateLineChannelResult;
+  /** 暫停或恢復單一管道；不影響同一助理的其他管道。 */
+  setPublishingChannelPaused(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    channelType: PublishingChannelType,
+    paused: boolean,
+  ): RepositoryView<PublishingChannelView>;
   listAssistantTemplates(): RepositoryView<readonly AssistantTemplateView[]>;
   /** 知識庫與資料庫混合的可連接來源清單。 */
   listConnectableSources(

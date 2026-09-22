@@ -147,5 +147,33 @@ describe('AssistantDetailPageComponent', () => {
     expect(page.textContent).toContain('看不到使用者的對話內容');
     expect(page.textContent).not.toContain('如何處理退貨申請');
   });
+  it('shows the same publishing channel content in the publishing tab, opened at the requested channel', async () => {
+    const params = new BehaviorSubject(new Map([['id', 'assistant-customer-service'], ['tab', 'publishing']]));
+    const query = new BehaviorSubject(new Map([['channel', 'line']]));
+    await TestBed.configureTestingModule({
+      imports: [AssistantDetailPageComponent],
+      providers: [
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: { paramMap: params.value, queryParamMap: query.value },
+            paramMap: params.asObservable(),
+            queryParamMap: query.asObservable(),
+          },
+        },
+        { provide: DemoSessionService, useValue: { activeAccountId: () => 'account-smb-admin' } },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(AssistantDetailPageComponent);
+    fixture.detectChanges();
+    const page = fixture.nativeElement as HTMLElement;
+
+    expect(page.textContent).not.toContain('發布內容將在下一階段完成');
+    expect(page.querySelectorAll('app-assistant-publishing app-channel-card')).toHaveLength(3);
+    expect(page.textContent).toContain('Demo，不會連接外部服務');
+    expect(page.querySelector('app-line-setup')).not.toBeNull();
+    expect(page.querySelector('app-website-embed')).toBeNull();
+  });
 });
 

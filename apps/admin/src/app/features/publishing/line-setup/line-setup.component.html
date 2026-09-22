@@ -1,0 +1,77 @@
+@let current = view();
+@let values = draft();
+<section class="channel-panel" aria-labelledby="line-title">
+  <h3 id="line-title">LINE</h3>
+  <ol class="guide" aria-label="LINE 設定步驟">
+    <li><span class="guide__icon" aria-hidden="true">①</span><span>在 LINE 官方帳號後台建立或選擇要使用的官方帳號。</span></li>
+    <li><span class="guide__icon" aria-hidden="true">②</span><span>開啟 Messaging API，把 Channel ID、Channel secret 與 access token 貼到下方。</span></li>
+    <li><span class="guide__icon" aria-hidden="true">③</span><span>把 Webhook 網址貼回 LINE 設定，儲存並檢查、傳送測試訊息後確認啟用。</span></li>
+  </ol>
+
+  <form class="settings" aria-label="LINE 連接資訊" novalidate (submit)="save($event)">
+    @if (failedChecks().length > 0) {
+      <div class="error-summary" role="alert" aria-labelledby="line-error-title">
+        <p id="line-error-title">{{ failedChecks().length }} 個欄位未通過檢查：</p>
+        <ul>
+          @for (check of failedChecks(); track check.field) {
+            <li><a [href]="'#line-' + check.field">{{ check.label }}：{{ check.message }}</a></li>
+          }
+        </ul>
+      </div>
+    }
+
+    @for (field of fields; track field.id) {
+      <div class="field">
+        <label [for]="'line-' + field.id">{{ field.label }}</label>
+        <p class="caption" [id]="'line-' + field.id + '-hint'">{{ field.hint }}</p>
+        <div class="input-row">
+          <input [id]="'line-' + field.id" [type]="inputType(field.id, field.sensitive)" autocomplete="off" spellcheck="false"
+            [value]="values[field.id]" [attr.aria-invalid]="isFailed(field.id) ? 'true' : null"
+            [attr.aria-describedby]="describedBy(field.id)" (input)="setValue(field.id, $event)" />
+          @if (field.sensitive) {
+            <button type="button" class="secondary" [attr.aria-controls]="'line-' + field.id"
+              [attr.aria-pressed]="revealed().has(field.id)" (click)="toggleReveal(field.id)">
+              {{ revealed().has(field.id) ? '隱藏' : '顯示' }}<span class="visually-hidden"> {{ field.label }}</span>
+            </button>
+          }
+        </div>
+        @if (isFailed(field.id)) {
+          <p class="error" [id]="'line-' + field.id + '-error'">{{ checkFor(field.id)?.message }}</p>
+        }
+      </div>
+    }
+
+    <div class="field">
+      <span class="label">Webhook 網址（Demo）</span>
+      <code>{{ current.webhookUrl }}</code>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="ui-button">儲存並檢查</button>
+      <button type="button" class="secondary" [disabled]="!current.canSendTest" (click)="sendTest()">傳送測試訊息</button>
+      @if (current.canActivate) {
+        <button type="button" class="ui-button" (click)="activate()">確認啟用</button>
+      }
+    </div>
+    <p class="feedback" aria-live="polite">{{ feedback() }}</p>
+  </form>
+
+  <section class="block" aria-labelledby="line-checklist-title">
+    <h4 id="line-checklist-title">逐欄檢查</h4>
+    <ul class="checklist">
+      @for (check of current.checks; track check.field) {
+        <li [attr.data-state]="check.state">
+          <span class="checklist__symbol" aria-hidden="true">{{ checkText(check.state).symbol }}</span>
+          <span><strong>{{ check.label }}</strong>：{{ checkText(check.state).label }}<br /><small>{{ check.message }}</small></span>
+        </li>
+      }
+    </ul>
+    <p class="test-result" aria-live="polite" [attr.data-outcome]="current.lastTest?.outcome ?? null">
+      @if (current.lastTest; as test) {
+        {{ test.outcome === 'delivered' ? '✓' : '✕' }} {{ test.message }}
+      } @else {
+        尚未傳送測試訊息（測試結果為模擬，不會連接 LINE）。
+      }
+    </p>
+  </section>
+</section>

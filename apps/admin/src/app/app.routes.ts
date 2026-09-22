@@ -90,7 +90,10 @@ export const routes: Routes = [
   {
     path: 'app/channels',
     canActivate: [demoSessionGuard],
-    loadComponent: workspacePlaceholder,
+    loadComponent: () =>
+      import('./features/publishing/channel-overview/channel-overview-page.component').then(
+        (m) => m.ChannelOverviewPageComponent,
+      ),
   },
   {
     path: 'use/:assistantId',

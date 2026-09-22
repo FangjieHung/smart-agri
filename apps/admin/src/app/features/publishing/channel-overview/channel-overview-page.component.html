@@ -1,0 +1,53 @@
+@let result = view();
+<section class="workspace-page">
+  <app-page-header
+    title="發布管道"
+    description="每個助理都可以發布到平台內、官網與 LINE。管道各自獨立，其中一個出問題時，只有該管道會標示需要處理。"
+  />
+
+  <p class="demo-notice" role="note">
+    <span aria-hidden="true">ⓘ</span>
+    <span><strong>{{ demoLabel }}</strong>：嵌入碼、LINE 權杖與檢查結果都是示範資料，不可用於正式環境。</span>
+  </p>
+
+  @if (result === null || result.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入發布管道" />
+  } @else if (result.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法檢視發布管道" [description]="result.message" />
+  } @else if (result.data.length === 0) {
+    <app-empty-state
+      title="目前沒有可設定發布管道的助理"
+      description="只有助理擁有者可以設定發布管道。建立自己的助理後，就能在這裡管理平台內、官網與 LINE 三種管道。"
+    />
+  } @else {
+    @if (result.status === 'partial-failure') {
+      <p class="notice" role="status">{{ result.message }}</p>
+    }
+    @for (entry of result.data; track entry.assistantId) {
+      <section class="assistant-channels" [attr.aria-labelledby]="'channels-' + entry.assistantId">
+        <div class="assistant-channels__head">
+          <h2 [id]="'channels-' + entry.assistantId">{{ entry.assistantName }}</h2>
+          <a [routerLink]="['/app/assistants', entry.assistantId, 'publishing']">
+            助理發布設定<span class="visually-hidden">：{{ entry.assistantName }}</span>
+          </a>
+        </div>
+        <ul class="channel-grid">
+          @for (channel of entry.channels; track channel.id) {
+            <li>
+              <app-channel-card [channel]="channel">
+                <a
+                  class="channel-action"
+                  [routerLink]="['/app/assistants', entry.assistantId, 'publishing']"
+                  [queryParams]="{ channel: channel.type }"
+                >
+                  {{ actionLabel(channel) }}<span class="visually-hidden">：{{ entry.assistantName }}的{{ channel.name }}</span>
+                  <span aria-hidden="true">→</span>
+                </a>
+              </app-channel-card>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  }
+</section>

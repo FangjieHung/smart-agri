@@ -20,7 +20,6 @@ import type {
   KnowledgeDocumentView,
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
-import type { PublishingChannelView } from '../domain/publishing.model';
 import {
   DATABASE_COLLECTIONS,
   DATABASE_RECORDS,
@@ -36,6 +35,7 @@ import {
   type ChatProfileFixture,
   type ChatResponseFixture,
 } from './demo-seed-chat';
+import { PUBLISHING_RECORDS, type PublishingRecord } from './demo-seed-publishing';
 
 export interface DemoSeed {
   readonly accounts: readonly AccountView[];
@@ -51,7 +51,7 @@ export interface DemoSeed {
   readonly privateConversations: readonly PrivateConversationView[];
   readonly structuredSubmissions: readonly StructuredSubmissionView[];
   readonly analytics: readonly AssistantAnalyticsView[];
-  readonly publishingChannels: readonly PublishingChannelView[];
+  readonly publishingRecords: Readonly<Partial<Record<AssistantConfigurationView['id'], PublishingRecord>>>;
   readonly assistantTemplates: readonly AssistantTemplateView[];
   readonly trialQuestions: readonly TrialQuestionFixture[];
   readonly chatProfiles: Readonly<Partial<Record<AssistantConfigurationView['id'], ChatProfileFixture>>>;
@@ -291,35 +291,7 @@ export const DEMO_SEED: DemoSeed = {
       helpfulRatingPercent: 89,
     },
   ],
-  publishingChannels: [
-    {
-      id: 'channel-website',
-      assistantId: 'assistant-customer-service',
-      ownerAccountId: 'account-smb-admin',
-      name: '官網嵌入',
-      type: 'website-embed',
-      connectionStatus: 'connected',
-      visibility: 'authorized-users-only',
-    },
-    {
-      id: 'channel-public-link',
-      assistantId: 'assistant-customer-service',
-      ownerAccountId: 'account-smb-admin',
-      name: '專屬連結',
-      type: 'public-link',
-      connectionStatus: 'connected',
-      visibility: 'authorized-users-only',
-    },
-    {
-      id: 'channel-qr-code',
-      assistantId: 'assistant-customer-service',
-      ownerAccountId: 'account-smb-admin',
-      name: 'QR Code',
-      type: 'qr-code',
-      connectionStatus: 'connected',
-      visibility: 'authorized-users-only',
-    },
-  ],
+  publishingRecords: PUBLISHING_RECORDS,
   assistantTemplates: [
     {
       id: 'answer-customer-questions',

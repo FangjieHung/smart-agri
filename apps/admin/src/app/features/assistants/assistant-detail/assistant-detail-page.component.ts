@@ -2,12 +2,13 @@ import { Location } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { map } from 'rxjs';
+import { map, of } from 'rxjs';
 import type { AssistantConfigurationView } from '../../../core/domain/assistant.model';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
+import { AssistantPublishingComponent } from '../../publishing/assistant-publishing/assistant-publishing.component';
 
 interface AssistantTab {
   readonly id: string;
@@ -20,13 +21,13 @@ const TABS: readonly AssistantTab[] = [
   { id: 'data-sources', label: '資料來源', placeholder: '資料來源內容將在下一階段完成' },
   { id: 'rules', label: '回答與記錄', placeholder: '回答與記錄內容將在下一階段完成' },
   { id: 'test', label: '測試', placeholder: '測試內容將在下一階段完成' },
-  { id: 'publishing', label: '發布', placeholder: '發布內容將在下一階段完成' },
+  { id: 'publishing', label: '發布', placeholder: '' },
   { id: 'activity', label: '使用紀錄', placeholder: '使用紀錄內容將在下一階段完成' },
 ];
 
 @Component({
   selector: 'app-assistant-detail-page',
-  imports: [RouterLink, PageHeaderComponent, StatePanelComponent],
+  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, AssistantPublishingComponent],
   templateUrl: './assistant-detail-page.component.html',
   styleUrl: './assistant-detail-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -49,6 +50,12 @@ export class AssistantDetailPageComponent {
       (state as Record<string, unknown>)['assistantCreated'] === true
     );
   })();
+
+  /** 發布頁籤選取的管道（?channel=platform|website|line），由發布元件驗證。 */
+  protected readonly publishingChannel = toSignal(
+    (this.route.queryParamMap ?? of(null)).pipe(map((params) => params?.get('channel') ?? null)),
+    { initialValue: this.route.snapshot.queryParamMap?.get('channel') ?? null },
+  );
 
   protected readonly assistantId = computed(() => this.routeParams().get('id') ?? '');
   protected readonly tabs = TABS;

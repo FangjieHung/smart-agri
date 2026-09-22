@@ -52,7 +52,14 @@ import {
   type KnowledgeSharingScope,
   type KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
-import type { PublishingChannelView } from '../domain/publishing.model';
+import {
+  PUBLISHING_CHANNEL_TYPES,
+  type AssistantChannelsView,
+  type AssistantPublishingView,
+  type LineSettingsInput,
+  type PublishingChannelType,
+  type WebsiteEmbedSettings,
+} from '../domain/publishing.model';
 import {
   compareRecords,
   evaluateTrial,
@@ -77,7 +84,19 @@ import type {
   TrackedSubjectFixture,
 } from './demo-seed-databases';
 import { createMemoryStorage } from './memory-storage';
+import type { PublishingRecord } from './demo-seed-publishing';
+import {
+  canActivateLine,
+  defaultPublishingRecord,
+  isPublishingRecord,
+  lineTestResult,
+  normalizePlatformAccounts,
+  toAssistantPublishingView,
+  trimLineSettings,
+  validateWebsiteSettings,
+} from './publishing-channels';
 import type {
+  ActivateLineChannelResult,
   CreateAssistantResult,
   CreateDatabaseResult,
   DemoKeyValueStorage,
@@ -92,6 +111,8 @@ import type {
   SubmitChatFormResult,
   UpdateDatabaseFieldsResult,
   UpdateKnowledgeSharingResult,
+  UpdatePlatformSharingResult,
+  UpdateWebsiteEmbedResult,
 } from './demo-repository';
 
 function freezeDeep<T>(value: T): T {
@@ -293,6 +314,7 @@ function isStoredDatabaseFields(value: unknown): value is StoredDatabaseFields {
 }
 
 const CHAT_KEY_PREFIX = 'sme-demo:chat:';
+const PUBLISHING_KEY_PREFIX = 'sme-demo:publishing:';
 const CHAT_RECORDS_KEY = 'sme-demo:chat-records';
 const MAX_QUESTION_LENGTH = 500;
 
@@ -575,11 +597,185 @@ export class MockDemoRepository implements DemoRepository {
   listPublishingChannels(
     viewerAccountId: AccountId,
   ): ReturnType<DemoRepository['listPublishingChannels']> {
-    const channels = this.seed.publishingChannels
-      .filter((channel) => channel.ownerAccountId === viewerAccountId)
-      .map((channel) => this.applyChannelScenario(channel));
+    return this.applyScenario(
+      this.channelOverview(viewerAccountId).flatMap((entry) => entry.channels),
+    );
+  }
 
-    return this.applyScenario(channels);
+  listChannelOverview(
+    viewerAccountId: AccountId,
+  ): ReturnType<DemoRepository['listChannelOverview']> {
+    return this.applyScenario(this.channelOverview(viewerAccountId));
+  }
+
+  getAssistantPublishing(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ReturnType<DemoRepository['getAssistantPublishing']> {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.publishingPermissionDenied();
+
+    return this.applyScenario(this.toPublishingView(assistant));
+  }
+
+  updatePlatformSharing(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    accountIds: readonly AccountId[],
+  ): UpdatePlatformSharingResult {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.publishingPermissionDenied();
+
+    const allowed = normalizePlatformAccounts(assistant, this.seed.accounts, accountIds);
+    if (allowed === null) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: [{ field: 'accounts', message: '只能選擇清單中的帳號。' }],
+        message: '可使用的帳號有誤，請重新選擇。',
+      });
+    }
+    const record = this.publishingRecord(assistant);
+    this.savePublishingRecord(assistant.id, {
+      ...record,
+      platform: { ...record.platform, allowedAccountIds: allowed, updatedAt: this.now().toISOString() },
+    });
+
+    return this.applyScenario(this.toPublishingView(assistant).platform);
+  }
+
+  updateWebsiteEmbed(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    settings: WebsiteEmbedSettings,
+  ): UpdateWebsiteEmbedResult {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.publishingPermissionDenied();
+
+    const { errors, normalized } = validateWebsiteSettings(settings);
+    if (errors.length > 0) {
+      return immutableCopy({ status: 'validation-failed', errors, message: '還有設定需要修正。' });
+    }
+    const record = this.publishingRecord(assistant);
+    const domainsChanged =
+      normalized.allowedDomains.join('\n') !== record.website.allowedDomains.join('\n');
+    this.savePublishingRecord(assistant.id, {
+      ...record,
+      website: {
+        ...record.website,
+        ...normalized,
+        installCheck: domainsChanged ? 'not-checked' : record.website.installCheck,
+        installCheckedAt: domainsChanged ? null : record.website.installCheckedAt,
+        updatedAt: this.now().toISOString(),
+      },
+    });
+
+    return this.applyScenario(this.toPublishingView(assistant).website);
+  }
+
+  checkWebsiteInstallation(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ReturnType<DemoRepository['checkWebsiteInstallation']> {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.publishingPermissionDenied();
+
+    const record = this.publishingRecord(assistant);
+    if (record.website.allowedDomains.length > 0) {
+      const now = this.now().toISOString();
+      this.savePublishingRecord(assistant.id, {
+        ...record,
+        website: {
+          ...record.website,
+          installCheck: this.scenario === 'disconnected-channel' ? 'not-detected' : 'detected',
+          installCheckedAt: now,
+          updatedAt: now,
+        },
+      });
+    }
+
+    return this.applyScenario(this.toPublishingView(assistant).website);
+  }
+
+  saveLineSettings(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    input: LineSettingsInput,
+  ): ReturnType<DemoRepository['saveLineSettings']> {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.publishingPermissionDenied();
+
+    const record = this.publishingRecord(assistant);
+    this.savePublishingRecord(assistant.id, {
+      ...record,
+      line: {
+        ...record.line,
+        ...trimLineSettings(input),
+        checked: true,
+        enabled: false,
+        lastTest: null,
+        updatedAt: this.now().toISOString(),
+      },
+    });
+
+    return this.applyScenario(this.toPublishingView(assistant).line);
+  }
+
+  sendLineTestMessage(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ReturnType<DemoRepository['sendLineTestMessage']> {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.publishingPermissionDenied();
+
+    const record = this.publishingRecord(assistant);
+    const now = this.now().toISOString();
+    this.savePublishingRecord(assistant.id, {
+      ...record,
+      line: { ...record.line, lastTest: lineTestResult(record.line, now), updatedAt: now },
+    });
+
+    return this.applyScenario(this.toPublishingView(assistant).line);
+  }
+
+  activateLineChannel(viewerAccountId: AccountId, assistantId: string): ActivateLineChannelResult {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.publishingPermissionDenied();
+
+    const record = this.publishingRecord(assistant);
+    if (!canActivateLine(record.line)) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: [{ field: 'line', message: '請先讓所有欄位通過檢查並確認測試訊息送達，再啟用。' }],
+        message: 'LINE 管道尚未完成測試。',
+      });
+    }
+    this.savePublishingRecord(assistant.id, {
+      ...record,
+      line: { ...record.line, enabled: true, updatedAt: this.now().toISOString() },
+    });
+
+    return this.applyScenario(this.toPublishingView(assistant).line);
+  }
+
+  setPublishingChannelPaused(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    channelType: PublishingChannelType,
+    paused: boolean,
+  ): ReturnType<DemoRepository['setPublishingChannelPaused']> {
+    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined || !PUBLISHING_CHANNEL_TYPES.includes(channelType)) {
+      return this.publishingPermissionDenied();
+    }
+
+    const record = this.publishingRecord(assistant);
+    const updatedAt = this.now().toISOString();
+    this.savePublishingRecord(assistant.id, {
+      ...record,
+      [channelType]: { ...record[channelType], paused, updatedAt },
+    });
+
+    return this.applyScenario(this.toPublishingView(assistant)[channelType].channel);
   }
 
   listAssistantTemplates(): ReturnType<DemoRepository['listAssistantTemplates']> {
@@ -1667,16 +1863,53 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
-  private applyChannelScenario(
-    channel: PublishingChannelView,
-  ): PublishingChannelView {
-    if (
-      this.scenario === 'disconnected-channel' &&
-      channel.id === 'channel-website'
-    ) {
-      return { ...channel, connectionStatus: 'disconnected' };
-    }
+  /** 只有擁有者可設定發布；不存在與無權限都回傳 undefined，呼叫端回覆相同訊息。 */
+  private ownedAssistant(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): AssistantConfigurationView | undefined {
+    return this.assistants().find(
+      (assistant) => assistant.id === assistantId && assistant.ownerAccountId === viewerAccountId,
+    );
+  }
 
-    return channel;
+  private publishingPermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied('publishing', '你沒有這個助理的發布設定權限，或它已不存在。');
+  }
+
+  private channelOverview(viewerAccountId: AccountId): readonly AssistantChannelsView[] {
+    return this.assistants()
+      .filter((assistant) => assistant.ownerAccountId === viewerAccountId)
+      .map((assistant) => {
+        const view = this.toPublishingView(assistant);
+        return {
+          assistantId: assistant.id,
+          assistantName: assistant.name,
+          channels: PUBLISHING_CHANNEL_TYPES.map((type) => view[type].channel),
+        };
+      });
+  }
+
+  private publishingRecord(assistant: AssistantConfigurationView): PublishingRecord {
+    const stored = parseJson(this.storage.getItem(PUBLISHING_KEY_PREFIX + assistant.id));
+    if (isPublishingRecord(stored)) return stored;
+
+    return (
+      this.seed.publishingRecords[assistant.id] ??
+      defaultPublishingRecord(assistant, this.now().toISOString())
+    );
+  }
+
+  private savePublishingRecord(assistantId: AssistantId, record: PublishingRecord): void {
+    this.storage.setItem(PUBLISHING_KEY_PREFIX + assistantId, JSON.stringify(record));
+  }
+
+  private toPublishingView(assistant: AssistantConfigurationView): AssistantPublishingView {
+    return toAssistantPublishingView(
+      assistant,
+      this.publishingRecord(assistant),
+      this.seed.accounts,
+      this.scenario === 'disconnected-channel',
+    );
   }
 }

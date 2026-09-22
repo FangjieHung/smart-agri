@@ -37,7 +37,7 @@ export class AssistantListPageComponent {
     return assistants.data.map((assistant) => ({
       assistant: this.toConfigurableSummary(assistant),
       channels: channels
-        .filter((channel) => channel.assistantId === assistant.id)
+        .filter((channel) => channel.assistantId === assistant.id && channel.status !== 'not-configured')
         .map((channel) => channel.name),
       recentActivity: assistant.status === 'draft' ? '設定尚未完成' : '今天更新',
     }));

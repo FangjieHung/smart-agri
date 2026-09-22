@@ -47,6 +47,10 @@
           }
           <p>這裡只顯示匿名統計。對話屬於發起的帳號，助理建立者看不到使用者的對話內容；使用者同意提交的資料請到資料庫的收集紀錄查看。</p>
         }
+        @case ('publishing') {
+          <p>每個管道各自獨立：暫停或故障只影響該管道，其他管道照常運作。</p>
+          <app-assistant-publishing [assistantId]="assistantId()" [channel]="publishingChannel()" />
+        }
         @default {
           <p>{{ activeTab().placeholder }}</p>
         }

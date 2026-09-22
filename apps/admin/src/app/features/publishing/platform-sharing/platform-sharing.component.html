@@ -1,0 +1,38 @@
+@let current = view();
+<form class="channel-panel" aria-labelledby="platform-title" novalidate (submit)="save($event)">
+  <h3 id="platform-title">平台內分享</h3>
+  <p class="hint">
+    被指定的帳號可以在平台內開啟助理並對話；每個帳號保有獨立對話紀錄，使用者能操作助理，但不能查看設定。
+  </p>
+
+  <div class="usage-link">
+    <span class="usage-link__label">使用連結（平台內）</span>
+    <code>{{ current.usagePath }}</code>
+  </div>
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+
+  <fieldset>
+    <legend>可使用的帳號</legend>
+    @for (candidate of current.candidates; track candidate.id) {
+      <div class="choice">
+        <input
+          type="checkbox"
+          [id]="'platform-account-' + candidate.id"
+          [checked]="selected().has(candidate.id)"
+          (change)="toggle(candidate.id, $event)"
+        />
+        <label [for]="'platform-account-' + candidate.id">
+          {{ candidate.displayName }}<small>{{ candidate.audienceLabel }}</small>
+        </label>
+      </div>
+    }
+  </fieldset>
+
+  <div class="actions">
+    <button type="submit" class="ui-button">儲存可使用的帳號</button>
+  </div>
+  <p class="feedback" aria-live="polite">{{ feedback() }}</p>
+</form>

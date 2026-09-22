@@ -281,13 +281,15 @@ describe('MockDemoRepository', () => {
     expect(restored.status).toBe('ready');
     if (disconnected.status === 'ready' && restored.status === 'ready') {
       expect(
-        disconnected.data.find((channel) => channel.id === 'channel-website')
-          ?.connectionStatus,
-      ).toBe('disconnected');
+        disconnected.data.find(
+          (channel) => channel.id === 'channel-website:assistant-customer-service',
+        )?.status,
+      ).toBe('needs-attention');
       expect(
-        restored.data.find((channel) => channel.id === 'channel-website')
-          ?.connectionStatus,
-      ).toBe('connected');
+        restored.data.find(
+          (channel) => channel.id === 'channel-website:assistant-customer-service',
+        )?.status,
+      ).toBe('published');
     }
   });
 

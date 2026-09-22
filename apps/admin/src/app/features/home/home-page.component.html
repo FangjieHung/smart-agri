@@ -1,0 +1,34 @@
+<section class="workspace-page">
+  <app-page-header
+    title="首頁"
+    description="從這裡開始建立、整理與發布你的 AI 助理。"
+  >
+    <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
+  </app-page-header>
+
+  <div class="home-grid">
+    <section class="home-card home-card--primary" aria-labelledby="create-title">
+      <p class="home-card__eyebrow">下一步</p>
+      <h2 id="create-title">建立新助理</h2>
+      <p>用四個簡單步驟，從用途、資料來源到試用確認，完成第一個可用助理。</p>
+      <a class="ui-button" routerLink="/app/assistants/new/purpose">開始建立</a>
+    </section>
+
+    <section class="home-card" aria-labelledby="continue-title">
+      <p class="home-card__eyebrow">工作區摘要</p>
+      <h2 id="continue-title">繼續設定</h2>
+      <p>目前有 {{ assistantCount() }} 個可使用的助理。回到助理設定，完成資料來源與發布準備。</p>
+      <a class="home-card__text-link" routerLink="/app/assistants">查看我的助理 <span aria-hidden="true">→</span></a>
+    </section>
+
+    <section class="home-card" aria-labelledby="pending-title">
+      <p class="home-card__eyebrow">需要留意</p>
+      <h2 id="pending-title">待處理事項</h2>
+      <ul>
+        <li>確認助理的資料來源是否為最新版本</li>
+        <li>完成發布前的試問與回覆檢查</li>
+      </ul>
+      <a class="home-card__text-link" routerLink="/app/channels">查看發布管道 <span aria-hidden="true">→</span></a>
+    </section>
+  </div>
+</section>

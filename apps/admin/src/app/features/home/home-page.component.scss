@@ -1,0 +1,11 @@
+:host { display: block; }
+.workspace-page { display: grid; gap: var(--space-6); }
+.home-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
+.home-card { display: grid; align-content: start; gap: var(--space-4); min-height: 17rem; padding: var(--space-6); border: 1px solid var(--color-border); border-radius: var(--radius-container); background: var(--color-surface); box-shadow: var(--shadow-subtle); }
+.home-card--primary { background: var(--color-accent-soft); border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-border)); }
+.home-card__eyebrow { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: 700; letter-spacing: .04em; }
+h2 { margin: 0; color: var(--color-text); font-size: 1.25rem; }
+p, ul { margin: 0; color: var(--color-text-secondary); line-height: 1.6; }
+ul { padding-inline-start: 1.25rem; }
+.home-card__text-link { align-self: end; color: var(--color-accent); font-weight: 700; text-decoration: none; }
+.home-card__text-link:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; border-radius: var(--radius-control); }

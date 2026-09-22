@@ -2,7 +2,9 @@ import type { AccountId } from './account.model';
 import type { DatabaseId } from './database.model';
 import type { KnowledgeBaseId } from './knowledge-base.model';
 
-export type AssistantId = 'assistant-customer-service';
+export type AssistantId =
+  | 'assistant-customer-service'
+  | 'assistant-internal-onboarding';
 
 export type AssistantStatus = 'draft' | 'ready' | 'published' | 'paused';
 

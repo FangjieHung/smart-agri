@@ -1,0 +1,28 @@
+:host { display: block; }
+
+.workspace-page { display: grid; gap: var(--space-6); }
+
+.assistant-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.empty-list {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  max-width: var(--reading-width);
+  padding: var(--space-6);
+  border: var(--border-default);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+}
+
+.empty-list__eyebrow { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: 700; }
+h2, p { margin: 0; }
+h2 { color: var(--color-text); font-size: var(--font-size-heading); }
+p { color: var(--color-text-secondary); line-height: var(--line-height-body); }

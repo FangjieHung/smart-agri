@@ -20,12 +20,32 @@ export const routes: Routes = [
   {
     path: 'app/home',
     canActivate: [demoSessionGuard],
-    loadComponent: workspacePlaceholder,
+    loadComponent: () =>
+      import('./features/home/home-page.component').then((m) => m.HomePageComponent),
   },
   {
     path: 'app/assistants',
     canActivate: [demoSessionGuard],
-    loadComponent: workspacePlaceholder,
+    loadComponent: () =>
+      import('./features/assistants/assistant-list/assistant-list-page.component').then(
+        (m) => m.AssistantListPageComponent,
+      ),
+  },
+  {
+    path: 'app/assistants/new/:step',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/assistants/assistant-wizard/assistant-wizard-placeholder.component').then(
+        (m) => m.AssistantWizardPlaceholderComponent,
+      ),
+  },
+  {
+    path: 'app/assistants/:id/:tab',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/assistants/assistant-detail/assistant-detail-page.component').then(
+        (m) => m.AssistantDetailPageComponent,
+      ),
   },
   {
     path: 'app/knowledge',

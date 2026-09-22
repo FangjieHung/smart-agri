@@ -1,0 +1,41 @@
+<article class="assistant-card">
+  <div class="assistant-card__heading">
+    <div>
+      <p class="assistant-card__eyebrow">AI 助理</p>
+      <h2>{{ assistant().name }}</h2>
+    </div>
+    <app-status-badge
+      [label]="statusLabel(assistant().status)"
+      [tone]="statusTone(assistant().status)"
+    />
+  </div>
+
+  <p class="assistant-card__purpose">{{ assistant().purpose }}</p>
+
+  <dl class="assistant-card__summary">
+    <div>
+      <dt>使用對象</dt>
+      <dd>{{ audienceLabel(assistant().audience) }}</dd>
+    </div>
+    <div>
+      <dt>發布管道</dt>
+      <dd>{{ channels().join('、') || '平台內使用' }}</dd>
+    </div>
+    <div>
+      <dt>最近活動</dt>
+      <dd>最近活動：{{ recentActivity() }}</dd>
+    </div>
+  </dl>
+
+  <a
+    class="assistant-card__link"
+    [routerLink]="
+      assistant().permission === 'configure'
+        ? ['/app/assistants', assistant().id, 'overview']
+        : ['/use', assistant().id]
+    "
+  >
+    {{ assistant().permission === 'configure' ? '查看設定' : '開始使用' }}
+    <span aria-hidden="true">→</span>
+  </a>
+</article>

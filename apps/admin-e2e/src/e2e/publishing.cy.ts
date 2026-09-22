@@ -4,14 +4,6 @@ function loginAs(persona: string): void {
   cy.location('pathname').should('eq', '/app/home');
 }
 
-/** 以 SPA 導覽切換網址，保留 demo 登入狀態（重新整理會清除工作階段）。 */
-function navigateInApp(path: string): void {
-  cy.window().then((win) => {
-    win.history.pushState({}, '', path);
-    win.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  });
-}
-
 const VALID_TOKEN = 'demo-token-not-for-production-0123456789abcdefghij';
 
 describe('publishing channels', () => {
@@ -47,7 +39,7 @@ describe('publishing channels', () => {
 
   it('restricts platform sharing to chosen accounts', () => {
     loginAs('SMB 管理者');
-    navigateInApp('/app/assistants/assistant-customer-service/publishing?channel=platform');
+    cy.visit('/app/assistants/assistant-customer-service/publishing?channel=platform');
     cy.get('app-platform-sharing').within(() => {
       cy.contains('legend', '可使用的帳號');
       cy.contains('label', '外部客戶').click();
@@ -59,7 +51,7 @@ describe('publishing channels', () => {
 
   it('previews the website widget on desktop and mobile, validates domains and copies demo embed code', () => {
     loginAs('SMB 管理者');
-    navigateInApp('/app/assistants/assistant-customer-service/publishing?channel=website');
+    cy.visit('/app/assistants/assistant-customer-service/publishing?channel=website');
     cy.get('app-website-embed').within(() => {
       cy.get('.embed-preview').should('have.attr', 'data-device', 'desktop');
       cy.contains('button', '手機').click().should('have.attr', 'aria-pressed', 'true');
@@ -89,7 +81,7 @@ describe('publishing channels', () => {
 
   it('checks LINE fields item by item, masks secrets and sends a simulated test message', () => {
     loginAs('SMB 管理者');
-    navigateInApp('/app/assistants/assistant-customer-service/publishing?channel=line');
+    cy.visit('/app/assistants/assistant-customer-service/publishing?channel=line');
     cy.get('app-line-setup').within(() => {
       cy.get('#line-accessToken').should('have.attr', 'type', 'password');
       cy.get('#line-channelSecret').should('have.attr', 'type', 'password');
@@ -116,12 +108,12 @@ describe('publishing channels', () => {
 
   it("does not reveal another account's channel settings", () => {
     loginAs('內部使用者');
-    navigateInApp('/app/channels');
+    cy.visit('/app/channels');
     cy.contains('h1', '發布管道').should('be.visible');
     cy.contains('目前沒有可設定發布管道的助理').should('be.visible');
     cy.get('app-channel-card').should('not.exist');
 
-    navigateInApp('/app/assistants/assistant-customer-service/publishing?channel=line');
+    cy.visit('/app/assistants/assistant-customer-service/publishing?channel=line');
     cy.contains('你沒有這個助理的設定權限').should('be.visible');
     cy.get('app-line-setup').should('not.exist');
     cy.contains('客服助理').should('not.exist');

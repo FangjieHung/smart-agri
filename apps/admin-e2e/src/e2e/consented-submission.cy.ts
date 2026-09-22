@@ -4,17 +4,9 @@ function loginAs(persona: string): void {
   cy.location('pathname').should('eq', '/app/home');
 }
 
-/** 以 SPA 導覽切換網址，保留 demo 登入狀態（重新整理會清除工作階段）。 */
-function navigateInApp(path: string): void {
-  cy.window().then((win) => {
-    win.history.pushState({}, '', path);
-    win.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  });
-}
-
 function fillOrderForm(): void {
   loginAs('外部客戶');
-  navigateInApp('/use/assistant-customer-service');
+  cy.visit('/use/assistant-customer-service');
   cy.contains('button.suggested-prompt', '回報訂單問題').click();
   cy.get('[role="log"] [data-kind="form-request"]').contains('button', '填寫表單').click();
 
@@ -57,12 +49,12 @@ describe('consented structured submission', () => {
     cy.get('[data-kind="submission-receipt"]').should('be.visible');
 
     loginAs('內部使用者');
-    navigateInApp('/app/databases/database-orders/records');
+    cy.visit('/app/databases/database-orders/records');
     cy.contains('無法查看這個資料庫').should('be.visible');
     cy.contains('DEMO-2001').should('not.exist');
 
     loginAs('SMB 管理者');
-    navigateInApp('/app/databases/database-orders/records');
+    cy.visit('/app/databases/database-orders/records');
     cy.get('#subject-select').find('option:selected').should('contain', '外部客戶（1 筆）');
     cy.get('ol.timeline > li')
       .should('have.length', 1)
@@ -71,7 +63,7 @@ describe('consented structured submission', () => {
       .and('contain', '配送延遲')
       .and('contain', '助理對話');
 
-    navigateInApp('/use/assistant-customer-service');
+    cy.visit('/use/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.contains('DEMO-2001').should('not.exist');
   });

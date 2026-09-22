@@ -69,11 +69,7 @@ describe('create assistant wizard', () => {
 
     cy.reload();
 
-    // Demo 帳號狀態不跨重新整理保存；重新選擇同一身分後，草稿仍依帳號保留。
-    cy.location('pathname').should('eq', '/login');
-    cy.contains('button', 'SMB 管理者').click();
-    cy.contains('a', '繼續未完成的設定').click();
-
+    // Demo 身分保存在這個瀏覽器分頁，重新整理後留在原本的步驟。
     cy.location('pathname').should('eq', '/app/assistants/new/sources');
     cy.get('.autosave').should('contain', '已載入先前的草稿');
     cy.contains('.source-row', '商品使用指南')
@@ -82,6 +78,12 @@ describe('create assistant wizard', () => {
     cy.contains('button', '上一步').click();
     cy.get('#assistant-name').should('have.value', '客戶問答助理');
     cy.get('#audience-internal').should('be.checked');
+
+    // 從首頁的「繼續未完成的設定」也可以回到同一份草稿。
+    cy.visit('/app/home');
+    cy.contains('a', '繼續未完成的設定').click();
+    cy.location('pathname').should('eq', '/app/assistants/new/purpose');
+    cy.get('#assistant-name').should('have.value', '客戶問答助理');
   });
 
   it('does not show one account\'s draft to another account', () => {

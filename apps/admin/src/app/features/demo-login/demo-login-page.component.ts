@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import type { AccountId } from '../../core/domain/account.model';
@@ -11,6 +11,7 @@ interface DemoPersona { readonly accountId: AccountId; readonly label: string; r
   imports: [MatButtonModule],
   templateUrl: './demo-login-page.component.html',
   styleUrl: './demo-login-page.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DemoLoginPageComponent {
   protected readonly personas: readonly DemoPersona[] = [
@@ -21,6 +22,12 @@ export class DemoLoginPageComponent {
 
   private readonly session = inject(DemoSessionService);
   private readonly router = inject(Router);
+
+  /** 逾時被結束的 Demo 工作階段，在這裡說明原因並讓使用者重新選身分。 */
+  protected readonly sessionExpired = this.session.sessionExpired;
+  protected readonly timeoutNotice = this.session.timeoutNotice;
+  protected readonly timeoutDetail = this.session.timeoutDetail;
+  protected readonly timeoutMinutes = this.session.timeoutMinutes;
 
   protected selectPersona(accountId: AccountId): void {
     this.session.switchAccount(accountId);

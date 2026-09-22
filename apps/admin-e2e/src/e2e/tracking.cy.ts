@@ -4,14 +4,6 @@ function loginAsAdmin(): void {
   cy.location('pathname').should('eq', '/app/home');
 }
 
-/** 以 SPA 導覽切換網址，保留 demo 登入狀態（重新整理會清除工作階段）。 */
-function navigateInApp(path: string): void {
-  cy.window().then((win) => {
-    win.history.pushState({}, '', path);
-    win.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  });
-}
-
 describe('structured data and tracking', () => {
   beforeEach(() => {
     cy.clearLocalStorage();
@@ -82,7 +74,7 @@ describe('structured data and tracking', () => {
   });
 
   it('shows the timeline and compares current, previous and first records', () => {
-    navigateInApp('/app/databases/database-customer-records');
+    cy.visit('/app/databases/database-customer-records');
     cy.location('pathname').should('eq', '/app/databases/database-customer-records/form');
 
     cy.contains('nav.tabs a', '收集紀錄').click();
@@ -109,7 +101,7 @@ describe('structured data and tracking', () => {
   });
 
   it('does not show a trend conclusion before there are two records', () => {
-    navigateInApp('/app/databases/database-customer-records/trends');
+    cy.visit('/app/databases/database-customer-records/trends');
     cy.get('#subject-select').select('陳先生（1 筆）');
     cy.get('.insufficient-records').should('contain', '累積 2 筆以上');
     cy.get('.trend-conclusion').should('not.exist');
@@ -117,7 +109,7 @@ describe('structured data and tracking', () => {
   });
 
   it('does not reveal the name of a database the account cannot access', () => {
-    navigateInApp('/app/databases/database-staff-checkins/form');
+    cy.visit('/app/databases/database-staff-checkins/form');
     cy.contains('無法查看這個資料庫').should('be.visible');
     cy.contains('同仁排班回報').should('not.exist');
     cy.get('nav.tabs').should('not.exist');

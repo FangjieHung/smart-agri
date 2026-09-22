@@ -4,14 +4,6 @@ function loginAs(persona: string): void {
   cy.location('pathname').should('eq', '/app/home');
 }
 
-/** 以 SPA 導覽切換網址，保留 demo 登入狀態（重新整理會清除工作階段）。 */
-function navigateInApp(path: string): void {
-  cy.window().then((win) => {
-    win.history.pushState({}, '', path);
-    win.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  });
-}
-
 function ask(question: string): void {
   cy.get('#chat-input').clear().type(question);
   cy.get('form.composer button[type="submit"]').click();
@@ -59,21 +51,21 @@ describe('private conversations and trustworthy answers', () => {
 
   it('keeps a conversation private from other accounts and from the assistant owner', () => {
     loginAs('外部客戶');
-    navigateInApp('/use/assistant-customer-service');
+    cy.visit('/use/assistant-customer-service');
     ask('我的私人問題：退貨要幾天？');
     cy.get('[role="log"]').should('contain', '我的私人問題');
 
     loginAs('內部使用者');
-    navigateInApp('/use/assistant-customer-service');
+    cy.visit('/use/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('[role="log"]').should('not.contain', '我的私人問題');
 
     loginAs('SMB 管理者');
-    navigateInApp('/use/assistant-customer-service');
+    cy.visit('/use/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('[role="log"]').should('not.contain', '我的私人問題');
 
-    navigateInApp('/app/assistants/assistant-customer-service/activity');
+    cy.visit('/app/assistants/assistant-customer-service/activity');
     cy.get('.usage-summary').should('contain', '對話次數').and('contain', '19');
     cy.contains('看不到使用者的對話內容').should('be.visible');
     cy.contains('我的私人問題').should('not.exist');
@@ -81,7 +73,7 @@ describe('private conversations and trustworthy answers', () => {
 
   it('does not reveal an assistant the account cannot use', () => {
     loginAs('外部客戶');
-    navigateInApp('/use/assistant-internal-onboarding');
+    cy.visit('/use/assistant-internal-onboarding');
     cy.contains('無法使用這個助理').should('be.visible');
     cy.contains('內部教育訓練助理').should('not.exist');
     cy.get('#chat-input').should('not.exist');

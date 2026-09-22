@@ -4,14 +4,6 @@ function loginAsAdmin(): void {
   cy.location('pathname').should('eq', '/app/home');
 }
 
-/** 以 SPA 導覽切換網址，保留 demo 登入狀態（重新整理會清除工作階段）。 */
-function navigateInApp(path: string): void {
-  cy.window().then((win) => {
-    win.history.pushState({}, '', path);
-    win.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  });
-}
-
 describe('knowledge bases', () => {
   beforeEach(() => {
     cy.clearLocalStorage();
@@ -40,7 +32,7 @@ describe('knowledge bases', () => {
   });
 
   it('simulates adding a document without uploading and keeps other items usable', () => {
-    navigateInApp('/app/knowledge/knowledge-refund-policy');
+    cy.visit('/app/knowledge/knowledge-refund-policy');
     cy.location('pathname').should('eq', '/app/knowledge/knowledge-refund-policy/content');
     cy.contains('Demo：不會真正上傳檔案').should('be.visible');
     cy.get('input[type="file"]').should('not.exist');
@@ -56,7 +48,7 @@ describe('knowledge bases', () => {
   });
 
   it('retries a failed document', () => {
-    navigateInApp('/app/knowledge/knowledge-product-guide/content');
+    cy.visit('/app/knowledge/knowledge-product-guide/content');
     cy.get('.document-status[data-status="failed"]').closest('li').within(() => {
       cy.contains('button', '重新處理').click();
     });
@@ -65,7 +57,7 @@ describe('knowledge bases', () => {
   });
 
   it('changes the sharing scope with an explicit save', () => {
-    navigateInApp('/app/knowledge/knowledge-refund-policy/sharing');
+    cy.visit('/app/knowledge/knowledge-refund-policy/sharing');
     cy.get('fieldset legend').should('contain', '分享範圍');
     cy.contains('label', '指定帳號／團隊').click();
     cy.contains('button', '儲存分享設定').click();
@@ -79,7 +71,7 @@ describe('knowledge bases', () => {
   });
 
   it('does not reveal the name of a knowledge base the account cannot access', () => {
-    navigateInApp('/app/knowledge/knowledge-staff-notes/content');
+    cy.visit('/app/knowledge/knowledge-staff-notes/content');
     cy.contains('無法查看這個知識庫').should('be.visible');
     cy.contains('同仁個人筆記').should('not.exist');
     cy.get('nav.tabs').should('not.exist');

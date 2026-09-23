@@ -7,9 +7,9 @@
   <main class="chat-page chat-page--state">
     <app-state-panel
       state="permission-denied"
-      [title]="state.reason === 'chat-thread' ? '找不到這段對話' : '無法使用這個助理'"
+      [title]="deniedTitle(state.reason)"
       [description]="state.message"
-      recoveryLabel="返回首頁"
+      [recoveryLabel]="recoveryLabel()"
       (recover)="returnHome()"
     />
   </main>
@@ -18,7 +18,9 @@
     @switch (header()) {
       @case ('full') {
         <header class="chat-header">
-          <a class="back" routerLink="/app/home">返回首頁</a>
+          @if (!anonymous()) {
+            <a class="back" routerLink="/app/home">返回首頁</a>
+          }
           <div class="identity">
             <p class="eyebrow">AI 助理</p>
             <h1>{{ current.assistantName }}</h1>
@@ -32,6 +34,11 @@
     }
 
     <main class="chat-body">
+      @if (anonymous()) {
+        <p class="demo-notice">
+          <strong>Demo 展示</strong>這個助理不會連接真實服務，回答全部來自預先準備的示範資料，也不會使用你的真實資料。
+        </p>
+      }
       <p class="privacy-notice"><strong>私人對話</strong>{{ current.privacyNotice }}</p>
       @if (current.historyMode === 'not-saved') {
         <p class="ephemeral-notice">這個助理不保存對話紀錄，離開或重新整理後這段對話就會消失。</p>

@@ -12,6 +12,9 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>(
       const repository = new MockDemoRepository(DEMO_SEED, {
         storage:
           typeof localStorage === 'undefined' ? undefined : localStorage,
+        // 未登入訪客的對話只留在這個分頁：關閉分頁就結束，也不與帳號共用儲存。
+        visitorStorage:
+          typeof sessionStorage === 'undefined' ? undefined : sessionStorage,
       });
       // Demo：允許用網址參數預覽載入中／部分失敗／權限不足／連線中斷的畫面。
       const scenario =

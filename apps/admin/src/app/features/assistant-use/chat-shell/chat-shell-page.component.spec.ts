@@ -7,7 +7,7 @@ import { ChatShellPageComponent } from './chat-shell-page.component';
 
 function setup(
   assistantId = 'assistant-customer-service',
-  accountId: AccountId = 'account-external-customer',
+  accountId: AccountId | null = 'account-external-customer',
   queryParams: Record<string, string> = {},
 ) {
   const testing = provideAssistantUseTesting(accountId);
@@ -164,5 +164,81 @@ describe('ChatShellPageComponent', () => {
     expect(host.textContent).toContain('無法使用這個助理');
     expect(host.textContent).not.toContain('內部教育訓練助理');
     expect(host.querySelector('#chat-input')).toBeNull();
+  });
+
+  describe('未登入訪客', () => {
+    it('opens an externally published assistant with no demo persona at all', () => {
+      const { fixture, host } = setup('assistant-customer-service', null);
+
+      expect(host.querySelector('h1')?.textContent).toContain('客服助理');
+      expect(host.querySelector('#chat-input')).not.toBeNull();
+      ask(fixture, '收到商品後幾天內可以退貨？');
+      expect(host.querySelectorAll('[role="log"] app-chat-message')).toHaveLength(2);
+    });
+
+    it('says it is a Demo and that closing the tab ends the conversation', () => {
+      const { host } = setup('assistant-customer-service', null);
+
+      expect(host.querySelector('.demo-notice')?.textContent).toContain('Demo');
+      expect(host.querySelector('.privacy-notice')?.textContent).toContain('關閉這個分頁');
+    });
+
+    it('never links back into the workspace', () => {
+      const { host } = setup('assistant-customer-service', null);
+
+      expect(host.querySelector('a[href^="/app"]')).toBeNull();
+      expect(host.textContent).not.toContain('返回首頁');
+    });
+
+    it('keeps the embedded view free of page chrome and workspace links', () => {
+      const { host } = setup('assistant-customer-service', null, { embed: '1' });
+
+      expect(host.querySelector('.chat-header')).toBeNull();
+      expect(host.querySelector('a[href^="/app"]')).toBeNull();
+      expect(host.querySelector('h1')?.className).toContain('visually-hidden');
+      expect(host.querySelector('#chat-input')).not.toBeNull();
+    });
+
+    it('refuses an internal-only assistant without leaking its name or a workspace link', () => {
+      const { host } = setup('assistant-internal-onboarding', null);
+
+      expect(host.textContent).toContain('無法開啟這個助理');
+      expect(host.textContent).not.toContain('內部教育訓練助理');
+      expect(host.querySelector('#chat-input')).toBeNull();
+      expect(host.querySelector('a[href^="/app"]')).toBeNull();
+      expect(host.querySelector('.ui-panel-action')).toBeNull();
+    });
+
+    it('sends a consented submission to the data manager as an anonymous visitor', () => {
+      const { fixture, host, repository } = setup('assistant-customer-service', null);
+      ask(fixture, '我要回報訂單問題');
+      host.querySelector<HTMLButtonElement>('button.form-start')?.click();
+      fixture.detectChanges();
+
+      const orderInput = host.querySelector<HTMLInputElement>('#chat-field-field-order-number');
+      if (orderInput === null) throw new Error('missing inline form');
+      orderInput.value = 'DEMO-3001';
+      orderInput.dispatchEvent(new Event('input'));
+      host.querySelector<HTMLInputElement>('input[type="radio"][value="配送延遲"]')?.click();
+      const dateInput = host.querySelector<HTMLInputElement>('#chat-field-field-reported-on');
+      if (dateInput === null) throw new Error('missing date');
+      dateInput.value = '2026-09-21';
+      dateInput.dispatchEvent(new Event('input'));
+      host.querySelector<HTMLButtonElement>('app-inline-form button[type="submit"]')?.click();
+      fixture.detectChanges();
+
+      expect(host.querySelector('app-consent-confirmation')?.textContent).toContain('接收單位');
+      host.querySelector<HTMLInputElement>('#consent-agree')?.click();
+      fixture.detectChanges();
+      host.querySelector<HTMLButtonElement>('button.consent-submit')?.click();
+      fixture.detectChanges();
+
+      expect(host.querySelector('[data-kind="submission-receipt"]')?.textContent).toContain('已送出');
+      const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+      expect(tracking).toMatchObject({
+        status: 'ready',
+        data: { subjects: [{ displayName: expect.stringContaining('未登入訪客') }] },
+      });
+    });
   });
 });

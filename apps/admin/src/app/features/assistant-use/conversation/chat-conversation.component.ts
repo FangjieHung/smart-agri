@@ -13,6 +13,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { isVisitorId, type ChatViewerId } from '../../../core/domain/account.model';
 import type {
   ChatCitationView,
   ChatFormView,
@@ -25,6 +26,7 @@ import type {
   DatabaseTrialAnswers,
 } from '../../../core/domain/database.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
+import { AnonymousVisitorService } from '../../../core/session/anonymous-visitor.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { CitationDrawerComponent } from '../citation-drawer/citation-drawer.component';
@@ -52,7 +54,10 @@ const CLOSED: FormFlow = { step: 'closed' };
 
 /**
  * 助理對話的單一實作：`/use/:assistantId`（嵌入用）與工作區的 `/app/chat` 都用這個元件，
- * 只靠 `header` 決定要不要顯示頁面外框。對話只屬於目前帳號，回覆全部來自 fixtures。
+ * 只靠 `header` 決定要不要顯示頁面外框。回覆全部來自 fixtures。
+ *
+ * 對話只屬於「目前的發起者」：可能是已選擇的 Demo 身分，也可能是 `allowAnonymous`
+ * 開啟時這個瀏覽器分頁的未登入訪客。訪客模式下畫面不會出現任何 `/app` 連結。
  */
 @Component({
   selector: 'app-chat-conversation',
@@ -71,6 +76,7 @@ const CLOSED: FormFlow = { step: 'closed' };
 export class ChatConversationComponent {
   private readonly router = inject(Router);
   private readonly session = inject(DemoSessionService);
+  private readonly visitor = inject(AnonymousVisitorService);
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly injector = inject(Injector);
 
@@ -83,22 +89,37 @@ export class ChatConversationComponent {
    * none：完全不顯示，由外層頁面提供標題（工作區）。
    */
   readonly header = input<'full' | 'minimal' | 'none'>('full');
+  /**
+   * 允許未登入的官網訪客使用（只有 `/use/:assistantId` 會開啟）。
+   * 開啟後沒有 Demo 身分時改用這個分頁的匿名訪客 id，畫面也不再出現任何工作區連結。
+   */
+  readonly allowAnonymous = input(false);
   /** 訊息有變動時送出目前的對話 id，讓外層頁面同步網址與對話紀錄。 */
   readonly changed = output<ChatThreadId | null>();
 
   /** 對話內容變更後遞增，讓 repository 結果重新讀取。 */
   private readonly revision = signal(0);
+
+  /** 目前的發起者：已選擇的 Demo 身分優先，其次才是這個分頁的匿名訪客。 */
+  private readonly viewerId = computed<ChatViewerId | null>(
+    () => this.session.activeAccountId() ?? (this.allowAnonymous() ? this.visitor.visitorId() : null),
+  );
+  /** 未登入訪客模式：隱藏所有工作區連結，並改用訪客專屬的說明文案。 */
+  protected readonly anonymous = computed(() => {
+    const viewerId = this.viewerId();
+    return viewerId !== null && isVisitorId(viewerId);
+  });
   private readonly scope = computed(
-    () => `${this.session.activeAccountId() ?? ''}|${this.assistantId()}|${this.threadId() ?? ''}`,
+    () => `${this.viewerId() ?? ''}|${this.assistantId()}|${this.threadId() ?? ''}`,
   );
 
   protected readonly result = computed(() => {
     this.revision();
-    const accountId = this.session.activeAccountId();
-    if (accountId === null) return null;
+    const viewerId = this.viewerId();
+    if (viewerId === null) return null;
 
     return this.repository.getAssistantChat(
-      accountId,
+      viewerId,
       this.assistantId(),
       this.threadId() ?? undefined,
     );
@@ -131,11 +152,11 @@ export class ChatConversationComponent {
   }
 
   protected ask(text: string): void {
-    const accountId = this.session.activeAccountId();
-    if (accountId === null) return;
+    const viewerId = this.viewerId();
+    if (viewerId === null) return;
 
     const result = this.repository.sendChatMessage(
-      accountId,
+      viewerId,
       this.assistantId(),
       text,
       this.threadId() ?? undefined,
@@ -177,10 +198,10 @@ export class ChatConversationComponent {
 
   protected reviewForm(answers: DatabaseTrialAnswers): void {
     const flow = this.flow();
-    const accountId = this.session.activeAccountId();
-    if (flow.step !== 'form' || accountId === null) return;
+    const viewerId = this.viewerId();
+    if (flow.step !== 'form' || viewerId === null) return;
 
-    const result = this.repository.reviewChatForm(accountId, this.assistantId(), flow.form.id, answers);
+    const result = this.repository.reviewChatForm(viewerId, this.assistantId(), flow.form.id, answers);
     if (result.status === 'validation-failed') {
       this.flow.set({ ...flow, answers, errors: result.errors });
     } else if (result.status === 'ready' || result.status === 'partial-failure') {
@@ -199,11 +220,11 @@ export class ChatConversationComponent {
 
   protected confirmConsent(): void {
     const flow = this.flow();
-    const accountId = this.session.activeAccountId();
-    if (flow.step !== 'consent' || accountId === null) return;
+    const viewerId = this.viewerId();
+    if (flow.step !== 'consent' || viewerId === null) return;
 
     const result = this.repository.submitChatForm(
-      accountId,
+      viewerId,
       this.assistantId(),
       { formId: flow.form.id, answers: flow.answers, consent: true },
       this.threadId() ?? undefined,
@@ -227,6 +248,17 @@ export class ChatConversationComponent {
 
   protected isFormRequest(message: ChatMessageView): boolean {
     return message.author === 'assistant' && message.reply.kind === 'form-request';
+  }
+
+  /** 拒絕畫面的標題：訪客與帳號的字不同，但兩邊都不揭露助理名稱或是否存在。 */
+  protected deniedTitle(reason: string): string {
+    if (reason === 'chat-thread') return '找不到這段對話';
+    return this.anonymous() ? '無法開啟這個助理' : '無法使用這個助理';
+  }
+
+  /** 訪客沒有工作區可回，所以不提供任何導回 `/app` 的動作。 */
+  protected recoveryLabel(): string {
+    return this.anonymous() ? '' : '返回首頁';
   }
 
   protected returnHome(): void {

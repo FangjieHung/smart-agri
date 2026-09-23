@@ -137,6 +137,29 @@ describe('accessibility', () => {
     });
   });
 
+  describe('embedded chat as an anonymous visitor', () => {
+    it('has no critical or serious violations without any demo persona', () => {
+      cy.visit('/use/assistant-customer-service');
+      cy.contains('h1', '客服助理').should('be.visible');
+      auditA11y();
+
+      cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+      cy.get('form.composer button[type="submit"]').click();
+      cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+      auditA11y();
+
+      cy.visit('/use/assistant-customer-service?embed=1');
+      cy.get('#chat-input').should('be.visible');
+      auditA11y();
+    });
+
+    it('has no critical or serious violations on the refusal state', () => {
+      cy.visit('/use/assistant-internal-onboarding');
+      cy.contains('無法開啟這個助理').should('be.visible');
+      auditA11y();
+    });
+  });
+
   it('removes transitions when the visitor prefers reduced motion', () => {
     loginAs('SMB 管理者');
 

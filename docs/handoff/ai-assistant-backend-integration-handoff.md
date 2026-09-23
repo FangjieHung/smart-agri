@@ -103,11 +103,11 @@ Demo **沒有任何一次真的連出去**。三個外部接點都是本地模�
 
 | 接點 | Demo 現況 | 正式版要做的事 |
 | --- | --- | --- |
-| 憑證保存 | `channelSecret` / `accessToken` **明文存 localStorage，而且原文回傳給前端**（`core/repositories/publishing-channels.ts:279-283`） | 伺服端加密保存；回傳時只給末四碼與「是否已設定」。**這會改動 `LineSetupView` 契約**，`features/publishing/line-setup/line-setup.component.ts` 的遮罩顯示要跟著調整 |
-| Webhook | URL 指向 `.invalid` 保留網域（`publishing-channels.ts:285`） | 真實 webhook endpoint、**簽章驗證**、重送與冪等處理 |
+| 憑證保存 | `channelSecret` / `accessToken` **明文存 localStorage，而且原文回傳給前端**（`core/repositories/publishing-channels.ts:297-301`） | 伺服端加密保存；回傳時只給末四碼與「是否已設定」。**這會改動 `LineSetupView` 契約**，`features/publishing/line-setup/line-setup.component.ts` 的遮罩顯示要跟著調整 |
+| Webhook | URL 指向 `.invalid` 保留網域（`publishing-channels.ts:303`） | 真實 webhook endpoint、**簽章驗證**、重送與冪等處理 |
 | 測試訊息 | `sendLineTestMessage` 是本地模擬，不會連 LINE（契約 `demo-repository.ts:290`） | 真的推一則訊息。**LINE 端失敗必須回 `200` + `lastTest` 失敗紀錄，不是 `5xx`**，否則畫面會把「測過了，失敗」顯示成「檢查失敗」 |
 | 啟用順序 | 必須先測試成功才能啟用，否則回 `validation-failed`（契約 `demo-repository.ts:295`） | 保留這個約束；`saveLineSettings` 會重置測試與啟用狀態（第 6.4 節），這個重置也要保留 |
-| 訪客身分 | 無 | 從 LINE 開啟 `/use/:assistantId` 的人是誰？對話屬於誰？見第 4.2 節 |
+| 訪客身分 | 每個瀏覽器分頁一個匿名 `visitor-<亂數>`（`core/session/anonymous-visitor.service.ts:50-96`），**與 LINE 的使用者完全無關** | 正式版要把 LINE 的 `userId` 對應成訪客身分，並決定它與官網訪客是不是同一種主體。見第 4.2 節第 5 點 |
 
 驗證規則（逐欄檢查、哪些欄位必填、錯誤摘要怎麼對焦）寫在 `tasks-6-10-backend-handoff.md` 第 6.4 節，`accessibility.cy.ts` 有對應的鍵盤流測試。
 
@@ -115,15 +115,15 @@ Demo **沒有任何一次真的連出去**。三個外部接點都是本地模�
 
 | 接點 | Demo 現況 | 正式版要做的事 |
 | --- | --- | --- |
-| 嵌入腳本 | 嵌入碼字串由 `demoEmbedCode()` 產生（`publishing-channels.ts:273`），指向 `.invalid` 網域（`:117-127`） | 真實 widget 的**託管、版本管理與快取策略**；嵌入碼要能安全地嵌在客戶站上 |
-| 允許網域 | 只是一個字串清單，沒有任何執行力 | **後端執行**：CORS 白名單 + CSP `frame-ancestors`。前端的 `?embed=1` 只是視覺開關（`features/assistant-use/chat-shell/chat-shell-page.component.ts:37`），**不做 origin 檢查、不驗 referrer、不限制 iframe 來源** |
-| 安裝檢查 | `checkWebsiteInstallation` 本地模擬；`?demoScenario=disconnected-channel` 可強制成 `not-detected`（`core/repositories/mock-demo-repository.ts:799`） | 真的去偵測。**外部網站無回應也要回 `200` + `installCheck: 'not-detected'`**，理由同 LINE 測試 |
+| 嵌入腳本 | 嵌入碼字串由 `demoEmbedCode()` 產生（`publishing-channels.ts:291`），指向 `.invalid` 網域（`:117-127`） | 真實 widget 的**託管、版本管理與快取策略**；嵌入碼要能安全地嵌在客戶站上 |
+| 允許網域 | 只是一個字串清單，沒有任何執行力 | **後端執行**：CORS 白名單 + CSP `frame-ancestors`。前端的 `?embed=1` 只是視覺開關（`features/assistant-use/chat-shell/chat-shell-page.component.ts:42`），**不做 origin 檢查、不驗 referrer、不限制 iframe 來源** |
+| 安裝檢查 | `checkWebsiteInstallation` 本地模擬；`?demoScenario=disconnected-channel` 可強制成 `not-detected`（`core/repositories/mock-demo-repository.ts:818`） | 真的去偵測。**外部網站無回應也要回 `200` + `installCheck: 'not-detected'`**，理由同 LINE 測試 |
 | 網域變更 | 變更允許網域會**重置安裝檢查**（契約 `demo-repository.ts:273`） | 保留這個行為，畫面依賴它 |
-| 訪客 session | 無。`/use/:assistantId` 目前**還掛著 `demoSessionGuard`**（`app.routes.ts:124`），嵌入情境下會被踢回 `/login` | 見第 4.2 節——這是嵌入能否成立的前提 |
+| 訪客 session | 已可用。`/use/:assistantId` 改掛 `embeddedChatGuard`（`app.routes.ts:126`），未登入訪客直接開得了；身分是分頁內的匿名 `VisitorId`，且只有**官網嵌入或 LINE 已發布**的助理開得起來（`publishing-channels.ts:230-245`） | 把 Demo 的 sessionStorage 換成真正的匿名 session，並在後端強制「未發布的助理不得被匿名開啟」。見第 4.2 節第 5 點 |
 
 ### 3.3 真實 LLM 與檢索
 
-目前是關鍵字比對 fixture（`mock-demo-repository.ts:1814-1835`），引用是寫死的文件名與摘錄（`core/repositories/demo-seed-chat.ts`）。
+目前是關鍵字比對 fixture（`mock-demo-repository.ts:1886-1907`），引用是寫死的文件名與摘錄（`core/repositories/demo-seed-chat.ts`）。
 
 **前端已經依照五種回答種類設計**（`core/domain/conversation.model.ts:123-147`）：
 
@@ -165,7 +165,16 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 2. **`AccountId` 是字面值 union**（`core/domain/account.model.ts:1-4`），只有三個值。後端無法回傳任何新帳號 id，必須先放寬成 `string`。
 3. **逾時策略要重新定義**。30 分鐘閒置是 Demo 的數字，不是需求。設計文件要求「登入逾時前保留非敏感草稿；敏感內容依安全規則清除」（`docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md:247`），但**沒有定義「敏感」的界線**——這是後端與法遵要先畫清楚的。
 4. **登出要清掉哪些本機資料**。目前 `clearSession()` 只移除 sessionStorage 的 `demo-session`（`:132-135`、`:156-160`），**`localStorage` 中的草稿、對話與紀錄完全不動**。
-5. **未登入訪客的路徑目前不存在**。`/use/:assistantId` 掛著守衛（`app.routes.ts:124`），但它的用途是嵌入官網與 LINE 開啟。必須決定匿名 session 的形式、匿名對話的歸屬、以及匿名訪客能不能提交表單（表單需要同意紀錄，同意紀錄需要主體）。
+5. **未登入訪客的路徑已經打通（2026-09 更新），但形式是 Demo 級的**。`/use/:assistantId` 改掛 `embeddedChatGuard`（`app.routes.ts:126`、`core/session/embedded-chat.guard.ts:14-19`），這條路由**永遠不轉址**：沒有 Demo 身分的人就是未登入的官網訪客。目前的答案是：
+
+   | 原本的問題 | Demo 的答案 | 位置 |
+   | --- | --- | --- |
+   | 匿名 session 的形式 | 每個瀏覽器分頁一個 `visitor-<亂數>`，存在 sessionStorage 的 `demo-visitor`，關閉分頁就結束；沒有憑證、沒有權限、不對應任何帳號 | `core/session/anonymous-visitor.service.ts:10`、`:50-96` |
+   | 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理（平台內分享不算對外）；其餘與「助理不存在」回同一則不含名稱的訊息 | `core/repositories/publishing-channels.ts:230-245`、`mock-demo-repository.ts:1637-1651`、`:1670-1675` |
+   | 匿名對話的歸屬 | 屬於那個 `VisitorId`，存在 `sme-demo:chat:<visitorId>:<assistantId>`，寫進**訪客專屬的 sessionStorage**；帳號、其他訪客與助理擁有者都讀不到，也不計入匿名統計 | `mock-demo-repository.ts:1690-1697`、`:1806-1809`、`tokens.ts:15-17` |
+   | 能不能提交表單 | 可以。同意畫面照樣顯示接收單位／目的／可查看者／敏感資料提示；紀錄的追蹤對象是 `subject-<visitorId>`，顯示成「未登入訪客（末四碼）」，只有指定資料管理者看得到 | `mock-demo-repository.ts:1593`、`:433-439`、`demo-seed-chat.ts:131` |
+
+   **正式版仍要自己決定的**：匿名 session 的真實形式（簽章 cookie／一次性 token）與保存期限、匿名對話要不要落伺服端與保存多久、匿名同意紀錄的法遵主體是誰（目前只有一個不可追溯的隨機 id）以及撤回入口怎麼對應到它、LINE 使用者與官網訪客是不是同一種主體。`isExternallyPublished()` 是前端的一道門，**不是授權**——後端必須自己擋。
 
 ---
 
@@ -181,8 +190,8 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 
 | 資料 | 排序 | 位置 |
 | --- | --- | --- |
-| 對話清單 | 最後活動時間**由新到舊**，同毫秒時用序號 tiebreak | `mock-demo-repository.ts:431-434` |
-| 追蹤紀錄 | `recordedAt` **由舊到新**（時間軸與差異計算依賴這個順序） | `mock-demo-repository.ts:1955` |
+| 對話清單 | 最後活動時間**由新到舊**，同毫秒時用序號 tiebreak | `mock-demo-repository.ts:447-450` |
+| 追蹤紀錄 | `recordedAt` **由舊到新**（時間軸與差異計算依賴這個順序） | `mock-demo-repository.ts:2027` |
 | 其他清單 | 無明確排序，等於 seed 的順序 | — |
 
 後端要決定的：
@@ -227,7 +236,7 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 
 ### 5.5 資料保存與刪除
 
-目前沒有任何 TTL。localStorage 永久保留，`deleteChatThread` 是**硬刪除**，沒有垃圾桶，也不連帶刪除已產生的結構化紀錄。`SubmissionConsentStatus` 已有 `withdrawn` 這個值，但**沒有任何方法能撤回**——而收據文字已經對使用者承諾「可隨時申請撤回或刪除」（`mock-demo-repository.ts:1588`）。**這是目前最明確的法遵缺口**，詳見第 8 節第 6、7 點。
+目前沒有任何 TTL。localStorage 永久保留，`deleteChatThread` 是**硬刪除**，沒有垃圾桶，也不連帶刪除已產生的結構化紀錄。`SubmissionConsentStatus` 已有 `withdrawn` 這個值，但**沒有任何方法能撤回**——而收據文字已經對使用者承諾「可隨時申請撤回或刪除」（`mock-demo-repository.ts:1610`）。**這是目前最明確的法遵缺口**，詳見第 8 節第 6、7 點。
 
 ---
 
@@ -253,7 +262,7 @@ npx nx build admin
 
 這個 Demo 會被拿去給非技術的決策者看。交付時必須明說：
 
-- 模擬登入、模擬權限與模擬憑證保存**不是安全功能**（`DEMO_SECURITY_NOTICE`，`core/repositories/demo-repository.ts:473-474`）。
+- 模擬登入、模擬權限與模擬憑證保存**不是安全功能**（`DEMO_SECURITY_NOTICE`，`core/repositories/demo-repository.ts:478-479`）。
 - 回答不是真的 AI，是固定 fixture 的關鍵字比對。
 - 三個發布管道都沒有真的連出去，嵌入碼與 webhook 指向保留網域。
 - **不可以在 Demo 中輸入任何真實敏感資料**——所有輸入都會以明文留在瀏覽器的 localStorage 裡。

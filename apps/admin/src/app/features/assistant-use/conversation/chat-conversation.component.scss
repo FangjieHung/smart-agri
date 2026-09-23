@@ -52,6 +52,18 @@ h1 { font-size: var(--font-size-heading); line-height: var(--line-height-heading
   overflow-y: auto;
 }
 
+/* 未登入訪客的 Demo 聲明：與隱私說明同一種卡片，但用警示色強調不是真實服務。 */
+.demo-notice {
+  padding: var(--space-3);
+  border-inline-start: var(--space-1) solid var(--color-warning);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+.demo-notice strong { display: block; color: var(--color-text); }
+
 .privacy-notice {
   display: grid;
   gap: var(--space-1);

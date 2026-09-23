@@ -225,6 +225,24 @@ export function trimLineSettings(input: LineSettingsInput): LineSettingsInput {
   };
 }
 
+// ---------- 對外開放判斷 ----------
+
+/**
+ * 這個助理是否真的對外開放，也就是未登入訪客可不可以開啟它。
+ *
+ * 只有**官網嵌入**或 **LINE** 處於 `published` 才算數：平台內分享不算對外，
+ * 它仍然需要一個已登入的帳號。尚未設定、測試中、需要處理與已暫停一律不開放，
+ * 所以預設（新建立的助理）是關著的。
+ */
+export function isExternallyPublished(
+  record: PublishingRecord,
+  websiteDisconnected: boolean,
+): boolean {
+  const [website] = websiteStatus(record, websiteDisconnected);
+  const [line] = lineStatus(record.line, lineChecks(record.line));
+  return website === 'published' || line === 'published';
+}
+
 // ---------- 組裝 ----------
 
 function channelView(

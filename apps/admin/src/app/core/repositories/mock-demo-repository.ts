@@ -1,4 +1,4 @@
-import type { AccountId } from '../domain/account.model';
+import { isVisitorId, type AccountId, type ChatViewerId } from '../domain/account.model';
 import {
   ASSISTANT_WIZARD_STEPS,
   createEmptyAssistantDraft,
@@ -73,6 +73,7 @@ import {
   validateFields,
 } from './database-tracking';
 import {
+  ANONYMOUS_VISITOR_SUBJECT_NAME,
   CHAT_DEFAULT_THREAD_TITLE,
   CHAT_GENERAL_KNOWLEDGE_NOTICE,
   CHAT_HISTORY_OFF_NOTICE,
@@ -81,6 +82,7 @@ import {
   CHAT_PRIVACY_NOTICE,
   CHAT_SENSITIVE_NOTICE,
   CHAT_THREAD_TITLE_MAX_LENGTH,
+  CHAT_VISITOR_PRIVACY_NOTICE,
   CHAT_WITHDRAWAL_NOTICE,
   DEFAULT_CHAT_PROFILE,
   type ChatResponseFixture,
@@ -96,6 +98,7 @@ import type { PublishingRecord } from './demo-seed-publishing';
 import {
   canActivateLine,
   defaultPublishingRecord,
+  isExternallyPublished,
   isPublishingRecord,
   lineTestResult,
   normalizePlatformAccounts,
@@ -159,6 +162,11 @@ function immutableCopy<T>(value: T): T {
 export interface MockDemoRepositoryOptions {
   /** 草稿與新建助理的保存位置；正式注入時使用 localStorage。 */
   readonly storage?: DemoKeyValueStorage;
+  /**
+   * 未登入訪客的對話保存位置；正式注入時使用 **sessionStorage**，
+   * 所以關閉分頁就結束，也不會和任何帳號共用同一份儲存。
+   */
+  readonly visitorStorage?: DemoKeyValueStorage;
   readonly now?: () => Date;
 }
 
@@ -422,6 +430,14 @@ function deriveThreadTitle(messages: readonly ChatMessageView[]): string {
     : text;
 }
 
+/** 未登入訪客在收集紀錄中的名稱；加上 id 末段，讓兩位訪客分得開，且不含任何個人資料。 */
+function anonymousSubjectName(subjectId: string): string {
+  const visitorId = subjectId.slice('subject-'.length);
+  if (!visitorId.startsWith('visitor-')) return '已停用的帳號';
+  const suffix = visitorId.slice('visitor-'.length).slice(-4);
+  return `${ANONYMOUS_VISITOR_SUBJECT_NAME}（${suffix}）`;
+}
+
 function threadSequence(id: string): number {
   const parsed = Number.parseInt(id.slice('chat-thread-'.length), 10);
   return Number.isNaN(parsed) ? 0 : parsed;
@@ -471,6 +487,8 @@ const DATABASE_STATUS: Record<
 export class MockDemoRepository implements DemoRepository {
   private scenario: DemoScenario = 'ready';
   private readonly storage: DemoKeyValueStorage;
+  /** 未登入訪客的對話只寫在這裡，和帳號的儲存完全分開。 */
+  private readonly visitorStorage: DemoKeyValueStorage;
   private readonly now: () => Date;
   /**
    * 助理關閉「保存自己的對話」時，對話只留在這個 repository 實例的記憶體裡：
@@ -483,6 +501,7 @@ export class MockDemoRepository implements DemoRepository {
     options: MockDemoRepositoryOptions = {},
   ) {
     this.storage = options.storage ?? createMemoryStorage();
+    this.visitorStorage = options.visitorStorage ?? createMemoryStorage();
     this.now = options.now ?? (() => new Date());
   }
 
@@ -1368,7 +1387,7 @@ export class MockDemoRepository implements DemoRepository {
     // 不保存對話的助理沒有第二段對話可開，「開新對話」只是把暫時對話清空。
     if (!this.keepsConversations(assistant)) {
       this.ephemeralChats.delete(this.ephemeralKey(viewerAccountId, assistant.id));
-      return this.applyScenario(this.toChatView(assistant, []));
+      return this.applyScenario(this.toChatView(viewerAccountId, assistant, []));
     }
 
     const threads = this.storedThreads(viewerAccountId, assistant.id);
@@ -1383,7 +1402,9 @@ export class MockDemoRepository implements DemoRepository {
     };
     this.saveThreads(viewerAccountId, assistant.id, [...threads, thread]);
 
-    return this.applyScenario(this.toChatView(assistant, [], thread.id, thread.title));
+    return this.applyScenario(
+      this.toChatView(viewerAccountId, assistant, [], thread.id, thread.title),
+    );
   }
 
   renameChatThread(
@@ -1445,43 +1466,43 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   getAssistantChat(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     threadId?: string,
   ): ReturnType<DemoRepository['getAssistantChat']> {
-    const assistant = this.usableAssistant(viewerAccountId, assistantId);
-    if (assistant === undefined) return this.assistantUsePermissionDenied();
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
 
     if (!this.keepsConversations(assistant)) {
       if (threadId !== undefined) return this.chatThreadPermissionDenied();
       return this.applyScenario(
-        this.toChatView(assistant, this.ephemeralMessages(viewerAccountId, assistant.id)),
+        this.toChatView(viewerId, assistant, this.ephemeralMessages(viewerId, assistant.id)),
       );
     }
 
-    const threads = this.storedThreads(viewerAccountId, assistant.id);
+    const threads = this.storedThreads(viewerId, assistant.id);
     const thread =
       threadId === undefined
         ? [...threads].sort(byRecentActivity)[0]
         : threads.find((candidate) => candidate.id === threadId);
     if (thread === undefined) {
       if (threadId !== undefined) return this.chatThreadPermissionDenied();
-      return this.applyScenario(this.toChatView(assistant, []));
+      return this.applyScenario(this.toChatView(viewerId, assistant, []));
     }
 
     return this.applyScenario(
-      this.toChatView(assistant, thread.messages, thread.id, thread.title),
+      this.toChatView(viewerId, assistant, thread.messages, thread.id, thread.title),
     );
   }
 
   sendChatMessage(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     text: string,
     threadId?: string,
   ): SendChatMessageResult {
-    const assistant = this.usableAssistant(viewerAccountId, assistantId);
-    if (assistant === undefined) return this.assistantUsePermissionDenied();
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
 
     const question = text.trim();
     if (question.length === 0) {
@@ -1494,10 +1515,10 @@ export class MockDemoRepository implements DemoRepository {
       });
     }
 
-    const target = this.resolveChatTarget(viewerAccountId, assistant, threadId);
+    const target = this.resolveChatTarget(viewerId, assistant, threadId);
     if (target === undefined) return this.chatThreadPermissionDenied();
 
-    const messages = this.targetMessages(viewerAccountId, assistant, target);
+    const messages = this.targetMessages(viewerId, assistant, target);
     const createdAt = this.now().toISOString();
     const next: readonly ChatMessageView[] = [
       ...messages,
@@ -1510,17 +1531,17 @@ export class MockDemoRepository implements DemoRepository {
       },
     ];
 
-    return this.applyScenario(this.writeChatMessages(viewerAccountId, assistant, target, next));
+    return this.applyScenario(this.writeChatMessages(viewerId, assistant, target, next));
   }
 
   reviewChatForm(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     formId: DatabaseId,
     answers: DatabaseTrialAnswers,
   ): ReviewChatFormResult {
-    const target = this.chatFormTarget(viewerAccountId, assistantId, formId);
-    if (target === undefined) return this.assistantUsePermissionDenied();
+    const target = this.chatFormTarget(viewerId, assistantId, formId);
+    if (target === undefined) return this.chatAssistantPermissionDenied(viewerId);
 
     const outcome = evaluateTrial(target.form.fields, answers);
     if ('errors' in outcome) {
@@ -1535,13 +1556,13 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   submitChatForm(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     submission: ChatFormSubmission,
     threadId?: string,
   ): SubmitChatFormResult {
-    const target = this.chatFormTarget(viewerAccountId, assistantId, submission.formId);
-    if (target === undefined) return this.assistantUsePermissionDenied();
+    const target = this.chatFormTarget(viewerId, assistantId, submission.formId);
+    if (target === undefined) return this.chatAssistantPermissionDenied(viewerId);
 
     const { assistant, form } = target;
     const outcome = evaluateTrial(form.fields, submission.answers);
@@ -1560,15 +1581,16 @@ export class MockDemoRepository implements DemoRepository {
       });
     }
 
-    const chatTarget = this.resolveChatTarget(viewerAccountId, assistant, threadId);
+    const chatTarget = this.resolveChatTarget(viewerId, assistant, threadId);
     if (chatTarget === undefined) return this.chatThreadPermissionDenied();
 
     const recordedAt = this.now().toISOString();
     const existing = this.chatRecords();
+    // 未登入訪客的紀錄以訪客 id 當追蹤對象：與任何帳號都不同，也不冒認成帳號。
     const record: DatabaseRecordFixture = {
       id: `record-chat-${existing.length + 1}`,
       databaseId: form.id,
-      subjectId: `subject-${viewerAccountId}`,
+      subjectId: `subject-${viewerId}`,
       recordedAt,
       source: 'assistant-conversation',
       consentStatus: 'consented',
@@ -1576,7 +1598,7 @@ export class MockDemoRepository implements DemoRepository {
     };
     this.storage.setItem(CHAT_RECORDS_KEY, JSON.stringify([...existing, record]));
 
-    const messages = this.targetMessages(viewerAccountId, assistant, chatTarget);
+    const messages = this.targetMessages(viewerId, assistant, chatTarget);
     const next: readonly ChatMessageView[] = [
       ...messages,
       {
@@ -1593,7 +1615,7 @@ export class MockDemoRepository implements DemoRepository {
     ];
 
     return this.applyScenario(
-      this.writeChatMessages(viewerAccountId, assistant, chatTarget, next),
+      this.writeChatMessages(viewerId, assistant, chatTarget, next),
     );
   }
 
@@ -1612,6 +1634,46 @@ export class MockDemoRepository implements DemoRepository {
     return this.permissionDenied('assistant-use', '你沒有使用這個助理的權限，或它已不存在。');
   }
 
+  /**
+   * 未登入訪客可以開啟的助理：只有**官網嵌入或 LINE 已發布**的才算。
+   * 尚未設定、測試中、需要處理與已暫停都當作不存在，所以新建立的助理預設是關著的。
+   */
+  private anonymouslyOpenAssistant(assistantId: string): AssistantConfigurationView | undefined {
+    const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
+    if (assistant === undefined) return undefined;
+
+    return isExternallyPublished(
+      this.publishingRecord(assistant),
+      this.scenario === 'disconnected-channel',
+    )
+      ? assistant
+      : undefined;
+  }
+
+  /** 對話的發起者是帳號就看使用權限，是訪客就看助理有沒有對外發布。 */
+  private chatAssistant(
+    viewerId: ChatViewerId,
+    assistantId: string,
+  ): AssistantConfigurationView | undefined {
+    return isVisitorId(viewerId)
+      ? this.anonymouslyOpenAssistant(assistantId)
+      : this.usableAssistant(viewerId, assistantId);
+  }
+
+  private chatAssistantPermissionDenied(viewerId: ChatViewerId): PermissionDeniedRepositoryView {
+    return isVisitorId(viewerId)
+      ? this.anonymousUsePermissionDenied()
+      : this.assistantUsePermissionDenied();
+  }
+
+  /** 「沒有對外發布」與「不存在」回同一則訊息，不含助理名稱，也不揭露是哪一種。 */
+  private anonymousUsePermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied(
+      'assistant-use',
+      '這個助理沒有對外開放，或連結已失效。請回到原本的網站或 LINE 重新開啟。',
+    );
+  }
+
   /** 對話不存在與屬於其他帳號回傳同一則訊息，不洩漏對話標題或是否存在。 */
   private chatThreadPermissionDenied(): PermissionDeniedRepositoryView {
     return this.permissionDenied('chat-thread', '找不到這段對話，或它不屬於你的帳號。');
@@ -1625,37 +1687,45 @@ export class MockDemoRepository implements DemoRepository {
     return this.keepsConversations(assistant) ? 'saved' : 'not-saved';
   }
 
-  private chatKey(viewerAccountId: AccountId, assistantId: AssistantId): string {
-    return `${CHAT_KEY_PREFIX}${viewerAccountId}:${assistantId}`;
+  private chatKey(viewerId: ChatViewerId, assistantId: AssistantId): string {
+    return `${CHAT_KEY_PREFIX}${viewerId}:${assistantId}`;
   }
 
-  private ephemeralKey(viewerAccountId: AccountId, assistantId: AssistantId): string {
-    return `${viewerAccountId}|${assistantId}`;
+  /** 訪客的對話寫進只屬於該分頁的儲存；帳號的對話仍寫進共用的 localStorage。 */
+  private chatStorage(viewerId: ChatViewerId): DemoKeyValueStorage {
+    return isVisitorId(viewerId) ? this.visitorStorage : this.storage;
+  }
+
+  private ephemeralKey(viewerId: ChatViewerId, assistantId: AssistantId): string {
+    return `${viewerId}|${assistantId}`;
   }
 
   private ephemeralMessages(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: AssistantId,
   ): readonly ChatMessageView[] {
-    return this.ephemeralChats.get(this.ephemeralKey(viewerAccountId, assistantId)) ?? [];
+    return this.ephemeralChats.get(this.ephemeralKey(viewerId, assistantId)) ?? [];
   }
 
   private storedThreads(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: AssistantId,
   ): readonly StoredChatThread[] {
     return normalizeStoredThreads(
-      parseJson(this.storage.getItem(this.chatKey(viewerAccountId, assistantId))),
+      parseJson(this.chatStorage(viewerId).getItem(this.chatKey(viewerId, assistantId))),
     );
   }
 
   private saveThreads(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: AssistantId,
     threads: readonly StoredChatThread[],
   ): void {
     const record: StoredChatRecord = { version: 2, threads };
-    this.storage.setItem(this.chatKey(viewerAccountId, assistantId), JSON.stringify(record));
+    this.chatStorage(viewerId).setItem(
+      this.chatKey(viewerId, assistantId),
+      JSON.stringify(record),
+    );
   }
 
   private nextThreadId(threads: readonly StoredChatThread[]): ChatThreadId {
@@ -1671,7 +1741,7 @@ export class MockDemoRepository implements DemoRepository {
    * undefined 代表指定的對話不存在或不屬於這個帳號。
    */
   private resolveChatTarget(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistant: AssistantConfigurationView,
     threadId: string | undefined,
   ): StoredChatThread | null | undefined {
@@ -1679,7 +1749,7 @@ export class MockDemoRepository implements DemoRepository {
       return threadId === undefined ? null : undefined;
     }
 
-    const threads = this.storedThreads(viewerAccountId, assistant.id);
+    const threads = this.storedThreads(viewerId, assistant.id);
     if (threadId !== undefined) {
       return threads.find((candidate) => candidate.id === threadId);
     }
@@ -1699,25 +1769,23 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private targetMessages(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistant: AssistantConfigurationView,
     target: StoredChatThread | null,
   ): readonly ChatMessageView[] {
-    return target === null
-      ? this.ephemeralMessages(viewerAccountId, assistant.id)
-      : target.messages;
+    return target === null ? this.ephemeralMessages(viewerId, assistant.id) : target.messages;
   }
 
   /** 寫入訊息並回傳整段對話；不保存對話的助理只留在記憶體，不碰 storage。 */
   private writeChatMessages(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistant: AssistantConfigurationView,
     target: StoredChatThread | null,
     messages: readonly ChatMessageView[],
   ): AssistantChatView {
     if (target === null) {
-      this.ephemeralChats.set(this.ephemeralKey(viewerAccountId, assistant.id), messages);
-      return this.toChatView(assistant, messages);
+      this.ephemeralChats.set(this.ephemeralKey(viewerId, assistant.id), messages);
+      return this.toChatView(viewerId, assistant, messages);
     }
 
     const updated: StoredChatThread = {
@@ -1726,15 +1794,18 @@ export class MockDemoRepository implements DemoRepository {
       updatedAt: this.now().toISOString(),
       messages,
     };
-    const threads = this.storedThreads(viewerAccountId, assistant.id).filter(
+    const threads = this.storedThreads(viewerId, assistant.id).filter(
       (candidate) => candidate.id !== updated.id,
     );
-    this.saveThreads(viewerAccountId, assistant.id, [...threads, updated]);
+    this.saveThreads(viewerId, assistant.id, [...threads, updated]);
 
-    return this.toChatView(assistant, messages, updated.id, updated.title);
+    return this.toChatView(viewerId, assistant, messages, updated.id, updated.title);
   }
 
-  /** 匿名統計只計算有訊息的對話段數，不讀取任何對話文字。 */
+  /**
+   * 匿名統計只計算有訊息的對話段數，不讀取任何對話文字。
+   * 未登入訪客的對話只存在他自己的分頁，擁有者的瀏覽器讀不到，所以不會被計入。
+   */
   private countChatConversations(assistantId: AssistantId): number {
     return this.seed.accounts.reduce(
       (total, account) =>
@@ -1761,7 +1832,7 @@ export class MockDemoRepository implements DemoRepository {
       seen.set(key, {
         id: record.subjectId as TrackedSubjectId,
         databaseId: record.databaseId,
-        displayName: account?.displayName ?? '已停用的帳號',
+        displayName: account?.displayName ?? anonymousSubjectName(record.subjectId),
       });
     });
     return [...seen.values()];
@@ -1788,6 +1859,7 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private toChatView(
+    viewerId: ChatViewerId,
     assistant: AssistantConfigurationView,
     messages: readonly ChatMessageView[],
     threadId: ChatThreadId | null = null,
@@ -1802,7 +1874,7 @@ export class MockDemoRepository implements DemoRepository {
       title,
       historyMode: this.historyMode(assistant),
       welcome: profile.welcome,
-      privacyNotice: CHAT_PRIVACY_NOTICE,
+      privacyNotice: isVisitorId(viewerId) ? CHAT_VISITOR_PRIVACY_NOTICE : CHAT_PRIVACY_NOTICE,
       suggestedPrompts: this.seed.chatResponses
         .filter((fixture) => this.fixtureReply(assistant, fixture) !== null)
         .map((fixture) => ({ id: fixture.id, text: fixture.prompt })),
@@ -1892,11 +1964,11 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private chatFormTarget(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     formId: DatabaseId,
   ): ChatFormTarget | undefined {
-    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    const assistant = this.chatAssistant(viewerId, assistantId);
     if (assistant === undefined) return undefined;
     const offered = this.seed.chatResponses.some(
       (fixture) => fixture.answer.kind === 'form-request' && fixture.answer.databaseId === formId,

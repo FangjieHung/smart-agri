@@ -1,6 +1,6 @@
 # Mock → API 對照表（`DemoRepository` 全方法）
 
-**適用版本**：`apps/admin` 分支 `master`。介面宣告位置：`apps/admin/src/app/core/repositories/demo-repository.ts:212-471`。
+**適用版本**：`apps/admin` 分支 `master`。介面宣告位置：`apps/admin/src/app/core/repositories/demo-repository.ts:212-476`。
 
 ## 0. 這份文件的定位
 
@@ -37,14 +37,14 @@
 | 代碼 | 意義 | Demo 中的判斷位置 |
 | --- | --- | --- |
 | `S` | 只需要有效 session | `core/session/demo-session.guard.ts:9-12` |
-| `S+MA` | 另需 `manage-assistants` 權限 | `account.model.ts:10` |
-| `S+MD` | 另需 `manage-data-sources` 權限 | `account.model.ts:11` |
+| `S+MA` | 另需 `manage-assistants` 權限 | `account.model.ts:24` |
+| `S+MD` | 另需 `manage-data-sources` 權限 | `account.model.ts:25` |
 | `S+OWN` | 另需是該助理／知識庫／資料庫的**擁有者** | 見對應章節的權限規則 |
 | `S+DM` | 另需是該資料庫的**指定資料管理者**（`dataManager`） | `tasks-6-10-backend-handoff.md` 第 4.5 節 |
 | `S+USE` | 另需對該助理有**使用**權限（擁有／團隊分享／開放外部客戶） | `tasks-6-10-backend-handoff.md` 第 5.4 節 |
 | `—` | Demo 專用，**正式 API 不得提供** | — |
 
-> **注意**：`manage-publishing` 這個權限值存在（`account.model.ts:12`）但發布類方法目前**只檢查擁有者、沒有檢查它**。下表寫 `S+OWN` 是描述現狀，不是建議；正式版要不要改成 `S+OWN且MA/MP`，見 `tasks-6-10-backend-handoff.md` 第 8 節第 9 點。
+> **注意**：`manage-publishing` 這個權限值存在（`account.model.ts:26`）但發布類方法目前**只檢查擁有者、沒有檢查它**。下表寫 `S+OWN` 是描述現狀，不是建議；正式版要不要改成 `S+OWN且MA/MP`，見 `tasks-6-10-backend-handoff.md` 第 8 節第 9 點。
 
 ### 1.2 可恢復 vs 不可恢復
 
@@ -85,7 +85,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `previewTrialAnswer(viewer, request)` `:314-317` | `POST /api/v1/assistant-drafts/trial-answers` | `S+MA` | `200` `TrialAnswerView` | `422`（試問文字為空）／`429`／LLM 逾時 | `401`／`403 assistant-draft`／`5xx` | `assistant-draft.store.ts:245` |
 | `getAssistantDraft(viewer)` `:319-321` | `GET /api/v1/assistant-drafts/me` | `S+MA` | `200` `SavedAssistantDraftView` 或 `null` | — | `401`／`403 assistant-draft`／`5xx` | `assistant-draft.store.ts:318`、`features/home/home-page.component.ts:37` |
 | `saveAssistantDraft(viewer, draft)` `:322-325` | `PUT /api/v1/assistant-drafts/me` | `S+MA` | `200` `SavedAssistantDraftView` | `409`（多分頁編輯，目前無版本欄位）／`429` | `401`／`403 assistant-draft`／`5xx` | `assistant-draft.store.ts:305` |
-| `discardAssistantDraft(viewer)` `:326` | `DELETE /api/v1/assistant-drafts/me` | `S+MA` | `204`（契約目前宣告 `void`） | — | `401`／`403`／`5xx` | **畫面未直接呼叫**；由 mock 在 `createAssistantFromDraft` 成功後內部呼叫（`mock-demo-repository.ts:1051`） |
+| `discardAssistantDraft(viewer)` `:326` | `DELETE /api/v1/assistant-drafts/me` | `S+MA` | `204`（契約目前宣告 `void`） | — | `401`／`403`／`5xx` | **畫面未直接呼叫**；由 mock 在 `createAssistantFromDraft` 成功後內部呼叫（`mock-demo-repository.ts:1070`） |
 | `createAssistantFromDraft(viewer, draft)` `:328-331` | `POST /api/v1/assistants` | `S+MA` | `201` `AssistantConfigurationView` | `422` `AssistantDraftFieldError[]`（逐欄）／`429` | `401`／`403 assistant-draft`／`5xx` | `assistant-draft.store.ts:278` |
 
 `discardAssistantDraft` 是**唯一沒有回傳信封、也沒有權限檢查**的方法（`demo-repository.ts:326`）。正式版必須加授權；要不要改成回傳 `RepositoryView<void>`，見第 4.2 節。
@@ -129,14 +129,14 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `createChatThread(viewer, assistantId)` `:416-419` | `POST /api/v1/assistants/{id}/chat/conversations` | `S+USE` | `201` `AssistantChatView`（空白對話） | `429` | `401`／`403 assistant-use`／`5xx` | `workspace-chat-page.component.ts:112` |
 | `renameChatThread(viewer, assistantId, threadId, title)` `:421-426` | `PATCH /api/v1/assistants/{id}/chat/conversations/{threadId}` | `S+USE` + thread 屬於 viewer | `200` `ChatThreadSummaryView` | `422`（標題為空或過長，只有 `message`）／`429` | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `workspace-chat-page.component.ts:124` |
 | `deleteChatThread(viewer, assistantId, threadId)` `:428-432` | `DELETE /api/v1/assistants/{id}/chat/conversations/{threadId}` | `S+USE` + thread 屬於 viewer | `200` `ChatThreadListView`（**剩下的清單**，不是 `204`） | `429` | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `workspace-chat-page.component.ts:134` |
-| `getAssistantChat(viewer, assistantId, threadId?)` `:439-443` | `GET /api/v1/assistants/{id}/chat`（`?conversation=` 選填） | `S+USE` | `200` `AssistantChatView` | `429` | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `features/assistant-use/conversation/chat-conversation.component.ts:100` |
-| `sendChatMessage(viewer, assistantId, text, threadId?)` `:448-453` | `POST /api/v1/assistants/{id}/chat/messages` | `S+USE` | `200` `AssistantChatView`（**整份對話**） | `422`（訊息為空，只有 `message`）／`429`／LLM 逾時 | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `chat-conversation.component.ts:137` |
-| `reviewChatForm(viewer, assistantId, formId, answers)` `:455-460` | `POST /api/v1/assistants/{id}/chat/forms/{formId}:review` | `S+USE` | `200` `ChatFormReviewView`（**不建立紀錄**） | `422` `DatabaseFieldError[]`／`429` | `401`／`403 assistant-use`／`5xx` | `chat-conversation.component.ts:183` |
-| `submitChatForm(viewer, assistantId, submission, threadId?)` `:465-470` | `POST /api/v1/assistants/{id}/chat/forms/{formId}/submissions` | `S+USE` | `200` `AssistantChatView`（含收據訊息） | `422` `DatabaseFieldError[]`，**未勾選同意也是 `422`**／`429` | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `chat-conversation.component.ts:205` |
+| `getAssistantChat(viewer, assistantId, threadId?)` `:444-448` | `GET /api/v1/assistants/{id}/chat`（`?conversation=` 選填） | `S+USE` | `200` `AssistantChatView` | `429` | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `features/assistant-use/conversation/chat-conversation.component.ts:121` |
+| `sendChatMessage(viewer, assistantId, text, threadId?)` `:453-458` | `POST /api/v1/assistants/{id}/chat/messages` | `S+USE` | `200` `AssistantChatView`（**整份對話**） | `422`（訊息為空，只有 `message`）／`429`／LLM 逾時 | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `chat-conversation.component.ts:158` |
+| `reviewChatForm(viewer, assistantId, formId, answers)` `:460-465` | `POST /api/v1/assistants/{id}/chat/forms/{formId}:review` | `S+USE` | `200` `ChatFormReviewView`（**不建立紀錄**） | `422` `DatabaseFieldError[]`／`429` | `401`／`403 assistant-use`／`5xx` | `chat-conversation.component.ts:204` |
+| `submitChatForm(viewer, assistantId, submission, threadId?)` `:470-475` | `POST /api/v1/assistants/{id}/chat/forms/{formId}/submissions` | `S+USE` | `200` `AssistantChatView`（含收據訊息） | `422` `DatabaseFieldError[]`，**未勾選同意也是 `422`**／`429` | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `chat-conversation.component.ts:226` |
 
 兩個必須保留的行為：
 
-- **`threadId` 省略時的語意**（契約 `demo-repository.ts:442`、`:452`、`:469`）：`getAssistantChat` 開啟最後活動的那一段、`sendChatMessage` 寫進同一段、沒有任何對話時開新的一段。`/use/:assistantId` 永遠不傳 `threadId`。
+- **`threadId` 省略時的語意**（契約 `demo-repository.ts:447`、`:457`、`:474`）：`getAssistantChat` 開啟最後活動的那一段、`sendChatMessage` 寫進同一段、沒有任何對話時開新的一段。`/use/:assistantId` 永遠不傳 `threadId`。
 - **同意勾選在欄位驗證之後才檢查**，否則使用者會先看到「請勾選同意」而不是「電話格式錯誤」。
 
 ### 2.5 發布管道（10 個方法）
@@ -190,7 +190,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 | 方法 | 建議 endpoint | 說明 |
 | --- | --- | --- |
-| `setScenario(scenario)` `:207` | **無** | 由 `?demoScenario=` 網址參數觸發（`core/repositories/demo-scenario-param.ts:9-17`），在 DI factory 中套用（`core/repositories/tokens.ts:16-19`） |
+| `setScenario(scenario)` `:207` | **無** | 由 `?demoScenario=` 網址參數觸發（`core/repositories/demo-scenario-param.ts:9-17`），在 DI factory 中套用（`core/repositories/tokens.ts:19-22`） |
 | `getScenario()` `:208` | **無** | — |
 | `resetScenario()` `:209` | **無** | — |
 
@@ -204,7 +204,7 @@ HTTP adapter 可把三者實作成 no-op，或在正式建置中把整個 `DemoS
 
 ### 3.1 回傳整份聚合而不是增量
 
-`sendChatMessage`、`submitChatForm` 回傳**整份 `AssistantChatView`**，`deleteChatThread` 回傳**剩下的整份清單**。前端沒有任何本地合併邏輯，直接整份取代。後端若改成回增量，`chat-conversation.component.ts:137`、`:205` 與 `workspace-chat-page.component.ts:134` 都要改寫。
+`sendChatMessage`、`submitChatForm` 回傳**整份 `AssistantChatView`**，`deleteChatThread` 回傳**剩下的整份清單**。前端沒有任何本地合併邏輯，直接整份取代。後端若改成回增量，`chat-conversation.component.ts:158`、`:226` 與 `workspace-chat-page.component.ts:134` 都要改寫。
 
 ### 3.2 上傳完全不存在
 
@@ -233,13 +233,13 @@ HTTP adapter 可把三者實作成 no-op，或在正式建置中把整個 `DemoS
 ### 4.1 唯一的 DI 注入點
 
 ```
-apps/admin/src/app/core/repositories/tokens.ts:7-23
+apps/admin/src/app/core/repositories/tokens.ts:7-26
 ```
 
 整個 Demo 只有這一個 provider。替換步驟：
 
-1. **新增** `apps/admin/src/app/core/repositories/http-demo-repository.ts`，實作 `DemoRepository`（`demo-repository.ts:212-471`）。
-2. 把 `tokens.ts:11-21` 的 factory 改成回傳新 adapter，並拿掉 `readDemoScenario` 那三行（`:16-19`）。
+1. **新增** `apps/admin/src/app/core/repositories/http-demo-repository.ts`，實作 `DemoRepository`（`demo-repository.ts:212-476`）。
+2. 把 `tokens.ts:11-24` 的 factory 改成回傳新 adapter，並拿掉 `readDemoScenario` 那三行（`:19-22`）。
 3. **不要改** `demo-repository.ts` 的介面，除非確實要改契約（要改的清單見第 4.2 節）。
 4. **保留** `mock-demo-repository.ts` 與 `demo-seed*.ts`：六個 `mock-demo-repository*.spec.ts` 是契約的可執行規格，新 adapter 應該能通過同一組行為測試。
 
@@ -275,7 +275,7 @@ features/knowledge/knowledge-list/knowledge-list-page.component.ts:24
 features/knowledge/knowledge-detail/knowledge-detail-page.component.ts:67
 features/databases/database-list/database-list-page.component.ts:19
 features/databases/database-detail/database-detail-page.component.ts:64
-features/assistant-use/conversation/chat-conversation.component.ts:74
+features/assistant-use/conversation/chat-conversation.component.ts:80
 features/assistant-use/workspace-chat/workspace-chat-page.component.ts:39
 features/publishing/channel-overview/channel-overview-page.component.ts:21
 features/publishing/assistant-publishing/assistant-publishing.component.ts:32
@@ -284,7 +284,7 @@ features/publishing/website-embed/website-embed.component.ts:44
 features/publishing/line-setup/line-setup.component.ts:29
 ```
 
-另有五個測試輔助檔也提供同一個 token，簽章改動後要一併調整：`features/knowledge/knowledge.testing.ts:21`、`features/databases/databases.testing.ts:21`、`features/publishing/publishing.testing.ts:17`、`features/assistant-use/assistant-use.testing.ts:19`、`features/assistants/assistant-wizard/assistant-wizard.testing.ts:28`。
+另有五個測試輔助檔也提供同一個 token，簽章改動後要一併調整：`features/knowledge/knowledge.testing.ts:21`、`features/databases/databases.testing.ts:21`、`features/publishing/publishing.testing.ts:17`、`features/assistant-use/assistant-use.testing.ts:29`、`features/assistants/assistant-wizard/assistant-wizard.testing.ts:28`。
 
 #### (2) 讀取：`computed()` 直接呼叫的寫法會整個失效
 
@@ -309,7 +309,7 @@ protected readonly view = computed(() => {
 ```
 features/knowledge/knowledge-detail/knowledge-detail-page.component.ts:72、:81、:121、:132、:143、:163
 features/databases/database-detail/database-detail-page.component.ts:68、:76、:123
-features/assistant-use/conversation/chat-conversation.component.ts:90、:96、:237
+features/assistant-use/conversation/chat-conversation.component.ts:101、:117、:269
 features/assistant-use/workspace-chat/workspace-chat-page.component.ts:45、:59、:95、:113、:126、:136
 features/publishing/assistant-publishing/assistant-publishing.component.ts:40、:47、:66
 ```

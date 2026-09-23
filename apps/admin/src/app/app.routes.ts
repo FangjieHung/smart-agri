@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { demoSessionGuard } from './core/session/demo-session.guard';
+import { embeddedChatGuard } from './core/session/embedded-chat.guard';
 
 const workspacePlaceholder = () =>
   import('./features/dashboard/pages/dashboard-page.component').then(
@@ -119,9 +120,10 @@ export const routes: Routes = [
         (m) => m.WorkspaceChatPageComponent,
       ),
   },
+  // 嵌入客戶官網與 LINE 的入口：未登入訪客也要能直接開啟，所以不掛工作區守衛。
   {
     path: 'use/:assistantId',
-    canActivate: [demoSessionGuard],
+    canActivate: [embeddedChatGuard],
     loadComponent: () =>
       import('./features/assistant-use/chat-shell/chat-shell-page.component').then(
         (m) => m.ChatShellPageComponent,

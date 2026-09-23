@@ -6,7 +6,11 @@ import { ChatConversationComponent } from '../conversation/chat-conversation.com
 /**
  * 終端使用者的助理對話頁（`/use/:assistantId`）：單欄、沒有對話紀錄側欄，
  * 因為這個網址會被嵌入客戶官網、也會從 LINE 開啟，不能出現工作區外框。
- * `?embed=1` 會再收起頁首與返回連結，只留下對話本身。
+ * `?embed=1` 會再收起頁首與返回連結，只留下對話本身——這是匿名訪客的主要入口。
+ *
+ * 這一頁**不需要 Demo 身分**：沒有選過身分的人是未登入的官網訪客，由
+ * `embeddedChatGuard` 發給這個分頁一個匿名訪客 id（`allowAnonymous`），
+ * 並由 repository 決定這個助理有沒有對外發布。
  */
 @Component({
   selector: 'app-chat-shell-page',
@@ -15,6 +19,7 @@ import { ChatConversationComponent } from '../conversation/chat-conversation.com
     <app-chat-conversation
       [assistantId]="assistantId()"
       [header]="embedded() ? 'minimal' : 'full'"
+      [allowAnonymous]="true"
     />
   `,
   styles: `

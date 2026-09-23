@@ -120,6 +120,16 @@ export const CHAT_RESPONSES: readonly ChatResponseFixture[] = [
 export const CHAT_PRIVACY_NOTICE =
   '這段對話只屬於你的帳號：其他使用者與助理建立者都看不到內容，建立者只會看到匿名的使用次數。';
 
+/**
+ * 未登入官網訪客看到的版本。訪客沒有帳號，對話只存在這個瀏覽器分頁，
+ * 所以說明也要換成分頁的語言，不能說「你的帳號」。
+ */
+export const CHAT_VISITOR_PRIVACY_NOTICE =
+  '這段對話只存在這個瀏覽器分頁：關閉這個分頁就會結束，其他訪客、其他使用者與助理建立者都看不到內容。';
+
+/** 未登入訪客在收集紀錄中的顯示名稱；不冒認任何帳號，也不含個人資料。 */
+export const ANONYMOUS_VISITOR_SUBJECT_NAME = '未登入訪客';
+
 export const CHAT_GENERAL_KNOWLEDGE_NOTICE = '這不是公司資料，是一般知識補充，僅供參考。';
 
 /** 對話紀錄側欄的說明：保存時。 */

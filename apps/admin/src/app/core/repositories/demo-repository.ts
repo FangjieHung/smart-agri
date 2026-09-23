@@ -1,4 +1,4 @@
-import type { AccountId, AccountView } from '../domain/account.model';
+import type { AccountId, AccountView, ChatViewerId } from '../domain/account.model';
 import type {
   AssistantConfigurationView,
   AssistantId,
@@ -431,13 +431,18 @@ export interface DemoRepository extends DemoScenarioController {
     threadId: string,
   ): RepositoryView<ChatThreadListView>;
   /**
-   * 目前帳號與助理的一段私人對話。id 來自網址、未經驗證；助理不存在或無使用權限時
-   * 回傳 `assistant-use`，對話不存在或屬於其他帳號時回傳 `chat-thread`，兩者的訊息
+   * 目前發起者與助理的一段私人對話。id 來自網址、未經驗證；助理不存在或無使用權限時
+   * 回傳 `assistant-use`，對話不存在或屬於其他發起者時回傳 `chat-thread`，兩者的訊息
    * 都不包含資源名稱。省略 threadId 時開啟最後一次使用的對話，沒有就回傳空白對話。
-   * 對話只屬於發起的帳號，助理擁有者也看不到其他帳號的內容。
+   * 對話只屬於發起者，助理擁有者也看不到其他人的內容。
+   *
+   * `viewerId` 可以是 Demo 帳號，也可以是未登入官網訪客（`VisitorId`）。訪客只能開啟
+   * **已發布到官網嵌入或 LINE** 的助理；其餘一律回傳與「助理不存在」相同的
+   * `assistant-use`，不洩漏助理名稱或是否存在。訪客的對話與每個帳號、每位其他訪客
+   * 都互相隔離，且只存在於該瀏覽器分頁。
    */
   getAssistantChat(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     threadId?: string,
   ): RepositoryView<AssistantChatView>;
@@ -446,14 +451,14 @@ export interface DemoRepository extends DemoScenarioController {
    * 省略 threadId 時寫入最後一次使用的對話，沒有就開一段新的。
    */
   sendChatMessage(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     text: string,
     threadId?: string,
   ): SendChatMessageResult;
   /** 對話中表單的送出前確認：只驗證並整理填寫值，不會建立紀錄。 */
   reviewChatForm(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     formId: DatabaseId,
     answers: DatabaseTrialAnswers,
@@ -463,7 +468,7 @@ export interface DemoRepository extends DemoScenarioController {
    * 只有指定資料管理者可在收集紀錄中看到。未同意時回傳 validation-failed。
    */
   submitChatForm(
-    viewerAccountId: AccountId,
+    viewerId: ChatViewerId,
     assistantId: string,
     submission: ChatFormSubmission,
     threadId?: string,

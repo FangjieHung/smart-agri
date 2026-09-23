@@ -1,4 +1,6 @@
 import { DatabaseListPageComponent } from './features/databases/database-list/database-list-page.component';
+import { demoSessionGuard } from './core/session/demo-session.guard';
+import { embeddedChatGuard } from './core/session/embedded-chat.guard';
 import { routes } from './app.routes';
 
 describe('app routes', () => {
@@ -43,12 +45,23 @@ describe('app routes', () => {
     }
   });
 
-  it('opens the end-user chat for an assistant behind the demo session guard', async () => {
+  it('opens the end-user chat for an assistant without requiring a demo persona', async () => {
     const use = routes.find((route) => route.path === 'use/:assistantId');
-    expect(use?.canActivate?.length).toBe(1);
+    expect(use?.canActivate).toEqual([embeddedChatGuard]);
     const { ChatShellPageComponent } = await import(
       './features/assistant-use/chat-shell/chat-shell-page.component'
     );
     expect(await use?.loadComponent?.()).toBe(ChatShellPageComponent);
+  });
+
+  it('keeps every workspace route behind the demo session guard', () => {
+    const workspaceRoutes = routes.filter(
+      (route) => route.path?.startsWith('app/') === true && route.loadComponent !== undefined,
+    );
+
+    expect(workspaceRoutes.length).toBeGreaterThan(0);
+    for (const route of workspaceRoutes) {
+      expect(route.canActivate).toEqual([demoSessionGuard]);
+    }
   });
 });

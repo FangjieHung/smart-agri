@@ -301,3 +301,48 @@
 - 平台、官網與 LINE 三種發布流程皆可完整演示。
 - 核心流程在手機與桌面皆可操作。
 - Demo 的 mock 層與畫面層分離，hand-off 能明確指出未來正式介接替換位置。
+
+---
+
+# 附錄：實作現況（2026-09-23 追記）
+
+> 本節由 Task 13 收尾時追加，記錄 Demo **實際交付的內容與設計稿的差異**，以及過程中做過的決定。
+> 以上第 1–15 節為已核准的原始設計，未做修改。
+>
+> 啟動、測試與限制說明：[`apps/admin/README.md`](../../apps/admin/README.md)
+> 展示腳本：[`docs/demo/demo-script.md`](../demo/demo-script.md)
+> 後端介接：`docs/handoff/`（`ai-assistant-backend-integration-handoff.md`、`mock-to-api-mapping.md`、`route-screen-matrix.md`、`tasks-6-10-backend-handoff.md`）
+
+## A. 交付範圍與設計稿的落差
+
+| 設計稿 | 實作現況 |
+| --- | --- |
+| 獨立的 `frontend/` 工作區 | **廢止**。Demo 直接併入 `apps/admin`，成為唯一前端入口；所有路徑、測試指令改為 `apps/admin` / `npx nx test admin`。 |
+| 建立後的助理頁籤：概覽｜資料來源｜回答與記錄｜測試｜發布｜使用紀錄（§6） | 六個頁籤都在，但 **概覽／資料來源／回答與記錄仍是佔位畫面**。這三頁的內容在建立精靈裡已完整可操作，詳情頁的「建立後編輯」版本尚未實作。測試／發布／使用紀錄為可用畫面。 |
+| 發布管道狀態：尚未設定、測試中、已發布、需要處理、已暫停（§11） | 如設計實作，**五種狀態、三個管道**（平台內／官網／LINE），沒有再擴充。`/app/channels` 提供三助理 × 三管道的狀態總覽。 |
+| 平台內發布「指定可使用帳號」（§11） | 勾選清單可設定、可儲存、可在畫面上呈現，但 **目前不會真的決定誰能開啟對話**。`/use/:assistantId` 與 `/app/chat/:assistantId` 依「助理的使用對象（內部員工／外部客戶）」與 `sharedWithAccountIds` 判斷，不讀這份勾選清單。正式後端必須以這份清單為授權依據。 |
+| 「對話與回報紀錄」主導覽項目（§4.2） | 路由 `/app/activity` 存在，但只提供**入口說明**（各類紀錄分別保存在哪裡），不顯示跨助理的合併清單——因為依 §9 的隱私規則，管理端不能看到對話文字，合併清單能顯示哪些欄位需等正式介接再定義。 |
+| 「團隊與設定」（§4.2） | `/app/settings` 目前只有外觀（質地／配色）設定，**沒有團隊成員管理**。 |
+| 趨勢比較（§8） | 已實作本次／上次／首次對照表、折線圖（每張圖都附等價資料表）與變化摘要，並在紀錄不足 2 筆時明確拒絕顯示趨勢。**差異值由 mock repository 即時計算，而不是手寫在 fixture 裡**——這讓新增／修改紀錄後比較結果會跟著變，但正式版本的計算與四捨五入規則仍須由後端定義。 |
+
+## B. 過程中新增的決定（設計稿未涵蓋）
+
+- **Demo 身分存 `sessionStorage`，並設 30 分鐘閒置逾時。**
+  身分只屬於單一瀏覽器分頁，所以可以開兩個分頁同時示範兩個身分做對照。逾時後回到 `/login` 並顯示「Demo 登入已逾時」的說明，明確告知「這不是真實登入，也沒有真實帳號被登出」。其餘資料存 `localStorage`，key 一律以 `sme-demo:` 開頭，對話另依帳號分 key（`sme-demo:chat:<accountId>:<assistantId>`）。
+- **對話改為多段式（multi-thread）並加上歷史欄。**
+  設計稿只寫「對話紀錄屬於發起對話的帳號」，沒有規定同一個助理能有幾段對話。實作採多段：新增 `/app/chat`（選助理）、`/app/chat/:assistantId`、`/app/chat/:assistantId/:conversationId` 三層路由，桌面版在對話左側有可重新命名／刪除的歷史欄，手機版收合成「對話紀錄（n）」展開鈕。
+- **§6 步驟三的「是否保留使用者自己的對話紀錄」接到實際行為。**
+  這個選項（`keepOwnConversations`）不再只是畫面上的開關，會真的決定該助理的對話是否寫進 `localStorage`；關掉時對話不落地。
+- **`?demoScenario=` 網址參數。**
+  為了在展示現場直接叫出錯誤與等待畫面，加了 `loading` / `partial-failure` / `permission-denied` / `disconnected-channel` 四種情境參數（外加預設的 `ready`）。只影響 mock repository，換頁即恢復。
+- **`/use/:assistantId?embed=1` 嵌入模式。**
+  為了示範「官網訪客看到的樣子」，加了隱藏工作台導覽的嵌入版對話畫面。
+- **`/app/activity` 原本沿用舊模板的溫室感測儀表板，已改寫為隱私說明入口。**（2026-09-23 手動走查時發現並修正。）
+
+## C. 驗收結果（2026-09-23）
+
+- `npx nx test admin`：53 檔 / 261 測試通過。
+- `npx nx e2e admin-e2e --configuration=production`：13 spec / 84 測試通過。
+- `npx nx lint admin`、`npx nx build admin`：通過。
+- 手動走查：1280px 與 360px 各走完一次展示腳本。360px 下所有畫面 `scrollWidth === clientWidth === 360`，沒有橫向溢出；超出邊界的元素（建議問題列、趨勢對照表、頁籤列）都在刻意設定的 `overflow-x: auto` 容器內，可捲動抵達。未發現死路、不可回復狀態或跨帳號資料殘留。
+- **既存問題（與本 Demo 無關）**：`libs/theme-pack` 有 3 / 7 個測試失敗、`libs/ui` 有 1 / 90 個測試失敗。驗收本 Demo 時只跑 `admin` 與 `admin-e2e` 兩個目標。

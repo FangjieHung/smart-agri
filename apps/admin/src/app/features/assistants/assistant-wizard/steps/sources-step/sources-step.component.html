@@ -58,7 +58,7 @@
             (click)="store.toggleSource(source)"
           >
             <span aria-hidden="true">{{ connected ? '✓' : '+' }}</span>
-            加入<span class="visually-hidden">{{ source.name }}</span>
+            {{ connected ? '已連接' : '加入' }}<span class="visually-hidden">{{ source.name }}</span>
           </button>
         </li>
       } @empty {

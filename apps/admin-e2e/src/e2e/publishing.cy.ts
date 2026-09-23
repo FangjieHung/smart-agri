@@ -8,6 +8,11 @@ const VALID_TOKEN = 'demo-token-not-for-production-0123456789abcdefghij';
 const ASSISTANT = 'assistant-customer-service';
 const EMPLOYEE_NAME = '安心商行客服同仁';
 
+/** 在目前的 LINE 設定面板裡執行一組指令；每次呼叫都重新查詢，避免抓到已被重新渲染掉的節點。 */
+function inLineSetup(steps: () => void): void {
+  cy.get('app-line-setup').within(steps);
+}
+
 function ask(question: string): void {
   cy.get('#chat-input').clear().type(question);
   cy.get('form.composer button[type="submit"]').click();
@@ -98,24 +103,35 @@ describe('publishing channels', () => {
   it('checks LINE fields item by item, masks secrets and sends a simulated test message', () => {
     loginAs('SMB 管理者');
     cy.visit('/app/assistants/assistant-customer-service/publishing?channel=line');
-    cy.get('app-line-setup').within(() => {
+    // 每一步都重新查詢 app-line-setup：儲存／測試／啟用都會讓面板重新渲染，
+    // 長 within() 會讓後續指令跑在舊的（已從 DOM 卸下的）節點上，偶發失敗。
+    inLineSetup(() => {
       cy.get('#line-accessToken').should('have.attr', 'type', 'password');
       cy.get('#line-channelSecret').should('have.attr', 'type', 'password');
-      cy.get('button[aria-controls="line-accessToken"]').click().should('have.attr', 'aria-pressed', 'true');
+      cy.get('button[aria-controls="line-accessToken"]').click();
+    });
+    inLineSetup(() => {
+      cy.get('button[aria-controls="line-accessToken"]').should('have.attr', 'aria-pressed', 'true');
       cy.get('#line-accessToken').should('have.attr', 'type', 'text');
 
       cy.contains('.checklist li', 'Channel access token').should('have.attr', 'data-state', 'failed');
       cy.get('.error-summary').should('contain', 'Channel access token');
       cy.contains('button', '傳送測試訊息').should('be.disabled');
 
-      cy.get('#line-accessToken').clear().type(VALID_TOKEN);
+      // 打完字先確認欄位真的收到完整內容，再送出；否則掉字會讓下一個斷言誤報。
+      cy.get('#line-accessToken').clear().type(VALID_TOKEN).should('have.value', VALID_TOKEN);
       cy.contains('button', '儲存並檢查').click();
+    });
+    inLineSetup(() => {
       cy.get('.checklist li[data-state="passed"]').should('have.length', 4);
       cy.get('.error-summary').should('not.exist');
-
       cy.contains('button', '傳送測試訊息').click();
+    });
+    inLineSetup(() => {
       cy.get('.test-result').should('contain', '測試訊息已送達').and('contain', '模擬');
       cy.contains('button', '確認啟用').click();
+    });
+    inLineSetup(() => {
       cy.contains('LINE 管道已啟用').should('be.visible');
     });
     cy.contains('app-channel-card', 'LINE').should('contain', '已發布');

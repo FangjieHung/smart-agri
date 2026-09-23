@@ -253,11 +253,27 @@ export type SubjectComparisonView =
       readonly metrics: readonly MetricComparisonView[];
     };
 
+/**
+ * 已撤回同意的紀錄軌跡：內容已從收集紀錄移除，只留下曾經提交與撤回的時間與來源，
+ * 讓資料管理者仍能查對「有一筆資料存在過、後來被撤回」，而不是無聲消失。
+ */
+export interface WithdrawnRecordView {
+  readonly id: DatabaseRecordId;
+  readonly submittedAt: string;
+  /** YYYY-MM-DD，與時區無關的顯示日期。 */
+  readonly submittedDateLabel: string;
+  /** 撤回日期（YYYY-MM-DD）；Demo 種子資料沒有記錄時為空字串。 */
+  readonly withdrawnDateLabel: string;
+  readonly source: DatabaseRecordSource;
+}
+
 export interface TrackedSubjectView {
   readonly id: TrackedSubjectId;
   readonly displayName: string;
   /** 由新到舊排列，只包含使用者明確同意提交的紀錄。 */
   readonly records: readonly DatabaseRecordView[];
+  /** 由新到舊排列的撤回軌跡；不含任何填寫內容，也不計入 `comparison`。 */
+  readonly withdrawals: readonly WithdrawnRecordView[];
   readonly comparison: SubjectComparisonView;
 }
 

@@ -4,6 +4,7 @@ import type {
   DatabaseFieldView,
   DatabaseId,
   DatabaseRecordEntryView,
+  DatabaseRecordId,
   DatabaseTrialAnswers,
 } from './database.model';
 
@@ -104,6 +105,22 @@ export interface ChatCitationView {
   readonly updatedLabel: string;
 }
 
+/**
+ * 收據上的撤回狀態。
+ * `available`：這筆紀錄還在，提交者本人可以撤回。
+ * `withdrawn`：已撤回，接收單位只剩一筆不含內容的軌跡。
+ * `unavailable`：這張收據指認不到紀錄，所以不提供撤回，也不假裝可以。
+ */
+export type SubmissionWithdrawalStatus = 'available' | 'withdrawn' | 'unavailable';
+
+export interface SubmissionWithdrawalView {
+  readonly status: SubmissionWithdrawalStatus;
+  /** 已撤回時的日期（YYYY-MM-DD）；其餘狀態為空字串。 */
+  readonly withdrawnDateLabel: string;
+  /** 對這位發起者說明撤回的效果與限制；未登入訪客的版本會多一段分頁警告。 */
+  readonly notice: string;
+}
+
 /** 送出前必須讓使用者看到的同意內容。 */
 export interface ChatConsentView {
   readonly recipient: string;
@@ -145,7 +162,13 @@ export type ChatReplyView =
       readonly kind: 'submission-receipt';
       readonly text: string;
       readonly recipient: string;
+      /**
+       * 這次寫入收集紀錄的紀錄 id，撤回時用它指認。
+       * null 代表這張收據無法指認紀錄（此版本之前保存的舊收據），因此不提供撤回。
+       */
+      readonly recordId: DatabaseRecordId | null;
       readonly entries: readonly DatabaseRecordEntryView[];
+      readonly withdrawal: SubmissionWithdrawalView;
     };
 
 export type ChatReplyKind = ChatReplyView['kind'];

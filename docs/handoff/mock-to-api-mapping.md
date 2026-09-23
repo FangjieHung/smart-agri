@@ -117,9 +117,11 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `previewDatabaseEntry(viewer, id, answers)` `:393-397` | `POST /api/v1/databases/{id}/entries:preview` | `S+OWN` | `200` `DatabaseTrialPreviewView`（**不建立紀錄**） | `422` `DatabaseFieldError[]`／`429` | `401`／`403 database`／`5xx` | `database-detail-page.component.ts:130` |
 | `getDatabaseTracking(viewer, id)` `:402-405` | `GET /api/v1/databases/{id}/tracking` | `S+DM` | `200` `DatabaseTrackingView`（差異與文案**由伺服端算好**） | `429` | `401`／`403 database-records`（非資料管理者）／`403 database`（不存在或非擁有者）／`5xx` | `database-detail-page.component.ts:86` |
 
+`DatabaseTrackingView` 的每個 `TrackedSubjectView` 除了 `records` 還有 `withdrawals`（`database.model.ts:270-278`）：已撤回同意的紀錄不出現在 `records`、也不計入 `comparison`，只以不含內容的軌跡列在 `withdrawals`。撤回讓某位追蹤對象剩下不到 2 筆時，`comparison` 會回到 `insufficient-records`。全部撤回的追蹤對象仍留在清單裡（筆數 0），不會無聲消失。
+
 `getDatabaseTracking` 是全表唯一會回傳**兩種不同 reason** 的方法：`database-records` 代表「這個資料庫你看得到，但收集紀錄不給你看」，`database` 代表「不存在或不是你的」。兩者的畫面呈現不同，不能合併。
 
-### 2.4 終端對話與同意流程（8 個方法）
+### 2.4 終端對話與同意流程（9 個方法）
 
 深度：`tasks-6-10-backend-handoff.md` 第 5 節。
 
@@ -133,11 +135,13 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `sendChatMessage(viewer, assistantId, text, threadId?)` `:453-458` | `POST /api/v1/assistants/{id}/chat/messages` | `S+USE` | `200` `AssistantChatView`（**整份對話**） | `422`（訊息為空，只有 `message`）／`429`／LLM 逾時 | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `chat-conversation.component.ts:158` |
 | `reviewChatForm(viewer, assistantId, formId, answers)` `:460-465` | `POST /api/v1/assistants/{id}/chat/forms/{formId}:review` | `S+USE` | `200` `ChatFormReviewView`（**不建立紀錄**） | `422` `DatabaseFieldError[]`／`429` | `401`／`403 assistant-use`／`5xx` | `chat-conversation.component.ts:204` |
 | `submitChatForm(viewer, assistantId, submission, threadId?)` `:470-475` | `POST /api/v1/assistants/{id}/chat/forms/{formId}/submissions` | `S+USE` | `200` `AssistantChatView`（含收據訊息） | `422` `DatabaseFieldError[]`，**未勾選同意也是 `422`**／`429` | `401`／`403 assistant-use`／`403 chat-thread`／`5xx` | `chat-conversation.component.ts:226` |
+| `withdrawChatSubmission(viewer, assistantId, recordId, threadId?)` `:537-542` | `POST /api/v1/databases/{databaseId}/records/{recordId}:withdraw`（或 `DELETE .../records/{recordId}`） | `S+USE` + **紀錄的提交者就是 viewer** | `200` `AssistantChatView`（收據改成已撤回） | `422`（重複撤回，只有 `message`）／`429` | `401`／`403 submission-withdrawal`（不存在或不是你的，同一則訊息）／`403 assistant-use`／`403 chat-thread`／`5xx` | `chat-conversation.component.ts:287` |
 
-兩個必須保留的行為：
+三個必須保留的行為：
 
 - **`threadId` 省略時的語意**（契約 `demo-repository.ts:447`、`:457`、`:474`）：`getAssistantChat` 開啟最後活動的那一段、`sendChatMessage` 寫進同一段、沒有任何對話時開新的一段。`/use/:assistantId` 永遠不傳 `threadId`。
 - **同意勾選在欄位驗證之後才檢查**，否則使用者會先看到「請勾選同意」而不是「電話格式錯誤」。
+- **撤回只有提交者本人做得到**：`403 submission-withdrawal` 對「紀錄不存在」與「紀錄是別人的」回同一則訊息，不含任何填寫內容。資料管理者沒有代為撤回或代為刪除的 endpoint；若正式版要提供，請另開一個帶理由欄位與稽核的動作，不要共用這一條。撤回後紀錄不會消失，而是清空內容並留下軌跡（見 `tasks-6-10-backend-handoff.md` 第 5.8 節）。
 
 ### 2.5 發布管道（10 個方法）
 
@@ -263,16 +267,17 @@ apps/admin/src/app/core/repositories/tokens.ts:7-26
 
 **這是替換工作量的主體。** 契約目前**全部同步**：`listAccounts(): RepositoryView<readonly AccountView[]>`（`demo-repository.ts:213`）。改成 `Observable<...>` 或 `Promise<...>` 後：
 
-#### (1) 15 個注入點、45 個呼叫點都要改
+#### (1) 16 個注入點、51 個呼叫點都要改
 
-呼叫點以 `rg -n --glob '!*.spec.ts' -o 'repository\.[a-zA-Z]+\(' apps/admin/src/app/features` 可重現（扣掉兩個 `*.testing.ts` 中的輔助呼叫後為 45 處）。
+呼叫點以 `rg -n --glob '!*.spec.ts' -o 'repository\.[a-zA-Z]+\(' apps/admin/src/app/features` 可重現（扣掉兩個 `*.testing.ts` 中的輔助呼叫後為 51 處）。
 
-注入 `DEMO_REPOSITORY` 的功能檔案共 15 個：
+注入 `DEMO_REPOSITORY` 的功能檔案共 16 個：
 
 ```
 features/home/home-page.component.ts:16
 features/assistants/assistant-list/assistant-list-page.component.ts:24
 features/assistants/assistant-detail/assistant-detail-page.component.ts:39
+features/assistants/assistant-detail/assistant-settings.store.ts:35
 features/assistants/assistant-wizard/assistant-draft.store.ts:71
 features/knowledge/knowledge-list/knowledge-list-page.component.ts:24
 features/knowledge/knowledge-detail/knowledge-detail-page.component.ts:67

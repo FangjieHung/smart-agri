@@ -609,6 +609,7 @@ interface MetricComparisonView {           // :224-241
 | `sendChatMessage(viewer, assistantId, text, threadId?)` | `chat-conversation.component.ts:158` | `POST /api/v1/assistants/{id}/chat/messages` | `200` `AssistantChatView`（整份對話） | `422`（只有 `message`）／`403 assistant-use`／`403 chat-thread` |
 | `reviewChatForm(viewer, assistantId, formId, answers)` | `chat-conversation.component.ts:204` | `POST /api/v1/assistants/{id}/chat/forms/{formId}:review` | `200` `ChatFormReviewView` | `422`（`DatabaseFieldError[]`）／`403 assistant-use` |
 | `submitChatForm(viewer, assistantId, submission, threadId?)` | `chat-conversation.component.ts:226` | `POST /api/v1/assistants/{id}/chat/forms/{formId}/submissions` | `200` `AssistantChatView`（含收據訊息） | `422`（`DatabaseFieldError[]`）／`403 assistant-use`／`403 chat-thread` |
+| `withdrawChatSubmission(viewer, assistantId, recordId, threadId?)` | `chat-conversation.component.ts:287` | `POST /api/v1/databases/{databaseId}/records/{recordId}:withdraw`（或 `DELETE .../records/{recordId}`） | `200` `AssistantChatView`（收據已改成已撤回） | `422`（只有 `message`，重複撤回）／`403 submission-withdrawal`／`403 assistant-use`／`403 chat-thread` |
 
 注意 `sendChatMessage` 與 `submitChatForm` 都回傳**整份對話**而不是單一訊息（`mock-demo-repository.ts:1534`、`:1617-1619`）。後端可以改回傳增量，但那需要同步改前端。
 
@@ -688,7 +689,9 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 
 新的結果型別在 `demo-repository.ts`：`RenameChatThreadResult = RepositoryView<ChatThreadSummaryView> | ChatValidationFailedView`（`:178-180`），也就是改名的 validation-failed **只有 `message`**，與 `sendChatMessage` 同形（`:161-168`）。
 
-`ChatConsentView` 的五個欄位不是裝飾：設計文件 `...-design.md:201` 與計畫 `...-demo.md:437` 都要求送出前必須顯示接收單位、收集目的、可查看者、敏感資料提示，並提供撤回入口。目前 `recipient` 由資料庫擁有者名稱與資料庫名稱組成，`viewers` 由 `dataManagerAccountIds` 對映帳號名稱（`mock-demo-repository.ts:1957-1959`）。
+`ChatConsentView` 的五個欄位不是裝飾：設計文件 `...-design.md:201` 與計畫 `...-demo.md:437` 都要求送出前必須顯示接收單位、收集目的、可查看者、敏感資料提示，並提供撤回入口。目前 `recipient` 由資料庫擁有者名稱與資料庫名稱組成，`viewers` 由 `dataManagerAccountIds` 對映帳號名稱（`mock-demo-repository.ts:2251-2255`）。
+
+`withdrawalNotice` **依發起者而不同**（`withdrawalNotice()`，`mock-demo-repository.ts:2145-2147`）：已登入帳號拿到 `CHAT_WITHDRAWAL_NOTICE`（`demo-seed-chat.ts:159`），未登入訪客拿到 `CHAT_VISITOR_WITHDRAWAL_NOTICE`（`:166`），後者會直說「關閉這個瀏覽器分頁後就無法再撤回」。撤回入口本身見 5.8 節。
 
 ### 5.3 回答種類（五種）與其他列舉
 
@@ -700,13 +703,13 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 | `general-knowledge` | 一般知識補充 | `notice`（必須以獨立區塊標示，不得混進公司資料） | `:129-133` |
 | `no-result` | 查無資料 | `nextSteps[]`（下一步建議） | `:134-138` |
 | `form-request` | 需要填寫資料 | `form`（含 consent） | `:139-143` |
-| `submission-receipt` | 資料已送出 | `recipient`、`entries[]` | `:144-149` |
+| `submission-receipt` | 資料已送出 | `recipient`、`entries[]`、`recordId`（可為 null）、`withdrawal` | `conversation.model.ts:161-172` |
 
 **注意兩套「沒有答案」的 union 並不相同**：精靈試問用的是 `TrialAnswerView['kind']` 的 `no-answer`，顯示「資料中沒有答案」（`features/assistants/assistant-wizard/steps/test-step/test-step.component.ts:6-10`）；終端對話用的是 `ChatReplyView['kind']` 的 `no-result`，顯示「查無資料」。後端若要統一，需要同時改兩處型別與兩份標籤表。
 
 其他列舉：`ChatHistoryMode` = `saved` / `not-saved`（`conversation.model.ts:179`）；`ConversationStatus` = `active` / `resolved`（`:19`）；`MessageAuthor` = `account` / `assistant`（`:21`）；`SubmissionConsentStatus` = `consented` / `withdrawn` / `not-consented`（`:41-42`）；`SubmissionTrackingStatus` = `received` / `in-review` / `completed`（`:44`）；`AnalyticsPeriod` 目前只有 `last-7-days`（`:73`）。
 
-`SubmissionConsentStatus` 已經有 `withdrawn` 這個值，但**沒有任何方法能把紀錄改成 withdrawn**——撤回是只存在於文案中的承諾（見 Open questions）。
+`SubmissionConsentStatus` 的 `withdrawn` **現在是可以產生的**：`withdrawChatSubmission()`（`demo-repository.ts:537-542`，實作 `mock-demo-repository.ts:1791-1841`）把提交者自己的紀錄改成 `withdrawn`。另有 `SubmissionWithdrawalStatus` = `available` / `withdrawn` / `unavailable`（`conversation.model.ts:114`），描述的是**收據上的撤回入口**而不是紀錄狀態。完整規則見 5.8 節。
 
 ### 5.4 權限規則
 
@@ -734,6 +737,7 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 | `reviewChatForm` | 欄位驗證失敗（共用 `evaluateTrial`） | `{ status: 'validation-failed', errors, message: '還有欄位需要修正。' }` | `:1526-1532` |
 | `submitChatForm` | 欄位驗證失敗 | 同上 | `mock-demo-repository.ts:1569-1575` |
 | `submitChatForm` | **`consent !== true`** | `{ status: 'validation-failed', errors: [{ fieldId: null, message: '請先勾選同意，才能送出資料。' }], message: '尚未同意，資料沒有送出。' }` | `mock-demo-repository.ts:1576-1582` |
+| `withdrawChatSubmission` | 紀錄已經是 `withdrawn` | `{ status: 'validation-failed', message: '這筆資料已經撤回過了。' }` | `mock-demo-repository.ts:1812-1814` |
 
 改名的權限檢查在驗證**之前**（順序見 `:1396-1402` 與 `:1404-1412`）：別人的對話一律 `chat-thread`，不會先回「名稱太長」而洩漏那段對話存在。
 
@@ -757,7 +761,7 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 9. **刪除是真的刪掉**（`deleteChatThread()`，`mock-demo-repository.ts:1445-1466`），沒有軟刪除、沒有垃圾桶、沒有稽核紀錄。確認對話框只在前端（`conversation-rail.component.html:76-95`）。
 10. **「不保存對話」只是不寫 localStorage**：訊息仍在記憶體裡完整存在（`mock-demo-repository.ts:493-497`），也仍然會產生結構化紀錄（同意送出的表單一樣會寫進 `sme-demo:chat-records`）。正式版要決定「不保存對話」是否也代表不保留伺服端日誌。
 11. **沒有打字中狀態、沒有重試、沒有訊息編輯或刪除**（可以刪整段對話，不能刪單一訊息）。
-12. **送出收據的文字寫死承諾「你可以隨時申請撤回或刪除」**（`mock-demo-repository.ts:1610`），但系統裡沒有任何撤回機制。後端接手時這是法遵風險點。
+12. **撤回是真的會動到資料，但軌跡只有 mock 存得住的那幾個欄位**：撤回把紀錄的 `values` 清成 `[]` 並寫入 `withdrawnAt`（`mock-demo-repository.ts:1817-1830`），所以軌跡只剩「提交時間、撤回時間、來源」（`WithdrawnRecordView`，`database.model.ts:260-268`）。**沒有**操作者、IP、同意條款版本，也沒有「誰在什麼時候看過這筆紀錄」——mock 留不住這些，所以也沒有假裝留著。種子資料的那筆已撤回紀錄（`record-lin-3`）同樣是空內容（`demo-seed-databases.ts:224-234`）。
 13. 紀錄 id 用既有紀錄數遞增（`record-chat-<n>`，`mock-demo-repository.ts:1591`）。
 
 ---
@@ -774,11 +778,37 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 
 **對話的歸屬與儲存。** key 的組法與帳號完全一樣（`sme-demo:chat:<viewerId>:<assistantId>`），但 `chatStorage()`（`mock-demo-repository.ts:1694-1697`）把訪客的那份寫進**另一個 storage**：DI 注入時是 **sessionStorage**（`tokens.ts:15-17`），帳號用的仍是 localStorage。結果是三層隔離——不同訪客 key 不同、訪客與帳號 key 不同、訪客的資料連 storage 都不同，關閉分頁就整個消失。`countChatConversations()` 只掃 `seed.accounts`（`mock-demo-repository.ts:1804-1815`），所以**訪客的對話不會出現在擁有者的匿名統計裡**。
 
-**同意與結構化紀錄。** 訪客的表單流程與帳號完全相同：同意畫面照樣顯示接收單位、收集目的、可查看者、敏感資料提示與撤回說明（`ChatConsentView`，5.2 節），未勾同意一樣回 `validation-failed`。差別只在追蹤對象：紀錄寫的是 `subject-<visitorId>`（`mock-demo-repository.ts:1593`），顯示名稱由 `anonymousSubjectName()` 產生為「未登入訪客（id 末四碼）」（`mock-demo-repository.ts:433-439`、`demo-seed-chat.ts:131`）——**不冒認任何帳號、不含任何個人資料**，末四碼只是為了讓兩位訪客在下拉選單裡分得開。紀錄本身寫進共用的 `sme-demo:chat-records`（所以資料管理者看得到），之後仍只有**指定資料管理者**能在收集紀錄中查看。
+**同意與結構化紀錄。** 訪客的表單流程與帳號完全相同：同意畫面照樣顯示接收單位、收集目的、可查看者、敏感資料提示與撤回說明（`ChatConsentView`，5.2 節），未勾同意一樣回 `validation-failed`；撤回入口也一樣（5.8 節），只是說明文案換成分頁版本。差別只在追蹤對象：紀錄寫的是 `subject-<visitorId>`（`mock-demo-repository.ts:1593`），顯示名稱由 `anonymousSubjectName()` 產生為「未登入訪客（id 末四碼）」（`mock-demo-repository.ts:433-439`、`demo-seed-chat.ts:131`）——**不冒認任何帳號、不含任何個人資料**，末四碼只是為了讓兩位訪客在下拉選單裡分得開。紀錄本身寫進共用的 `sme-demo:chat-records`（所以資料管理者看得到），之後仍只有**指定資料管理者**能在收集紀錄中查看。
 
 **訪客看到的文案不同。** `privacyNotice` 換成 `CHAT_VISITOR_PRIVACY_NOTICE`（`demo-seed-chat.ts:127`、套用於 `mock-demo-repository.ts:1877`），說的是「只存在這個瀏覽器分頁、關閉分頁就會結束」，而不是「你的帳號」。畫面另外加一段 Demo 聲明（`chat-conversation.component.html:37-41`）。
 
-**這一段哪些是假的。** ① 訪客 id 是 `crypto.randomUUID()`，沒有簽章也沒有伺服端紀錄，改 sessionStorage 就能換一位訪客——**這不是身分驗證**。② `isExternallyPublished()` 在前端判斷，後端必須自己擋。③ `?embed=1` 只是視覺開關，不做 origin／referrer／`frame-ancestors` 檢查。④ 匿名同意紀錄的法遵主體是一個不可追溯的隨機 id，撤回承諾（5.6 節第 12 點）在匿名情境下更難兌現。
+**這一段哪些是假的。** ① 訪客 id 是 `crypto.randomUUID()`，沒有簽章也沒有伺服端紀錄，改 sessionStorage 就能換一位訪客——**這不是身分驗證**。② `isExternallyPublished()` 在前端判斷，後端必須自己擋。③ `?embed=1` 只是視覺開關，不做 origin／referrer／`frame-ancestors` 檢查。④ 匿名同意紀錄的法遵主體是一個不可追溯的隨機 id：訪客**在同一個分頁內撤得回**（收據上的撤回鍵照樣出現），但分頁一關，`demo-visitor` 消失、對話讀不到、紀錄也就再也指認不到本人。畫面對此直說而不是假裝之後還撤得回（`CHAT_VISITOR_WITHDRAWAL_NOTICE`，`demo-seed-chat.ts:166`）。正式版若要讓匿名提交者事後撤回，必須另外發一個可保存的撤回憑證（例如一次性連結或收據代碼），前端目前沒有這個東西。
+
+### 5.8 撤回同意（`withdrawChatSubmission`）
+
+設計依據：`...-design.md:201`「表單送出前必須顯示接收單位、收集目的、可查看者、敏感資料提示與同意按鈕，並提供撤回或申請刪除入口。」
+
+**Demo 選的模型：清內容、留軌跡。** 撤回不是把紀錄整筆抹掉，也不是只翻一個旗標。`withdrawChatSubmission()`（`mock-demo-repository.ts:1791-1841`）把紀錄改寫成一個墓碑：`consentStatus: 'withdrawn'`、寫入 `withdrawnAt`、`values` 清成 `[]`。結果是——
+
+- 資料管理者的**收集紀錄時間軸**與**趨勢比較**都不再有它（`consentedRecords()` 只取 `consented`，`:2319-2324`）；趨勢會即時重算，撤回讓某位追蹤對象剩下不到 2 筆時，回到既有的「紀錄還不夠，暫不顯示趨勢」（`compareRecords()`，`database-tracking.ts:80-86`）。
+- 但收集紀錄下方會列出一筆**不含任何內容**的軌跡：提交日期、撤回日期、來源（`WithdrawnRecordView`，`database.model.ts:260-268`；`withdrawnRecords()`，`mock-demo-repository.ts:2327-2332`；畫面 `records-table.component.html:26-45`）。整筆無聲消失本身就是法遵問題，所以不這麼做。
+- 一位追蹤對象把紀錄全部撤回時**仍然留在清單裡**（`getDatabaseTracking()` 的 filter，`mock-demo-repository.ts:1530`），只是筆數變 0。
+
+**誰可以撤回。** 只有提交者本人。`recordId` 來自收據、未經驗證；紀錄不存在與不屬於這位發起者回**同一則** `submission-withdrawal`（`mock-demo-repository.ts:1805-1811`），訊息不含任何填寫內容。**資料管理者沒有代為撤回或代為刪除的路徑**，畫面上也明說（`database-detail-page.component.html:86`）。如果正式版要提供「代為刪除」，那必須是**另一個**有自己理由欄位與稽核的動作，不要共用這個 endpoint。
+
+**入口在哪裡。** 收據訊息本身（`chat-message.component.html:43-66`）。`ChatReplyView` 的 `submission-receipt` 多了兩個欄位（`conversation.model.ts:161-172`）：`recordId`（撤回時用來指認，舊收據為 `null`）與 `withdrawal`（`SubmissionWithdrawalView`，`:114-122`）。`withdrawal.status` 有三種：
+
+| status | 意義 | 畫面 |
+| --- | --- | --- |
+| `available` | 紀錄還在，本人可以撤回 | 顯示「撤回這筆資料」按鈕與說明 |
+| `withdrawn` | 已撤回 | 顯示撤回日期與已撤回說明，按鈕消失（所以撤不了第二次） |
+| `unavailable` | 這張收據指認不到紀錄（此版本之前保存的舊收據，或紀錄已不存在） | 照實說明無法從這裡撤回，**不顯示假的按鈕** |
+
+`withdrawal` **不保存在訊息裡**：`resolveReceipts()`（`mock-demo-repository.ts:2110-2137`）在每次讀取對話時以目前的 `sme-demo:chat-records` 重新判定，順便把別人的紀錄一律當成指認不到，避免收據洩漏它存在。後端若改成把狀態存進訊息，記得處理「在別處撤回後這段對話要同步」。
+
+**確認與焦點。** 撤回對資料管理者來說是破壞性的，所以一定先跳確認對話框（`chat-conversation.component.html:130-150`），`role="dialog"` + `aria-modal` + `cdkTrapFocus`，開啟時焦點落在「取消」、Esc 或取消後焦點回到觸發按鈕——與對話紀錄側欄的刪除確認同一套（`conversation-rail.component.html:75-95`）。撤回成功後按鈕消失，改以 `role="status"` 的訊息播報（`chat-conversation.component.html:64-66`）。
+
+**未登入訪客。** 訪客在**同一個瀏覽器分頁內**撤得回（紀錄記在 `subject-<visitorId>`，比對方式見 `subjectIdOf()`，`mock-demo-repository.ts:2140-2142`）。分頁一關，`demo-visitor` 消失、對話讀不到、紀錄也就再也指認不到本人——同意畫面與收據的文案直接寫明這件事（`CHAT_VISITOR_WITHDRAWAL_NOTICE`，`demo-seed-chat.ts:166`），而不是承諾之後還撤得回。
 
 ---
 
@@ -1006,7 +1036,7 @@ interface AssistantPublishingView {        // :197-203
 | 3 | id 型別 | `AccountId`、`KnowledgeBaseId`、`ConversationId`、`TrialQuestionId`、`ChatResponseId` 等都是**字面值 union**（`account.model.ts:1-4`、`knowledge-base.model.ts:4-8`、`conversation.model.ts:10-11`、`:92-96`） | 決定 id 格式（UUID／ULID／數字），並讓前端把這些 union 放寬成一般字串。目前的字面值型別讓後端無法回傳任何新 id。 |
 | 4 | 檔案上傳與文件處理 | 完全沒有上傳；`addDemoKnowledgeDocument` 只建一筆假紀錄（`mock-demo-repository.ts:1112-1141`），進度靠畫面按鈕手動推進（`knowledge-detail-page.component.ts:159`） | 上傳協定（直傳／預簽名 URL）、大小與格式限制、防毒掃描、解析失敗的錯誤分類（要能填進 `issue`）、處理進度如何通知前端（輪詢／SSE／WebSocket）、可否刪除與重新命名文件、`allowOriginalDownload` 為 true 時的下載授權。 |
 | 5 | 真正的 LLM 與引用來源 | 關鍵字比對 fixture（`mock-demo-repository.ts:1886-1907`）；引用是寫死的文件名與摘錄（`demo-seed-chat.ts`） | 模型選擇與供應商、檢索策略與切塊、引用來源如何定位到文件位置、串流回應的協定、逾時與重試、成本與速率限制、`no-result` 的判定門檻、`general-knowledge` 與 `company-data` 如何在同一次回答中分區。 |
-| 6 | 同意紀錄的稽核與撤回 | `SubmissionConsentStatus` 已有 `withdrawn`（`conversation.model.ts:41-42`），但**沒有任何方法能撤回**；收據文字卻已承諾「可隨時申請撤回或刪除」（`mock-demo-repository.ts:1610`） | 撤回的 endpoint 與流程、撤回後既有紀錄如何處理（軟刪除／匿名化／實刪）、撤回是否回溯影響趨勢計算、同意的稽核軌跡（誰在什麼時候看到什麼版本的同意條款）、同意條款版本管理。 |
+| 6 | 同意紀錄的稽核與撤回 | 撤回**已經實作**：`withdrawChatSubmission()`（`demo-repository.ts:537-542`、`mock-demo-repository.ts:1791-1841`）由提交者本人觸發，清空 `values`、寫入 `withdrawnAt`，紀錄即刻離開收集紀錄與趨勢（`consentedRecords()`，`:2319-2324`），只留下不含內容的軌跡（`withdrawnRecords()`，`:2327-2333`）。剩下的缺口是**稽核深度**：軌跡沒有操作者、時間戳以外的任何脈絡，也沒有同意條款版本 | 撤回後既有紀錄的最終處置（Demo 選的是「清內容留軌跡」，正式版要確認是否符合法遵與保存義務）、備份與衍生資料（匯出檔、報表、模型訓練集）如何連動、同意的稽核軌跡（誰在什麼時候看到什麼版本的同意條款）、同意條款版本管理、匿名提交者的撤回憑證（見 5.7 節④）、資料管理者是否需要「代為刪除」這條另外的路徑（Demo **刻意不提供**）。 |
 | 7 | 資料保存期限 | 沒有任何 TTL 或清除機制；localStorage 永久保留。使用者可以刪掉單一段對話（`deleteChatThread`），但那是**硬刪除**，沒有軟刪除或垃圾桶（`mock-demo-repository.ts:1445-1466`） | 對話、結構化紀錄、草稿、稽核紀錄各自的保存期限與刪除方式；刪除一段對話是否連帶刪掉它產生的結構化紀錄（目前**不會**，紀錄留在 `sme-demo:chat-records`）；帳號刪除時的連動清除。 |
 | 8 | 多租戶邊界 | 只有三個固定帳號，沒有組織／團隊層級；`shareTargets` 是「除了自己以外的所有帳號」（`mock-demo-repository.ts:1104-1106`） | 租戶（公司）、團隊、使用者的三層關係；跨租戶分享是否允許；帳號目錄本身的可見性（列出所有帳號本身就是資訊洩漏）。 |
 | 9 | 權限模型的落地 | `AccountPermission` 有七個值（`account.model.ts:23-30`），但發布相關方法只檢查擁有者、沒有檢查 `manage-publishing`（`mock-demo-repository.ts:2606-2614`）；使用權限則是 `audience`（角色）＋平台內分享清單（帳號）的組合，沒有真正的授權關係實體（`canOpenInPlatform()`，`publishing-channels.ts:99-108`） | 權限與擁有權的關係（擁有者是否自動具備全部權限）、是否引入角色或 ACL、`use-shared-assistants` 等權限的實際執行點、外部客戶的授權關係如何建立、平台內分享清單要不要升級成真正的 ACL（含授權人與時間）。 |
@@ -1092,6 +1122,7 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>('DEMO_REPOSITO
 | 對話 | `sendChatMessage` | `chat-conversation.component.ts:158` |
 | 對話 | `reviewChatForm` | `chat-conversation.component.ts:204` |
 | 對話 | `submitChatForm` | `chat-conversation.component.ts:226` |
+| 對話 | `withdrawChatSubmission` | `chat-conversation.component.ts:287` |
 | 對話紀錄 | `listChatThreads` | `features/assistant-use/workspace-chat/workspace-chat-page.component.ts:64` |
 | 對話紀錄 | `createChatThread` | `workspace-chat-page.component.ts:112` |
 | 對話紀錄 | `renameChatThread` | `workspace-chat-page.component.ts:124` |

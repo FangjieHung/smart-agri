@@ -1,3 +1,4 @@
+import { A11yModule } from '@angular/cdk/a11y';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -5,6 +6,7 @@ import {
   Injector,
   afterNextRender,
   computed,
+  effect,
   inject,
   input,
   linkedSignal,
@@ -32,7 +34,11 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 import { CitationDrawerComponent } from '../citation-drawer/citation-drawer.component';
 import { ConsentConfirmationComponent } from '../consent-confirmation/consent-confirmation.component';
 import { InlineFormComponent } from '../inline-form/inline-form.component';
-import { ChatMessageComponent, type CitationRequest } from '../message/chat-message.component';
+import {
+  ChatMessageComponent,
+  type CitationRequest,
+  type WithdrawRequest,
+} from '../message/chat-message.component';
 
 type FormFlow =
   | { readonly step: 'closed' }
@@ -62,6 +68,7 @@ const CLOSED: FormFlow = { step: 'closed' };
 @Component({
   selector: 'app-chat-conversation',
   imports: [
+    A11yModule,
     RouterLink,
     StatePanelComponent,
     ChatMessageComponent,
@@ -137,9 +144,22 @@ export class ChatConversationComponent {
     source: this.scope,
     computation: () => null,
   });
+  /** 等待確認的撤回；撤回是破壞性動作，所以一定先問過再送出。 */
+  protected readonly pendingWithdrawal = linkedSignal<string, WithdrawRequest | null>({
+    source: this.scope,
+    computation: () => null,
+  });
+  protected readonly withdrawFeedback = linkedSignal({ source: this.scope, computation: () => '' });
+  protected readonly withdrawError = linkedSignal({ source: this.scope, computation: () => '' });
 
   private readonly log = viewChild<ElementRef<HTMLElement>>('log');
   private readonly composerInput = viewChild<ElementRef<HTMLInputElement>>('composerInput');
+  private readonly withdrawCancelButton = viewChild<ElementRef<HTMLButtonElement>>('withdrawCancelButton');
+
+  constructor() {
+    // 確認對話框一出現就把焦點帶到「取消」，與對話紀錄側欄的刪除確認一致。
+    effect(() => this.withdrawCancelButton()?.nativeElement.focus());
+  }
 
   protected updateDraft(event: Event): void {
     this.draft.set((event.target as HTMLInputElement).value);
@@ -244,6 +264,46 @@ export class ChatConversationComponent {
     }
     this.flow.set(CLOSED);
     this.refreshAndReveal(result.status === 'ready' ? result.data.threadId : null);
+  }
+
+  protected askWithdraw(request: WithdrawRequest): void {
+    this.withdrawError.set('');
+    this.withdrawFeedback.set('');
+    this.pendingWithdrawal.set(request);
+  }
+
+  protected cancelWithdraw(): void {
+    const trigger = this.pendingWithdrawal()?.trigger;
+    this.pendingWithdrawal.set(null);
+    trigger?.focus();
+  }
+
+  protected confirmWithdraw(): void {
+    const pending = this.pendingWithdrawal();
+    const viewerId = this.viewerId();
+    this.pendingWithdrawal.set(null);
+    if (pending === null || viewerId === null) return;
+
+    const result = this.repository.withdrawChatSubmission(
+      viewerId,
+      this.assistantId(),
+      pending.recordId,
+      this.threadId() ?? undefined,
+    );
+    if (result.status === 'validation-failed' || result.status === 'permission-denied') {
+      this.withdrawError.set(result.message);
+      pending.trigger.focus();
+      return;
+    }
+    if (result.status === 'loading') return;
+
+    this.withdrawError.set('');
+    this.withdrawFeedback.set(
+      '已撤回這筆資料：接收單位的收集紀錄已移除內容，只留下一筆「曾提交、已撤回」的軌跡。',
+    );
+    this.revision.update((value) => value + 1);
+    // 撤回鍵已經消失，把焦點交回輸入框，不讓它掉回 body。
+    this.composerInput()?.nativeElement.focus();
   }
 
   protected isFormRequest(message: ChatMessageView): boolean {

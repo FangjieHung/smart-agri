@@ -54,11 +54,19 @@
                 [formActive]="isFormRequest(message) && flow().step !== 'closed'"
                 (openCitations)="openCitations($event)"
                 (startForm)="startForm($event)"
+                (withdrawSubmission)="askWithdraw($event)"
               />
             </li>
           }
         </ol>
       </div>
+
+      @if (withdrawFeedback()) {
+        <p class="withdraw-feedback" role="status">{{ withdrawFeedback() }}</p>
+      }
+      @if (withdrawError()) {
+        <p class="withdraw-error" role="alert">{{ withdrawError() }}</p>
+      }
 
       @let activeFlow = flow();
       @switch (activeFlow.step) {
@@ -117,5 +125,27 @@
 
   @if (citations(); as open) {
     <app-citation-drawer [citations]="open.citations" (closed)="closeCitations()" />
+  }
+
+  @if (pendingWithdrawal()) {
+    <div class="confirm-backdrop"></div>
+    <div
+      class="confirm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="withdraw-confirm-title"
+      aria-describedby="withdraw-confirm-detail"
+      cdkTrapFocus
+      (keydown.escape)="cancelWithdraw()"
+    >
+      <h2 class="confirm-title" id="withdraw-confirm-title">撤回這筆資料？</h2>
+      <p class="confirm-detail" id="withdraw-confirm-detail">
+        接收單位的收集紀錄會移除這筆資料的內容，也不再計入趨勢比較，只留下一筆「曾提交、已撤回」的軌跡（提交與撤回時間、來源）。這個動作無法復原。
+      </p>
+      <div class="confirm-actions">
+        <button #withdrawCancelButton type="button" class="confirm-cancel" (click)="cancelWithdraw()">取消</button>
+        <button type="button" class="confirm-withdraw" (click)="confirmWithdraw()">撤回</button>
+      </div>
+    </div>
   }
 }

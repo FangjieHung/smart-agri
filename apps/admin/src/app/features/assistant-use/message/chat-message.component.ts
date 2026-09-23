@@ -5,9 +5,16 @@ import type {
   ChatMessageView,
   ChatReplyKind,
 } from '../../../core/domain/conversation.model';
+import type { DatabaseRecordId } from '../../../core/domain/database.model';
 
 export interface CitationRequest {
   readonly citations: readonly ChatCitationView[];
+  readonly trigger: HTMLElement;
+}
+
+/** 撤回是破壞性動作，所以只送出請求，由外層頁面負責確認對話框與焦點。 */
+export interface WithdrawRequest {
+  readonly recordId: DatabaseRecordId;
   readonly trigger: HTMLElement;
 }
 
@@ -33,6 +40,7 @@ export class ChatMessageComponent {
 
   readonly openCitations = output<CitationRequest>();
   readonly startForm = output<ChatFormView>();
+  readonly withdrawSubmission = output<WithdrawRequest>();
 
   protected label(kind: ChatReplyKind): string {
     return REPLY_LABELS[kind];
@@ -40,5 +48,11 @@ export class ChatMessageComponent {
 
   protected showCitations(citations: readonly ChatCitationView[], event: Event): void {
     this.openCitations.emit({ citations, trigger: event.currentTarget as HTMLElement });
+  }
+
+  /** 指認不到紀錄的舊收據沒有按鈕，這裡再擋一次，不讓 null 進到 repository。 */
+  protected requestWithdrawal(recordId: DatabaseRecordId | null, event: Event): void {
+    if (recordId === null) return;
+    this.withdrawSubmission.emit({ recordId, trigger: event.currentTarget as HTMLElement });
   }
 }

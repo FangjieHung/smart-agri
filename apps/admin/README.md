@@ -117,6 +117,7 @@ npx nx lint admin
 - 文件五種處理狀態：`/app/knowledge/knowledge-product-guide/content`（可使用／處理中／等待處理／部分內容無法讀取／處理失敗）
 - LINE 逐欄驗證失敗：`/app/assistants/assistant-customer-service/publishing?channel=line`
 - 紀錄不足不顯示趨勢：`/app/databases/database-customer-records/trends?subject=subject-chen`
+- 已撤回同意的紀錄只留軌跡：`/app/databases/database-customer-records/records?subject=subject-lin`（時間軸 2 筆，下方另有一筆不含內容的撤回軌跡）
 
 ---
 
@@ -139,10 +140,11 @@ npx nx lint admin
 - **「對話與回報紀錄」（`/app/activity`）只提供入口說明**，不顯示跨助理的合併清單。依設計，對話屬於發起對話的帳號，管理端只能看匿名統計，所以合併清單要等正式介接後再定義能顯示哪些欄位。
 - **「團隊與設定」（`/app/settings`）目前只有外觀（質地／配色）設定**，沒有團隊成員管理。
 - **趨勢比較的差異值由 mock repository 計算**（本次／上次／首次、較上次／較首次），不是手寫在 fixture 裡，也不是後端算的。正式版本的計算與四捨五入規則需要後端定義。
+- **撤回同意可以用了，但稽核軌跡很淺。** 提交者可以在對話的送出收據上撤回自己送出的紀錄：撤回會清掉內容、紀錄立刻離開收集紀錄與趨勢比較，只在收集紀錄留下「提交日期、撤回日期、來源」的軌跡。資料管理者**不能**代為撤回或代為刪除。軌跡沒有操作者、IP 或同意條款版本——mock 存不住，所以也沒有假裝存著。未登入訪客只能在**同一個瀏覽器分頁內**撤回，分頁一關就再也指認不到那筆紀錄，畫面對此直說。
 
 ### 測試現況
 
-- `npx nx test admin`：58 個檔案、316 個測試全部通過。
-- `npx nx e2e admin-e2e --configuration=production`：15 個 spec、106 個測試全部通過。
+- `npx nx test admin`：61 個檔案、337 個測試全部通過。
+- `npx nx e2e admin-e2e --configuration=production`：15 個 spec、111 個測試全部通過。
 - `npx nx lint admin`、`npx nx build admin`：通過。
 - **`libs/theme-pack` 與 `libs/ui` 有既存的失敗 spec**（`theme-pack` 3 / 7 失敗、`ui` 1 / 90 失敗），與這個 Demo 無關，也不在 `admin` 的測試目標內。跑全 workspace 的 `npx nx run-many -t test` 會看到它們失敗；驗收這個 Demo 時請只跑 `admin` 與 `admin-e2e` 兩個目標。

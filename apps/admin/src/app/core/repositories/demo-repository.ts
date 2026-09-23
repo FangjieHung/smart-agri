@@ -91,6 +91,7 @@ export type RepositoryPermissionDeniedReason =
   | 'database-records'
   | 'assistant-use'
   | 'chat-thread'
+  | 'submission-withdrawal'
   | 'publishing';
 
 export interface ReadyRepositoryView<T> {
@@ -189,6 +190,10 @@ export type ReviewChatFormResult =
 export type SubmitChatFormResult =
   | RepositoryView<AssistantChatView>
   | DatabaseFieldsValidationFailedView;
+
+export type WithdrawChatSubmissionResult =
+  | RepositoryView<AssistantChatView>
+  | ChatValidationFailedView;
 
 export type RenameChatThreadResult =
   | RepositoryView<ChatThreadSummaryView>
@@ -516,6 +521,25 @@ export interface DemoRepository extends DemoScenarioController {
     submission: ChatFormSubmission,
     threadId?: string,
   ): SubmitChatFormResult;
+  /**
+   * 撤回同意：**只有提交者本人**可以撤回自己送出的紀錄，資料管理者不能代為撤回或刪除。
+   * 撤回後這筆紀錄的內容會從收集紀錄移除，也不再計入趨勢比較，只留下一筆不含內容的
+   * 軌跡（提交與撤回時間、來源），讓資料管理者仍查得到「有一筆資料被撤回了」。
+   *
+   * recordId 來自收據、未經驗證；不存在或不屬於這位發起者一律回傳相同的
+   * `submission-withdrawal` permission-denied，訊息不包含任何填寫內容。
+   * 已撤回過的紀錄回傳 validation-failed，不會再寫入一次。
+   *
+   * 發起者可以是 Demo 帳號，也可以是未登入訪客（紀錄記在 `subject-<visitorId>`）。
+   * 訪客的 id 只存在該瀏覽器分頁：分頁結束後就再也指認不到自己的紀錄，同意畫面與
+   * 收據的說明會直接告訴訪客這件事，而不是假裝之後還撤得回來。
+   */
+  withdrawChatSubmission(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    recordId: string,
+    threadId?: string,
+  ): WithdrawChatSubmissionResult;
 }
 
 export const DEMO_SECURITY_NOTICE =

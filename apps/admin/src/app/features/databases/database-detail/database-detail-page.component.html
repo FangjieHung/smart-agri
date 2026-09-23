@@ -82,7 +82,8 @@
           </dl>
           <ul class="rules">
             <li>只有指定資料管理者可以查看結構化紀錄，且僅限使用者明確同意提交的資料。</li>
-            <li>表單送出前會顯示接收單位、收集目的、可查看者與敏感資料提示，使用者可撤回或申請刪除。</li>
+            <li>表單送出前會顯示接收單位、收集目的、可查看者與敏感資料提示，使用者可在送出收據上自行撤回。</li>
+            <li>撤回只有提交者本人能做：你無法代為撤回或還原，撤回後只會在收集紀錄留下一筆不含內容的軌跡。</li>
             <li>一般使用者只能查看自己的紀錄；分享資料庫不會連帶開放其他助理、資料或對話。</li>
           </ul>
         }
@@ -104,7 +105,9 @@
                   <option [value]="option.id" [selected]="option.id === subject.id">{{ option.displayName }}（{{ option.records.length }} 筆）</option>
                 }
               </select>
-              <p class="hint">只顯示使用者明確同意提交的紀錄；已撤回同意的紀錄不會出現。</p>
+              <p class="hint">
+                只顯示使用者明確同意提交的紀錄。已撤回同意的紀錄不會出現在時間軸與趨勢比較，只在「收集紀錄」下方保留一筆不含內容的撤回軌跡。
+              </p>
             </div>
             @if (activeTab().id === 'records') {
               <app-records-table [subject]="subject" />

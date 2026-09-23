@@ -57,3 +57,17 @@ button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-o
 .receipt div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .receipt dt { color: var(--color-text-secondary); }
 .receipt dd { margin: 0; font-weight: 700; }
+
+.withdrawal-notice {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-muted, color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+.withdrawal-notice[data-status='withdrawn'] {
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface));
+  color: var(--color-text);
+}
+.withdrawal-notice strong { color: var(--color-text); }

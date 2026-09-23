@@ -11,6 +11,7 @@ import {
   type DatabaseTrialAnswers,
   type MetricComparisonView,
   type SubjectComparisonView,
+  type WithdrawnRecordView,
 } from '../domain/database.model';
 import type { DatabaseRecordFixture } from './demo-seed-databases';
 
@@ -56,6 +57,20 @@ export function toRecordView(record: DatabaseRecordFixture): DatabaseRecordView 
       label: value.label,
       display: displayRecordValue(value),
     })),
+  };
+}
+
+/**
+ * 已撤回同意的紀錄轉成軌跡：只保留提交與撤回的時間與來源。
+ * 撤回時 `values` 已在 mock 中清空，這裡也不讀取任何欄位值。
+ */
+export function toWithdrawnRecordView(record: DatabaseRecordFixture): WithdrawnRecordView {
+  return {
+    id: record.id,
+    submittedAt: record.recordedAt,
+    submittedDateLabel: record.recordedAt.slice(0, 10),
+    withdrawnDateLabel: (record.withdrawnAt ?? '').slice(0, 10),
+    source: record.source,
   };
 }
 

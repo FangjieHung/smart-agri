@@ -137,6 +137,33 @@ describe('accessibility', () => {
       cy.get('[role="dialog"]').should('not.exist');
       cy.focused().should('contain.text', '查看引用來源');
     });
+
+    it('has no critical or serious violations in the withdrawal confirmation', () => {
+      cy.visit('/use/assistant-customer-service');
+      cy.contains('button.suggested-prompt', '回報訂單問題').click();
+      cy.get('[role="log"] [data-kind="form-request"]').contains('button', '填寫表單').click();
+      cy.get('#chat-field-field-order-number').type('DEMO-5001');
+      cy.contains('app-inline-form label', '配送延遲').click();
+      cy.get('#chat-field-field-reported-on').type('2026-09-21');
+      cy.contains('button', '下一步：確認同意').click();
+      cy.get('#consent-agree').check();
+      cy.contains('button', '同意並送出').click();
+
+      cy.get('[data-kind="submission-receipt"]').should('be.visible');
+      auditA11y();
+
+      cy.contains('button', '撤回這筆資料').click();
+      cy.get('[role="dialog"]')
+        .should('have.attr', 'aria-modal', 'true')
+        .and('have.attr', 'aria-labelledby');
+      cy.get('.cdk-focus-trap-anchor').should('have.length', 2);
+      cy.focused().should('have.class', 'confirm-cancel');
+      auditA11y();
+
+      cy.focused().type('{esc}');
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.focused().should('contain.text', '撤回這筆資料');
+    });
   });
 
   describe('embedded chat as an anonymous visitor', () => {

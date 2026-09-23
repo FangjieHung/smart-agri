@@ -35,13 +35,13 @@
 | 7 | **回答與引用** | `tasks-6-10-backend-handoff.md` 第 5.2、5.3 節 | 五種 `ChatReplyView.kind` 與 `ChatCitationView` 的欄位都已列出 |
 | 8 | **拒答** | `tasks-6-10-backend-handoff.md` 第 5.3 節；本文件第 3.3 節 | `no-result` 的語意、`nextSteps` 的來源、判定門檻是誰的責任 |
 | 9 | **一般知識標記** | `tasks-6-10-backend-handoff.md` 第 5.3 節；本文件第 3.3 節 | `general-knowledge` 與 `notice` 的呈現義務、與 `company-data-only` 設定的關係 |
-| 10 | **表單同意** | `tasks-6-10-backend-handoff.md` 第 5.5 節與第 8 節第 6 點 | 同意內容的四個必揭露欄位、驗證順序、撤回缺口 |
+| 10 | **表單同意與撤回** | `tasks-6-10-backend-handoff.md` 第 5.5、5.8 節與第 8 節第 6 點 | 同意內容的四個必揭露欄位、驗證順序；撤回已實作（只有提交者本人可撤回，清內容留軌跡），剩下的是稽核深度與匿名撤回憑證 |
 | 11 | **追蹤比較** | `tasks-6-10-backend-handoff.md` 第 4.6 節與第 8 節第 12、13 點 | 差異值與文案由伺服端算好、subject 與帳號是不同概念 |
 | 12 | **登入** | 本文件第 4.1 節；`tasks-6-10-backend-handoff.md` 第 8 節第 1、2 點 | sessionStorage persona + 30 分鐘逾時的現況、以及正式登入要取代哪些東西 |
 | 13 | **LINE** | 本文件第 3.1 節；`tasks-6-10-backend-handoff.md` 第 6 節 | Messaging API 的接點、憑證處理缺口、測試與啟用的順序約束 |
 | 14 | **網站嵌入** | 本文件第 3.2 節；`route-screen-matrix.md` 第 5.2 節 | 嵌入腳本託管、允許網域的執行點、`?embed=1` 沒有安全意義 |
 | 15 | **錯誤訊息** | 本文件第 5.3 節；`mock-to-api-mapping.md` 第 1.2 節 | 可恢復與不可恢復的分界、錯誤 body 的形狀、不得洩漏資源名稱 |
-| 16 | **mock replacement** | `mock-to-api-mapping.md` 第 4 節 | 單一 DI 注入點、15 個注入檔、45 個呼叫點、同步→非同步的六項具體影響 |
+| 16 | **mock replacement** | `mock-to-api-mapping.md` 第 4 節 | 單一 DI 注入點、16 個注入檔、51 個呼叫點、同步→非同步的六項具體影響 |
 
 ### 1.1 可執行的自查
 
@@ -173,8 +173,9 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
    | 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理（平台內分享不算對外）；其餘與「助理不存在」回同一則不含名稱的訊息 | `core/repositories/publishing-channels.ts:263-275`、`mock-demo-repository.ts:1796-1806`、`:1825-1830` |
    | 匿名對話的歸屬 | 屬於那個 `VisitorId`，存在 `sme-demo:chat:<visitorId>:<assistantId>`，寫進**訪客專屬的 sessionStorage**；帳號、其他訪客與助理擁有者都讀不到，也不計入匿名統計 | `mock-demo-repository.ts:1690-1697`、`:1806-1809`、`tokens.ts:15-17` |
    | 能不能提交表單 | 可以。同意畫面照樣顯示接收單位／目的／可查看者／敏感資料提示；紀錄的追蹤對象是 `subject-<visitorId>`，顯示成「未登入訪客（末四碼）」，只有指定資料管理者看得到 | `mock-demo-repository.ts:1593`、`:433-439`、`demo-seed-chat.ts:131` |
+   | 能不能撤回 | 可以，但**只在同一個瀏覽器分頁內**。分頁一關就再也指認不到那筆紀錄，文案直接寫明這件事，不承諾之後還撤得回 | `mock-demo-repository.ts:1791-1841`、`demo-seed-chat.ts:166` |
 
-   **正式版仍要自己決定的**：匿名 session 的真實形式（簽章 cookie／一次性 token）與保存期限、匿名對話要不要落伺服端與保存多久、匿名同意紀錄的法遵主體是誰（目前只有一個不可追溯的隨機 id）以及撤回入口怎麼對應到它、LINE 使用者與官網訪客是不是同一種主體。`isExternallyPublished()` 是前端的一道門，**不是授權**——後端必須自己擋。
+   **正式版仍要自己決定的**：匿名 session 的真實形式（簽章 cookie／一次性 token）與保存期限、匿名對話要不要落伺服端與保存多久、匿名同意紀錄的法遵主體是誰（目前只有一個不可追溯的隨機 id）以及**分頁結束後**的撤回要靠什麼憑證（一次性連結或收據代碼，Demo 沒有）、LINE 使用者與官網訪客是不是同一種主體。`isExternallyPublished()` 是前端的一道門，**不是授權**——後端必須自己擋。
 
 ---
 
@@ -236,7 +237,9 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 
 ### 5.5 資料保存與刪除
 
-目前沒有任何 TTL。localStorage 永久保留，`deleteChatThread` 是**硬刪除**，沒有垃圾桶，也不連帶刪除已產生的結構化紀錄。`SubmissionConsentStatus` 已有 `withdrawn` 這個值，但**沒有任何方法能撤回**——而收據文字已經對使用者承諾「可隨時申請撤回或刪除」（`mock-demo-repository.ts:1610`）。**這是目前最明確的法遵缺口**，詳見第 8 節第 6、7 點。
+目前沒有任何 TTL。localStorage 永久保留，`deleteChatThread` 是**硬刪除**，沒有垃圾桶，也不連帶刪除已產生的結構化紀錄。
+
+**撤回同意已經實作**（`withdrawChatSubmission()`，`mock-demo-repository.ts:1791-1841`）：只有提交者本人可以撤回自己的紀錄，撤回會把內容清空、寫入 `withdrawnAt`，紀錄即刻離開收集紀錄與趨勢比較，只留下一筆不含內容的軌跡（提交時間、撤回時間、來源）。資料管理者**沒有**代為撤回或代為刪除的路徑。剩下的缺口是：軌跡沒有操作者與同意條款版本、備份與衍生資料不會連動、未登入訪客在分頁結束後無法再指認自己的紀錄。詳見 `tasks-6-10-backend-handoff.md` 第 5.8 節與第 8 節第 6、7 點。
 
 ---
 
@@ -244,7 +247,7 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 
 1. **先定 session 與 viewer**（第 4 節）。它改動每一個簽章，越晚做代價越大。
 2. **同時放寬 id 型別**（`AccountId` 等字面值 union → `string`）。
-3. **把契約改成非同步**，一次改完 15 個注入點。詳細影響見 `mock-to-api-mapping.md` 第 4.3 節。這一步做完，`MockDemoRepository` 包一層 `of()` 仍然可用，**e2e 應該保持全綠**——這是驗證這一步沒做壞的方法。
+3. **把契約改成非同步**，一次改完 16 個注入點。詳細影響見 `mock-to-api-mapping.md` 第 4.3 節。這一步做完，`MockDemoRepository` 包一層 `of()` 仍然可用，**e2e 應該保持全綠**——這是驗證這一步沒做壞的方法。
 4. **逐功能區換成真 endpoint**，順序建議：知識庫 → 資料庫 → 發布管道 → 對話（對話依賴前三者，而且牽涉 LLM）。
 5. **最後拆掉 Demo 專用物**：`?demoScenario=`、`DemoScenarioController`、`advanceKnowledgeDocument`、`/login` 的三個寫死 persona、`core/auth/auth.service.ts`。
 

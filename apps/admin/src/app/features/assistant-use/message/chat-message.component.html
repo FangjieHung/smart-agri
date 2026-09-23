@@ -41,11 +41,28 @@
         }
       }
       @case ('submission-receipt') {
+        @let withdrawal = reply.withdrawal;
         <dl class="receipt">
           @for (entry of reply.entries; track entry.fieldId) {
             <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
           }
         </dl>
+        <p class="withdrawal-notice" [attr.data-status]="withdrawal.status">
+          @if (withdrawal.status === 'withdrawn' && withdrawal.withdrawnDateLabel) {
+            <strong>已於 {{ withdrawal.withdrawnDateLabel }} 撤回。</strong>
+          }
+          {{ withdrawal.notice }}
+        </p>
+        @if (withdrawal.status === 'available') {
+          <button
+            type="button"
+            class="withdraw"
+            aria-haspopup="dialog"
+            (click)="requestWithdrawal(reply.recordId, $event)"
+          >
+            撤回這筆資料
+          </button>
+        }
       }
     }
   </article>

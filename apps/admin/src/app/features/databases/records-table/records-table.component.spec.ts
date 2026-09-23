@@ -42,4 +42,17 @@ describe('RecordsTableComponent', () => {
     expect(items[0].textContent).toContain('本次');
     expect(items[0].textContent).not.toContain('上次');
   });
+
+  it('keeps a contentless trace of the records the subject withdrew', () => {
+    const host = render(subject(1));
+    const traces = Array.from(host.querySelectorAll('.withdrawn-list > li'));
+
+    expect(host.querySelector('.withdrawn')?.textContent).toContain('已撤回');
+    expect(traces).toHaveLength(1);
+    expect(traces[0].textContent).toContain('2026-09-18');
+    expect(traces[0].textContent).toContain('內容已移除');
+    // 撤回的紀錄不會出現在時間軸，內容也不再出現在任何地方。
+    expect(host.querySelectorAll('ol.timeline > li')).toHaveLength(2);
+    expect(host.textContent).not.toContain('9,999');
+  });
 });

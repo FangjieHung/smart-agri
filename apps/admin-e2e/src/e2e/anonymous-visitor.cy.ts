@@ -130,4 +130,23 @@ describe('anonymous visitor on the embedded chat page', () => {
     // 訪客沒有被冒認成任何 Demo 帳號。
     cy.get('#subject-select').should('not.contain', '外部客戶');
   });
+
+  it('lets a visitor withdraw within the same tab session and says the record is lost with it', () => {
+    visitAs('visitor-e2e-withdraw', `/use/${PUBLISHED}?embed=1`);
+    fillOrderForm('DEMO-4002');
+    cy.get('#consent-agree').check();
+    cy.contains('button', '同意並送出').click();
+
+    cy.get('[role="log"] [data-kind="submission-receipt"] .withdrawal-notice')
+      .should('contain', '撤回')
+      .and('contain', '分頁');
+    cy.contains('button', '撤回這筆資料').click();
+    cy.contains('button.confirm-withdraw', '撤回').click();
+    cy.get('.withdraw-feedback').should('contain', '已撤回');
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/databases/database-orders/records');
+    cy.contains('DEMO-4002').should('not.exist');
+    cy.get('.withdrawn-list > li').should('have.length', 1).and('contain', '內容已移除');
+  });
 });

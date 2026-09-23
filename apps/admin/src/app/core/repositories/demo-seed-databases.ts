@@ -32,6 +32,9 @@ export interface DatabaseRecordFixture {
   readonly recordedAt: string;
   readonly source: DatabaseRecordSource;
   readonly consentStatus: SubmissionConsentStatus;
+  /** 撤回同意的時間（ISO）；只有 `withdrawn` 的紀錄才有，Demo 舊資料可能沒有。 */
+  readonly withdrawnAt?: string;
+  /** 已撤回的紀錄一律是空陣列：撤回時內容就從收集紀錄移除了。 */
   readonly values: readonly DatabaseRecordValue[];
 }
 
@@ -218,6 +221,7 @@ export const DATABASE_RECORDS: readonly DatabaseRecordFixture[] = [
     consentStatus: 'consented',
     values: visit('2026-09-10', 3, 1200, '一般', ['清潔用品'], '詢問退貨流程'),
   },
+  // 已撤回同意：內容已移除，只留下曾經提交與撤回的時間軌跡。
   {
     id: 'record-lin-3',
     databaseId: 'database-customer-records',
@@ -225,7 +229,8 @@ export const DATABASE_RECORDS: readonly DatabaseRecordFixture[] = [
     recordedAt: '2026-09-18T02:00:00.000Z',
     source: 'assistant-conversation',
     consentStatus: 'withdrawn',
-    values: visit('2026-09-18', 1, 9999, '一般', [], '使用者已撤回同意'),
+    withdrawnAt: '2026-09-19T02:00:00.000Z',
+    values: [],
   },
   {
     id: 'record-chen-1',

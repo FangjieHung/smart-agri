@@ -38,6 +38,7 @@ import type {
   ChatThreadSummaryView,
   ConversationId,
   StructuredSubmissionView,
+  SubmissionWithdrawalView,
 } from '../domain/conversation.model';
 import type {
   CreatedDatabaseId,
@@ -78,6 +79,7 @@ import {
   normalizeField,
   toRecordValues,
   toRecordView,
+  toWithdrawnRecordView,
   validateFields,
 } from './database-tracking';
 import {
@@ -91,7 +93,10 @@ import {
   CHAT_SENSITIVE_NOTICE,
   CHAT_THREAD_TITLE_MAX_LENGTH,
   CHAT_VISITOR_PRIVACY_NOTICE,
+  CHAT_VISITOR_WITHDRAWAL_NOTICE,
   CHAT_WITHDRAWAL_NOTICE,
+  CHAT_WITHDRAWAL_UNAVAILABLE_NOTICE,
+  CHAT_WITHDRAWN_NOTICE,
   DEFAULT_CHAT_PROFILE,
   type ChatResponseFixture,
 } from './demo-seed-chat';
@@ -135,6 +140,7 @@ import type {
   UpdateKnowledgeSharingResult,
   UpdatePlatformSharingResult,
   UpdateWebsiteEmbedResult,
+  WithdrawChatSubmissionResult,
 } from './demo-repository';
 
 function freezeDeep<T>(value: T): T {
@@ -1503,6 +1509,7 @@ export class MockDemoRepository implements DemoRepository {
     }
 
     const records = this.consentedRecords(database.id);
+    const withdrawn = this.withdrawnRecords(database.id);
     const tracking: DatabaseTrackingView = {
       databaseId: database.id,
       subjects: [...this.seed.trackedSubjects, ...this.chatSubjects()]
@@ -1513,10 +1520,14 @@ export class MockDemoRepository implements DemoRepository {
             id: subject.id,
             displayName: subject.displayName,
             records: [...chronological].reverse().map(toRecordView),
+            withdrawals: withdrawn
+              .filter((record) => record.subjectId === subject.id)
+              .map(toWithdrawnRecordView),
             comparison: compareRecords(chronological),
           };
         })
-        .filter((subject) => subject.records.length > 0),
+        // 全部撤回的追蹤對象仍然留著：只剩軌跡，但不能無聲消失。
+        .filter((subject) => subject.records.length > 0 || subject.withdrawals.length > 0),
     };
 
     return this.applyScenario(tracking);
@@ -1681,7 +1692,7 @@ export class MockDemoRepository implements DemoRepository {
       {
         id: `chat-message-${messages.length + 2}`,
         author: 'assistant',
-        reply: this.resolveChatReply(assistant, question),
+        reply: this.resolveChatReply(viewerId, assistant, question),
         createdAt,
       },
     ];
@@ -1762,15 +1773,70 @@ export class MockDemoRepository implements DemoRepository {
         createdAt: recordedAt,
         reply: {
           kind: 'submission-receipt',
-          text: `已送出。資料只會交給 ${form.consent.recipient}，你可以隨時申請撤回或刪除。`,
+          text: `已送出。資料只會交給 ${form.consent.recipient}，你可以在這張收據上撤回。`,
           recipient: form.consent.recipient,
+          recordId: record.id,
           entries: outcome.entries,
+          // 讀取時一律以 `chatRecords()` 重新判定，這裡只是寫入當下的狀態。
+          withdrawal: this.withdrawalView(viewerId, record),
         },
       },
     ];
 
     return this.applyScenario(
       this.writeChatMessages(viewerId, assistant, chatTarget, next),
+    );
+  }
+
+  withdrawChatSubmission(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    recordId: string,
+    threadId?: string,
+  ): WithdrawChatSubmissionResult {
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
+
+    const target = this.resolveChatTarget(viewerId, assistant, threadId);
+    if (target === undefined) return this.chatThreadPermissionDenied();
+
+    const records = this.chatRecords();
+    const record = records.find((candidate) => candidate.id === recordId);
+    // 只有提交者本人能撤回：資料管理者與其他提交者都會得到同一則訊息。
+    if (record === undefined || record.subjectId !== this.subjectIdOf(viewerId)) {
+      return this.permissionDenied(
+        'submission-withdrawal',
+        '找不到這筆紀錄，或你沒有撤回它的權限。',
+      );
+    }
+    if (record.consentStatus === 'withdrawn') {
+      return immutableCopy({ status: 'validation-failed', message: '這筆資料已經撤回過了。' });
+    }
+
+    // 撤回＝內容真的從收集紀錄移除，只留下不含內容的軌跡。
+    const withdrawn: DatabaseRecordFixture = {
+      id: record.id,
+      databaseId: record.databaseId,
+      subjectId: record.subjectId,
+      recordedAt: record.recordedAt,
+      source: record.source,
+      consentStatus: 'withdrawn',
+      withdrawnAt: this.now().toISOString(),
+      values: [],
+    };
+    this.storage.setItem(
+      CHAT_RECORDS_KEY,
+      JSON.stringify(records.map((candidate) => (candidate.id === record.id ? withdrawn : candidate))),
+    );
+
+    return this.applyScenario(
+      this.toChatView(
+        viewerId,
+        assistant,
+        this.targetMessages(viewerId, assistant, target),
+        target?.id ?? null,
+        target?.title ?? CHAT_DEFAULT_THREAD_TITLE,
+      ),
     );
   }
 
@@ -2031,24 +2097,95 @@ export class MockDemoRepository implements DemoRepository {
       welcome: profile.welcome,
       privacyNotice: isVisitorId(viewerId) ? CHAT_VISITOR_PRIVACY_NOTICE : CHAT_PRIVACY_NOTICE,
       suggestedPrompts: this.seed.chatResponses
-        .filter((fixture) => this.fixtureReply(assistant, fixture) !== null)
+        .filter((fixture) => this.fixtureReply(viewerId, assistant, fixture) !== null)
         .map((fixture) => ({ id: fixture.id, text: fixture.prompt })),
-      messages,
+      messages: this.resolveReceipts(viewerId, messages),
     };
   }
 
+  /**
+   * 收據上的撤回狀態不保存在訊息裡，每次讀取都以目前的收集紀錄重新判定，
+   * 這樣在別處撤回後，這段對話的收據也會立刻反映。
+   */
+  private resolveReceipts(
+    viewerId: ChatViewerId,
+    messages: readonly ChatMessageView[],
+  ): readonly ChatMessageView[] {
+    const hasReceipt = messages.some(
+      (message) => message.author === 'assistant' && message.reply.kind === 'submission-receipt',
+    );
+    if (!hasReceipt) return messages;
+
+    const records = this.chatRecords();
+    return messages.map((message): ChatMessageView => {
+      if (message.author !== 'assistant' || message.reply.kind !== 'submission-receipt') return message;
+      const reply = message.reply;
+      // 舊版收據沒有 recordId；別人的紀錄也一律當作指認不到，不洩漏它存在。
+      const recordId = reply.recordId ?? null;
+      const record =
+        recordId === null
+          ? undefined
+          : records.find(
+              (candidate) =>
+                candidate.id === recordId && candidate.subjectId === this.subjectIdOf(viewerId),
+            );
+      return {
+        ...message,
+        reply: { ...reply, recordId, withdrawal: this.withdrawalView(viewerId, record) },
+      };
+    });
+  }
+
+  /** 提交者在收集紀錄中的追蹤對象 id；未登入訪客用分頁內的訪客 id，不冒認任何帳號。 */
+  private subjectIdOf(viewerId: ChatViewerId): TrackedSubjectId {
+    return `subject-${viewerId}`;
+  }
+
+  /** 同意畫面與收據共用的撤回說明；未登入訪客的版本會多說分頁結束後就指認不到。 */
+  private withdrawalNotice(viewerId: ChatViewerId): string {
+    return isVisitorId(viewerId) ? CHAT_VISITOR_WITHDRAWAL_NOTICE : CHAT_WITHDRAWAL_NOTICE;
+  }
+
+  private withdrawalView(
+    viewerId: ChatViewerId,
+    record: DatabaseRecordFixture | undefined,
+  ): SubmissionWithdrawalView {
+    if (record === undefined) {
+      return {
+        status: 'unavailable',
+        withdrawnDateLabel: '',
+        notice: CHAT_WITHDRAWAL_UNAVAILABLE_NOTICE,
+      };
+    }
+    if (record.consentStatus === 'withdrawn') {
+      return {
+        status: 'withdrawn',
+        withdrawnDateLabel: (record.withdrawnAt ?? '').slice(0, 10),
+        notice: CHAT_WITHDRAWN_NOTICE,
+      };
+    }
+
+    return { status: 'available', withdrawnDateLabel: '', notice: this.withdrawalNotice(viewerId) };
+  }
+
   /** 依關鍵字對應預先準備的回覆；對應不到或來源未連接時回覆查無資料與下一步。 */
-  private resolveChatReply(assistant: AssistantConfigurationView, question: string): ChatReplyView {
+  private resolveChatReply(
+    viewerId: ChatViewerId,
+    assistant: AssistantConfigurationView,
+    question: string,
+  ): ChatReplyView {
     const normalized = question.replace(/\s+/g, '');
     for (const fixture of this.seed.chatResponses) {
       const matches = fixture.matchers.some((group) => group.every((keyword) => normalized.includes(keyword)));
       if (!matches) continue;
-      const reply = this.fixtureReply(assistant, fixture);
+      const reply = this.fixtureReply(viewerId, assistant, fixture);
       if (reply !== null) return reply;
     }
 
     const formAvailable = this.seed.chatResponses.some(
-      (fixture) => fixture.answer.kind === 'form-request' && this.fixtureReply(assistant, fixture) !== null,
+      (fixture) =>
+        fixture.answer.kind === 'form-request' &&
+        this.fixtureReply(viewerId, assistant, fixture) !== null,
     );
     return {
       kind: 'no-result',
@@ -2062,6 +2199,7 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private fixtureReply(
+    viewerId: ChatViewerId,
     assistant: AssistantConfigurationView,
     fixture: ChatResponseFixture,
   ): ChatReplyView | null {
@@ -2087,14 +2225,18 @@ export class MockDemoRepository implements DemoRepository {
           : null;
       }
       case 'form-request': {
-        const form = this.chatForm(assistant, answer.databaseId);
+        const form = this.chatForm(viewerId, assistant, answer.databaseId);
         return form === null ? null : { kind: 'form-request', text: answer.text, form };
       }
     }
   }
 
   /** 助理有連接該資料庫時才提供表單；接收者與可查看者皆取自資料庫設定。 */
-  private chatForm(assistant: AssistantConfigurationView, databaseId: DatabaseId): ChatFormView | null {
+  private chatForm(
+    viewerId: ChatViewerId,
+    assistant: AssistantConfigurationView,
+    databaseId: DatabaseId,
+  ): ChatFormView | null {
     if (!assistant.databaseIds.includes(databaseId)) return null;
     const database = this.databases().find((candidate) => candidate.id === databaseId);
     if (database === undefined) return null;
@@ -2112,7 +2254,7 @@ export class MockDemoRepository implements DemoRepository {
         purpose: collection.purpose,
         viewers: collection.dataManagerAccountIds.map(nameOf),
         sensitiveNotice: CHAT_SENSITIVE_NOTICE,
-        withdrawalNotice: CHAT_WITHDRAWAL_NOTICE,
+        withdrawalNotice: this.withdrawalNotice(viewerId),
       },
     };
   }
@@ -2127,7 +2269,7 @@ export class MockDemoRepository implements DemoRepository {
     const offered = this.seed.chatResponses.some(
       (fixture) => fixture.answer.kind === 'form-request' && fixture.answer.databaseId === formId,
     );
-    const form = offered ? this.chatForm(assistant, formId) : null;
+    const form = offered ? this.chatForm(viewerId, assistant, formId) : null;
     return form === null ? undefined : { assistant, form };
   }
 
@@ -2179,6 +2321,14 @@ export class MockDemoRepository implements DemoRepository {
       .filter((record) => record.databaseId === databaseId && record.consentStatus === 'consented')
       .slice()
       .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt));
+  }
+
+  /** 已撤回同意的紀錄，由新到舊；內容已移除，只用來顯示軌跡。 */
+  private withdrawnRecords(databaseId: DatabaseId): readonly DatabaseRecordFixture[] {
+    return [...this.seed.databaseRecords, ...this.chatRecords()]
+      .filter((record) => record.databaseId === databaseId && record.consentStatus === 'withdrawn')
+      .slice()
+      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
   }
 
   private toDatabaseSummary(database: DatabaseView, viewerAccountId: AccountId): DatabaseSummaryView {

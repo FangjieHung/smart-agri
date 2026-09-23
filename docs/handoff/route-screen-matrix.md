@@ -126,11 +126,11 @@ wildcard 導回 `/` 而不是 `/login`，所以未登入使用者看到的是產
 | `tracking.cy.ts` | 從範本建資料庫、表單試填、時間軸與趨勢比較、資料不足不下結論、權限不足 |
 | `publishing.cy.ts` | 三種管道卡片與五種統一狀態、平台分享限定帳號、網站 widget 預覽／網域驗證／嵌入碼、LINE 逐欄驗證與遮罩、跨帳號設定隔離 |
 | `chat-history.cy.ts` | 對話側欄多對話切換／改名／刪除、跨帳號不外洩、不儲存對話的助理說明、`/use` 單欄與 `?embed=1` 去 chrome、手機版 rail 收合 |
-| `anonymous-visitor.cy.ts` | 未登入訪客開啟已對外發布的助理、對話對每個 Demo 身分與另一位訪客皆不可見、沒有對外管道的助理不揭露名稱、`?embed=1` 無工作區外框與 `/app` 連結、匿名同意送出進入資料管理者的收集紀錄 |
+| `anonymous-visitor.cy.ts` | 未登入訪客開啟已對外發布的助理、對話對每個 Demo 身分與另一位訪客皆不可見、沒有對外管道的助理不揭露名稱、`?embed=1` 無工作區外框與 `/app` 連結、匿名同意送出進入資料管理者的收集紀錄、訪客可在同一分頁內撤回 |
 | `private-conversations.cy.ts` | 回答分類（公司資料含引用／一般知識／無結果）、對話對其他帳號與助理擁有者皆私密、無權限助理不揭露 |
-| `consented-submission.cy.ts` | 同意前不可送出、揭露接收方／目的／可見者／敏感資料、送出紀錄僅指定資料管理者可見 |
+| `consented-submission.cy.ts` | 同意前不可送出、揭露接收方／目的／可見者／敏感資料、送出紀錄僅指定資料管理者可見、提交者可從收據撤回（紀錄離開收集紀錄與趨勢、只留不含內容的軌跡、撤不了第二次）、資料管理者沒有代為撤回的入口 |
 | `error-states.cy.ts` | **全狀態矩陣**：成功／空白、載入中、部分成功、無結果、權限不足、處理失敗與連線失敗、登入逾時、帳號切換不殘留資料 |
-| `accessibility.cy.ts` | axe critical/serious、skip-link 鍵盤流、LINE 錯誤摘要對焦欄位、引用抽屜 focus trap 與 Esc 還原、`prefers-reduced-motion`；掃 11 條工作區路由 |
+| `accessibility.cy.ts` | axe critical/serious、skip-link 鍵盤流、LINE 錯誤摘要對焦欄位、引用抽屜與撤回確認對話框的 focus trap 與 Esc 還原、`prefers-reduced-motion`；掃 11 條工作區路由 |
 | `responsive.cy.ts` | 360px／1280px 無水平捲動、手機 header + drawer 與桌機常駐側欄、寬表格自身捲動、手機聊天輸入列可達；掃 12 條工作區路由 |
 
 ### 4.1 尚未被 e2e 直接覆蓋的路由
@@ -167,12 +167,13 @@ wildcard 導回 `/` 而不是 `/login`，所以未登入使用者看到的是產
 | 對話歸屬 | 存在 `sme-demo:chat:<visitorId>:<assistantId>`，寫進**訪客專屬的 sessionStorage**，與帳號的 localStorage 完全分開 | `mock-demo-repository.ts:1690-1697`、`tokens.ts:15-17` |
 | 匿名統計 | 訪客的對話不會被計入擁有者的使用次數（擁有者的瀏覽器讀不到那份儲存） | `mock-demo-repository.ts:1804-1815` |
 | 表單提交 | 可以提交，同意畫面內容不變；紀錄的追蹤對象是 `subject-<visitorId>`，顯示名稱為「未登入訪客（末四碼）」，不冒認任何帳號 | `mock-demo-repository.ts:1593`、`:433-439`、`demo-seed-chat.ts:131` |
+| 撤回同意 | 可以，但**只在同一個瀏覽器分頁內**：收據上照樣有撤回鍵，分頁一關 `demo-visitor` 消失、對話讀不到、紀錄也再指認不到本人。同意畫面與收據的文案直接寫明這件事 | `mock-demo-repository.ts:1791-1841`、`demo-seed-chat.ts:166` |
 
 正式版仍必須自己決定的：
 
 - 匿名 session 要用什麼形式（簽章 cookie？一次性 token？）與保存期限；Demo 的 sessionStorage 只是示範。
 - 匿名對話要不要落到伺服端、保存多久、訪客能不能自己刪。
-- 匿名同意紀錄的法遵主體是誰（Demo 只有一個不可追溯的隨機 id），以及撤回入口怎麼對應到它。
+- 匿名同意紀錄的法遵主體是誰（Demo 只有一個不可追溯的隨機 id），以及**分頁結束後**的撤回要靠什麼憑證（一次性連結或收據代碼）——Demo 沒有這個東西，所以只承諾分頁內撤得回。
 - `?embed=1` 只是視覺開關（`chat-shell-page.component.ts:42`），**沒有任何安全意義**——它不做 origin 檢查、不驗證 referrer、不限制 iframe 來源。真正的來源限制必須由後端的允許網域與 CSP `frame-ancestors` 執行；`isExternallyPublished()` 只是前端的一道門，不是授權。
 
 設計依據：`docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md:199`「未登入的官網訪客以獨立瀏覽工作階段保存對話，其他訪客與建立者無法查看。」

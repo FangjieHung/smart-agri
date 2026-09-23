@@ -61,9 +61,9 @@
 
 ### 1.4 帳號隔離目前如何被模擬
 
-1. 「登入」只是選擇三個固定帳號之一：`apps/admin/src/app/core/session/demo-session.service.ts:100-105` 的 `switchAccount()` 把 `activeAccountId` 寫進**記憶體 signal**（`:87`），並清空畫面狀態。
-2. 路由守衛只檢查該 signal 有沒有值：`apps/admin/src/app/core/session/demo-session.guard.ts:9-12`，沒有就導到 `/login`。
-3. **重新整理頁面即登出**——signal 不落地。這是後端接手時第一個要補的東西（見第 9 節）。
+1. 「登入」只是選擇三個固定帳號之一：`apps/admin/src/app/core/session/demo-session.service.ts:100-105` 的 `switchAccount()` 把 `activeAccountId` 寫進 signal（`:87`），並同步寫入**該分頁的 `sessionStorage`**（key `demo-session`，`:167-170`），同時清空畫面狀態。
+2. 路由守衛檢查該 signal 有沒有值並延長有效時間：`apps/admin/src/app/core/session/demo-session.guard.ts:9-12`，沒有或已逾時就導到 `/login`。
+3. **重新整理不會登出**，但這仍然不是驗證：身分只是 sessionStorage 裡的一個 accountId 字串，沒有憑證可言，改掉它就換一個人。關閉分頁或閒置 30 分鐘（`DEMO_SESSION_TIMEOUT_MS`，`:29`）即結束。正式登入要取代的範圍見本文件第 8 節第 1 列與 `ai-assistant-backend-integration-handoff.md` 第 4.1 節。
 4. 每一個 repository 方法都把 `viewerAccountId: AccountId` 當成**第一個參數**由呼叫端傳入（例：`demo-repository.ts:214-216`）。正式 API 不可以這樣做：viewer 必須由 session／token 決定，絕不能從請求參數取得。
 
 三個固定帳號與其權限（`apps/admin/src/app/core/repositories/demo-seed.ts:72-95`）：
@@ -997,7 +997,7 @@ interface AssistantPublishingView {        // :197-203
 
 | # | 議題 | 目前 Demo 的狀態（含位置） | 需要後端決定的事 |
 | --- | --- | --- | --- |
-| 1 | 認證與 session | `activeAccountId` 只是記憶體 signal（`core/session/demo-session.service.ts:87`），**重新整理即失效**；守衛只檢查有沒有值（`demo-session.guard.ts:9-12`）；另有未使用的舊 `sa.auth.session` key（`core/auth/auth.service.ts:4`） | 登入機制、token 型式與存放位置、逾期與更新、登出要清掉哪些本機資料。設計文件要求「登入逾時前保留非敏感草稿；敏感內容依安全規則清除」（`...-design.md:247`），但沒有定義「敏感」的界線。 |
+| 1 | 認證與 session | 身分存在該分頁的 `sessionStorage`（key `demo-session`，`core/session/demo-session.service.ts:26`、`:167-170`），閒置 30 分鐘逾時（`:29`），**但沒有任何憑證**——內容就是一個 accountId 字串，改掉即換人；守衛只檢查有沒有值並延長時效（`demo-session.guard.ts:9-12`）；另有未使用的舊 `sa.auth.session` key（`core/auth/auth.service.ts:4`） | 登入機制、token 型式與存放位置、逾期與更新、登出要清掉哪些本機資料。設計文件要求「登入逾時前保留非敏感草稿；敏感內容依安全規則清除」（`...-design.md:247`），但沒有定義「敏感」的界線。 |
 | 2 | viewer 來源 | 每個方法都把 `viewerAccountId` 當第一個參數（例 `demo-repository.ts:214-216`） | 正式 API 必須從 session 推導 viewer，並移除所有請求中的 accountId 參數。這會改動每一個 endpoint 的簽章。 |
 | 3 | id 型別 | `AccountId`、`KnowledgeBaseId`、`ConversationId`、`TrialQuestionId`、`ChatResponseId` 等都是**字面值 union**（`account.model.ts:1-4`、`knowledge-base.model.ts:4-8`、`conversation.model.ts:10-11`、`:92-96`） | 決定 id 格式（UUID／ULID／數字），並讓前端把這些 union 放寬成一般字串。目前的字面值型別讓後端無法回傳任何新 id。 |
 | 4 | 檔案上傳與文件處理 | 完全沒有上傳；`addDemoKnowledgeDocument` 只建一筆假紀錄（`mock-demo-repository.ts:1112-1141`），進度靠畫面按鈕手動推進（`knowledge-detail-page.component.ts:159`） | 上傳協定（直傳／預簽名 URL）、大小與格式限制、防毒掃描、解析失敗的錯誤分類（要能填進 `issue`）、處理進度如何通知前端（輪詢／SSE／WebSocket）、可否刪除與重新命名文件、`allowOriginalDownload` 為 true 時的下載授權。 |

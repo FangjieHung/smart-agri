@@ -320,7 +320,7 @@
 | 獨立的 `frontend/` 工作區 | **廢止**。Demo 直接併入 `apps/admin`，成為唯一前端入口；所有路徑、測試指令改為 `apps/admin` / `npx nx test admin`。 |
 | 建立後的助理頁籤：概覽｜資料來源｜回答與記錄｜測試｜發布｜使用紀錄（§6） | 六個頁籤都已實作。概覽／資料來源／回答與記錄是**可編輯的畫面**，與建立精靈共用同一組表單元件（`apps/admin/src/app/features/assistants/components/`），每次變更經 repository 自動保存（`sme-demo:assistant-settings:<assistantId>`），符合 §6「設定自動保存」。和精靈的差異是刻意的：沒有步驟導覽與「下一步」，變更立刻套用到已存在的助理，因此驗證更嚴格——不接受清空名稱／用途／拒答文案，不接受清空使用對象，也不接受解除最後一個資料來源。 |
 | 發布管道狀態：尚未設定、測試中、已發布、需要處理、已暫停（§11） | 如設計實作，**五種狀態、三個管道**（平台內／官網／LINE），沒有再擴充。`/app/channels` 提供三助理 × 三管道的狀態總覽。 |
-| 平台內發布「指定可使用帳號」（§11） | 勾選清單可設定、可儲存、可在畫面上呈現，但 **目前不會真的決定誰能開啟對話**。`/use/:assistantId` 與 `/app/chat/:assistantId` 依「助理的使用對象（內部員工／外部客戶）」與 `sharedWithAccountIds` 判斷，不讀這份勾選清單。正式後端必須以這份清單為授權依據。 |
+| 平台內發布「指定可使用帳號」（§11） | 勾選清單**就是**平台內使用權限的依據。判斷集中在 `canOpenInPlatform()`（`apps/admin/src/app/core/repositories/publishing-channels.ts:99-108`），由 `canUseAssistant()` 呼叫（`mock-demo-repository.ts:2594-2604`），涵蓋 `/app/chat/:assistantId`、首頁「可以使用的助理」與 `/use/:assistantId`。組合方式是：**使用對象（`audience`）決定「哪一種人」**（`assistant.model.ts:28-36`）、**勾選清單決定「哪些帳號」**，兩者是 and；**擁有者永遠開得了**自己的助理（含清單為空、管道已暫停時），這樣才能自己測試。`sharedWithAccountIds` 不再是第二條授權路徑，只當這份清單的初始值（`defaultPublishingRecord()`）。取消勾選**只收回權限、不刪除該帳號既有的對話**，重新勾選就原封不動回來。未登入訪客不受此清單影響，仍由 `isExternallyPublished()` 決定（`publishing-channels.ts:263-275`）。 |
 | 「對話與回報紀錄」主導覽項目（§4.2） | 路由 `/app/activity` 存在，但只提供**入口說明**（各類紀錄分別保存在哪裡），不顯示跨助理的合併清單——因為依 §9 的隱私規則，管理端不能看到對話文字，合併清單能顯示哪些欄位需等正式介接再定義。 |
 | 「團隊與設定」（§4.2） | `/app/settings` 目前只有外觀（質地／配色）設定，**沒有團隊成員管理**。 |
 | 趨勢比較（§8） | 已實作本次／上次／首次對照表、折線圖（每張圖都附等價資料表）與變化摘要，並在紀錄不足 2 筆時明確拒絕顯示趨勢。**差異值由 mock repository 即時計算，而不是手寫在 fixture 裡**——這讓新增／修改紀錄後比較結果會跟著變，但正式版本的計算與四捨五入規則仍須由後端定義。 |

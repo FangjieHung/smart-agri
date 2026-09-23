@@ -162,18 +162,22 @@ describe('AssistantDetailPageComponent', () => {
     const storage = createMemoryStorage();
     const { page, flush } = await renderTab('overview', { storage });
 
+    // 種子助理的使用對象是「內部員工與外部客戶」；取消內部員工後只剩外部客戶。
     (page.querySelector('#audience-internal') as HTMLInputElement).click();
     flush();
     expect(page.textContent).toContain('已自動儲存');
 
     const reopened = await renderTab('overview', { storage });
-    expect((reopened.page.querySelector('#audience-internal') as HTMLInputElement).checked).toBe(true);
+    expect((reopened.page.querySelector('#audience-internal') as HTMLInputElement).checked).toBe(false);
+    expect((reopened.page.querySelector('#audience-external') as HTMLInputElement).checked).toBe(true);
     expect(reopened.page.textContent).toContain('上次儲存');
   });
 
   it('refuses to clear the last remaining audience and explains why', async () => {
     const { page, flush } = await renderTab('overview');
 
+    (page.querySelector('#audience-internal') as HTMLInputElement).click();
+    flush();
     (page.querySelector('#audience-external') as HTMLInputElement).click();
     flush();
 

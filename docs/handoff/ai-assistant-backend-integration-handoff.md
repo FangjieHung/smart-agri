@@ -119,7 +119,7 @@ Demo **沒有任何一次真的連出去**。三個外部接點都是本地模�
 | 允許網域 | 只是一個字串清單，沒有任何執行力 | **後端執行**：CORS 白名單 + CSP `frame-ancestors`。前端的 `?embed=1` 只是視覺開關（`features/assistant-use/chat-shell/chat-shell-page.component.ts:42`），**不做 origin 檢查、不驗 referrer、不限制 iframe 來源** |
 | 安裝檢查 | `checkWebsiteInstallation` 本地模擬；`?demoScenario=disconnected-channel` 可強制成 `not-detected`（`core/repositories/mock-demo-repository.ts:818`） | 真的去偵測。**外部網站無回應也要回 `200` + `installCheck: 'not-detected'`**，理由同 LINE 測試 |
 | 網域變更 | 變更允許網域會**重置安裝檢查**（契約 `demo-repository.ts:273`） | 保留這個行為，畫面依賴它 |
-| 訪客 session | 已可用。`/use/:assistantId` 改掛 `embeddedChatGuard`（`app.routes.ts:126`），未登入訪客直接開得了；身分是分頁內的匿名 `VisitorId`，且只有**官網嵌入或 LINE 已發布**的助理開得起來（`publishing-channels.ts:230-245`） | 把 Demo 的 sessionStorage 換成真正的匿名 session，並在後端強制「未發布的助理不得被匿名開啟」。見第 4.2 節第 5 點 |
+| 訪客 session | 已可用。`/use/:assistantId` 改掛 `embeddedChatGuard`（`app.routes.ts:126`），未登入訪客直接開得了；身分是分頁內的匿名 `VisitorId`，且只有**官網嵌入或 LINE 已發布**的助理開得起來（`publishing-channels.ts:263-275`） | 把 Demo 的 sessionStorage 換成真正的匿名 session，並在後端強制「未發布的助理不得被匿名開啟」。見第 4.2 節第 5 點 |
 
 ### 3.3 真實 LLM 與檢索
 
@@ -170,7 +170,7 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
    | 原本的問題 | Demo 的答案 | 位置 |
    | --- | --- | --- |
    | 匿名 session 的形式 | 每個瀏覽器分頁一個 `visitor-<亂數>`，存在 sessionStorage 的 `demo-visitor`，關閉分頁就結束；沒有憑證、沒有權限、不對應任何帳號 | `core/session/anonymous-visitor.service.ts:10`、`:50-96` |
-   | 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理（平台內分享不算對外）；其餘與「助理不存在」回同一則不含名稱的訊息 | `core/repositories/publishing-channels.ts:230-245`、`mock-demo-repository.ts:1637-1651`、`:1670-1675` |
+   | 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理（平台內分享不算對外）；其餘與「助理不存在」回同一則不含名稱的訊息 | `core/repositories/publishing-channels.ts:263-275`、`mock-demo-repository.ts:1796-1806`、`:1825-1830` |
    | 匿名對話的歸屬 | 屬於那個 `VisitorId`，存在 `sme-demo:chat:<visitorId>:<assistantId>`，寫進**訪客專屬的 sessionStorage**；帳號、其他訪客與助理擁有者都讀不到，也不計入匿名統計 | `mock-demo-repository.ts:1690-1697`、`:1806-1809`、`tokens.ts:15-17` |
    | 能不能提交表單 | 可以。同意畫面照樣顯示接收單位／目的／可查看者／敏感資料提示；紀錄的追蹤對象是 `subject-<visitorId>`，顯示成「未登入訪客（末四碼）」，只有指定資料管理者看得到 | `mock-demo-repository.ts:1593`、`:433-439`、`demo-seed-chat.ts:131` |
 

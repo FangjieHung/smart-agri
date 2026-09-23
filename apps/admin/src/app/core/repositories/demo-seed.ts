@@ -101,7 +101,9 @@ export const DEMO_SEED: DemoSeed = {
       name: '客服助理',
       purpose: '回答商品、退貨與配送問題',
       status: 'published',
-      audience: 'authorized-external-customers',
+      // 使用對象＝內部員工與外部客戶：兩種人都在平台內分享清單裡（`demo-seed-publishing.ts`）。
+      audience: 'members-and-external-customers',
+      // 只是平台內分享清單的初始值；助理有保存的發布設定後就以那份清單為準。
       sharedWithAccountIds: ['account-internal-employee'],
       knowledgeBaseIds: [
         'knowledge-product-guide',

@@ -105,6 +105,7 @@ import { createMemoryStorage } from './memory-storage';
 import type { PublishingRecord } from './demo-seed-publishing';
 import {
   canActivateLine,
+  canOpenInPlatform,
   defaultPublishingRecord,
   isExternallyPublished,
   isPublishingRecord,
@@ -2585,16 +2586,21 @@ export class MockDemoRepository implements DemoRepository {
     };
   }
 
+  /**
+   * 平台內誰能開啟這個助理：交給 `canOpenInPlatform()` 判斷，
+   * 也就是「使用對象決定哪一種人、平台內分享的勾選清單決定哪些帳號、擁有者永遠開得了」。
+   * 未登入訪客走的是另一條路（`anonymouslyOpenAssistant()`，只看有沒有對外發布）。
+   */
   private canUseAssistant(
     assistant: AssistantConfigurationView,
     viewerAccountId: AccountId,
   ): boolean {
-    return (
-      assistant.ownerAccountId === viewerAccountId ||
-      assistant.sharedWithAccountIds.includes(viewerAccountId) ||
-      (viewerAccountId === 'account-external-customer' &&
-        assistant.audience !== 'account-members')
-    );
+    if (assistant.ownerAccountId === viewerAccountId) return true;
+
+    const viewer = this.seed.accounts.find((account) => account.id === viewerAccountId);
+    if (viewer === undefined) return false;
+
+    return canOpenInPlatform(assistant, this.publishingRecord(assistant), viewer);
   }
 
   /** 只有擁有者可設定發布；不存在與無權限都回傳 undefined，呼叫端回覆相同訊息。 */

@@ -81,6 +81,23 @@ npx nx lint admin
 
 **對話紀錄依帳號隔離。** 每個帳號的對話存在各自的 `localStorage` key（`sme-demo:chat:<accountId>:<assistantId>`），切換身分後看不到前一個身分的對話。這是畫面上的隔離示範，**不是安全邊界**。
 
+### 誰可以在平台內開啟一個助理
+
+判斷只有一個地方：`canOpenInPlatform()`（`apps/admin/src/app/core/repositories/publishing-channels.ts:99-108`），由 `canUseAssistant()` 呼叫（`core/repositories/mock-demo-repository.ts:2594-2604`）。規則是：
+
+1. **擁有者永遠開得了**自己的助理，包含清單是空的、平台內分享已暫停時，這樣他才能自己測試。
+2. 其他帳號要**同時**滿足兩個條件：
+   - **使用對象（`audience`）決定「哪一種人」**——角色要落在 `AUDIENCE_ROLES` 內（`core/domain/assistant.model.ts:28-36`）。
+   - **發布管道「平台內分享」的勾選清單決定「哪些帳號」**——要在 `allowedAccountIds` 內，而且該管道沒有暫停。
+
+`AssistantConfigurationView.sharedWithAccountIds` **不是**第二條授權路徑，它只是這份勾選清單的初始值（`defaultPublishingRecord()`，`publishing-channels.ts:36-56`）；助理一旦有保存的發布設定，就以保存的清單為準。
+
+**取消勾選只收回權限，不會刪掉任何對話。** 該帳號的對話仍留在自己的 `sme-demo:chat:<accountId>:<assistantId>` key 裡，重新勾選後原封不動回來——助理擁有者本來就看不到別人的對話，也不該有一個開關可以單方面銷毀別人的資料。畫面上的說明文字就是這樣寫的（`features/publishing/platform-sharing/platform-sharing.component.html:8-11`）。
+
+**未登入的官網訪客不受這份清單影響**：他們由「官網嵌入或 LINE 是否已發布」決定（`isExternallyPublished()`，`publishing-channels.ts:263-275`），平台內分享不算對外。
+
+種子資料示範了這條規則：內部使用者可以開啟**客服助理**（在清單內、使用對象含內部員工），但開不了**內部教育訓練助理**（它的平台內分享是「已暫停」）。
+
 ## Fixture 情境（`?demoScenario=`）
 
 在任何工作台網址後面加上 `?demoScenario=<值>`，可以直接預覽載入中、部分失敗、權限不足等狀態，不需要真的製造錯誤。參數只影響 mock repository，重新整理或換頁時參數消失就恢復正常。
@@ -119,7 +136,6 @@ npx nx lint admin
 
 ### 功能缺口
 
-- **發布管道的「平台內分享」目前不會真的限制誰能開啟對話。** 勾選可使用的帳號會被儲存並顯示在畫面上，但 `/use/:assistantId` 與 `/app/chat/:assistantId` 目前是依「助理的使用對象（內部／外部）」判斷，不是依這份勾選清單。正式後端必須以這份清單為準做授權。
 - **「對話與回報紀錄」（`/app/activity`）只提供入口說明**，不顯示跨助理的合併清單。依設計，對話屬於發起對話的帳號，管理端只能看匿名統計，所以合併清單要等正式介接後再定義能顯示哪些欄位。
 - **「團隊與設定」（`/app/settings`）目前只有外觀（質地／配色）設定**，沒有團隊成員管理。
 - **趨勢比較的差異值由 mock repository 計算**（本次／上次／首次、較上次／較首次），不是手寫在 fixture 裡，也不是後端算的。正式版本的計算與四捨五入規則需要後端定義。

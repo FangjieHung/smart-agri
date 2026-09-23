@@ -1,4 +1,4 @@
-import type { AccountId } from './account.model';
+import type { AccountId, AccountRole } from './account.model';
 import type { DatabaseId } from './database.model';
 import type { KnowledgeBaseId } from './knowledge-base.model';
 
@@ -19,6 +19,21 @@ export type AssistantAudience =
   | 'members-and-external-customers';
 
 export type AssistantPermission = 'use' | 'configure' | 'publish';
+
+/**
+ * 使用對象決定「**哪一種人**」可以使用這個助理；至於「哪些帳號」由發布管道的
+ * 平台內分享清單決定（`publishing-channels.ts` 的 `canOpenInPlatform()`）。
+ * 兩者是 and 的關係：角色不符就算被勾選也開不了，角色相符但沒被勾選一樣開不了。
+ */
+export const AUDIENCE_ROLES: Readonly<Record<AssistantAudience, readonly AccountRole[]>> = {
+  'account-members': ['smb-admin', 'internal-employee'],
+  'authorized-external-customers': ['external-customer'],
+  'members-and-external-customers': ['smb-admin', 'internal-employee', 'external-customer'],
+};
+
+export function audienceAllowsRole(audience: AssistantAudience, role: AccountRole): boolean {
+  return AUDIENCE_ROLES[audience].includes(role);
+}
 
 export type AssistantSourceType = 'knowledge-base' | 'database';
 

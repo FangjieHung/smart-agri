@@ -37,14 +37,21 @@ export class PlatformSharingComponent {
     event.preventDefault();
     const accountId = this.session.activeAccountId();
     if (!accountId) return;
+    const before = this.view().allowedAccountIds;
     const result = this.repository.updatePlatformSharing(accountId, this.assistantId(), [...this.selected()]);
     if (result.status === 'ready' || result.status === 'partial-failure') {
       this.error.set('');
-      this.feedback.set(
+      const removed = before.filter((id) => !result.data.allowedAccountIds.includes(id)).length;
+      // 被移除的帳號只是失去權限：明講對話不會被刪掉，重新勾選就回來。
+      const retention =
+        removed > 0
+          ? `取消勾選的 ${removed} 個帳號已失去使用權限，他們既有的對話不會刪除，重新勾選就會回來。`
+          : '';
+      const summary =
         result.data.allowedAccountIds.length === 0
-          ? '已更新可使用的帳號：目前沒有帳號可以使用，管道狀態改為尚未設定。'
-          : `已更新可使用的帳號：共 ${result.data.allowedAccountIds.length} 個帳號可以使用。`,
-      );
+          ? '已更新可使用的帳號：目前沒有其他帳號可以使用，管道狀態改為尚未設定（你是擁有者，仍然開得了）。'
+          : `已更新可使用的帳號：共 ${result.data.allowedAccountIds.length} 個帳號可以使用。`;
+      this.feedback.set(`${summary}${retention === '' ? '' : ` ${retention}`}`);
       this.changed.emit();
     } else if (result.status !== 'loading') {
       this.feedback.set('');

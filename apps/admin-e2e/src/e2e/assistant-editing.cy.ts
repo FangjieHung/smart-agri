@@ -27,14 +27,15 @@ describe('editing an assistant after it exists', () => {
       cy.get('#assistant-name').should('have.value', '客服助理');
       cy.contains('尚未編輯過').should('be.visible');
 
-      cy.get('#audience-internal').should('not.be.checked').check();
+      // 種子助理的使用對象是「內部員工與外部客戶」；取消內部員工後只剩外部客戶。
+      cy.get('#audience-internal').should('be.checked').uncheck();
       cy.get('.autosave').should('contain', '已自動儲存');
 
       cy.reload();
-      cy.get('#audience-internal').should('be.checked');
+      cy.get('#audience-internal').should('not.be.checked');
       cy.get('#audience-external').should('be.checked');
       cy.get('.autosave').should('contain', '上次儲存');
-      cy.get('.rest-grid').scrollIntoView().should('be.visible').and('contain', '內部員工與外部客戶');
+      cy.get('.rest-grid').scrollIntoView().should('be.visible').and('contain', '外部客戶');
     });
 
     it('renames the assistant and shows the new name in the list', () => {
@@ -48,6 +49,9 @@ describe('editing an assistant after it exists', () => {
 
     it('refuses to leave the assistant without a name or an audience', () => {
       openTab('overview');
+
+      cy.get('#audience-internal').uncheck();
+      cy.get('.autosave').should('contain', '已自動儲存');
 
       cy.get('#assistant-name').clear();
       cy.get('#assistant-name-error').should('be.visible').and('contain', '請輸入助理名稱');

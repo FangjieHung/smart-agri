@@ -191,7 +191,7 @@ interface AssistantConfigurationView {
   purpose: string;
   status: AssistantStatus;         // 建立後固定為 'ready'，見 mock-demo-repository.ts:1054
   audience: AssistantAudience;
-  sharedWithAccountIds: readonly AccountId[];  // 建立後為空陣列，見 :927
+  sharedWithAccountIds: readonly AccountId[];  // 建立後為空陣列（mock-demo-repository.ts:1201）；只是「平台內分享」勾選清單的初始值，不是授權路徑，見 5.4 節
   knowledgeBaseIds: readonly KnowledgeBaseId[];
   databaseIds: readonly DatabaseId[];
   keepOwnConversations: boolean;   // 直接取自 draft.rules.keepOwnConversations，見 mock-demo-repository.ts:1063
@@ -710,14 +710,18 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 
 ### 5.4 權限規則
 
-- 使用助理的條件（`canUseAssistant()`，`mock-demo-repository.ts:2299-2309`）：viewer 是擁有者，**或**在 `sharedWithAccountIds` 內，**或** viewer 是 `account-external-customer` 且助理的 audience 不是 `account-members`。最後這條是 Demo 的簡化捷徑，正式版必須改成真正的授權關係。
+- 使用助理的條件（`canUseAssistant()`，`mock-demo-repository.ts:2594-2604`，實際判斷在 `canOpenInPlatform()`，`publishing-channels.ts:99-108`）：
+  1. viewer 是**擁有者** → 一律可以，包含平台內分享清單是空的、管道已暫停時（擁有者要能自己測試）。
+  2. 其他帳號要**同時**成立：角色落在助理 `audience` 對應的 `AUDIENCE_ROLES` 內（`assistant.model.ts:28-36`）**且**在發布管道「平台內分享」的 `allowedAccountIds` 內**且**該管道沒有暫停。
+  也就是 **audience 決定「哪一種人」、平台內分享的勾選清單決定「哪些帳號」**。`AssistantConfigurationView.sharedWithAccountIds` **不是**第二條授權路徑，只是這份清單的初始值（`defaultPublishingRecord()`，`publishing-channels.ts:36-56`）。正式後端請照同一條規則授權，並注意這裡沒有任何安全性（判斷都在瀏覽器）。
+- **取消勾選只收回權限，不刪資料**：被移除的帳號仍保有自己的 `sme-demo:chat:<accountId>:<assistantId>`，重新勾選後對話原封不動回來。這是刻意的——助理擁有者看不到別人的對話，也不該有一個開關可以單方面銷毀別人的資料。要真正移除只能由對話的所有人自己刪除。
 - 對話依 `(accountId, assistantId)` 隔離，key 內含 accountId（`mock-demo-repository.ts:1690-1692`），**每個 key 底下再分成多段 thread**。`listChatThreads` 只讀取 viewer 自己那把 key（`toThreadListView()`，`:1841-1859`），所以**助理擁有者不但讀不到別人的對話內容，連別人有幾段對話、叫什麼名字都看不到**——這是計畫 `...-demo.md:449` 與設計 `...-design.md:202-207` 的硬性要求。
 - **threadId 一律當成未經驗證的輸入**：`getAssistantChat` / `renameChatThread` / `deleteChatThread` 都先確認助理可用（`assistant-use`），再在 viewer 自己的儲存裡找那段對話；找不到與屬於別人回傳**同一則** `chat-thread`（`mock-demo-repository.ts:1678-1680`），訊息不含標題也不透露是否存在。後端請照做，不要用 `404` 區分。
 - 擁有者端只拿得到**不含對話文字的匿名統計**：`getAssistantAnalytics` 回傳 `conversationCount` / `resolvedCount` / `helpfulRatingPercent`（`conversation.model.ts:75-81`）。算法已改成「**所有帳號中有訊息的對話段數**」（原本是「有對話的帳號數」），並保留明確註解「不讀取任何對話文字」（`mock-demo-repository.ts:1805-1818`）。標題也不會進統計。
 - 助理的規則關閉「保存自己的對話」（`AssistantConfigurationView.keepOwnConversations`，`assistant.model.ts:52-58`）時：`listChatThreads` 回傳 `historyMode: 'not-saved'` + 空清單 + 說明文字，而不是空清單而已；`renameChatThread` / `deleteChatThread` 一律 `chat-thread`（沒有東西可以改或刪）；對話本身變成**單一段暫時對話**，不寫入儲存（`keepsConversations()`，`:1620-1622`）。
 - 對話表單只在助理**真的連了那個資料庫**時才提供（`chatForm()`，`mock-demo-repository.ts:1943-1946`），且必須是 fixture 中被設定為 `form-request` 的資料庫（`chatFormTarget()`，`:1966-1978`）。
 - 送出的紀錄之後只有**指定資料管理者**看得到（透過 `getDatabaseTracking` 的 `database-records` 檢查，第 4.5 節）。
-- 未登入訪客走的是另一條判斷（`chatAssistant()`，`mock-demo-repository.ts:1653-1661`），規則見 5.7 節。
+- 未登入訪客走的是另一條判斷（`chatAssistant()`，`mock-demo-repository.ts:1809-1816`），規則見 5.7 節。
 
 ### 5.5 驗證規則
 
@@ -764,7 +768,7 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 
 **身分。** 每個瀏覽器分頁一個 `visitor-<亂數>`（`core/domain/account.model.ts:10`），由 `AnonymousVisitorService` 發放並存在 sessionStorage 的 `demo-visitor`（`core/session/anonymous-visitor.service.ts:10`、`:63-78`）。它**不是帳號**：沒有憑證、沒有 `AccountPermission`、不出現在 `listAccounts()`。`isVisitorId()`（`account.model.ts:16-18`）是帳號與訪客唯一的區分方式，兩邊的 id 命名空間不重疊。發放時機在 `embeddedChatGuard`（`core/session/embedded-chat.guard.ts:14-19`）：有 Demo 身分就不發，沒有（或剛逾時）才發，而且**永遠不轉址**。
 
-**誰開得了。** `anonymouslyOpenAssistant()`（`mock-demo-repository.ts:1637-1651`）只放行 `isExternallyPublished()` 為真的助理——也就是**官網嵌入或 LINE 的管道狀態是 `published`**（`publishing-channels.ts:230-245`）。平台內分享**不算對外**，它仍然需要一個已登入的帳號。尚未設定、測試中、需要處理與已暫停都關著，所以新建立的助理預設開不了（`defaultPublishingRecord()` 的網域是空的，`publishing-channels.ts:48`）。Demo 的種子資料中只有 `assistant-customer-service` 開得了；`assistant-internal-onboarding` 的官網管道是「測試中」、LINE 是「尚未設定」，所以開不了。
+**誰開得了。** `anonymouslyOpenAssistant()`（`mock-demo-repository.ts:1796-1806`）只放行 `isExternallyPublished()` 為真的助理——也就是**官網嵌入或 LINE 的管道狀態是 `published`**（`publishing-channels.ts:263-275`）。平台內分享**不算對外**，它仍然需要一個已登入的帳號。尚未設定、測試中、需要處理與已暫停都關著，所以新建立的助理預設開不了（`defaultPublishingRecord()` 的網域是空的，`publishing-channels.ts:48`）。Demo 的種子資料中只有 `assistant-customer-service` 開得了；`assistant-internal-onboarding` 的官網管道是「測試中」、LINE 是「尚未設定」，所以開不了。
 
 **拒絕不得洩漏。** 「沒有對外發布」與「助理不存在」回**同一個** `assistant-use` 與**同一則訊息**，訊息不含助理名稱（`anonymousUsePermissionDenied()`，`mock-demo-repository.ts:1669-1675`）。畫面上訪客也拿不到任何 `/app` 連結或復原按鈕（`chat-conversation.component.ts:253-262`）。後端請照做。
 
@@ -789,7 +793,7 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 | `listChannelOverview(viewer)` | `channel-overview/channel-overview-page.component.ts:26` | `GET /api/v1/publishing/overview` | `200` `AssistantChannelsView[]` | — |
 | `listPublishingChannels(viewer)` | `assistants/assistant-list/assistant-list-page.component.ts:31` | `GET /api/v1/publishing/channels` | `200` `PublishingChannelView[]` | — |
 | `getAssistantPublishing(viewer, assistantId)` | `assistant-publishing/assistant-publishing.component.ts:49` | `GET /api/v1/assistants/{id}/publishing` | `200` `AssistantPublishingView` | `403 publishing` |
-| `updatePlatformSharing(viewer, assistantId, accountIds)` | `platform-sharing/platform-sharing.component.ts:40` | `PUT /api/v1/assistants/{id}/publishing/platform` | `200` `PlatformSharingView` | `422`（`PublishingFieldError[]`）／`403 publishing` |
+| `updatePlatformSharing(viewer, assistantId, accountIds)` | `platform-sharing/platform-sharing.component.ts:41` | `PUT /api/v1/assistants/{id}/publishing/platform` | `200` `PlatformSharingView` | `422`（`PublishingFieldError[]`）／`403 publishing` |
 | `updateWebsiteEmbed(viewer, assistantId, settings)` | `website-embed/website-embed.component.ts:127` | `PUT /api/v1/assistants/{id}/publishing/website` | `200` `WebsiteEmbedView` | `422`／`403 publishing` |
 | `checkWebsiteInstallation(viewer, assistantId)` | `website-embed.component.ts:147` | `POST /api/v1/assistants/{id}/publishing/website:check-installation` | `200` `WebsiteEmbedView` | `403 publishing` |
 | `saveLineSettings(viewer, assistantId, input)` | `line-setup/line-setup.component.ts:81` | `PUT /api/v1/assistants/{id}/publishing/line` | `200` `LineSetupView` | `403 publishing` |
@@ -813,7 +817,7 @@ union 與清單：`apps/admin/src/app/core/domain/publishing.model.ts:16`、`:18
 
 **狀態是推導出來的，不是儲存的。** 三個管道各有自己的推導函式，優先序如下：
 
-- 平台內分享（`publishing-channels.ts:77-82`）：`paused` → 帳號數為 0 則 `not-configured` → 否則 `published`。
+- 平台內分享（`publishing-channels.ts:77-85`）：`paused` → 帳號數為 0 則 `not-configured`（只有擁有者開得了）→ 否則 `published`。狀態說明會講明「取消勾選只收回權限、不會刪除對話」。**這三種狀態是有作用的**：`paused` 會關掉所有非擁有者的平台內使用權限（見 5.4 節的 `canOpenInPlatform()`）。
 - 官網嵌入（`:103-115`）：`paused` → 無允許網域則 `not-configured` → `installCheck === 'detected'` 且處於斷線情境則 `needs-attention` → `installCheck === 'not-detected'` 則 `needs-attention` → `not-checked` 則 `testing` → 否則 `published`。
 - LINE（`:187-197`）：`paused` → 未檢查且四個欄位全空則 `not-configured` → 有欄位未通過則 `needs-attention` → 未檢查則 `testing` → `enabled` 則 `published` → 否則 `testing`。
 
@@ -874,7 +878,7 @@ interface AssistantPublishingView {        // :197-203
 
 ### 6.4 驗證規則
 
-**平台內分享**（`publishing-channels.ts:91-99`）：只接受候選名單內的 accountId（候選 = 除了擁有者以外的所有帳號，`:84-89`）。有任何一個不在名單內就整批拒絕：
+**平台內分享**（`publishing-channels.ts:117-125`）：只接受候選名單內的 accountId（候選 = 除了擁有者以外的所有帳號，`:110-115`）。有任何一個不在名單內就整批拒絕：
 
 ```ts
 { status: 'validation-failed', errors: [{ field: 'accounts', message: '只能選擇清單中的帳號。' }],
@@ -1005,7 +1009,7 @@ interface AssistantPublishingView {        // :197-203
 | 6 | 同意紀錄的稽核與撤回 | `SubmissionConsentStatus` 已有 `withdrawn`（`conversation.model.ts:41-42`），但**沒有任何方法能撤回**；收據文字卻已承諾「可隨時申請撤回或刪除」（`mock-demo-repository.ts:1610`） | 撤回的 endpoint 與流程、撤回後既有紀錄如何處理（軟刪除／匿名化／實刪）、撤回是否回溯影響趨勢計算、同意的稽核軌跡（誰在什麼時候看到什麼版本的同意條款）、同意條款版本管理。 |
 | 7 | 資料保存期限 | 沒有任何 TTL 或清除機制；localStorage 永久保留。使用者可以刪掉單一段對話（`deleteChatThread`），但那是**硬刪除**，沒有軟刪除或垃圾桶（`mock-demo-repository.ts:1445-1466`） | 對話、結構化紀錄、草稿、稽核紀錄各自的保存期限與刪除方式；刪除一段對話是否連帶刪掉它產生的結構化紀錄（目前**不會**，紀錄留在 `sme-demo:chat-records`）；帳號刪除時的連動清除。 |
 | 8 | 多租戶邊界 | 只有三個固定帳號，沒有組織／團隊層級；`shareTargets` 是「除了自己以外的所有帳號」（`mock-demo-repository.ts:1104-1106`） | 租戶（公司）、團隊、使用者的三層關係；跨租戶分享是否允許；帳號目錄本身的可見性（列出所有帳號本身就是資訊洩漏）。 |
-| 9 | 權限模型的落地 | `AccountPermission` 有七個值（`account.model.ts:23-30`），但發布相關方法只檢查擁有者、沒有檢查 `manage-publishing`（`mock-demo-repository.ts:2312-2319`）；`canUseAssistant` 用「外部客戶＋audience 不是 account-members」這條捷徑（`:2299-2309`） | 權限與擁有權的關係（擁有者是否自動具備全部權限）、是否引入角色或 ACL、`use-shared-assistants` 等權限的實際執行點、外部客戶的授權關係如何建立。 |
+| 9 | 權限模型的落地 | `AccountPermission` 有七個值（`account.model.ts:23-30`），但發布相關方法只檢查擁有者、沒有檢查 `manage-publishing`（`mock-demo-repository.ts:2606-2614`）；使用權限則是 `audience`（角色）＋平台內分享清單（帳號）的組合，沒有真正的授權關係實體（`canOpenInPlatform()`，`publishing-channels.ts:99-108`） | 權限與擁有權的關係（擁有者是否自動具備全部權限）、是否引入角色或 ACL、`use-shared-assistants` 等權限的實際執行點、外部客戶的授權關係如何建立、平台內分享清單要不要升級成真正的 ACL（含授權人與時間）。 |
 | 10 | 敏感憑證的處理 | LINE 的 `channelSecret` / `accessToken` 明文存 localStorage 並**原文回傳給前端**（`publishing-channels.ts:297-301`、`mock-demo-repository.ts:2349`） | 憑證加密保存、回傳時是否遮蔽（建議只回末四碼與是否已設定）、輪替流程、稽核。這會改動 `LineSetupView` 的契約。 |
 | 11 | 真正的官網嵌入與 LINE 串接 | 嵌入碼與 webhook 都指向 `.invalid` 保留網域（`publishing-channels.ts:117-127`、`:303`）；安裝檢查與測試訊息都是本地模擬（`mock-demo-repository.ts:804-826`、`publishing-channels.ts:203-213`） | 真實 widget 的託管與版本管理、CORS 與允許網域的執行點、安裝偵測的技術手段、LINE Messaging API 的 webhook 驗簽與重送、未登入訪客的 session 隔離（設計 `...-design.md:194-199` 已有要求）。 |
 | 12 | 趨勢計算的歸屬 | 全部在 repository 層預先算好（`database-tracking.ts:63-128`），前端只顯示字串 | 後端是否照樣預算（建議照做，前端已依此設計）；大量紀錄時的分頁與聚合策略；`en-US` 數字格式與「分」「持平」等文案該放在哪一層（`database-tracking.ts:22`、`:30`、`:93`）。 |
@@ -1096,7 +1100,7 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>('DEMO_REPOSITO
 | 發布 | `listPublishingChannels` | `features/assistants/assistant-list/assistant-list-page.component.ts:31` |
 | 發布 | `getAssistantPublishing` | `features/publishing/assistant-publishing/assistant-publishing.component.ts:49` |
 | 發布 | `setPublishingChannelPaused` | `assistant-publishing.component.ts:74` |
-| 發布 | `updatePlatformSharing` | `features/publishing/platform-sharing/platform-sharing.component.ts:40` |
+| 發布 | `updatePlatformSharing` | `features/publishing/platform-sharing/platform-sharing.component.ts:41` |
 | 發布 | `updateWebsiteEmbed` | `features/publishing/website-embed/website-embed.component.ts:127` |
 | 發布 | `checkWebsiteInstallation` | `website-embed.component.ts:147` |
 | 發布 | `saveLineSettings` | `features/publishing/line-setup/line-setup.component.ts:81` |

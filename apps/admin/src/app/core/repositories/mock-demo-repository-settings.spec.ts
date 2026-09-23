@@ -34,7 +34,7 @@ describe('MockDemoRepository assistant settings', () => {
     const view = settings();
 
     expect(view.configuration.name).toBe('客服助理');
-    expect(view.configuration.audience).toBe('authorized-external-customers');
+    expect(view.configuration.audience).toBe('members-and-external-customers');
     expect(view.sources).toHaveLength(5);
     expect(view.rules.keepOwnConversations).toBe(true);
     expect(view.savedAt).toBeNull();
@@ -63,7 +63,7 @@ describe('MockDemoRepository assistant settings', () => {
 
   it('saves the audience of a seeded assistant so a new repository instance reads it back', () => {
     const result = repository.updateAssistantSettings('account-smb-admin', SEEDED, {
-      audience: 'members-and-external-customers',
+      audience: 'account-members',
     });
 
     expect(result.status).toBe('ready');
@@ -71,7 +71,7 @@ describe('MockDemoRepository assistant settings', () => {
     const reread = reopened.getAssistantSettings('account-smb-admin', SEEDED);
     expect(reread.status).toBe('ready');
     if (reread.status === 'ready') {
-      expect(reread.data.configuration.audience).toBe('members-and-external-customers');
+      expect(reread.data.configuration.audience).toBe('account-members');
       expect(reread.data.savedAt).toBe('2026-09-23T02:00:00.000Z');
     }
   });

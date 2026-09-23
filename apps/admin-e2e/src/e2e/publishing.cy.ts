@@ -5,6 +5,22 @@ function loginAs(persona: string): void {
 }
 
 const VALID_TOKEN = 'demo-token-not-for-production-0123456789abcdefghij';
+const ASSISTANT = 'assistant-customer-service';
+const EMPLOYEE_NAME = '安心商行客服同仁';
+
+function ask(question: string): void {
+  cy.get('#chat-input').clear().type(question);
+  cy.get('form.composer button[type="submit"]').click();
+}
+
+function togglePlatformAccount(label: string): void {
+  cy.visit(`/app/assistants/${ASSISTANT}/publishing?channel=platform`);
+  cy.get('app-platform-sharing').within(() => {
+    cy.contains('label', label).click();
+    cy.contains('button', '儲存可使用的帳號').click();
+    cy.get('[aria-live="polite"]').should('contain', '已更新可使用的帳號');
+  });
+}
 
 describe('publishing channels', () => {
   beforeEach(() => {
@@ -104,6 +120,38 @@ describe('publishing channels', () => {
     });
     cy.contains('app-channel-card', 'LINE').should('contain', '已發布');
     cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
+  });
+
+  it('makes the ticked accounts decide who can open the assistant, and keeps their conversations', () => {
+    // 一開始內部同仁在清單內：開得了助理，也留下一段對話。
+    loginAs('內部使用者');
+    cy.contains('section[aria-labelledby="usable-title"]', '客服助理').should('be.visible');
+    cy.visit(`/app/chat/${ASSISTANT}`);
+    ask('收到商品後幾天內可以退貨？');
+    cy.get('ul.thread-list > li').should('have.length', 1);
+
+    // 擁有者取消勾選，畫面說明對話不會被刪除。
+    loginAs('SMB 管理者');
+    togglePlatformAccount(EMPLOYEE_NAME);
+    cy.get('app-platform-sharing [aria-live="polite"]').should('contain', '不會刪除');
+
+    // 同仁立刻失去權限，拒絕訊息不提助理名稱。
+    loginAs('內部使用者');
+    cy.get('section[aria-labelledby="usable-title"]').should('not.exist');
+    cy.visit(`/use/${ASSISTANT}`);
+    cy.contains('無法使用這個助理').should('be.visible');
+    cy.contains('客服助理').should('not.exist');
+    cy.get('#chat-input').should('not.exist');
+
+    // 重新勾選：權限回來，先前的對話原封不動。
+    loginAs('SMB 管理者');
+    togglePlatformAccount(EMPLOYEE_NAME);
+
+    loginAs('內部使用者');
+    cy.visit(`/app/chat/${ASSISTANT}`);
+    cy.get('ul.thread-list > li').should('have.length', 1);
+    cy.get('button.thread-open').should('contain', '退貨');
+    cy.get('[role="log"]').should('contain', '7 天');
   });
 
   it("does not reveal another account's channel settings", () => {

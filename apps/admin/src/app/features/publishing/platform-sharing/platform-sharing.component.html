@@ -2,7 +2,12 @@
 <form class="channel-panel" aria-labelledby="platform-title" novalidate (submit)="save($event)">
   <h3 id="platform-title">平台內分享</h3>
   <p class="hint">
-    被指定的帳號可以在平台內開啟助理並對話；每個帳號保有獨立對話紀錄，使用者能操作助理，但不能查看設定。
+    被勾選的帳號可以在平台內開啟助理並對話；每個帳號保有獨立對話紀錄，使用者能操作助理，但不能查看設定。
+    你是擁有者，不在清單中也一直開得了，隨時可以自己測試。
+  </p>
+  <p class="hint">
+    取消勾選會立刻收回使用權限，但<strong>不會刪除</strong>該帳號既有的對話；重新勾選後，他的對話會原封不動回來。
+    使用對象（內部員工／外部客戶）仍然有效：角色不符的帳號就算被勾選也開不了。
   </p>
 
   <div class="usage-link">

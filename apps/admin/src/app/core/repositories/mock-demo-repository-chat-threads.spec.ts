@@ -177,7 +177,8 @@ describe('MockDemoRepository chat threads', () => {
       purpose: '示範關閉保存對話',
       status: 'ready',
       audience: 'members-and-external-customers',
-      sharedWithAccountIds: [],
+      // 平台內分享清單的初始值：外部客戶被勾選，所以開得了這個助理。
+      sharedWithAccountIds: ['account-external-customer'],
       knowledgeBaseIds: ['knowledge-refund-policy'],
       databaseIds: [],
       keepOwnConversations: false,

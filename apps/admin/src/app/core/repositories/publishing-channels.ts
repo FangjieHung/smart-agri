@@ -1,5 +1,5 @@
 import type { AccountId, AccountView } from '../domain/account.model';
-import type { AssistantConfigurationView } from '../domain/assistant.model';
+import { audienceAllowsRole, type AssistantConfigurationView } from '../domain/assistant.model';
 import {
   LINE_FIELDS,
   MAX_WEBSITE_NAME_LENGTH,
@@ -77,8 +77,34 @@ export function isPublishingRecord(value: unknown): value is PublishingRecord {
 function platformStatus(record: PublishingRecord): [PublishingChannelStatus, string] {
   const count = record.platform.allowedAccountIds.length;
   if (record.platform.paused) return ['paused', '已暫停：使用連結暫時無法開啟，設定與各帳號的對話紀錄都會保留。'];
-  if (count === 0) return ['not-configured', '尚未指定可使用的帳號。'];
-  return ['published', `${count} 個帳號可使用；每個帳號保有獨立對話紀錄。`];
+  if (count === 0) return ['not-configured', '尚未指定可使用的帳號，目前只有擁有者開得了。'];
+  return [
+    'published',
+    `${count} 個帳號可使用；每個帳號保有獨立對話紀錄，取消勾選只收回權限、不會刪除對話。`,
+  ];
+}
+
+/**
+ * 這個帳號可不可以在平台內開啟這個助理。**這是平台內使用權限的唯一判斷點**。
+ *
+ * 1. **擁有者永遠開得了**，包含清單是空的、管道已暫停時（他要能自己測試）。
+ * 2. 其他帳號必須同時滿足兩件事：
+ *    - **使用對象（`audience`）決定「哪一種人」**：角色要在 `AUDIENCE_ROLES` 內。
+ *    - **平台內分享的勾選清單決定「哪些帳號」**：要在 `allowedAccountIds` 內，且管道沒有暫停。
+ *
+ * `assistant.sharedWithAccountIds` **不是**第二條授權路徑，它只是這份清單的初始值
+ * （`defaultPublishingRecord()`）；助理一旦有保存的發布設定，就以保存的清單為準。
+ * 取消勾選只收回權限，不會刪除該帳號既有的對話；重新勾選就原封不動回來。
+ */
+export function canOpenInPlatform(
+  assistant: AssistantConfigurationView,
+  record: PublishingRecord,
+  viewer: AccountView,
+): boolean {
+  if (assistant.ownerAccountId === viewer.id) return true;
+  if (!audienceAllowsRole(assistant.audience, viewer.role)) return false;
+  if (record.platform.paused) return false;
+  return record.platform.allowedAccountIds.includes(viewer.id);
 }
 
 export function platformCandidates(

@@ -96,7 +96,7 @@ return true;
 | `/app/chat/:assistantId/:conversationId` `:115` | 同上，直接開啟指定對話 | 同上（`getAssistantChat` 帶 `threadId`） | 同上，另含「對話不存在或屬於其他帳號」→ `403 chat-thread` | `chat-history.cy.ts` |
 | `/use/:assistantId` `:125` | `features/assistant-use/chat-shell/chat-shell-page.component.ts` → `chat-conversation.component.ts`（`chat-shell-page.component.ts:22` 把 `allowAnonymous` 固定為 `true`），**單欄、無側欄** | `chat-conversation.component.ts` 的 `getAssistantChat` `:121`（**永遠不帶 `threadId`**）；`sendChatMessage` `:158`；`reviewChatForm` `:204`；`submitChatForm` `:226` | 空白、載入中（`chat-conversation.component.html:4`）、成功、部分成功、**無結果**、權限不足（`.html:8`）。**沒有登入逾時**——逾時後變成未登入訪客 | `anonymous-visitor.cy.ts`、`private-conversations.cy.ts`、`consented-submission.cy.ts`、`chat-history.cy.ts`、`error-states.cy.ts`、`accessibility.cy.ts`、`responsive.cy.ts` |
 | `/use/:assistantId?embed=1` | 同上，`header` 由 `full` 切成 `minimal`（`chat-shell-page.component.ts:21`、`:42`） | 同上 | 同上，但**沒有頁首、返回連結與品牌外框**；標題只留視覺隱藏版（`chat-conversation.component.html:32`） | `anonymous-visitor.cy.ts`、`chat-history.cy.ts` |
-| `/use/:assistantId`（**未登入訪客**） | 同上。沒有 Demo 身分時改用這個分頁的匿名訪客 id（`chat-conversation.component.ts:103-111`）；`.chat-header` 的返回連結與拒絕畫面的復原按鈕都不顯示（`.html:21`、`chat-conversation.component.ts:254-262`），並加上一段 Demo 聲明（`.html:37-41`） | 同上，第一個參數是 `VisitorId` | 成功、**無結果**、**拒絕**（助理沒有對外發布或不存在，兩者同一則訊息：`mock-demo-repository.ts:1670-1675`） | `anonymous-visitor.cy.ts`、`accessibility.cy.ts` |
+| `/use/:assistantId`（**未登入訪客**） | 同上。沒有 Demo 身分時改用這個分頁的匿名訪客 id（`chat-conversation.component.ts:103-111`）；`.chat-header` 的返回連結與拒絕畫面的復原按鈕都不顯示（`.html:21`、`chat-conversation.component.ts:254-262`），並加上一段 Demo 聲明（`.html:37-41`） | 同上，第一個參數是 `VisitorId` | 成功、**無結果**、**拒絕**（助理沒有對外發布或不存在，兩者同一則訊息：`mock-demo-repository.ts:1825-1830`） | `anonymous-visitor.cy.ts`、`accessibility.cy.ts` |
 
 `/app/chat/:assistantId/:conversationId` 的第三段參數名稱是 **`conversationId`**（`app.routes.ts:116`），但 repository 契約叫它 `threadId`（`demo-repository.ts:447`）。同一個東西兩個名字，正式版應該統一。
 
@@ -162,8 +162,8 @@ wildcard 導回 `/` 而不是 `/login`，所以未登入使用者看到的是產
 | --- | --- | --- |
 | 訪客身分 | 每個瀏覽器分頁一個 `visitor-<亂數>`，存在 sessionStorage 的 `demo-visitor`，關閉分頁就結束。**沒有憑證、沒有權限、不對應任何帳號** | `core/session/anonymous-visitor.service.ts:10`、`:50-96` |
 | 型別 | `VisitorId` / `ChatViewerId` 與 `isVisitorId()`；四個對話方法的第一個參數改成 `ChatViewerId` | `core/domain/account.model.ts:10-18`、`demo-repository.ts:444`、`:453`、`:460`、`:470` |
-| 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理；平台內分享不算對外 | `publishing-channels.ts:230-245`、`mock-demo-repository.ts:1637-1651` |
-| 拒絕畫面 | 「沒有對外發布」與「不存在」回**同一則**訊息，不含助理名稱，也不提供任何 `/app` 復原動作 | `mock-demo-repository.ts:1670-1675`、`chat-conversation.component.ts:253-262` |
+| 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理；平台內分享不算對外 | `publishing-channels.ts:263-275`、`mock-demo-repository.ts:1796-1806` |
+| 拒絕畫面 | 「沒有對外發布」與「不存在」回**同一則**訊息，不含助理名稱，也不提供任何 `/app` 復原動作 | `mock-demo-repository.ts:1825-1830`、`chat-conversation.component.ts:253-262` |
 | 對話歸屬 | 存在 `sme-demo:chat:<visitorId>:<assistantId>`，寫進**訪客專屬的 sessionStorage**，與帳號的 localStorage 完全分開 | `mock-demo-repository.ts:1690-1697`、`tokens.ts:15-17` |
 | 匿名統計 | 訪客的對話不會被計入擁有者的使用次數（擁有者的瀏覽器讀不到那份儲存） | `mock-demo-repository.ts:1804-1815` |
 | 表單提交 | 可以提交，同意畫面內容不變；紀錄的追蹤對象是 `subject-<visitorId>`，顯示名稱為「未登入訪客（末四碼）」，不冒認任何帳號 | `mock-demo-repository.ts:1593`、`:433-439`、`demo-seed-chat.ts:131` |

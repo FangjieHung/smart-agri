@@ -144,10 +144,27 @@ export interface DatabaseAccountView {
   readonly displayName: string;
 }
 
+/** 可被指定為資料管理者的帳號；`hasReadPermission` 是帳號層級的權限現況。 */
+export interface DatabaseAccessCandidateView {
+  readonly id: AccountId;
+  readonly displayName: string;
+  readonly roleLabel: string;
+  /** 帳號層級的「查看同意提交的紀錄」；false 代表指定了也還是看不到。 */
+  readonly hasReadPermission: boolean;
+}
+
 export interface DatabaseAccessView {
   readonly owner: DatabaseAccountView;
   readonly dataManagers: readonly DatabaseAccountView[];
+  /** 有沒有被指定為資料管理者（資料庫層級）。 */
   readonly viewerIsDataManager: boolean;
+  /** 實際看不看得到收集紀錄：指定 **且** 具備帳號層級權限才是 true。 */
+  readonly viewerCanReadRecords: boolean;
+  /** 能不能在這個頁籤改指定；只有資料庫擁有者可以。 */
+  readonly viewerCanManageAccess: boolean;
+  readonly candidates: readonly DatabaseAccessCandidateView[];
+  /** 最後一次變更指定的時間（ISO）；從未改過為 null。 */
+  readonly savedAt: string | null;
 }
 
 export interface DatabaseDetailView {

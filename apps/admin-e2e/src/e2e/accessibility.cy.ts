@@ -12,9 +12,10 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/knowledge/knowledge-product-guide/content', '商品使用指南'],
   ['/app/databases', '資料庫'],
   ['/app/databases/database-customer-records/records', '客戶資料庫'],
+  ['/app/databases/database-customer-records/access', '誰可以查看收集紀錄'],
   ['/app/channels', '發布管道'],
   ['/app/assistants/assistant-customer-service/publishing?channel=line', '客服助理'],
-  ['/app/settings', '系統設定'],
+  ['/app/settings', '團隊與權限'],
 ];
 
 /** 用 CDP 模擬使用者的「減少動態效果」偏好。 */
@@ -163,6 +164,25 @@ describe('accessibility', () => {
       cy.focused().type('{esc}');
       cy.get('[role="dialog"]').should('not.exist');
       cy.focused().should('contain.text', '撤回這筆資料');
+    });
+  });
+
+  describe('team settings as a non-admin persona', () => {
+    it('has no critical or serious violations on the refused team panel', () => {
+      loginAs('內部使用者');
+      cy.visit('/app/settings');
+      cy.contains('無法查看團隊設定').should('be.visible');
+      auditA11y();
+    });
+  });
+
+  describe('team permission editor expanded', () => {
+    it('has no critical or serious violations with every checkbox rendered', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '變更 安心商行客服同仁 的權限').click();
+      cy.get('.member__editor input[type="checkbox"]').should('have.length', 7);
+      auditA11y();
     });
   });
 

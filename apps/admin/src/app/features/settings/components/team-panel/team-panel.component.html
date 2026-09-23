@@ -1,0 +1,100 @@
+@let state = result();
+<section class="team-panel" aria-labelledby="team-title">
+  <div>
+    <p class="ui-text-caption">團隊</p>
+    <h2 id="team-title" class="ui-text-subtitle">團隊與權限</h2>
+  </div>
+
+  @if (state === null || state.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入團隊成員" />
+  } @else if (state.status === 'permission-denied') {
+    <app-state-panel
+      state="permission-denied"
+      title="無法查看團隊設定"
+      description="只有可管理助理與團隊的帳號可以查看或變更成員權限。若需要調整，請向團隊管理者提出。"
+    />
+  } @else if (team(); as data) {
+    <p class="hint">
+      這裡的「團隊」就是 Demo 的三個身分，<strong>不是真實的身分管理</strong>：沒有邀請、沒有離職、也沒有密碼。
+      可以變更的只有「每個成員被允許做什麼」，變更會存在這台瀏覽器，切換身分後立刻看得到差異。
+    </p>
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+
+    <ul class="member-list">
+      @for (member of data.members; track member.id) {
+        <li class="member">
+          <div class="member__identity">
+            <p class="member__name">
+              {{ member.displayName }}
+              @if (member.isViewer) {
+                <span class="member__you">目前的身分</span>
+              }
+            </p>
+            <p class="member__role">{{ member.roleLabel }}｜{{ member.roleDescription }}</p>
+          </div>
+
+          @if (editing() === member.id) {
+            <form class="member__editor" novalidate (submit)="save(member, $event)">
+              <fieldset>
+                <legend>{{ member.displayName }} 可以做什麼</legend>
+                @for (permission of data.permissions; track permission.id) {
+                  @let locked = member.lockedPermissions.includes(permission.id);
+                  <div class="choice">
+                    <input
+                      type="checkbox"
+                      [id]="'permission-' + member.id + '-' + permission.id"
+                      [checked]="draft().has(permission.id)"
+                      [disabled]="locked"
+                      (change)="toggle(permission.id, $event)"
+                    />
+                    <label [for]="'permission-' + member.id + '-' + permission.id">
+                      <span class="choice__label">
+                        {{ permission.label }}
+                        @if (!permission.enforced) {
+                          <span class="choice__tag">尚未接到行為</span>
+                        }
+                        @if (locked) {
+                          <span class="choice__tag">不可移除</span>
+                        }
+                      </span>
+                      <small>{{ permission.description }}</small>
+                      <small class="choice__note">{{ permission.enforcedNote }}</small>
+                      @if (locked) {
+                        <small class="choice__note">
+                          這是你自己的帳號：移除之後就打不開團隊設定，也沒有別的入口可以加回來。
+                        </small>
+                      }
+                    </label>
+                  </div>
+                }
+              </fieldset>
+              <div class="actions">
+                <button type="submit" class="ui-button">儲存 {{ member.displayName }} 的權限</button>
+                <button type="button" class="ui-button secondary" (click)="cancelEditing()">取消</button>
+              </div>
+            </form>
+          } @else {
+            <ul class="member__permissions">
+              @for (permission of member.permissions; track permission) {
+                <li>{{ labelOf(permission) }}</li>
+              } @empty {
+                <li class="member__none">沒有任何權限</li>
+              }
+            </ul>
+            <button type="button" class="ui-button secondary" (click)="startEditing(member)">
+              變更 {{ member.displayName }} 的權限
+            </button>
+          }
+        </li>
+      }
+    </ul>
+
+    <p class="feedback" aria-live="polite">{{ feedback() }}</p>
+    @if (data.savedAt) {
+      <p class="hint">權限已在這台瀏覽器變更過（{{ data.savedAt.slice(0, 10) }}）。清除 <code>sme-demo:</code> 開頭的儲存就會回到初始設定。</p>
+    }
+  }
+</section>

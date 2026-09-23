@@ -16,7 +16,7 @@
 
 前端自己就宣告了這件事，這段字串會顯示在畫面上：
 
-> `apps/admin/src/app/core/repositories/demo-repository.ts:478-479`
+> `apps/admin/src/app/core/repositories/demo-repository.ts:601-602`
 > `DEMO_SECURITY_NOTICE = '此 mock 僅用於視覺 Demo，不提供真實驗證與資料安全邊界，不使用真實資料，也不連接真實 AI。'`
 
 計畫與設計文件的對應聲明：
@@ -35,50 +35,54 @@
 
 ### 1.3 資料目前存在哪裡
 
-沒有後端。所有狀態存在瀏覽器的 `localStorage`（測試時換成記憶體實作 `apps/admin/src/app/core/repositories/memory-storage.ts:4-16`）。注入設定見 `apps/admin/src/app/core/repositories/tokens.ts:6-19`。
+沒有後端。所有狀態存在瀏覽器的 `localStorage`（測試時換成記憶體實作 `apps/admin/src/app/core/repositories/memory-storage.ts:4-16`）。注入設定見 `apps/admin/src/app/core/repositories/tokens.ts:7-26`。
 
 實際使用的 key 格式（前綴一律 `sme-demo:`）：
 
 | localStorage key | 內容 | 是否依帳號隔離 | 定義位置 |
 | --- | --- | --- | --- |
-| `sme-demo:assistant-draft:<accountId>` | 建立助理精靈的草稿（`{ version: 1, savedAt, draft }`） | 是，key 內含 accountId | `mock-demo-repository.ts:173`、寫入 `:1012`、讀取 `:993` |
-| `sme-demo:created-assistants` | 精靈建立出來的助理設定陣列（`AssistantConfigurationView[]`） | 否，靠物件內的 `ownerAccountId` 過濾 | `mock-demo-repository.ts:174`、寫入 `:1066`、讀取 `:2171` |
-| `sme-demo:knowledge:<knowledgeBaseId>` | 該知識庫的文件清單與分享設定（`{ version: 1, documents, sharing }`） | 否，靠知識庫的 `ownerAccountId` 過濾 | `mock-demo-repository.ts:231`、寫入 `:2098`、讀取 `:2084` |
-| `sme-demo:created-databases` | 由模板建立的資料庫（`{ view, collection }[]`） | 否，靠 `view.ownerAccountId` 過濾 | `mock-demo-repository.ts:295`、讀取 `:1985` |
-| `sme-demo:database-fields:<databaseId>` | 表單設計儲存結果（`{ version: 1, savedAt, fields }`） | 否 | `mock-demo-repository.ts:296`、寫入 `:1312`、讀取 `:2018` |
-| `sme-demo:chat:<accountId>:<assistantId>` | 這個帳號與這個助理的**多段對話**（`{ version: 2, threads }`，每段含 `id` / `title` / `titleSource` / `createdAt` / `updatedAt` / `messages`） | 是，key 內含 accountId | 前綴 `mock-demo-repository.ts:333`、型別 `:341-362`、組法 `:1690-1692`、寫入 `:1719-1727`、讀取 `:1710-1717` |
-| `sme-demo:chat:<visitorId>:<assistantId>` | **未登入訪客**與這個助理的多段對話，結構與上一列完全相同 | 是，key 內含 visitorId。**而且不在 localStorage**——見下方說明 | 切換儲存 `mock-demo-repository.ts:1695-1697`、注入 `tokens.ts:15-17` |
-| `sme-demo:chat-records` | 由對話送出的結構化紀錄（`DatabaseRecordFixture[]`） | 否，靠 `subjectId`（`subject-<accountId>` 或 `subject-<visitorId>`）區分 | `mock-demo-repository.ts:335`、寫入 `:1599`、讀取 `:1820` |
-| `sme-demo:publishing:<assistantId>` | 三個發布管道的設定（`PublishingRecord`） | 否，靠助理的 `ownerAccountId` 過濾 | `mock-demo-repository.ts:334`、寫入 `:2349`、讀取 `:2339` |
+| `sme-demo:assistant-draft:<accountId>` | 建立助理精靈的草稿（`{ version: 1, savedAt, draft }`） | 是，key 內含 accountId | `mock-demo-repository.ts:219`、寫入 `:1274`、讀取 `:1255` |
+| `sme-demo:created-assistants` | 精靈建立出來的助理設定陣列（`AssistantConfigurationView[]`） | 否，靠物件內的 `ownerAccountId` 過濾 | `mock-demo-repository.ts:220`、寫入 `:1328`、讀取 `:2824` |
+| `sme-demo:knowledge:<knowledgeBaseId>` | 該知識庫的文件清單與分享設定（`{ version: 1, documents, sharing }`） | 否，靠知識庫的 `ownerAccountId` 過濾 | `mock-demo-repository.ts:378`、寫入 `:2579`、讀取 `:2565` |
+| `sme-demo:created-databases` | 由模板建立的資料庫（`{ view, collection }[]`） | 否，靠 `view.ownerAccountId` 過濾 | `mock-demo-repository.ts:442`、讀取 `:2421` |
+| `sme-demo:database-fields:<databaseId>` | 表單設計儲存結果（`{ version: 1, savedAt, fields }`） | 否 | `mock-demo-repository.ts:443`、寫入 `:1576`、讀取 `:2494` |
+| `sme-demo:chat:<accountId>:<assistantId>` | 這個帳號與這個助理的**多段對話**（`{ version: 2, threads }`，每段含 `id` / `title` / `titleSource` / `createdAt` / `updatedAt` / `messages`） | 是，key 內含 accountId | 前綴 `mock-demo-repository.ts:480`、型別 `:493-501`、組法 `:1690-1697`、寫入 `:2069-2079`、讀取 `:2060-2067` |
+| `sme-demo:chat:<visitorId>:<assistantId>` | **未登入訪客**與這個助理的多段對話，結構與上一列完全相同 | 是，key 內含 visitorId。**而且不在 localStorage**——見下方說明 | 切換儲存 `mock-demo-repository.ts:2044-2047`、注入 `tokens.ts:15-17` |
+| `sme-demo:chat-records` | 由對話送出的結構化紀錄（`DatabaseRecordFixture[]`） | 否，靠 `subjectId`（`subject-<accountId>` 或 `subject-<visitorId>`）區分 | `mock-demo-repository.ts:482`、寫入 `:1894`、讀取 `:2171` |
+| `sme-demo:publishing:<assistantId>` | 三個發布管道的設定（`PublishingRecord`） | 否，靠助理的 `ownerAccountId` 過濾 | `mock-demo-repository.ts:481`、寫入 `:3079`、讀取 `:3069` |
 
 另有一個與 Demo 無關的舊登入殘留：`apps/admin/src/app/core/auth/auth.service.ts:4` 的 `sa.auth.session`，不屬於 Demo 資料流，請後端忽略。
 
 **注意**：只有草稿與對話兩種 key 真的把 accountId 編進 key。其他資料的「隔離」是在讀取時用物件欄位過濾出來的，任何人清掉或改寫 localStorage 都能繞過。
 
-**對話 key 的版本**：`version: 1`（一個 (帳號, 助理) 只有一段對話）是舊格式，讀取時會就地包成一段 thread 再往下走（`normalizeStoredThreads()`，`mock-demo-repository.ts:391-414`），**不會回寫**，等下一次寫入才落地成 `version: 2`。正式後端不需要沿用這個遷移，但要知道舊 Demo 資料長這樣。
+**對話 key 的版本**：`version: 1`（一個 (帳號, 助理) 只有一段對話）是舊格式，讀取時會就地包成一段 thread 再往下走（`normalizeStoredThreads()`，`mock-demo-repository.ts:538-558`），**不會回寫**，等下一次寫入才落地成 `version: 2`。正式後端不需要沿用這個遷移，但要知道舊 Demo 資料長這樣。
 
-**沒有落地的對話**：助理的規則關閉「保存自己的對話」時，對話**完全不進 localStorage**，只留在 `MockDemoRepository` 實例的記憶體 Map（`mock-demo-repository.ts:493-497`），重新整理就消失。這是 `AssistantConfigurationView.keepOwnConversations`（`assistant.model.ts:52-58`）唯一會改變儲存行為的設定。
+**沒有落地的對話**：助理的規則關閉「保存自己的對話」時，對話**完全不進 localStorage**，只留在 `MockDemoRepository` 實例的記憶體 Map（`mock-demo-repository.ts:640-644`），重新整理就消失。這是 `AssistantConfigurationView.keepOwnConversations`（`assistant.model.ts:69-73`）唯一會改變儲存行為的設定。
 
 ### 1.4 帳號隔離目前如何被模擬
 
 1. 「登入」只是選擇三個固定帳號之一：`apps/admin/src/app/core/session/demo-session.service.ts:100-105` 的 `switchAccount()` 把 `activeAccountId` 寫進 signal（`:87`），並同步寫入**該分頁的 `sessionStorage`**（key `demo-session`，`:167-170`），同時清空畫面狀態。
 2. 路由守衛檢查該 signal 有沒有值並延長有效時間：`apps/admin/src/app/core/session/demo-session.guard.ts:9-12`，沒有或已逾時就導到 `/login`。
 3. **重新整理不會登出**，但這仍然不是驗證：身分只是 sessionStorage 裡的一個 accountId 字串，沒有憑證可言，改掉它就換一個人。關閉分頁或閒置 30 分鐘（`DEMO_SESSION_TIMEOUT_MS`，`:29`）即結束。正式登入要取代的範圍見本文件第 8 節第 1 列與 `ai-assistant-backend-integration-handoff.md` 第 4.1 節。
-4. 每一個 repository 方法都把 `viewerAccountId: AccountId` 當成**第一個參數**由呼叫端傳入（例：`demo-repository.ts:214-216`）。正式 API 不可以這樣做：viewer 必須由 session／token 決定，絕不能從請求參數取得。
+4. 每一個 repository 方法都把 `viewerAccountId: AccountId` 當成**第一個參數**由呼叫端傳入（例：`demo-repository.ts:277-279`）。正式 API 不可以這樣做：viewer 必須由 session／token 決定，絕不能從請求參數取得。
 
-三個固定帳號與其權限（`apps/admin/src/app/core/repositories/demo-seed.ts:72-95`）：
+三個固定帳號與其**初始**權限（`apps/admin/src/app/core/repositories/demo-seed.ts:101-127`）：
 
-| accountId | displayName | role | permissions |
+| accountId | displayName | role | 初始 permissions |
 | --- | --- | --- | --- |
 | `account-smb-admin` | 安心商行管理者 | `smb-admin` | `manage-assistants`、`manage-data-sources`、`manage-publishing`、`read-consented-submissions` |
-| `account-internal-employee` | 安心商行客服同仁 | `internal-employee` | `use-shared-assistants` |
+| `account-internal-employee` | 安心商行客服同仁 | `internal-employee` | `use-shared-assistants`、`read-consented-submissions` |
 | `account-external-customer` | 外部客戶 | `external-customer` | `submit-authorized-forms`、`read-own-tracking` |
+
+**權限是可變的，帳號清單不是。** `/app/settings` 的「團隊與權限」讓具備 `manage-assistants` 的帳號逐項變更每個成員的權限（`getTeam()` / `updateMemberPermissions()`，`demo-repository.ts:265`、`:272`），覆寫值存在 `sme-demo:team-permissions`。**所有權限判斷都必須經過 `accounts()`**（`mock-demo-repository.ts:2909`），它把覆寫疊在 seed 上；直接讀 `seed.accounts` 就會看不到變更。正式版的等價物是「角色／權限的管理介面」，但成員的新增與移除在 Demo 裡不存在（見第 8 節第 8、9 點）。
+
+同仁的 `read-consented-submissions` 不是裝飾：他是「同仁排班回報」（`database-staff-checkins`）的擁有者也是指定資料管理者，沒有這個權限就看不到自己收到的資料（規則見第 4.5 節）。
 
 型別定義在 `apps/admin/src/app/core/domain/account.model.ts:1-37`（`AccountId` 目前是三個字面值的 union，正式 API 應改為一般 id 字串——列入 Open questions）。
 
 ### 1.5 共用回應契約
 
-所有讀取類方法都回傳同一個 union（`apps/admin/src/app/core/repositories/demo-repository.ts:86-113`）：
+所有讀取類方法都回傳同一個 union（`apps/admin/src/app/core/repositories/demo-repository.ts:105-131`）：
 
 ```ts
 type RepositoryView<T> =
@@ -88,8 +92,8 @@ type RepositoryView<T> =
   | { status: 'permission-denied'; reason: RepositoryPermissionDeniedReason; message: string };
 ```
 
-- `RepositoryUnavailableResource` 目前只有 `'knowledge-sync'`（`demo-repository.ts:76`），由 `partial-failure` 情境產生（`mock-demo-repository.ts:2265-2271`）。
-- `loading` 與 `partial-failure` 目前**只由 Demo 情境切換器產生**，不是真實的網路狀態（`mock-demo-repository.ts:2253-2275`）。正式實作中 `loading` 由 HTTP 請求生命週期取代，`partial-failure` 則對應「主資料成功但某個下游資源失敗」的部分降級回應。
+- `RepositoryUnavailableResource` 目前只有 `'knowledge-sync'`（`demo-repository.ts:88`），由 `partial-failure` 情境產生（`mock-demo-repository.ts:2969-2976`）。
+- `loading` 與 `partial-failure` 目前**只由 Demo 情境切換器產生**，不是真實的網路狀態（`mock-demo-repository.ts:2957-2979`）。正式實作中 `loading` 由 HTTP 請求生命週期取代，`partial-failure` 則對應「主資料成功但某個下游資源失敗」的部分降級回應。
 
 建議的 HTTP 對應：
 
@@ -107,19 +111,20 @@ type RepositoryView<T> =
 
 | reason | 出現時機 | 訊息（程式碼中的字串） | 位置 |
 | --- | --- | --- | --- |
-| `scenario` | Demo 情境切換器強制模擬 | 此情境用於預覽權限不足的畫面狀態。 | `mock-demo-repository.ts:2259-2262` |
-| `private-conversation` | 讀取非本人的私人對話 | 私人對話內容僅限對話所屬帳號查看。 | `mock-demo-repository.ts:612-615` |
-| `assistant-configuration` | 非擁有者讀取助理設定／資料來源／匿名統計 | 只有助理擁有者可查看資料來源設定。／只有助理擁有者可查看匿名使用摘要。 | `mock-demo-repository.ts:553-556`、`:703-706` |
-| `authorized-form` | 授權表單提交條件不符 | 只有已同意授權的外部客戶可提交這份表單。 | `mock-demo-repository.ts:657-660` |
-| `assistant-draft` | 帳號沒有 `manage-assistants` | 只有可管理助理的帳號可以建立助理。 | `mock-demo-repository.ts:2247-2250` |
-| `knowledge-base` | 知識庫不存在或非擁有者 | 你沒有這個知識庫的存取權限，或它已不存在。 | `mock-demo-repository.ts:2160-2163` |
-| `database` | 資料庫不存在或非擁有者／無建立權限 | 你沒有這個資料庫的存取權限，或它已不存在。／只有可管理資料來源的帳號可以建立資料庫。 | `mock-demo-repository.ts:2069`、`:2064` |
-| `database-records` | 非指定資料管理者讀取收集紀錄 | 只有指定的資料管理者可以查看收集紀錄。 | `mock-demo-repository.ts:1344-1347` |
-| `assistant-use` | 助理不存在或無使用權限 | 你沒有使用這個助理的權限，或它已不存在。 | `mock-demo-repository.ts:1634` |
-| `chat-thread` | 對話不存在、屬於其他帳號，或助理根本不保存對話 | 找不到這段對話，或它不屬於你的帳號。 | `mock-demo-repository.ts:1678-1680` |
-| `publishing` | 助理不存在或非擁有者 | 你沒有這個助理的發布設定權限，或它已不存在。 | `mock-demo-repository.ts:2322` |
+| `scenario` | Demo 情境切換器強制模擬 | 此情境用於預覽權限不足的畫面狀態。 | `mock-demo-repository.ts:2962-2967` |
+| `private-conversation` | 讀取非本人的私人對話 | 私人對話內容僅限對話所屬帳號查看。 | `mock-demo-repository.ts:872-875` |
+| `assistant-configuration` | 非擁有者讀取助理設定／資料來源／匿名統計 | 只有助理擁有者可查看資料來源設定。／只有助理擁有者可查看匿名使用摘要。 | `mock-demo-repository.ts:735-738`、`:965-968` |
+| `authorized-form` | 授權表單提交條件不符 | 只有已同意授權的外部客戶可提交這份表單。 | `mock-demo-repository.ts:919-922` |
+| `assistant-draft` | 帳號沒有 `manage-assistants` | 只有可管理助理的帳號可以建立助理。 | `mock-demo-repository.ts:2950-2954` |
+| `knowledge-base` | 知識庫不存在或非擁有者 | 你沒有這個知識庫的存取權限，或它已不存在。 | `mock-demo-repository.ts:2640-2644` |
+| `database` | 資料庫不存在或非擁有者／無建立權限 | 你沒有這個資料庫的存取權限，或它已不存在。／只有可管理資料來源的帳號可以建立資料庫。 | `mock-demo-repository.ts:2550`、`:2545` |
+| `database-records` | 不符合收集紀錄的兩層條件（帳號權限或資料庫指定其一不足） | 只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號，可以查看收集紀錄與趨勢比較。 | `database-access.ts:32-33`（訊息常數）、`mock-demo-repository.ts:1634-1636`（回傳點） |
+| `team` | 沒有 `manage-assistants` 的帳號讀取或變更團隊權限，**或指定的成員不存在** | 只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。 | `mock-demo-repository.ts:2943-2948` |
+| `assistant-use` | 助理不存在或無使用權限 | 你沒有使用這個助理的權限，或它已不存在。 | `mock-demo-repository.ts:1983-1984` |
+| `chat-thread` | 對話不存在、屬於其他帳號，或助理根本不保存對話 | 找不到這段對話，或它不屬於你的帳號。 | `mock-demo-repository.ts:2028-2030` |
+| `publishing` | 助理不存在或非擁有者 | 你沒有這個助理的發布設定權限，或它已不存在。 | `mock-demo-repository.ts:3051-3053` |
 
-**硬規則**：「資源不存在」與「沒有權限」必須回傳**完全相同**的 reason 與 message，且訊息內**不得包含資源名稱、擁有者或任何可用來推測存在性的內容**。程式碼中有明確註解：`mock-demo-repository.ts:2158-2159`（知識庫）、`:2311`（發布）、`:1622`（對話使用）；契約註解見 `demo-repository.ts:255-258`、`:332-335`、`:374-377`、`:403-405`。設計文件依據：`docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md:246`。
+**硬規則**：「資源不存在」與「沒有權限」必須回傳**完全相同**的 reason 與 message，且訊息內**不得包含資源名稱、擁有者或任何可用來推測存在性的內容**。程式碼中有明確註解：`mock-demo-repository.ts:2639`（知識庫）、`:3032`（發布）、`:2019`（對話使用）；契約註解見 `demo-repository.ts:260-263`、`:287-290`、`:427-430`、`:538-540`。設計文件依據：`docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md:246`。
 
 實作建議：後端對這幾類資源一律以 `403` + 固定文案回應，不要用 `404` 區分，也不要在 log 以外的地方回傳資源名稱。
 
@@ -136,11 +141,11 @@ type RepositoryView<T> =
 | `listAssistantTemplates()` | `assistant-draft.store.ts:98` | `GET /api/v1/assistant-templates` | `200` `AssistantTemplateView[]` | — |
 | `listConnectableSources(viewer)` | `assistant-draft.store.ts:106` | `GET /api/v1/connectable-sources` | `200` `ConnectableSourceView[]` | `403 assistant-draft`（無 `manage-assistants` 時目前回空陣列，見 2.5） |
 | `listTrialQuestions()` | `assistant-draft.store.ts:115` | `GET /api/v1/trial-questions` | `200` `TrialQuestionView[]` | — |
-| `previewTrialAnswer(viewer, request)` | `assistant-draft.store.ts:245` | `POST /api/v1/assistant-drafts/trial-answers` | `200` `TrialAnswerView` | `403 assistant-draft` |
-| `getAssistantDraft(viewer)` | `assistant-draft.store.ts:318`、`features/home/home-page.component.ts:37` | `GET /api/v1/assistant-drafts/me` | `200` `SavedAssistantDraftView \| null` | `403 assistant-draft` |
-| `saveAssistantDraft(viewer, draft)` | `assistant-draft.store.ts:305` | `PUT /api/v1/assistant-drafts/me` | `200` `SavedAssistantDraftView` | `403 assistant-draft` |
-| `discardAssistantDraft(viewer)` | 由 `createAssistantFromDraft` 成功後內部呼叫（`mock-demo-repository.ts:1070`） | `DELETE /api/v1/assistant-drafts/me` | `204` | 目前**沒有回傳值**（`demo-repository.ts:326`），後端可自行定義 |
-| `createAssistantFromDraft(viewer, draft)` | `assistant-draft.store.ts:278` | `POST /api/v1/assistants` | `201` `AssistantConfigurationView` | `422 validation-failed`（`AssistantDraftFieldError[]`）／`403 assistant-draft` |
+| `previewTrialAnswer(viewer, request)` | `assistant-draft.store.ts:250` | `POST /api/v1/assistant-drafts/trial-answers` | `200` `TrialAnswerView` | `403 assistant-draft` |
+| `getAssistantDraft(viewer)` | `assistant-draft.store.ts:323`、`features/home/home-page.component.ts:37` | `GET /api/v1/assistant-drafts/me` | `200` `SavedAssistantDraftView \| null` | `403 assistant-draft` |
+| `saveAssistantDraft(viewer, draft)` | `assistant-draft.store.ts:310` | `PUT /api/v1/assistant-drafts/me` | `200` `SavedAssistantDraftView` | `403 assistant-draft` |
+| `discardAssistantDraft(viewer)` | 由 `createAssistantFromDraft` 成功後內部呼叫（`mock-demo-repository.ts:1342`） | `DELETE /api/v1/assistant-drafts/me` | `204` | 目前**沒有回傳值**（`demo-repository.ts:417`），後端可自行定義 |
+| `createAssistantFromDraft(viewer, draft)` | `assistant-draft.store.ts:283` | `POST /api/v1/assistants` | `201` `AssistantConfigurationView` | `422 validation-failed`（`AssistantDraftFieldError[]`）／`403 assistant-draft` |
 
 viewer 一律改由 session 決定，不放在 path 或 body。
 
@@ -251,8 +256,8 @@ type TrialAnswerView =
 | `PeriodicReportSchedule` | `off` / `weekly` / `monthly` | 關閉／每週／每月 | `assistant-draft.model.ts:32` |
 | `AssistantAudience` | `account-members` / `authorized-external-customers` / `members-and-external-customers` | 內部團隊／已授權外部客戶／內部團隊與外部客戶 | `assistant.model.ts:16-19`、標籤 `components/assistant-card/assistant-card.component.ts:20-24` |
 | `AssistantStatus` | `draft` / `ready` / `published` / `paused` | 草稿／可發布／已發布／已暫停 | `assistant.model.ts:14`、標籤 `assistant-card.component.ts:6-11` |
-| `ConnectableSourceStatus` | `ready` / `processing` / `needs-attention` | 可使用／處理中／需要處理 | `assistant-draft.model.ts:77`、標籤 `steps/sources-step/sources-step.component.ts:21-25` |
-| `ConnectableSourcePermission` | `owner` / `read-only` | 我建立的・可管理／唯讀連接 | `assistant-draft.model.ts:80`、標籤 `sources-step.component.ts:33-36` |
+| `ConnectableSourceStatus` | `ready` / `processing` / `needs-attention` | 可使用／處理中／需要處理 | `assistant-draft.model.ts:77`、標籤 `features/assistants/components/source-connection-list/source-connection-list.component.ts:30-33` |
+| `ConnectableSourcePermission` | `owner` / `read-only` | 我建立的・可管理／唯讀連接 | `assistant-draft.model.ts:80`、標籤 `source-connection-list.component.ts:42-45` |
 | `TrialAnswerView['kind']` | `company-data` / `general-knowledge` / `no-answer` | 根據你的資料／一般知識補充／資料中沒有答案 | `assistant-draft.model.ts:111-127`、設計依據 `...-design.md:188-192` |
 
 ### 2.4 驗證規則
@@ -301,7 +306,7 @@ interface AssistantDraftFieldError { field: AssistantDraftField; message: string
    - 其餘一律回 `no-answer`，且**文字直接用草稿裡的 `refusalMessage`**（`:844-849`）。
 2. **助理 id 由時間戳產生**：`assistant-created-<Date.now()>`，衝突時遞增（`mock-demo-repository.ts:2192-2200`）。正式後端請改用伺服端 id，並放寬 `assistant.model.ts:10` 的字面值型別。
 3. **「加入資料來源」只建立 connection id，不複製資料**（設計 `...-design.md:100`、計畫 `...-demo.md:312`）。這是刻意的語意，後端應照做。
-4. **草稿自動儲存沒有節流或衝突處理**：store 的 `commit()`（`features/assistants/assistant-wizard/assistant-draft.store.ts:300-313`）被套用模板、更新欄位、選擇對象、切換來源、修改規則、切換步驟與首次試問等每一個動作呼叫，每次都整份覆寫（`mock-demo-repository.ts:1008-1015`），沒有 debounce、沒有樂觀鎖、沒有版本比對。多裝置同時編輯會直接互相覆蓋。正式 API 需要 debounce 與版本欄位。
+4. **草稿自動儲存沒有節流或衝突處理**：store 的 `commit()`（`features/assistants/assistant-wizard/assistant-draft.store.ts:305-318`）被套用模板、更新欄位、選擇對象、切換來源、修改規則、切換步驟與首次試問等每一個動作呼叫，每次都整份覆寫（`mock-demo-repository.ts:1261-1280`），沒有 debounce、沒有樂觀鎖、沒有版本比對。多裝置同時編輯會直接互相覆蓋。正式 API 需要 debounce 與版本欄位。
 5. 損毀的草稿一律視為「沒有草稿」而不是報錯（`normalizeStoredDraft`，`mock-demo-repository.ts:195-227`）。
 
 ---
@@ -436,10 +441,11 @@ union 定義 `knowledge-base.model.ts:19-24`，完整清單 `:87-93`，中文標
 | `listDatabaseTemplates(viewer)` | `database-list/database-list-page.component.ts:29` | `GET /api/v1/database-templates` | `200` `DatabaseTemplateView[]` | `403 database` |
 | `listDatabaseSummaries(viewer)` | `database-list-page.component.ts:24` | `GET /api/v1/databases` | `200` `DatabaseSummaryView[]` | — |
 | `createDatabaseFromTemplate(viewer, input)` | `database-list-page.component.ts:55` | `POST /api/v1/databases` | `201` `DatabaseSummaryView` | `422`（只有 `message`）／`403 database` |
-| `getDatabaseDetail(viewer, id)` | `database-detail/database-detail-page.component.ts:78` | `GET /api/v1/databases/{id}` | `200` `DatabaseDetailView` | `403 database` |
-| `updateDatabaseFields(viewer, id, fields)` | `database-detail-page.component.ts:111` | `PUT /api/v1/databases/{id}/fields` | `200` `DatabaseFieldView[]` | `422`（`DatabaseFieldError[]`）／`403 database` |
-| `previewDatabaseEntry(viewer, id, answers)` | `database-detail-page.component.ts:130` | `POST /api/v1/databases/{id}/entries:preview` | `200` `DatabaseTrialPreviewView` | `422`（`DatabaseFieldError[]`）／`403 database` |
-| `getDatabaseTracking(viewer, id)` | `database-detail-page.component.ts:86` | `GET /api/v1/databases/{id}/tracking` | `200` `DatabaseTrackingView` | `403 database-records`（非資料管理者）／`403 database` |
+| `getDatabaseDetail(viewer, id)` | `database-detail/database-detail-page.component.ts:82` | `GET /api/v1/databases/{id}` | `200` `DatabaseDetailView` | `403 database` |
+| `updateDatabaseFields(viewer, id, fields)` | `database-detail-page.component.ts:129` | `PUT /api/v1/databases/{id}/fields` | `200` `DatabaseFieldView[]` | `422`（`DatabaseFieldError[]`）／`403 database` |
+| `previewDatabaseEntry(viewer, id, answers)` | `database-detail-page.component.ts:148` | `POST /api/v1/databases/{id}/entries:preview` | `200` `DatabaseTrialPreviewView` | `422`（`DatabaseFieldError[]`）／`403 database` |
+| `getDatabaseTracking(viewer, id)` | `database-detail-page.component.ts:91` | `GET /api/v1/databases/{id}/tracking` | `200` `DatabaseTrackingView` | `403 database-records`（兩層條件未同時滿足）／`403 database` |
+| `updateDatabaseAccess(viewer, id, dataManagerAccountIds)` | `database-access/database-access.component.ts:58` | `PUT /api/v1/databases/{id}/data-managers` | `200` `DatabaseAccessView` | `422`（只有 `message`）／`403 database` |
 
 ### 4.2 請求／回應型別
 
@@ -472,15 +478,29 @@ interface DatabaseSummaryView {            // :123-134
   updatedAt: string;
 }
 
-interface DatabaseDetailView {             // :153-158
+interface DatabaseDetailView {             // :170-175
   summary: DatabaseSummaryView;
   fields: readonly DatabaseFieldView[];
   connectedAssistants: readonly { id: AssistantId; name: string; status: AssistantStatus }[];
-  access: {                                // :147-151
-    owner: { id: AccountId; displayName: string };
-    dataManagers: readonly { id: AccountId; displayName: string }[];
-    viewerIsDataManager: boolean;
-  };
+  access: DatabaseAccessView;
+}
+
+interface DatabaseAccessView {             // :156-168
+  owner: { id: AccountId; displayName: string };
+  dataManagers: readonly { id: AccountId; displayName: string }[];
+  viewerIsDataManager: boolean;            // 只代表「有沒有被指定」（資料庫層級）
+  viewerCanReadRecords: boolean;           // 指定 + 帳號權限都有，才是 true
+  viewerCanManageAccess: boolean;          // 只有擁有者為 true
+  candidates: readonly DatabaseAccessCandidateView[];
+  savedAt: string | null;                  // 最後一次變更指定的時間；從未改過為 null
+}
+
+interface DatabaseAccessCandidateView {    // :148-154
+  id: AccountId;
+  displayName: string;
+  roleLabel: string;
+  hasReadPermission: boolean;              // 帳號層級的 read-consented-submissions
+  // false 時畫面必須直說「指定了也看不到」，不能讓擁有者以為指定完就生效
 }
 
 type DatabaseTrialAnswers =                // :273-275
@@ -595,8 +615,14 @@ interface MetricComparisonView {           // :224-241
 
 - 建立資料庫與取得模板需要 `manage-data-sources` 權限（`mock-demo-repository.ts:1203-1208`、`:1225`，判斷式在 `canManageDataSources`）；不符回傳 `database` reason 與「只有可管理資料來源的帳號可以建立資料庫。」（`:2064`）。
 - 讀寫單一資料庫需要 viewer 是**擁有者**（`ownedDatabase()`）；不存在與非擁有者回傳同一個訊息（`:1630`）。
-- **收集紀錄另外一道關卡**：`getDatabaseTracking` 除了擁有者之外，還要求 viewer 在 `dataManagerAccountIds` 之內，否則回 `database-records`（`mock-demo-repository.ts:1341-1348`）。
-- **摘要會依權限遮蔽數量**：非指定資料管理者時 `recordCount` 與 `subjectCount` 必須是 `null`（型別註解 `database.model.ts:129`，實作 `mock-demo-repository.ts:2042-2043`）。後端不可以回傳 0 代替 null——0 也是資訊。
+- **收集紀錄的兩層關卡，只有一個判斷點。** `canReadConsentedRecords()`（`apps/admin/src/app/core/repositories/database-access.ts:22-30`）要求**同時**成立：
+  1. **帳號層級**：viewer 具備 `read-consented-submissions`（在 `/app/settings` 的團隊設定變更，見第 1.4 節）。
+  2. **資料庫層級**：viewer 在這個資料庫的 `dataManagerAccountIds` 之內（在資料庫「權限」頁籤變更）。
+
+  Repository 端只經由 `canReadRecords()` 呼叫它（`mock-demo-repository.ts:2464-2469`），涵蓋 `getDatabaseTracking`（`:1634`）、摘要的數量遮蔽（`:2517`）、詳情的 `viewerCanReadRecords`（`:2486`）與 `listManagedSubmissions`（`:889`）。**後端請保留這個單一判斷點**，不要在各個 endpoint 各寫一次。
+- **擁有者不會自動通過。** 擁有一個資料庫可以管理它的表單設定與指定資料管理者，但要讀它收到的內容，擁有者必須把自己列進 `dataManagerAccountIds`。這是 `...-design.md` §10「僅能查看使用者明確同意提交的資料」的落點：擁有容器不等於有權讀內容。
+- **指定的變更只收回查看權限，絕不刪除紀錄。** `updateDatabaseAccess()`（`mock-demo-repository.ts:1581`）只寫 `sme-demo:database-access:<databaseId>`，不碰任何紀錄；重新指定後時間軸與趨勢原封不動回來。正式版若把「移除資料管理者」實作成刪除或匿名化資料，就與畫面上的承諾不符。
+- **摘要會依權限遮蔽數量**：不符合上述兩層條件時 `recordCount` 與 `subjectCount` 必須是 `null`（型別註解 `database.model.ts:130`，實作 `mock-demo-repository.ts:2517-2519`）。後端不可以回傳 0 代替 null——0 也是資訊。
 - 追蹤資料**只包含 `consentStatus === 'consented'` 的紀錄**（`consentedRecords()`，`mock-demo-repository.ts:2023-2028`）。設計依據 `...-design.md:209`、`:211-221`。
 - 由模板建立資料庫時，建立者自動成為唯一的資料管理者（`mock-demo-repository.ts:1250`）。
 
@@ -1010,11 +1036,12 @@ interface AssistantPublishingView {        // :197-203
 
 ### 6.5 權限規則
 
-- **所有發布方法都要求 viewer 是助理擁有者**（`ownedAssistant()`，`mock-demo-repository.ts:2312-2319`，註解在 `:2311`）。不存在與非擁有者回同一個訊息（`:2322`）。
+- **所有發布方法都要求「擁有者 ＋ `manage-publishing`」**，判斷點只有一個：`canManagePublishing()`（`apps/admin/src/app/core/repositories/publishing-channels.ts:121-129`），由 `publishingTarget()` 套用（`mock-demo-repository.ts:3034-3041`）。不存在、非擁有者、沒有權限三種情況回**同一個**訊息（`publishingPermissionDenied()`，`:3050-3052`），不讓人從差異推測助理是否存在。
+- **擁有權不會自動帶出發布權。** 這是刻意的：「誰負責對外發布」在中小企業裡常常不是助理的建立者。正式版若決定擁有者自動具備全部權限，改這一個函式即可。
+- **收回 `manage-publishing` 不會影響已經在用的人。** 「誰開得了助理」仍由 `canOpenInPlatform()` 決定（`publishing-channels.ts:99-108`），已儲存的管道設定原封不動留著，權限加回來就照舊。
 - `setPublishingChannelPaused` 額外檢查 `channelType` 必須是三種之一，不是就同樣回 permission-denied（`mock-demo-repository.ts:896-898`）。
 - 暫停／恢復只影響指定的那一個管道，其他管道的設定與狀態不變（`:771-777`；契約註解 `demo-repository.ts:296`）。
-- 總覽只列出 viewer 自己擁有的助理（`channelOverview()`，`mock-demo-repository.ts:2325-2336`）。
-- 帳號的 `manage-publishing` 權限雖然定義在 `account.model.ts:26`，但目前的發布方法**只檢查擁有者身分、沒有檢查這個權限**。正式版需要決定兩者關係（列入 Open questions）。
+- 總覽（`/app/channels`）只列出 viewer **設定得了**的助理，用的是同一個判斷點（`channelOverview()`，`mock-demo-repository.ts:3055-3057`）；沒有權限時回空陣列而不是 permission-denied，畫面顯示空白狀態。
 
 ### 6.6 這一區哪些是假的
 
@@ -1051,7 +1078,7 @@ interface AssistantPublishingView {        // :197-203
 
 1. **`listAccounts` 不做任何過濾**（`mock-demo-repository.ts:520-522`）——任何帳號都能列出全部帳號。正式版的「可分享對象」清單必須另外設計授權，帳號目錄本身就是敏感資料。
 2. **`submitAuthorizedForm` 把「沒有勾選同意」當成 permission-denied 而不是 validation-failed**（條件 `mock-demo-repository.ts:651-656`，回應 `:657-660`），與 `submitChatForm` 的處理方式（validation-failed，`:1576-1582`）不一致。而且它**不會保存任何東西**：回傳的 id 與 `submittedAt` 直接沿用 seed 的那一筆（`:672`、`:687`）。正式版要挑一種一致的作法。
-3. **`discardAssistantDraft` 是唯一沒有權限檢查、也沒有回傳信封的方法**（`mock-demo-repository.ts:1020-1022`）。因為 key 含 accountId，目前只會刪到自己的草稿；正式版必須加上授權檢查。
+3. **`discardAssistantDraft` 是唯一沒有權限檢查、也沒有回傳信封的方法**（`mock-demo-repository.ts:1282-1284`）。因為 key 含 accountId，目前只會刪到自己的草稿；正式版必須加上授權檢查。
 
 ---
 
@@ -1066,8 +1093,8 @@ interface AssistantPublishingView {        // :197-203
 | 5 | 真正的 LLM 與引用來源 | 關鍵字比對 fixture（`mock-demo-repository.ts:1886-1907`）；引用是寫死的文件名與摘錄（`demo-seed-chat.ts`） | 模型選擇與供應商、檢索策略與切塊、引用來源如何定位到文件位置、串流回應的協定、逾時與重試、成本與速率限制、`no-result` 的判定門檻、`general-knowledge` 與 `company-data` 如何在同一次回答中分區。 |
 | 6 | 同意紀錄的稽核與撤回 | 撤回**已經實作**：`withdrawChatSubmission()`（`demo-repository.ts:537-542`、`mock-demo-repository.ts:1791-1841`）由提交者本人觸發，清空 `values`、寫入 `withdrawnAt`，紀錄即刻離開收集紀錄與趨勢（`consentedRecords()`，`:2319-2324`），只留下不含內容的軌跡（`withdrawnRecords()`，`:2327-2333`）。剩下的缺口是**稽核深度**：軌跡沒有操作者、時間戳以外的任何脈絡，也沒有同意條款版本 | 撤回後既有紀錄的最終處置（Demo 選的是「清內容留軌跡」，正式版要確認是否符合法遵與保存義務）、備份與衍生資料（匯出檔、報表、模型訓練集）如何連動、同意的稽核軌跡（誰在什麼時候看到什麼版本的同意條款）、同意條款版本管理、匿名提交者的撤回憑證（見 5.7 節④）、資料管理者是否需要「代為刪除」這條另外的路徑（Demo **刻意不提供**）。 |
 | 7 | 資料保存期限 | 沒有任何 TTL 或清除機制；localStorage 永久保留。使用者可以刪掉單一段對話（`deleteChatThread`），但那是**硬刪除**，沒有軟刪除或垃圾桶（`mock-demo-repository.ts:1445-1466`） | 對話、結構化紀錄、草稿、稽核紀錄各自的保存期限與刪除方式；刪除一段對話是否連帶刪掉它產生的結構化紀錄（目前**不會**，紀錄留在 `sme-demo:chat-records`）；帳號刪除時的連動清除。 |
-| 8 | 多租戶邊界 | 只有三個固定帳號，沒有組織／團隊層級；`shareTargets` 是「除了自己以外的所有帳號」（`mock-demo-repository.ts:1104-1106`） | 租戶（公司）、團隊、使用者的三層關係；跨租戶分享是否允許；帳號目錄本身的可見性（列出所有帳號本身就是資訊洩漏）。 |
-| 9 | 權限模型的落地 | `AccountPermission` 有七個值（`account.model.ts:23-30`），但發布相關方法只檢查擁有者、沒有檢查 `manage-publishing`（`mock-demo-repository.ts:2606-2614`）；使用權限則是 `audience`（角色）＋平台內分享清單（帳號）的組合，沒有真正的授權關係實體（`canOpenInPlatform()`，`publishing-channels.ts:99-108`） | 權限與擁有權的關係（擁有者是否自動具備全部權限）、是否引入角色或 ACL、`use-shared-assistants` 等權限的實際執行點、外部客戶的授權關係如何建立、平台內分享清單要不要升級成真正的 ACL（含授權人與時間）。 |
+| 8 | 多租戶邊界 | 只有三個固定帳號，沒有組織／團隊層級；`shareTargets` 是「除了自己以外的所有帳號」。`/app/settings` 的「團隊與權限」可以改權限，但**改不了成員**：沒有邀請、沒有離職，清單就是 seed 的三個帳號 | 租戶（公司）、團隊、使用者的三層關係；跨租戶分享是否允許；帳號目錄本身的可見性（列出所有帳號本身就是資訊洩漏——Demo 用 `team` permission-denied 對非管理者連名字都不顯示，正式版需要同等或更嚴的規則）；成員的新增、停用與移除，以及成員被移除時他既有的對話與紀錄如何處置。 |
+| 9 | 權限模型的落地 | `AccountPermission` 的七個值（`account.model.ts:23-30`）中，**五個已經有單一判斷點**：`manage-assistants`（`canManageAssistants()`，`mock-demo-repository.ts:2891`）、`manage-data-sources`（`canManageDataSources()`，`:2540`）、`manage-publishing`（`canManagePublishing()`，`publishing-channels.ts:121-129`，規則為擁有者＋權限）、`read-consented-submissions`（`canReadConsentedRecords()`，`database-access.ts:22-30`，規則為帳號權限＋資料庫指定）、`submit-authorized-forms`（`mock-demo-repository.ts:914`）。權限本身可在 `/app/settings` 變更並存進 `sme-demo:team-permissions`（`:676`），但**成員清單是固定的三個 seed 帳號**，沒有邀請、離職或組織層級。**剩下兩個刻意不接行為**：`use-shared-assistants` 會和 §11 平台內發布的「使用對象＋勾選清單」重複成第二條授權路徑，而 `canOpenInPlatform()`（`publishing-channels.ts:99-108`）是刻意收斂出來的唯一判斷點，再開一條就等於有兩個真相來源；`read-own-tracking` 若真的檢查，等於允許管理者關掉別人「看自己資料」的能力，與 §10「一般使用者可查看自己的」相反，所以自己的紀錄一律只依提交者本人判斷。兩者在團隊設定畫面標示為「尚未接到行為」並寫出原因（`ACCOUNT_PERMISSIONS`，`domain/team.model.ts:40-94`），沒有假裝成可用的開關 | **這兩個刻意留白的權限正式版要不要變成真的授權關係**——若要，`use-shared-assistants` 必須取代（而不是疊加在）平台內勾選清單，`read-own-tracking` 必須先定義「誰有權關掉一個人看自己的資料」以及那是否合法。其餘待決：擁有者是否自動具備全部權限（目前**不是**，`manage-publishing` 與 `read-consented-submissions` 都要另外具備）、是否引入角色或 ACL、成員的新增與移除（Demo 完全沒有）、外部客戶的授權關係如何建立、平台內分享清單與資料管理者清單要不要升級成真正的 ACL（含授權人與時間；目前兩者都只存 accountId 陣列）。 |
 | 10 | 敏感憑證的處理 | LINE 的 `channelSecret` / `accessToken` 明文存 localStorage 並**原文回傳給前端**（`publishing-channels.ts:297-301`、`mock-demo-repository.ts:2349`） | 憑證加密保存、回傳時是否遮蔽（建議只回末四碼與是否已設定）、輪替流程、稽核。這會改動 `LineSetupView` 的契約。 |
 | 11 | 真正的官網嵌入與 LINE 串接 | 嵌入碼與 webhook 都指向 `.invalid` 保留網域（`publishing-channels.ts:117-127`、`:303`）；安裝檢查與測試訊息都是本地模擬（`mock-demo-repository.ts:804-826`、`publishing-channels.ts:203-213`） | 真實 widget 的託管與版本管理、CORS 與允許網域的執行點、安裝偵測的技術手段、LINE Messaging API 的 webhook 驗簽與重送、未登入訪客的 session 隔離（設計 `...-design.md:194-199` 已有要求）。 |
 | 12 | 趨勢計算的歸屬 | 全部在 repository 層預先算好（`database-tracking.ts:63-128`），前端只顯示字串 | 後端是否照樣預算（建議照做，前端已依此設計）；大量紀錄時的分頁與聚合策略；`en-US` 數字格式與「分」「持平」等文案該放在哪一層（`database-tracking.ts:22`、`:30`、`:93`）。 |
@@ -1115,7 +1142,7 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>('DEMO_REPOSITO
 | --- | --- | --- |
 | 同步 vs 非同步 | 目前所有方法都是**同步**回傳（例 `demo-repository.ts:209`），HTTP 必然非同步 | 把回傳型別改為 `Observable<RepositoryView<T>>` 或 `Signal`，並在各元件把直接取值改成訂閱。這是替換工作量的主體。呼叫點共 41 處，清單見 9.3。 |
 | `loading` 狀態 | 目前只由情境切換器產生 | 改由請求生命週期產生；`RepositoryView` 的 union 本身不需要改。 |
-| `discardAssistantDraft` 無回傳值 | `demo-repository.ts:326` 宣告為 `void` | 改為回傳 `RepositoryView<void>` 或保持 fire-and-forget，需與前端確認。 |
+| `discardAssistantDraft` 無回傳值 | `demo-repository.ts:417` 宣告為 `void` | 改為回傳 `RepositoryView<void>` 或保持 fire-and-forget，需與前端確認。 |
 | `DemoScenarioController` | `demo-repository.ts:206-210`，三個情境切換方法 | HTTP adapter 可實作為 no-op，或在正式環境把情境切換 UI 整個移除。 |
 | `DemoKeyValueStorage` | `demo-repository.ts:201-204`，只在 mock 使用 | HTTP adapter 不需要；但草稿若要保留離線編輯，仍可沿用同樣的 key 格式。 |
 
@@ -1128,11 +1155,11 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>('DEMO_REPOSITO
 | 精靈 | `listAssistantTemplates` | `features/assistants/assistant-wizard/assistant-draft.store.ts:98` |
 | 精靈 | `listConnectableSources` | `assistant-draft.store.ts:106` |
 | 精靈 | `listTrialQuestions` | `assistant-draft.store.ts:115` |
-| 精靈 | `previewTrialAnswer` | `assistant-draft.store.ts:245` |
-| 精靈 | `createAssistantFromDraft` | `assistant-draft.store.ts:278` |
-| 精靈 | `saveAssistantDraft` | `assistant-draft.store.ts:305` |
-| 精靈 | `getAssistantDraft` | `assistant-draft.store.ts:318`、`features/home/home-page.component.ts:37` |
-| 精靈 | `discardAssistantDraft` | 目前僅由 mock 內部呼叫（`mock-demo-repository.ts:1070`） |
+| 精靈 | `previewTrialAnswer` | `assistant-draft.store.ts:250` |
+| 精靈 | `createAssistantFromDraft` | `assistant-draft.store.ts:283` |
+| 精靈 | `saveAssistantDraft` | `assistant-draft.store.ts:310` |
+| 精靈 | `getAssistantDraft` | `assistant-draft.store.ts:323`、`features/home/home-page.component.ts:37` |
+| 精靈 | `discardAssistantDraft` | 目前僅由 mock 內部呼叫（`mock-demo-repository.ts:1342`） |
 | 知識庫 | `listKnowledgeBaseSummaries` | `features/knowledge/knowledge-list/knowledge-list-page.component.ts:28` |
 | 知識庫 | `getKnowledgeBaseDetail` | `features/knowledge/knowledge-detail/knowledge-detail-page.component.ts:84` |
 | 知識庫 | `addDemoKnowledgeDocument` | `knowledge-detail-page.component.ts:117` |

@@ -1,4 +1,10 @@
-import { isVisitorId, type AccountId, type ChatViewerId } from '../domain/account.model';
+import {
+  isVisitorId,
+  type AccountId,
+  type AccountPermission,
+  type AccountView,
+  type ChatViewerId,
+} from '../domain/account.model';
 import {
   ASSISTANT_WIZARD_STEPS,
   createEmptyAssistantDraft,
@@ -42,6 +48,7 @@ import type {
 } from '../domain/conversation.model';
 import type {
   CreatedDatabaseId,
+  DatabaseAccessView,
   DatabaseDetailView,
   DatabaseFieldView,
   DatabaseId,
@@ -76,6 +83,23 @@ import {
   type WebsiteEmbedSettings,
 } from '../domain/publishing.model';
 import {
+  ACCOUNT_PERMISSIONS,
+  ACCOUNT_ROLE_DESCRIPTIONS,
+  ACCOUNT_ROLE_LABELS,
+  isAccountPermission,
+  lockedPermissionsFor,
+  normalizeMemberPermissions,
+  validateMemberPermissions,
+  type TeamMemberView,
+  type TeamView,
+} from '../domain/team.model';
+import {
+  canReadConsentedRecords,
+  databaseAccessCandidates,
+  normalizeDataManagers,
+  DATABASE_RECORDS_DENIED_MESSAGE,
+} from './database-access';
+import {
   buildPeriodicReport,
   compareRecords,
   evaluateTrial,
@@ -92,7 +116,6 @@ import {
   CHAT_GENERAL_KNOWLEDGE_NOTICE,
   CHAT_HISTORY_OFF_NOTICE,
   CHAT_HISTORY_SAVED_NOTICE,
-  CHAT_NO_RESULT_TEXT,
   CHAT_PRIVACY_NOTICE,
   CHAT_SENSITIVE_NOTICE,
   CHAT_THREAD_TITLE_MAX_LENGTH,
@@ -114,6 +137,7 @@ import { createMemoryStorage } from './memory-storage';
 import type { PublishingRecord } from './demo-seed-publishing';
 import {
   canActivateLine,
+  canManagePublishing,
   canOpenInPlatform,
   defaultPublishingRecord,
   isExternallyPublished,
@@ -141,7 +165,9 @@ import type {
   SubmitChatFormResult,
   UpdateDatabaseFieldsResult,
   UpdateAssistantSettingsResult,
+  UpdateDatabaseAccessResult,
   UpdateKnowledgeSharingResult,
+  UpdateMemberPermissionsResult,
   UpdatePlatformSharingResult,
   UpdateWebsiteEmbedResult,
   WithdrawChatSubmissionResult,
@@ -303,6 +329,50 @@ function normalizeStoredAssistantSettings(value: unknown): StoredAssistantSettin
       typeof value['roleInstructions'] === 'string' ? value['roleInstructions'] : '',
     rules: { ...empty.rules, ...value['rules'] } as AssistantAnswerRules,
   };
+}
+
+/** 團隊權限：整個 Demo 只有一份，key 不分帳號。 */
+const TEAM_PERMISSIONS_KEY = 'sme-demo:team-permissions';
+
+interface StoredTeamPermissions {
+  readonly version: 1;
+  readonly savedAt: string;
+  readonly members: Readonly<Partial<Record<AccountId, readonly AccountPermission[]>>>;
+}
+
+function normalizeStoredTeamPermissions(value: unknown): StoredTeamPermissions | null {
+  if (!isRecord(value) || value['version'] !== 1) return null;
+  if (typeof value['savedAt'] !== 'string' || !isRecord(value['members'])) return null;
+
+  const members: Partial<Record<AccountId, readonly AccountPermission[]>> = {};
+  for (const [accountId, permissions] of Object.entries(value['members'])) {
+    if (!Array.isArray(permissions)) continue;
+    // 不認得的權限值直接丟掉，而不是整份作廢：舊資料仍然開得起來。
+    members[accountId as AccountId] = normalizeMemberPermissions(
+      permissions.filter(isAccountPermission),
+    );
+  }
+
+  return { version: 1, savedAt: value['savedAt'], members };
+}
+
+/** 單一資料庫的資料管理者指定；與表單欄位分開存，兩者互不影響。 */
+const DATABASE_ACCESS_KEY_PREFIX = 'sme-demo:database-access:';
+
+interface StoredDatabaseAccess {
+  readonly version: 1;
+  readonly savedAt: string;
+  readonly dataManagerAccountIds: readonly AccountId[];
+}
+
+function isStoredDatabaseAccess(value: unknown): value is StoredDatabaseAccess {
+  return (
+    isRecord(value) &&
+    value['version'] === 1 &&
+    typeof value['savedAt'] === 'string' &&
+    Array.isArray(value['dataManagerAccountIds']) &&
+    value['dataManagerAccountIds'].every((id) => typeof id === 'string')
+  );
 }
 
 const KNOWLEDGE_KEY_PREFIX = 'sme-demo:knowledge:';
@@ -595,7 +665,42 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   listAccounts(): ReturnType<DemoRepository['listAccounts']> {
-    return this.applyScenario(this.seed.accounts);
+    return this.applyScenario(this.accounts());
+  }
+
+  getTeam(viewerAccountId: AccountId): ReturnType<DemoRepository['getTeam']> {
+    if (!this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
+    return this.applyScenario(this.teamView(viewerAccountId));
+  }
+
+  updateMemberPermissions(
+    viewerAccountId: AccountId,
+    memberAccountId: AccountId,
+    permissions: readonly AccountPermission[],
+  ): UpdateMemberPermissionsResult {
+    if (!this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
+
+    const member = this.accounts().find((account) => account.id === memberAccountId);
+    // 不存在的成員與沒有權限共用同一句話，避免從差異推測有哪些帳號。
+    if (member === undefined) return this.teamPermissionDenied();
+
+    const problem = validateMemberPermissions(member, viewerAccountId, permissions);
+    if (problem !== null) {
+      return immutableCopy({ status: 'validation-failed', message: problem });
+    }
+
+    const stored = this.storedTeamPermissions();
+    const record: StoredTeamPermissions = {
+      version: 1,
+      savedAt: this.now().toISOString(),
+      members: {
+        ...(stored?.members ?? {}),
+        [memberAccountId]: normalizeMemberPermissions(permissions),
+      },
+    };
+    this.storage.setItem(TEAM_PERMISSIONS_KEY, JSON.stringify(record));
+
+    return this.applyScenario(this.teamView(viewerAccountId));
   }
 
   listAssistantConfigurations(
@@ -776,10 +881,12 @@ export class MockDemoRepository implements DemoRepository {
   listManagedSubmissions(
     viewerAccountId: AccountId,
   ): ReturnType<DemoRepository['listManagedSubmissions']> {
+    const viewer = this.accounts().find((account) => account.id === viewerAccountId);
     const submissions = this.seed.structuredSubmissions.filter(
       (submission) =>
-        submission.dataManagerAccountId === viewerAccountId &&
-        submission.consentStatus === 'consented',
+        submission.consentStatus === 'consented' &&
+        // 與收集紀錄同一個判斷點：帳號層級權限＋被指定為這筆資料的管理者。
+        canReadConsentedRecords(viewer, [submission.dataManagerAccountId]),
     );
 
     return this.applyScenario(submissions);
@@ -804,7 +911,7 @@ export class MockDemoRepository implements DemoRepository {
     );
 
     if (
-      viewerAccountId !== 'account-external-customer' ||
+      !this.hasPermission(viewerAccountId, 'submit-authorized-forms') ||
       input.consent !== true ||
       assistant === undefined ||
       !this.canUseAssistant(assistant, viewerAccountId)
@@ -896,7 +1003,7 @@ export class MockDemoRepository implements DemoRepository {
     viewerAccountId: AccountId,
     assistantId: string,
   ): ReturnType<DemoRepository['getAssistantPublishing']> {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
     return this.applyScenario(this.toPublishingView(assistant));
@@ -907,10 +1014,10 @@ export class MockDemoRepository implements DemoRepository {
     assistantId: string,
     accountIds: readonly AccountId[],
   ): UpdatePlatformSharingResult {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
-    const allowed = normalizePlatformAccounts(assistant, this.seed.accounts, accountIds);
+    const allowed = normalizePlatformAccounts(assistant, this.accounts(), accountIds);
     if (allowed === null) {
       return immutableCopy({
         status: 'validation-failed',
@@ -932,7 +1039,7 @@ export class MockDemoRepository implements DemoRepository {
     assistantId: string,
     settings: WebsiteEmbedSettings,
   ): UpdateWebsiteEmbedResult {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
     const { errors, normalized } = validateWebsiteSettings(settings);
@@ -960,7 +1067,7 @@ export class MockDemoRepository implements DemoRepository {
     viewerAccountId: AccountId,
     assistantId: string,
   ): ReturnType<DemoRepository['checkWebsiteInstallation']> {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
     const record = this.publishingRecord(assistant);
@@ -985,7 +1092,7 @@ export class MockDemoRepository implements DemoRepository {
     assistantId: string,
     input: LineSettingsInput,
   ): ReturnType<DemoRepository['saveLineSettings']> {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
     const record = this.publishingRecord(assistant);
@@ -1008,7 +1115,7 @@ export class MockDemoRepository implements DemoRepository {
     viewerAccountId: AccountId,
     assistantId: string,
   ): ReturnType<DemoRepository['sendLineTestMessage']> {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
     const record = this.publishingRecord(assistant);
@@ -1022,7 +1129,7 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   activateLineChannel(viewerAccountId: AccountId, assistantId: string): ActivateLineChannelResult {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
     const record = this.publishingRecord(assistant);
@@ -1047,7 +1154,7 @@ export class MockDemoRepository implements DemoRepository {
     channelType: PublishingChannelType,
     paused: boolean,
   ): ReturnType<DemoRepository['setPublishingChannelPaused']> {
-    const assistant = this.ownedAssistant(viewerAccountId, assistantId);
+    const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined || !PUBLISHING_CHANNEL_TYPES.includes(channelType)) {
       return this.publishingPermissionDenied();
     }
@@ -1266,7 +1373,7 @@ export class MockDemoRepository implements DemoRepository {
         )
         .map(({ id, name, status }) => ({ id, name, status })),
       sharing: record.sharing,
-      shareTargets: this.seed.accounts
+      shareTargets: this.accounts()
         .filter((account) => account.id !== viewerAccountId)
         .map(({ id, displayName }) => ({ id, displayName })),
     };
@@ -1337,7 +1444,7 @@ export class MockDemoRepository implements DemoRepository {
     if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
 
     const validTargets = new Set<string>(
-      this.seed.accounts
+      this.accounts()
         .filter((account) => account.id !== viewerAccountId)
         .map((account) => account.id),
     );
@@ -1431,10 +1538,6 @@ export class MockDemoRepository implements DemoRepository {
     if (database === undefined) return this.databasePermissionDenied();
 
     const collection = this.databaseCollection(database.id);
-    const displayName = (id: AccountId) => ({
-      id,
-      displayName: this.seed.accounts.find((account) => account.id === id)?.displayName ?? '已停用的帳號',
-    });
     const detail: DatabaseDetailView = {
       summary: this.toDatabaseSummary(database, viewerAccountId),
       fields: collection.fields,
@@ -1445,11 +1548,7 @@ export class MockDemoRepository implements DemoRepository {
             assistant.databaseIds.includes(database.id),
         )
         .map(({ id, name, status }) => ({ id, name, status })),
-      access: {
-        owner: displayName(database.ownerAccountId),
-        dataManagers: collection.dataManagerAccountIds.map(displayName),
-        viewerIsDataManager: collection.dataManagerAccountIds.includes(viewerAccountId),
-      },
+      access: this.databaseAccessView(database, viewerAccountId),
     };
 
     return this.applyScenario(detail);
@@ -1479,6 +1578,33 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(normalized);
   }
 
+  updateDatabaseAccess(
+    viewerAccountId: AccountId,
+    databaseId: DatabaseId,
+    dataManagerAccountIds: readonly AccountId[],
+  ): UpdateDatabaseAccessResult {
+    // 只有擁有者可以指定；不存在與無權限回傳同一句話。
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+
+    const normalized = normalizeDataManagers(this.accounts(), dataManagerAccountIds);
+    if (normalized === null) {
+      return immutableCopy({
+        status: 'validation-failed',
+        message: '有不認得的帳號，這次指定沒有儲存。',
+      });
+    }
+
+    const record: StoredDatabaseAccess = {
+      version: 1,
+      savedAt: this.now().toISOString(),
+      dataManagerAccountIds: normalized,
+    };
+    this.storage.setItem(DATABASE_ACCESS_KEY_PREFIX + database.id, JSON.stringify(record));
+
+    return this.applyScenario(this.databaseAccessView(database, viewerAccountId));
+  }
+
   previewDatabaseEntry(
     viewerAccountId: AccountId,
     databaseId: DatabaseId,
@@ -1505,11 +1631,8 @@ export class MockDemoRepository implements DemoRepository {
   ): ReturnType<DemoRepository['getDatabaseTracking']> {
     const database = this.ownedDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
-    if (!this.databaseCollection(database.id).dataManagerAccountIds.includes(viewerAccountId)) {
-      return this.permissionDenied(
-        'database-records',
-        '只有指定的資料管理者可以查看收集紀錄。',
-      );
+    if (!this.canReadRecords(viewerAccountId, database.id)) {
+      return this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);
     }
 
     const records = this.consentedRecords(database.id);
@@ -2034,7 +2157,7 @@ export class MockDemoRepository implements DemoRepository {
    * 未登入訪客的對話只存在他自己的分頁，擁有者的瀏覽器讀不到，所以不會被計入。
    */
   private countChatConversations(assistantId: AssistantId): number {
-    return this.seed.accounts.reduce(
+    return this.accounts().reduce(
       (total, account) =>
         total +
         this.storedThreads(account.id, assistantId).filter(
@@ -2055,7 +2178,7 @@ export class MockDemoRepository implements DemoRepository {
     this.chatRecords().forEach((record) => {
       const key = `${record.databaseId}|${record.subjectId}`;
       if (seen.has(key)) return;
-      const account = this.seed.accounts.find((candidate) => `subject-${candidate.id}` === record.subjectId);
+      const account = this.accounts().find((candidate) => `subject-${candidate.id}` === record.subjectId);
       seen.set(key, {
         id: record.subjectId as TrackedSubjectId,
         databaseId: record.databaseId,
@@ -2195,7 +2318,8 @@ export class MockDemoRepository implements DemoRepository {
     );
     return {
       kind: 'no-result',
-      text: CHAT_NO_RESULT_TEXT,
+      // 規則裡的「找不到資料時怎麼回覆」就是這一句；種子助理的預設值即 CHAT_NO_RESULT_TEXT。
+      text: this.assistantRules(assistant).refusalMessage,
       nextSteps: [
         '換個說法再問一次，或點選建議問題。',
         ...(formAvailable ? ['需要專人協助時，輸入「回報訂單問題」留下資料，客服會回覆你。'] : []),
@@ -2259,7 +2383,7 @@ export class MockDemoRepository implements DemoRepository {
 
     const collection = this.databaseCollection(database.id);
     const nameOf = (id: AccountId) =>
-      this.seed.accounts.find((account) => account.id === id)?.displayName ?? '已停用的帳號';
+      this.accounts().find((account) => account.id === id)?.displayName ?? '已停用的帳號';
 
     return {
       id: database.id,
@@ -2322,8 +2446,48 @@ export class MockDemoRepository implements DemoRepository {
         dataManagerAccountIds: [],
         fields: [],
       };
-    const stored = this.storedDatabaseFields(databaseId);
-    return stored === null ? base : { ...base, fields: stored.fields };
+    const fields = this.storedDatabaseFields(databaseId)?.fields ?? base.fields;
+    const access = this.storedDatabaseAccess(databaseId);
+    return {
+      ...base,
+      fields,
+      dataManagerAccountIds: access?.dataManagerAccountIds ?? base.dataManagerAccountIds,
+    };
+  }
+
+  private storedDatabaseAccess(databaseId: DatabaseId): StoredDatabaseAccess | null {
+    const stored = parseJson(this.storage.getItem(DATABASE_ACCESS_KEY_PREFIX + databaseId));
+    return isStoredDatabaseAccess(stored) ? stored : null;
+  }
+
+  /** 收集紀錄的唯一判斷點：帳號層級權限 ＋ 這個資料庫的資料管理者指定。 */
+  private canReadRecords(viewerAccountId: AccountId, databaseId: DatabaseId): boolean {
+    return canReadConsentedRecords(
+      this.accounts().find((account) => account.id === viewerAccountId),
+      this.databaseCollection(databaseId).dataManagerAccountIds,
+    );
+  }
+
+  private databaseAccessView(
+    database: DatabaseView,
+    viewerAccountId: AccountId,
+  ): DatabaseAccessView {
+    const accounts = this.accounts();
+    const displayName = (id: AccountId) => ({
+      id,
+      displayName: accounts.find((account) => account.id === id)?.displayName ?? '已停用的帳號',
+    });
+    const managers = this.databaseCollection(database.id).dataManagerAccountIds;
+
+    return {
+      owner: displayName(database.ownerAccountId),
+      dataManagers: managers.map(displayName),
+      viewerIsDataManager: managers.includes(viewerAccountId),
+      viewerCanReadRecords: this.canReadRecords(viewerAccountId, database.id),
+      viewerCanManageAccess: database.ownerAccountId === viewerAccountId,
+      candidates: databaseAccessCandidates(accounts),
+      savedAt: this.storedDatabaseAccess(database.id)?.savedAt ?? null,
+    };
   }
 
   private storedDatabaseFields(databaseId: DatabaseId): StoredDatabaseFields | null {
@@ -2349,7 +2513,8 @@ export class MockDemoRepository implements DemoRepository {
 
   private toDatabaseSummary(database: DatabaseView, viewerAccountId: AccountId): DatabaseSummaryView {
     const collection = this.databaseCollection(database.id);
-    const isDataManager = collection.dataManagerAccountIds.includes(viewerAccountId);
+    // 看不看得到數量，跟看不看得到紀錄用同一個判斷點。
+    const isDataManager = this.canReadRecords(viewerAccountId, database.id);
     const records = this.consentedRecords(database.id);
     const savedAt = this.storedDatabaseFields(database.id)?.savedAt ?? '';
 
@@ -2373,11 +2538,7 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private canManageDataSources(viewerAccountId: AccountId): boolean {
-    return this.seed.accounts.some(
-      (account) =>
-        account.id === viewerAccountId &&
-        account.permissions.includes('manage-data-sources'),
-    );
+    return this.hasPermission(viewerAccountId, 'manage-data-sources');
   }
 
   private createDatabasePermissionDenied(): PermissionDeniedRepositoryView {
@@ -2728,10 +2889,61 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private canManageAssistants(viewerAccountId: AccountId): boolean {
-    return this.seed.accounts.some(
+    return this.hasPermission(viewerAccountId, 'manage-assistants');
+  }
+
+  private hasPermission(
+    viewerAccountId: AccountId,
+    permission: AccountPermission,
+  ): boolean {
+    return this.accounts().some(
       (account) =>
-        account.id === viewerAccountId &&
-        account.permissions.includes('manage-assistants'),
+        account.id === viewerAccountId && account.permissions.includes(permission),
+    );
+  }
+
+  /**
+   * 目前生效的帳號清單：seed 的三個 Demo 身分，疊上團隊設定改過的權限。
+   * **所有權限判斷都必須經過這裡**，否則改了團隊設定畫面不會跟著變。
+   */
+  private accounts(): readonly AccountView[] {
+    const stored = this.storedTeamPermissions();
+    if (stored === null) return this.seed.accounts;
+
+    return this.seed.accounts.map((account) => {
+      const permissions = stored.members[account.id];
+      return permissions === undefined ? account : { ...account, permissions };
+    });
+  }
+
+  private storedTeamPermissions(): StoredTeamPermissions | null {
+    return normalizeStoredTeamPermissions(parseJson(this.storage.getItem(TEAM_PERMISSIONS_KEY)));
+  }
+
+  private teamView(viewerAccountId: AccountId): TeamView {
+    return {
+      members: this.accounts().map(
+        (account): TeamMemberView => ({
+          id: account.id,
+          displayName: account.displayName,
+          role: account.role,
+          roleLabel: ACCOUNT_ROLE_LABELS[account.role],
+          roleDescription: ACCOUNT_ROLE_DESCRIPTIONS[account.role],
+          permissions: account.permissions,
+          isViewer: account.id === viewerAccountId,
+          lockedPermissions: lockedPermissionsFor(account, viewerAccountId),
+        }),
+      ),
+      permissions: ACCOUNT_PERMISSIONS,
+      savedAt: this.storedTeamPermissions()?.savedAt ?? null,
+    };
+  }
+
+  /** 不存在的成員與無權限共用同一句話，也不含任何成員名稱。 */
+  private teamPermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied(
+      'team',
+      '只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。',
     );
   }
 
@@ -2799,7 +3011,7 @@ export class MockDemoRepository implements DemoRepository {
   ): boolean {
     if (assistant.ownerAccountId === viewerAccountId) return true;
 
-    const viewer = this.seed.accounts.find((account) => account.id === viewerAccountId);
+    const viewer = this.accounts().find((account) => account.id === viewerAccountId);
     if (viewer === undefined) return false;
 
     return canOpenInPlatform(assistant, this.publishingRecord(assistant), viewer);
@@ -2815,13 +3027,34 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  /**
+   * 發布設定的唯一入口：擁有者 ＋ `manage-publishing`（`canManagePublishing()`）。
+   * 不存在、不是擁有者、沒有權限三種情況都回傳 undefined，呼叫端回覆同一句話。
+   */
+  private publishingTarget(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): AssistantConfigurationView | undefined {
+    const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
+    if (assistant === undefined) return undefined;
+    return this.canManagePublishingFor(viewerAccountId, assistant) ? assistant : undefined;
+  }
+
+  private canManagePublishingFor(
+    viewerAccountId: AccountId,
+    assistant: AssistantConfigurationView,
+  ): boolean {
+    const viewer = this.accounts().find((account) => account.id === viewerAccountId);
+    return viewer !== undefined && canManagePublishing(assistant, viewer);
+  }
+
   private publishingPermissionDenied(): PermissionDeniedRepositoryView {
     return this.permissionDenied('publishing', '你沒有這個助理的發布設定權限，或它已不存在。');
   }
 
   private channelOverview(viewerAccountId: AccountId): readonly AssistantChannelsView[] {
     return this.assistants()
-      .filter((assistant) => assistant.ownerAccountId === viewerAccountId)
+      .filter((assistant) => this.canManagePublishingFor(viewerAccountId, assistant))
       .map((assistant) => {
         const view = this.toPublishingView(assistant);
         return {
@@ -2850,7 +3083,7 @@ export class MockDemoRepository implements DemoRepository {
     return toAssistantPublishingView(
       assistant,
       this.publishingRecord(assistant),
-      this.seed.accounts,
+      this.accounts(),
       this.scenario === 'disconnected-channel',
     );
   }

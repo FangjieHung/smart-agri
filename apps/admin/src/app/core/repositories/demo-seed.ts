@@ -31,6 +31,7 @@ import {
   type TrackedSubjectFixture,
 } from './demo-seed-databases';
 import {
+  CHAT_NO_RESULT_TEXT,
   CHAT_PROFILES,
   CHAT_RESPONSES,
   type ChatProfileFixture,
@@ -72,6 +73,8 @@ export const ASSISTANT_RULE_DEFAULTS: AssistantRuleDefaults = {
   // 對外的客服助理：附上引用出處，並每月請客戶回報一次滿意度與消費變化。
   'assistant-customer-service': {
     showCitations: true,
+    // 終端對話的「查無資料」就是這一句：規則頁籤寫什麼，對話就說什麼。
+    refusalMessage: CHAT_NO_RESULT_TEXT,
     dataWriteDatabaseId: 'database-customer-records',
     dataWritePurpose: '記錄每次回訪的滿意度與消費金額，作為定期回報的比較依據。',
     periodicReport: 'monthly',
@@ -79,6 +82,7 @@ export const ASSISTANT_RULE_DEFAULTS: AssistantRuleDefaults = {
   // 對內的教育訓練助理：只標示「根據你的資料」，不附原文片段，也不收集回報。
   'assistant-internal-onboarding': {
     showCitations: false,
+    refusalMessage: CHAT_NO_RESULT_TEXT,
     periodicReport: 'off',
   },
 };
@@ -110,7 +114,9 @@ export const DEMO_SEED: DemoSeed = {
       id: 'account-internal-employee',
       displayName: '安心商行客服同仁',
       role: 'internal-employee',
-      permissions: ['use-shared-assistants'],
+      // 同仁是「同仁排班回報」資料庫的擁有者，也是它指定的資料管理者，
+      // 所以也需要帳號層級的「查看同意提交的紀錄」才看得到自己收到的資料。
+      permissions: ['use-shared-assistants', 'read-consented-submissions'],
     },
     {
       id: 'account-external-customer',

@@ -1,4 +1,9 @@
-import type { AccountId, AccountView, ChatViewerId } from '../domain/account.model';
+import type {
+  AccountId,
+  AccountPermission,
+  AccountView,
+  ChatViewerId,
+} from '../domain/account.model';
 import type {
   AssistantConfigurationView,
   AssistantId,
@@ -22,6 +27,7 @@ import type {
 } from '../domain/assistant-settings.model';
 import type {
   CreateDatabaseInput,
+  DatabaseAccessView,
   DatabaseDetailView,
   DatabaseFieldError,
   DatabaseFieldView,
@@ -54,6 +60,7 @@ import type {
   KnowledgeDocumentView,
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
+import type { TeamView } from '../domain/team.model';
 import type {
   AssistantChannelsView,
   AssistantPublishingView,
@@ -92,7 +99,8 @@ export type RepositoryPermissionDeniedReason =
   | 'assistant-use'
   | 'chat-thread'
   | 'submission-withdrawal'
-  | 'publishing';
+  | 'publishing'
+  | 'team';
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -209,6 +217,24 @@ export type UpdatePlatformSharingResult =
   | RepositoryView<PlatformSharingView>
   | PublishingValidationFailedView;
 
+export interface TeamValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly message: string;
+}
+
+export type UpdateMemberPermissionsResult =
+  | RepositoryView<TeamView>
+  | TeamValidationFailedView;
+
+export interface DatabaseAccessValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly message: string;
+}
+
+export type UpdateDatabaseAccessResult =
+  | RepositoryView<DatabaseAccessView>
+  | DatabaseAccessValidationFailedView;
+
 export type UpdateWebsiteEmbedResult =
   | RepositoryView<WebsiteEmbedView>
   | PublishingValidationFailedView;
@@ -231,6 +257,23 @@ export interface DemoScenarioController {
 
 export interface DemoRepository extends DemoScenarioController {
   listAccounts(): RepositoryView<readonly AccountView[]>;
+  /**
+   * 團隊與權限。Demo 的「團隊」就是三個 Demo 身分，不是真實身分系統：沒有邀請、
+   * 沒有離職、沒有密碼，只能改「每個成員被允許做什麼」。只有具備 `manage-assistants`
+   * 的帳號看得到，其餘一律回傳 `team` 的 permission-denied，訊息不含任何成員名稱。
+   */
+  getTeam(viewerAccountId: AccountId): RepositoryView<TeamView>;
+  /**
+   * 變更單一成員的權限並立刻套用到所有檢查點（`listAccounts()` 之後就會回傳新的值）。
+   * 只有具備 `manage-assistants` 的帳號可以呼叫；成員不存在與無權限回傳相同結果。
+   * 操作者不能移除自己的 `manage-assistants`（移除後就打不開團隊設定），
+   * 這種情況與不認得的權限值一樣回傳 validation-failed，完全不寫入。
+   */
+  updateMemberPermissions(
+    viewerAccountId: AccountId,
+    memberAccountId: AccountId,
+    permissions: readonly AccountPermission[],
+  ): UpdateMemberPermissionsResult;
   listAssistantConfigurations(
     viewerAccountId: AccountId,
   ): RepositoryView<readonly AssistantConfigurationView[]>;
@@ -437,6 +480,19 @@ export interface DemoRepository extends DemoScenarioController {
     databaseId: DatabaseId,
     fields: readonly DatabaseFieldView[],
   ): UpdateDatabaseFieldsResult;
+  /**
+   * 指定誰是這個資料庫的資料管理者，也就是誰可以查看收集紀錄與趨勢比較。
+   * 只有資料庫擁有者可以變更；不存在與無權限回傳相同的 `database` permission-denied。
+   *
+   * 被指定的帳號還必須有帳號層級的「查看同意提交的紀錄」權限才真的看得到
+   * （`canReadConsentedRecords()`）；候選清單會標示誰目前還沒有。
+   * **移除只收回查看權限，不刪除任何紀錄**：重新指定就原封不動回來。
+   */
+  updateDatabaseAccess(
+    viewerAccountId: AccountId,
+    databaseId: DatabaseId,
+    dataManagerAccountIds: readonly AccountId[],
+  ): UpdateDatabaseAccessResult;
   /** 試填：以目前已儲存的表單驗證答案並回傳預覽，不會建立紀錄。 */
   previewDatabaseEntry(
     viewerAccountId: AccountId,

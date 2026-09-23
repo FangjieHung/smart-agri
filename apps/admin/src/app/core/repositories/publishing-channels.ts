@@ -23,15 +23,10 @@ import {
   type WebsiteEmbedSettings,
   type WebsiteEmbedView,
 } from '../domain/publishing.model';
+import { ACCOUNT_ROLE_LABELS } from '../domain/team.model';
 import { EMPTY_LINE_SETTINGS, EXPIRED_DEMO_LINE_TOKEN, type PublishingRecord } from './demo-seed-publishing';
 
 /** 發布管道的純函式：由保存狀態推導統一狀態、說明文字與畫面資料，不連接任何外部服務。 */
-
-const AUDIENCE_LABELS: Readonly<Record<AccountView['role'], string>> = {
-  'smb-admin': '管理者',
-  'internal-employee': '內部同仁',
-  'external-customer': '外部客戶',
-};
 
 export function defaultPublishingRecord(
   assistant: AssistantConfigurationView,
@@ -105,6 +100,27 @@ export function canOpenInPlatform(
   if (!audienceAllowsRole(assistant.audience, viewer.role)) return false;
   if (record.platform.paused) return false;
   return record.platform.allowedAccountIds.includes(viewer.id);
+}
+
+/**
+ * 誰可以**設定**這個助理的發布管道。**這是發布設定權限的唯一判斷點**，
+ * 三個管道的讀取與寫入、以及 `/app/channels` 的總覽都走這裡。
+ *
+ * 要同時滿足兩件事：**是助理的擁有者**，而且帳號有 `manage-publishing`
+ * （在 `/app/settings` 的團隊設定變更）。擁有權不會自動帶出這個權限——
+ * 「誰負責對外發布」在中小企業裡本來就常常不是助理的建立者。
+ *
+ * 這跟「誰開得了這個助理」是兩件事：收回發布設定權限不會把既有的使用者踢出去，
+ * 那一題由 `canOpenInPlatform()` 判斷，已儲存的管道設定也原封不動留著。
+ */
+export function canManagePublishing(
+  assistant: AssistantConfigurationView,
+  viewer: AccountView,
+): boolean {
+  return (
+    assistant.ownerAccountId === viewer.id &&
+    viewer.permissions.includes('manage-publishing')
+  );
 }
 
 export function platformCandidates(
@@ -302,7 +318,7 @@ export function toAssistantPublishingView(
     candidates: platformCandidates(assistant, accounts).map((account) => ({
       id: account.id,
       displayName: account.displayName,
-      audienceLabel: AUDIENCE_LABELS[account.role],
+      audienceLabel: ACCOUNT_ROLE_LABELS[account.role],
     })),
   };
   const { displayName, welcomeMessage, brandColor, position, allowedDomains, installCheck, installCheckedAt } =

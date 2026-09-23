@@ -61,7 +61,7 @@ select {
   font-size: max(16px, 1em);
 }
 
-.assistant-list, .rules { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.assistant-list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
 
 .assistant-list li {
   display: flex;
@@ -76,15 +76,9 @@ select {
 
 .assistant-list a { color: var(--color-accent); font-weight: 700; }
 
-.access-list { display: grid; gap: var(--space-3); margin: 0; }
-.access-list div { display: grid; grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr); gap: var(--space-3); }
-.access-list dt { color: var(--color-text-secondary); }
-.access-list dd { margin: 0; font-weight: 600; }
 
-.rules { padding-inline-start: var(--space-6); list-style: disc; }
 .empty { padding: var(--space-6); color: var(--color-text-secondary); text-align: center; }
 
 @media (max-width: 720px) {
   .tab-panel { padding: var(--space-4); }
-  .access-list div { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
 }

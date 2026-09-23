@@ -127,10 +127,14 @@ describe('MockDemoRepository databases', () => {
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') return;
     expect(result.data.connectedAssistants.map((assistant) => assistant.name)).toEqual(['客服助理']);
-    expect(result.data.access).toEqual({
+    expect(result.data.access).toMatchObject({
       owner: { id: 'account-smb-admin', displayName: '安心商行管理者' },
       dataManagers: [{ id: 'account-smb-admin', displayName: '安心商行管理者' }],
       viewerIsDataManager: true,
+      // 指定 ＋ 帳號層級權限都有，才真的看得到；擁有者才改得了指定。
+      viewerCanReadRecords: true,
+      viewerCanManageAccess: true,
+      savedAt: null,
     });
   });
 

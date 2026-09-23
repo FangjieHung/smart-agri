@@ -147,6 +147,40 @@ describe('DatabaseDetailPageComponent', () => {
     const access = await openDetail('/app/databases/database-customer-records/access');
     expect(access.page().querySelector('.access-list')?.textContent).toContain('安心商行管理者');
     expect(access.page().textContent).toContain('只有指定資料管理者可以查看結構化紀錄');
+    expect(access.page().querySelector('app-database-access')).not.toBeNull();
+  });
+
+  it('lets the owner change the data managers and gates 收集紀錄 both ways', async () => {
+    const removed = await openDetail('/app/databases/database-customer-records/access');
+    removed.page().querySelector<HTMLInputElement>('#data-manager-account-smb-admin')?.click();
+    removed.harness.detectChanges();
+    button(removed.page(), '儲存資料管理者').click();
+    removed.harness.detectChanges();
+
+    expect(removed.page().querySelector('[aria-live="polite"]')?.textContent).toContain(
+      '已更新資料管理者',
+    );
+    // 同一次變更立刻反映在「你的權限」上，不用重新整理。
+    expect(removed.page().querySelector('.access-list')?.textContent).toContain(
+      '可管理表單設定，不能查看收集紀錄',
+    );
+
+    await removed.harness.navigateByUrl('/app/databases/database-customer-records/records');
+    removed.harness.detectChanges();
+    expect(removed.page().textContent).toContain('無法查看收集紀錄');
+    expect(removed.page().textContent).not.toContain('王小姐');
+
+    // 重新指定：紀錄沒有被刪掉，時間軸原封不動回來。
+    await removed.harness.navigateByUrl('/app/databases/database-customer-records/access');
+    removed.harness.detectChanges();
+    removed.page().querySelector<HTMLInputElement>('#data-manager-account-smb-admin')?.click();
+    removed.harness.detectChanges();
+    button(removed.page(), '儲存資料管理者').click();
+    removed.harness.detectChanges();
+
+    await removed.harness.navigateByUrl('/app/databases/database-customer-records/records');
+    removed.harness.detectChanges();
+    expect(removed.page().querySelectorAll('ol.timeline > li')).toHaveLength(4);
   });
 
   it('shows a generic permission state without leaking another account’s database name', async () => {

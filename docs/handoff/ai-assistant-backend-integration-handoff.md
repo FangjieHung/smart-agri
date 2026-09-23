@@ -84,9 +84,9 @@ Account ──擁有──> Assistant ──連接(0..n)──> KnowledgeBase
 七條**不可違反**的關係約束（詳細規則見 `tasks-6-10-backend-handoff.md` 對應章節）：
 
 1. **助理的資料來源是混合的**：`AssistantSourceReference` 是 `knowledge-base | database` 的 union（`core/domain/assistant.model.ts:25-33`），不是兩個分開的清單。
-2. **每個助理固定三個發布管道**，不能新增或刪除（契約註解 `core/repositories/demo-repository.ts:251`、`:255`）。
-3. **對話只屬於發起的帳號**，助理擁有者也看不到（契約 `demo-repository.ts:437`）。擁有者只能看不含對話文字的匿名統計（`getAssistantAnalytics`）。
-4. **結構化紀錄只有指定資料管理者看得到**，而且只包含 `consentStatus === 'consented'` 的紀錄（契約 `demo-repository.ts:399-401`）。
+2. **每個助理固定三個發布管道**，不能新增或刪除（契約註解 `core/repositories/demo-repository.ts:342`、`:346`）。
+3. **對話只屬於發起的帳號**，助理擁有者也看不到（契約 `demo-repository.ts:541`）。擁有者只能看不含對話文字的匿名統計（`getAssistantAnalytics`）。
+4. **結構化紀錄只有指定資料管理者看得到**，而且只包含 `consentStatus === 'consented'` 的紀錄（契約 `demo-repository.ts:502-505`）。
 5. **被追蹤對象（subject）不等於登入帳號**。Demo 把它硬對映成 `subject-<accountId>`，但設計文件明確說這是兩個概念（`docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md:183`）。
 6. **知識庫與資料庫各自有獨立的擁有者與分享範圍**，不繼承助理的可見度。助理被分享出去，不代表它連的知識庫被分享出去。
 7. **刪除一段對話不會刪掉它產生的結構化紀錄**（現況，見 `tasks-6-10-backend-handoff.md` 第 8 節第 7 點）。這是刻意還是疏漏，需要後端與法遵確認。
@@ -103,10 +103,10 @@ Demo **沒有任何一次真的連出去**。三個外部接點都是本地模�
 
 | 接點 | Demo 現況 | 正式版要做的事 |
 | --- | --- | --- |
-| 憑證保存 | `channelSecret` / `accessToken` **明文存 localStorage，而且原文回傳給前端**（`core/repositories/publishing-channels.ts:297-301`） | 伺服端加密保存；回傳時只給末四碼與「是否已設定」。**這會改動 `LineSetupView` 契約**，`features/publishing/line-setup/line-setup.component.ts` 的遮罩顯示要跟著調整 |
-| Webhook | URL 指向 `.invalid` 保留網域（`publishing-channels.ts:303`） | 真實 webhook endpoint、**簽章驗證**、重送與冪等處理 |
-| 測試訊息 | `sendLineTestMessage` 是本地模擬，不會連 LINE（契約 `demo-repository.ts:290`） | 真的推一則訊息。**LINE 端失敗必須回 `200` + `lastTest` 失敗紀錄，不是 `5xx`**，否則畫面會把「測過了，失敗」顯示成「檢查失敗」 |
-| 啟用順序 | 必須先測試成功才能啟用，否則回 `validation-failed`（契約 `demo-repository.ts:295`） | 保留這個約束；`saveLineSettings` 會重置測試與啟用狀態（第 6.4 節），這個重置也要保留 |
+| 憑證保存 | `channelSecret` / `accessToken` **明文存 localStorage，而且原文回傳給前端**（`core/repositories/publishing-channels.ts:338-343`） | 伺服端加密保存；回傳時只給末四碼與「是否已設定」。**這會改動 `LineSetupView` 契約**，`features/publishing/line-setup/line-setup.component.ts` 的遮罩顯示要跟著調整 |
+| Webhook | URL 指向 `.invalid` 保留網域（`publishing-channels.ts:345`） | 真實 webhook endpoint、**簽章驗證**、重送與冪等處理 |
+| 測試訊息 | `sendLineTestMessage` 是本地模擬，不會連 LINE（契約 `demo-repository.ts:381`） | 真的推一則訊息。**LINE 端失敗必須回 `200` + `lastTest` 失敗紀錄，不是 `5xx`**，否則畫面會把「測過了，失敗」顯示成「檢查失敗」 |
+| 啟用順序 | 必須先測試成功才能啟用，否則回 `validation-failed`（契約 `demo-repository.ts:386`） | 保留這個約束；`saveLineSettings` 會重置測試與啟用狀態（第 6.4 節），這個重置也要保留 |
 | 訪客身分 | 每個瀏覽器分頁一個匿名 `visitor-<亂數>`（`core/session/anonymous-visitor.service.ts:50-96`），**與 LINE 的使用者完全無關** | 正式版要把 LINE 的 `userId` 對應成訪客身分，並決定它與官網訪客是不是同一種主體。見第 4.2 節第 5 點 |
 
 驗證規則（逐欄檢查、哪些欄位必填、錯誤摘要怎麼對焦）寫在 `tasks-6-10-backend-handoff.md` 第 6.4 節，`accessibility.cy.ts` 有對應的鍵盤流測試。
@@ -115,15 +115,15 @@ Demo **沒有任何一次真的連出去**。三個外部接點都是本地模�
 
 | 接點 | Demo 現況 | 正式版要做的事 |
 | --- | --- | --- |
-| 嵌入腳本 | 嵌入碼字串由 `demoEmbedCode()` 產生（`publishing-channels.ts:291`），指向 `.invalid` 網域（`:117-127`） | 真實 widget 的**託管、版本管理與快取策略**；嵌入碼要能安全地嵌在客戶站上 |
+| 嵌入腳本 | 嵌入碼字串由 `demoEmbedCode()` 產生（`publishing-channels.ts:159`），指向 `.invalid` 網域（`:163`） | 真實 widget 的**託管、版本管理與快取策略**；嵌入碼要能安全地嵌在客戶站上 |
 | 允許網域 | 只是一個字串清單，沒有任何執行力 | **後端執行**：CORS 白名單 + CSP `frame-ancestors`。前端的 `?embed=1` 只是視覺開關（`features/assistant-use/chat-shell/chat-shell-page.component.ts:42`），**不做 origin 檢查、不驗 referrer、不限制 iframe 來源** |
-| 安裝檢查 | `checkWebsiteInstallation` 本地模擬；`?demoScenario=disconnected-channel` 可強制成 `not-detected`（`core/repositories/mock-demo-repository.ts:818`） | 真的去偵測。**外部網站無回應也要回 `200` + `installCheck: 'not-detected'`**，理由同 LINE 測試 |
-| 網域變更 | 變更允許網域會**重置安裝檢查**（契約 `demo-repository.ts:273`） | 保留這個行為，畫面依賴它 |
-| 訪客 session | 已可用。`/use/:assistantId` 改掛 `embeddedChatGuard`（`app.routes.ts:126`），未登入訪客直接開得了；身分是分頁內的匿名 `VisitorId`，且只有**官網嵌入或 LINE 已發布**的助理開得起來（`publishing-channels.ts:263-275`） | 把 Demo 的 sessionStorage 換成真正的匿名 session，並在後端強制「未發布的助理不得被匿名開啟」。見第 4.2 節第 5 點 |
+| 安裝檢查 | `checkWebsiteInstallation` 本地模擬；`?demoScenario=disconnected-channel` 可強制成 `not-detected`（`core/repositories/mock-demo-repository.ts:1080`） | 真的去偵測。**外部網站無回應也要回 `200` + `installCheck: 'not-detected'`**，理由同 LINE 測試 |
+| 網域變更 | 變更允許網域會**重置安裝檢查**（契約 `demo-repository.ts:364`） | 保留這個行為，畫面依賴它 |
+| 訪客 session | 已可用。`/use/:assistantId` 改掛 `embeddedChatGuard`（`app.routes.ts:126`），未登入訪客直接開得了；身分是分頁內的匿名 `VisitorId`，且只有**官網嵌入或 LINE 已發布**的助理開得起來（`publishing-channels.ts:279-286`） | 把 Demo 的 sessionStorage 換成真正的匿名 session，並在後端強制「未發布的助理不得被匿名開啟」。見第 4.2 節第 5 點 |
 
 ### 3.3 真實 LLM 與檢索
 
-目前是關鍵字比對 fixture（`mock-demo-repository.ts:1886-1907`），引用是寫死的文件名與摘錄（`core/repositories/demo-seed-chat.ts`）。
+目前是關鍵字比對 fixture（`mock-demo-repository.ts:2300-2329`），引用是寫死的文件名與摘錄（`core/repositories/demo-seed-chat.ts`）。
 
 **前端已經依照五種回答種類設計**（`core/domain/conversation.model.ts:123-147`）：
 
@@ -161,7 +161,7 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 
 ### 4.2 正式登入要取代什麼
 
-1. **`viewerAccountId` 參數全部拿掉**。目前每個方法的第一個參數都是它（例 `demo-repository.ts:214-216`），正式 API 必須從 session 推導。這會改動**每一個 endpoint 的簽章**，是替換工作的固定成本。
+1. **`viewerAccountId` 參數全部拿掉**。目前每個方法的第一個參數都是它（例 `demo-repository.ts:277-279`），正式 API 必須從 session 推導。這會改動**每一個 endpoint 的簽章**，是替換工作的固定成本。
 2. **`AccountId` 是字面值 union**（`core/domain/account.model.ts:1-4`），只有三個值。後端無法回傳任何新帳號 id，必須先放寬成 `string`。
 3. **逾時策略要重新定義**。30 分鐘閒置是 Demo 的數字，不是需求。設計文件要求「登入逾時前保留非敏感草稿；敏感內容依安全規則清除」（`docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md:247`），但**沒有定義「敏感」的界線**——這是後端與法遵要先畫清楚的。
 4. **登出要清掉哪些本機資料**。目前 `clearSession()` 只移除 sessionStorage 的 `demo-session`（`:132-135`、`:156-160`），**`localStorage` 中的草稿、對話與紀錄完全不動**。
@@ -170,10 +170,10 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
    | 原本的問題 | Demo 的答案 | 位置 |
    | --- | --- | --- |
    | 匿名 session 的形式 | 每個瀏覽器分頁一個 `visitor-<亂數>`，存在 sessionStorage 的 `demo-visitor`，關閉分頁就結束；沒有憑證、沒有權限、不對應任何帳號 | `core/session/anonymous-visitor.service.ts:10`、`:50-96` |
-   | 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理（平台內分享不算對外）；其餘與「助理不存在」回同一則不含名稱的訊息 | `core/repositories/publishing-channels.ts:263-275`、`mock-demo-repository.ts:1796-1806`、`:1825-1830` |
-   | 匿名對話的歸屬 | 屬於那個 `VisitorId`，存在 `sme-demo:chat:<visitorId>:<assistantId>`，寫進**訪客專屬的 sessionStorage**；帳號、其他訪客與助理擁有者都讀不到，也不計入匿名統計 | `mock-demo-repository.ts:1690-1697`、`:1806-1809`、`tokens.ts:15-17` |
-   | 能不能提交表單 | 可以。同意畫面照樣顯示接收單位／目的／可查看者／敏感資料提示；紀錄的追蹤對象是 `subject-<visitorId>`，顯示成「未登入訪客（末四碼）」，只有指定資料管理者看得到 | `mock-demo-repository.ts:1593`、`:433-439`、`demo-seed-chat.ts:131` |
-   | 能不能撤回 | 可以，但**只在同一個瀏覽器分頁內**。分頁一關就再也指認不到那筆紀錄，文案直接寫明這件事，不承諾之後還撤得回 | `mock-demo-repository.ts:1791-1841`、`demo-seed-chat.ts:166` |
+   | 誰開得了 | 只有**官網嵌入或 LINE 已發布**的助理（平台內分享不算對外）；其餘與「助理不存在」回同一則不含名稱的訊息 | `core/repositories/publishing-channels.ts:279-286`、`mock-demo-repository.ts:1991-2001`、`:2019-2024` |
+   | 匿名對話的歸屬 | 屬於那個 `VisitorId`，存在 `sme-demo:chat:<visitorId>:<assistantId>`，寫進**訪客專屬的 sessionStorage**；帳號、其他訪客與助理擁有者都讀不到，也不計入匿名統計 | `mock-demo-repository.ts:2040-2047`、`:2155-2168`、`tokens.ts:15-17` |
+   | 能不能提交表單 | 可以。同意畫面照樣顯示接收單位／目的／可查看者／敏感資料提示；紀錄的追蹤對象是 `subject-<visitorId>`，顯示成「未登入訪客（末四碼）」，只有指定資料管理者看得到 | `mock-demo-repository.ts:1888`、`:580-586`、`demo-seed-chat.ts:131` |
+   | 能不能撤回 | 可以，但**只在同一個瀏覽器分頁內**。分頁一關就再也指認不到那筆紀錄，文案直接寫明這件事，不承諾之後還撤得回 | `mock-demo-repository.ts:1920-1969`、`demo-seed-chat.ts:166` |
 
    **正式版仍要自己決定的**：匿名 session 的真實形式（簽章 cookie／一次性 token）與保存期限、匿名對話要不要落伺服端與保存多久、匿名同意紀錄的法遵主體是誰（目前只有一個不可追溯的隨機 id）以及**分頁結束後**的撤回要靠什麼憑證（一次性連結或收據代碼，Demo 沒有）、LINE 使用者與官網訪客是不是同一種主體。`isExternallyPublished()` 是前端的一道門，**不是授權**——後端必須自己擋。
 
@@ -191,8 +191,8 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 
 | 資料 | 排序 | 位置 |
 | --- | --- | --- |
-| 對話清單 | 最後活動時間**由新到舊**，同毫秒時用序號 tiebreak | `mock-demo-repository.ts:447-450` |
-| 追蹤紀錄 | `recordedAt` **由舊到新**（時間軸與差異計算依賴這個順序） | `mock-demo-repository.ts:2027` |
+| 對話清單 | 最後活動時間**由新到舊**，同毫秒時用序號 tiebreak | `mock-demo-repository.ts:593-597` |
+| 追蹤紀錄 | `recordedAt` **由舊到新**（時間軸與差異計算依賴這個順序） | `mock-demo-repository.ts:2498-2504` |
 | 其他清單 | 無明確排序，等於 seed 的順序 | — |
 
 後端要決定的：
@@ -211,7 +211,7 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 | 寫入方法多半回傳**完整的新 view**（`sendChatMessage` 回整份對話、`deleteChatThread` 回剩下的清單） | 可以直接拿回應當新狀態，**免掉一次重讀**。建議保留這個設計 |
 | 五個元件用 `revision` signal 遞增來刷新（清單見 `mock-to-api-mapping.md` 第 4.3 節 (3)） | 每次遞增會變成一次網路請求；要決定重讀期間顯示 `loading`（會閃爍）還是保留舊資料（需要新的「更新中」視覺，**目前沒有**） |
 | **送出按鈕沒有 in-flight disabled 狀態** | 同步時不可能連點兩次，非同步時可以。每個寫入點都要補進行中旗標，或後端自行冪等 |
-| `RepositoryView` 已經有 `loading` 成員（`demo-repository.ts:96-98`），所有模板都有對應分支 | **`loading` 從情境切換器換成請求生命週期時，模板不用動**。這是替換時少數不痛的地方 |
+| `RepositoryView` 已經有 `loading` 成員（`demo-repository.ts:110-112`），所有模板都有對應分支 | **`loading` 從情境切換器換成請求生命週期時，模板不用動**。這是替換時少數不痛的地方 |
 | 沒有任何 rollback 路徑 | 若要改樂觀更新，每個寫入都要補失敗還原 |
 
 **延遲期待**：對話送出（`sendChatMessage`）是唯一會明顯等待的操作。目前沒有串流、沒有打字指示器、沒有逾時文案。要不要串流，會決定 `sendChatMessage` 是回整份對話還是改成 SSE，**這是契約層級的決定，不是實作細節**。
@@ -222,14 +222,14 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 | --- | --- |
 | 成功 | `200` / `201`，body 即 `data` |
 | 部分降級 | `200`，body 加 `unavailable[]` 與 `message`，**主資料仍必須回傳** |
-| 驗證失敗 | `422`，body `{ errors?, message }`。**各區的 `errors` 形狀不同**（有些只有 `message`），見 `demo-repository.ts:119-198` |
+| 驗證失敗 | `422`，body `{ errors?, message }`。**各區的 `errors` 形狀不同**（有些只有 `message`），見 `demo-repository.ts:133-244` |
 | 無權限或不存在 | `403`，body `{ reason, message }`，**兩者內容完全相同**，訊息不得含資源名稱 |
 | Session 逾時 | `401`，前端導回 `/login` |
 | 外部服務失敗 | **不是 HTTP 錯誤**——回 `200` + 結果欄位（LINE `lastTest`、官網 `installCheck`） |
 
 **文案歸屬**：目前所有使用者看得到的中文字串都在**後端會回傳的欄位裡**（`message`、`notice`、`nextSteps`、趨勢摘要文字）。前端只負責顯示，沒有 i18n 層。後端要決定這是不是長期作法；若要前端做在地化，`tasks-6-10-backend-handoff.md` 各節列出的列舉值就必須成為穩定的機器可讀 key，而不是只靠文案。
 
-`RepositoryUnavailableResource` 目前只有 `'knowledge-sync'` 一個值（`demo-repository.ts:76`）。哪些下游資源失敗要降級成 `partial-failure`、要擴充哪些值，由後端決定（第 8 節第 18 點）。
+`RepositoryUnavailableResource` 目前只有 `'knowledge-sync'` 一個值（`demo-repository.ts:88`）。哪些下游資源失敗要降級成 `partial-failure`、要擴充哪些值，由後端決定（第 8 節第 18 點）。
 
 ### 5.4 併發與冪等
 
@@ -239,7 +239,7 @@ Demo 的身分**不再只是記憶體 signal**。目前實作（`core/session/de
 
 目前沒有任何 TTL。localStorage 永久保留，`deleteChatThread` 是**硬刪除**，沒有垃圾桶，也不連帶刪除已產生的結構化紀錄。
 
-**撤回同意已經實作**（`withdrawChatSubmission()`，`mock-demo-repository.ts:1791-1841`）：只有提交者本人可以撤回自己的紀錄，撤回會把內容清空、寫入 `withdrawnAt`，紀錄即刻離開收集紀錄與趨勢比較，只留下一筆不含內容的軌跡（提交時間、撤回時間、來源）。資料管理者**沒有**代為撤回或代為刪除的路徑。剩下的缺口是：軌跡沒有操作者與同意條款版本、備份與衍生資料不會連動、未登入訪客在分頁結束後無法再指認自己的紀錄。詳見 `tasks-6-10-backend-handoff.md` 第 5.8 節與第 8 節第 6、7 點。
+**撤回同意已經實作**（`withdrawChatSubmission()`，`mock-demo-repository.ts:1920-1969`）：只有提交者本人可以撤回自己的紀錄，撤回會把內容清空、寫入 `withdrawnAt`，紀錄即刻離開收集紀錄與趨勢比較，只留下一筆不含內容的軌跡（提交時間、撤回時間、來源）。資料管理者**沒有**代為撤回或代為刪除的路徑。剩下的缺口是：軌跡沒有操作者與同意條款版本、備份與衍生資料不會連動、未登入訪客在分頁結束後無法再指認自己的紀錄。詳見 `tasks-6-10-backend-handoff.md` 第 5.8 節與第 8 節第 6、7 點。
 
 ---
 
@@ -265,7 +265,7 @@ npx nx build admin
 
 這個 Demo 會被拿去給非技術的決策者看。交付時必須明說：
 
-- 模擬登入、模擬權限與模擬憑證保存**不是安全功能**（`DEMO_SECURITY_NOTICE`，`core/repositories/demo-repository.ts:478-479`）。
+- 模擬登入、模擬權限與模擬憑證保存**不是安全功能**（`DEMO_SECURITY_NOTICE`，`core/repositories/demo-repository.ts:601-602`）。
 - 回答不是真的 AI，是固定 fixture 的關鍵字比對。
 - 三個發布管道都沒有真的連出去，嵌入碼與 webhook 指向保留網域。
 - **不可以在 Demo 中輸入任何真實敏感資料**——所有輸入都會以明文留在瀏覽器的 localStorage 裡。

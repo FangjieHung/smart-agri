@@ -320,9 +320,10 @@
 | 獨立的 `frontend/` 工作區 | **廢止**。Demo 直接併入 `apps/admin`，成為唯一前端入口；所有路徑、測試指令改為 `apps/admin` / `npx nx test admin`。 |
 | 建立後的助理頁籤：概覽｜資料來源｜回答與記錄｜測試｜發布｜使用紀錄（§6） | 六個頁籤都已實作。概覽／資料來源／回答與記錄是**可編輯的畫面**，與建立精靈共用同一組表單元件（`apps/admin/src/app/features/assistants/components/`），每次變更經 repository 自動保存（`sme-demo:assistant-settings:<assistantId>`），符合 §6「設定自動保存」。和精靈的差異是刻意的：沒有步驟導覽與「下一步」，變更立刻套用到已存在的助理，因此驗證更嚴格——不接受清空名稱／用途／拒答文案，不接受清空使用對象，也不接受解除最後一個資料來源。 |
 | 發布管道狀態：尚未設定、測試中、已發布、需要處理、已暫停（§11） | 如設計實作，**五種狀態、三個管道**（平台內／官網／LINE），沒有再擴充。`/app/channels` 提供三助理 × 三管道的狀態總覽。 |
-| 平台內發布「指定可使用帳號」（§11） | 勾選清單**就是**平台內使用權限的依據。判斷集中在 `canOpenInPlatform()`（`apps/admin/src/app/core/repositories/publishing-channels.ts:99-108`），由 `canUseAssistant()` 呼叫（`mock-demo-repository.ts:2594-2604`），涵蓋 `/app/chat/:assistantId`、首頁「可以使用的助理」與 `/use/:assistantId`。組合方式是：**使用對象（`audience`）決定「哪一種人」**（`assistant.model.ts:28-36`）、**勾選清單決定「哪些帳號」**，兩者是 and；**擁有者永遠開得了**自己的助理（含清單為空、管道已暫停時），這樣才能自己測試。`sharedWithAccountIds` 不再是第二條授權路徑，只當這份清單的初始值（`defaultPublishingRecord()`）。取消勾選**只收回權限、不刪除該帳號既有的對話**，重新勾選就原封不動回來。未登入訪客不受此清單影響，仍由 `isExternallyPublished()` 決定（`publishing-channels.ts:263-275`）。 |
+| 平台內發布「指定可使用帳號」（§11） | 勾選清單**就是**平台內使用權限的依據。判斷集中在 `canOpenInPlatform()`（`apps/admin/src/app/core/repositories/publishing-channels.ts:94-103`），由 `canUseAssistant()` 呼叫（`mock-demo-repository.ts:3008-3018`），涵蓋 `/app/chat/:assistantId`、首頁「可以使用的助理」與 `/use/:assistantId`。組合方式是：**使用對象（`audience`）決定「哪一種人」**（`assistant.model.ts:28-36`）、**勾選清單決定「哪些帳號」**，兩者是 and；**擁有者永遠開得了**自己的助理（含清單為空、管道已暫停時），這樣才能自己測試。`sharedWithAccountIds` 不再是第二條授權路徑，只當這份清單的初始值（`defaultPublishingRecord()`）。取消勾選**只收回權限、不刪除該帳號既有的對話**，重新勾選就原封不動回來。未登入訪客不受此清單影響，仍由 `isExternallyPublished()` 決定（`publishing-channels.ts:279-291`）。 |
 | 「對話與回報紀錄」主導覽項目（§4.2） | 路由 `/app/activity` 存在，但只提供**入口說明**（各類紀錄分別保存在哪裡），不顯示跨助理的合併清單——因為依 §9 的隱私規則，管理端不能看到對話文字，合併清單能顯示哪些欄位需等正式介接再定義。 |
-| 「團隊與設定」（§4.2） | `/app/settings` 目前只有外觀（質地／配色）設定，**沒有團隊成員管理**。 |
+| 「團隊與設定」（§4.2） | 兩者都有了。外觀（質地／配色）之外，`/app/settings` 上半部是**團隊與權限**：列出 Demo 的三個身分、各自的角色與「這個角色可以做什麼」，具備 `manage-assistants` 的帳號可以逐項變更每個成員的權限（`apps/admin/src/app/features/settings/components/team-panel/`、`mock-demo-repository.ts:671`／`:676`），存在 `sme-demo:team-permissions`。**這仍然是 Demo 身分切換器的設定面，不是真實身分管理**：沒有邀請、沒有離職、沒有密碼，成員清單固定就是 seed 的三個帳號。畫面逐條標示哪些權限**真的**被程式檢查、哪些只是宣告值（`ACCOUNT_PERMISSIONS`，`apps/admin/src/app/core/domain/team.model.ts:40`），不在 UI 上假裝一個還沒接上的開關。沒有 `manage-assistants` 的身分看到的是拒絕面板，不是唯讀清單——依 §12「權限不足時不揭露資源名稱或內容」，連其他成員的名字都不顯示。操作者不能取消自己的 `manage-assistants`（取消後就沒有入口加回來），該欄位在畫面上是 disabled 並標示「不可移除」（`lockedPermissionsFor()`，`team.model.ts:126`）。 |
+| 資料庫的「權限」頁籤（§8） | 原本只是唯讀說明，現在**擁有者可以直接指定資料管理者**（`apps/admin/src/app/features/databases/database-access/`、`updateDatabaseAccess()`，`mock-demo-repository.ts:1581`），存在 `sme-demo:database-access:<databaseId>`。**收集紀錄的可見性要兩層都通過**：帳號層級的 `read-consented-submissions`（團隊設定）＋ 資料庫層級的資料管理者指定，判斷集中在 `canReadConsentedRecords()`（`apps/admin/src/app/core/repositories/database-access.ts:22`），由 `canReadRecords()` 呼叫（`mock-demo-repository.ts:2464`），涵蓋收集紀錄與趨勢比較（`:1634`）、資料庫摘要的紀錄與對象數量（`:2517`）與「你的權限」欄（`:2486`）。**擁有者不會自動通過**：擁有一個資料庫不等於有權讀它收到的內容，擁有者必須把自己列進資料管理者，這正是 §10「僅能查看使用者明確同意提交的資料」的落點。**移除只收回查看權限，不刪除任何紀錄**：重新指定後時間軸與趨勢原封不動回來，畫面與回饋訊息都寫明這件事（和平台內分享取消勾選不刪對話是同一個原則）。候選清單會標出「這個帳號還沒有帳號層級的權限，指定了也看不到」，不讓擁有者以為指定完就生效。 |
 | 趨勢比較（§8） | 已實作本次／上次／首次對照表、折線圖（每張圖都附等價資料表）與變化摘要，並在紀錄不足 2 筆時明確拒絕顯示趨勢。**差異值由 mock repository 即時計算，而不是手寫在 fixture 裡**——這讓新增／修改紀錄後比較結果會跟著變，但正式版本的計算與四捨五入規則仍須由後端定義。 |
 
 ## B. 過程中新增的決定（設計稿未涵蓋）
@@ -341,9 +342,18 @@
   原本 `knowledgeScope` 只影響建立精靈的試問預覽，對話一律看 fixture 的 `chatProfiles.allowGeneralKnowledge`。現在助理若存過設定就以設定為準（`mock-demo-repository.ts` 的 `allowsGeneralKnowledge`），沒存過才沿用 fixture——預設值即由 fixture 推導，所以未編輯過的助理行為不變。
 - **§6 步驟三剩下的兩項規則也接到實際行為了：「顯示引用出處」與「定期回報」。**（2026-09-23 追加。）
   兩者原本只是被保存的設定值，終端畫面不讀取。現在：
-  - **`showCitations`**：關掉時公司資料的回答**仍然是**「根據你的資料」（`data-kind="company-data"`、`chat-message.component.ts` 的 `REPLY_LABELS`），只是不再提供「查看引用來源」按鈕，改附一句說明（`CHAT_CITATIONS_OFF_NOTICE`）。§9 的三種回答狀態（§9 第 187-191 行）因此完整保留——關掉的是「出處」，不是「這題有沒有答案」：`fixtureReply()` 仍先用引用來源判斷助理有沒有連接到那份公司資料，沒有就照常回「查無資料」（`mock-demo-repository.ts:2229`、`chat-message.component.html:16-29`）。助理的「測試」頁籤會直接寫出目前會看到哪一種（`assistant-detail-page.component.html:63-71`）。**已經保存的回答不會被改寫**：規則只影響之後的新回答，舊訊息仍帶著當時的引用來源，和「關閉保存自己的對話不刪除既有對話」是同一個原則。
-  - **`periodicReport`**：助理把資料寫入某個資料庫（`dataWriteDatabaseId`）且週期不是「不需要」時，該資料庫的**趨勢比較**頁籤會多出一張回報面板：助理名稱、回報頻率、下次回報日期（由最近一次已同意的紀錄推算），以及這一期的變化摘要。摘要**整段沿用 `compareRecords()` 已經算好的 `MetricComparisonView.summary`**，只在前面加上追蹤對象名稱——沒有新的分析，也沒有重新計算任何數字，§8「AI 只把算好的差異轉成文字」的規則不變（`database-tracking.ts:152-191`、`mock-demo-repository.ts:2633-2654`、`periodic-report.component.html`）。
-  - **種子資料刻意做出對照**：客服助理開著引用出處、每月回報到客戶資料庫；內部教育訓練助理關著引用出處、不做回報（`demo-seed.ts:71-94`）。種子助理本身是唯讀 fixture，沒有存放規則的位置，所以預設規則放在 `assistantRuleDefaults`，編輯過之後一律以保存的設定為準（`mock-demo-repository.ts:2511-2527`），精靈建立的助理則沿用它在步驟三填的值。
+  - **`showCitations`**：關掉時公司資料的回答**仍然是**「根據你的資料」（`data-kind="company-data"`、`chat-message.component.ts` 的 `REPLY_LABELS`），只是不再提供「查看引用來源」按鈕，改附一句說明（`CHAT_CITATIONS_OFF_NOTICE`）。§9 的三種回答狀態（§9 第 187-191 行）因此完整保留——關掉的是「出處」，不是「這題有沒有答案」：`fixtureReply()` 仍先用引用來源判斷助理有沒有連接到那份公司資料，沒有就照常回「查無資料」（`mock-demo-repository.ts:2320`、`chat-message.component.html:16-29`）。助理的「測試」頁籤會直接寫出目前會看到哪一種（`assistant-detail-page.component.html:63-71`）。**已經保存的回答不會被改寫**：規則只影響之後的新回答，舊訊息仍帶著當時的引用來源，和「關閉保存自己的對話不刪除既有對話」是同一個原則。
+  - **`periodicReport`**：助理把資料寫入某個資料庫（`dataWriteDatabaseId`）且週期不是「不需要」時，該資料庫的**趨勢比較**頁籤會多出一張回報面板：助理名稱、回報頻率、下次回報日期（由最近一次已同意的紀錄推算），以及這一期的變化摘要。摘要**整段沿用 `compareRecords()` 已經算好的 `MetricComparisonView.summary`**，只在前面加上追蹤對象名稱——沒有新的分析，也沒有重新計算任何數字，§8「AI 只把算好的差異轉成文字」的規則不變（`database-tracking.ts:152-191`、`mock-demo-repository.ts:2794-2815`、`periodic-report.component.html`）。
+  - **種子資料刻意做出對照**：客服助理開著引用出處、每月回報到客戶資料庫；內部教育訓練助理關著引用出處、不做回報（`demo-seed.ts:71-94`）。種子助理本身是唯讀 fixture，沒有存放規則的位置，所以預設規則放在 `assistantRuleDefaults`，編輯過之後一律以保存的設定為準（`mock-demo-repository.ts:2672-2689`），精靈建立的助理則沿用它在步驟三填的值。
+- **§10 權限矩陣的落地：兩個真正被檢查的權限，兩個刻意留白。**（2026-09-23 追加。）
+  `AccountPermission` 的七個值原本大多只是宣告，實際判斷全靠擁有權。這次把三個接到行為，每個都收斂成**單一判斷點**：
+  - **`read-consented-submissions`** → `canReadConsentedRecords()`（`apps/admin/src/app/core/repositories/database-access.ts:22`）。收集紀錄、趨勢比較、資料庫摘要的紀錄數量與 `listManagedSubmissions()` 全部走這一個函式，而且要**帳號權限＋資料庫指定兩層都通過**。
+  - **`manage-publishing`** → `canManagePublishing()`（`apps/admin/src/app/core/repositories/publishing-channels.ts:116`）。三個管道的讀取與儲存、以及 `/app/channels` 的總覽都由它決定（`publishingTarget()`，`mock-demo-repository.ts:3034`）。規則是**擁有者 ＋ 這個權限**：擁有權不會自動帶出發布權，「誰負責對外發布」在中小企業裡本來就常常不是助理的建立者。收回它**不會**把已經在用的人踢出去——那一題仍由 `canOpenInPlatform()` 決定，已儲存的管道設定也原封不動留著。
+  - **`submit-authorized-forms`** → `submitAuthorizedForm()` 原本寫死比對 `viewerAccountId !== 'account-external-customer'`，改成檢查這個權限（`mock-demo-repository.ts:914`）。種子資料下行為完全相同，差別是「誰能填授權表單」現在改得動了。
+  - **`use-shared-assistants` 與 `read-own-tracking` 刻意維持現狀，不接行為。** `use-shared-assistants` 會和 §11 平台內發布的「使用對象＋勾選清單」重複成第二條授權路徑，而 `canOpenInPlatform()` 是刻意收斂出來的唯一判斷點，不該再開一條；`read-own-tracking` 若真的檢查，等於允許管理者關掉別人「看自己資料」的能力，與 §10「一般使用者可查看自己的」相反。兩者在團隊設定畫面標示為「尚未接到行為」，並寫出原因，理由同時記在 `docs/handoff/tasks-6-10-backend-handoff.md` 第 8 節 Open questions 第 9 點。
+  - **種子資料調整一處**：內部同仁加上 `read-consented-submissions`（`demo-seed.ts:119`）。他是「同仁排班回報」的擁有者也是指定的資料管理者，沒有這個權限就會在新規則下看不到自己收到的資料——那會是一個沒有人宣告過的行為變更，所以補在 seed 而不是讓它默默壞掉。
+- **§6 步驟三最後一項規則「找不到資料時怎麼回覆」也接到終端對話了。**（2026-09-23 追加。）
+  `refusalMessage` 原本只用在建立精靈的試問預覽（`mock-demo-repository.ts:1240`），終端對話的「查無資料」讀的是 seed 的固定字串。現在對話改讀助理目前生效的規則（`mock-demo-repository.ts:2322`），種子助理的預設值就設成原本那句 `CHAT_NO_RESULT_TEXT`（`demo-seed.ts` 的 `ASSISTANT_RULE_DEFAULTS`），所以**未編輯過的助理行為完全不變**，而「回答與記錄」頁籤的文字方塊從此顯示的就是對話真的會說的那一句。和 `showCitations` 同樣的原則：**已經保存的回答不會被改寫**，規則只影響之後的新回答。至此 §6 步驟三的六項規則全部接到行為，沒有純裝飾的設定值。
 - **`?demoScenario=` 網址參數。**
   為了在展示現場直接叫出錯誤與等待畫面，加了 `loading` / `partial-failure` / `permission-denied` / `disconnected-channel` 四種情境參數（外加預設的 `ready`）。只影響 mock repository，換頁即恢復。
 - **`/use/:assistantId?embed=1` 嵌入模式。**
@@ -351,12 +361,12 @@
 - **`/app/activity` 原本沿用舊模板的溫室感測儀表板，已改寫為隱私說明入口。**（2026-09-23 手動走查時發現並修正。）
 - **§14「撤回或申請刪除入口」的具體模型：清內容、留軌跡。**
   設計稿只寫「提供撤回或申請刪除入口」，沒有定義撤回之後那筆資料變成什麼。實作選的是：撤回把紀錄的內容清空、寫入撤回時間，紀錄**立刻離開收集紀錄的時間軸與趨勢比較**（撤回讓某位追蹤對象剩下不到 2 筆時，就回到既有的「紀錄還不夠，暫不顯示趨勢」），但在收集紀錄下方留下一筆**不含任何內容**的軌跡：提交日期、撤回日期、來源。整筆無聲消失本身就是法遵問題，所以不採用。
-  入口在對話的送出收據上（`chat-message.component.html:43-66`），撤回前一定跳確認對話框，焦點處理與對話紀錄側欄的刪除確認一致。**只有提交者本人可以撤回**：資料管理者沒有代為撤回或代為刪除的路徑，畫面兩邊都寫明這件事。未登入訪客在**同一個瀏覽器分頁內**撤得回；分頁一關就再也指認不到那筆紀錄，同意畫面與收據的文案直接寫明，而不是承諾之後還撤得回。軌跡只有 mock 真的存得住的欄位——沒有操作者、IP 或同意條款版本。實作見 `withdrawChatSubmission()`（`mock-demo-repository.ts:1791-1841`），契約與缺口見 `docs/handoff/tasks-6-10-backend-handoff.md` 第 5.8 節。
+  入口在對話的送出收據上（`chat-message.component.html:43-66`），撤回前一定跳確認對話框，焦點處理與對話紀錄側欄的刪除確認一致。**只有提交者本人可以撤回**：資料管理者沒有代為撤回或代為刪除的路徑，畫面兩邊都寫明這件事。未登入訪客在**同一個瀏覽器分頁內**撤得回；分頁一關就再也指認不到那筆紀錄，同意畫面與收據的文案直接寫明，而不是承諾之後還撤得回。軌跡只有 mock 真的存得住的欄位——沒有操作者、IP 或同意條款版本。實作見 `withdrawChatSubmission()`（`mock-demo-repository.ts:1920-1970`），契約與缺口見 `docs/handoff/tasks-6-10-backend-handoff.md` 第 5.8 節。
 
 ## C. 驗收結果（2026-09-23）
 
-- `npx nx test admin`：62 檔 / 347 測試通過（2026-09-23 接上引用出處與定期回報規則後重跑）。
-- `npx nx e2e admin-e2e --configuration=production`：15 spec / 114 測試通過（2026-09-23 重跑）。
-- `npx nx lint admin`、`npx nx build admin`：通過。
-- 手動走查：1280px 與 360px 各走完一次展示腳本（新增的「定期回報」面板、對話的引用出處說明與「測試」頁籤的規則說明也在 360px 量過，`innerWidth === clientWidth === scrollWidth === 360`）。360px 下所有畫面 `scrollWidth === clientWidth === 360`，沒有橫向溢出；超出邊界的元素（建議問題列、趨勢對照表、頁籤列）都在刻意設定的 `overflow-x: auto` 容器內，可捲動抵達。未發現死路、不可回復狀態或跨帳號資料殘留。
+- `npx nx test admin`：67 檔 / 380 測試通過（2026-09-23 加入團隊設定與資料存取管理後重跑）。
+- `npx nx e2e admin-e2e --configuration=production`：16 spec / 126 測試通過（2026-09-23 重跑；新增 `team-and-access.cy.ts`，`accessibility.cy.ts` 維持 0 critical／0 serious）。
+- `npx nx lint admin`、`npx nx build admin`：通過（initial bundle 517.42 kB raw／121.22 kB transfer）。
+- 手動走查：1280px 與 360px 各走完一次展示腳本。360px 的量測改由 `responsive.cy.ts` 在 Cypress 自己的同源 iframe 內執行，每條路由都先 assert `innerWidth === clientWidth === 360` 再判斷 `scrollWidth`；`/app/settings`（含展開後的權限編輯器）與 `/app/databases/:id/access` 都已納入。360px 下所有畫面 `scrollWidth === clientWidth === 360`，沒有橫向溢出；超出邊界的元素（建議問題列、趨勢對照表、頁籤列）都在刻意設定的 `overflow-x: auto` 容器內，可捲動抵達。未發現死路、不可回復狀態或跨帳號資料殘留。
 - **既存問題（與本 Demo 無關）**：`libs/theme-pack` 有 3 / 7 個測試失敗、`libs/ui` 有 1 / 90 個測試失敗。驗收本 Demo 時只跑 `admin` 與 `admin-e2e` 兩個目標。

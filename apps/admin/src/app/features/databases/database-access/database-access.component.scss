@@ -1,0 +1,49 @@
+:host { display: block; }
+
+.access-panel { display: grid; gap: var(--space-4); min-inline-size: 0; }
+h3, p { margin: 0; }
+h3 { font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.hint { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.error { color: var(--color-error); font-weight: 700; }
+.feedback { color: var(--color-success); font-weight: 600; }
+
+.access-list { display: grid; gap: var(--space-3); margin: 0; }
+.access-list div { display: grid; grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr); gap: var(--space-3); }
+.access-list dt { color: var(--color-text-secondary); }
+.access-list dd { margin: 0; font-weight: 600; }
+
+fieldset { display: grid; gap: var(--space-2); min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+legend { margin-block-end: var(--space-2); padding: 0; font-weight: 700; }
+
+.choice { display: flex; align-items: flex-start; gap: var(--space-3); min-block-size: var(--target-size); min-inline-size: 0; }
+.choice input { inline-size: 1.25rem; block-size: 1.25rem; margin: 2px 0 0; flex: 0 0 auto; accent-color: var(--color-accent); }
+.choice label { display: grid; gap: 2px; min-inline-size: 0; cursor: pointer; }
+.choice__label { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 600; }
+.choice__tag {
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--color-background);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+small { color: var(--color-text-secondary); font-size: var(--font-size-caption); line-height: var(--line-height-body); }
+.choice__note { font-style: italic; }
+
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+
+.rules {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-inline-start: var(--space-6);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-body);
+  list-style: disc;
+}
+
+input:focus-visible, button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
+@media (max-width: 40rem) {
+  .access-list div { grid-template-columns: minmax(0, 1fr); gap: var(--space-1); }
+}

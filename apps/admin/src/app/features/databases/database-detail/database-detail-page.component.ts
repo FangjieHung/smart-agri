@@ -14,6 +14,7 @@ import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status-badge/status-badge.component';
+import { DatabaseAccessComponent } from '../database-access/database-access.component';
 import { FormDesignerComponent } from '../form-designer/form-designer.component';
 import { FormTrialComponent } from '../form-designer/form-trial/form-trial.component';
 import { PeriodicReportComponent } from '../periodic-report/periodic-report.component';
@@ -49,6 +50,7 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
     PageHeaderComponent,
     StatePanelComponent,
     StatusBadgeComponent,
+    DatabaseAccessComponent,
     FormDesignerComponent,
     FormTrialComponent,
     PeriodicReportComponent,
@@ -82,6 +84,7 @@ export class DatabaseDetailPageComponent {
 
   /** 只在紀錄與趨勢頁籤讀取收集紀錄；非指定資料管理者會得到 permission-denied。 */
   protected readonly tracking = computed(() => {
+    this.revision();
     const tab = this.activeTab().id;
     const accountId = this.session.activeAccountId();
     if (!accountId || (tab !== 'records' && tab !== 'trends')) return null;
@@ -110,6 +113,11 @@ export class DatabaseDetailPageComponent {
   protected readonly fieldErrors = signal<readonly DatabaseFieldError[]>([]);
   protected readonly designerFeedback = signal('');
   protected readonly trialResult = signal<PreviewDatabaseEntryResult | null>(null);
+
+  /** 權限變更後重新讀取詳情，讓「你的權限」與紀錄頁籤立刻跟著變。 */
+  protected reload(): void {
+    this.revision.update((value) => value + 1);
+  }
 
   protected assistantStatus(status: AssistantStatus) {
     return ASSISTANT_STATUS[status];

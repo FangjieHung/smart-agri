@@ -16,9 +16,10 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/databases', '建立資料庫'],
   ['/app/databases/database-customer-records/records', '收集紀錄'],
   ['/app/databases/database-customer-records/trends', '趨勢比較'],
+  ['/app/databases/database-customer-records/access', '儲存資料管理者'],
   ['/app/channels', '助理發布設定'],
   ['/app/assistants/assistant-customer-service/publishing?channel=line', '儲存並檢查'],
-  ['/app/settings', '外觀設定'],
+  ['/app/settings', '團隊與權限'],
 ];
 
 /** 整頁不得出現水平捲動。 */
@@ -74,6 +75,18 @@ describe('responsive layout', () => {
           expectNoHorizontalOverflow(route);
         });
       }
+
+      it('fits the expanded team permission editor, which only exists after a click', () => {
+        cy.visit('/app/settings');
+        cy.contains('button', '變更 安心商行客服同仁 的權限').click();
+        cy.get('.member__editor input[type="checkbox"]').should('have.length', 7);
+        cy.window().its('innerWidth').should('eq', PHONE[0]);
+        cy.contains('button', '儲存 安心商行客服同仁 的權限')
+          .should('exist')
+          .scrollIntoView()
+          .should('be.visible');
+        expectNoHorizontalOverflow('/app/settings（展開權限編輯器）');
+      });
 
       it('switches the shell to the mobile header and drawer', () => {
         cy.visit('/app/home');

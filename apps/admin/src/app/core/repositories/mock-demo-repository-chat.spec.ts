@@ -222,4 +222,41 @@ describe('MockDemoRepository assistant chat', () => {
       }),
     ).toMatchObject({ status: 'permission-denied' });
   });
+
+  it('answers 查無資料 with the assistant’s own saved refusal message, not a fixed string', () => {
+    const repository = createRepository();
+    const settings = repository.getAssistantSettings('account-smb-admin', ASSISTANT);
+    if (settings.status !== 'ready') throw new Error('expected settings');
+
+    // 未編輯過的助理：規則裡顯示的就是對話真的會說的那一句。
+    expect(ask(repository, '可以幫我訂下週的機票嗎？').kind).toBe('no-result');
+    expect(settings.data.rules.refusalMessage).toContain('查無資料');
+
+    repository.updateAssistantSettings('account-smb-admin', ASSISTANT, {
+      rules: { ...settings.data.rules, refusalMessage: '這題我查不到，請打 02-1234-5678。' },
+    });
+    const reply = ask(repository, '可以幫我訂下週的機票嗎？');
+
+    expect(reply.kind).toBe('no-result');
+    if (reply.kind !== 'no-result') return;
+    expect(reply.text).toBe('這題我查不到，請打 02-1234-5678。');
+    // 下一步仍由 Demo 提供，規則改的是拒答文案本身。
+    expect(reply.nextSteps.length).toBeGreaterThan(0);
+  });
+
+  it('leaves already saved refusals alone when the rule changes afterwards', () => {
+    const storage = createMemoryStorage();
+    const repository = createRepository(storage);
+    ask(repository, '可以幫我訂下週的機票嗎？');
+    const settings = repository.getAssistantSettings('account-smb-admin', ASSISTANT);
+    if (settings.status !== 'ready') throw new Error('expected settings');
+    repository.updateAssistantSettings('account-smb-admin', ASSISTANT, {
+      rules: { ...settings.data.rules, refusalMessage: '改過的拒答文案。' },
+    });
+
+    const chat = chatOf(
+      createRepository(storage).getAssistantChat('account-external-customer', ASSISTANT),
+    );
+    expect(JSON.stringify(chat.messages)).not.toContain('改過的拒答文案。');
+  });
 });

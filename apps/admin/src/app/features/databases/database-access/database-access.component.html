@@ -1,0 +1,87 @@
+@let current = access();
+<form class="access-panel" aria-labelledby="access-title" novalidate (submit)="save($event)">
+  <h3 id="access-title">誰可以查看收集紀錄</h3>
+
+  <dl class="access-list">
+    <div><dt>擁有者</dt><dd>{{ current.owner.displayName }}</dd></div>
+    <div>
+      <dt>指定資料管理者</dt>
+      <dd>
+        @for (manager of current.dataManagers; track manager.id; let last = $last) {
+          {{ manager.displayName }}@if (!last) {、}
+        } @empty {
+          尚未指定
+        }
+      </dd>
+    </div>
+    <div>
+      <dt>你的權限</dt>
+      <dd>
+        @if (current.viewerCanReadRecords) {
+          可查看收集紀錄與趨勢比較
+        } @else if (current.viewerIsDataManager) {
+          已被指定為資料管理者，但你的帳號還沒有「查看同意提交的紀錄」權限，所以看不到收集紀錄
+        } @else {
+          可管理表單設定，不能查看收集紀錄
+        }
+      </dd>
+    </div>
+  </dl>
+
+  @if (current.viewerCanManageAccess) {
+    <p class="hint">
+      勾選的帳號可以查看這個資料庫<strong>使用者明確同意提交</strong>的紀錄與趨勢比較。
+      擁有一個資料庫不等於可以讀它收到的內容：你自己也要在清單裡才看得到。
+    </p>
+    <p class="hint">
+      取消勾選只收回查看權限，<strong>不會刪除任何紀錄</strong>；重新勾選後，紀錄與趨勢原封不動回來。
+      被勾選的帳號還需要系統設定裡的「查看同意提交的紀錄」權限，兩層都有才看得到。
+    </p>
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+
+    <fieldset>
+      <legend>指定資料管理者</legend>
+      @for (candidate of current.candidates; track candidate.id) {
+        <div class="choice">
+          <input
+            type="checkbox"
+            [id]="'data-manager-' + candidate.id"
+            [checked]="selected().has(candidate.id)"
+            (change)="toggle(candidate.id, $event)"
+          />
+          <label [for]="'data-manager-' + candidate.id">
+            <span class="choice__label">
+              {{ candidate.displayName }}
+              @if (candidate.id === current.owner.id) {
+                <span class="choice__tag">擁有者</span>
+              }
+            </span>
+            <small>{{ candidate.roleLabel }}</small>
+            @if (!candidate.hasReadPermission) {
+              <small class="choice__note">
+                這個帳號還沒有「查看同意提交的紀錄」權限，指定了也看不到；請到系統設定的「團隊與權限」開啟。
+              </small>
+            }
+          </label>
+        </div>
+      }
+    </fieldset>
+
+    <div class="actions">
+      <button type="submit" class="ui-button">儲存資料管理者</button>
+    </div>
+    <p class="feedback" aria-live="polite">{{ feedback() }}</p>
+  } @else {
+    <p class="hint">只有這個資料庫的擁有者可以變更資料管理者。</p>
+  }
+
+  <ul class="rules">
+    <li>只有指定資料管理者可以查看結構化紀錄，且僅限使用者明確同意提交的資料。</li>
+    <li>表單送出前會顯示接收單位、收集目的、可查看者與敏感資料提示，使用者可在送出收據上自行撤回。</li>
+    <li>撤回只有提交者本人能做：你無法代為撤回或還原，撤回後只會在收集紀錄留下一筆不含內容的軌跡。</li>
+    <li>一般使用者只能查看自己的紀錄；分享資料庫不會連帶開放其他助理、資料或對話。</li>
+  </ul>
+</form>

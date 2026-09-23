@@ -1,0 +1,11 @@
+@if (store.settings(); as settings) {
+  <div class="step">
+    <app-answer-rules-form
+      [rules]="settings.rules"
+      [writableDatabases]="store.writableDatabases()"
+      [errors]="errors()"
+      [live]="true"
+      (changed)="store.updateRules($event)"
+    />
+  </div>
+}

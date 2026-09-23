@@ -1,0 +1,34 @@
+// 助理設定表單的共用樣式：建立精靈的步驟與建立後的編輯頁籤共用同一套控制項外觀。
+// Angular 的樣式封裝是逐元件的，所以每個用到這些 class 的元件都要在 styleUrls 帶上這個檔案。
+:host { display: block; }
+.step { display: grid; gap: var(--space-6); }
+.group { display: grid; gap: var(--space-3); min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+legend, label, .label { color: var(--color-text); font-weight: 700; }
+legend { padding: 0; margin-block-end: var(--space-2); font-size: var(--font-size-body); }
+p { margin: 0; }
+.hint { color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: 400; }
+.error { color: var(--color-error); font-size: var(--font-size-caption); font-weight: 700; }
+.field { display: grid; gap: var(--space-2); max-inline-size: var(--reading-width); }
+input[type='text'], input[type='search'], textarea, select {
+  inline-size: 100%;
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: max(16px, 1rem);
+}
+textarea { resize: vertical; line-height: var(--line-height-body); }
+[aria-invalid='true'] { border-color: var(--color-error); }
+input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible, button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.check { display: flex; align-items: flex-start; gap: var(--space-3); min-block-size: var(--target-size); cursor: pointer; }
+.check input { inline-size: 1.25rem; block-size: 1.25rem; margin-block-start: 2px; accent-color: var(--color-accent); flex: 0 0 auto; }
+.check span { display: grid; gap: 2px; }
+.check small { color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: 400; }
+.advanced { padding: var(--space-4); border: var(--border-default); border-radius: var(--radius-container); background: var(--color-surface); }
+.advanced summary { min-block-size: var(--target-size); display: flex; align-items: center; font-weight: 700; cursor: pointer; }
+.advanced[open] summary { margin-block-end: var(--space-3); }

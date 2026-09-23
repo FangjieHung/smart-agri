@@ -16,6 +16,11 @@ import type {
   TrialQuestionView,
 } from '../domain/assistant-draft.model';
 import type {
+  AssistantSettingsFieldError,
+  AssistantSettingsPatch,
+  AssistantSettingsView,
+} from '../domain/assistant-settings.model';
+import type {
   CreateDatabaseInput,
   DatabaseDetailView,
   DatabaseFieldError,
@@ -126,6 +131,16 @@ export type CreateAssistantResult =
   | RepositoryView<AssistantConfigurationView>
   | ValidationFailedRepositoryView;
 
+export interface AssistantSettingsValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly errors: readonly AssistantSettingsFieldError[];
+  readonly message: string;
+}
+
+export type UpdateAssistantSettingsResult =
+  | RepositoryView<AssistantSettingsView>
+  | AssistantSettingsValidationFailedView;
+
 export interface SharingValidationFailedView {
   readonly status: 'validation-failed';
   readonly message: string;
@@ -221,6 +236,34 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     assistantId: AssistantId,
   ): RepositoryView<readonly AssistantSourceReference[]>;
+  /**
+   * 建立後可編輯的助理設定（概覽／資料來源／回答與記錄三個頁籤共用同一份）。
+   * id 來自網址、未經驗證；不存在或非擁有者一律回傳相同的 permission-denied，
+   * 訊息不包含助理名稱。
+   */
+  getAssistantSettings(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): RepositoryView<AssistantSettingsView>;
+  /**
+   * 自動保存單次變更，立即套用到這個已存在的助理上，沒有「儲存」按鈕。
+   * 驗證不通過時完全不寫入，並回傳逐欄錯誤；已上線的助理不接受把必要欄位清空。
+   */
+  updateAssistantSettings(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    patch: AssistantSettingsPatch,
+  ): UpdateAssistantSettingsResult;
+  /**
+   * 連接或解除連接單一資料來源；只保存 id 與類型，不複製來源內容。
+   * 只接受這個帳號自己看得到的來源，也不接受解除最後一個來源。
+   */
+  setAssistantSourceConnection(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    source: AssistantSourceReference,
+    connected: boolean,
+  ): UpdateAssistantSettingsResult;
   listKnowledgeBases(
     viewerAccountId: AccountId,
   ): RepositoryView<readonly KnowledgeBaseView[]>;

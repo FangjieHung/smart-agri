@@ -115,11 +115,10 @@ npx nx lint admin
 ### 資料保存方式
 
 - **身分存在 `sessionStorage`（key：`demo-session`），閒置 30 分鐘逾時。** 只屬於單一瀏覽器分頁，所以可以開兩個分頁同時示範兩個身分；關閉分頁或逾時後回到 `/login`，並顯示「Demo 登入已逾時」的說明。設定見 `apps/admin/src/app/core/session/demo-session.service.ts:28`。
-- **其餘資料存在 `localStorage`，key 一律以 `sme-demo:` 開頭**（`sme-demo:created-assistants`、`sme-demo:assistant-draft:<accountId>`、`sme-demo:knowledge:<id>`、`sme-demo:created-databases`、`sme-demo:database-fields:<id>`、`sme-demo:chat:<accountId>:<assistantId>`、`sme-demo:publishing:<assistantId>`、`sme-demo:chat-records`）。清空這些 key 就會回到初始 seed 狀態，清除方式見展示腳本的「事前準備」。
+- **其餘資料存在 `localStorage`，key 一律以 `sme-demo:` 開頭**（`sme-demo:created-assistants`、`sme-demo:assistant-draft:<accountId>`、`sme-demo:knowledge:<id>`、`sme-demo:created-databases`、`sme-demo:database-fields:<id>`、`sme-demo:chat:<accountId>:<assistantId>`、`sme-demo:publishing:<assistantId>`、`sme-demo:assistant-settings:<assistantId>`、`sme-demo:chat-records`）。清空這些 key 就會回到初始 seed 狀態，清除方式見展示腳本的「事前準備」。
 
 ### 功能缺口
 
-- **助理詳情的「概覽」「資料來源」「回答與記錄」三個頁籤仍是佔位畫面**（顯示「…內容將在下一階段完成」）。這三頁的內容在建立精靈裡已經完整可操作；詳情頁的編輯版本尚未實作。同一助理的「測試」「發布」「使用紀錄」頁籤則是可用的。
 - **發布管道的「平台內分享」目前不會真的限制誰能開啟對話。** 勾選可使用的帳號會被儲存並顯示在畫面上，但 `/use/:assistantId` 與 `/app/chat/:assistantId` 目前是依「助理的使用對象（內部／外部）」判斷，不是依這份勾選清單。正式後端必須以這份清單為準做授權。
 - **「對話與回報紀錄」（`/app/activity`）只提供入口說明**，不顯示跨助理的合併清單。依設計，對話屬於發起對話的帳號，管理端只能看匿名統計，所以合併清單要等正式介接後再定義能顯示哪些欄位。
 - **「團隊與設定」（`/app/settings`）目前只有外觀（質地／配色）設定**，沒有團隊成員管理。
@@ -127,7 +126,7 @@ npx nx lint admin
 
 ### 測試現況
 
-- `npx nx test admin`：53 個檔案、261 個測試全部通過。
-- `npx nx e2e admin-e2e --configuration=production`：13 個 spec、84 個測試全部通過。
+- `npx nx test admin`：58 個檔案、316 個測試全部通過。
+- `npx nx e2e admin-e2e --configuration=production`：15 個 spec、106 個測試全部通過。
 - `npx nx lint admin`、`npx nx build admin`：通過。
 - **`libs/theme-pack` 與 `libs/ui` 有既存的失敗 spec**（`theme-pack` 3 / 7 失敗、`ui` 1 / 90 失敗），與這個 Demo 無關，也不在 `admin` 的測試目標內。跑全 workspace 的 `npx nx run-many -t test` 會看到它們失敗；驗收這個 Demo 時請只跑 `admin` 與 `admin-e2e` 兩個目標。

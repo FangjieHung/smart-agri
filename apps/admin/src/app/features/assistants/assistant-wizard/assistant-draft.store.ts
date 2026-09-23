@@ -185,6 +185,11 @@ export class AssistantDraftStore {
     else if (flags.internal) audience = 'account-members';
     else if (flags.external) audience = 'authorized-external-customers';
 
+    this.setAudienceValue(audience);
+  }
+
+  /** 草稿允許「還沒選使用對象」，所以這裡接受 null。 */
+  setAudienceValue(audience: AssistantAudience | null): void {
     this.commit({ ...this.draft(), audience });
   }
 

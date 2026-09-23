@@ -3,7 +3,9 @@ import {
   ASSISTANT_WIZARD_STEPS,
   createEmptyAssistantDraft,
   validateAssistantDraft,
+  type AssistantAnswerRules,
   type AssistantDraft,
+  type AssistantTone,
   type ConnectableSourceStatus,
   type ConnectableSourceView,
   type SavedAssistantDraftView,
@@ -11,12 +13,18 @@ import {
   type TrialAnswerView,
 } from '../domain/assistant-draft.model';
 import type {
+  AssistantAudience,
   AssistantConfigurationView,
   CreatedAssistantId,
   AssistantId,
   AssistantSourceReference,
   AssistantSummaryView,
 } from '../domain/assistant.model';
+import {
+  validateAssistantSettings,
+  type AssistantSettingsPatch,
+  type AssistantSettingsView,
+} from '../domain/assistant-settings.model';
 import type {
   AssistantChatView,
   AuthorizedFormInput,
@@ -122,6 +130,7 @@ import type {
   SendChatMessageResult,
   SubmitChatFormResult,
   UpdateDatabaseFieldsResult,
+  UpdateAssistantSettingsResult,
   UpdateKnowledgeSharingResult,
   UpdatePlatformSharingResult,
   UpdateWebsiteEmbedResult,
@@ -226,6 +235,63 @@ function normalizeStoredDraft(value: unknown): SavedAssistantDraftView | null {
   } as AssistantDraft;
 
   return { draft, savedAt: value['savedAt'] };
+}
+
+const ASSISTANT_SETTINGS_KEY_PREFIX = 'sme-demo:assistant-settings:';
+
+/**
+ * 建立後編輯的設定。seed 的助理本身是唯讀 fixture，所以編輯結果一律寫在這裡，
+ * 讀取時再疊回助理上——種子助理與精靈建立的助理因此走同一條保存路徑。
+ */
+interface StoredAssistantSettings {
+  readonly version: 1;
+  readonly savedAt: string;
+  readonly name: string;
+  readonly purpose: string;
+  readonly audience: AssistantAudience;
+  readonly knowledgeBaseIds: readonly KnowledgeBaseId[];
+  readonly databaseIds: readonly DatabaseId[];
+  readonly tone: AssistantTone;
+  readonly roleInstructions: string;
+  readonly rules: AssistantAnswerRules;
+}
+
+const ASSISTANT_AUDIENCES: readonly AssistantAudience[] = [
+  'account-members',
+  'authorized-external-customers',
+  'members-and-external-customers',
+];
+
+/** 結構不完整時視為沒有存過設定，畫面退回助理本身的值，不會拿半筆資料覆蓋。 */
+function normalizeStoredAssistantSettings(value: unknown): StoredAssistantSettings | null {
+  if (
+    !isRecord(value) ||
+    value['version'] !== 1 ||
+    typeof value['savedAt'] !== 'string' ||
+    typeof value['name'] !== 'string' ||
+    typeof value['purpose'] !== 'string' ||
+    !ASSISTANT_AUDIENCES.includes(value['audience'] as AssistantAudience) ||
+    !Array.isArray(value['knowledgeBaseIds']) ||
+    !Array.isArray(value['databaseIds']) ||
+    !isRecord(value['rules'])
+  ) {
+    return null;
+  }
+
+  const empty = createEmptyAssistantDraft();
+  return {
+    version: 1,
+    savedAt: value['savedAt'],
+    name: value['name'],
+    purpose: value['purpose'],
+    audience: value['audience'] as AssistantAudience,
+    knowledgeBaseIds: value['knowledgeBaseIds'] as readonly KnowledgeBaseId[],
+    databaseIds: value['databaseIds'] as readonly DatabaseId[],
+    tone: (typeof value['tone'] === 'string' ? value['tone'] : empty.tone) as AssistantTone,
+    roleInstructions:
+      typeof value['roleInstructions'] === 'string' ? value['roleInstructions'] : '',
+    rules: { ...empty.rules, ...value['rules'] } as AssistantAnswerRules,
+  };
 }
 
 const KNOWLEDGE_KEY_PREFIX = 'sme-demo:knowledge:';
@@ -568,6 +634,84 @@ export class MockDemoRepository implements DemoRepository {
     ];
 
     return this.applyScenario(sources);
+  }
+
+  getAssistantSettings(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ReturnType<DemoRepository['getAssistantSettings']> {
+    const assistant = this.settingsTarget(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantSettingsPermissionDenied();
+
+    return this.applyScenario(this.assistantSettings(assistant));
+  }
+
+  updateAssistantSettings(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    patch: AssistantSettingsPatch,
+  ): UpdateAssistantSettingsResult {
+    const assistant = this.settingsTarget(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantSettingsPermissionDenied();
+
+    const current = this.assistantSettings(assistant);
+    return this.commitAssistantSettings({
+      ...current,
+      configuration: {
+        ...current.configuration,
+        name: patch.name ?? current.configuration.name,
+        purpose: patch.purpose ?? current.configuration.purpose,
+        audience: patch.audience ?? current.configuration.audience,
+      },
+      tone: patch.tone ?? current.tone,
+      roleInstructions: patch.roleInstructions ?? current.roleInstructions,
+      rules: { ...current.rules, ...patch.rules },
+    });
+  }
+
+  setAssistantSourceConnection(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    source: AssistantSourceReference,
+    connected: boolean,
+  ): UpdateAssistantSettingsResult {
+    const assistant = this.settingsTarget(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantSettingsPermissionDenied();
+
+    const visible = this.connectableSources(viewerAccountId).some(
+      (candidate) => candidate.id === source.id && candidate.type === source.type,
+    );
+    if (connected && !visible) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: [
+          { field: 'sources', message: '找不到這個資料來源，或你沒有它的存取權限。' },
+        ],
+        message: '找不到這個資料來源，或你沒有它的存取權限。',
+      });
+    }
+
+    const current = this.assistantSettings(assistant);
+    const matches = (candidate: AssistantSourceReference) =>
+      candidate.id === source.id && candidate.type === source.type;
+    const sources = connected
+      ? current.sources.some(matches)
+        ? current.sources
+        : [...current.sources, source]
+      : current.sources.filter((candidate) => !matches(candidate));
+    // 解除連接的資料庫若正是寫入對象，一併清掉，避免助理寫進已斷線的資料庫。
+    const dropsWriteTarget =
+      !connected &&
+      source.type === 'database' &&
+      current.rules.dataWriteDatabaseId === source.id;
+
+    return this.commitAssistantSettings({
+      ...current,
+      sources,
+      rules: dropsWriteTarget
+        ? { ...current.rules, dataWriteDatabaseId: null, dataWritePurpose: '' }
+        : current.rules,
+    });
   }
 
   listKnowledgeBases(
@@ -1067,6 +1211,16 @@ export class MockDemoRepository implements DemoRepository {
       CREATED_ASSISTANTS_KEY,
       JSON.stringify([...this.createdAssistants(), configuration]),
     );
+    // 精靈填的語氣、角色說明與回答規則在 configuration 裡沒有位置，
+    // 一併寫進設定紀錄，建立後的三個編輯頁籤才看得到使用者剛剛填的內容。
+    this.saveAssistantSettings({
+      configuration,
+      sources,
+      tone: draft.tone,
+      roleInstructions: draft.roleInstructions,
+      rules: draft.rules,
+      savedAt: null,
+    });
     this.discardAssistantDraft(viewerAccountId);
 
     return this.applyScenario(configuration);
@@ -1927,8 +2081,7 @@ export class MockDemoRepository implements DemoRepository {
         return citations.length > 0 ? { kind: 'company-data', text: answer.text, citations } : null;
       }
       case 'general-knowledge': {
-        const profile = this.seed.chatProfiles[assistant.id] ?? DEFAULT_CHAT_PROFILE;
-        return profile.allowGeneralKnowledge
+        return this.allowsGeneralKnowledge(assistant)
           ? { kind: 'general-knowledge', text: answer.text, notice: CHAT_GENERAL_KNOWLEDGE_NOTICE }
           : null;
       }
@@ -2163,8 +2316,144 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  /** 只有可管理助理的擁有者能編輯；不存在與無權限都回傳 undefined。 */
+  private settingsTarget(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): AssistantConfigurationView | undefined {
+    return this.canManageAssistants(viewerAccountId)
+      ? this.ownedAssistant(viewerAccountId, assistantId)
+      : undefined;
+  }
+
+  /** 不存在與無權限回傳相同結果，也不含助理名稱。 */
+  private assistantSettingsPermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied(
+      'assistant-configuration',
+      '你沒有這個助理的設定權限，或它已不存在。',
+    );
+  }
+
+  private storedAssistantSettings(assistantId: AssistantId): StoredAssistantSettings | null {
+    return normalizeStoredAssistantSettings(
+      parseJson(this.storage.getItem(ASSISTANT_SETTINGS_KEY_PREFIX + assistantId)),
+    );
+  }
+
+  /** 還沒編輯過時的預設規則：語氣與對話行為都對齊助理目前的實際表現。 */
+  private defaultRules(assistant: AssistantConfigurationView): AssistantAnswerRules {
+    const profile = this.seed.chatProfiles[assistant.id] ?? DEFAULT_CHAT_PROFILE;
+    return {
+      ...createEmptyAssistantDraft().rules,
+      knowledgeScope: profile.allowGeneralKnowledge
+        ? 'allow-general-knowledge'
+        : 'company-data-only',
+      keepOwnConversations: assistant.keepOwnConversations !== false,
+    };
+  }
+
+  private assistantSettings(
+    assistant: AssistantConfigurationView,
+  ): AssistantSettingsView {
+    const stored = this.storedAssistantSettings(assistant.id);
+    const empty = createEmptyAssistantDraft();
+
+    return {
+      configuration: assistant,
+      sources: [
+        ...assistant.knowledgeBaseIds.map((id): AssistantSourceReference => ({
+          id,
+          type: 'knowledge-base',
+        })),
+        ...assistant.databaseIds.map((id): AssistantSourceReference => ({
+          id,
+          type: 'database',
+        })),
+      ],
+      tone: stored?.tone ?? empty.tone,
+      roleInstructions: stored?.roleInstructions ?? '',
+      rules: stored?.rules ?? this.defaultRules(assistant),
+      savedAt: stored?.savedAt ?? null,
+    };
+  }
+
+  /** 驗證不通過時完全不寫入：已上線的助理不會因為一次輸入就少掉必要設定。 */
+  private commitAssistantSettings(
+    next: AssistantSettingsView,
+  ): UpdateAssistantSettingsResult {
+    const errors = validateAssistantSettings(next);
+    if (errors.length > 0) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors,
+        message: errors[0].message,
+      });
+    }
+
+    this.saveAssistantSettings(next);
+    const saved = this.assistants().find(
+      (assistant) => assistant.id === next.configuration.id,
+    );
+
+    return this.applyScenario(
+      saved === undefined ? next : this.assistantSettings(saved),
+    );
+  }
+
+  private saveAssistantSettings(next: AssistantSettingsView): void {
+    const record: StoredAssistantSettings = {
+      version: 1,
+      savedAt: this.now().toISOString(),
+      name: next.configuration.name,
+      purpose: next.configuration.purpose,
+      audience: next.configuration.audience,
+      knowledgeBaseIds: next.sources.flatMap((source) =>
+        source.type === 'knowledge-base' ? [source.id] : [],
+      ),
+      databaseIds: next.sources.flatMap((source) =>
+        source.type === 'database' ? [source.id] : [],
+      ),
+      tone: next.tone,
+      roleInstructions: next.roleInstructions,
+      rules: next.rules,
+    };
+
+    this.storage.setItem(
+      ASSISTANT_SETTINGS_KEY_PREFIX + next.configuration.id,
+      JSON.stringify(record),
+    );
+  }
+
+  /** 把建立後編輯過的設定疊回助理上，讓清單、對話與發布都看到同一份內容。 */
+  private withSavedSettings(
+    assistant: AssistantConfigurationView,
+  ): AssistantConfigurationView {
+    const stored = this.storedAssistantSettings(assistant.id);
+    if (stored === null) return assistant;
+
+    return {
+      ...assistant,
+      name: stored.name,
+      purpose: stored.purpose,
+      audience: stored.audience,
+      knowledgeBaseIds: stored.knowledgeBaseIds,
+      databaseIds: stored.databaseIds,
+      keepOwnConversations: stored.rules.keepOwnConversations,
+    };
+  }
+
+  /** 設定過「只依據我的資料回答」時以設定為準，否則沿用 fixture 的助理個性。 */
+  private allowsGeneralKnowledge(assistant: AssistantConfigurationView): boolean {
+    const stored = this.storedAssistantSettings(assistant.id);
+    return stored === null
+      ? (this.seed.chatProfiles[assistant.id] ?? DEFAULT_CHAT_PROFILE).allowGeneralKnowledge
+      : stored.rules.knowledgeScope === 'allow-general-knowledge';
+  }
+
   private assistants(): readonly AssistantConfigurationView[] {
-    return [...this.seed.assistants, ...this.createdAssistants()];
+    return [...this.seed.assistants, ...this.createdAssistants()].map((assistant) =>
+      this.withSavedSettings(assistant),
+    );
   }
 
   private createdAssistants(): readonly AssistantConfigurationView[] {

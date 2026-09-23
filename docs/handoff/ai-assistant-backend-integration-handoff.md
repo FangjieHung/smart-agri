@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | **本文件** | 全域驗收清單、外部服務接點、前端已經假設的非功能需求 | 規劃階段、驗收階段 |
 | `docs/handoff/tasks-6-10-backend-handoff.md` | 每個功能區的**請求／回應型別、列舉值、狀態機、驗證規則、權限規則、哪些是假的** | 實作每個功能區時 |
-| `docs/handoff/mock-to-api-mapping.md` | **全部 54 個 repository 方法**的 endpoint、授權、成功狀態、可恢復／不可恢復錯誤、前端替換檔案、同步→非同步的具體影響 | 設計 API 與排替換工時時 |
+| `docs/handoff/mock-to-api-mapping.md` | **全部 57 個 repository 方法**的 endpoint、授權、成功狀態、可恢復／不可恢復錯誤、前端替換檔案、同步→非同步的具體影響 | 設計 API 與排替換工時時 |
 | `docs/handoff/route-screen-matrix.md` | 每條路由 × 元件 × 守衛 × repository 方法 × 可能狀態 × e2e spec | 排測試與確認畫面涵蓋範圍時 |
 | `docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md` | 產品與 UX 決策的權威來源 | 有爭議時 |
 
@@ -53,7 +53,7 @@
    grep -nE "^  [a-zA-Z]+(\(|<)" apps/admin/src/app/core/repositories/demo-repository.ts
    ```
 
-   輸出 54 個方法名稱，每一個都必須能在 `mock-to-api-mapping.md` 中搜尋到。
+   輸出 57 個方法名稱，每一個都必須能在 `mock-to-api-mapping.md` 中搜尋到。
 
 3. **每條路由都要能在 matrix 找到**：
 

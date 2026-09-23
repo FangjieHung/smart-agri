@@ -1,0 +1,17 @@
+@if (store.settings(); as settings) {
+  <div class="step">
+    <p class="hint">
+      加入或解除只會建立／移除連接，不會複製或修改原始資料。變更會立刻套用到這個助理的下一則回答。
+    </p>
+
+    <app-source-connection-list
+      [sources]="store.connectableSources()"
+      [connected]="settings.sources"
+      (toggled)="store.toggleSource($event)"
+    />
+
+    @if (store.fieldError('sources'); as sourcesError) {
+      <p class="error" role="alert">{{ sourcesError }}</p>
+    }
+  </div>
+}

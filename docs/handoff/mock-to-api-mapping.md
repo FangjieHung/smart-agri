@@ -1,10 +1,10 @@
 # Mock → API 對照表（`DemoRepository` 全方法）
 
-**適用版本**：`apps/admin` 分支 `master`。介面宣告位置：`apps/admin/src/app/core/repositories/demo-repository.ts:212-476`。
+**適用版本**：`apps/admin` 分支 `master`。介面宣告位置：`apps/admin/src/app/core/repositories/demo-repository.ts:227-519`。
 
 ## 0. 這份文件的定位
 
-這份文件是 **`DemoRepository` 全部 54 個方法的單一索引**，回答四個問題：
+這份文件是 **`DemoRepository` 全部 57 個方法的單一索引**，回答四個問題：
 
 1. 這個方法對應哪個 endpoint、需要什麼授權、成功時回什麼。
 2. 哪些錯誤是「使用者可以在畫面上自己解決的」（可恢復），哪些不是（不可恢復）。
@@ -158,16 +158,19 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 `saveLineSettings` 的回傳型別是 `RepositoryView<LineSetupView>`（`demo-repository.ts:289`），**不是** `...Result` union——逐欄錯誤是包在 `LineSetupView` 裡回傳的，不走 `validation-failed`。只有 `activateLineChannel` 才有獨立的 `ActivateLineChannelResult`（`:196-198`）。後端若改成 `422`，`line-setup.component.ts:88` 的分支要一起改。
 
-### 2.6 助理與基礎資料（9 個方法）
+### 2.6 助理與基礎資料（12 個方法）
 
-前四個已被畫面使用，後五個目前**沒有任何功能元件呼叫**（語意見 `tasks-6-10-backend-handoff.md` 第 7 節）。
+前七個已被畫面使用，後五個目前**沒有任何功能元件呼叫**（語意見 `tasks-6-10-backend-handoff.md` 第 7 節）。
 
 | 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `listUsableAssistants(viewer)` `:217-219` | `GET /api/v1/assistants?usable=true` | `S` | `200` `AssistantSummaryView[]` | `429` | `401`／`5xx` | `features/home/home-page.component.ts:21`、`:29`、`workspace-chat-page.component.ts:86` |
-| `listAssistantConfigurations(viewer)` `:214-216` | `GET /api/v1/assistants` | `S+MA` | `200` `AssistantConfigurationView[]` | `429` | `401`／`5xx` | `assistant-list-page.component.ts:30`、`features/assistants/assistant-detail/assistant-detail-page.component.ts:74` |
-| `getAssistantAnalytics(viewer, assistantId)` `:247-250` | `GET /api/v1/assistants/{id}/analytics` | `S+OWN` | `200` `AssistantAnalyticsView`（匿名統計） | `429` | `401`／`403 assistant-configuration`／`5xx` | `assistant-detail-page.component.ts:85` |
-| `getAssistantSources(viewer, assistantId)` `:220-223` | `GET /api/v1/assistants/{id}/sources` | `S+OWN` | `200` `AssistantSourceReference[]` | `429` | `401`／`403 assistant-configuration`／`5xx` | **未被呼叫**（助理詳情的「資料來源」分頁仍是 placeholder） |
+| `listAssistantConfigurations(viewer)` `:214-216` | `GET /api/v1/assistants` | `S+MA` | `200` `AssistantConfigurationView[]` | `429` | `401`／`5xx` | `assistant-list-page.component.ts:30`、`features/assistants/assistant-detail/assistant-detail-page.component.ts:106` |
+| `getAssistantAnalytics(viewer, assistantId)` `:290-293` | `GET /api/v1/assistants/{id}/analytics` | `S+OWN` | `200` `AssistantAnalyticsView`（匿名統計） | `429` | `401`／`403 assistant-configuration`／`5xx` | `assistant-detail-page.component.ts:117` |
+| `getAssistantSettings(viewer, assistantId)` `:244-247` | `GET /api/v1/assistants/{id}/settings` | `S+MA+OWN` | `200` `AssistantSettingsView`（設定＋已連接來源＋回答規則） | `429` | `401`／`403 assistant-configuration`／`5xx` | `features/assistants/assistant-detail/assistant-settings.store.ts:51` |
+| `updateAssistantSettings(viewer, assistantId, patch)` `:252-256` | `PATCH /api/v1/assistants/{id}/settings` | `S+MA+OWN` | `200` `AssistantSettingsView` | `422` 逐欄 `AssistantSettingsFieldError[]`（驗證失敗時**完全不寫入**） | `401`／`403 assistant-configuration`／`5xx` | `assistant-settings.store.ts:133`（概覽）、`:139`（回答與記錄） |
+| `setAssistantSourceConnection(viewer, assistantId, source, connected)` `:261-266` | `PUT`／`DELETE /api/v1/assistants/{id}/sources/{type}/{sourceId}` | `S+MA+OWN`＋來源必須是 viewer 看得到的 | `200` `AssistantSettingsView` | `422`（來源不可見、或會解除最後一個來源） | `401`／`403 assistant-configuration`／`5xx` | `assistant-settings.store.ts:152` |
+| `getAssistantSources(viewer, assistantId)` `:235-238` | `GET /api/v1/assistants/{id}/sources` | `S+OWN` | `200` `AssistantSourceReference[]` | `429` | `401`／`403 assistant-configuration`／`5xx` | **未被呼叫**（已連接來源改由 `getAssistantSettings` 一併回傳） |
 | `listAccounts()` `:213` | `GET /api/v1/share-targets`（**不要做成帳號目錄**） | `S`；回傳範圍需另外設計授權 | `200` `AccountView[]` | `429` | `401`／`5xx` | **未被呼叫**；`/login` 的三個身分是寫死的（`features/demo-login/demo-login-page.component.ts:18-22`） |
 | `listKnowledgeBases(viewer)` `:224-226` | 由 `listKnowledgeBaseSummaries` 取代，**不需要獨立 endpoint** | `S` | `200` `KnowledgeBaseView[]` | — | `401`／`5xx` | **未被呼叫** |
 | `listDatabases(viewer)` `:227-229` | 由 `listDatabaseSummaries` 取代，**不需要獨立 endpoint** | `S` | `200` `DatabaseView[]` | — | `401`／`5xx` | **未被呼叫** |
@@ -341,9 +344,9 @@ features/publishing/assistant-publishing/assistant-publishing.component.ts:40、
 
 | 項目 | 數量 |
 | --- | --- |
-| `demo-repository.ts` 宣告的方法總數 | 54（51 個資料方法 + 3 個情境切換方法） |
-| 本文件對照表已涵蓋 | 54 |
-| 已被功能元件呼叫 | 41 |
+| `demo-repository.ts` 宣告的方法總數 | 57（54 個資料方法 + 3 個情境切換方法） |
+| 本文件對照表已涵蓋 | 57 |
+| 已被功能元件呼叫 | 44 |
 | 契約已定義但功能元件未呼叫 | 10（第 2.6、2.7 節標示「未被呼叫」者，加上僅由 mock 內部呼叫的 `discardAssistantDraft`） |
 | 正式 API 不得存在 | 4（`advanceKnowledgeDocument` + 3 個情境切換方法） |
 

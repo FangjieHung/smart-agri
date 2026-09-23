@@ -1,0 +1,57 @@
+<div class="toolbar">
+  <div class="field">
+    <label for="source-search">搜尋資料來源</label>
+    <input id="source-search" type="search" placeholder="輸入名稱或內容" [value]="query()" (input)="setQuery($event)" />
+  </div>
+  <fieldset class="group filters">
+    <legend>類型</legend>
+    <div class="segmented">
+      @for (filter of typeFilters; track filter.value) {
+        <label>
+          <input
+            type="radio"
+            name="source-type"
+            [value]="filter.value"
+            [checked]="typeFilter() === filter.value"
+            (change)="typeFilter.set(filter.value)"
+          />
+          <span>{{ filter.label }}</span>
+        </label>
+      }
+    </div>
+  </fieldset>
+</div>
+
+<p class="source-summary" role="status">{{ summary() }}</p>
+
+<ul class="source-list" aria-label="可連接的資料來源">
+  @for (source of visibleSources(); track source.type + source.id) {
+    @let isOn = isConnected(source);
+    <li class="source-row" [class.connected]="isOn">
+      <div class="source-row__main">
+        <app-source-type-icon [type]="source.type" />
+        <h3>{{ source.name }}</h3>
+        <p class="hint">{{ source.summary }}</p>
+      </div>
+      <dl class="source-row__meta">
+        <div><dt>權限</dt><dd>{{ permissionLabel(source.permission) }}</dd></div>
+        <div>
+          <dt>狀態</dt>
+          <dd><app-status-badge [label]="statusLabel(source.status)" [tone]="statusTone(source.status)" /></dd>
+        </div>
+        <div><dt>更新</dt><dd><time [attr.datetime]="source.updatedAt">{{ updatedAt(source.updatedAt) }}</time></dd></div>
+      </dl>
+      <button
+        type="button"
+        class="source-toggle"
+        [attr.aria-pressed]="isOn"
+        (click)="toggled.emit(source)"
+      >
+        <span aria-hidden="true">{{ isOn ? '✓' : '+' }}</span>
+        {{ isOn ? '已連接' : '加入' }}<span class="visually-hidden">{{ source.name }}</span>
+      </button>
+    </li>
+  } @empty {
+    <li class="empty">找不到符合的資料來源，請調整搜尋文字或類型。</li>
+  }
+</ul>

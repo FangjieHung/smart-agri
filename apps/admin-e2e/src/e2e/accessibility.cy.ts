@@ -6,6 +6,8 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/assistants', '我的助理'],
   ['/app/assistants/new/purpose', '建立新助理'],
   ['/app/assistants/assistant-customer-service/overview', '客服助理'],
+  ['/app/assistants/assistant-customer-service/data-sources', '搜尋資料來源'],
+  ['/app/assistants/assistant-customer-service/rules', '找不到資料時'],
   ['/app/knowledge', '知識庫'],
   ['/app/knowledge/knowledge-product-guide/content', '商品使用指南'],
   ['/app/databases', '資料庫'],

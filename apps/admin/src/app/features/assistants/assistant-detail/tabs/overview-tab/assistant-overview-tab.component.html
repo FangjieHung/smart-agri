@@ -1,0 +1,33 @@
+@if (profile(); as current) {
+  <div class="step">
+    @if (status(); as badge) {
+      <p class="status-line">
+        目前狀態 <app-status-badge [label]="badge.label" [tone]="badge.tone" />
+      </p>
+    }
+
+    <app-assistant-profile-form
+      [value]="current"
+      [errors]="errors()"
+      [audienceRequired]="true"
+      (changed)="store.updateProfile($event)"
+      (refused)="store.note($event)"
+    />
+
+    @if (summary(); as info) {
+      <section class="rest" aria-labelledby="overview-rest-title">
+        <h3 id="overview-rest-title" class="label">其餘設定</h3>
+        <dl class="rest-grid">
+          <div><dt>使用對象</dt><dd>{{ info.audience }}</dd></div>
+          <div><dt>資料來源</dt><dd>{{ info.sources }}</dd></div>
+          <div><dt>回答範圍</dt><dd>{{ info.scope }}</dd></div>
+          <div><dt>對話紀錄</dt><dd>{{ info.conversations }}</dd></div>
+        </dl>
+        <p class="rest-links">
+          <a [routerLink]="['/app/assistants', store.assistantId(), 'data-sources']">調整資料來源</a>
+          <a [routerLink]="['/app/assistants', store.assistantId(), 'rules']">調整回答與記錄</a>
+        </p>
+      </section>
+    }
+  </div>
+}

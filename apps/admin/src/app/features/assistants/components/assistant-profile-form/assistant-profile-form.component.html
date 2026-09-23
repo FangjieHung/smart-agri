@@ -1,0 +1,88 @@
+@let profile = value();
+@let problems = errors();
+<div class="field">
+  <label for="assistant-name">助理名稱</label>
+  <input
+    id="assistant-name"
+    type="text"
+    autocomplete="off"
+    [value]="profile.name"
+    [attr.aria-invalid]="problems.name ? 'true' : null"
+    [attr.aria-describedby]="problems.name ? 'assistant-name-error' : null"
+    (input)="changed.emit({ name: text($event) })"
+  />
+  @if (problems.name) {
+    <p id="assistant-name-error" class="error">{{ problems.name }}</p>
+  }
+</div>
+
+<div class="field">
+  <label for="assistant-purpose">要幫忙完成的工作</label>
+  <textarea
+    id="assistant-purpose"
+    rows="3"
+    [value]="profile.purpose"
+    [attr.aria-invalid]="problems.purpose ? 'true' : null"
+    [attr.aria-describedby]="problems.purpose ? 'assistant-purpose-hint assistant-purpose-error' : 'assistant-purpose-hint'"
+    (input)="changed.emit({ purpose: text($event) })"
+  ></textarea>
+  <p id="assistant-purpose-hint" class="hint">例如：回答客戶關於退換貨與配送的問題。</p>
+  @if (problems.purpose) {
+    <p id="assistant-purpose-error" class="error">{{ problems.purpose }}</p>
+  }
+</div>
+
+<div class="field">
+  <label for="assistant-tone">回答語氣</label>
+  <select id="assistant-tone" (change)="emitTone($event)">
+    @for (option of tones; track option.value) {
+      <option [value]="option.value" [selected]="profile.tone === option.value">{{ option.label }}</option>
+    }
+  </select>
+</div>
+
+@let audienceFlags = flags();
+<fieldset class="group" [attr.aria-describedby]="problems.audience ? 'audience-error' : null">
+  <legend>誰會使用這個助理？</legend>
+  <label class="check">
+    <input
+      id="audience-internal"
+      #internalBox
+      type="checkbox"
+      [attr.aria-invalid]="problems.audience ? 'true' : null"
+      [attr.aria-describedby]="problems.audience ? 'audience-error' : null"
+      [checked]="audienceFlags.internal"
+      (change)="toggleAudience($event)"
+    />
+    <span>內部員工<small>團隊同仁在平台內使用</small></span>
+  </label>
+  <label class="check">
+    <input
+      id="audience-external"
+      #externalBox
+      type="checkbox"
+      [attr.aria-invalid]="problems.audience ? 'true' : null"
+      [attr.aria-describedby]="problems.audience ? 'audience-error' : null"
+      [checked]="audienceFlags.external"
+      (change)="toggleAudience($event)"
+    />
+    <span>外部客戶<small>透過官網、LINE 或專屬連結使用</small></span>
+  </label>
+  @if (problems.audience) {
+    <p id="audience-error" class="error">{{ problems.audience }}</p>
+  }
+</fieldset>
+
+<details class="advanced">
+  <summary>進階角色指令（選填）</summary>
+  <div class="field">
+    <label for="role-instructions">補充給助理的角色說明</label>
+    <textarea
+      id="role-instructions"
+      rows="4"
+      [value]="profile.roleInstructions"
+      (input)="changed.emit({ roleInstructions: text($event) })"
+    ></textarea>
+    <p class="hint">大多數情況不需要填寫；模板已包含合適的預設說明。</p>
+  </div>
+</details>

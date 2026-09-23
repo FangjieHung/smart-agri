@@ -9,25 +9,56 @@ import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { AssistantPublishingComponent } from '../../publishing/assistant-publishing/assistant-publishing.component';
+import { AssistantSettingsStore } from './assistant-settings.store';
+import { AssistantOverviewTabComponent } from './tabs/overview-tab/assistant-overview-tab.component';
+import { AssistantRulesTabComponent } from './tabs/rules-tab/assistant-rules-tab.component';
+import { AssistantSourcesTabComponent } from './tabs/sources-tab/assistant-sources-tab.component';
 
 interface AssistantTab {
   readonly id: string;
   readonly label: string;
-  readonly placeholder: string;
+  /** 頁籤標題下方的一句說明；三個編輯頁籤說的是「改了會怎樣」。 */
+  readonly intro: string;
+  /** 這個頁籤是不是會直接改動助理設定。 */
+  readonly edits: boolean;
 }
 
 const TABS: readonly AssistantTab[] = [
-  { id: 'overview', label: '概覽', placeholder: '概覽內容將在下一階段完成' },
-  { id: 'data-sources', label: '資料來源', placeholder: '資料來源內容將在下一階段完成' },
-  { id: 'rules', label: '回答與記錄', placeholder: '回答與記錄內容將在下一階段完成' },
-  { id: 'test', label: '測試', placeholder: '測試內容將在下一階段完成' },
-  { id: 'publishing', label: '發布', placeholder: '' },
-  { id: 'activity', label: '使用紀錄', placeholder: '使用紀錄內容將在下一階段完成' },
+  {
+    id: 'overview',
+    label: '概覽',
+    intro: '助理是誰、幫忙做什麼、給誰用。改動會立刻套用到這個助理，不需要按儲存。',
+    edits: true,
+  },
+  {
+    id: 'data-sources',
+    label: '資料來源',
+    intro: '助理回答時可以引用哪些知識庫與資料庫。加入只會建立連接，不會複製原始資料。',
+    edits: true,
+  },
+  {
+    id: 'rules',
+    label: '回答與記錄',
+    intro: '回答範圍、找不到資料時的回覆，以及對話與資料要不要保存。',
+    edits: true,
+  },
+  { id: 'test', label: '測試', intro: '', edits: false },
+  { id: 'publishing', label: '發布', intro: '', edits: false },
+  { id: 'activity', label: '使用紀錄', intro: '', edits: false },
 ];
 
 @Component({
   selector: 'app-assistant-detail-page',
-  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, AssistantPublishingComponent],
+  imports: [
+    RouterLink,
+    PageHeaderComponent,
+    StatePanelComponent,
+    AssistantPublishingComponent,
+    AssistantOverviewTabComponent,
+    AssistantSourcesTabComponent,
+    AssistantRulesTabComponent,
+  ],
+  providers: [AssistantSettingsStore],
   templateUrl: './assistant-detail-page.component.html',
   styleUrl: './assistant-detail-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -37,6 +68,7 @@ export class AssistantDetailPageComponent {
   private readonly router = inject(Router);
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  protected readonly settings = inject(AssistantSettingsStore);
   private readonly routeParams = toSignal(this.route.paramMap, {
     initialValue: this.route.snapshot.paramMap,
   });

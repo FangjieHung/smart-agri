@@ -11,7 +11,9 @@ describe('assistant list', () => {
 
     cy.location('pathname').should('eq', '/app/assistants/assistant-customer-service/overview');
     cy.contains('a', '資料來源').click();
-    cy.contains('資料來源內容將在下一階段完成').should('be.visible');
+    cy.location('pathname').should('eq', '/app/assistants/assistant-customer-service/data-sources');
+    cy.get('app-source-connection-list').should('be.visible');
+    cy.get('.source-summary').should('contain', '已連接 3 個知識庫、2 個資料庫');
   });
 
   it('keeps another account\'s assistant configuration out of the management list', () => {

@@ -318,7 +318,7 @@
 | 設計稿 | 實作現況 |
 | --- | --- |
 | 獨立的 `frontend/` 工作區 | **廢止**。Demo 直接併入 `apps/admin`，成為唯一前端入口；所有路徑、測試指令改為 `apps/admin` / `npx nx test admin`。 |
-| 建立後的助理頁籤：概覽｜資料來源｜回答與記錄｜測試｜發布｜使用紀錄（§6） | 六個頁籤都在，但 **概覽／資料來源／回答與記錄仍是佔位畫面**。這三頁的內容在建立精靈裡已完整可操作，詳情頁的「建立後編輯」版本尚未實作。測試／發布／使用紀錄為可用畫面。 |
+| 建立後的助理頁籤：概覽｜資料來源｜回答與記錄｜測試｜發布｜使用紀錄（§6） | 六個頁籤都已實作。概覽／資料來源／回答與記錄是**可編輯的畫面**，與建立精靈共用同一組表單元件（`apps/admin/src/app/features/assistants/components/`），每次變更經 repository 自動保存（`sme-demo:assistant-settings:<assistantId>`），符合 §6「設定自動保存」。和精靈的差異是刻意的：沒有步驟導覽與「下一步」，變更立刻套用到已存在的助理，因此驗證更嚴格——不接受清空名稱／用途／拒答文案，不接受清空使用對象，也不接受解除最後一個資料來源。 |
 | 發布管道狀態：尚未設定、測試中、已發布、需要處理、已暫停（§11） | 如設計實作，**五種狀態、三個管道**（平台內／官網／LINE），沒有再擴充。`/app/channels` 提供三助理 × 三管道的狀態總覽。 |
 | 平台內發布「指定可使用帳號」（§11） | 勾選清單可設定、可儲存、可在畫面上呈現，但 **目前不會真的決定誰能開啟對話**。`/use/:assistantId` 與 `/app/chat/:assistantId` 依「助理的使用對象（內部員工／外部客戶）」與 `sharedWithAccountIds` 判斷，不讀這份勾選清單。正式後端必須以這份清單為授權依據。 |
 | 「對話與回報紀錄」主導覽項目（§4.2） | 路由 `/app/activity` 存在，但只提供**入口說明**（各類紀錄分別保存在哪裡），不顯示跨助理的合併清單——因為依 §9 的隱私規則，管理端不能看到對話文字，合併清單能顯示哪些欄位需等正式介接再定義。 |
@@ -333,6 +333,12 @@
   設計稿只寫「對話紀錄屬於發起對話的帳號」，沒有規定同一個助理能有幾段對話。實作採多段：新增 `/app/chat`（選助理）、`/app/chat/:assistantId`、`/app/chat/:assistantId/:conversationId` 三層路由，桌面版在對話左側有可重新命名／刪除的歷史欄，手機版收合成「對話紀錄（n）」展開鈕。
 - **§6 步驟三的「是否保留使用者自己的對話紀錄」接到實際行為。**
   這個選項（`keepOwnConversations`）不再只是畫面上的開關，會真的決定該助理的對話是否寫進 `localStorage`；關掉時對話不落地。
+- **建立後的三個編輯頁籤與建立精靈共用表單元件，但驗證規則不同。**
+  `assistant-profile-form`、`answer-rules-form`、`source-connection-list`（`apps/admin/src/app/features/assistants/components/`）同時被精靈步驟與詳情頁籤使用，所以兩邊的欄位、文案與無障礙結構完全一致。差別在於精靈是在「還沒送出的草稿」上編輯，詳情頁是在「已經有人在用的助理」上編輯——後者每次變更都會即時套用，因此不接受把名稱、用途、拒答文案清空，不接受清空使用對象，也不接受解除最後一個資料來源；被擋下的變更完全不寫入，並在欄位旁顯示原因。
+- **關閉「保存自己的對話」不會刪除既有對話。**
+  關掉之後新的對話不再寫入 `localStorage`，使用者的對話紀錄欄會顯示為空；但**先前已保存的對話仍留在儲存中，重新勾選就會再次出現**。這是刻意的：助理擁有者本來就看不到別人的對話內容，也不應該有一個開關可以單方面銷毀別人的資料。要真正移除，必須由對話的所有人在自己的對話紀錄中刪除。畫面上的說明文字（`answer-rules-form.component.html`）就是這樣寫的。
+- **「只依據我的資料回答」現在也決定對話行為。**
+  原本 `knowledgeScope` 只影響建立精靈的試問預覽，對話一律看 fixture 的 `chatProfiles.allowGeneralKnowledge`。現在助理若存過設定就以設定為準（`mock-demo-repository.ts` 的 `allowsGeneralKnowledge`），沒存過才沿用 fixture——預設值即由 fixture 推導，所以未編輯過的助理行為不變。`showCitations` 與 `periodicReport` 仍只是設定值，沒有對話端行為。
 - **`?demoScenario=` 網址參數。**
   為了在展示現場直接叫出錯誤與等待畫面，加了 `loading` / `partial-failure` / `permission-denied` / `disconnected-channel` 四種情境參數（外加預設的 `ready`）。只影響 mock repository，換頁即恢復。
 - **`/use/:assistantId?embed=1` 嵌入模式。**
@@ -341,8 +347,8 @@
 
 ## C. 驗收結果（2026-09-23）
 
-- `npx nx test admin`：53 檔 / 261 測試通過。
-- `npx nx e2e admin-e2e --configuration=production`：13 spec / 84 測試通過。
+- `npx nx test admin`：58 檔 / 316 測試通過（2026-09-23 助理詳情編輯頁籤完成後重跑）。
+- `npx nx e2e admin-e2e --configuration=production`：15 spec / 106 測試通過（2026-09-23 重跑）。
 - `npx nx lint admin`、`npx nx build admin`：通過。
 - 手動走查：1280px 與 360px 各走完一次展示腳本。360px 下所有畫面 `scrollWidth === clientWidth === 360`，沒有橫向溢出；超出邊界的元素（建議問題列、趨勢對照表、頁籤列）都在刻意設定的 `overflow-x: auto` 容器內，可捲動抵達。未發現死路、不可回復狀態或跨帳號資料殘留。
 - **既存問題（與本 Demo 無關）**：`libs/theme-pack` 有 3 / 7 個測試失敗、`libs/ui` 有 1 / 90 個測試失敗。驗收本 Demo 時只跑 `admin` 與 `admin-e2e` 兩個目標。

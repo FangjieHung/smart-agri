@@ -18,7 +18,7 @@ const AUDIENCE_LABELS: Record<AssistantAudience, string> = {
 @Component({
   selector: 'app-test-step',
   templateUrl: './test-step.component.html',
-  styleUrls: ['../wizard-step.scss', './test-step.component.scss'],
+  styleUrls: ['../../../components/assistant-form.scss', '../wizard-step.scss', './test-step.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TestStepComponent {

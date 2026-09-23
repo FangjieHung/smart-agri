@@ -1,0 +1,116 @@
+@let current = rules();
+@let problems = errors();
+<fieldset class="group">
+  <legend>助理可以用哪些知識回答？</legend>
+  <label class="check">
+    <input
+      id="scope-strict"
+      type="radio"
+      name="knowledge-scope"
+      value="company-data-only"
+      [checked]="current.knowledgeScope === 'company-data-only'"
+      (change)="changed.emit({ knowledgeScope: 'company-data-only' })"
+    />
+    <span>只依據我的資料回答（建議）<small>找不到資料時直接說明，不自行猜測。</small></span>
+  </label>
+  <label class="check">
+    <input
+      id="scope-general"
+      type="radio"
+      name="knowledge-scope"
+      value="allow-general-knowledge"
+      [checked]="current.knowledgeScope === 'allow-general-knowledge'"
+      (change)="changed.emit({ knowledgeScope: 'allow-general-knowledge' })"
+    />
+    <span>允許補充一般知識<small>一般知識會與公司資料分開標示，避免混淆。</small></span>
+  </label>
+  @if (live()) {
+    <p class="hint">改動會套用到下一則回答；已經送出的回答不會被改寫。</p>
+  }
+</fieldset>
+
+<div class="field">
+  <label for="refusal-message">找不到資料時，助理要怎麼回覆？</label>
+  <textarea
+    id="refusal-message"
+    rows="3"
+    [value]="current.refusalMessage"
+    [attr.aria-invalid]="problems.refusalMessage ? 'true' : null"
+    [attr.aria-describedby]="problems.refusalMessage ? 'refusal-message-error' : null"
+    (input)="changed.emit({ refusalMessage: text($event) })"
+  ></textarea>
+  @if (problems.refusalMessage) {
+    <p id="refusal-message-error" class="error">{{ problems.refusalMessage }}</p>
+  }
+</div>
+
+<fieldset class="group">
+  <legend>回答與紀錄</legend>
+  <label class="check">
+    <input
+      id="show-citations"
+      type="checkbox"
+      [checked]="current.showCitations"
+      (change)="changed.emit({ showCitations: checked($event) })"
+    />
+    <span>在回答下方顯示引用來源<small>讓使用者看到答案出自哪份資料。</small></span>
+  </label>
+  <label class="check">
+    <input
+      id="keep-conversations"
+      type="checkbox"
+      [checked]="current.keepOwnConversations"
+      [attr.aria-describedby]="live() ? 'keep-conversations-effect' : null"
+      (change)="changed.emit({ keepOwnConversations: checked($event) })"
+    />
+    <span>保留使用者自己的對話紀錄<small>只有發起對話的本人看得到，助理建立者無法查看。</small></span>
+  </label>
+  @if (live()) {
+    <p id="keep-conversations-effect" class="hint">
+      關掉之後，新的對話不會被保存，使用者的「對話紀錄」欄位也會暫時空白。
+      已經保存的對話不會被刪除，重新勾選就會再次出現——要真正移除，請由對話的所有人在自己的對話紀錄中刪除。
+    </p>
+  }
+</fieldset>
+
+<div class="field">
+  <label for="data-write-database">要把收集到的資訊寫入哪個資料庫？</label>
+  <select id="data-write-database" (change)="selectWriteTarget($event)">
+    <option value="" [selected]="current.dataWriteDatabaseId === null">不寫入資料庫</option>
+    @for (database of writableDatabases(); track database.id) {
+      <option [value]="database.id" [selected]="current.dataWriteDatabaseId === database.id">{{ database.name }}</option>
+    }
+  </select>
+  @if (writableDatabases().length === 0) {
+    <p class="hint">
+      {{ live() ? '「資料來源」頁籤還沒連接資料庫，因此不會寫入任何紀錄。' : '上一步尚未連接資料庫，因此不會寫入任何紀錄。' }}
+    </p>
+  }
+</div>
+
+@if (current.dataWriteDatabaseId !== null) {
+  <div class="field">
+    <label for="data-write-purpose">收集目的</label>
+    <textarea
+      id="data-write-purpose"
+      rows="2"
+      [value]="current.dataWritePurpose"
+      [attr.aria-invalid]="problems.dataWritePurpose ? 'true' : null"
+      [attr.aria-describedby]="problems.dataWritePurpose ? 'data-write-purpose-hint data-write-purpose-error' : 'data-write-purpose-hint'"
+      (input)="changed.emit({ dataWritePurpose: text($event) })"
+    ></textarea>
+    <p id="data-write-purpose-hint" class="hint">使用者送出資料前，會先看到這段說明並需要同意。</p>
+    @if (problems.dataWritePurpose) {
+      <p id="data-write-purpose-error" class="error">{{ problems.dataWritePurpose }}</p>
+    }
+  </div>
+}
+
+<div class="field">
+  <label for="periodic-report">是否請使用者定期填寫回報？</label>
+  <select id="periodic-report" (change)="selectReport($event)">
+    @for (option of reportOptions; track option.value) {
+      <option [value]="option.value" [selected]="current.periodicReport === option.value">{{ option.label }}</option>
+    }
+  </select>
+</div>

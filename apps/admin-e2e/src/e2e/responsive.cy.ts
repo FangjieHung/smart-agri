@@ -9,6 +9,8 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/assistants', '建立新助理'],
   ['/app/assistants/new/purpose', '下一步'],
   ['/app/assistants/assistant-customer-service/overview', '客服助理'],
+  ['/app/assistants/assistant-customer-service/data-sources', '搜尋資料來源'],
+  ['/app/assistants/assistant-customer-service/rules', '找不到資料時'],
   ['/app/knowledge', '商品使用指南'],
   ['/app/knowledge/knowledge-product-guide/content', '加入示範文件'],
   ['/app/databases', '建立資料庫'],
@@ -21,6 +23,13 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
 
 /** 整頁不得出現水平捲動。 */
 function expectNoHorizontalOverflow(route: string): void {
+  cy.window().then((win) => {
+    // Cypress 把應用程式跑在自己的 iframe 裡，iframe 有獨立的 viewport；
+    // 先確認量到的寬度就是 cy.viewport 設的寬度，再拿它下結論。
+    expect(win.innerWidth, `${route} 的 innerWidth`).to.eq(
+      win.document.documentElement.clientWidth,
+    );
+  });
   cy.document().then((doc) => {
     const root = doc.documentElement;
     expect(
@@ -60,6 +69,7 @@ describe('responsive layout', () => {
       for (const [route, control] of ADMIN_ROUTES) {
         it(`fits ${route} and keeps its main control reachable`, () => {
           cy.visit(route);
+          cy.window().its('innerWidth').should('eq', PHONE[0]);
           cy.contains(control).should('exist').scrollIntoView().should('be.visible');
           expectNoHorizontalOverflow(route);
         });

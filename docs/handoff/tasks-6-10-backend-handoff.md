@@ -974,7 +974,7 @@ interface AssistantPublishingView {        // :197-203
 | 方法 | 契約位置 | mock 實作 | 語意 |
 | --- | --- | --- | --- |
 | `listAccounts()` | `demo-repository.ts:213` | `mock-demo-repository.ts:520` | 回傳三個 Demo 帳號，供切換器使用。正式版不應存在這個 endpoint。 |
-| `getAssistantSources(viewer, assistantId)` | `:220-223` | `:544` | 助理的知識庫＋資料庫連接清單；非擁有者回 `assistant-configuration` 拒絕（`:552-557`）。 |
+| `getAssistantSources(viewer, assistantId)` | `:235-238` | `:544` | 助理的知識庫＋資料庫連接清單；非擁有者回 `assistant-configuration` 拒絕。助理詳情的「資料來源」頁籤改用 `getAssistantSettings`，它已一併回傳同一份清單，所以這個方法目前沒有呼叫者。 |
 | `listKnowledgeBases(viewer)` | `:224-226` | `:573` | 原始知識庫清單（非摘要），只回 viewer 擁有的。 |
 | `listDatabases(viewer)` | `:227-229` | `:583` | 原始資料庫清單，只回 viewer 擁有的。 |
 | `listPrivateConversations(viewer)` | `:230-232` | `:593` | 只回 viewer 自己的對話。 |
@@ -1102,8 +1102,11 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>('DEMO_REPOSITO
 | 發布 | `saveLineSettings` | `features/publishing/line-setup/line-setup.component.ts:81` |
 | 發布 | `sendLineTestMessage` | `line-setup.component.ts:95` |
 | 發布 | `activateLineChannel` | `line-setup.component.ts:102` |
-| 助理 | `listAssistantConfigurations` | `features/assistants/assistant-list/assistant-list-page.component.ts:30`、`features/assistants/assistant-detail/assistant-detail-page.component.ts:74` |
-| 助理 | `getAssistantAnalytics` | `assistant-detail-page.component.ts:85` |
+| 助理 | `listAssistantConfigurations` | `features/assistants/assistant-list/assistant-list-page.component.ts:30`、`features/assistants/assistant-detail/assistant-detail-page.component.ts:106` |
+| 助理 | `getAssistantAnalytics` | `assistant-detail-page.component.ts:117` |
+| 助理 | `getAssistantSettings` | `features/assistants/assistant-detail/assistant-settings.store.ts:51` |
+| 助理 | `updateAssistantSettings` | `assistant-settings.store.ts:133`、`:139` |
+| 助理 | `setAssistantSourceConnection` | `assistant-settings.store.ts:152` |
 | 助理 | `listUsableAssistants` | `features/home/home-page.component.ts:21`、`:29` |
 | 基礎 | `listAccounts`、`getAssistantSources`、`listKnowledgeBases`、`listDatabases`、`listPrivateConversations`、`getConversation`、`listManagedSubmissions`、`listOwnSubmissions`、`submitAuthorizedForm` | Task 6–10 畫面尚未呼叫（見第 7 節） |
 | 基礎 | `setScenario`、`getScenario`、`resetScenario` | 情境切換器專用，正式版移除 |

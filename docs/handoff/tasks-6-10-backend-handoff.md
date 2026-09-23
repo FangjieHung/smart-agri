@@ -61,10 +61,10 @@
 
 ### 1.4 帳號隔離目前如何被模擬
 
-1. 「登入」只是選擇三個固定帳號之一：`apps/admin/src/app/core/session/demo-session.service.ts:31-34` 的 `switchAccount()` 把 `activeAccountId` 寫進**記憶體 signal**（`:25`），並清空畫面狀態。
-2. 路由守衛只檢查該 signal 有沒有值：`apps/admin/src/app/core/session/demo-session.guard.ts:5-8`，沒有就導到 `/login`。
+1. 「登入」只是選擇三個固定帳號之一：`apps/admin/src/app/core/session/demo-session.service.ts:100-105` 的 `switchAccount()` 把 `activeAccountId` 寫進**記憶體 signal**（`:87`），並清空畫面狀態。
+2. 路由守衛只檢查該 signal 有沒有值：`apps/admin/src/app/core/session/demo-session.guard.ts:9-12`，沒有就導到 `/login`。
 3. **重新整理頁面即登出**——signal 不落地。這是後端接手時第一個要補的東西（見第 9 節）。
-4. 每一個 repository 方法都把 `viewerAccountId: AccountId` 當成**第一個參數**由呼叫端傳入（例：`demo-repository.ts:210-212`）。正式 API 不可以這樣做：viewer 必須由 session／token 決定，絕不能從請求參數取得。
+4. 每一個 repository 方法都把 `viewerAccountId: AccountId` 當成**第一個參數**由呼叫端傳入（例：`demo-repository.ts:214-216`）。正式 API 不可以這樣做：viewer 必須由 session／token 決定，絕不能從請求參數取得。
 
 三個固定帳號與其權限（`apps/admin/src/app/core/repositories/demo-seed.ts:72-95`）：
 
@@ -139,7 +139,7 @@ type RepositoryView<T> =
 | `previewTrialAnswer(viewer, request)` | `assistant-draft.store.ts:245` | `POST /api/v1/assistant-drafts/trial-answers` | `200` `TrialAnswerView` | `403 assistant-draft` |
 | `getAssistantDraft(viewer)` | `assistant-draft.store.ts:318`、`features/home/home-page.component.ts:37` | `GET /api/v1/assistant-drafts/me` | `200` `SavedAssistantDraftView \| null` | `403 assistant-draft` |
 | `saveAssistantDraft(viewer, draft)` | `assistant-draft.store.ts:305` | `PUT /api/v1/assistant-drafts/me` | `200` `SavedAssistantDraftView` | `403 assistant-draft` |
-| `discardAssistantDraft(viewer)` | 由 `createAssistantFromDraft` 成功後內部呼叫（`mock-demo-repository.ts:1070`） | `DELETE /api/v1/assistant-drafts/me` | `204` | 目前**沒有回傳值**（`demo-repository.ts:322`），後端可自行定義 |
+| `discardAssistantDraft(viewer)` | 由 `createAssistantFromDraft` 成功後內部呼叫（`mock-demo-repository.ts:1070`） | `DELETE /api/v1/assistant-drafts/me` | `204` | 目前**沒有回傳值**（`demo-repository.ts:326`），後端可自行定義 |
 | `createAssistantFromDraft(viewer, draft)` | `assistant-draft.store.ts:278` | `POST /api/v1/assistants` | `201` `AssistantConfigurationView` | `422 validation-failed`（`AssistantDraftFieldError[]`）／`403 assistant-draft` |
 
 viewer 一律改由 session 決定，不放在 path 或 body。
@@ -973,17 +973,17 @@ interface AssistantPublishingView {        // :197-203
 
 | 方法 | 契約位置 | mock 實作 | 語意 |
 | --- | --- | --- | --- |
-| `listAccounts()` | `demo-repository.ts:209` | `mock-demo-repository.ts:520` | 回傳三個 Demo 帳號，供切換器使用。正式版不應存在這個 endpoint。 |
-| `getAssistantSources(viewer, assistantId)` | `:209-212` | `:415` | 助理的知識庫＋資料庫連接清單；非擁有者回 `assistant-configuration` 拒絕（`:424-427`）。 |
-| `listKnowledgeBases(viewer)` | `:213-215` | `:444` | 原始知識庫清單（非摘要），只回 viewer 擁有的。 |
-| `listDatabases(viewer)` | `:216-218` | `:454` | 原始資料庫清單，只回 viewer 擁有的。 |
-| `listPrivateConversations(viewer)` | `:219-221` | `:464` | 只回 viewer 自己的對話。 |
-| `getConversation(viewer, conversationId)` | `:222-225` | `:474` | 非本人一律回 `private-conversation` 拒絕（`:483-486`）。 |
-| `listManagedSubmissions(viewer)` | `:226-228` | `:492` | 只回「viewer 是 dataManager」**且** `consentStatus === 'consented'` 的紀錄（`:495-500`）。 |
-| `listOwnSubmissions(viewer)` | `:229-231` | `:504` | 只回 viewer 自己提交的紀錄。 |
-| `submitAuthorizedForm(viewer, input)` | `:232-235` | `:514` | 條件：viewer 必須是 `account-external-customer`、`consent === true`、助理存在且可用（`:520-531`）；成立時建立 `consentStatus: 'consented'` / `trackingStatus: 'received'` 的紀錄（`:541-543`）。 |
-| `getAssistantAnalytics(viewer, assistantId)` | `:236-239` | `:563` | 匿名統計，非擁有者回 `assistant-configuration` 拒絕（`:574-577`）。 |
-| `setScenario` / `getScenario` / `resetScenario` | `:195-199` | `:379`／`:383`／`:387` | **純 Demo 情境切換器**，正式 API 不得提供。 |
+| `listAccounts()` | `demo-repository.ts:213` | `mock-demo-repository.ts:520` | 回傳三個 Demo 帳號，供切換器使用。正式版不應存在這個 endpoint。 |
+| `getAssistantSources(viewer, assistantId)` | `:220-223` | `:544` | 助理的知識庫＋資料庫連接清單；非擁有者回 `assistant-configuration` 拒絕（`:552-557`）。 |
+| `listKnowledgeBases(viewer)` | `:224-226` | `:573` | 原始知識庫清單（非摘要），只回 viewer 擁有的。 |
+| `listDatabases(viewer)` | `:227-229` | `:583` | 原始資料庫清單，只回 viewer 擁有的。 |
+| `listPrivateConversations(viewer)` | `:230-232` | `:593` | 只回 viewer 自己的對話。 |
+| `getConversation(viewer, conversationId)` | `:233-236` | `:603` | 非本人一律回 `private-conversation` 拒絕（`:611-616`）。 |
+| `listManagedSubmissions(viewer)` | `:237-239` | `:621` | 只回「viewer 是 dataManager」**且** `consentStatus === 'consented'` 的紀錄（`:624-628`）。 |
+| `listOwnSubmissions(viewer)` | `:240-242` | `:633` | 只回 viewer 自己提交的紀錄。 |
+| `submitAuthorizedForm(viewer, input)` | `:243-246` | `:643` | 條件：viewer 必須是 `account-external-customer`、`consent === true`、助理存在且可用（`:647-656`）；成立時建立 `consentStatus: 'consented'` / `trackingStatus: 'received'` 的紀錄（`:677-678`）。 |
+| `getAssistantAnalytics(viewer, assistantId)` | `:247-250` | `:694` | 匿名統計，非擁有者回 `assistant-configuration` 拒絕（`:702-707`）。 |
+| `setScenario` / `getScenario` / `resetScenario` | `:207-209` | `:508`／`:512`／`:516` | **純 Demo 情境切換器**，正式 API 不得提供。 |
 
 這一組另有三個要特別提醒的地方：
 
@@ -997,8 +997,8 @@ interface AssistantPublishingView {        // :197-203
 
 | # | 議題 | 目前 Demo 的狀態（含位置） | 需要後端決定的事 |
 | --- | --- | --- | --- |
-| 1 | 認證與 session | `activeAccountId` 只是記憶體 signal（`core/session/demo-session.service.ts:25`），**重新整理即失效**；守衛只檢查有沒有值（`demo-session.guard.ts:5-8`）；另有未使用的舊 `sa.auth.session` key（`core/auth/auth.service.ts:4`） | 登入機制、token 型式與存放位置、逾期與更新、登出要清掉哪些本機資料。設計文件要求「登入逾時前保留非敏感草稿；敏感內容依安全規則清除」（`...-design.md:247`），但沒有定義「敏感」的界線。 |
-| 2 | viewer 來源 | 每個方法都把 `viewerAccountId` 當第一個參數（例 `demo-repository.ts:210`） | 正式 API 必須從 session 推導 viewer，並移除所有請求中的 accountId 參數。這會改動每一個 endpoint 的簽章。 |
+| 1 | 認證與 session | `activeAccountId` 只是記憶體 signal（`core/session/demo-session.service.ts:87`），**重新整理即失效**；守衛只檢查有沒有值（`demo-session.guard.ts:9-12`）；另有未使用的舊 `sa.auth.session` key（`core/auth/auth.service.ts:4`） | 登入機制、token 型式與存放位置、逾期與更新、登出要清掉哪些本機資料。設計文件要求「登入逾時前保留非敏感草稿；敏感內容依安全規則清除」（`...-design.md:247`），但沒有定義「敏感」的界線。 |
+| 2 | viewer 來源 | 每個方法都把 `viewerAccountId` 當第一個參數（例 `demo-repository.ts:214-216`） | 正式 API 必須從 session 推導 viewer，並移除所有請求中的 accountId 參數。這會改動每一個 endpoint 的簽章。 |
 | 3 | id 型別 | `AccountId`、`KnowledgeBaseId`、`ConversationId`、`TrialQuestionId`、`ChatResponseId` 等都是**字面值 union**（`account.model.ts:1-4`、`knowledge-base.model.ts:4-8`、`conversation.model.ts:10-11`、`:92-96`） | 決定 id 格式（UUID／ULID／數字），並讓前端把這些 union 放寬成一般字串。目前的字面值型別讓後端無法回傳任何新 id。 |
 | 4 | 檔案上傳與文件處理 | 完全沒有上傳；`addDemoKnowledgeDocument` 只建一筆假紀錄（`mock-demo-repository.ts:1112-1141`），進度靠畫面按鈕手動推進（`knowledge-detail-page.component.ts:159`） | 上傳協定（直傳／預簽名 URL）、大小與格式限制、防毒掃描、解析失敗的錯誤分類（要能填進 `issue`）、處理進度如何通知前端（輪詢／SSE／WebSocket）、可否刪除與重新命名文件、`allowOriginalDownload` 為 true 時的下載授權。 |
 | 5 | 真正的 LLM 與引用來源 | 關鍵字比對 fixture（`mock-demo-repository.ts:1886-1907`）；引用是寫死的文件名與摘錄（`demo-seed-chat.ts`） | 模型選擇與供應商、檢索策略與切塊、引用來源如何定位到文件位置、串流回應的協定、逾時與重試、成本與速率限制、`no-result` 的判定門檻、`general-knowledge` 與 `company-data` 如何在同一次回答中分區。 |
@@ -1040,7 +1040,7 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>('DEMO_REPOSITO
 
 所有功能元件都只注入 `DEMO_REPOSITORY`，沒有任何元件直接 import seed 或 mock（計畫 `...-demo.md:176` 就是這條要求）。因此替換步驟是：
 
-1. **新增** `apps/admin/src/app/core/repositories/http-demo-repository.ts`，實作 `DemoRepository`（`demo-repository.ts:208-471`）。
+1. **新增** `apps/admin/src/app/core/repositories/http-demo-repository.ts`，實作 `DemoRepository`（`demo-repository.ts:212-476`）。
 2. 把 `tokens.ts` 的 factory 改成回傳新的 adapter。
 3. **不要動** `demo-repository.ts` 的介面，除非確實要改契約（要改的項目見第 8 節第 2、3、10 點）。
 4. `MockDemoRepository` 與 seed 檔保留，作為測試替身——現有的六個 spec 檔（`mock-demo-repository*.spec.ts`）就是契約的可執行規格，新 adapter 應該能通過同一組行為測試。
@@ -1053,9 +1053,9 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>('DEMO_REPOSITO
 | --- | --- | --- |
 | 同步 vs 非同步 | 目前所有方法都是**同步**回傳（例 `demo-repository.ts:209`），HTTP 必然非同步 | 把回傳型別改為 `Observable<RepositoryView<T>>` 或 `Signal`，並在各元件把直接取值改成訂閱。這是替換工作量的主體。呼叫點共 41 處，清單見 9.3。 |
 | `loading` 狀態 | 目前只由情境切換器產生 | 改由請求生命週期產生；`RepositoryView` 的 union 本身不需要改。 |
-| `discardAssistantDraft` 無回傳值 | `demo-repository.ts:322` 宣告為 `void` | 改為回傳 `RepositoryView<void>` 或保持 fire-and-forget，需與前端確認。 |
-| `DemoScenarioController` | `demo-repository.ts:202-206`，三個情境切換方法 | HTTP adapter 可實作為 no-op，或在正式環境把情境切換 UI 整個移除。 |
-| `DemoKeyValueStorage` | `demo-repository.ts:196-200`，只在 mock 使用 | HTTP adapter 不需要；但草稿若要保留離線編輯，仍可沿用同樣的 key 格式。 |
+| `discardAssistantDraft` 無回傳值 | `demo-repository.ts:326` 宣告為 `void` | 改為回傳 `RepositoryView<void>` 或保持 fire-and-forget，需與前端確認。 |
+| `DemoScenarioController` | `demo-repository.ts:206-210`，三個情境切換方法 | HTTP adapter 可實作為 no-op，或在正式環境把情境切換 UI 整個移除。 |
+| `DemoKeyValueStorage` | `demo-repository.ts:201-204`，只在 mock 使用 | HTTP adapter 不需要；但草稿若要保留離線編輯，仍可沿用同樣的 key 格式。 |
 
 ### 9.3 每個方法對應要改的檔案
 

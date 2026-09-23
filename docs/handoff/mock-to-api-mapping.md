@@ -119,6 +119,8 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 `DatabaseTrackingView` 的每個 `TrackedSubjectView` 除了 `records` 還有 `withdrawals`（`database.model.ts:270-278`）：已撤回同意的紀錄不出現在 `records`、也不計入 `comparison`，只以不含內容的軌跡列在 `withdrawals`。撤回讓某位追蹤對象剩下不到 2 筆時，`comparison` 會回到 `insufficient-records`。全部撤回的追蹤對象仍留在清單裡（筆數 0），不會無聲消失。
 
+`DatabaseTrackingView` 另有 `periodicReports`（`database.model.ts:303`）：對這個資料庫開啟助理規則「定期回報」的助理，各自一筆「下次回報日期＋這一期的變化摘要」。**摘要是把 `MetricComparisonView.summary` 原樣搬過來的**，不是另一份分析，所以伺服端同樣應該算好再送（`database-tracking.ts` 的 `buildPeriodicReport()`）。沒有助理回報到這個資料庫時是空陣列。
+
 `getDatabaseTracking` 是全表唯一會回傳**兩種不同 reason** 的方法：`database-records` 代表「這個資料庫你看得到，但收集紀錄不給你看」，`database` 代表「不存在或不是你的」。兩者的畫面呈現不同，不能合併。
 
 ### 2.4 終端對話與同意流程（9 個方法）

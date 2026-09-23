@@ -1,5 +1,6 @@
 import type { AccountView } from '../domain/account.model';
 import type {
+  AssistantAnswerRules,
   AssistantTemplateView,
   TrialQuestionView,
 } from '../domain/assistant-draft.model';
@@ -56,7 +57,31 @@ export interface DemoSeed {
   readonly trialQuestions: readonly TrialQuestionFixture[];
   readonly chatProfiles: Readonly<Partial<Record<AssistantConfigurationView['id'], ChatProfileFixture>>>;
   readonly chatResponses: readonly ChatResponseFixture[];
+  readonly assistantRuleDefaults: AssistantRuleDefaults;
 }
+
+/**
+ * 種子助理還沒被編輯過時的回答規則。助理本身是唯讀 fixture，規則沒有存放的位置，
+ * 所以放在這裡；編輯過之後一律以保存的設定為準。
+ */
+export type AssistantRuleDefaults = Readonly<
+  Partial<Record<AssistantConfigurationView['id'], Partial<AssistantAnswerRules>>>
+>;
+
+export const ASSISTANT_RULE_DEFAULTS: AssistantRuleDefaults = {
+  // 對外的客服助理：附上引用出處，並每月請客戶回報一次滿意度與消費變化。
+  'assistant-customer-service': {
+    showCitations: true,
+    dataWriteDatabaseId: 'database-customer-records',
+    dataWritePurpose: '記錄每次回訪的滿意度與消費金額，作為定期回報的比較依據。',
+    periodicReport: 'monthly',
+  },
+  // 對內的教育訓練助理：只標示「根據你的資料」，不附原文片段，也不收集回報。
+  'assistant-internal-onboarding': {
+    showCitations: false,
+    periodicReport: 'off',
+  },
+};
 
 /** 試問固定回答：不連接真實 AI，依來源與規則挑選其中一種回答。 */
 export interface TrialQuestionFixture extends TrialQuestionView {
@@ -385,4 +410,5 @@ export const DEMO_SEED: DemoSeed = {
   ],
   chatProfiles: CHAT_PROFILES,
   chatResponses: CHAT_RESPONSES,
+  assistantRuleDefaults: ASSISTANT_RULE_DEFAULTS,
 };

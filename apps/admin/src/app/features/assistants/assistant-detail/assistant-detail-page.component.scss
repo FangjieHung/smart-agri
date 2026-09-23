@@ -53,6 +53,15 @@ p { color: var(--color-text-secondary); line-height: var(--line-height-body); }
 .created-banner a { color: var(--color-accent); font-weight: 700; }
 .created-banner a:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }
 
+/* 測試頁籤：把目前的回答規則換成「試問時會看到什麼」。 */
+.rule-effect {
+  padding: var(--space-3) var(--space-4);
+  border-inline-start: var(--space-1) solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+  font-size: var(--font-size-caption);
+}
+
 .panel-link { justify-self: start; color: var(--color-accent); font-weight: 700; }
 .panel-link:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }
 .usage-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: var(--space-3); margin: 0; }

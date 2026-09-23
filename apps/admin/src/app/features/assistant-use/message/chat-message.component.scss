@@ -36,6 +36,12 @@ p, ul, dl { margin: 0; }
   font-size: var(--font-size-caption);
 }
 
+/* 引用出處被規則關掉時的說明；語氣是中性的補充，不是警告。 */
+.citation-notice {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+
 .next-title { font-weight: 700; }
 .next-steps { padding-inline-start: var(--space-6); }
 

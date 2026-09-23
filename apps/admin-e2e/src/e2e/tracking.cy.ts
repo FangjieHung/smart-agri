@@ -100,6 +100,21 @@ describe('structured data and tracking', () => {
     cy.get('app-trend-chart').first().find('tbody tr').should('have.length', 4);
   });
 
+  it('shows the 定期回報 schedule and a summary built from the precomputed comparison', () => {
+    cy.visit('/app/databases/database-customer-records/records');
+    cy.get('.periodic-report').should('not.exist');
+
+    cy.contains('nav.tabs a', '趨勢比較').click();
+    cy.get('.periodic-report')
+      .should('contain', '客服助理')
+      .and('contain', '每月一次')
+      .and('contain', '2026-10-15');
+    cy.get('.periodic-report .report-lines li')
+      .should('contain', '王小姐')
+      .and('contain', '整體滿意度：本次 5 / 5，較上次 +2 分，較首次 +2 分。');
+    cy.get('.periodic-report').should('contain', '不會重新計算數字');
+  });
+
   it('does not show a trend conclusion before there are two records', () => {
     cy.visit('/app/databases/database-customer-records/trends');
     cy.get('#subject-select').select('陳先生（1 筆）');

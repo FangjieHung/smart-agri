@@ -338,7 +338,12 @@
 - **關閉「保存自己的對話」不會刪除既有對話。**
   關掉之後新的對話不再寫入 `localStorage`，使用者的對話紀錄欄會顯示為空；但**先前已保存的對話仍留在儲存中，重新勾選就會再次出現**。這是刻意的：助理擁有者本來就看不到別人的對話內容，也不應該有一個開關可以單方面銷毀別人的資料。要真正移除，必須由對話的所有人在自己的對話紀錄中刪除。畫面上的說明文字（`answer-rules-form.component.html`）就是這樣寫的。
 - **「只依據我的資料回答」現在也決定對話行為。**
-  原本 `knowledgeScope` 只影響建立精靈的試問預覽，對話一律看 fixture 的 `chatProfiles.allowGeneralKnowledge`。現在助理若存過設定就以設定為準（`mock-demo-repository.ts` 的 `allowsGeneralKnowledge`），沒存過才沿用 fixture——預設值即由 fixture 推導，所以未編輯過的助理行為不變。`showCitations` 與 `periodicReport` 仍只是設定值，沒有對話端行為。
+  原本 `knowledgeScope` 只影響建立精靈的試問預覽，對話一律看 fixture 的 `chatProfiles.allowGeneralKnowledge`。現在助理若存過設定就以設定為準（`mock-demo-repository.ts` 的 `allowsGeneralKnowledge`），沒存過才沿用 fixture——預設值即由 fixture 推導，所以未編輯過的助理行為不變。
+- **§6 步驟三剩下的兩項規則也接到實際行為了：「顯示引用出處」與「定期回報」。**（2026-09-23 追加。）
+  兩者原本只是被保存的設定值，終端畫面不讀取。現在：
+  - **`showCitations`**：關掉時公司資料的回答**仍然是**「根據你的資料」（`data-kind="company-data"`、`chat-message.component.ts` 的 `REPLY_LABELS`），只是不再提供「查看引用來源」按鈕，改附一句說明（`CHAT_CITATIONS_OFF_NOTICE`）。§9 的三種回答狀態（§9 第 187-191 行）因此完整保留——關掉的是「出處」，不是「這題有沒有答案」：`fixtureReply()` 仍先用引用來源判斷助理有沒有連接到那份公司資料，沒有就照常回「查無資料」（`mock-demo-repository.ts:2229`、`chat-message.component.html:16-29`）。助理的「測試」頁籤會直接寫出目前會看到哪一種（`assistant-detail-page.component.html:63-71`）。**已經保存的回答不會被改寫**：規則只影響之後的新回答，舊訊息仍帶著當時的引用來源，和「關閉保存自己的對話不刪除既有對話」是同一個原則。
+  - **`periodicReport`**：助理把資料寫入某個資料庫（`dataWriteDatabaseId`）且週期不是「不需要」時，該資料庫的**趨勢比較**頁籤會多出一張回報面板：助理名稱、回報頻率、下次回報日期（由最近一次已同意的紀錄推算），以及這一期的變化摘要。摘要**整段沿用 `compareRecords()` 已經算好的 `MetricComparisonView.summary`**，只在前面加上追蹤對象名稱——沒有新的分析，也沒有重新計算任何數字，§8「AI 只把算好的差異轉成文字」的規則不變（`database-tracking.ts:152-191`、`mock-demo-repository.ts:2633-2654`、`periodic-report.component.html`）。
+  - **種子資料刻意做出對照**：客服助理開著引用出處、每月回報到客戶資料庫；內部教育訓練助理關著引用出處、不做回報（`demo-seed.ts:71-94`）。種子助理本身是唯讀 fixture，沒有存放規則的位置，所以預設規則放在 `assistantRuleDefaults`，編輯過之後一律以保存的設定為準（`mock-demo-repository.ts:2511-2527`），精靈建立的助理則沿用它在步驟三填的值。
 - **`?demoScenario=` 網址參數。**
   為了在展示現場直接叫出錯誤與等待畫面，加了 `loading` / `partial-failure` / `permission-denied` / `disconnected-channel` 四種情境參數（外加預設的 `ready`）。只影響 mock repository，換頁即恢復。
 - **`/use/:assistantId?embed=1` 嵌入模式。**
@@ -350,8 +355,8 @@
 
 ## C. 驗收結果（2026-09-23）
 
-- `npx nx test admin`：61 檔 / 337 測試通過（2026-09-23 撤回同意完成後重跑）。
-- `npx nx e2e admin-e2e --configuration=production`：15 spec / 111 測試通過（2026-09-23 重跑）。
+- `npx nx test admin`：62 檔 / 347 測試通過（2026-09-23 接上引用出處與定期回報規則後重跑）。
+- `npx nx e2e admin-e2e --configuration=production`：15 spec / 114 測試通過（2026-09-23 重跑）。
 - `npx nx lint admin`、`npx nx build admin`：通過。
-- 手動走查：1280px 與 360px 各走完一次展示腳本。360px 下所有畫面 `scrollWidth === clientWidth === 360`，沒有橫向溢出；超出邊界的元素（建議問題列、趨勢對照表、頁籤列）都在刻意設定的 `overflow-x: auto` 容器內，可捲動抵達。未發現死路、不可回復狀態或跨帳號資料殘留。
+- 手動走查：1280px 與 360px 各走完一次展示腳本（新增的「定期回報」面板、對話的引用出處說明與「測試」頁籤的規則說明也在 360px 量過，`innerWidth === clientWidth === scrollWidth === 360`）。360px 下所有畫面 `scrollWidth === clientWidth === 360`，沒有橫向溢出；超出邊界的元素（建議問題列、趨勢對照表、頁籤列）都在刻意設定的 `overflow-x: auto` 容器內，可捲動抵達。未發現死路、不可回復狀態或跨帳號資料殘留。
 - **既存問題（與本 Demo 無關）**：`libs/theme-pack` 有 3 / 7 個測試失敗、`libs/ui` 有 1 / 90 個測試失敗。驗收本 Demo 時只跑 `admin` 與 `admin-e2e` 兩個目標。

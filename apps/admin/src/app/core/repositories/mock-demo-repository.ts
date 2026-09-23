@@ -49,7 +49,9 @@ import type {
   DatabaseTrackingView,
   DatabaseTrialAnswers,
   DatabaseView,
+  PeriodicReportView,
   TrackedSubjectId,
+  TrackedSubjectView,
 } from '../domain/database.model';
 import {
   KNOWLEDGE_DOCUMENT_STATUSES,
@@ -74,6 +76,7 @@ import {
   type WebsiteEmbedSettings,
 } from '../domain/publishing.model';
 import {
+  buildPeriodicReport,
   compareRecords,
   evaluateTrial,
   normalizeField,
@@ -84,6 +87,7 @@ import {
 } from './database-tracking';
 import {
   ANONYMOUS_VISITOR_SUBJECT_NAME,
+  CHAT_CITATIONS_OFF_NOTICE,
   CHAT_DEFAULT_THREAD_TITLE,
   CHAT_GENERAL_KNOWLEDGE_NOTICE,
   CHAT_HISTORY_OFF_NOTICE,
@@ -1510,24 +1514,26 @@ export class MockDemoRepository implements DemoRepository {
 
     const records = this.consentedRecords(database.id);
     const withdrawn = this.withdrawnRecords(database.id);
+    const subjects = [...this.seed.trackedSubjects, ...this.chatSubjects()]
+      .filter((subject) => subject.databaseId === database.id)
+      .map((subject) => {
+        const chronological = records.filter((record) => record.subjectId === subject.id);
+        return {
+          id: subject.id,
+          displayName: subject.displayName,
+          records: [...chronological].reverse().map(toRecordView),
+          withdrawals: withdrawn
+            .filter((record) => record.subjectId === subject.id)
+            .map(toWithdrawnRecordView),
+          comparison: compareRecords(chronological),
+        };
+      })
+      // 全部撤回的追蹤對象仍然留著：只剩軌跡，但不能無聲消失。
+      .filter((subject) => subject.records.length > 0 || subject.withdrawals.length > 0);
     const tracking: DatabaseTrackingView = {
       databaseId: database.id,
-      subjects: [...this.seed.trackedSubjects, ...this.chatSubjects()]
-        .filter((subject) => subject.databaseId === database.id)
-        .map((subject) => {
-          const chronological = records.filter((record) => record.subjectId === subject.id);
-          return {
-            id: subject.id,
-            displayName: subject.displayName,
-            records: [...chronological].reverse().map(toRecordView),
-            withdrawals: withdrawn
-              .filter((record) => record.subjectId === subject.id)
-              .map(toWithdrawnRecordView),
-            comparison: compareRecords(chronological),
-          };
-        })
-        // 全部撤回的追蹤對象仍然留著：只剩軌跡，但不能無聲消失。
-        .filter((subject) => subject.records.length > 0 || subject.withdrawals.length > 0),
+      subjects,
+      periodicReports: this.periodicReports(database.id, records, subjects),
     };
 
     return this.applyScenario(tracking);
@@ -2217,7 +2223,17 @@ export class MockDemoRepository implements DemoRepository {
             excerpt: citation.excerpt,
             updatedLabel: citation.updatedLabel,
           }));
-        return citations.length > 0 ? { kind: 'company-data', text: answer.text, citations } : null;
+        // 先用引用來源判斷助理有沒有這份公司資料，再決定要不要把出處顯示出來：
+        // 規則關掉的是「出處」，不是「這題有沒有答案」。
+        if (citations.length === 0) return null;
+        return this.showsCitations(assistant)
+          ? { kind: 'company-data', text: answer.text, citations, citationNotice: null }
+          : {
+              kind: 'company-data',
+              text: answer.text,
+              citations: [],
+              citationNotice: CHAT_CITATIONS_OFF_NOTICE,
+            };
       }
       case 'general-knowledge': {
         return this.allowsGeneralKnowledge(assistant)
@@ -2500,7 +2516,14 @@ export class MockDemoRepository implements DemoRepository {
         ? 'allow-general-knowledge'
         : 'company-data-only',
       keepOwnConversations: assistant.keepOwnConversations !== false,
+      // 種子助理沒有存過設定，預設值來自 seed，讓未編輯過的助理也看得出差異。
+      ...(this.seed.assistantRuleDefaults[assistant.id] ?? {}),
     };
+  }
+
+  /** 目前生效的回答規則：存過設定就以設定為準，否則用助理的預設規則。 */
+  private assistantRules(assistant: AssistantConfigurationView): AssistantAnswerRules {
+    return this.storedAssistantSettings(assistant.id)?.rules ?? this.defaultRules(assistant);
   }
 
   private assistantSettings(
@@ -2595,10 +2618,39 @@ export class MockDemoRepository implements DemoRepository {
 
   /** 設定過「只依據我的資料回答」時以設定為準，否則沿用 fixture 的助理個性。 */
   private allowsGeneralKnowledge(assistant: AssistantConfigurationView): boolean {
-    const stored = this.storedAssistantSettings(assistant.id);
-    return stored === null
-      ? (this.seed.chatProfiles[assistant.id] ?? DEFAULT_CHAT_PROFILE).allowGeneralKnowledge
-      : stored.rules.knowledgeScope === 'allow-general-knowledge';
+    return this.assistantRules(assistant).knowledgeScope === 'allow-general-knowledge';
+  }
+
+  /** 「顯示引用出處」關掉時，公司資料的回答仍然標示成公司資料，只是不附原文片段。 */
+  private showsCitations(assistant: AssistantConfigurationView): boolean {
+    return this.assistantRules(assistant).showCitations;
+  }
+
+  /**
+   * 對這個資料庫開啟「定期回報」的助理。排程由最近一次已同意的紀錄推算，
+   * 摘要沿用 `compareRecords` 算好的字串——這裡不重新計算任何數字。
+   */
+  private periodicReports(
+    databaseId: DatabaseId,
+    chronological: readonly DatabaseRecordFixture[],
+    subjects: readonly TrackedSubjectView[],
+  ): readonly PeriodicReportView[] {
+    const latest = chronological.at(-1);
+    const anchorLabel = (latest?.recordedAt ?? this.now().toISOString()).slice(0, 10);
+
+    return this.assistants().flatMap((assistant) => {
+      const rules = this.assistantRules(assistant);
+      if (rules.periodicReport === 'off' || rules.dataWriteDatabaseId !== databaseId) return [];
+      return [
+        buildPeriodicReport({
+          assistantName: assistant.name,
+          schedule: rules.periodicReport,
+          purpose: rules.dataWritePurpose,
+          anchorLabel,
+          subjects,
+        }),
+      ];
+    });
   }
 
   private assistants(): readonly AssistantConfigurationView[] {

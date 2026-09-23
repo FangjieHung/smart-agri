@@ -141,7 +141,13 @@ export type ChatReplyView =
   | {
       readonly kind: 'company-data';
       readonly text: string;
+      /**
+       * 助理關閉「顯示引用出處」時為空陣列——回答仍然標示成公司資料，
+       * 只是不提供原文片段，`citationNotice` 會說明少了什麼。
+       */
       readonly citations: readonly ChatCitationView[];
+      /** 引用出處被規則關閉時的說明；照常顯示出處時為 null。 */
+      readonly citationNotice: string | null;
     }
   | {
       readonly kind: 'general-knowledge';

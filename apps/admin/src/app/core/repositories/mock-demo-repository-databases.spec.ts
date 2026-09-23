@@ -275,6 +275,38 @@ describe('MockDemoRepository databases', () => {
     });
   });
 
+  it('builds a 定期回報 schedule and summary only for assistants that have it on', () => {
+    const repository = createRepository();
+    const tracking = trackingOf(repository);
+
+    expect(tracking.periodicReports).toHaveLength(1);
+    const report = tracking.periodicReports[0];
+    expect(report.assistantName).toBe('客服助理');
+    expect(report.scheduleLabel).toBe('每月一次');
+    // 最近一次已同意的紀錄是 2026-09-15，每月一次即下個月同一天。
+    expect(report.anchorLabel).toBe('2026-09-15');
+    expect(report.nextReportLabel).toBe('2026-10-15');
+    // 摘要只重複使用已算好的比較字串，不另外計算。
+    const wang = tracking.subjects[0].comparison;
+    expect(wang.status).toBe('available');
+    if (wang.status === 'available') {
+      expect(report.lines).toContain(`王小姐 · ${wang.metrics[0].summary}`);
+    }
+  });
+
+  it('drops the 定期回報 surface when the assistant turns 定期回報 off', () => {
+    const repository = createRepository();
+    repository.updateAssistantSettings('account-smb-admin', 'assistant-customer-service', {
+      rules: { periodicReport: 'off' },
+    });
+
+    expect(trackingOf(repository).periodicReports).toHaveLength(0);
+  });
+
+  it('does not offer a 定期回報 surface on a database no assistant reports into', () => {
+    expect(trackingOf(createRepository(), 'database-orders').periodicReports).toHaveLength(0);
+  });
+
   it('only lets designated data managers read structured records', () => {
     const seed = {
       ...DEMO_SEED,

@@ -125,6 +125,50 @@ describe('editing an assistant after it exists', () => {
       cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
     });
 
+    it('turns 顯示引用出處 off and the chat stops offering the citation drawer', () => {
+      openTab('test');
+      cy.contains('會附上「查看引用來源」').should('be.visible');
+
+      cy.visit(`/app/chat/${ASSISTANT}`);
+      cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+      cy.get('form.composer button[type="submit"]').click();
+      cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+      // 訊息區是可捲動的容器，按鈕可能在視窗外；這裡只確認它存在。
+      cy.contains('button', '查看引用來源').should('exist');
+
+      openTab('rules');
+      cy.get('#show-citations').should('be.checked').uncheck();
+      cy.get('.autosave').should('contain', '已自動儲存');
+
+      openTab('test');
+      cy.contains('不會附上引用來源').should('be.visible');
+
+      cy.visit(`/app/chat/${ASSISTANT}`);
+      cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+      cy.get('form.composer button[type="submit"]').click();
+      // 仍然標示成公司資料，只是不再提供引用出處。
+      // 先前已保存的回答不會被改寫，所以只看最新那一則。
+      cy.get('[role="log"] [data-kind="company-data"]').last().within(() => {
+        cy.contains('根據你的資料').should('exist');
+        cy.get('button.citation-toggle').should('not.exist');
+        cy.get('p.citation-notice').should('contain', '不顯示引用出處');
+      });
+    });
+
+    it('turns 定期回報 off and the database trend tab stops showing the report', () => {
+      cy.visit('/app/databases/database-customer-records/trends');
+      cy.get('.periodic-report').should('contain', '客服助理').and('contain', '2026-10-15');
+
+      openTab('rules');
+      cy.get('#periodic-report').should('have.value', 'monthly').select('不需要');
+      cy.get('.autosave').should('contain', '已自動儲存');
+
+      cy.visit('/app/databases/database-customer-records/trends');
+      cy.get('.periodic-report').should('not.exist');
+      // 趨勢比較本身不受影響。
+      cy.get('.trend-conclusion').should('be.visible');
+    });
+
     it('only offers databases that are still connected as the write target', () => {
       openTab('rules');
       cy.get('#data-write-database option').should('contain', '訂單資料庫');

@@ -38,6 +38,22 @@ describe('ChatMessageComponent', () => {
     expect(emitted).toHaveLength(1);
   });
 
+  it('keeps the company-data label but drops the citation button when 顯示引用出處 is off', () => {
+    const { host } = render(
+      assistant({
+        kind: 'company-data',
+        text: '收到商品後 7 天內可以申請退貨。',
+        citations: [],
+        citationNotice: '這則回答出自公司資料；這個助理設定為不顯示引用出處。',
+      }),
+    );
+
+    const bubble = host.querySelector('[data-kind="company-data"]');
+    expect(bubble?.textContent).toContain('根據你的資料');
+    expect(host.querySelector('button.citation-toggle')).toBeNull();
+    expect(host.querySelector('p.citation-notice')?.textContent).toContain('不顯示引用出處');
+  });
+
   it('labels general knowledge separately and never shows a citation button for it', () => {
     const { host } = render(assistant(replyFor('皮革商品平常要怎麼保養？')));
 

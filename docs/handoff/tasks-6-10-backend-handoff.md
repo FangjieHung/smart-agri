@@ -198,7 +198,21 @@ interface AssistantConfigurationView {
 }
 ```
 
-`keepOwnConversations` 是**規則中唯一會改變執行期行為的一項**：false 時使用者與這個助理的對話完全不落地，也不會出現在對話紀錄側欄（見第 5.4 節）。其餘規則（`knowledgeScope` / `refusalMessage` / `showCitations` / `dataWrite*` / `periodicReport`）目前只被保存進草稿，終端對話並不讀取它們——這是第 2.6 節與第 5.6 節之間的落差，正式版必須把規則接到真正的回答流程上。舊的 `sme-demo:created-assistants` 資料沒有這個欄位時一律視為 true（`mock-demo-repository.ts:2185-2189`）。
+`keepOwnConversations` 是規則中唯一被提升到 `AssistantConfigurationView` 上的一項：false 時使用者與這個助理的對話完全不落地，也不會出現在對話紀錄側欄（見第 5.4 節）。舊的 `sme-demo:created-assistants` 資料沒有這個欄位時一律視為 true。
+
+**規則接到執行期行為的現況**（2026-09-23 更新，原本只有 `keepOwnConversations`）：
+
+| 規則 | 現在改變什麼 | 讀取點 |
+| --- | --- | --- |
+| `keepOwnConversations` | 對話是否寫入儲存、是否列在對話紀錄側欄 | `mock-demo-repository.ts` 的 `keepsConversations()` / `historyMode()` |
+| `knowledgeScope` | 是否允許以獨立區塊補充一般知識 | `allowsGeneralKnowledge()` |
+| `showCitations` | 公司資料的回答是否附引用來源；關掉時 `citations` 為空、`citationNotice` 帶說明，**回答仍然是 `company-data`** | `showsCitations()`（`mock-demo-repository.ts:2625`），套用點在 `fixtureReply()`（`:2229`） |
+| `periodicReport` + `dataWriteDatabaseId` + `dataWritePurpose` | 寫入目標資料庫的「趨勢比較」是否出現回報面板（下次回報日期＋變化摘要） | `periodicReports()`（`mock-demo-repository.ts:2633`），計算在 `database-tracking.ts:152-191` |
+| `refusalMessage` | 只用在建立精靈的試問預覽，終端對話的 `no-result` 仍用固定文案 `CHAT_NO_RESULT_TEXT` | `previewTrialAnswer()` |
+
+**尚未接上的只剩 `refusalMessage` 在終端對話這一段**：正式版應讓 `no-result` 用擁有者設定的拒答文案，而不是 seed 的固定字串。
+
+未存過設定的種子助理，規則預設值來自 `demo-seed.ts` 的 `ASSISTANT_RULE_DEFAULTS`（`:71`），存過之後一律以 `sme-demo:assistant-settings:<id>` 為準（`mock-demo-repository.ts:2511-2527`）。正式後端應把規則存在助理本身，不需要這層 fallback。
 
 試問請求／回應（`assistant-draft.model.ts:129-133`、`:111-127`）：
 
@@ -282,7 +296,7 @@ interface AssistantDraftFieldError { field: AssistantDraftField; message: string
 
 1. **試問回答完全來自 fixture**：`previewTrialAnswer` 依 `demo-seed.ts` 的 `trialQuestions` 查表，不呼叫任何 AI（`mock-demo-repository.ts:926-982`）。契約註解：`demo-repository.ts:309`「以固定 fixture 模擬試問回答，不連接真實 AI」。計畫依據：`...-demo.md:458`。
    - 只有當「問題有 `companyAnswer`」且「該知識庫屬於 viewer」且「草稿真的連了那個知識庫」時才回 `company-data`（`:805-820`）。
-   - `showCitations` 為 false 時把 citation 設為 null（`:824-836`）——實際引用來源是否存在並未驗證。
+   - `showCitations` 為 false 時把 citation 設為 null（`previewTrialAnswer()` 內）——實際引用來源是否存在並未驗證。終端對話走的是另一條路（`fixtureReply()`，`mock-demo-repository.ts:2229`）：那裡**會**先用引用來源判斷助理有沒有連接到那份公司資料，關掉引用出處只是不把出處顯示出來。
    - 否則若允許一般知識且該題有 `generalAnswer`，回 `general-knowledge`（`:837-843`）。
    - 其餘一律回 `no-answer`，且**文字直接用草稿裡的 `refusalMessage`**（`:844-849`）。
 2. **助理 id 由時間戳產生**：`assistant-created-<Date.now()>`，衝突時遞增（`mock-demo-repository.ts:2192-2200`）。正式後端請改用伺服端 id，並放寬 `assistant.model.ts:10` 的字面值型別。
@@ -479,7 +493,21 @@ interface DatabaseTrialPreviewView { saved: false; entries: readonly DatabaseRec
 追蹤資料（`database.model.ts:200-267`）：
 
 ```ts
-interface DatabaseTrackingView { databaseId: DatabaseId; subjects: readonly TrackedSubjectView[] }  // :264-267
+interface DatabaseTrackingView {           // database.model.ts:300-304（PeriodicReportView 在 :284-298）
+  databaseId: DatabaseId;
+  subjects: readonly TrackedSubjectView[];
+  periodicReports: readonly PeriodicReportView[];  // 對這個資料庫開啟「定期回報」的助理；沒有時為空陣列
+}
+
+interface PeriodicReportView {
+  assistantName: string;
+  scheduleLabel: string;                   // 每週一次／每月一次
+  anchorLabel: string;                     // 推算依據：最近一次已同意的紀錄日期
+  nextReportLabel: string;                 // 下次回報日期
+  purpose: string;                         // rules.dataWritePurpose
+  lines: readonly string[];                // 直接沿用 MetricComparisonView.summary，前面加追蹤對象名稱
+  note: string;
+}
 
 interface TrackedSubjectView {             // :256-262
   id: TrackedSubjectId;                    // `subject-${string}`
@@ -699,7 +727,7 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 
 | union 值 | 中文顯示 | 必帶欄位 | 型別定義 |
 | --- | --- | --- | --- |
-| `company-data` | 根據你的資料 | `citations[]`（可展開的引用來源） | `conversation.model.ts:124-128`；設計 `...-design.md:188-192` |
+| `company-data` | 根據你的資料 | `citations[]`（可展開的引用來源）、`citationNotice`（規則關掉引用出處時的說明，否則 null） | `conversation.model.ts:140-151`；設計 `...-design.md:188-192` |
 | `general-knowledge` | 一般知識補充 | `notice`（必須以獨立區塊標示，不得混進公司資料） | `:129-133` |
 | `no-result` | 查無資料 | `nextSteps[]`（下一步建議） | `:134-138` |
 | `form-request` | 需要填寫資料 | `form`（含 consent） | `:139-143` |

@@ -16,6 +16,7 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status-badge/status-badge.component';
 import { FormDesignerComponent } from '../form-designer/form-designer.component';
 import { FormTrialComponent } from '../form-designer/form-trial/form-trial.component';
+import { PeriodicReportComponent } from '../periodic-report/periodic-report.component';
 import { RecordsTableComponent } from '../records-table/records-table.component';
 import { TrendViewComponent } from '../trend-view/trend-view.component';
 
@@ -50,6 +51,7 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
     StatusBadgeComponent,
     FormDesignerComponent,
     FormTrialComponent,
+    PeriodicReportComponent,
     RecordsTableComponent,
     TrendViewComponent,
   ],
@@ -89,6 +91,14 @@ export class DatabaseDetailPageComponent {
   protected readonly subjects = computed(() => {
     const tracking = this.tracking();
     return tracking?.status === 'ready' || tracking?.status === 'partial-failure' ? tracking.data.subjects : [];
+  });
+
+  /** 助理規則開啟「定期回報」時才有；排程與摘要都由 repository 算好。 */
+  protected readonly periodicReports = computed(() => {
+    const tracking = this.tracking();
+    return tracking?.status === 'ready' || tracking?.status === 'partial-failure'
+      ? tracking.data.periodicReports
+      : [];
   });
 
   protected readonly selectedSubject = computed(() => {

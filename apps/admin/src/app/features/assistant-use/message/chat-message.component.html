@@ -13,14 +13,19 @@
     <p>{{ reply.text }}</p>
     @switch (reply.kind) {
       @case ('company-data') {
-        <button
-          type="button"
-          class="citation-toggle"
-          aria-haspopup="dialog"
-          (click)="showCitations(reply.citations, $event)"
-        >
-          查看引用來源（{{ reply.citations.length }}）
-        </button>
+        @if (reply.citations.length > 0) {
+          <button
+            type="button"
+            class="citation-toggle"
+            aria-haspopup="dialog"
+            (click)="showCitations(reply.citations, $event)"
+          >
+            查看引用來源（{{ reply.citations.length }}）
+          </button>
+        }
+        @if (reply.citationNotice) {
+          <p class="citation-notice">{{ reply.citationNotice }}</p>
+        }
       }
       @case ('general-knowledge') {
         <p class="notice">{{ reply.notice }}</p>

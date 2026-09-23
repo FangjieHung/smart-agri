@@ -17,11 +17,16 @@ describe('MockDemoRepository assistant settings', () => {
     });
   });
 
-  function lastReplyKind(question: string): string | undefined {
-    const result = repository.sendChatMessage('account-smb-admin', SEEDED, question);
+  function lastReply(question: string, assistantId = SEEDED) {
+    const result = repository.sendChatMessage('account-smb-admin', assistantId, question);
     if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
     const last = result.data.messages.at(-1);
-    return last?.author === 'assistant' ? last.reply.kind : undefined;
+    if (last?.author !== 'assistant') throw new Error('expected assistant reply');
+    return last.reply;
+  }
+
+  function lastReplyKind(question: string): string | undefined {
+    return lastReply(question).kind;
   }
 
   function settings(assistantId = SEEDED): AssistantSettingsView {
@@ -179,6 +184,36 @@ describe('MockDemoRepository assistant settings', () => {
     const back = repository.listChatThreads('account-smb-admin', SEEDED);
     expect(back.status).toBe('ready');
     if (back.status === 'ready') expect(back.data.threads).toHaveLength(1);
+  });
+
+  it('seeds one assistant with 顯示引用出處 on and another with it off', () => {
+    expect(settings().rules.showCitations).toBe(true);
+    expect(settings('assistant-internal-onboarding').rules.showCitations).toBe(false);
+  });
+
+  it('keeps the company-data answer but removes its citations when 顯示引用出處 is off', () => {
+    const shown = lastReply('收到商品後幾天內可以退貨？');
+    expect(shown.kind).toBe('company-data');
+    if (shown.kind === 'company-data') {
+      expect(shown.citations.length).toBeGreaterThan(0);
+      expect(shown.citationNotice).toBeNull();
+    }
+
+    repository.updateAssistantSettings('account-smb-admin', SEEDED, {
+      rules: { showCitations: false },
+    });
+
+    const hidden = lastReply('收到商品後幾天內可以退貨？');
+    expect(hidden.kind).toBe('company-data');
+    if (hidden.kind === 'company-data') {
+      expect(hidden.citations).toHaveLength(0);
+      expect(hidden.citationNotice).toContain('公司資料');
+    }
+  });
+
+  it('still refuses to answer from company data the assistant is not connected to when citations are hidden', () => {
+    // 內部助理沒有連接退貨政策知識庫，關閉引用出處也不會讓它假裝有答案。
+    expect(lastReply('收到商品後幾天內可以退貨？', 'assistant-internal-onboarding').kind).toBe('no-result');
   });
 
   it('lets 嚴格回答 stop the assistant from adding general knowledge in chat', () => {

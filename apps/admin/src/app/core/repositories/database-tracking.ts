@@ -1,4 +1,8 @@
 import {
+  PERIODIC_REPORT_LABELS,
+  type PeriodicReportSchedule,
+} from '../domain/assistant-draft.model';
+import {
   DATABASE_FIELD_TYPES,
   isChoiceFieldType,
   type ComparisonPointView,
@@ -10,7 +14,9 @@ import {
   type DatabaseRecordView,
   type DatabaseTrialAnswers,
   type MetricComparisonView,
+  type PeriodicReportView,
   type SubjectComparisonView,
+  type TrackedSubjectView,
   type WithdrawnRecordView,
 } from '../domain/database.model';
 import type { DatabaseRecordFixture } from './demo-seed-databases';
@@ -139,6 +145,48 @@ export function compareRecords(chronological: readonly DatabaseRecordFixture[]):
     recordCount,
     summary: `比較 ${recordCount} 筆已同意提交的紀錄（${chronological[0].recordedAt.slice(0, 10)} 至 ${latest.recordedAt.slice(0, 10)}）。`,
     metrics,
+  };
+}
+
+/** 定期回報的下一次日期：每週加 7 天，每月加 1 個月（下個月沒有這一天時取月底）。 */
+export function nextReportDate(
+  anchorDateLabel: string,
+  schedule: Exclude<PeriodicReportSchedule, 'off'>,
+): string {
+  const [year, month, day] = anchorDateLabel.split('-').map(Number);
+  if (schedule === 'weekly') {
+    return new Date(Date.UTC(year, month - 1, day + 7)).toISOString().slice(0, 10);
+  }
+
+  const lastDayOfNextMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(day, lastDayOfNextMonth)))
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * 定期回報面板：排程由最近一次紀錄推算，摘要則整段沿用 `compareRecords` 已經算好的
+ * `MetricComparisonView.summary`——這裡不重新計算任何數字，也不產生新的結論。
+ */
+export function buildPeriodicReport(input: {
+  readonly assistantName: string;
+  readonly schedule: Exclude<PeriodicReportSchedule, 'off'>;
+  readonly purpose: string;
+  readonly anchorLabel: string;
+  readonly subjects: readonly TrackedSubjectView[];
+}): PeriodicReportView {
+  return {
+    assistantName: input.assistantName,
+    scheduleLabel: PERIODIC_REPORT_LABELS[input.schedule],
+    anchorLabel: input.anchorLabel,
+    nextReportLabel: nextReportDate(input.anchorLabel, input.schedule),
+    purpose: input.purpose,
+    lines: input.subjects.flatMap((subject) =>
+      subject.comparison.status === 'available'
+        ? subject.comparison.metrics.map((metric) => `${subject.displayName} · ${metric.summary}`)
+        : [],
+    ),
+    note: '摘要直接引用「趨勢比較」已算好的差異值，助理不會重新計算數字。',
   };
 }
 

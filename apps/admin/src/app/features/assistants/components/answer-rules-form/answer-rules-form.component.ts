@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import type {
-  AssistantAnswerRules,
-  PeriodicReportSchedule,
+import {
+  PERIODIC_REPORT_LABELS,
+  type AssistantAnswerRules,
+  type PeriodicReportSchedule,
 } from '../../../../core/domain/assistant-draft.model';
 import type { DatabaseId } from '../../../../core/domain/database.model';
 
@@ -15,11 +16,9 @@ export interface AnswerRulesErrors {
   readonly dataWritePurpose?: string | null;
 }
 
-const REPORT_OPTIONS: readonly { readonly value: PeriodicReportSchedule; readonly label: string }[] = [
-  { value: 'off', label: '不需要' },
-  { value: 'weekly', label: '每週一次' },
-  { value: 'monthly', label: '每月一次' },
-];
+const REPORT_OPTIONS: readonly { readonly value: PeriodicReportSchedule; readonly label: string }[] = (
+  ['off', 'weekly', 'monthly'] as const
+).map((value) => ({ value, label: PERIODIC_REPORT_LABELS[value] }));
 
 /** 回答與記錄規則的表單；建立精靈的步驟三與建立後的「回答與記錄」頁籤共用。 */
 @Component({

@@ -112,6 +112,9 @@
             @if (activeTab().id === 'records') {
               <app-records-table [subject]="subject" />
             } @else {
+              @for (report of periodicReports(); track report.assistantName) {
+                <app-periodic-report [report]="report" />
+              }
               <app-trend-view [subject]="subject" />
             }
           } @else {

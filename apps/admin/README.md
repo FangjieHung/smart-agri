@@ -118,6 +118,8 @@ npx nx lint admin
 - LINE 逐欄驗證失敗：`/app/assistants/assistant-customer-service/publishing?channel=line`
 - 紀錄不足不顯示趨勢：`/app/databases/database-customer-records/trends?subject=subject-chen`
 - 已撤回同意的紀錄只留軌跡：`/app/databases/database-customer-records/records?subject=subject-lin`（時間軸 2 筆，下方另有一筆不含內容的撤回軌跡）
+- 同一種公司資料回答、兩種引用出處設定：`/app/chat/assistant-customer-service`（開著，有「查看引用來源」）與 `/app/chat/assistant-internal-onboarding`（關著，問「皮革怎麼清洗」仍標示「根據你的資料」，但沒有引用來源按鈕）
+- 定期回報：`/app/databases/database-customer-records/trends`（客服助理每月一次，顯示下次回報日期與變化摘要）；`/app/databases/database-orders/records` 沒有助理回報到這裡，所以沒有面板
 
 ---
 
@@ -126,7 +128,7 @@ npx nx lint admin
 ### 這不是真的
 
 - **模擬登入，不是真實驗證。** `/login` 只是切換一個字串，沒有密碼、沒有 token、沒有伺服器。所有「權限」判斷都在瀏覽器端，任何人都能改寫。正式後端必須自己重做完整授權檢查。
-- **沒有真實 AI。** 所有回答都是 `demo-seed.ts` 裡預先寫好的固定字串，依「已連接的資料來源」與「回答規則」挑選其中一種（根據你的資料／一般知識補充／資料中沒有答案）。輸入自由文字時只會比對預先準備的題目。
+- **沒有真實 AI。** 所有回答都是 `demo-seed.ts` 裡預先寫好的固定字串，依「已連接的資料來源」與「回答規則」挑選其中一種（根據你的資料／一般知識補充／資料中沒有答案）。輸入自由文字時只會比對預先準備的題目。**引用來源也是寫死的文件名與摘錄**，沒有真正的檢索。
 - **沒有真實上傳。** 知識庫的「加入示範文件」只模擬處理進度，不會讀取或傳送任何檔案。
 - **沒有外部服務。** 官網嵌入碼指向 `widget.demo.invalid`、LINE Webhook 指向 `webhook.demo.invalid`，「檢查安裝狀態」與「傳送測試訊息」的結果都是寫死的模擬結果，**不可貼到正式環境使用**。
 
@@ -139,12 +141,13 @@ npx nx lint admin
 
 - **「對話與回報紀錄」（`/app/activity`）只提供入口說明**，不顯示跨助理的合併清單。依設計，對話屬於發起對話的帳號，管理端只能看匿名統計，所以合併清單要等正式介接後再定義能顯示哪些欄位。
 - **「團隊與設定」（`/app/settings`）目前只有外觀（質地／配色）設定**，沒有團隊成員管理。
-- **趨勢比較的差異值由 mock repository 計算**（本次／上次／首次、較上次／較首次），不是手寫在 fixture 裡，也不是後端算的。正式版本的計算與四捨五入規則需要後端定義。
+- **趨勢比較的差異值由 mock repository 計算**（本次／上次／首次、較上次／較首次），不是手寫在 fixture 裡，也不是後端算的。正式版本的計算與四捨五入規則需要後端定義。「定期回報」面板的變化摘要**整段沿用同一份算好的字串**，沒有另一套分析。
+- **回答規則只剩「找不到資料時的回覆」還沒接到終端對話。** 其餘規則都會改變行為：嚴格／一般知識（`knowledgeScope`）、保存自己的對話（`keepOwnConversations`）、顯示引用出處（`showCitations`）、定期回報（`periodicReport` 搭配寫入的資料庫）。`refusalMessage` 目前只用在建立精靈的試問預覽，終端對話的「查無資料」仍是 seed 的固定文案。
 - **撤回同意可以用了，但稽核軌跡很淺。** 提交者可以在對話的送出收據上撤回自己送出的紀錄：撤回會清掉內容、紀錄立刻離開收集紀錄與趨勢比較，只在收集紀錄留下「提交日期、撤回日期、來源」的軌跡。資料管理者**不能**代為撤回或代為刪除。軌跡沒有操作者、IP 或同意條款版本——mock 存不住，所以也沒有假裝存著。未登入訪客只能在**同一個瀏覽器分頁內**撤回，分頁一關就再也指認不到那筆紀錄，畫面對此直說。
 
 ### 測試現況
 
-- `npx nx test admin`：61 個檔案、337 個測試全部通過。
-- `npx nx e2e admin-e2e --configuration=production`：15 個 spec、111 個測試全部通過。
+- `npx nx test admin`：62 個檔案、347 個測試全部通過。
+- `npx nx e2e admin-e2e --configuration=production`：15 個 spec、114 個測試全部通過。
 - `npx nx lint admin`、`npx nx build admin`：通過。
 - **`libs/theme-pack` 與 `libs/ui` 有既存的失敗 spec**（`theme-pack` 3 / 7 失敗、`ui` 1 / 90 失敗），與這個 Demo 無關，也不在 `admin` 的測試目標內。跑全 workspace 的 `npx nx run-many -t test` 會看到它們失敗；驗收這個 Demo 時請只跑 `admin` 與 `admin-e2e` 兩個目標。

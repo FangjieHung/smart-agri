@@ -1,0 +1,28 @@
+@let current = report();
+<section class="periodic-report">
+  <h3>定期回報：{{ current.assistantName }}</h3>
+  <dl class="schedule-grid">
+    <div class="schedule">
+      <dt>回報頻率</dt>
+      <dd>{{ current.scheduleLabel }}</dd>
+    </div>
+    <div class="next-report">
+      <dt>下次回報</dt>
+      <dd>{{ current.nextReportLabel }}<span class="hint">（依最近一次紀錄 {{ current.anchorLabel }} 起算）</span></dd>
+    </div>
+  </dl>
+  @if (current.purpose) {
+    <p class="hint">收集目的：{{ current.purpose }}</p>
+  }
+  <h4>這一期的變化摘要</h4>
+  @if (current.lines.length > 0) {
+    <ul class="report-lines">
+      @for (line of current.lines; track line) {
+        <li>{{ line }}</li>
+      }
+    </ul>
+  } @else {
+    <p class="empty">還沒有可比較的紀錄，這一期不產生變化摘要。</p>
+  }
+  <p class="hint">{{ current.note }}</p>
+</section>

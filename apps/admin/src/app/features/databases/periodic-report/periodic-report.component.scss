@@ -1,0 +1,28 @@
+:host { display: block; }
+
+.periodic-report {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-inline-start: var(--space-1) solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+}
+
+h3, h4, p, dl, dd, dt { margin: 0; }
+h3 { font-size: var(--font-size-body); }
+h4 { font-size: var(--font-size-caption); color: var(--color-text-secondary); }
+.hint { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--space-2) var(--space-6);
+}
+
+dt { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+dd { font-weight: 700; }
+dd .hint { display: block; font-weight: 400; }
+
+.report-lines { display: grid; gap: var(--space-1); margin: 0; padding-inline-start: var(--space-6); font-weight: 600; }
+.empty { color: var(--color-text-secondary); }

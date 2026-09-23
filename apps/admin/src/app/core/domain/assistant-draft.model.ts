@@ -31,6 +31,13 @@ export type AssistantKnowledgeScope =
 
 export type PeriodicReportSchedule = 'off' | 'weekly' | 'monthly';
 
+/** 定期回報週期的顯示文字；設定表單與資料庫的回報面板共用同一份。 */
+export const PERIODIC_REPORT_LABELS: Readonly<Record<PeriodicReportSchedule, string>> = {
+  off: '不需要',
+  weekly: '每週一次',
+  monthly: '每月一次',
+};
+
 export interface AssistantAnswerRules {
   readonly knowledgeScope: AssistantKnowledgeScope;
   readonly refusalMessage: string;

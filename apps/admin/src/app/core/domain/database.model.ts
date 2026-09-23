@@ -277,9 +277,30 @@ export interface TrackedSubjectView {
   readonly comparison: SubjectComparisonView;
 }
 
+/**
+ * 助理規則「定期回報」開啟時，這個資料庫的回報排程與變化摘要。
+ * `lines` 只是把 `MetricComparisonView.summary` 原樣搬過來，不做任何額外計算。
+ */
+export interface PeriodicReportView {
+  readonly assistantName: string;
+  /** 每週一次／每月一次；關閉時不會產生這個物件。 */
+  readonly scheduleLabel: string;
+  /** 推算下次回報所依據的最近一次紀錄日期（YYYY-MM-DD）。 */
+  readonly anchorLabel: string;
+  /** 下次回報日期（YYYY-MM-DD）。 */
+  readonly nextReportLabel: string;
+  /** 助理設定的收集目的，使用者同意前看到的也是這一段。 */
+  readonly purpose: string;
+  /** 已算好的比較摘要，前面加上追蹤對象名稱。 */
+  readonly lines: readonly string[];
+  readonly note: string;
+}
+
 export interface DatabaseTrackingView {
   readonly databaseId: DatabaseId;
   readonly subjects: readonly TrackedSubjectView[];
+  /** 對這個資料庫開啟「定期回報」的助理；沒有時為空陣列。 */
+  readonly periodicReports: readonly PeriodicReportView[];
 }
 
 /* ------------------------------------------------------------------ */

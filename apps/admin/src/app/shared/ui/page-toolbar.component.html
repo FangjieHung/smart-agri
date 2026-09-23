@@ -17,7 +17,7 @@
 
       <div class="search-row" [class.search-row--expanded]="expanded()">
         <div class="search-row__inner">
-          <div class="search" [class.search--expanded]="expanded()" (keydown.escape)="onEscape()">
+          <div class="search" [class.search--expanded]="expanded()">
             <input
               #searchInput
               [id]="searchInputId"
@@ -29,6 +29,7 @@
               [ngModel]="query()"
               (ngModelChange)="query.set($event)"
               (keydown.enter)="submitQuery()"
+              (keydown.escape)="onEscape()"
               (blur)="collapseIfEmpty()"
             />
 

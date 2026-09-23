@@ -14,7 +14,9 @@
         <p id="line-error-title">{{ failedChecks().length }} 個欄位未通過檢查：</p>
         <ul>
           @for (check of failedChecks(); track check.field) {
-            <li><a [href]="'#line-' + check.field">{{ check.label }}：{{ check.message }}</a></li>
+            <li>
+              <a [href]="'#line-' + check.field" (click)="focusField($event, check.field)">{{ check.label }}：{{ check.message }}</a>
+            </li>
           }
         </ul>
       </div>

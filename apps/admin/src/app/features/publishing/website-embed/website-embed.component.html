@@ -9,7 +9,9 @@
         <p id="website-error-title">還有設定需要修正：</p>
         <ul>
           @for (error of errors(); track error.field) {
-            <li><a [href]="'#' + anchorFor(error.field)">{{ labelFor(error.field) }}：{{ error.message }}</a></li>
+            <li>
+              <a [href]="'#' + anchorFor(error.field)" (click)="focusField($event, error.field)">{{ labelFor(error.field) }}：{{ error.message }}</a>
+            </li>
           }
         </ul>
       </div>

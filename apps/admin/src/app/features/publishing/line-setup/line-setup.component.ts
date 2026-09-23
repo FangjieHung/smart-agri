@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
 import {
   LINE_FIELDS,
@@ -9,6 +10,7 @@ import {
 } from '../../../core/domain/publishing.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
+import { focusErrorField } from '../../../shared/ui/error-summary';
 
 const CHECK_TEXT: Readonly<Record<LineCheckState, { readonly symbol: string; readonly label: string }>> = {
   pending: { symbol: '○', label: '尚未檢查' },
@@ -26,6 +28,11 @@ const CHECK_TEXT: Readonly<Record<LineCheckState, { readonly symbol: string; rea
 export class LineSetupComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly session = inject(DemoSessionService);
+  private readonly document = inject(DOCUMENT);
+
+  protected focusField(event: Event, field: string): void {
+    focusErrorField(this.document, `line-${field}`, event);
+  }
 
   readonly assistantId = input.required<string>();
   readonly view = input.required<LineSetupView>();

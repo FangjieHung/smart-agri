@@ -28,18 +28,20 @@
       <p class="privacy-notice"><strong>私人對話</strong>{{ current.privacyNotice }}</p>
       <p class="welcome">{{ current.welcome }}</p>
 
-      <ol #log class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-label="對話內容">
-        @for (message of current.messages; track message.id) {
-          <li>
-            <app-chat-message
-              [message]="message"
-              [formActive]="isFormRequest(message) && flow().step !== 'closed'"
-              (openCitations)="openCitations($event)"
-              (startForm)="startForm($event)"
-            />
-          </li>
-        }
-      </ol>
+      <div class="message-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="對話內容">
+        <ol #log class="messages">
+          @for (message of current.messages; track message.id) {
+            <li>
+              <app-chat-message
+                [message]="message"
+                [formActive]="isFormRequest(message) && flow().step !== 'closed'"
+                (openCitations)="openCitations($event)"
+                (startForm)="startForm($event)"
+              />
+            </li>
+          }
+        </ol>
+      </div>
 
       @let activeFlow = flow();
       @switch (activeFlow.step) {

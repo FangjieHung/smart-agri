@@ -15,3 +15,6 @@
 
 // Import commands.ts using ES2015 syntax:
 import './commands';
+
+// 無障礙檢查：把 axe-core 注入受測頁面，供 accessibility.cy.ts 使用。
+import 'cypress-axe';

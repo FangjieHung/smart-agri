@@ -1,6 +1,6 @@
 export const ZH_TW = {
   app: {
-    title: '智慧農業後台',
+    title: 'AI 助理工作台',
   },
   layout: {
     subtitle: 'Smart Agri Admin',

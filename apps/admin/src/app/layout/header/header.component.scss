@@ -15,7 +15,8 @@
   display: contents;
 }
 
-.topbar-title h2 {
+.topbar-title .topbar-heading {
+  margin: 0;
   font-size: 1.5rem;
   font-weight: 500;
   color: var(--mat-sys-on-surface);

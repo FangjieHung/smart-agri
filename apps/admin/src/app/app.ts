@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import { Component, inject, OnInit, ViewChild } from '@angular/core';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { ConnectedPosition } from '@angular/cdk/overlay';
@@ -54,6 +55,7 @@ export class App implements OnInit {
 
   @ViewChild(MatSidenavContainer) private sidenavContainer?: MatSidenavContainer;
 
+  private readonly document = inject(DOCUMENT);
   private readonly breakpointObserver = inject(BreakpointObserver);
   private readonly router = inject(Router);
 
@@ -92,6 +94,14 @@ export class App implements OnInit {
           this.openGroupLabel = activeGroup.label;
         }
       });
+  }
+
+  /** 跳過導覽：直接把焦點移到主要內容，不依賴 fragment 連結的預設行為。 */
+  protected skipToContent(event: Event): void {
+    event.preventDefault();
+    const main = this.document.getElementById('main-content');
+    main?.focus();
+    main?.scrollIntoView();
   }
 
   protected toggleSidenav(): void {

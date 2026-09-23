@@ -115,3 +115,15 @@ textarea {
     transform: none;
   }
 }
+
+/* 降低動態效果：使用者要求減少動畫時，全站停用轉場與動畫。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

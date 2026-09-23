@@ -19,6 +19,28 @@
   }
 }
 
+.skip-link {
+  position: fixed;
+  inset-block-start: -100vh;
+  inset-inline-start: 8px;
+  z-index: 1200;
+  padding: 10px 16px;
+  border: 2px solid var(--mat-sys-primary);
+  border-radius: 8px;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  inset-block-start: 8px;
+}
+
+#main-content:focus {
+  outline: none;
+}
+
 .app-shell {
   height: 100%;
   background: linear-gradient(

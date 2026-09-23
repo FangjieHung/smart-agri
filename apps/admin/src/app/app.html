@@ -1,4 +1,5 @@
 @if (isWorkspace) {
+<a class="skip-link" href="#main-content" (click)="skipToContent($event)">跳到主要內容</a>
 <div class="app-shell">
   <mat-sidenav-container class="sidenav-container">
     <mat-sidenav
@@ -31,7 +32,7 @@
         (menuToggle)="toggleSidenav()"
       />
 
-      <main class="page-shell">
+      <main class="page-shell" id="main-content" tabindex="-1">
         <router-outlet />
       </main>
 

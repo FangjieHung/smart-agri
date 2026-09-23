@@ -14,7 +14,8 @@ export class LocalStorageRepository<T extends { id: string }> implements Reposit
     try {
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return this.reset(true);
-      return this.normalize ? parsed.map((item) => this.normalize!(item)) : (parsed as T[]);
+      const normalize = this.normalize;
+      return normalize ? parsed.map((item) => normalize(item)) : (parsed as T[]);
     } catch {
       return this.reset(true);
     }

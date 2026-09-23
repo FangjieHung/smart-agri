@@ -27,7 +27,8 @@
   --_cream-900: #232220;
 
   // M3 顏色 token（對應原 styles.scss 行 165–186）
-  --mat-sys-primary: var(--_sage-600);
+  // sage-600 對白底／白字都只有 4.0–4.3:1，未達 WCAG AA 4.5:1，改用 sage-700。
+  --mat-sys-primary: var(--_sage-700);
   --mat-sys-on-primary: #ffffff;
   --mat-sys-primary-container: var(--_sage-100);
   --mat-sys-on-primary-container: var(--_sage-800);

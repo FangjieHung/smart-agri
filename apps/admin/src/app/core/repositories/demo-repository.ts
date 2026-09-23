@@ -60,12 +60,16 @@ import type {
   WebsiteEmbedView,
 } from '../domain/publishing.model';
 
-export type DemoScenario =
-  | 'ready'
-  | 'loading'
-  | 'partial-failure'
-  | 'permission-denied'
-  | 'disconnected-channel';
+/** Demo 可切換的畫面情境；`ready` 以外都用於預覽錯誤與等待狀態。 */
+export const DEMO_SCENARIOS = [
+  'ready',
+  'loading',
+  'partial-failure',
+  'permission-denied',
+  'disconnected-channel',
+] as const;
+
+export type DemoScenario = (typeof DEMO_SCENARIOS)[number];
 
 export type RepositoryUnavailableResource = 'knowledge-sync';
 

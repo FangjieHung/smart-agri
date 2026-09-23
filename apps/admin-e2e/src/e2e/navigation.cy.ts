@@ -10,7 +10,8 @@ describe('demo navigation', () => {
     cy.contains('button', 'SMB 管理者').click();
 
     cy.location('pathname').should('eq', '/app/home');
-    cy.contains('h1', 'AI 助理工作台').should('be.visible');
+    cy.contains('.app-sidenav', 'AI 助理工作台').should('be.visible');
+    cy.contains('h1', '首頁').should('be.visible');
     cy.contains('nav', '我的助理').should('be.visible');
   });
 });

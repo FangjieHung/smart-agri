@@ -1,3 +1,4 @@
+import { DOCUMENT } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
 import {
   WEBSITE_BRAND_COLORS,
@@ -12,6 +13,7 @@ import {
 } from '../../../core/domain/publishing.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
+import { focusErrorField } from '../../../shared/ui/error-summary';
 
 type PreviewDevice = 'desktop' | 'mobile';
 
@@ -70,6 +72,12 @@ export class WebsiteEmbedComponent {
     }
     return '尚未檢查安裝狀態（檢查為模擬結果，不會連線到網站）。';
   });
+
+  private readonly document = inject(DOCUMENT);
+
+  protected focusField(event: Event, field: string): void {
+    focusErrorField(this.document, this.anchorFor(field), event);
+  }
 
   protected anchorFor(field: string): string {
     return FIELD_ANCHORS[field] ?? 'website-display-name';

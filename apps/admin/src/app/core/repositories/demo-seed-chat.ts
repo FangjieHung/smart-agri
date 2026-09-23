@@ -122,6 +122,20 @@ export const CHAT_PRIVACY_NOTICE =
 
 export const CHAT_GENERAL_KNOWLEDGE_NOTICE = '這不是公司資料，是一般知識補充，僅供參考。';
 
+/** 對話紀錄側欄的說明：保存時。 */
+export const CHAT_HISTORY_SAVED_NOTICE =
+  '這些對話只保存在你的帳號，其他使用者與助理建立者都看不到內容。';
+
+/** 對話紀錄側欄的說明：助理的規則關閉了「保存自己的對話」時。 */
+export const CHAT_HISTORY_OFF_NOTICE =
+  '這個助理設定為不保存對話紀錄：你問過的內容不會被保存，離開或重新整理後就會消失，所以這裡沒有可以回顧的對話。';
+
+/** 還沒有任何提問時的對話標題。 */
+export const CHAT_DEFAULT_THREAD_TITLE = '新對話';
+
+/** 由第一則提問推導的標題長度上限。 */
+export const CHAT_THREAD_TITLE_MAX_LENGTH = 24;
+
 export const CHAT_NO_RESULT_TEXT =
   '查無資料：目前連接的資料中找不到這個問題的答案。這是 Demo，不會自行產生回答。';
 

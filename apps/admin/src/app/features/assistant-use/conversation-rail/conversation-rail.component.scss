@@ -1,0 +1,140 @@
+:host { display: block; min-inline-size: 0; }
+
+p, h2, h3, ul { margin: 0; }
+
+.rail-inner {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.rail-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); justify-content: space-between; }
+.rail-title { font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+
+.new-conversation {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rail-privacy, .rail-empty, .rail-notice {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+.rail-notice {
+  padding: var(--space-3);
+  border-inline-start: var(--space-1) solid var(--color-warning);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+}
+.rename-error { color: var(--color-error); font-size: var(--font-size-caption); font-weight: 700; }
+
+.thread-list { display: grid; gap: var(--space-2); padding: 0; list-style: none; }
+.thread {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+.thread--active { border-color: var(--color-accent); background: var(--color-accent-soft); }
+
+.thread-open {
+  display: grid;
+  gap: var(--space-1);
+  justify-items: start;
+  inline-size: 100%;
+  min-block-size: var(--target-size);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-text);
+  text-align: start;
+  cursor: pointer;
+}
+.thread-title { font-weight: 700; line-height: var(--line-height-body); overflow-wrap: anywhere; }
+.thread-meta { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+
+.thread-actions { display: flex; gap: var(--space-2); }
+.thread-actions button {
+  min-block-size: var(--target-size);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-accent);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  cursor: pointer;
+}
+.thread-delete { color: var(--color-error); }
+
+.rename-form { display: grid; gap: var(--space-2); }
+.rename-input {
+  min-block-size: var(--target-size);
+  padding: var(--space-2);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+}
+.rename-actions { display: flex; gap: var(--space-2); }
+.rename-actions button {
+  min-block-size: var(--target-size);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(28 39 51 / 45%);
+}
+.confirm {
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  z-index: 41;
+  display: grid;
+  gap: var(--space-3);
+  inline-size: min(24rem, calc(100vw - var(--space-8)));
+  padding: var(--space-4);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(28 39 51 / 24%);
+  translate: -50% -50%;
+}
+.confirm-title { font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.confirm-detail { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.confirm-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.confirm-actions button {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+.confirm-delete { border-color: var(--color-error); background: var(--color-error); color: #fff; }
+
+button:focus-visible, input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}

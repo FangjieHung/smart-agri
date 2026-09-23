@@ -5,15 +5,27 @@ import type { AccountId } from '../../../core/domain/account.model';
 import { provideAssistantUseTesting } from '../assistant-use.testing';
 import { ChatShellPageComponent } from './chat-shell-page.component';
 
-function setup(assistantId = 'assistant-customer-service', accountId: AccountId = 'account-external-customer') {
+function setup(
+  assistantId = 'assistant-customer-service',
+  accountId: AccountId = 'account-external-customer',
+  queryParams: Record<string, string> = {},
+) {
   const testing = provideAssistantUseTesting(accountId);
   const params = new BehaviorSubject(convertToParamMap({ assistantId }));
+  const query = new BehaviorSubject(convertToParamMap(queryParams));
   TestBed.configureTestingModule({
     imports: [ChatShellPageComponent],
     providers: [
       provideRouter([]),
       ...testing.providers,
-      { provide: ActivatedRoute, useValue: { paramMap: params.asObservable(), snapshot: { paramMap: params.value } } },
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          paramMap: params.asObservable(),
+          queryParamMap: query.asObservable(),
+          snapshot: { paramMap: params.value, queryParamMap: query.value },
+        },
+      },
     ],
   });
   const fixture = TestBed.createComponent(ChatShellPageComponent);
@@ -123,6 +135,27 @@ describe('ChatShellPageComponent', () => {
     expect(host.querySelector('[data-kind="submission-receipt"]')?.textContent).toContain('已送出');
     const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
     expect(tracking).toMatchObject({ status: 'ready', data: { subjects: [{ displayName: '外部客戶' }] } });
+  });
+
+  it('stays single column without a conversation history rail', () => {
+    const { host } = setup();
+
+    expect(host.querySelector('app-conversation-rail')).toBeNull();
+    expect(host.querySelector('.chat-header')).not.toBeNull();
+  });
+
+  it('hides the page chrome but keeps the conversation when embedded', () => {
+    const { fixture, host } = setup('assistant-customer-service', 'account-external-customer', {
+      embed: '1',
+    });
+
+    expect(host.querySelector('.chat-header')).toBeNull();
+    expect(host.querySelector('a[href="/app/home"]')).toBeNull();
+    expect(host.querySelector('h1')?.className).toContain('visually-hidden');
+    expect(host.querySelector('.privacy-notice')).not.toBeNull();
+
+    ask(fixture, '收到商品後幾天內可以退貨？');
+    expect(host.querySelectorAll('[role="log"] app-chat-message')).toHaveLength(2);
   });
 
   it('shows the same permission message for an assistant the account cannot use', () => {

@@ -96,6 +96,30 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'app/chat',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/assistant-use/workspace-chat/workspace-chat-page.component').then(
+        (m) => m.WorkspaceChatPageComponent,
+      ),
+  },
+  {
+    path: 'app/chat/:assistantId',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/assistant-use/workspace-chat/workspace-chat-page.component').then(
+        (m) => m.WorkspaceChatPageComponent,
+      ),
+  },
+  {
+    path: 'app/chat/:assistantId/:conversationId',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/assistant-use/workspace-chat/workspace-chat-page.component').then(
+        (m) => m.WorkspaceChatPageComponent,
+      ),
+  },
+  {
     path: 'use/:assistantId',
     canActivate: [demoSessionGuard],
     loadComponent: () =>

@@ -32,6 +32,17 @@ describe('app routes', () => {
     );
   });
 
+  it('opens the in-workspace chat with its conversation history behind the demo session guard', async () => {
+    const { WorkspaceChatPageComponent } = await import(
+      './features/assistant-use/workspace-chat/workspace-chat-page.component'
+    );
+    for (const path of ['app/chat', 'app/chat/:assistantId', 'app/chat/:assistantId/:conversationId']) {
+      const route = routes.find((candidate) => candidate.path === path);
+      expect(route?.canActivate?.length).toBe(1);
+      expect(await route?.loadComponent?.()).toBe(WorkspaceChatPageComponent);
+    }
+  });
+
   it('opens the end-user chat for an assistant behind the demo session guard', async () => {
     const use = routes.find((route) => route.path === 'use/:assistantId');
     expect(use?.canActivate?.length).toBe(1);

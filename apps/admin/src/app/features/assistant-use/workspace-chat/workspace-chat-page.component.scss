@@ -1,0 +1,71 @@
+:host { display: block; min-inline-size: 0; }
+
+p, ul { margin: 0; }
+
+.workspace-page {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  min-inline-size: 0;
+}
+
+.assistant-picker { display: grid; gap: var(--space-3); padding: 0; list-style: none; }
+.assistant-picker a {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+.assistant-picker span { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+
+.rail-toggle {
+  justify-self: start;
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chat-layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: stretch;
+  min-block-size: 32rem;
+  min-inline-size: 0;
+}
+.chat-layout--mobile { grid-template-columns: minmax(0, 1fr); position: relative; }
+
+.rail {
+  border: var(--border-default);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  overflow-y: auto;
+}
+.rail[hidden] { display: none; }
+
+/* 手機：對話紀錄改成疊在對話上方的面板，關閉時完全移出流程。 */
+.rail--sheet {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 20;
+  max-block-size: 70vh;
+  box-shadow: 0 12px 32px rgb(28 39 51 / 24%);
+}
+
+.conversation { display: block; min-inline-size: 0; }
+
+a:focus-visible, button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+  border-radius: var(--radius-control);
+}

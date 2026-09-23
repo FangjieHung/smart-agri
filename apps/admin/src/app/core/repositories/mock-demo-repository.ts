@@ -22,8 +22,12 @@ import type {
   AuthorizedFormInput,
   ChatFormSubmission,
   ChatFormView,
+  ChatHistoryMode,
   ChatMessageView,
   ChatReplyView,
+  ChatThreadId,
+  ChatThreadListView,
+  ChatThreadSummaryView,
   ConversationId,
   StructuredSubmissionView,
 } from '../domain/conversation.model';
@@ -69,10 +73,14 @@ import {
   validateFields,
 } from './database-tracking';
 import {
+  CHAT_DEFAULT_THREAD_TITLE,
   CHAT_GENERAL_KNOWLEDGE_NOTICE,
+  CHAT_HISTORY_OFF_NOTICE,
+  CHAT_HISTORY_SAVED_NOTICE,
   CHAT_NO_RESULT_TEXT,
   CHAT_PRIVACY_NOTICE,
   CHAT_SENSITIVE_NOTICE,
+  CHAT_THREAD_TITLE_MAX_LENGTH,
   CHAT_WITHDRAWAL_NOTICE,
   DEFAULT_CHAT_PROFILE,
   type ChatResponseFixture,
@@ -106,6 +114,7 @@ import type {
   RepositoryPermissionDeniedReason,
   RepositoryView,
   PreviewDatabaseEntryResult,
+  RenameChatThreadResult,
   ReviewChatFormResult,
   SendChatMessageResult,
   SubmitChatFormResult,
@@ -318,23 +327,119 @@ const PUBLISHING_KEY_PREFIX = 'sme-demo:publishing:';
 const CHAT_RECORDS_KEY = 'sme-demo:chat-records';
 const MAX_QUESTION_LENGTH = 500;
 
-interface StoredChatRecord {
+const MAX_THREAD_TITLE_LENGTH = 60;
+
+/** 版本 1：一個 (帳號, 助理) 只有一段對話。讀到時會就地升級成單一 thread。 */
+interface StoredChatRecordV1 {
   readonly version: 1;
   readonly messages: readonly ChatMessageView[];
 }
 
-function isStoredChatRecord(value: unknown): value is StoredChatRecord {
+interface StoredChatThread {
+  readonly id: ChatThreadId;
+  readonly title: string;
+  /** derived：仍會跟著第一則提問更新；manual：使用者改過名字，不再自動變動。 */
+  readonly titleSource: 'derived' | 'manual';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly messages: readonly ChatMessageView[];
+}
+
+/** 版本 2：同一個 (帳號, 助理) 的多段對話。 */
+interface StoredChatRecord {
+  readonly version: 2;
+  readonly threads: readonly StoredChatThread[];
+}
+
+function isStoredChatMessages(value: unknown): value is readonly ChatMessageView[] {
   return (
-    isRecord(value) &&
-    value['version'] === 1 &&
-    Array.isArray(value['messages']) &&
-    value['messages'].every(
+    Array.isArray(value) &&
+    value.every(
       (message) =>
         isRecord(message) &&
         typeof message['id'] === 'string' &&
         (message['author'] === 'account' || message['author'] === 'assistant'),
     )
   );
+}
+
+function isStoredChatThread(value: unknown): value is StoredChatThread {
+  return (
+    isRecord(value) &&
+    typeof value['id'] === 'string' &&
+    value['id'].startsWith('chat-thread-') &&
+    typeof value['title'] === 'string' &&
+    typeof value['createdAt'] === 'string' &&
+    typeof value['updatedAt'] === 'string' &&
+    isStoredChatMessages(value['messages'])
+  );
+}
+
+function isStoredChatRecordV1(value: unknown): value is StoredChatRecordV1 {
+  return isRecord(value) && value['version'] === 1 && isStoredChatMessages(value['messages']);
+}
+
+/** 讀取時就把舊版單一對話包成一段 thread；不回寫，等下一次寫入才落地成版本 2。 */
+function normalizeStoredThreads(value: unknown): readonly StoredChatThread[] {
+  if (isRecord(value) && value['version'] === 2 && Array.isArray(value['threads'])) {
+    return value['threads'].filter(isStoredChatThread);
+  }
+
+  if (isStoredChatRecordV1(value) && value.messages.length > 0) {
+    const createdAt = firstMessageTime(value.messages);
+    return [
+      {
+        id: 'chat-thread-1',
+        title: deriveThreadTitle(value.messages),
+        titleSource: 'derived',
+        createdAt,
+        updatedAt: lastMessageTime(value.messages, createdAt),
+        messages: value.messages,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function firstMessageTime(messages: readonly ChatMessageView[]): string {
+  return messages[0]?.createdAt ?? '';
+}
+
+function lastMessageTime(messages: readonly ChatMessageView[], fallback: string): string {
+  return messages[messages.length - 1]?.createdAt ?? fallback;
+}
+
+/** 標題取第一則提問；沒有提問時用預設名稱。不含任何助理回覆內容。 */
+function deriveThreadTitle(messages: readonly ChatMessageView[]): string {
+  const asked = messages.find((message) => message.author === 'account');
+  if (asked === undefined || asked.author !== 'account') return CHAT_DEFAULT_THREAD_TITLE;
+  const text = asked.text.replace(/\s+/g, ' ').trim();
+  if (text === '') return CHAT_DEFAULT_THREAD_TITLE;
+
+  return text.length > CHAT_THREAD_TITLE_MAX_LENGTH
+    ? `${text.slice(0, CHAT_THREAD_TITLE_MAX_LENGTH)}…`
+    : text;
+}
+
+function threadSequence(id: string): number {
+  const parsed = Number.parseInt(id.slice('chat-thread-'.length), 10);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** 由新到舊：先比最後活動時間，同時間時用序號，保證順序穩定。 */
+function byRecentActivity(a: StoredChatThread, b: StoredChatThread): number {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? 1 : -1;
+  return threadSequence(b.id) - threadSequence(a.id);
+}
+
+function toThreadSummary(thread: StoredChatThread): ChatThreadSummaryView {
+  return {
+    id: thread.id,
+    title: thread.title,
+    messageCount: thread.messages.length,
+    updatedAt: thread.updatedAt,
+  };
 }
 
 function isStoredChatDatabaseRecord(value: unknown): value is DatabaseRecordFixture {
@@ -367,6 +472,11 @@ export class MockDemoRepository implements DemoRepository {
   private scenario: DemoScenario = 'ready';
   private readonly storage: DemoKeyValueStorage;
   private readonly now: () => Date;
+  /**
+   * 助理關閉「保存自己的對話」時，對話只留在這個 repository 實例的記憶體裡：
+   * 不寫入 storage、不列在對話紀錄中，重新整理（重新建立實例）就消失。
+   */
+  private readonly ephemeralChats = new Map<string, readonly ChatMessageView[]>();
 
   constructor(
     private readonly seed: DemoSeed = DEMO_SEED,
@@ -931,6 +1041,7 @@ export class MockDemoRepository implements DemoRepository {
       databaseIds: sources.flatMap((source) =>
         source.type === 'database' ? [source.id] : [],
       ),
+      keepOwnConversations: draft.rules.keepOwnConversations,
     };
 
     this.storage.setItem(
@@ -1237,15 +1348,129 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(tracking);
   }
 
+  listChatThreads(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ReturnType<DemoRepository['listChatThreads']> {
+    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantUsePermissionDenied();
+
+    return this.applyScenario(this.toThreadListView(viewerAccountId, assistant));
+  }
+
+  createChatThread(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): ReturnType<DemoRepository['createChatThread']> {
+    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantUsePermissionDenied();
+
+    // 不保存對話的助理沒有第二段對話可開，「開新對話」只是把暫時對話清空。
+    if (!this.keepsConversations(assistant)) {
+      this.ephemeralChats.delete(this.ephemeralKey(viewerAccountId, assistant.id));
+      return this.applyScenario(this.toChatView(assistant, []));
+    }
+
+    const threads = this.storedThreads(viewerAccountId, assistant.id);
+    const createdAt = this.now().toISOString();
+    const thread: StoredChatThread = {
+      id: this.nextThreadId(threads),
+      title: CHAT_DEFAULT_THREAD_TITLE,
+      titleSource: 'derived',
+      createdAt,
+      updatedAt: createdAt,
+      messages: [],
+    };
+    this.saveThreads(viewerAccountId, assistant.id, [...threads, thread]);
+
+    return this.applyScenario(this.toChatView(assistant, [], thread.id, thread.title));
+  }
+
+  renameChatThread(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    threadId: string,
+    title: string,
+  ): RenameChatThreadResult {
+    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantUsePermissionDenied();
+    if (!this.keepsConversations(assistant)) return this.chatThreadPermissionDenied();
+
+    const threads = this.storedThreads(viewerAccountId, assistant.id);
+    const thread = threads.find((candidate) => candidate.id === threadId);
+    if (thread === undefined) return this.chatThreadPermissionDenied();
+
+    const trimmed = title.trim();
+    if (trimmed.length === 0) {
+      return immutableCopy({ status: 'validation-failed', message: '請輸入對話名稱。' });
+    }
+    if (trimmed.length > MAX_THREAD_TITLE_LENGTH) {
+      return immutableCopy({
+        status: 'validation-failed',
+        message: `對話名稱請在 ${MAX_THREAD_TITLE_LENGTH} 個字以內。`,
+      });
+    }
+
+    const renamed: StoredChatThread = { ...thread, title: trimmed, titleSource: 'manual' };
+    this.saveThreads(
+      viewerAccountId,
+      assistant.id,
+      threads.map((candidate) => (candidate.id === thread.id ? renamed : candidate)),
+    );
+
+    return this.applyScenario(toThreadSummary(renamed));
+  }
+
+  deleteChatThread(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    threadId: string,
+  ): ReturnType<DemoRepository['deleteChatThread']> {
+    const assistant = this.usableAssistant(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantUsePermissionDenied();
+    if (!this.keepsConversations(assistant)) return this.chatThreadPermissionDenied();
+
+    const threads = this.storedThreads(viewerAccountId, assistant.id);
+    if (!threads.some((candidate) => candidate.id === threadId)) {
+      return this.chatThreadPermissionDenied();
+    }
+
+    this.saveThreads(
+      viewerAccountId,
+      assistant.id,
+      threads.filter((candidate) => candidate.id !== threadId),
+    );
+
+    return this.applyScenario(this.toThreadListView(viewerAccountId, assistant));
+  }
+
   getAssistantChat(
     viewerAccountId: AccountId,
     assistantId: string,
+    threadId?: string,
   ): ReturnType<DemoRepository['getAssistantChat']> {
     const assistant = this.usableAssistant(viewerAccountId, assistantId);
     if (assistant === undefined) return this.assistantUsePermissionDenied();
 
+    if (!this.keepsConversations(assistant)) {
+      if (threadId !== undefined) return this.chatThreadPermissionDenied();
+      return this.applyScenario(
+        this.toChatView(assistant, this.ephemeralMessages(viewerAccountId, assistant.id)),
+      );
+    }
+
+    const threads = this.storedThreads(viewerAccountId, assistant.id);
+    const thread =
+      threadId === undefined
+        ? [...threads].sort(byRecentActivity)[0]
+        : threads.find((candidate) => candidate.id === threadId);
+    if (thread === undefined) {
+      if (threadId !== undefined) return this.chatThreadPermissionDenied();
+      return this.applyScenario(this.toChatView(assistant, []));
+    }
+
     return this.applyScenario(
-      this.toChatView(assistant, this.chatMessages(viewerAccountId, assistant.id)),
+      this.toChatView(assistant, thread.messages, thread.id, thread.title),
     );
   }
 
@@ -1253,6 +1478,7 @@ export class MockDemoRepository implements DemoRepository {
     viewerAccountId: AccountId,
     assistantId: string,
     text: string,
+    threadId?: string,
   ): SendChatMessageResult {
     const assistant = this.usableAssistant(viewerAccountId, assistantId);
     if (assistant === undefined) return this.assistantUsePermissionDenied();
@@ -1268,7 +1494,10 @@ export class MockDemoRepository implements DemoRepository {
       });
     }
 
-    const messages = this.chatMessages(viewerAccountId, assistant.id);
+    const target = this.resolveChatTarget(viewerAccountId, assistant, threadId);
+    if (target === undefined) return this.chatThreadPermissionDenied();
+
+    const messages = this.targetMessages(viewerAccountId, assistant, target);
     const createdAt = this.now().toISOString();
     const next: readonly ChatMessageView[] = [
       ...messages,
@@ -1280,9 +1509,8 @@ export class MockDemoRepository implements DemoRepository {
         createdAt,
       },
     ];
-    this.saveChatMessages(viewerAccountId, assistant.id, next);
 
-    return this.applyScenario(this.toChatView(assistant, next));
+    return this.applyScenario(this.writeChatMessages(viewerAccountId, assistant, target, next));
   }
 
   reviewChatForm(
@@ -1310,6 +1538,7 @@ export class MockDemoRepository implements DemoRepository {
     viewerAccountId: AccountId,
     assistantId: string,
     submission: ChatFormSubmission,
+    threadId?: string,
   ): SubmitChatFormResult {
     const target = this.chatFormTarget(viewerAccountId, assistantId, submission.formId);
     if (target === undefined) return this.assistantUsePermissionDenied();
@@ -1331,6 +1560,9 @@ export class MockDemoRepository implements DemoRepository {
       });
     }
 
+    const chatTarget = this.resolveChatTarget(viewerAccountId, assistant, threadId);
+    if (chatTarget === undefined) return this.chatThreadPermissionDenied();
+
     const recordedAt = this.now().toISOString();
     const existing = this.chatRecords();
     const record: DatabaseRecordFixture = {
@@ -1344,7 +1576,7 @@ export class MockDemoRepository implements DemoRepository {
     };
     this.storage.setItem(CHAT_RECORDS_KEY, JSON.stringify([...existing, record]));
 
-    const messages = this.chatMessages(viewerAccountId, assistant.id);
+    const messages = this.targetMessages(viewerAccountId, assistant, chatTarget);
     const next: readonly ChatMessageView[] = [
       ...messages,
       {
@@ -1359,9 +1591,10 @@ export class MockDemoRepository implements DemoRepository {
         },
       },
     ];
-    this.saveChatMessages(viewerAccountId, assistant.id, next);
 
-    return this.applyScenario(this.toChatView(assistant, next));
+    return this.applyScenario(
+      this.writeChatMessages(viewerAccountId, assistant, chatTarget, next),
+    );
   }
 
   /** 可使用的助理；不存在與無權限都回傳 undefined，呼叫端回覆相同訊息。 */
@@ -1379,29 +1612,138 @@ export class MockDemoRepository implements DemoRepository {
     return this.permissionDenied('assistant-use', '你沒有使用這個助理的權限，或它已不存在。');
   }
 
+  /** 對話不存在與屬於其他帳號回傳同一則訊息，不洩漏對話標題或是否存在。 */
+  private chatThreadPermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied('chat-thread', '找不到這段對話，或它不屬於你的帳號。');
+  }
+
+  private keepsConversations(assistant: AssistantConfigurationView): boolean {
+    return assistant.keepOwnConversations !== false;
+  }
+
+  private historyMode(assistant: AssistantConfigurationView): ChatHistoryMode {
+    return this.keepsConversations(assistant) ? 'saved' : 'not-saved';
+  }
+
   private chatKey(viewerAccountId: AccountId, assistantId: AssistantId): string {
     return `${CHAT_KEY_PREFIX}${viewerAccountId}:${assistantId}`;
   }
 
-  private chatMessages(viewerAccountId: AccountId, assistantId: AssistantId): readonly ChatMessageView[] {
-    const stored = parseJson(this.storage.getItem(this.chatKey(viewerAccountId, assistantId)));
-    return isStoredChatRecord(stored) ? stored.messages : [];
+  private ephemeralKey(viewerAccountId: AccountId, assistantId: AssistantId): string {
+    return `${viewerAccountId}|${assistantId}`;
   }
 
-  private saveChatMessages(
+  private ephemeralMessages(
     viewerAccountId: AccountId,
     assistantId: AssistantId,
-    messages: readonly ChatMessageView[],
+  ): readonly ChatMessageView[] {
+    return this.ephemeralChats.get(this.ephemeralKey(viewerAccountId, assistantId)) ?? [];
+  }
+
+  private storedThreads(
+    viewerAccountId: AccountId,
+    assistantId: AssistantId,
+  ): readonly StoredChatThread[] {
+    return normalizeStoredThreads(
+      parseJson(this.storage.getItem(this.chatKey(viewerAccountId, assistantId))),
+    );
+  }
+
+  private saveThreads(
+    viewerAccountId: AccountId,
+    assistantId: AssistantId,
+    threads: readonly StoredChatThread[],
   ): void {
-    const record: StoredChatRecord = { version: 1, messages };
+    const record: StoredChatRecord = { version: 2, threads };
     this.storage.setItem(this.chatKey(viewerAccountId, assistantId), JSON.stringify(record));
   }
 
-  /** 匿名統計只計算有對話的帳號數，不讀取任何對話文字。 */
+  private nextThreadId(threads: readonly StoredChatThread[]): ChatThreadId {
+    const highest = threads.reduce(
+      (largest, thread) => Math.max(largest, threadSequence(thread.id)),
+      0,
+    );
+    return `chat-thread-${highest + 1}`;
+  }
+
+  /**
+   * 決定訊息要寫進哪一段對話。null 代表助理不保存對話、只有一段暫時對話；
+   * undefined 代表指定的對話不存在或不屬於這個帳號。
+   */
+  private resolveChatTarget(
+    viewerAccountId: AccountId,
+    assistant: AssistantConfigurationView,
+    threadId: string | undefined,
+  ): StoredChatThread | null | undefined {
+    if (!this.keepsConversations(assistant)) {
+      return threadId === undefined ? null : undefined;
+    }
+
+    const threads = this.storedThreads(viewerAccountId, assistant.id);
+    if (threadId !== undefined) {
+      return threads.find((candidate) => candidate.id === threadId);
+    }
+
+    const latest = [...threads].sort(byRecentActivity)[0];
+    if (latest !== undefined) return latest;
+
+    const createdAt = this.now().toISOString();
+    return {
+      id: this.nextThreadId(threads),
+      title: CHAT_DEFAULT_THREAD_TITLE,
+      titleSource: 'derived',
+      createdAt,
+      updatedAt: createdAt,
+      messages: [],
+    };
+  }
+
+  private targetMessages(
+    viewerAccountId: AccountId,
+    assistant: AssistantConfigurationView,
+    target: StoredChatThread | null,
+  ): readonly ChatMessageView[] {
+    return target === null
+      ? this.ephemeralMessages(viewerAccountId, assistant.id)
+      : target.messages;
+  }
+
+  /** 寫入訊息並回傳整段對話；不保存對話的助理只留在記憶體，不碰 storage。 */
+  private writeChatMessages(
+    viewerAccountId: AccountId,
+    assistant: AssistantConfigurationView,
+    target: StoredChatThread | null,
+    messages: readonly ChatMessageView[],
+  ): AssistantChatView {
+    if (target === null) {
+      this.ephemeralChats.set(this.ephemeralKey(viewerAccountId, assistant.id), messages);
+      return this.toChatView(assistant, messages);
+    }
+
+    const updated: StoredChatThread = {
+      ...target,
+      title: target.titleSource === 'manual' ? target.title : deriveThreadTitle(messages),
+      updatedAt: this.now().toISOString(),
+      messages,
+    };
+    const threads = this.storedThreads(viewerAccountId, assistant.id).filter(
+      (candidate) => candidate.id !== updated.id,
+    );
+    this.saveThreads(viewerAccountId, assistant.id, [...threads, updated]);
+
+    return this.toChatView(assistant, messages, updated.id, updated.title);
+  }
+
+  /** 匿名統計只計算有訊息的對話段數，不讀取任何對話文字。 */
   private countChatConversations(assistantId: AssistantId): number {
-    return this.seed.accounts.filter(
-      (account) => this.chatMessages(account.id, assistantId).length > 0,
-    ).length;
+    return this.seed.accounts.reduce(
+      (total, account) =>
+        total +
+        this.storedThreads(account.id, assistantId).filter(
+          (thread) => thread.messages.length > 0,
+        ).length,
+      0,
+    );
   }
 
   private chatRecords(): readonly DatabaseRecordFixture[] {
@@ -1425,15 +1767,40 @@ export class MockDemoRepository implements DemoRepository {
     return [...seen.values()];
   }
 
+  private toThreadListView(
+    viewerAccountId: AccountId,
+    assistant: AssistantConfigurationView,
+  ): ChatThreadListView {
+    const historyMode = this.historyMode(assistant);
+    return {
+      assistantId: assistant.id,
+      assistantName: assistant.name,
+      historyMode,
+      threads:
+        historyMode === 'saved'
+          ? [...this.storedThreads(viewerAccountId, assistant.id)]
+              .sort(byRecentActivity)
+              .map(toThreadSummary)
+          : [],
+      historyNotice:
+        historyMode === 'saved' ? CHAT_HISTORY_SAVED_NOTICE : CHAT_HISTORY_OFF_NOTICE,
+    };
+  }
+
   private toChatView(
     assistant: AssistantConfigurationView,
     messages: readonly ChatMessageView[],
+    threadId: ChatThreadId | null = null,
+    title: string = CHAT_DEFAULT_THREAD_TITLE,
   ): AssistantChatView {
     const profile = this.seed.chatProfiles[assistant.id] ?? DEFAULT_CHAT_PROFILE;
     return {
       assistantId: assistant.id,
       assistantName: assistant.name,
       purpose: assistant.purpose,
+      threadId,
+      title,
+      historyMode: this.historyMode(assistant),
       welcome: profile.welcome,
       privacyNotice: CHAT_PRIVACY_NOTICE,
       suggestedPrompts: this.seed.chatResponses
@@ -1732,16 +2099,22 @@ export class MockDemoRepository implements DemoRepository {
     const stored = parseJson(this.storage.getItem(CREATED_ASSISTANTS_KEY));
     if (!Array.isArray(stored)) return [];
 
-    return stored.filter(
-      (entry): entry is AssistantConfigurationView =>
-        isRecord(entry) &&
-        typeof entry['id'] === 'string' &&
-        entry['id'].startsWith('assistant-created-') &&
-        typeof entry['ownerAccountId'] === 'string' &&
-        Array.isArray(entry['knowledgeBaseIds']) &&
-        Array.isArray(entry['databaseIds']) &&
-        Array.isArray(entry['sharedWithAccountIds']),
-    );
+    return stored
+      .filter(
+        (entry): entry is AssistantConfigurationView =>
+          isRecord(entry) &&
+          typeof entry['id'] === 'string' &&
+          entry['id'].startsWith('assistant-created-') &&
+          typeof entry['ownerAccountId'] === 'string' &&
+          Array.isArray(entry['knowledgeBaseIds']) &&
+          Array.isArray(entry['databaseIds']) &&
+          Array.isArray(entry['sharedWithAccountIds']),
+      )
+      // 這個欄位是後來才加的：舊資料沒有時視為「保存對話」。
+      .map((entry) => ({
+        ...entry,
+        keepOwnConversations: entry.keepOwnConversations !== false,
+      }));
   }
 
   private nextCreatedAssistantId(): CreatedAssistantId {

@@ -34,6 +34,8 @@ import type {
   AuthorizedFormInput,
   ChatFormReviewView,
   ChatFormSubmission,
+  ChatThreadListView,
+  ChatThreadSummaryView,
   ConversationId,
   PrivateConversationView,
   StructuredSubmissionView,
@@ -83,6 +85,7 @@ export type RepositoryPermissionDeniedReason =
   | 'database'
   | 'database-records'
   | 'assistant-use'
+  | 'chat-thread'
   | 'publishing';
 
 export interface ReadyRepositoryView<T> {
@@ -171,6 +174,10 @@ export type ReviewChatFormResult =
 export type SubmitChatFormResult =
   | RepositoryView<AssistantChatView>
   | DatabaseFieldsValidationFailedView;
+
+export type RenameChatThreadResult =
+  | RepositoryView<ChatThreadSummaryView>
+  | ChatValidationFailedView;
 
 export interface PublishingValidationFailedView {
   readonly status: 'validation-failed';
@@ -397,18 +404,52 @@ export interface DemoRepository extends DemoScenarioController {
     databaseId: string,
   ): RepositoryView<DatabaseTrackingView>;
   /**
-   * 目前帳號與助理的私人對話。id 來自網址、未經驗證；不存在或無使用權限時一律回傳
-   * 相同的 permission-denied。對話只屬於發起的帳號，助理擁有者也看不到其他帳號的內容。
+   * 目前帳號與助理的對話清單，依最後活動時間由新到舊。id 來自網址、未經驗證；
+   * 不存在或無使用權限時回傳 `assistant-use` 的 permission-denied。
+   * 助理關閉「保存自己的對話」時 threads 為空，並以 historyNotice 說明原因。
+   */
+  listChatThreads(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): RepositoryView<ChatThreadListView>;
+  /** 開一段新的空白對話並立刻保存；不保存對話的助理回傳同一段暫時對話。 */
+  createChatThread(
+    viewerAccountId: AccountId,
+    assistantId: string,
+  ): RepositoryView<AssistantChatView>;
+  /** 改名。threadId 來自網址、未經驗證；不存在或屬於其他帳號一律回傳 `chat-thread`。 */
+  renameChatThread(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    threadId: string,
+    title: string,
+  ): RenameChatThreadResult;
+  /** 刪除一段對話，回傳剩下的清單；不存在或屬於其他帳號一律回傳 `chat-thread`。 */
+  deleteChatThread(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    threadId: string,
+  ): RepositoryView<ChatThreadListView>;
+  /**
+   * 目前帳號與助理的一段私人對話。id 來自網址、未經驗證；助理不存在或無使用權限時
+   * 回傳 `assistant-use`，對話不存在或屬於其他帳號時回傳 `chat-thread`，兩者的訊息
+   * 都不包含資源名稱。省略 threadId 時開啟最後一次使用的對話，沒有就回傳空白對話。
+   * 對話只屬於發起的帳號，助理擁有者也看不到其他帳號的內容。
    */
   getAssistantChat(
     viewerAccountId: AccountId,
     assistantId: string,
+    threadId?: string,
   ): RepositoryView<AssistantChatView>;
-  /** 以預先準備的 response map 回覆；對應不到時回覆查無資料與下一步，不模擬 LLM。 */
+  /**
+   * 以預先準備的 response map 回覆；對應不到時回覆查無資料與下一步，不模擬 LLM。
+   * 省略 threadId 時寫入最後一次使用的對話，沒有就開一段新的。
+   */
   sendChatMessage(
     viewerAccountId: AccountId,
     assistantId: string,
     text: string,
+    threadId?: string,
   ): SendChatMessageResult;
   /** 對話中表單的送出前確認：只驗證並整理填寫值，不會建立紀錄。 */
   reviewChatForm(
@@ -425,6 +466,7 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     assistantId: string,
     submission: ChatFormSubmission,
+    threadId?: string,
   ): SubmitChatFormResult;
 }
 

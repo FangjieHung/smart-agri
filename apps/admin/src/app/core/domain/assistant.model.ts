@@ -51,4 +51,9 @@ export interface AssistantConfigurationView {
   readonly sharedWithAccountIds: readonly AccountId[];
   readonly knowledgeBaseIds: readonly KnowledgeBaseId[];
   readonly databaseIds: readonly DatabaseId[];
+  /**
+   * 建立精靈「保存自己的對話」的結果。false 時使用者的對話不寫入任何儲存，
+   * 也不會出現在對話紀錄側欄；離開頁面就消失。
+   */
+  readonly keepOwnConversations: boolean;
 }

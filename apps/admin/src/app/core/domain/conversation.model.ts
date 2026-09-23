@@ -169,11 +169,44 @@ export interface ChatSuggestedPromptView {
   readonly text: string;
 }
 
-/** 目前帳號與某個助理的私人對話；只會回傳給對話所屬的帳號。 */
+/** 同一個帳號與同一個助理可以有多段對話；每一段是一個 thread。 */
+export type ChatThreadId = `chat-thread-${number}`;
+
+/**
+ * 對話紀錄是否保存：`saved` 會寫入這個帳號專屬的儲存並列在側欄；
+ * `not-saved` 代表助理的規則關閉了「保存自己的對話」，只有一段暫時對話。
+ */
+export type ChatHistoryMode = 'saved' | 'not-saved';
+
+/** 側欄用的對話摘要；只含標題與數量，不含任何訊息文字。 */
+export interface ChatThreadSummaryView {
+  readonly id: ChatThreadId;
+  /** 預設由第一則提問推導，使用者可以改名。 */
+  readonly title: string;
+  readonly messageCount: number;
+  readonly updatedAt: string;
+}
+
+/** 目前帳號與某個助理的對話清單；依最後活動時間由新到舊排序。 */
+export interface ChatThreadListView {
+  readonly assistantId: AssistantId;
+  readonly assistantName: string;
+  readonly historyMode: ChatHistoryMode;
+  /** `historyMode` 為 `not-saved` 時固定為空陣列。 */
+  readonly threads: readonly ChatThreadSummaryView[];
+  /** 側欄顯示的說明：保存規則與隱私範圍。 */
+  readonly historyNotice: string;
+}
+
+/** 目前帳號與某個助理的一段私人對話；只會回傳給對話所屬的帳號。 */
 export interface AssistantChatView {
   readonly assistantId: AssistantId;
   readonly assistantName: string;
   readonly purpose: string;
+  /** 尚未建立任何對話、或助理不保存對話時為 null。 */
+  readonly threadId: ChatThreadId | null;
+  readonly title: string;
+  readonly historyMode: ChatHistoryMode;
   readonly welcome: string;
   readonly privacyNotice: string;
   readonly suggestedPrompts: readonly ChatSuggestedPromptView[];

@@ -109,6 +109,7 @@ export const DEMO_SEED: DemoSeed = {
         'knowledge-shipping-faq',
       ],
       databaseIds: ['database-orders', 'database-customer-records'],
+      keepOwnConversations: true,
     },
     {
       id: 'assistant-internal-onboarding',
@@ -120,6 +121,7 @@ export const DEMO_SEED: DemoSeed = {
       sharedWithAccountIds: [],
       knowledgeBaseIds: ['knowledge-product-guide'],
       databaseIds: [],
+      keepOwnConversations: true,
     },
   ],
   knowledgeBases: [

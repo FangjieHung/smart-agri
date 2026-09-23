@@ -22,6 +22,7 @@ describe('AssistantListPageComponent', () => {
           sharedWithAccountIds: [],
           knowledgeBaseIds: [],
           databaseIds: [],
+          keepOwnConversations: true,
         },
       ],
     };

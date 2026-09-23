@@ -1,0 +1,95 @@
+<div class="rail-inner">
+  <div class="rail-head">
+    <h2 class="rail-title" id="conversation-rail-title">對話紀錄</h2>
+    @if (historyMode() === 'saved') {
+      <button type="button" class="new-conversation" (click)="newConversation.emit()">開新對話</button>
+    }
+  </div>
+
+  @if (historyMode() === 'not-saved') {
+    <p class="rail-notice" data-state="history-off">{{ historyNotice() }}</p>
+  } @else if (threads().length === 0) {
+    <p class="rail-privacy">{{ historyNotice() }}</p>
+    <p class="rail-empty">還沒有任何對話。問第一個問題，就會自動建立一段對話。</p>
+  } @else {
+    <p class="rail-privacy">{{ historyNotice() }}</p>
+    @if (renameError()) {
+      <p class="rename-error" role="alert">{{ renameError() }}</p>
+    }
+    <ul class="thread-list" aria-labelledby="conversation-rail-title">
+      @for (thread of threads(); track thread.id) {
+        <li class="thread" [class.thread--active]="thread.id === activeThreadId()">
+          @if (renamingId() === thread.id) {
+            <form class="rename-form" (submit)="submitRename($event, thread.id)">
+              <label class="visually-hidden" [attr.for]="'rename-' + thread.id">對話名稱</label>
+              <input
+                #renameInput
+                class="rename-input"
+                type="text"
+                autocomplete="off"
+                [id]="'rename-' + thread.id"
+                [value]="thread.title"
+                (keydown.escape)="cancelRename()"
+              />
+              <div class="rename-actions">
+                <button type="submit" class="rename-save">儲存</button>
+                <button type="button" class="rename-cancel" (click)="cancelRename()">取消</button>
+              </div>
+            </form>
+          } @else {
+            <button
+              type="button"
+              class="thread-open"
+              [attr.data-thread-id]="thread.id"
+              [attr.aria-current]="thread.id === activeThreadId() ? 'true' : null"
+              (click)="selectThread.emit(thread.id)"
+            >
+              <span class="thread-title">{{ thread.title }}</span>
+              <span class="thread-meta">{{ thread.messageCount }} 則訊息</span>
+            </button>
+            <div class="thread-actions">
+              <button
+                type="button"
+                class="thread-rename"
+                [attr.aria-label]="'重新命名對話：' + thread.title"
+                (click)="startRename(thread.id)"
+              >
+                重新命名
+              </button>
+              <button
+                type="button"
+                class="thread-delete"
+                [attr.aria-label]="'刪除對話：' + thread.title"
+                (click)="askDelete(thread, $event)"
+              >
+                刪除
+              </button>
+            </div>
+          }
+        </li>
+      }
+    </ul>
+  }
+</div>
+
+@if (pendingDelete(); as pending) {
+  <div class="confirm-backdrop"></div>
+  <div
+    class="confirm"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="delete-confirm-title"
+    aria-describedby="delete-confirm-detail"
+    cdkTrapFocus
+    (keydown.escape)="cancelDelete()"
+  >
+    <h3 class="confirm-title" id="delete-confirm-title">刪除這段對話？</h3>
+    <p class="confirm-detail" id="delete-confirm-detail">
+      「{{ pending.title }}」與其中的 {{ pending.messageCount }} 則訊息會被刪除，無法復原。
+    </p>
+    <div class="confirm-actions">
+      <button #cancelButton type="button" class="confirm-cancel" (click)="cancelDelete()">取消</button>
+      <button type="button" class="confirm-delete" (click)="confirmDelete()">刪除</button>
+    </div>
+  </div>
+}

@@ -4,6 +4,8 @@
 
 文件目的：讓後端工程師知道**前端已經假設了什麼**——資料形狀、狀態機、權限規則、驗證規則，以及**哪些行為是假的**、必須由後端真正實作。文件內所有型別與規則都可在程式碼中對照（以 `檔案路徑:行號` 標示）。
 
+**引用縮寫**：為免行文過長，下文以 `...-demo.md` 代表 `docs/plans/2026-09-18-sme-ai-assistant-ux-demo.md`（實作計畫），以 `...-design.md` 代表 `docs/plans/2026-09-18-sme-ai-assistant-ux-demo-design.md`（產品與 UX 設計決策）。其餘引用一律為 repo 相對路徑或檔名。
+
 **這份文件是「功能區的深度細節」。** 全域的驗收清單、外部服務接點與非功能期待在 `docs/handoff/ai-assistant-backend-integration-handoff.md`；全部 54 個 repository 方法的 endpoint／授權／錯誤分類／替換檔案在 `docs/handoff/mock-to-api-mapping.md`；每條路由對應的畫面、狀態與 e2e 在 `docs/handoff/route-screen-matrix.md`。
 
 ---

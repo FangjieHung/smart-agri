@@ -18,14 +18,23 @@
       <p class="partial-notice" role="status">{{ result.message }} 其他知識庫仍可正常使用。</p>
     }
     @if (result.data.length > 0) {
-      <lib-data-table [labels]="tableLabels" [showExport]="false" mobile="scroll">
-        <ng-template dtHead><tr><th scope="col">名稱</th><th scope="col">用途</th><th scope="col">內容</th><th scope="col">處理狀態</th><th scope="col">分享範圍</th><th scope="col">已連接助理</th><th scope="col">最近更新</th></tr></ng-template>
-        <ng-template dtBody>
-          @for (item of result.data; track item.id) {
-            @let state = processing(item);
-            <tr><th scope="row"><a [routerLink]="['/app/knowledge', item.id, 'content']">{{ item.name }}</a></th><td>{{ item.purpose }}</td><td>{{ item.documentCount }} 份文件・{{ item.faqCount }} 則 FAQ</td><td>{{ state.label }}</td><td>{{ scopeLabel(item.sharingScope) }}</td><td>{{ item.connectedAssistantNames.join('、') || '尚未連接' }}</td><td><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></td></tr>
-          }
+      <lib-data-table
+        [columns]="columns"
+        [rows]="result.data"
+        [labels]="tableLabels"
+        [showExport]="false"
+        mobile="scroll"
+        [rowClickable]="true"
+        (rowClick)="openDetail($event)"
+      >
+        <ng-template dtCell="name" let-item>
+          <a [routerLink]="['/app/knowledge', item.id, 'content']" (click)="$event.stopPropagation()">{{ item.name }}</a>
         </ng-template>
+        <ng-template dtCell="content" let-item>{{ item.documentCount }} 份文件・{{ item.faqCount }} 則 FAQ</ng-template>
+        <ng-template dtCell="status" let-item>{{ processing(item).label }}</ng-template>
+        <ng-template dtCell="scope" let-item>{{ scopeLabel(item.sharingScope) }}</ng-template>
+        <ng-template dtCell="assistants" let-item>{{ item.connectedAssistantNames.join('、') || '尚未連接' }}</ng-template>
+        <ng-template dtCell="updatedAt" let-item><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></ng-template>
       </lib-data-table>
     } @else {
       <section class="ui-panel" aria-labelledby="empty-knowledge-title">

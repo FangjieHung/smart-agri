@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal, TemplateRef, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
-import { DataTableComponent, DataTableHeadDirective, DataTableBodyDirective } from '@smart-agri/ui';
+import { DataTableCellDirective, DataTableColumn, DataTableComponent } from '@smart-agri/ui';
 import { ADMIN_DATA_TABLE_LABELS } from '../../../shared/ui/data-table-labels';
 import { fmtDateTime } from '../../../core/date-utils';
 import type { DatabaseSummaryView, DatabaseTemplateId, DatabaseTemplateView } from '../../../core/domain/database.model';
@@ -12,7 +12,7 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 
 @Component({
   selector: 'app-database-list-page',
-  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, MatDialogModule, DataTableComponent, DataTableHeadDirective, DataTableBodyDirective],
+  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, MatDialogModule, DataTableComponent, DataTableCellDirective],
   templateUrl: './database-list-page.component.html',
   styleUrl: './database-list-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -24,6 +24,15 @@ export class DatabaseListPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
+
+  protected readonly columns: DataTableColumn<DatabaseSummaryView>[] = [
+    { key: 'name', label: '名稱' },
+    { key: 'purpose', label: '用途' },
+    { key: 'form', label: '表單', exportSkip: true },
+    { key: 'records', label: '收集紀錄', exportSkip: true },
+    { key: 'assistants', label: '已連接助理', exportSkip: true },
+    { key: 'updatedAt', label: '最近更新', exportSkip: true },
+  ];
 
   protected readonly view = computed(() => {
     const accountId = this.session.activeAccountId();
@@ -82,5 +91,9 @@ export class DatabaseListPageComponent {
 
   protected updatedAt(iso: string): string {
     return fmtDateTime(iso);
+  }
+
+  protected openDetail(item: DatabaseSummaryView): void {
+    void this.router.navigate(['/app/databases', item.id, 'form']);
   }
 }

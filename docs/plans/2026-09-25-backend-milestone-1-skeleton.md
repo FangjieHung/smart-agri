@@ -158,13 +158,14 @@ deploy/
 ### Slice 4｜組織與帳號模型、全域查詢篩選、跨組織隔離測試
 - **目的：** 落實「所有資料帶 `OrganizationId`、每次查詢由服務端過濾」，並用測試防止漏網。
 - **內容：**
-  - Domain：`Organization`（Id、Name）、`IOrganizationScoped { Guid OrganizationId }`、`AccountRole`（3 值）、`AccountPermission`（7 值），序列化名稱與 `account.model.ts:20-30` 的 kebab-case 字串完全相同（`JsonStringEnumMemberName`）。
-  - Infrastructure：`Account : IdentityUser<Guid>, IOrganizationScoped`（DisplayName、Role）；`AccountPermissions` 資料表（AccountId、Permission、OrganizationId）。
+  - Domain：`Organization`（Id、Name、Code：組織代碼，全系統唯一、登入時使用）、`IOrganizationScoped { Guid OrganizationId }`、`AccountRole`（3 值）、`AccountPermission`（7 值），序列化名稱與 `account.model.ts:20-30` 的 kebab-case 字串完全相同（`JsonStringEnumMemberName`）。
+  - Infrastructure：`Account : IdentityUser<Guid>, IOrganizationScoped`（LoginName、DisplayName、Role）；帳號名稱只需在同一組織內唯一：`(OrganizationId, NormalizedLoginName)` 唯一索引；Identity 內部的 `UserName` 存成「組織代碼/帳號名稱」組合值以滿足 Identity 的全域唯一索引，畫面與 API 一律只顯示 `LoginName`（見 authentication ADR）；`AccountPermissions` 資料表（AccountId、Permission、OrganizationId）。
   - `IOrganizationContext`：由已驗證的 `org_id` claim 取得；沒有時為「無組織」，此時所有受篩選的查詢回傳空集合（不是全部）。
   - `AppDbContext` 在 `OnModelCreating` 掃描所有 `IOrganizationScoped` 實體，套用具名查詢篩選 `"Organization"`（EF Core 10 named filters，日後可再加軟刪除篩選而不互相覆蓋）。
   - `SaveChanges` interceptor：新增時自動填入目前組織；修改或新增別的組織的資料一律丟例外。
   - 登入查帳號是唯一允許 `IgnoreQueryFilters()` 的地方，集中在 `AccountLookup`，並以測試鎖住呼叫點數量。
 - **驗收（皆為 `SmartAgri.Api.Tests` 的 Testcontainers 測試）：**
+  - 組織 A、B 各建一個同名帳號 `admin` 皆成功；同一組織內建第二個 `admin` 失敗。
   - 在組織 A、B 各建帳號；以 A 的 context 查 `Accounts` 只看得到 A；以「無組織」查為空。
   - 以 A 的 context 儲存一筆 `OrganizationId = B` 的資料 → 例外，資料庫無寫入。
   - 模型測試：`AppDbContext.Model` 中除了白名單（`Organization`、Identity 的 role 表、OpenIddict 四張表）之外，每個實體都實作 `IOrganizationScoped` 且帶 `"Organization"` 篩選；之後任何人新增實體忘了加，這個測試就會失敗。
@@ -175,13 +176,15 @@ deploy/
 - **目的：** 真實帳密登入並核發 token；API 知道「誰、屬於哪個組織、有哪些權限」。
 - **內容：**
   - OpenIddict server（EF Core stores）：authorization、token、end-session、userinfo 端點；只啟用 authorization code + PKCE（public client `admin-spa`，redirect `/auth/callback`）；開發用暫時簽章金鑰，正式環境金鑰路徑由設定提供（沒有就拒絕啟動）。
-  - `POST /api/v1/auth/login`（帳密 → Identity cookie，`204`；錯誤一律 `401` 同一訊息，不區分帳號不存在或密碼錯）、`POST /api/v1/auth/logout`；Identity lockout 開啟。
+  - `GET /api/v1/auth/login-options` → `{ organizationCodeRequired }`：資料庫只有一個組織時為 `false`，登入頁可隱藏組織代碼欄位。
+  - `POST /api/v1/auth/login`（組織代碼＋帳號＋密碼 → Identity cookie；只有一個組織時組織代碼可省略；`204`；錯誤一律 `401` 同一訊息，不區分組織代碼錯、帳號不存在或密碼錯）、`POST /api/v1/auth/logout`；Identity lockout 開啟。
   - Access token 內容：`sub`、`org_id`、`role`；存活 30 分鐘（對齊 `DEMO_SESSION_TIMEOUT_MS`，`demo-session.service.ts:29`）；M1 不發 refresh token。
   - 授權 policy：每個 `AccountPermission` 一條 `RequirePermission(...)`，從資料庫讀權限。
   - `GET /api/v1/me` → `{ id, displayName, role, permissions[], organization: { id, name } }`。
   - 錯誤格式：`401` 無 body；`403` 為 ProblemDetails 加 `reason`、`message`；`422` 加 `errors`。共用 helper 保證「不存在」與「無權限」產生位元組相同的 `403`。
 - **驗收：**
   - 整合測試走完整 PKCE：login → authorize → token → `/me` 回傳正確的 role 與權限。
+  - 錯密碼、不存在的帳號與不存在的組織代碼回應 body 相同；兩個組織各有 `admin` 時，以各自組織代碼登入拿到各自的 `/me`。
   - 錯密碼與不存在的帳號回應 body 相同；連續 5 次錯誤後帳號鎖定。
   - 沒帶 token 打 `/me` 為 `401`；token 過期為 `401`。
   - 以 A 組織 token 帶 B 組織資源 id 與不存在的 id 打同一個受保護端點（Slice 8 的 `PUT .../members/{id}/permissions` 完成後補上），兩者 status 與 body 完全相同。
@@ -191,7 +194,7 @@ deploy/
 ### Slice 6｜開發種子資料
 - **目的：** 本機與 E2E 有和 Demo 一致的三個帳號，且正式設定不含任何預設密碼。
 - **內容：**
-  - `DevelopmentSeeder` 只在 `Development` 環境註冊：組織「安心商行」+ 三個帳號（`admin`／`internal`／`customer`，顯示名稱、角色、初始權限照 `demo-seed.ts:101-127`）；另一個組織「對照組織」+ 一個管理者，供手動檢查隔離。
+  - `DevelopmentSeeder` 只在 `Development` 環境註冊：組織「安心商行」（組織代碼 `anxin`）+ 三個帳號（`admin`／`internal`／`customer`，顯示名稱、角色、初始權限照 `demo-seed.ts:101-127`）；另一個組織「對照組織」（組織代碼 `control`）+ 一個同名的 `admin` 管理者，供手動檢查隔離。
   - 密碼來自環境變數 `SEED_DEMO_PASSWORD`（`.env.example` 說明），**沒有預設值**，未設定就讓 seeder 失敗並寫明原因；密碼需符合 Identity 預設強度，所以不可能是 `1234`（authentication ADR）。
   - 冪等：已存在就只補缺的權限，不覆寫手動改過的權限。
 - **驗收：**
@@ -235,13 +238,13 @@ deploy/
   - `app.config.ts` 在 API 模式才 `provideHttpClient(withFetch(), withInterceptors([bearerToken, unauthorized]))`；`oidc-client-ts` 只在 API 模式以動態 import 載入。
   - `ApiSessionService`：登入頁提交 → `POST /api/v1/auth/login` → 回到 `returnUrl`（authorize）→ `/auth/callback` 完成 PKCE → `GET /me` → 依 `role` 對應 Demo 身分 id 後呼叫 `DemoSessionService.switchAccount()`；另外公開 `permissions` signal（mock 模式由 `listAccounts()` 推得）。token 存在該分頁的 sessionStorage（沿用 Demo「一個分頁一個身分」的語意）。
   - 任何 API 回 `401` → 清除工作階段並導到 `/login`，顯示既有逾時說明。
-  - 登入頁：API 模式隱藏三個 Demo 身分與「密碼都是 1234」說明（`demo-login-page.component.html:23`），錯誤訊息改為不區分帳號或密碼。
+  - 登入頁：API 模式依 `login-options` 顯示或隱藏「組織代碼」欄位，上次輸入的組織代碼記在 localStorage；隱藏三個 Demo 身分與「密碼都是 1234」說明（`demo-login-page.component.html:23`），錯誤訊息改為不區分帳號或密碼。
   - 助理清單的 `canCreateAssistant` 改讀 `permissions` signal，不再呼叫 `listAccounts()`（`assistant-list-page.component.ts:28-35`）。
   - 側欄登出改走 `ApiSessionService.logout()`（API 模式呼叫 end-session）；刪除舊的 `core/auth/auth.service.ts` 與未掛路由的 `features/auth/pages/login-page.component.ts`。
 - **驗收：**
   - `npx nx test admin` 全過，新增 `ApiSessionService`（HttpTestingController）與 `unauthorized` 攔截器的測試。
   - `npx nx build admin --configuration=production` 通過預算（`project.json:33-44`），且 `grep -l "connect/authorize" dist/smart-agri-admin/browser/*.js` 無結果。
-  - 本機：compose dev + `dotnet run` + `npx nx serve admin --configuration=api`，用 `admin` 帳號登入 → `/app/home`；側欄顯示「安心商行管理者」；登出後直接開 `/app/home` 被導回 `/login`。
+  - 本機：compose dev + `dotnet run` + `npx nx serve admin --configuration=api`，以組織代碼 `anxin`、`admin` 帳號登入 → `/app/home`；側欄顯示「安心商行管理者」；登出後直接開 `/app/home` 被導回 `/login`。
   - 用 `customer` 登入時，助理清單沒有「建立助理」入口。
   - 現有 Cypress 套件（mock 模式）全綠。
 - **依賴：** 5、6、7。
@@ -266,8 +269,8 @@ deploy/
 ## 6. 風險與待確認
 
 1. **`openapi-typescript` 與 TypeScript 6 的 peer dependency 衝突**：Slice 7 第一步驗證；退路已寫在第 3 節。
-2. **帳號名稱唯一的範圍**：M1 以「全系統唯一的帳號名稱（email）」登入，不需先選組織。之後若同一個 email 要屬於多個組織，或組織改接自己的 OIDC，登入頁要不要先選組織？需產品決定，會影響 `AccountLookup` 的唯一索引。
-3. **前端 token 存放與更新**：M1 把 access token 放在分頁 sessionStorage、30 分鐘到期即重新登入、不發 refresh token。若要「閒置才逾時」而非固定 30 分鐘，需決定用 refresh token 輪替還是靠 Identity cookie 靜默重新授權；也要一併定義登出時要清掉哪些本機資料（`tasks-6-10-backend-handoff.md` 第 8 節第 1 列）。
+2. ~~帳號名稱唯一的範圍~~ **已決定（2026-09-25）**：帳號名稱只需在同一組織內唯一，登入時以組織代碼區分；只有一個組織的部署可省略組織代碼（見 Slice 4、5、9）。
+3. ~~前端 token 存放與更新~~ **已決定（2026-09-25）**：照 M1 暫定——分頁 sessionStorage、30 分鐘到期重新登入、不發 refresh token；閒置逾時與 refresh token 之後另議。
 4. **角色 → Demo 身分的橋接**：只在「每個角色恰好一個帳號」時成立（M1 的種子資料如此）。在所有功能區換成真 API 之前，若有人在 API 模式的組織內新增第二個同角色帳號，mock 區域會把兩人當成同一位 Demo 身分。M1 不提供新增帳號功能，所以風險只存在於手動改資料庫。
 5. **正式環境第一位管理者怎麼建立**：M1 只有 Development 種子。地端交付時需要一個建立「第一個組織 + 管理者」的方式（CLI 子命令或首次啟動精靈），請決定形式；建議排在 M1 之後、第一次客戶部署之前。
 6. **本機資源**：Testcontainers 與 compose 都需要 colima；依過往經驗，記憶體吃緊時背景程序會被中止，啟動前先看 swap。

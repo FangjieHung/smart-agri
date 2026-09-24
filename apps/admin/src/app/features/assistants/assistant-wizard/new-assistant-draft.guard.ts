@@ -1,19 +1,16 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { ASSISTANT_WIZARD_STEPS } from '../../../core/domain/assistant-draft.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 
-/** 每次從「建立新助理」進來都產生獨立草稿，並停在網址要求的步驟（未知步驟則回到 purpose）。 */
-export const newAssistantDraftGuard: CanActivateFn = (route) => {
+/** 每次從「建立新助理」進來都產生獨立草稿。 */
+export const newAssistantDraftGuard: CanActivateFn = () => {
   const accountId = inject(DemoSessionService).activeAccountId();
   const router = inject(Router);
   if (!accountId) return router.createUrlTree(['/login']);
-  const requestedStep = route.paramMap.get('step');
-  const step = ASSISTANT_WIZARD_STEPS.find((candidate) => candidate === requestedStep) ?? 'purpose';
   const result = inject(DEMO_REPOSITORY).createNamedAssistantDraft(accountId);
   return result.status === 'ready'
-    ? router.createUrlTree(['/app/assistants/drafts', result.data.id, step])
+    ? router.createUrlTree(['/app/assistants/drafts', result.data.id, 'purpose'])
     : router.createUrlTree(['/app/assistants']);
 };
 

@@ -3,7 +3,9 @@
     title="我的助理"
     description="管理自己建立的助理與草稿，並使用公司分享給你的助理。"
   >
-    <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
+    @if (canCreateAssistant()) {
+      <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
+    }
   </app-page-header>
 
   <section class="assistant-group" aria-labelledby="my-assistants-title">
@@ -28,7 +30,7 @@
         </li>
       }
     </ul>
-    } @else { <p>你還沒有建立助理。從「建立新助理」開始。</p> }
+    } @else if (canCreateAssistant()) { <p>你還沒有建立助理。從「建立新助理」開始。</p> } @else { <p>你還沒有建立助理。</p> }
   </section>
 
   <section class="assistant-group" aria-labelledby="company-assistants-title">

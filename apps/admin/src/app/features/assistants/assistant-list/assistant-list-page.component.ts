@@ -24,6 +24,16 @@ export class AssistantListPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
 
+  /** 與 repository 的 `createNamedAssistantDraft` 同一條權限：沒有權限就不提供建立入口。 */
+  protected readonly canCreateAssistant = computed(() => {
+    const accountId = this.session.activeAccountId();
+    const accounts = this.repository.listAccounts();
+    if (!accountId || accounts.status !== 'ready') return false;
+    return accounts.data.some(
+      (account) => account.id === accountId && account.permissions.includes('manage-assistants'),
+    );
+  });
+
   protected readonly myItems = computed<readonly AssistantListItem[]>(() => {
     const accountId = this.session.activeAccountId();
     if (!accountId) return [];

@@ -49,4 +49,28 @@ describe('AssistantListPageComponent', () => {
     expect(page.textContent).toContain('客服助理');
     expect(page.querySelector('a[href="/app/chat/assistant-customer-service"]')?.textContent).toContain('對話');
   });
+  async function render(accountId: string): Promise<HTMLElement> {
+    await TestBed.configureTestingModule({
+      imports: [AssistantListPageComponent],
+      providers: [
+        provideRouter([]),
+        { provide: DemoSessionService, useValue: { activeAccountId: () => accountId } },
+        { provide: DEMO_REPOSITORY, useValue: new MockDemoRepository(DEMO_SEED) },
+      ],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(AssistantListPageComponent);
+    fixture.detectChanges();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('offers 建立新助理 to an account allowed to manage assistants', async () => {
+    const page = await render('account-smb-admin');
+    expect(page.querySelector('.page-header__actions a[href="/app/assistants/new/purpose"]')?.textContent).toContain('建立新助理');
+  });
+
+  it('hides 建立新助理 from an account without manage-assistants', async () => {
+    const page = await render('account-internal-employee');
+    expect(page.querySelector('a[href="/app/assistants/new/purpose"]')).toBeNull();
+    expect(page.textContent).not.toContain('建立新助理');
+  });
 });

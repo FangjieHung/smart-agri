@@ -17,7 +17,7 @@
           <li [class.is-current]="step.id === currentStep()" [class.is-complete]="isComplete(step.id)">
             @if (store.canVisit(step.id)) {
               <a
-                [routerLink]="['/app/assistants/new', step.id]"
+                [routerLink]="draftId ? ['/app/assistants/drafts', draftId, step.id] : ['/app/assistants/new', step.id]"
                 [attr.aria-current]="step.id === currentStep() ? 'step' : null"
               >
                 <span class="wizard-steps__index" aria-hidden="true">{{ index + 1 }}</span>

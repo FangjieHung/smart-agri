@@ -61,7 +61,7 @@ describe('app routes', () => {
 
     expect(workspaceRoutes.length).toBeGreaterThan(0);
     for (const route of workspaceRoutes) {
-      expect(route.canActivate).toEqual([demoSessionGuard]);
+      expect(route.canActivate).toContain(demoSessionGuard);
     }
   });
 });

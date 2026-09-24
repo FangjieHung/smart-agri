@@ -64,6 +64,7 @@ export class AssistantWizardPageComponent {
   private readonly injector = inject(Injector);
 
   protected readonly steps = STEP_META;
+  protected readonly draftId = this.route.snapshot.paramMap.get('draftId');
   private readonly requestedStep = toSignal(
     this.route.paramMap.pipe(map((params) => toStep(params.get('step')))),
     { initialValue: toStep(this.route.snapshot.paramMap.get('step')) },
@@ -136,7 +137,9 @@ export class AssistantWizardPageComponent {
   }
 
   private goTo(step: AssistantWizardStep, replaceUrl = false): Promise<boolean> {
-    return this.router.navigate(['/app/assistants/new', step], { replaceUrl });
+    return this.router.navigate(this.draftId
+      ? ['/app/assistants/drafts', this.draftId, step]
+      : ['/app/assistants/new', step], { replaceUrl });
   }
 
   private focusFirstError(): void {

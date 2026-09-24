@@ -37,7 +37,7 @@ describe('SharingPanelComponent', () => {
 
     expect(host.querySelector('fieldset legend')?.textContent).toContain('分享範圍');
     const labels = Array.from(host.querySelectorAll('input[type="radio"]')).map(
-      (input) => input.closest('label')?.textContent ?? '',
+      (input) => host.querySelector(`label[for="${input.id}"]`)?.textContent ?? '',
     );
     expect(labels.join('|')).toContain('只有我');
     expect(labels.join('|')).toContain('指定帳號／團隊');

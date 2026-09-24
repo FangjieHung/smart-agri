@@ -22,6 +22,9 @@
 
   <nav class="nav-list" [attr.aria-label]="t.layout.navAriaLabel">
     @for (item of navItems(); track item.label) {
+      @if (item.label === '首頁' && !collapsed()) { <h2 class="nav-section-title">工作區</h2> }
+      @if (item.label === '知識庫' && !collapsed()) { <h2 class="nav-section-title">資料</h2> }
+      @if (item.label === '對話與回報紀錄' && !collapsed()) { <h2 class="nav-section-title">紀錄與設定</h2> }
       @if (!isNavGroup(item)) {
         <a
           class="nav-link"
@@ -111,6 +114,9 @@
           </ng-template>
         }
       }
+    }
+    @if (!collapsed()) {
+      <app-conversation-rail [recentThreads]="recentChats()" (selectRecentThread)="openRecentChat($event)" />
     }
   </nav>
 

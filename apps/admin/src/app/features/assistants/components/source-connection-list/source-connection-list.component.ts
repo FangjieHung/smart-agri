@@ -7,6 +7,8 @@ import {
   signal,
 } from '@angular/core';
 import { fmtDateTime } from '../../../../core/date-utils';
+import { DataTableComponent, DataTableHeadDirective, DataTableBodyDirective } from '@smart-agri/ui';
+import { ADMIN_DATA_TABLE_LABELS } from '../../../../shared/ui/data-table-labels';
 import type {
   ConnectableSourcePermission,
   ConnectableSourceStatus,
@@ -24,7 +26,7 @@ type SourceTypeFilter = 'all' | ConnectableSourceView['type'];
 const TYPE_FILTERS: readonly { readonly value: SourceTypeFilter; readonly label: string }[] = [
   { value: 'all', label: '全部' },
   { value: 'knowledge-base', label: '知識庫' },
-  { value: 'database', label: '資料庫' },
+  { value: 'database', label: '數據庫' },
 ];
 
 const STATUS_LABELS: Record<ConnectableSourceStatus, string> = {
@@ -50,12 +52,13 @@ const PERMISSION_LABELS: Record<ConnectableSourcePermission, string> = {
  */
 @Component({
   selector: 'app-source-connection-list',
-  imports: [SourceTypeIconComponent, StatusBadgeComponent],
+  imports: [SourceTypeIconComponent, StatusBadgeComponent, DataTableComponent, DataTableHeadDirective, DataTableBodyDirective],
   templateUrl: './source-connection-list.component.html',
   styleUrls: ['../assistant-form.scss', './source-connection-list.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SourceConnectionListComponent {
+  protected readonly tableLabels = ADMIN_DATA_TABLE_LABELS;
   readonly sources = input.required<readonly ConnectableSourceView[]>();
   /** 已連接的來源，只有 id 與類型。 */
   readonly connected = input.required<readonly AssistantSourceReference[]>();

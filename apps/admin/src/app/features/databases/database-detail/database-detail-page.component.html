@@ -22,16 +22,7 @@
       <p class="notice" role="status">{{ result.message }} 其他內容仍可正常使用。</p>
     }
 
-    <nav class="tabs" aria-label="資料庫頁籤">
-      @for (tab of tabs; track tab.id) {
-        <a
-          [routerLink]="['/app/databases', databaseId(), tab.id]"
-          queryParamsHandling="preserve"
-          [class.active]="tab.id === activeTab().id"
-          [attr.aria-current]="tab.id === activeTab().id ? 'page' : null"
-        >{{ tab.label }}</a>
-      }
-    </nav>
+    <lib-detail-layout [tabs]="tabs" [activeId]="activeTab().id" [baseRoute]="['/app/databases', databaseId()]" [preserveQuery]="true" ariaLabel="數據庫頁籤">
 
     <section class="tab-panel" aria-labelledby="database-tab-title">
       <h2 id="database-tab-title">{{ activeTab().label }}</h2>
@@ -105,5 +96,6 @@
         }
       }
     </section>
+    </lib-detail-layout>
   }
 </section>

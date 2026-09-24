@@ -29,11 +29,9 @@ export class App implements OnInit {
   protected readonly navItems: NavEntry[] = [
     { route: '/app/home', label: '首頁', icon: 'home' },
     { route: '/app/assistants', label: '我的助理', icon: 'smart_toy' },
-    { route: '/app/chat', label: '和助理對話', icon: 'chat' },
     { route: '/app/knowledge', label: '知識庫', icon: 'library_books' },
-    { route: '/app/databases', label: '資料庫（數據收集）', icon: 'database' },
+    { route: '/app/databases', label: '數據庫', icon: 'database' },
     { route: '/app/activity', label: '對話與回報紀錄', icon: 'forum' },
-    { route: '/app/channels', label: '發布管道', icon: 'campaign' },
     { route: '/app/settings', label: '團隊與設定', icon: 'settings' },
   ];
 

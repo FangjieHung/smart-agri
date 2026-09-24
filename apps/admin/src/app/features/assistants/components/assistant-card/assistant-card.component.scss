@@ -20,4 +20,5 @@ h2 { margin: 0; color: var(--color-text); font-size: 1.25rem; line-height: 1.35;
 dt { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 dd { margin: 0; color: var(--color-text); font-size: var(--font-size-body); overflow-wrap: anywhere; }
 .assistant-card__link { display: inline-flex; width: fit-content; align-items: center; gap: var(--space-2); color: var(--color-accent); font-weight: 700; text-decoration: none; }
+.assistant-card__actions { display: flex; flex-wrap: wrap; gap: var(--space-4); }
 .assistant-card__link:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 3px; border-radius: var(--radius-control); }

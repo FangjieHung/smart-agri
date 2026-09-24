@@ -15,6 +15,7 @@ import type {
   AssistantDraftFieldError,
   AssistantTemplateView,
   ConnectableSourceView,
+  NamedAssistantDraftView,
   SavedAssistantDraftView,
   TrialAnswerRequest,
   TrialAnswerView,
@@ -415,10 +416,16 @@ export interface DemoRepository extends DemoScenarioController {
     draft: AssistantDraft,
   ): RepositoryView<SavedAssistantDraftView>;
   discardAssistantDraft(viewerAccountId: AccountId): void;
+  listNamedAssistantDrafts(viewerAccountId: AccountId): RepositoryView<readonly NamedAssistantDraftView[]>;
+  createNamedAssistantDraft(viewerAccountId: AccountId): RepositoryView<NamedAssistantDraftView>;
+  getNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): RepositoryView<NamedAssistantDraftView | null>;
+  saveNamedAssistantDraft(viewerAccountId: AccountId, draftId: string, draft: AssistantDraft): RepositoryView<NamedAssistantDraftView | null>;
+  discardNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): void;
   /** 驗證完整草稿後建立助理，成功後清除該帳號的草稿。 */
   createAssistantFromDraft(
     viewerAccountId: AccountId,
     draft: AssistantDraft,
+    draftId?: string,
   ): CreateAssistantResult;
   /** 目前帳號擁有的知識庫摘要：文件／FAQ 數量、狀態統計、分享範圍與已連接助理。 */
   listKnowledgeBaseSummaries(

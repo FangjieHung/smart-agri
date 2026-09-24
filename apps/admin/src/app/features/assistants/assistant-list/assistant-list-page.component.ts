@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import type { AssistantConfigurationView, AssistantSummaryView } from '../../../core/domain/assistant.model';
+import type { NamedAssistantDraftView } from '../../../core/domain/assistant-draft.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
@@ -23,7 +24,7 @@ export class AssistantListPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
 
-  protected readonly items = computed<readonly AssistantListItem[]>(() => {
+  protected readonly myItems = computed<readonly AssistantListItem[]>(() => {
     const accountId = this.session.activeAccountId();
     if (!accountId) return [];
 
@@ -41,6 +42,25 @@ export class AssistantListPageComponent {
         .map((channel) => channel.name),
       recentActivity: assistant.status === 'draft' ? '設定尚未完成' : '今天更新',
     }));
+  });
+
+  protected readonly companyItems = computed<readonly AssistantListItem[]>(() => {
+    const accountId = this.session.activeAccountId();
+    if (!accountId) return [];
+    const result = this.repository.listUsableAssistants(accountId);
+    if (result.status !== 'ready' && result.status !== 'partial-failure') return [];
+    return result.data.filter((assistant) => assistant.permission !== 'configure').map((assistant) => ({
+      assistant,
+      channels: [],
+      recentActivity: '公司分享',
+    }));
+  });
+
+  protected readonly drafts = computed<readonly NamedAssistantDraftView[]>(() => {
+    const accountId = this.session.activeAccountId();
+    if (!accountId) return [];
+    const result = this.repository.listNamedAssistantDrafts(accountId);
+    return result.status === 'ready' || result.status === 'partial-failure' ? result.data : [];
   });
 
   private toConfigurableSummary(

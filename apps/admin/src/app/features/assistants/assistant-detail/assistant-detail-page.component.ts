@@ -1,4 +1,5 @@
 import { Location } from '@angular/common';
+import { DetailLayoutComponent } from '@smart-agri/ui';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -51,6 +52,7 @@ const TABS: readonly AssistantTab[] = [
   selector: 'app-assistant-detail-page',
   imports: [
     RouterLink,
+    DetailLayoutComponent,
     PageHeaderComponent,
     StatePanelComponent,
     AssistantPublishingComponent,

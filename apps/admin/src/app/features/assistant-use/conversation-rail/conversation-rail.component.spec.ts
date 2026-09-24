@@ -26,6 +26,19 @@ function setup(overrides: Partial<Record<string, unknown>> = {}) {
 describe('ConversationRailComponent', () => {
   afterEach(() => document.body.querySelectorAll('app-conversation-rail').forEach((node) => node.remove()));
 
+  it('shows compact recent chats with assistant names and opens the selected thread', () => {
+    const recent = [{ ...THREADS[0], assistantId: 'assistant-customer-service' as const, assistantName: '客服助理' }];
+    const { fixture, host } = setup({ recentThreads: recent });
+    const selected: string[] = [];
+    fixture.componentInstance.selectRecentThread.subscribe((thread) => selected.push(thread.id));
+
+    expect(host.querySelector('.recent-chats h2')?.textContent).toBe('Chats');
+    expect(host.querySelector('.recent-chats')?.textContent).toContain('客服助理');
+    expect(host.querySelector('.thread-rename')).toBeNull();
+    host.querySelector<HTMLButtonElement>('.recent-chats button')?.click();
+    expect(selected).toEqual(['chat-thread-2']);
+  });
+
   it('renders a labelled list of threads with the open one marked as current', () => {
     const { host } = setup();
 

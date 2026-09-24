@@ -267,9 +267,8 @@ describe('AssistantDetailPageComponent', () => {
     const page = fixture.nativeElement as HTMLElement;
 
     expect(page.querySelectorAll('app-assistant-publishing app-channel-card')).toHaveLength(3);
-    expect(page.textContent).toContain('Demo，不會連接外部服務');
+    expect(page.textContent).not.toContain('Demo，不會連接外部服務');
     expect(page.querySelector('app-line-setup')).not.toBeNull();
     expect(page.querySelector('app-website-embed')).toBeNull();
   });
 });
-

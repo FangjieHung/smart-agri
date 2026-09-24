@@ -7,6 +7,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { SettingRowComponent } from '@smart-agri/ui';
 import type { AccountId } from '../../../../core/domain/account.model';
 import type {
   KnowledgeShareTargetView,
@@ -33,6 +34,7 @@ const SCOPE_OPTIONS: readonly ScopeOption[] = [
 
 @Component({
   selector: 'app-sharing-panel',
+  imports: [SettingRowComponent],
   templateUrl: './sharing-panel.component.html',
   styleUrl: './sharing-panel.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

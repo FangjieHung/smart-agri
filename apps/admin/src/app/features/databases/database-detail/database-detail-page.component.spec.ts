@@ -36,7 +36,7 @@ describe('DatabaseDetailPageComponent', () => {
 
     expect(page().querySelector('h1')?.textContent).toContain('客戶資料庫');
     expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['表單設計', '收集紀錄', '趨勢比較', '已連接助理', '權限']);
-    expect(page().querySelector('nav.tabs')?.getAttribute('aria-label')).toBe('資料庫頁籤');
+    expect(page().querySelector('nav.tabs')?.getAttribute('aria-label')).toBe('數據庫頁籤');
     expect(page().querySelector('nav.tabs [aria-current="page"]')?.textContent).toContain('表單設計');
     expect(page().querySelector('app-form-designer')).not.toBeNull();
     expect(page().querySelector('app-form-trial')).not.toBeNull();

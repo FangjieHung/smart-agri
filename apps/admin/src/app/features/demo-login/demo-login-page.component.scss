@@ -17,6 +17,12 @@
 .demo-login__timeout p { margin: 0; color: var(--color-text); line-height: var(--line-height-body); }
 .demo-login__personas-title { margin: 1.5rem 0 0; font-size: 1rem; color: var(--color-text-secondary); }
 .demo-login__personas { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-top: .75rem; }
-.demo-login__persona { min-height: 112px; display: grid; align-content: center; justify-items: start; gap: .35rem; text-align: left; }
+.demo-login__persona { min-height: 112px; display: grid; align-content: center; justify-items: start; gap: .35rem; text-align: left; padding: .75rem; border: var(--border-default); border-radius: var(--radius-container); }
 .demo-login__persona small { color: var(--color-text-secondary); white-space: normal; }
+.demo-login__form { display: grid; gap: .5rem; margin-top: 1.5rem; }
+.demo-login__form label { font-weight: 700; }
+.demo-login__form input { min-height: 44px; padding: .65rem .75rem; border: var(--border-default); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text); font: inherit; }
+.demo-login__form input:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 2px; }
+.demo-login__form button { justify-self: start; margin-top: .5rem; }
+.demo-login__error { margin: 0; color: var(--color-error); }
 @media (max-width: 700px) { .demo-login__personas { grid-template-columns: 1fr; } .demo-login__persona { min-height: var(--target-size); } }

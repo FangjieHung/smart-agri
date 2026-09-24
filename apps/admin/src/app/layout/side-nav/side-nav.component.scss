@@ -71,6 +71,7 @@
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.24) transparent;
 }
+.nav-section-title { margin: 1rem .75rem .25rem; color: var(--app-shell-on-muted); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
 .nav-list::-webkit-scrollbar {
   width: 6px;

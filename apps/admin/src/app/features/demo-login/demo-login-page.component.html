@@ -1,8 +1,8 @@
 <main class="demo-login" aria-labelledby="demo-login-title">
   <section class="demo-login__card">
     <p class="demo-login__eyebrow">SME AI ASSISTANT</p>
-    <h1 id="demo-login-title">選擇 Demo 身分</h1>
-    <p class="demo-login__notice" role="status">Demo 帳號切換，不是真實驗證</p>
+    <h1 id="demo-login-title">Demo 登入</h1>
+    <p class="demo-login__notice" role="status">固定示範帳號，沒有連接正式驗證服務</p>
 
     @if (sessionExpired()) {
       <section class="demo-login__timeout" role="alert" aria-labelledby="demo-timeout-title">
@@ -11,18 +11,23 @@
       </section>
     }
 
-    <p class="demo-login__copy">選擇不同身分，查看各自可使用的工作台內容；切換帳號時，前一位使用者的畫面狀態會被清除。</p>
-    <p class="demo-login__copy">
-      這裡不會輸入密碼，也不會建立真實帳號。選到的身分只記在這個瀏覽器分頁，關閉分頁或閒置超過
-      {{ timeoutMinutes }} 分鐘後就會結束，需要重新選擇。
-    </p>
+    <form class="demo-login__form" (submit)="submit($event)" novalidate>
+      <label for="demo-username">登入帳號</label>
+      <input id="demo-username" name="username" type="text" autocomplete="username" [value]="username()" (input)="setUsername($event)" />
+      <label for="demo-password">密碼</label>
+      <input id="demo-password" name="password" type="password" autocomplete="current-password" [value]="password()" (input)="setPassword($event)" />
+      @if (loginError()) { <p class="demo-login__error" role="alert">{{ loginError() }}</p> }
+      <button matButton="filled" type="submit">登入</button>
+    </form>
     <h2 class="demo-login__personas-title" id="demo-login-personas-title">Demo 帳號</h2>
-    <div class="demo-login__personas" role="group" aria-labelledby="demo-login-personas-title">
+    <p class="demo-login__copy">以下帳號的密碼都是 1234。身分只保留在這個瀏覽器分頁，閒置 {{ timeoutMinutes }} 分鐘後需重新登入。</p>
+    <div class="demo-login__personas" role="list" aria-labelledby="demo-login-personas-title">
       @for (persona of personas; track persona.accountId) {
-        <button matButton="outlined" type="button" class="demo-login__persona" (click)="selectPersona(persona.accountId)">
+        <div class="demo-login__persona" role="listitem">
+          <strong>{{ persona.username }}</strong>
           <span>{{ persona.label }}</span>
           <small>{{ persona.detail }}</small>
-        </button>
+        </div>
       }
     </div>
   </section>

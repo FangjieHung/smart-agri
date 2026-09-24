@@ -1,14 +1,24 @@
 <section class="workspace-page">
   <app-page-header
     title="我的助理"
-    description="查看你可使用的助理，或回到設定完成下一步。"
+    description="管理自己建立的助理與草稿，並使用公司分享給你的助理。"
   >
     <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
   </app-page-header>
 
-  @if (items().length > 0) {
-    <ul class="assistant-list" aria-label="可使用的 AI 助理">
-      @for (item of items(); track item.assistant.id) {
+  <section class="assistant-group" aria-labelledby="my-assistants-title">
+    <h2 id="my-assistants-title">我建立的</h2>
+    @if (myItems().length > 0 || drafts().length > 0) {
+    <ul class="assistant-list" aria-label="我建立的助理">
+      @for (draft of drafts(); track draft.id) {
+        <li class="draft-card">
+          <p class="draft-card__eyebrow">草稿 · {{ draft.draft.currentStep }}</p>
+          <h3>{{ draft.draft.name || '未命名助理' }}</h3>
+          <p>{{ draft.draft.purpose || '尚未填寫用途' }}</p>
+          <a class="ui-button" [routerLink]="['/app/assistants/drafts', draft.id, draft.draft.currentStep]">繼續設定</a>
+        </li>
+      }
+      @for (item of myItems(); track item.assistant.id) {
         <li>
           <app-assistant-card
             [assistant]="item.assistant"
@@ -18,12 +28,17 @@
         </li>
       }
     </ul>
-  } @else {
-    <section class="empty-list" aria-labelledby="empty-assistants-title">
-      <p class="empty-list__eyebrow">尚未有可使用的助理</p>
-      <h2 id="empty-assistants-title">從第一個工作目的開始</h2>
-      <p>建立後即可連接資料來源、試問並決定如何發布。</p>
-      <a class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
-    </section>
-  }
+    } @else { <p>你還沒有建立助理。從「建立新助理」開始。</p> }
+  </section>
+
+  <section class="assistant-group" aria-labelledby="company-assistants-title">
+    <h2 id="company-assistants-title">公司建立的</h2>
+    @if (companyItems().length > 0) {
+      <ul class="assistant-list" aria-label="公司分享的助理">
+        @for (item of companyItems(); track item.assistant.id) {
+          <li><app-assistant-card [assistant]="item.assistant" [channels]="item.channels" [recentActivity]="item.recentActivity" /></li>
+        }
+      </ul>
+    } @else { <p>目前沒有分享給你的助理。</p> }
+  </section>
 </section>

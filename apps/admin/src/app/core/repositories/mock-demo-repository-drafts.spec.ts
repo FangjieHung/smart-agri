@@ -102,6 +102,22 @@ describe('MockDemoRepository assistant creation', () => {
     });
   });
 
+  it('keeps multiple named drafts and migrates the legacy single draft', () => {
+    repository.saveAssistantDraft('account-smb-admin', { ...createEmptyAssistantDraft(), name: '舊草稿' });
+    const first = repository.createNamedAssistantDraft('account-smb-admin');
+    const second = repository.createNamedAssistantDraft('account-smb-admin');
+    expect(first.status).toBe('ready');
+    expect(second.status).toBe('ready');
+    if (first.status !== 'ready' || second.status !== 'ready') return;
+    expect(first.data.id).not.toBe(second.data.id);
+    repository.saveNamedAssistantDraft('account-smb-admin', first.data.id, { ...first.data.draft, name: '新草稿' });
+    const reloaded = new MockDemoRepository(DEMO_SEED, { storage });
+    const list = reloaded.listNamedAssistantDrafts('account-smb-admin');
+    expect(list.status).toBe('ready');
+    if (list.status === 'ready') expect(list.data.map((item) => item.draft.name)).toEqual(['舊草稿', '新草稿', '']);
+    expect(reloaded.listNamedAssistantDrafts('account-internal-employee')).toMatchObject({ status: 'permission-denied' });
+  });
+
   it('returns no draft instead of failing when stored data is missing or corrupted', () => {
     expect(repository.getAssistantDraft('account-smb-admin')).toEqual({
       status: 'ready',

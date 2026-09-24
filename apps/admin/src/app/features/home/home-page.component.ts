@@ -34,9 +34,9 @@ export class HomePageComponent {
   protected readonly pendingDraft = computed(() => {
     const accountId = this.session.activeAccountId();
     if (!accountId) return null;
-    const result = this.repository.getAssistantDraft(accountId);
-    if (result.status !== 'ready' || result.data === null) return null;
-    const { draft } = result.data;
-    return { name: draft.name.trim() || '未命名助理', step: draft.currentStep };
+    const result = this.repository.listNamedAssistantDrafts(accountId);
+    if (result.status !== 'ready' || result.data.length === 0) return null;
+    const latest = [...result.data].sort((a, b) => b.savedAt.localeCompare(a.savedAt))[0];
+    return { id: latest.id, name: latest.draft.name.trim() || '未命名助理', step: latest.draft.currentStep, count: result.data.length };
   });
 }

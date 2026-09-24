@@ -8,7 +8,7 @@
 
   @if (usableAssistants().length > 0) {
     <section class="usable" aria-labelledby="usable-title">
-      <h2 id="usable-title">可以使用的助理</h2>
+      <h2 id="usable-title">我的助理</h2>
       <p>對話只屬於你的帳號，助理建立者看不到你的提問與回答。</p>
       <ul>
         @for (assistant of usableAssistants(); track assistant.id) {
@@ -36,8 +36,9 @@
       <p class="home-card__eyebrow">工作區摘要</p>
       <h2 id="continue-title">繼續設定</h2>
       @if (pendingDraft(); as draft) {
-        <p>「{{ draft.name }}」還沒建立完成，設定已自動儲存，可以從上次的步驟繼續。</p>
-        <a class="home-card__text-link" [routerLink]="['/app/assistants/new', draft.step]">繼續未完成的設定 <span aria-hidden="true">→</span></a>
+        <p>目前有 {{ draft.count }} 份未完成草稿。「{{ draft.name }}」可以從上次的步驟繼續。</p>
+        <a class="home-card__text-link" [routerLink]="['/app/assistants/drafts', draft.id, draft.step]">繼續最近的設定 <span aria-hidden="true">→</span></a>
+        <a class="home-card__text-link" routerLink="/app/assistants">查看所有草稿 <span aria-hidden="true">→</span></a>
       } @else {
         <p>目前有 {{ assistantCount() }} 個可使用的助理。回到助理設定，完成資料來源與發布準備。</p>
         <a class="home-card__text-link" routerLink="/app/assistants">查看我的助理 <span aria-hidden="true">→</span></a>

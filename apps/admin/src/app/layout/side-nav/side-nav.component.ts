@@ -1,13 +1,18 @@
-import { Component, inject, input, output } from '@angular/core';
+import { Component, computed, inject, input, output } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ConnectedPosition, OverlayModule } from '@angular/cdk/overlay';
 import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { map, startWith } from 'rxjs';
 import { AuthService } from '../../core/auth/auth.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { ZH_TW } from '../../core/i18n/zh-tw';
 import { NavEntry, NavGroup, isNavGroup } from './nav-item.model';
+import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
+import { ChatHistoryRevisionService } from '../../core/session/chat-history-revision.service';
+import { ConversationRailComponent, type RecentChatThreadView } from '../../features/assistant-use/conversation-rail/conversation-rail.component';
 
 @Component({
   selector: 'app-side-nav',
@@ -18,6 +23,7 @@ import { NavEntry, NavGroup, isNavGroup } from './nav-item.model';
     MatMenuModule,
     MatTooltipModule,
     OverlayModule,
+    ConversationRailComponent,
   ],
   templateUrl: './side-nav.component.html',
   styleUrl: './side-nav.component.scss',
@@ -27,6 +33,24 @@ export class SideNavComponent {
   protected readonly isNavGroup = isNavGroup;
   protected readonly auth = inject(AuthService);
   private readonly session = inject(DemoSessionService);
+  private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly router = inject(Router);
+  private readonly chatRevision = inject(ChatHistoryRevisionService);
+  private readonly routeRevision = toSignal(this.router.events.pipe(map(() => this.router.url), startWith(this.router.url)));
+
+  protected readonly recentChats = computed<readonly RecentChatThreadView[]>(() => {
+    this.routeRevision();
+    this.chatRevision.revision();
+    const accountId = this.session.activeAccountId();
+    if (!accountId) return [];
+    const assistants = this.repository.listUsableAssistants(accountId);
+    if (assistants.status !== 'ready' && assistants.status !== 'partial-failure') return [];
+    return assistants.data.flatMap((assistant) => {
+      const result = this.repository.listChatThreads(accountId, assistant.id);
+      if ((result.status !== 'ready' && result.status !== 'partial-failure') || result.data.historyMode !== 'saved') return [];
+      return result.data.threads.map((thread) => ({ ...thread, assistantId: assistant.id, assistantName: assistant.name }));
+    }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 10);
+  });
 
   readonly navItems = input.required<NavEntry[]>();
   readonly collapsed = input.required<boolean>();
@@ -47,5 +71,10 @@ export class SideNavComponent {
   protected logout(): void {
     this.session.clearSession();
     this.auth.logout();
+  }
+
+  protected openRecentChat(thread: RecentChatThreadView): void {
+    void this.router.navigate(['/app/chat', thread.assistantId, thread.id]);
+    this.navClick.emit();
   }
 }

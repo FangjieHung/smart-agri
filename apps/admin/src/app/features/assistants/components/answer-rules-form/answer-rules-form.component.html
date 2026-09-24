@@ -46,31 +46,13 @@
 
 <fieldset class="group">
   <legend>回答與紀錄</legend>
-  <label class="check">
-    <input
-      id="show-citations"
-      type="checkbox"
-      [checked]="current.showCitations"
-      [attr.aria-describedby]="live() ? 'show-citations-effect' : null"
-      (change)="changed.emit({ showCitations: checked($event) })"
-    />
-    <span>在回答下方顯示引用來源<small>讓使用者看到答案出自哪份資料。</small></span>
-  </label>
+  <lib-setting-row title="在回答下方顯示引用來源" description="讓使用者看到答案出自哪份資料。" controlId="show-citations" [toggleable]="true" [checked]="current.showCitations" (toggled)="changed.emit({ showCitations: $event })" />
   @if (live()) {
     <p id="show-citations-effect" class="hint">
       關掉之後，公司資料的回答仍然標示「根據你的資料」，但不再提供「查看引用來源」，也看不到原文片段。
     </p>
   }
-  <label class="check">
-    <input
-      id="keep-conversations"
-      type="checkbox"
-      [checked]="current.keepOwnConversations"
-      [attr.aria-describedby]="live() ? 'keep-conversations-effect' : null"
-      (change)="changed.emit({ keepOwnConversations: checked($event) })"
-    />
-    <span>保留使用者自己的對話紀錄<small>只有發起對話的本人看得到，助理建立者無法查看。</small></span>
-  </label>
+  <lib-setting-row title="保留使用者自己的對話紀錄" description="只有發起對話的本人看得到。" controlId="keep-conversations" [toggleable]="true" [checked]="current.keepOwnConversations" (toggled)="changed.emit({ keepOwnConversations: $event })" />
   @if (live()) {
     <p id="keep-conversations-effect" class="hint">
       關掉之後，新的對話不會被保存，使用者的「對話紀錄」欄位也會暫時空白。

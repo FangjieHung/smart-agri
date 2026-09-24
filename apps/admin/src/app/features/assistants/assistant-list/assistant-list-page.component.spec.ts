@@ -7,7 +7,7 @@ import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { AssistantListPageComponent } from './assistant-list-page.component';
 
 describe('AssistantListPageComponent', () => {
-  it('shows only assistants owned by the current account for configuration', async () => {
+  it('separates assistants owned by the account from company assistants it may use', async () => {
     const seed: DemoSeed = {
       ...DEMO_SEED,
       assistants: [
@@ -44,6 +44,9 @@ describe('AssistantListPageComponent', () => {
 
     const page = fixture.nativeElement as HTMLElement;
     expect(page.textContent).toContain('內部新手助理');
-    expect(page.textContent).not.toContain('客服助理');
+    expect(page.textContent).toContain('我建立的');
+    expect(page.textContent).toContain('公司建立的');
+    expect(page.textContent).toContain('客服助理');
+    expect(page.querySelector('a[href="/app/chat/assistant-customer-service"]')?.textContent).toContain('對話');
   });
 });

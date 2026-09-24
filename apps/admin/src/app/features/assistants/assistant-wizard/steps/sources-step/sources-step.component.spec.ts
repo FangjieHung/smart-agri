@@ -29,7 +29,7 @@ describe('SourcesStepComponent', () => {
     expect(orders.textContent).toContain('資料庫');
     expect(orders.textContent).toContain('唯讀');
     expect(orders.textContent).toContain('可使用');
-    expect(orders.textContent).toContain('更新');
+    expect(orders.querySelector('time')).not.toBeNull();
     expect(row(page, '商品使用指南').textContent).toContain('知識庫');
     expect(page.querySelectorAll('.source-row').length).toBe(5);
   });

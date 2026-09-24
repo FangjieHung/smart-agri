@@ -23,15 +23,7 @@
       <p class="notice" role="status">{{ result.message }} 其他內容仍可正常使用。</p>
     }
 
-    <nav class="tabs" aria-label="知識庫頁籤">
-      @for (tab of tabs; track tab.id) {
-        <a
-          [routerLink]="['/app/knowledge', knowledgeBaseId(), tab.id]"
-          [class.active]="tab.id === activeTab().id"
-          [attr.aria-current]="tab.id === activeTab().id ? 'page' : null"
-        >{{ tab.label }}</a>
-      }
-    </nav>
+    <lib-detail-layout [tabs]="tabs" [activeId]="activeTab().id" [baseRoute]="['/app/knowledge', knowledgeBaseId()]" ariaLabel="知識庫頁籤">
 
     <section class="tab-panel" aria-labelledby="knowledge-tab-title">
       <h2 id="knowledge-tab-title">{{ activeTab().label }}</h2>
@@ -93,5 +85,6 @@
         }
       }
     </section>
+    </lib-detail-layout>
   }
 </section>

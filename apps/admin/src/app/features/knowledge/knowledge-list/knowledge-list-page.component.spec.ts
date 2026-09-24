@@ -22,7 +22,7 @@ async function openList(accountId: AccountId = 'account-smb-admin') {
 describe('KnowledgeListPageComponent', () => {
   it('lists each knowledge base with counts, processing status, sharing scope and connected assistants', async () => {
     const { page } = await openList();
-    const rows = Array.from(page.querySelectorAll('.knowledge-card'));
+    const rows = Array.from(page.querySelectorAll('lib-data-table tbody tr'));
 
     expect(rows).toHaveLength(3);
     const guide = rows[0].textContent ?? '';
@@ -40,7 +40,7 @@ describe('KnowledgeListPageComponent', () => {
 
   it('shows in-progress processing as text for knowledge bases that are still processing', async () => {
     const { page } = await openList();
-    const shipping = Array.from(page.querySelectorAll('.knowledge-card')).find((row) =>
+    const shipping = Array.from(page.querySelectorAll('lib-data-table tbody tr')).find((row) =>
       row.textContent?.includes('配送常見問題'),
     );
 
@@ -68,6 +68,6 @@ describe('KnowledgeListPageComponent', () => {
     const page = harness.routeNativeElement as HTMLElement;
 
     expect(page.querySelector('[role="alert"]')?.textContent).toContain('無法查看知識庫');
-    expect(page.querySelector('.knowledge-card')).toBeNull();
+    expect(page.querySelector('lib-data-table')).toBeNull();
   });
 });

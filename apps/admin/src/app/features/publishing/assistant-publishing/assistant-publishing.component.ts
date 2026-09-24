@@ -1,8 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { SettingRowComponent } from '@smart-agri/ui';
 import {
   PUBLISHING_CHANNEL_TYPES,
-  PUBLISHING_DEMO_LABEL,
   type PublishingChannelType,
 } from '../../../core/domain/publishing.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
@@ -18,6 +18,7 @@ import { WebsiteEmbedComponent } from '../website-embed/website-embed.component'
   selector: 'app-assistant-publishing',
   imports: [
     RouterLink,
+    SettingRowComponent,
     StatePanelComponent,
     ChannelCardComponent,
     PlatformSharingComponent,
@@ -36,7 +37,6 @@ export class AssistantPublishingComponent {
   /** 來自網址的管道參數，未經驗證；無效時顯示平台內分享。 */
   readonly channel = input<string | null>(null);
 
-  protected readonly demoLabel = PUBLISHING_DEMO_LABEL;
   private readonly revision = signal(0);
   protected readonly pauseStatus = signal('');
   protected readonly selectedType = computed<PublishingChannelType>(() => {

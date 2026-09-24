@@ -1,0 +1,12 @@
+<div class="setting-row">
+  <div class="setting-row__copy">
+    @if (controlId()) { <label [for]="controlId()">{{ title() }}</label> }
+    @else { <h3>{{ title() }}</h3> }
+    @if (description()) { <p>{{ description() }}</p> }
+  </div>
+  <div class="setting-row__control">
+    @if (toggleable()) {
+      <input class="setting-row__switch" type="checkbox" role="switch" [id]="controlId()" [value]="controlValue()" [checked]="checked()" [disabled]="disabled()" [attr.aria-label]="title()" (change)="change($event)" />
+    } @else { <ng-content /> }
+  </div>
+</div>

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { PUBLISHING_DEMO_LABEL, type PublishingChannelView } from '../../../core/domain/publishing.model';
+import { type PublishingChannelView } from '../../../core/domain/publishing.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { EmptyStateComponent } from '../../../shared/ui/empty-state/empty-state.component';
@@ -20,7 +20,6 @@ export class ChannelOverviewPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
 
-  protected readonly demoLabel = PUBLISHING_DEMO_LABEL;
   protected readonly view = computed(() => {
     const accountId = this.session.activeAccountId();
     return accountId ? this.repository.listChannelOverview(accountId) : null;

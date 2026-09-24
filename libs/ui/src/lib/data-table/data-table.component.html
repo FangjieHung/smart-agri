@@ -15,7 +15,15 @@
   }
 
   @if (canExport() || (selectable() && !isCustom() && selectedCount() > 0)) {
-    <div class="dt-batch-toolbar" role="toolbar" [attr.aria-label]="labels().selectedCount.replace('{count}', selectedCount().toString())">
+    <div
+      class="dt-batch-toolbar"
+      role="toolbar"
+      [attr.aria-label]="
+        selectable() && !isCustom() && selectedCount() > 0
+          ? labels().selectedCount.replace('{count}', selectedCount().toString())
+          : null
+      "
+    >
     @if (selectable() && !isCustom() && selectedCount() > 0) {
         @if (showBatchDelete()) {
           <button

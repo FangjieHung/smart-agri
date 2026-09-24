@@ -1,0 +1,8 @@
+<div class="detail-layout">
+  <nav class="tabs" [attr.aria-label]="ariaLabel()">
+    @for (tab of tabs(); track tab.id) {
+      <a [routerLink]="baseRoute().concat([tab.id])" [queryParamsHandling]="preserveQuery() ? 'preserve' : ''" [class.active]="tab.id === activeId()" [attr.aria-current]="tab.id === activeId() ? 'page' : null">{{ tab.label }}</a>
+    }
+  </nav>
+  <div class="detail-content"><ng-content /></div>
+</div>

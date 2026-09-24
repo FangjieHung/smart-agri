@@ -71,6 +71,10 @@ export interface SavedAssistantDraftView {
   readonly savedAt: string;
 }
 
+export interface NamedAssistantDraftView extends SavedAssistantDraftView {
+  readonly id: string;
+}
+
 export interface AssistantTemplateView {
   readonly id: AssistantTemplateId;
   readonly title: string;

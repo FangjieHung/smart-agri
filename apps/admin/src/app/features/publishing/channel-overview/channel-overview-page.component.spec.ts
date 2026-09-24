@@ -19,11 +19,11 @@ describe('ChannelOverviewPageComponent', () => {
     const page = render();
 
     expect(page.querySelector('h1')?.textContent).toContain('發布管道');
-    expect(page.textContent).toContain('Demo，不會連接外部服務');
+    expect(page.textContent).not.toContain('Demo，不會連接外部服務');
     const groups = page.querySelectorAll('section.assistant-channels');
     expect(groups).toHaveLength(2);
     const cards = Array.from(groups[0].querySelectorAll('app-channel-card'));
-    expect(cards.map((card) => card.querySelector('h3')?.textContent?.trim())).toEqual(['平台內分享', '官網嵌入', 'LINE']);
+    expect(cards.map((card) => card.querySelector('h3')?.textContent?.trim())).toEqual(['公司內部分享', '官網嵌入', 'LINE']);
     for (const card of cards) {
       const status = card.querySelector('.channel-status');
       expect(status?.querySelector('[aria-hidden="true"]')?.textContent?.trim()).not.toBe('');

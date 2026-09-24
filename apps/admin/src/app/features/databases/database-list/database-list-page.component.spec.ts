@@ -37,12 +37,20 @@ function button(page: HTMLElement, text: string): HTMLButtonElement {
   return found;
 }
 
+function openCreateDialog(page: HTMLElement, harness: RouterTestingHarness): HTMLElement {
+  button(page, '新增資料庫').click();
+  harness.detectChanges();
+  const dialog = document.querySelector<HTMLElement>('mat-dialog-container');
+  if (!dialog) throw new Error('missing create dialog');
+  return dialog;
+}
+
 describe('DatabaseListPageComponent', () => {
   it('lists the account’s databases with fields, records and connected assistants', async () => {
     const { page } = await openList();
-    const cards = Array.from(page().querySelectorAll('.database-card'));
+    const cards = Array.from(page().querySelectorAll('lib-data-table tbody tr'));
 
-    expect(page().querySelector('h1')?.textContent).toContain('資料庫');
+    expect(page().querySelector('h1')?.textContent).toContain('數據庫');
     expect(cards).toHaveLength(2);
     const customer = cards.find((card) => card.textContent?.includes('客戶資料庫'));
     expect(customer?.querySelector('a')?.getAttribute('href')).toBe('/app/databases/database-customer-records/form');
@@ -52,8 +60,9 @@ describe('DatabaseListPageComponent', () => {
   });
 
   it('starts creation by asking what to collect, offering the five templates', async () => {
-    const { page } = await openList();
-    const picker = page().querySelector('fieldset.template-picker');
+    const { page, harness } = await openList();
+    expect(page().querySelector('form.create-panel')).toBeNull();
+    const picker = openCreateDialog(page(), harness).querySelector('fieldset.template-picker');
 
     expect(picker?.querySelector('legend')?.textContent).toContain('你要收集什麼？');
     expect(
@@ -64,16 +73,17 @@ describe('DatabaseListPageComponent', () => {
   it('prefills the name from the chosen template and opens the new database’s form design', async () => {
     const { harness, page, router } = await openList();
 
-    page().querySelector<HTMLInputElement>('input[type="radio"][value="template-satisfaction"]')?.click();
+    const dialog = openCreateDialog(page(), harness);
+    dialog.querySelector<HTMLInputElement>('input[type="radio"][value="template-satisfaction"]')?.click();
     harness.detectChanges();
-    const name = page().querySelector<HTMLInputElement>('#database-name');
+    const name = dialog.querySelector<HTMLInputElement>('#database-name');
     expect(name?.value).toBe('滿意度調查');
 
     if (name) {
       name.value = '門市滿意度調查';
       name.dispatchEvent(new Event('input'));
     }
-    button(page(), '建立資料庫').click();
+    button(dialog, '建立資料庫').click();
     await harness.fixture.whenStable();
 
     expect(router.url).toMatch(/^\/app\/databases\/database-created-\d+\/form$/);
@@ -82,17 +92,18 @@ describe('DatabaseListPageComponent', () => {
   it('asks for a name before creating', async () => {
     const { harness, page, router } = await openList();
 
-    page().querySelector<HTMLInputElement>('input[type="radio"][value="template-blank"]')?.click();
+    const dialog = openCreateDialog(page(), harness);
+    dialog.querySelector<HTMLInputElement>('input[type="radio"][value="template-blank"]')?.click();
     harness.detectChanges();
-    const name = page().querySelector<HTMLInputElement>('#database-name');
+    const name = dialog.querySelector<HTMLInputElement>('#database-name');
     if (name) {
       name.value = ' ';
       name.dispatchEvent(new Event('input'));
     }
-    button(page(), '建立資料庫').click();
+    button(dialog, '建立資料庫').click();
     harness.detectChanges();
 
-    expect(page().querySelector('[role="alert"]')?.textContent).toContain('請輸入資料庫名稱');
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('請輸入資料庫名稱');
     expect(name?.getAttribute('aria-invalid')).toBe('true');
     expect(router.url).toBe('/app/databases');
   });

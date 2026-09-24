@@ -1,5 +1,8 @@
-import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal, TemplateRef, viewChild } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
+import { DataTableComponent, DataTableHeadDirective, DataTableBodyDirective } from '@smart-agri/ui';
+import { ADMIN_DATA_TABLE_LABELS } from '../../../shared/ui/data-table-labels';
 import { fmtDateTime } from '../../../core/date-utils';
 import type { DatabaseSummaryView, DatabaseTemplateId, DatabaseTemplateView } from '../../../core/domain/database.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
@@ -9,12 +12,15 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 
 @Component({
   selector: 'app-database-list-page',
-  imports: [RouterLink, PageHeaderComponent, StatePanelComponent],
+  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, MatDialogModule, DataTableComponent, DataTableHeadDirective, DataTableBodyDirective],
   templateUrl: './database-list-page.component.html',
   styleUrl: './database-list-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DatabaseListPageComponent {
+  protected readonly tableLabels = ADMIN_DATA_TABLE_LABELS;
+  private readonly dialog = inject(MatDialog);
+  private readonly createDialog = viewChild<TemplateRef<unknown>>('createDialog');
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
@@ -36,6 +42,13 @@ export class DatabaseListPageComponent {
   );
   protected readonly error = signal('');
 
+  protected openCreateDialog(): void {
+    const content = this.createDialog();
+    if (content) this.dialog.open(content, { width: 'min(42rem, calc(100vw - 2rem))', autoFocus: '#database-name', restoreFocus: true });
+  }
+
+  protected closeCreateDialog(): void { this.dialog.closeAll(); }
+
   protected chooseTemplate(template: DatabaseTemplateView): void {
     this.templateId.set(template.id);
     this.error.set('');
@@ -54,6 +67,7 @@ export class DatabaseListPageComponent {
 
     const result = this.repository.createDatabaseFromTemplate(accountId, { templateId, name: this.name() });
     if (result.status === 'ready' || result.status === 'partial-failure') {
+      this.closeCreateDialog();
       void this.router.navigate(['/app/databases', result.data.id, 'form']);
     } else if (result.status === 'validation-failed' || result.status === 'permission-denied') {
       this.error.set(result.message);

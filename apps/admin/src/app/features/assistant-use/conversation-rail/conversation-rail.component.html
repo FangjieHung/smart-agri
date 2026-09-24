@@ -1,3 +1,17 @@
+@if (recentThreads(); as recent) {
+  <section class="recent-chats" aria-labelledby="recent-chats-title">
+    <h2 id="recent-chats-title">Chats</h2>
+    @if (recent.length > 0) {
+      <ul>
+        @for (thread of recent; track thread.assistantId + ':' + thread.id) {
+          <li><button type="button" (click)="selectRecentThread.emit(thread)">
+            <span>{{ thread.title }}</span><small>{{ thread.assistantName }}</small>
+          </button></li>
+        }
+      </ul>
+    } @else { <p>尚無對話紀錄</p> }
+  </section>
+} @else {
 <div class="rail-inner">
   <div class="rail-head">
     <h2 class="rail-title" id="conversation-rail-title">對話紀錄</h2>
@@ -9,10 +23,8 @@
   @if (historyMode() === 'not-saved') {
     <p class="rail-notice" data-state="history-off">{{ historyNotice() }}</p>
   } @else if (threads().length === 0) {
-    <p class="rail-privacy">{{ historyNotice() }}</p>
     <p class="rail-empty">還沒有任何對話。問第一個問題，就會自動建立一段對話。</p>
   } @else {
-    <p class="rail-privacy">{{ historyNotice() }}</p>
     @if (renameError()) {
       <p class="rename-error" role="alert">{{ renameError() }}</p>
     }
@@ -92,4 +104,5 @@
       <button type="button" class="confirm-delete" (click)="confirmDelete()">刪除</button>
     </div>
   </div>
+}
 }

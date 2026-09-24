@@ -15,7 +15,11 @@
 
 .theme-row {
   display: grid;
-  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-bottom: var(--border-default);
 }
 
 .theme-row__label {
@@ -28,6 +32,7 @@
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+@media (max-width: 600px) { .theme-row { grid-template-columns: 1fr; } }
 
 .theme-pill {
   min-height: 44px;

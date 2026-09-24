@@ -27,7 +27,7 @@
     </div>
   </dl>
 
-  <a
+  <div class="assistant-card__actions"><a
     class="assistant-card__link"
     [routerLink]="
       assistant().permission === 'configure'
@@ -38,4 +38,5 @@
     {{ assistant().permission === 'configure' ? '查看設定' : '開始使用' }}
     <span aria-hidden="true">→</span>
   </a>
+  <a class="assistant-card__link" [routerLink]="['/app/chat', assistant().id]">對話 <span aria-hidden="true">→</span></a></div>
 </article>

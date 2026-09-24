@@ -6,7 +6,7 @@
   display: flex;
   justify-content: space-between;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   gap: 1.5rem .75rem;
   padding: 1rem 1.75rem;
 }
@@ -15,22 +15,11 @@
   display: contents;
 }
 
-.topbar-title .topbar-heading {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 500;
-  color: var(--mat-sys-on-surface);
-
-  @variant min-[768px] {
-    font-size: 2rem;
-  }
-}
-
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--mat-sys-on-surface-variant);
   font-size: 0.8rem;
 }

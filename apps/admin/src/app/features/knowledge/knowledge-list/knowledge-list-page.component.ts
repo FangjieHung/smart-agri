@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { DataTableComponent, DataTableHeadDirective, DataTableBodyDirective } from '@smart-agri/ui';
+import { ADMIN_DATA_TABLE_LABELS } from '../../../shared/ui/data-table-labels';
 import { fmtDateTime } from '../../../core/date-utils';
 import type {
   KnowledgeBaseSummaryView,
@@ -14,12 +16,13 @@ import { SHARING_SCOPE_LABELS } from '../components/knowledge-labels';
 
 @Component({
   selector: 'app-knowledge-list-page',
-  imports: [RouterLink, PageHeaderComponent, StatePanelComponent],
+  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, DataTableComponent, DataTableHeadDirective, DataTableBodyDirective],
   templateUrl: './knowledge-list-page.component.html',
   styleUrl: './knowledge-list-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class KnowledgeListPageComponent {
+  protected readonly tableLabels = ADMIN_DATA_TABLE_LABELS;
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
 

@@ -7,6 +7,7 @@ import type { AssistantSummaryView } from '../../../core/domain/assistant.model'
 import type { ChatThreadId } from '../../../core/domain/conversation.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
+import { ChatHistoryRevisionService } from '../../../core/session/chat-history-revision.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { ChatConversationComponent } from '../conversation/chat-conversation.component';
@@ -37,6 +38,7 @@ export class WorkspaceChatPageComponent {
   private readonly router = inject(Router);
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly globalHistory = inject(ChatHistoryRevisionService);
 
   private readonly params = toSignal(this.route.paramMap, {
     initialValue: this.route.snapshot.paramMap,
@@ -93,6 +95,7 @@ export class WorkspaceChatPageComponent {
 
   protected onConversationChanged(threadId: ChatThreadId | null): void {
     this.revision.update((value) => value + 1);
+    this.globalHistory.bump();
     if (threadId !== null && threadId !== this.conversationId()) this.openThread(threadId);
   }
 
@@ -111,6 +114,7 @@ export class WorkspaceChatPageComponent {
 
     const result = this.repository.createChatThread(accountId, assistantId);
     this.revision.update((value) => value + 1);
+    this.globalHistory.bump();
     if (result.status !== 'ready' && result.status !== 'partial-failure') return;
     const threadId = result.data.threadId;
     if (threadId !== null) this.openThread(threadId);
@@ -124,6 +128,7 @@ export class WorkspaceChatPageComponent {
     const result = this.repository.renameChatThread(accountId, assistantId, change.id, change.title);
     this.renameError.set(result.status === 'validation-failed' ? result.message : '');
     this.revision.update((value) => value + 1);
+    this.globalHistory.bump();
   }
 
   protected remove(threadId: string): void {
@@ -134,6 +139,7 @@ export class WorkspaceChatPageComponent {
     this.repository.deleteChatThread(accountId, assistantId, threadId);
     this.renameError.set('');
     this.revision.update((value) => value + 1);
+    this.globalHistory.bump();
     // 刪掉正在看的那一段就回到助理的最新對話，網址不再指向已刪除的 id。
     if (threadId === this.conversationId()) void this.router.navigate(['/app/chat', assistantId]);
   }

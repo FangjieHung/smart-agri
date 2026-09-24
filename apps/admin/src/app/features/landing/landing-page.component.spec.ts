@@ -15,7 +15,7 @@ describe('LandingPageComponent', () => {
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector('h1')?.textContent).toContain('讓每一次服務回覆，都更有依據');
     expect(page.textContent).toContain('知識庫');
-    expect(page.textContent).toContain('資料使用說明');
+    expect(page.querySelector('.landing__trust')).toBeNull();
     expect(page.querySelector('a[href="/login"]')?.textContent).toContain('進入 Demo');
     expect(page.textContent).not.toContain('免費試用');
   });

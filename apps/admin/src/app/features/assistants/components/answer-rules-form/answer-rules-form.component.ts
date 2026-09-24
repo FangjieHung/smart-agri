@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { SettingRowComponent } from '@smart-agri/ui';
 import {
   PERIODIC_REPORT_LABELS,
   type AssistantAnswerRules,
@@ -23,6 +24,7 @@ const REPORT_OPTIONS: readonly { readonly value: PeriodicReportSchedule; readonl
 /** 回答與記錄規則的表單；建立精靈的步驟三與建立後的「回答與記錄」頁籤共用。 */
 @Component({
   selector: 'app-answer-rules-form',
+  imports: [SettingRowComponent],
   templateUrl: './answer-rules-form.component.html',
   styleUrl: '../assistant-form.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

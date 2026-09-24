@@ -23,6 +23,7 @@ import type {
   AssistantSourceReference,
 } from '../../../core/domain/assistant.model';
 import { fmtDateTime } from '../../../core/date-utils';
+import { ActivatedRoute } from '@angular/router';
 import type { RepositoryView } from '../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
@@ -69,6 +70,7 @@ function sameSource(
 export class AssistantDraftStore {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly draftId = inject(ActivatedRoute, { optional: true })?.snapshot.paramMap.get('draftId') ?? null;
 
   private readonly state = linkedSignal<DraftState>(() =>
     this.load(this.session.activeAccountId()),
@@ -280,7 +282,7 @@ export class AssistantDraftStore {
       return null;
     }
 
-    const result = this.repository.createAssistantFromDraft(accountId, this.draft());
+    const result = this.repository.createAssistantFromDraft(accountId, this.draft(), this.draftId ?? undefined);
     if (result.status !== 'ready') {
       this.state.update((state) => ({
         ...state,
@@ -307,9 +309,11 @@ export class AssistantDraftStore {
     let save: DraftSaveState = this.state().save;
 
     if (accountId !== null && canManage) {
-      const result = this.repository.saveAssistantDraft(accountId, draft);
+      const result = this.draftId
+        ? this.repository.saveNamedAssistantDraft(accountId, this.draftId, draft)
+        : this.repository.saveAssistantDraft(accountId, draft);
       save =
-        result.status === 'ready'
+        result.status === 'ready' && result.data !== null
           ? { status: 'saved', savedAt: result.data.savedAt }
           : { status: 'error', message: '自動儲存失敗，變更暫時只保留在這個畫面。' };
     }
@@ -320,7 +324,9 @@ export class AssistantDraftStore {
   private load(accountId: AccountId | null): DraftState {
     if (accountId === null) return this.emptyState(null, false);
 
-    const result = this.repository.getAssistantDraft(accountId);
+    const result = this.draftId
+      ? this.repository.getNamedAssistantDraft(accountId, this.draftId)
+      : this.repository.getAssistantDraft(accountId);
     if (result.status === 'permission-denied') {
       return this.emptyState(accountId, false);
     }

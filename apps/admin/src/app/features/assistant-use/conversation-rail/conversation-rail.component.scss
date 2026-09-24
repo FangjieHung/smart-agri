@@ -138,3 +138,11 @@ button:focus-visible, input:focus-visible {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
 }
+.recent-chats { margin-top: var(--space-5); padding-top: var(--space-3); border-top: 1px solid rgb(255 255 255 / 18%); }
+.recent-chats h2 { margin: 0 .75rem .5rem; color: var(--app-shell-on-muted); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
+.recent-chats ul { display: grid; gap: .15rem; margin: 0; padding: 0; list-style: none; }
+.recent-chats button { display: grid; gap: .1rem; width: 100%; padding: .6rem .75rem; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--app-shell-on); text-align: start; cursor: pointer; }
+.recent-chats button:hover { background: rgb(255 255 255 / 12%); }
+.recent-chats button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-chats small, .recent-chats p { color: var(--app-shell-on-muted); }
+.recent-chats p { margin: .5rem .75rem; }

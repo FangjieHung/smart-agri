@@ -43,13 +43,6 @@
                 @for (permission of data.permissions; track permission.id) {
                   @let locked = member.lockedPermissions.includes(permission.id);
                   <div class="choice">
-                    <input
-                      type="checkbox"
-                      [id]="'permission-' + member.id + '-' + permission.id"
-                      [checked]="draft().has(permission.id)"
-                      [disabled]="locked"
-                      (change)="toggle(permission.id, $event)"
-                    />
                     <label [for]="'permission-' + member.id + '-' + permission.id">
                       <span class="choice__label">
                         {{ permission.label }}
@@ -68,6 +61,14 @@
                         </small>
                       }
                     </label>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      [id]="'permission-' + member.id + '-' + permission.id"
+                      [checked]="draft().has(permission.id)"
+                      [disabled]="locked"
+                      (change)="toggle(permission.id, $event)"
+                    />
                   </div>
                 }
               </fieldset>

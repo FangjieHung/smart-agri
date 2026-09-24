@@ -3,16 +3,13 @@
     <button mat-icon-button class="menu-toggle" type="button" aria-label="開啟導覽選單" (click)="menuToggle.emit()">
       <span class="material-symbols-rounded" aria-hidden="true">menu</span>
     </button>
-    <div class="topbar-title">
-      <div class="breadcrumb">
-        @if (currentGroupLabel()) {
-          <span>{{ currentGroupLabel() }}</span>
-          <span class="material-symbols-rounded breadcrumb-sep" aria-hidden="true">chevron_right</span>
-        }
-        <span>{{ currentTitle() }}</span>
-      </div>
-      <p class="topbar-heading">{{ currentTitle() }}</p>
-    </div>
+    <nav class="breadcrumb" aria-label="目前位置">
+      @if (currentGroupLabel()) {
+        <span>{{ currentGroupLabel() }}</span>
+        <span class="material-symbols-rounded breadcrumb-sep" aria-hidden="true">chevron_right</span>
+      }
+      <span aria-current="page">{{ currentTitle() }}</span>
+    </nav>
   </div>
 
   @if (toolbarTemplate(); as toolbar) {

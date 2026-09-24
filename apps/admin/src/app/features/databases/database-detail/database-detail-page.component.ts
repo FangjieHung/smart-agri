@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { DetailLayoutComponent } from '@smart-agri/ui';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { AssistantStatus } from '../../../core/domain/assistant.model';
 import type {
@@ -47,6 +48,7 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
   selector: 'app-database-detail-page',
   imports: [
     RouterLink,
+    DetailLayoutComponent,
     PageHeaderComponent,
     StatePanelComponent,
     StatusBadgeComponent,

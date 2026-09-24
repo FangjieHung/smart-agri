@@ -2,7 +2,7 @@ import { Directive, Injectable, OnDestroy, TemplateRef, inject, signal } from '@
 
 /**
  * Topbar 的 toolbar 插槽：頁面把自己的 toolbar 模板登記進來，由 HeaderComponent 負責渲染，
- * 讓 toolbar 在視覺上與 topbar-title 同一列，內容與繫結仍屬於各自的頁面元件。
+ * 讓 toolbar 在視覺上與麵包屑同一列，內容與繫結仍屬於各自的頁面元件。
  */
 @Injectable({ providedIn: 'root' })
 export class HeaderToolbarSlot {

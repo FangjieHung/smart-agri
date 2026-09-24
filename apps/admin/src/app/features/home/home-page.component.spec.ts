@@ -55,10 +55,10 @@ describe('HomePageComponent', () => {
 
     const page = fixture.nativeElement as HTMLElement;
     const link = Array.from(page.querySelectorAll('a')).find((anchor) =>
-      anchor.textContent?.includes('繼續未完成的設定'),
+      anchor.textContent?.includes('繼續最近的設定'),
     );
     expect(page.textContent).toContain('客戶問答助理');
-    expect(link?.getAttribute('href')).toBe('/app/assistants/new/rules');
+    expect(link?.getAttribute('href')).toBe('/app/assistants/drafts/draft-legacy/rules');
   });
 
   it('lists the assistants an external customer can use with a link into the chat', async () => {
@@ -78,9 +78,8 @@ describe('HomePageComponent', () => {
     const link = Array.from(section?.querySelectorAll('a') ?? []).find((anchor) =>
       anchor.textContent?.includes('客服助理'),
     );
-    expect(section?.textContent).toContain('可以使用的助理');
+    expect(section?.textContent).toContain('我的助理');
     expect(link?.getAttribute('href')).toBe('/use/assistant-customer-service');
     expect(section?.textContent).not.toContain('內部教育訓練助理');
   });
 });
-

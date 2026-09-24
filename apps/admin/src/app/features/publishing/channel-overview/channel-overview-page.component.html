@@ -5,10 +5,6 @@
     description="每個助理都可以發布到平台內、官網與 LINE。管道各自獨立，其中一個出問題時，只有該管道會標示需要處理。"
   />
 
-  <p class="demo-notice" role="note">
-    <span aria-hidden="true">ⓘ</span>
-    <span><strong>{{ demoLabel }}</strong>：嵌入碼、LINE 權杖與檢查結果都是示範資料，不可用於正式環境。</span>
-  </p>
 
   @if (result === null || result.status === 'loading') {
     <app-state-panel state="loading" title="正在載入發布管道" />

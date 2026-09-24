@@ -15,17 +15,7 @@
       </section>
     }
 
-    <nav class="tabs" aria-label="助理設定頁籤">
-      @for (tab of tabs; track tab.id) {
-        <a
-          [routerLink]="['/app/assistants', assistantId(), tab.id]"
-          [class.active]="tab.id === activeTab().id"
-          [attr.aria-current]="tab.id === activeTab().id ? 'page' : null"
-        >
-          {{ tab.label }}
-        </a>
-      }
-    </nav>
+    <lib-detail-layout [tabs]="tabs" [activeId]="activeTab().id" [baseRoute]="['/app/assistants', assistantId()]" ariaLabel="助理設定頁籤">
 
     <section class="tab-panel" [attr.aria-labelledby]="'tab-' + activeTab().id">
       <header class="tab-panel__header">
@@ -89,6 +79,7 @@
         }
       }
     </section>
+    </lib-detail-layout>
   </section>
 } @else {
   <section class="workspace-page">

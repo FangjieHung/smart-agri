@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import { demoSessionGuard } from './core/session/demo-session.guard';
 import { embeddedChatGuard } from './core/session/embedded-chat.guard';
+import { existingAssistantDraftGuard, newAssistantDraftGuard } from './features/assistants/assistant-wizard/new-assistant-draft.guard';
 
 const workspacePlaceholder = () =>
   import('./features/dashboard/pages/dashboard-page.component').then(
@@ -35,7 +36,15 @@ export const routes: Routes = [
   { path: 'app/assistants/new', redirectTo: 'app/assistants/new/purpose', pathMatch: 'full' },
   {
     path: 'app/assistants/new/:step',
-    canActivate: [demoSessionGuard],
+    canActivate: [demoSessionGuard, newAssistantDraftGuard],
+    loadComponent: () =>
+      import('./features/assistants/assistant-list/assistant-list-page.component').then(
+        (m) => m.AssistantListPageComponent,
+      ),
+  },
+  {
+    path: 'app/assistants/drafts/:draftId/:step',
+    canActivate: [demoSessionGuard, existingAssistantDraftGuard],
     loadComponent: () =>
       import('./features/assistants/assistant-wizard/assistant-wizard-page.component').then(
         (m) => m.AssistantWizardPageComponent,

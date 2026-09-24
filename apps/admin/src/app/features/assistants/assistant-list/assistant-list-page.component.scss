@@ -1,6 +1,7 @@
 :host { display: block; }
 
 .workspace-page { display: grid; gap: var(--space-6); }
+.assistant-group { display: grid; gap: var(--space-4); }
 
 .assistant-list {
   display: grid;
@@ -26,3 +27,6 @@
 h2, p { margin: 0; }
 h2 { color: var(--color-text); font-size: var(--font-size-heading); }
 p { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.draft-card { display: grid; align-content: start; justify-items: start; gap: var(--space-3); min-height: 100%; padding: var(--space-6); border: var(--border-default); border-radius: var(--radius-container); background: var(--color-surface); }
+.draft-card h3 { margin: 0; font-size: 1.25rem; }
+.draft-card__eyebrow { margin: 0; font-weight: 700; }

@@ -20,22 +20,26 @@ async function renderLogin(session: DemoSessionService, navigateByUrl = vi.fn())
 }
 
 describe('DemoLoginPageComponent', () => {
-  it('states that account switching is a demo and enters the workspace with the selected persona', async () => {
+  it('accepts a demo username and password and enters with the matching account', async () => {
     const navigateByUrl = vi.fn().mockResolvedValue(true);
     const session = new DemoSessionService({ storage: createMemoryStorage() });
     const switchAccount = vi.spyOn(session, 'switchAccount');
     const fixture = await renderLogin(session, navigateByUrl);
 
     const page = fixture.nativeElement as HTMLElement;
-    expect(page.textContent).toContain('Demo 帳號切換，不是真實驗證');
-    expect(page.textContent).toContain('不會輸入密碼');
+    expect(page.textContent).toContain('Demo 登入');
+    expect(page.textContent).toContain('密碼都是 1234');
     expect(page.textContent).toContain('SMB 管理者');
     expect(page.textContent).toContain('內部使用者');
     expect(page.textContent).toContain('外部客戶');
 
-    (Array.from(page.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('內部使用者'),
-    ) as HTMLButtonElement).click();
+    const username = page.querySelector<HTMLInputElement>('#demo-username')!;
+    username.value = 'internal';
+    username.dispatchEvent(new Event('input'));
+    const password = page.querySelector<HTMLInputElement>('#demo-password')!;
+    password.value = '1234';
+    password.dispatchEvent(new Event('input'));
+    page.querySelector<HTMLFormElement>('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
 
     expect(switchAccount).toHaveBeenCalledWith('account-internal-employee');
     expect(navigateByUrl).toHaveBeenCalledWith('/app/home');
@@ -48,7 +52,17 @@ describe('DemoLoginPageComponent', () => {
     expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Demo 登入已逾時');
   });
 
-  it('explains an expired demo session and still offers the personas', async () => {
+  it('rejects incorrect credentials without starting a session', async () => {
+    const session = new DemoSessionService({ storage: createMemoryStorage() });
+    const fixture = await renderLogin(session);
+    const page = fixture.nativeElement as HTMLElement;
+    page.querySelector<HTMLFormElement>('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    fixture.detectChanges();
+    expect(page.querySelector('[role="alert"]')?.textContent).toContain('帳號或密碼');
+    expect(session.activeAccountId()).toBeNull();
+  });
+
+  it('explains an expired demo session and still lists the accounts', async () => {
     let clock = 1_000_000;
     const session = new DemoSessionService({
       storage: createMemoryStorage(),
@@ -65,6 +79,6 @@ describe('DemoLoginPageComponent', () => {
 
     expect(alert?.textContent).toContain('Demo 登入已逾時');
     expect(alert?.textContent).toContain('不是真實登入');
-    expect(page.querySelectorAll('.demo-login__persona')).toHaveLength(3);
+    expect(page.textContent).toContain('customer');
   });
 });

@@ -14,6 +14,7 @@ import {
   type AssistantTone,
   type ConnectableSourceStatus,
   type ConnectableSourceView,
+  type NamedAssistantDraftView,
   type SavedAssistantDraftView,
   type TrialAnswerRequest,
   type TrialAnswerView,
@@ -217,6 +218,7 @@ export interface MockDemoRepositoryOptions {
 }
 
 const DRAFT_KEY_PREFIX = 'sme-demo:assistant-draft:';
+const NAMED_DRAFTS_KEY_PREFIX = 'sme-demo:assistant-drafts:';
 const CREATED_ASSISTANTS_KEY = 'sme-demo:created-assistants';
 
 interface StoredDraftRecord {
@@ -1283,11 +1285,78 @@ export class MockDemoRepository implements DemoRepository {
     this.storage.removeItem(DRAFT_KEY_PREFIX + viewerAccountId);
   }
 
+  private namedDrafts(viewerAccountId: AccountId): NamedAssistantDraftView[] {
+    const raw = parseJson(this.storage.getItem(NAMED_DRAFTS_KEY_PREFIX + viewerAccountId));
+    const records: NamedAssistantDraftView[] = Array.isArray(raw)
+      ? raw.flatMap((item) => {
+          if (!isRecord(item) || typeof item['id'] !== 'string') return [];
+          const saved = normalizeStoredDraft(item);
+          return saved === null ? [] : [{ ...saved, id: item['id'] }];
+        })
+      : [];
+    const legacy = normalizeStoredDraft(parseJson(this.storage.getItem(DRAFT_KEY_PREFIX + viewerAccountId)));
+    if (legacy !== null) {
+      const migrated = [{ id: 'draft-legacy', ...legacy }, ...records];
+      this.storage.setItem(NAMED_DRAFTS_KEY_PREFIX + viewerAccountId, JSON.stringify(migrated.map((item) => ({ ...item, version: 1 }))));
+      this.storage.removeItem(DRAFT_KEY_PREFIX + viewerAccountId);
+      return migrated;
+    }
+    return records;
+  }
+
+  private writeNamedDrafts(viewerAccountId: AccountId, drafts: readonly NamedAssistantDraftView[]): void {
+    this.storage.setItem(NAMED_DRAFTS_KEY_PREFIX + viewerAccountId, JSON.stringify(drafts.map((item) => ({ ...item, version: 1 }))));
+  }
+
+  listNamedAssistantDrafts(viewerAccountId: AccountId): ReturnType<DemoRepository['listNamedAssistantDrafts']> {
+    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
+    return this.applyScenario(this.namedDrafts(viewerAccountId));
+  }
+
+  createNamedAssistantDraft(viewerAccountId: AccountId): ReturnType<DemoRepository['createNamedAssistantDraft']> {
+    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
+    const drafts = this.namedDrafts(viewerAccountId);
+    const used = new Set(drafts.map((item) => item.id));
+    let number = 1;
+    while (used.has(`draft-${number}`)) number++;
+    const created: NamedAssistantDraftView = {
+      id: `draft-${number}`,
+      draft: createEmptyAssistantDraft(),
+      savedAt: this.now().toISOString(),
+    };
+    this.writeNamedDrafts(viewerAccountId, [...drafts, created]);
+    return this.applyScenario(created);
+  }
+
+  getNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): ReturnType<DemoRepository['getNamedAssistantDraft']> {
+    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
+    return this.applyScenario(this.namedDrafts(viewerAccountId).find((item) => item.id === draftId) ?? null);
+  }
+
+  saveNamedAssistantDraft(viewerAccountId: AccountId, draftId: string, draft: AssistantDraft): ReturnType<DemoRepository['saveNamedAssistantDraft']> {
+    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
+    const drafts = this.namedDrafts(viewerAccountId);
+    const current = drafts.find((item) => item.id === draftId);
+    if (!current) return this.applyScenario(null);
+    const saved: NamedAssistantDraftView = { id: draftId, draft, savedAt: this.now().toISOString() };
+    this.writeNamedDrafts(viewerAccountId, drafts.map((item) => item.id === draftId ? saved : item));
+    return this.applyScenario(saved);
+  }
+
+  discardNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): void {
+    if (!this.canManageAssistants(viewerAccountId)) return;
+    this.writeNamedDrafts(viewerAccountId, this.namedDrafts(viewerAccountId).filter((item) => item.id !== draftId));
+  }
+
   createAssistantFromDraft(
     viewerAccountId: AccountId,
     draft: AssistantDraft,
+    draftId?: string,
   ): CreateAssistantResult {
     if (!this.canManageAssistants(viewerAccountId)) {
+      return this.draftPermissionDenied();
+    }
+    if (draftId && !this.namedDrafts(viewerAccountId).some((item) => item.id === draftId)) {
       return this.draftPermissionDenied();
     }
 
@@ -1339,7 +1408,8 @@ export class MockDemoRepository implements DemoRepository {
       rules: draft.rules,
       savedAt: null,
     });
-    this.discardAssistantDraft(viewerAccountId);
+    if (draftId) this.discardNamedAssistantDraft(viewerAccountId, draftId);
+    else this.discardAssistantDraft(viewerAccountId);
 
     return this.applyScenario(configuration);
   }

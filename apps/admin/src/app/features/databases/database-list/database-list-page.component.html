@@ -1,11 +1,43 @@
 @let result = view();
 <section class="workspace-page">
   <app-page-header
-    title="資料庫"
+    title="數據庫"
     description="設計收集表單、保存使用者同意提交的紀錄，並比較每次的變化；每個資料庫可以連接到多個助理。"
-  />
+  >
+    @if (templates().length > 0) { <button page-header-actions type="button" class="ui-button" (click)="openCreateDialog()">新增資料庫</button> }
+  </app-page-header>
 
-  @if (templates().length > 0) {
+  @if (templates().length === 0 && result !== null && result.status !== 'loading') {
+    <p class="notice">只有可管理資料來源的帳號可以建立資料庫；你仍可查看自己擁有的資料庫。</p>
+  }
+
+  @if (result === null || result.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入資料庫" />
+  } @else if (result.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法查看資料庫" description="目前的帳號沒有查看資料庫的權限。" />
+  } @else {
+    @if (result.status === 'partial-failure') {
+      <p class="notice" role="status">{{ result.message }} 其他資料庫仍可正常使用。</p>
+    }
+    @if (result.data.length > 0) {
+      <lib-data-table [labels]="tableLabels" [showExport]="false" mobile="scroll">
+        <ng-template dtHead><tr><th scope="col">名稱</th><th scope="col">用途</th><th scope="col">表單</th><th scope="col">收集紀錄</th><th scope="col">已連接助理</th><th scope="col">最近更新</th></tr></ng-template>
+        <ng-template dtBody>
+          @for (item of result.data; track item.id) {
+            <tr><th scope="row"><a [routerLink]="['/app/databases', item.id, 'form']">{{ item.name }}</a></th><td>{{ item.purpose }}</td><td>{{ item.fieldCount }} 個欄位・{{ item.templateName }}</td><td>{{ records(item) }}</td><td>{{ item.connectedAssistantNames.join('、') || '尚未連接' }}</td><td><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></td></tr>
+          }
+        </ng-template>
+      </lib-data-table>
+    } @else {
+      <section class="ui-panel" aria-labelledby="empty-database-title">
+        <h2 id="empty-database-title" class="ui-panel-title">還沒有資料庫</h2>
+        <p class="ui-panel-description">資料庫負責收集結構化紀錄，並比較每次的前後變化。</p>
+      </section>
+    }
+  }
+</section>
+
+<ng-template #createDialog>
     <form class="create-panel" aria-labelledby="create-title" (submit)="create($event)" novalidate>
       <h2 id="create-title">建立資料庫</h2>
       <fieldset class="template-picker">
@@ -41,47 +73,10 @@
             (input)="setName($event)"
           />
         </div>
-        <button type="submit" class="ui-button">建立資料庫</button>
+        <div class="dialog-actions"><button type="button" (click)="closeCreateDialog()">取消</button><button type="submit" class="ui-button">建立資料庫</button></div>
       </div>
       @if (error()) {
         <p id="database-name-error" class="error" role="alert">{{ error() }}</p>
       }
     </form>
-  } @else if (result !== null && result.status !== 'loading') {
-    <p class="notice">只有可管理資料來源的帳號可以建立資料庫；你仍可查看自己擁有的資料庫。</p>
-  }
-
-  @if (result === null || result.status === 'loading') {
-    <app-state-panel state="loading" title="正在載入資料庫" />
-  } @else if (result.status === 'permission-denied') {
-    <app-state-panel state="permission-denied" title="無法查看資料庫" description="目前的帳號沒有查看資料庫的權限。" />
-  } @else {
-    @if (result.status === 'partial-failure') {
-      <p class="notice" role="status">{{ result.message }} 其他資料庫仍可正常使用。</p>
-    }
-    @if (result.data.length > 0) {
-      <ul class="database-list" aria-label="我的資料庫">
-        @for (item of result.data; track item.id) {
-          <li class="database-card">
-            <h2><a [routerLink]="['/app/databases', item.id, 'form']">{{ item.name }}</a></h2>
-            <p class="purpose">{{ item.purpose }}</p>
-            <dl>
-              <div><dt>表單</dt><dd>{{ item.fieldCount }} 個欄位・{{ item.templateName }}</dd></div>
-              <div><dt>收集紀錄</dt><dd>{{ records(item) }}</dd></div>
-              <div>
-                <dt>已連接助理</dt>
-                <dd>{{ item.connectedAssistantNames.length > 0 ? item.connectedAssistantNames.join('、') : '尚未連接' }}</dd>
-              </div>
-              <div><dt>最近更新</dt><dd><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></dd></div>
-            </dl>
-          </li>
-        }
-      </ul>
-    } @else {
-      <section class="ui-panel" aria-labelledby="empty-database-title">
-        <h2 id="empty-database-title" class="ui-panel-title">還沒有資料庫</h2>
-        <p class="ui-panel-description">資料庫負責收集結構化紀錄，並比較每次的前後變化。</p>
-      </section>
-    }
-  }
-</section>
+</ng-template>

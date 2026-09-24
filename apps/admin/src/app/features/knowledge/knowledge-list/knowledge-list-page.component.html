@@ -18,30 +18,15 @@
       <p class="partial-notice" role="status">{{ result.message }} 其他知識庫仍可正常使用。</p>
     }
     @if (result.data.length > 0) {
-      <ul class="knowledge-list" aria-label="我的知識庫">
-        @for (item of result.data; track item.id) {
-          @let state = processing(item);
-          <li class="knowledge-card">
-            <h2><a [routerLink]="['/app/knowledge', item.id, 'content']">{{ item.name }}</a></h2>
-            <p class="purpose">{{ item.purpose }}</p>
-            <dl>
-              <div><dt>內容</dt><dd>{{ item.documentCount }} 份文件・{{ item.faqCount }} 則 FAQ</dd></div>
-              <div>
-                <dt>處理狀態</dt>
-                <dd class="processing" [attr.data-tone]="state.tone">
-                  <span aria-hidden="true">{{ state.symbol }}</span> {{ state.label }}
-                </dd>
-              </div>
-              <div><dt>分享範圍</dt><dd>{{ scopeLabel(item.sharingScope) }}</dd></div>
-              <div>
-                <dt>已連接助理</dt>
-                <dd>{{ item.connectedAssistantNames.length > 0 ? item.connectedAssistantNames.join('、') : '尚未連接' }}</dd>
-              </div>
-              <div><dt>最近更新</dt><dd><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></dd></div>
-            </dl>
-          </li>
-        }
-      </ul>
+      <lib-data-table [labels]="tableLabels" [showExport]="false" mobile="scroll">
+        <ng-template dtHead><tr><th scope="col">名稱</th><th scope="col">用途</th><th scope="col">內容</th><th scope="col">處理狀態</th><th scope="col">分享範圍</th><th scope="col">已連接助理</th><th scope="col">最近更新</th></tr></ng-template>
+        <ng-template dtBody>
+          @for (item of result.data; track item.id) {
+            @let state = processing(item);
+            <tr><th scope="row"><a [routerLink]="['/app/knowledge', item.id, 'content']">{{ item.name }}</a></th><td>{{ item.purpose }}</td><td>{{ item.documentCount }} 份文件・{{ item.faqCount }} 則 FAQ</td><td>{{ state.label }}</td><td>{{ scopeLabel(item.sharingScope) }}</td><td>{{ item.connectedAssistantNames.join('、') || '尚未連接' }}</td><td><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></td></tr>
+          }
+        </ng-template>
+      </lib-data-table>
     } @else {
       <section class="ui-panel" aria-labelledby="empty-knowledge-title">
         <h2 id="empty-knowledge-title" class="ui-panel-title">還沒有知識庫</h2>

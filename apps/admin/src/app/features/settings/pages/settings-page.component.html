@@ -13,8 +13,7 @@
       <h2 id="appearance-title" class="ui-text-subtitle">外觀設定</h2>
     </div>
 
-    <div class="theme-row">
-      <span class="theme-row__label">質地</span>
+    <lib-setting-row title="質地">
       <div class="theme-row__options" role="group" aria-label="質地">
         @for (option of texture; track option.id) {
           <button
@@ -29,10 +28,9 @@
           </button>
         }
       </div>
-    </div>
+    </lib-setting-row>
 
-    <div class="theme-row">
-      <span class="theme-row__label">配色</span>
+    <lib-setting-row title="配色">
       <div class="theme-row__options" role="group" aria-label="配色">
         @for (option of colorThemes; track option.id) {
           <button
@@ -47,6 +45,6 @@
           </button>
         }
       </div>
-    </div>
+    </lib-setting-row>
   </div>
 </section>

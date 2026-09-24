@@ -1,11 +1,12 @@
 import { Component, inject } from '@angular/core';
 import { COLOR_THEMES, ThemeService, texture } from '@smart-agri/theme-pack';
+import { SettingRowComponent } from '@smart-agri/ui';
 import { TeamPanelComponent } from '../components/team-panel/team-panel.component';
 
 @Component({
   selector: 'app-settings-page',
   standalone: true,
-  imports: [TeamPanelComponent],
+  imports: [TeamPanelComponent, SettingRowComponent],
   templateUrl: './settings-page.component.html',
   styleUrl: './settings-page.component.scss',
 })

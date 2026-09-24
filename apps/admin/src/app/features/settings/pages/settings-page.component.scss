@@ -13,26 +13,11 @@
   max-width: 36rem;
 }
 
-.theme-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4) 0;
-  border-bottom: var(--border-default);
-}
-
-.theme-row__label {
-  color: var(--mat-sys-on-surface-variant);
-  font-size: 0.875rem;
-}
-
 .theme-row__options {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
-@media (max-width: 600px) { .theme-row { grid-template-columns: 1fr; } }
 
 .theme-pill {
   min-height: 44px;

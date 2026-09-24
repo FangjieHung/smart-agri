@@ -223,7 +223,7 @@ describe('DataTableComponent 資料列選取', () => {
     el = fixture.nativeElement as HTMLElement;
   });
 
-  it('既有 HostComponent 未啟用 selectable 時不顯示 checkbox 或批次工具列', async () => {
+  it('既有 HostComponent 未啟用 selectable 時不顯示 checkbox，工具列也不宣告選取筆數', async () => {
     TestBed.resetTestingModule();
     await TestBed.configureTestingModule({ imports: [HostComponent] }).compileComponents();
     const defaultFixture = TestBed.createComponent(HostComponent);
@@ -231,7 +231,9 @@ describe('DataTableComponent 資料列選取', () => {
     const defaultEl = defaultFixture.nativeElement as HTMLElement;
 
     expect(defaultEl.querySelector('.dt-selection-checkbox')).toBeNull();
-    expect(defaultEl.querySelector('.dt-batch-toolbar')).toBeNull();
+    // 工具列本身會因為「匯出」而存在，但不該對螢幕報讀宣告一個沒開啟的選取功能。
+    expect(defaultEl.querySelector('.dt-batch-toolbar')?.getAttribute('aria-label')).toBeNull();
+    expect(defaultEl.querySelector('.dt-batch-delete-btn')).toBeNull();
   });
 
   it('選取單列時發出完全相同的資料列並顯示批次工具列', async () => {

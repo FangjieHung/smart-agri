@@ -1,6 +1,8 @@
+import { Route } from '@angular/router';
 import { DatabaseListPageComponent } from './features/databases/database-list/database-list-page.component';
 import { demoSessionGuard } from './core/session/demo-session.guard';
 import { embeddedChatGuard } from './core/session/embedded-chat.guard';
+import { newAssistantDraftGuard } from './features/assistants/assistant-wizard/new-assistant-draft.guard';
 import { routes } from './app.routes';
 
 describe('app routes', () => {
@@ -63,5 +65,14 @@ describe('app routes', () => {
     for (const route of workspaceRoutes) {
       expect(route.canActivate).toContain(demoSessionGuard);
     }
+  });
+
+  it('makes the legacy new-assistant step route redirect-only through its guard', () => {
+    const newAssistantRoute = routes.find((route) => route.path === 'app/assistants/new/:step') as Route | undefined;
+    expect(newAssistantRoute).toBeDefined();
+    expect(newAssistantRoute?.loadComponent).toBeUndefined();
+    expect(newAssistantRoute?.component).toBeUndefined();
+    expect(newAssistantRoute?.canActivate).toContain(demoSessionGuard);
+    expect(newAssistantRoute?.canActivate).toContain(newAssistantDraftGuard);
   });
 });

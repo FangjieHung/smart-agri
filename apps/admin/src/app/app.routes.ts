@@ -37,10 +37,7 @@ export const routes: Routes = [
   {
     path: 'app/assistants/new/:step',
     canActivate: [demoSessionGuard, newAssistantDraftGuard],
-    loadComponent: () =>
-      import('./features/assistants/assistant-list/assistant-list-page.component').then(
-        (m) => m.AssistantListPageComponent,
-      ),
+    children: [],
   },
   {
     path: 'app/assistants/drafts/:draftId/:step',

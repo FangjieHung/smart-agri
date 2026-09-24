@@ -199,8 +199,12 @@ export class DataTableComponent<T> {
     this.rowClick.emit(row);
   }
 
+  /**
+   * 只處理「焦點在整列本身」時的 Enter／Space。列內的按鈕、選取 checkbox 也會把 keydown 冒泡上來——
+   * 若一併當成整列點擊，既會多開一次詳情，preventDefault 還會吃掉按鈕自己的鍵盤觸發（Enter 按不動列內按鈕）。
+   */
   protected onRowKeydown(row: T, event: Event): void {
-    if (!this.rowClickable()) return;
+    if (!this.rowClickable() || event.target !== event.currentTarget) return;
     event.preventDefault();
     this.rowClick.emit(row);
   }

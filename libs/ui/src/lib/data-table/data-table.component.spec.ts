@@ -703,6 +703,28 @@ describe('DataTableComponent 整列可點擊導航', () => {
     expect(fixture.componentInstance.clicked).toEqual([fixture.componentInstance.rows()[1]]);
   });
 
+  it('在列內按鈕上按 Enter／Space：只觸發按鈕自己，不當成整列點擊、也不擋掉按鈕的預設行為', async () => {
+    const button = el.querySelector('.action-btn') as HTMLButtonElement;
+    for (const key of ['Enter', ' ']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      button.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(false);
+    }
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.clicked).toEqual([]);
+  });
+
+  it('在列上的選取 checkbox 按 Space：不當成整列點擊', async () => {
+    const checkbox = el.querySelector('tbody .dt-selection-checkbox') as HTMLInputElement;
+    const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    checkbox.dispatchEvent(event);
+    await fixture.whenStable();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(fixture.componentInstance.clicked).toEqual([]);
+  });
+
   it('rowClickable 為 true 時列有 tabindex="0" 與 dt-row--clickable class', () => {
     const row = el.querySelector('tbody tr') as HTMLElement;
     expect(row.getAttribute('tabindex')).toBe('0');

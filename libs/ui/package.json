@@ -6,6 +6,8 @@
     "@angular/common": "^22.0.0",
     "@angular/core": "^22.0.0",
     "@angular/material": "^22.0.0",
+    "@angular/router": "^22.0.0",
+    "rxjs": "~7.8.0",
     "xlsx": "^0.20.3"
   },
   "// xlsx": "SheetJS 在 0.18.5 之後不再發布到 npm registry，^0.20.3 在這裡只是型別標示用的版本範圍。根目錄改用 CDN tarball 安裝（見根目錄 package.json：https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz）。若 dist/libs/ui 哪天被單獨發布，直接 npm i 會拿這個範圍去 registry 解析而 ETARGET 失敗，消費端要比照根目錄的做法改用 CDN tarball 安裝。",

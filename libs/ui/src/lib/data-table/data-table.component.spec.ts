@@ -835,3 +835,53 @@ describe('DataTableComponent 匯出接線', () => {
     expect(fixture.componentInstance.lastError?.message).toBe('boom');
   });
 });
+
+describe('DataTableComponent 列標題欄（rowHeader）', () => {
+  async function render(columns: DataTableColumn<Row>[]): Promise<HTMLElement> {
+    await TestBed.configureTestingModule({ imports: [HostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(HostComponent);
+    fixture.componentInstance.columns.set(columns);
+    await fixture.whenStable();
+    return fixture.nativeElement as HTMLElement;
+  }
+
+  it('標 rowHeader 的欄位以 th scope="row" 渲染，保留 data-label、對齊與收合 class', async () => {
+    const el = await render([
+      { key: 'name', label: '車牌', primary: true, rowHeader: true },
+      { key: 'status', label: '狀態', primary: true },
+      { key: 'mileage', label: '里程', align: 'end' },
+    ]);
+    const headers = el.querySelectorAll('tbody tr th[scope="row"]');
+    expect(headers).toHaveLength(2);
+    expect(headers[0].textContent?.trim()).toBe('ABC-123');
+    expect(headers[0].getAttribute('data-label')).toBe('車牌');
+    expect(headers[0].classList.contains('dt-align-start')).toBe(true);
+    expect(headers[0].classList.contains('is-secondary')).toBe(false);
+    expect(el.querySelectorAll('tbody tr:first-child td.dt-cell')).toHaveLength(2);
+  });
+
+  it('列標題欄同樣套用 dtCell 自訂模板', async () => {
+    const el = await render([
+      { key: 'name', label: '車牌', primary: true },
+      { key: 'status', label: '狀態', primary: true, rowHeader: true },
+    ]);
+    expect(el.querySelector('tbody tr th[scope="row"] .chip')?.textContent).toBe('available');
+  });
+
+  it('未標 rowHeader 時資料列只有 td（既有使用端不受影響）', async () => {
+    const el = await render([
+      { key: 'name', label: '車牌', primary: true },
+      { key: 'mileage', label: '里程', align: 'end' },
+    ]);
+    expect(el.querySelector('tbody th')).toBeNull();
+  });
+
+  it('手機卡片樣式同時涵蓋列標題 th（否則列標題會失去欄位標籤與排版）', () => {
+    const scss = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'data-table.component.scss'),
+      'utf-8',
+    );
+    const mobileBlock = scss.split('@media (max-width: 640px)')[1] ?? '';
+    expect(mobileBlock).toMatch(/\.dt-cell::before/);
+  });
+});

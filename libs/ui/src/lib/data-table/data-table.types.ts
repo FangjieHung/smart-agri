@@ -5,6 +5,8 @@ export interface DataTableColumn<T> {
   /** 手機版卡片收合時仍顯示。整份 columns 都沒標時，第一欄自動視為 primary。 */
   primary?: boolean;
   align?: 'start' | 'end';
+  /** 以 `<th scope="row">` 渲染這一欄，讓螢幕報讀在讀其他欄時一併報出這一列是誰（通常是名稱欄）。 */
+  rowHeader?: boolean;
   /** 匯出時的取值。未提供時取 row[key]。 */
   exportValue?: (row: T) => string | number;
   /** 不納入匯出（actions 欄用）。 */

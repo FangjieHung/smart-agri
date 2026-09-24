@@ -26,7 +26,7 @@ export class DatabaseListPageComponent {
   private readonly router = inject(Router);
 
   protected readonly columns: DataTableColumn<DatabaseSummaryView>[] = [
-    { key: 'name', label: '名稱' },
+    { key: 'name', label: '名稱', rowHeader: true },
     { key: 'purpose', label: '用途' },
     { key: 'form', label: '表單', exportSkip: true },
     { key: 'records', label: '收集紀錄', exportSkip: true },

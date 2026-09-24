@@ -28,7 +28,7 @@ export class KnowledgeListPageComponent {
   private readonly router = inject(Router);
 
   protected readonly columns: DataTableColumn<KnowledgeBaseSummaryView>[] = [
-    { key: 'name', label: '名稱' },
+    { key: 'name', label: '名稱', rowHeader: true },
     { key: 'purpose', label: '用途' },
     { key: 'content', label: '內容', exportSkip: true },
     { key: 'status', label: '處理狀態', exportSkip: true },

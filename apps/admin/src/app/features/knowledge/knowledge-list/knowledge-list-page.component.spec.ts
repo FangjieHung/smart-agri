@@ -38,6 +38,7 @@ describe('KnowledgeListPageComponent', () => {
     const rows = Array.from(page.querySelectorAll('lib-data-table tbody tr'));
 
     expect(rows).toHaveLength(3);
+    expect(rows[0].querySelector('th[scope="row"]')?.textContent?.trim()).toBe('商品使用指南');
     const guide = rows[0].textContent ?? '';
     expect(guide).toContain('商品使用指南');
     expect(guide).toContain('4 份文件');

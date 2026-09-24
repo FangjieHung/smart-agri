@@ -43,6 +43,13 @@
   color: inherit;
 }
 
+// 列標題欄（rowHeader）語意上是 th，外觀跟一般資料格一致，不套表頭的次要色與粗細。
+.dt-table tbody th.dt-cell {
+  padding: 0.75rem 1rem;
+  color: inherit;
+  font-weight: inherit;
+}
+
 .dt-selection-head,
 .dt-selection-cell {
   width: 3rem;
@@ -149,7 +156,8 @@
     .dt-table,
     .dt-table tbody,
     .dt-table tr,
-    .dt-table td {
+    .dt-table td,
+    .dt-table .dt-cell {
       display: block;
       width: auto;
     }
@@ -180,7 +188,8 @@
 
     // 標籤與值並排而非上下堆疊：短值（車牌、里程）本來就佔不滿一行，
     // 堆疊等於每個欄位吃兩行、右半邊留白。並排讓卡片高度砍半，也比較好掃。
-    .dt-table td {
+    .dt-table td,
+    .dt-table .dt-cell {
       display: flex;
       flex-wrap: wrap;
       align-items: baseline;
@@ -201,7 +210,8 @@
       content: none;
     }
 
-    .dt-table td::before {
+    .dt-table td::before,
+    .dt-table .dt-cell::before {
       content: attr(data-label);
       flex: 0 0 5.25rem;
       font-size: 0.75rem;
@@ -209,11 +219,11 @@
       color: var(--mat-sys-on-surface-variant);
     }
 
-    .dt-table td.is-secondary {
+    .dt-table .dt-cell.is-secondary {
       display: none;
     }
 
-    .dt-table tbody tr.is-expanded td.is-secondary {
+    .dt-table tbody tr.is-expanded .dt-cell.is-secondary {
       display: block;
     }
 

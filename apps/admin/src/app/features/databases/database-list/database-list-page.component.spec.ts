@@ -54,7 +54,7 @@ describe('DatabaseListPageComponent', () => {
     expect(page().querySelector('h1')?.textContent).toContain('數據庫');
     expect(cards).toHaveLength(2);
     const customer = cards.find((card) => card.textContent?.includes('客戶資料庫'));
-    expect(customer?.querySelector('a')?.getAttribute('href')).toBe('/app/databases/database-customer-records/form');
+    expect(customer?.querySelector('th[scope="row"] a')?.getAttribute('href')).toBe('/app/databases/database-customer-records/form');
     expect(customer?.textContent).toContain('6 個欄位');
     expect(customer?.textContent).toContain('3 位對象・7 筆紀錄');
     expect(customer?.textContent).toContain('客服助理');

@@ -129,11 +129,7 @@
                 </td>
               }
               @for (col of resolvedColumns(); track col.key) {
-                <td
-                  [attr.data-label]="col.label"
-                  [class]="'dt-align-' + (col.align ?? 'start')"
-                  [class.is-secondary]="!col.primary"
-                >
+                <ng-template #cellContent>
                   @if (cellTemplates().get(col.key); as tpl) {
                     <ng-container
                       [ngTemplateOutlet]="tpl"
@@ -142,7 +138,25 @@
                   } @else {
                     {{ valueOf(row, col.key) }}
                   }
-                </td>
+                </ng-template>
+                @if (col.rowHeader) {
+                  <th
+                    scope="row"
+                    [attr.data-label]="col.label"
+                    [class]="'dt-cell dt-align-' + (col.align ?? 'start')"
+                    [class.is-secondary]="!col.primary"
+                  >
+                    <ng-container [ngTemplateOutlet]="cellContent" />
+                  </th>
+                } @else {
+                  <td
+                    [attr.data-label]="col.label"
+                    [class]="'dt-cell dt-align-' + (col.align ?? 'start')"
+                    [class.is-secondary]="!col.primary"
+                  >
+                    <ng-container [ngTemplateOutlet]="cellContent" />
+                  </td>
+                }
               }
               @if (hasSecondary()) {
                 <td class="dt-expand-cell" (click)="$event.stopPropagation()">

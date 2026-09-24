@@ -207,7 +207,7 @@ describe('MockDemoRepository assistant settings', () => {
     expect(hidden.kind).toBe('company-data');
     if (hidden.kind === 'company-data') {
       expect(hidden.citations).toHaveLength(0);
-      expect(hidden.citationNotice).toContain('公司資料');
+      expect(hidden.citationNotice).toContain('組織資料');
     }
   });
 

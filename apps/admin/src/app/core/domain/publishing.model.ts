@@ -7,7 +7,7 @@ export type PublishingChannelType = 'platform' | 'website' | 'line';
 export const PUBLISHING_CHANNEL_TYPES: readonly PublishingChannelType[] = ['platform', 'website', 'line'];
 
 export const PUBLISHING_CHANNEL_NAMES: Readonly<Record<PublishingChannelType, string>> = {
-  platform: '公司內部分享',
+  platform: '組織內部分享',
   website: '官網嵌入',
   line: 'LINE',
 };

@@ -1,7 +1,7 @@
 <section class="workspace-page">
   <app-page-header
     title="我的助理"
-    description="管理自己建立的助理與草稿，並使用公司分享給你的助理。"
+    description="管理自己建立的助理與草稿，並使用組織分享給你的助理。"
   >
     @if (canCreateAssistant()) {
       <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
@@ -34,9 +34,9 @@
   </section>
 
   <section class="assistant-group" aria-labelledby="company-assistants-title">
-    <h2 id="company-assistants-title">公司建立的</h2>
+    <h2 id="company-assistants-title">組織建立的</h2>
     @if (companyItems().length > 0) {
-      <ul class="assistant-list" aria-label="公司分享的助理">
+      <ul class="assistant-list" aria-label="組織分享的助理">
         @for (item of companyItems(); track item.assistant.id) {
           <li><app-assistant-card [assistant]="item.assistant" [channels]="item.channels" [recentActivity]="item.recentActivity" /></li>
         }

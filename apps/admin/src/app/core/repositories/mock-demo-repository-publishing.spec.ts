@@ -52,7 +52,7 @@ describe('MockDemoRepository publishing channels', () => {
     expect(overview.map((entry) => entry.assistantName)).toEqual(['客服助理', '內部教育訓練助理']);
     for (const entry of overview) {
       expect(entry.channels.map((channel) => channel.type)).toEqual(['platform', 'website', 'line']);
-      expect(entry.channels.map((channel) => channel.name)).toEqual(['公司內部分享', '官網嵌入', 'LINE']);
+      expect(entry.channels.map((channel) => channel.name)).toEqual(['組織內部分享', '官網嵌入', 'LINE']);
     }
     const statuses = new Set(overview.flatMap((entry) => entry.channels.map((channel) => channel.status)));
     expect([...statuses].sort()).toEqual(['needs-attention', 'not-configured', 'paused', 'published', 'testing']);

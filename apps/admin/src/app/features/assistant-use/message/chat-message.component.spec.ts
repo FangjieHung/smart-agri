@@ -44,7 +44,7 @@ describe('ChatMessageComponent', () => {
         kind: 'company-data',
         text: '收到商品後 7 天內可以申請退貨。',
         citations: [],
-        citationNotice: '這則回答出自公司資料；這個助理設定為不顯示引用出處。',
+        citationNotice: '這則回答出自組織資料；這個助理設定為不顯示引用出處。',
       }),
     );
 
@@ -59,7 +59,7 @@ describe('ChatMessageComponent', () => {
 
     const bubble = host.querySelector('[data-kind="general-knowledge"]');
     expect(bubble?.textContent).toContain('一般知識補充');
-    expect(bubble?.textContent).toContain('不是公司資料');
+    expect(bubble?.textContent).toContain('不是組織資料');
     expect(host.querySelector('button.citation-toggle')).toBeNull();
   });
 

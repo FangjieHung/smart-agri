@@ -40,7 +40,7 @@ describe('private conversations and trustworthy answers', () => {
     cy.contains('button.suggested-prompt', '皮革商品平常要怎麼保養？').click();
     cy.get('[role="log"] [data-kind="general-knowledge"]')
       .should('contain', '一般知識補充')
-      .and('contain', '不是公司資料');
+      .and('contain', '不是組織資料');
 
     ask('可以幫我訂下週的機票嗎？');
     cy.get('[role="log"] [data-kind="no-result"]')

@@ -84,7 +84,7 @@ describe('MockDemoRepository assistant chat', () => {
 
     expect(reply.kind).toBe('general-knowledge');
     if (reply.kind !== 'general-knowledge') return;
-    expect(reply.notice).toContain('不是公司資料');
+    expect(reply.notice).toContain('不是組織資料');
     expect(JSON.stringify(reply)).not.toContain('citations');
   });
 

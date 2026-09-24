@@ -2417,7 +2417,7 @@ export class MockDemoRepository implements DemoRepository {
             excerpt: citation.excerpt,
             updatedLabel: citation.updatedLabel,
           }));
-        // 先用引用來源判斷助理有沒有這份公司資料，再決定要不要把出處顯示出來：
+        // 先用引用來源判斷助理有沒有這份組織資料，再決定要不要把出處顯示出來：
         // 規則關掉的是「出處」，不是「這題有沒有答案」。
         if (citations.length === 0) return null;
         return this.showsCitations(assistant)
@@ -2852,7 +2852,7 @@ export class MockDemoRepository implements DemoRepository {
     return this.assistantRules(assistant).knowledgeScope === 'allow-general-knowledge';
   }
 
-  /** 「顯示引用出處」關掉時，公司資料的回答仍然標示成公司資料，只是不附原文片段。 */
+  /** 「顯示引用出處」關掉時，組織資料的回答仍然標示成組織資料，只是不附原文片段。 */
   private showsCitations(assistant: AssistantConfigurationView): boolean {
     return this.assistantRules(assistant).showCitations;
   }

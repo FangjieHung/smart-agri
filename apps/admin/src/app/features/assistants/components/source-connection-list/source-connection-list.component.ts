@@ -6,6 +6,7 @@ import {
   output,
   signal,
 } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { fmtDateTime } from '../../../../core/date-utils';
 import { DataTableComponent, DataTableHeadDirective, DataTableBodyDirective } from '@smart-agri/ui';
 import { ADMIN_DATA_TABLE_LABELS } from '../../../../shared/ui/data-table-labels';
@@ -52,7 +53,7 @@ const PERMISSION_LABELS: Record<ConnectableSourcePermission, string> = {
  */
 @Component({
   selector: 'app-source-connection-list',
-  imports: [SourceTypeIconComponent, StatusBadgeComponent, DataTableComponent, DataTableHeadDirective, DataTableBodyDirective],
+  imports: [RouterLink, SourceTypeIconComponent, StatusBadgeComponent, DataTableComponent, DataTableHeadDirective, DataTableBodyDirective],
   templateUrl: './source-connection-list.component.html',
   styleUrls: ['../assistant-form.scss', './source-connection-list.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -85,6 +86,12 @@ export class SourceConnectionListComponent {
     const knowledge = connected.filter((source) => source.type === 'knowledge-base').length;
     return `已連接 ${knowledge} 個知識庫、${connected.length - knowledge} 個資料庫`;
   });
+
+  protected detailRoute(source: ConnectableSourceView): readonly [string, string, string] {
+    return source.type === 'knowledge-base'
+      ? ['/app/knowledge', source.id, 'content']
+      : ['/app/databases', source.id, 'form'];
+  }
 
   protected isConnected(source: ConnectableSourceView): boolean {
     return this.connected().some(

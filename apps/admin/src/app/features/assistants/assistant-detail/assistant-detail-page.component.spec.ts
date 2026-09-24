@@ -201,6 +201,24 @@ describe('AssistantDetailPageComponent', () => {
     expect(after?.querySelector('button')?.getAttribute('aria-pressed')).toBe('false');
   });
 
+  it('links each connected source name to its knowledge or database detail page', async () => {
+    const { page } = await renderTab('data-sources');
+
+    const knowledgeRow = Array.from(page.querySelectorAll('.source-row')).find((candidate) =>
+      candidate.textContent?.includes('商品使用指南'),
+    );
+    expect(knowledgeRow?.querySelector('th a')?.getAttribute('href')).toBe(
+      '/app/knowledge/knowledge-product-guide/content',
+    );
+
+    const databaseRow = Array.from(page.querySelectorAll('.source-row')).find((candidate) =>
+      candidate.textContent?.includes('訂單資料庫'),
+    );
+    expect(databaseRow?.querySelector('th a')?.getAttribute('href')).toBe(
+      '/app/databases/database-orders/form',
+    );
+  });
+
   it('toggles 嚴格回答 and 保存自己的對話 from the answer tab', async () => {
     const storage = createMemoryStorage();
     const { page, flush } = await renderTab('rules', { storage });

@@ -1,4 +1,5 @@
-import { signal, type Provider } from '@angular/core';
+import { signal, type EnvironmentProviders, type Provider } from '@angular/core';
+import { provideRouter } from '@angular/router';
 import type { AccountId } from '../../../core/domain/account.model';
 import type { DemoKeyValueStorage } from '../../../core/repositories/demo-repository';
 import { createMemoryStorage } from '../../../core/repositories/memory-storage';
@@ -13,7 +14,10 @@ export function provideWizardTesting(
     readonly storage?: DemoKeyValueStorage;
     readonly accountId?: AccountId;
   } = {},
-): { readonly providers: Provider[]; readonly repository: MockDemoRepository } {
+): {
+  readonly providers: (Provider | EnvironmentProviders)[];
+  readonly repository: MockDemoRepository;
+} {
   const repository = new MockDemoRepository(DEMO_SEED, {
     storage: options.storage ?? createMemoryStorage(),
     now: () => new Date('2026-09-22T02:00:00.000Z'),
@@ -25,6 +29,7 @@ export function provideWizardTesting(
   return {
     repository,
     providers: [
+      provideRouter([]),
       { provide: DEMO_REPOSITORY, useValue: repository },
       { provide: DemoSessionService, useValue: { activeAccountId } },
     ],

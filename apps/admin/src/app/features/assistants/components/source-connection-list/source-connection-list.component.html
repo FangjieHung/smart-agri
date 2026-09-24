@@ -30,7 +30,7 @@
     <ng-template dtBody>
       @for (source of visibleSources(); track source.type + source.id) {
         @let isOn = isConnected(source);
-        <tr class="source-row"><th scope="row">{{ source.name }}</th><td><app-source-type-icon [type]="source.type" /></td><td>{{ source.summary }}</td><td>{{ permissionLabel(source.permission) }}</td><td><app-status-badge [label]="statusLabel(source.status)" [tone]="statusTone(source.status)" /></td><td><time [attr.datetime]="source.updatedAt">{{ updatedAt(source.updatedAt) }}</time></td><td><button type="button" class="source-toggle" [attr.aria-pressed]="isOn" (click)="toggled.emit(source)">{{ isOn ? '已連接' : '加入' }}<span class="visually-hidden">{{ source.name }}</span></button></td></tr>
+        <tr class="source-row"><th scope="row"><a [routerLink]="detailRoute(source)">{{ source.name }}</a></th><td><app-source-type-icon [type]="source.type" /></td><td>{{ source.summary }}</td><td>{{ permissionLabel(source.permission) }}</td><td><app-status-badge [label]="statusLabel(source.status)" [tone]="statusTone(source.status)" /></td><td><time [attr.datetime]="source.updatedAt">{{ updatedAt(source.updatedAt) }}</time></td><td><button type="button" class="source-toggle" [attr.aria-pressed]="isOn" (click)="toggled.emit(source)">{{ isOn ? '已連接' : '加入' }}<span class="visually-hidden">{{ source.name }}</span></button></td></tr>
       }
     </ng-template>
   </lib-data-table>

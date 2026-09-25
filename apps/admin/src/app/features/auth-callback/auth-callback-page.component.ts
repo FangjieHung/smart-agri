@@ -26,8 +26,12 @@ export class AuthCallbackPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     const result = await this.apiSession.completeSignIn();
-    // 須先改密碼：目前回登入頁說明；設定新密碼的頁面上線後改導到那裡（token 已保留）。
-    const target = result === 'signed-in' ? '/app/home' : '/login';
+    const target =
+      result === 'signed-in'
+        ? '/app/home'
+        : result === 'password-change-required'
+          ? '/change-password'
+          : '/login';
     void this.router.navigateByUrl(target, { replaceUrl: true });
   }
 }

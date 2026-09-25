@@ -1,6 +1,7 @@
 import { inject } from '@angular/core';
 import { Routes } from '@angular/router';
 import { ApiSessionService } from './core/session/api-session.service';
+import { changePasswordGuard } from './core/session/change-password.guard';
 import { demoSessionGuard } from './core/session/demo-session.guard';
 import { embeddedChatGuard } from './core/session/embedded-chat.guard';
 import { existingAssistantDraftGuard, newAssistantDraftGuard } from './features/assistants/assistant-wizard/new-assistant-draft.guard';
@@ -28,6 +29,16 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/auth-callback/auth-callback-page.component').then(
         (m) => m.AuthCallbackPageComponent,
+      ),
+  },
+  // 設定新密碼只存在於 API 模式；mock 模式沒有這個狀態，落到最後的 `**`。
+  {
+    path: 'change-password',
+    canMatch: [() => inject(ApiSessionService).apiMode],
+    canActivate: [changePasswordGuard],
+    loadComponent: () =>
+      import('./features/change-password/change-password-page.component').then(
+        (m) => m.ChangePasswordPageComponent,
       ),
   },
   {

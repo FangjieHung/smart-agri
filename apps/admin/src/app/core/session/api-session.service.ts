@@ -99,6 +99,11 @@ export class ApiSessionService {
     this.apiMode ? (this.identity()?.permissions ?? NO_PERMISSIONS) : this.mockPermissions(),
   );
 
+  /** API 模式登入者的顯示名稱（來自 `/me`）；mock 模式與尚未登入時為 null。 */
+  readonly displayName = computed(() =>
+    this.apiMode ? (this.identity()?.displayName ?? null) : null,
+  );
+
   private readonly mockPermissions = computed(() => {
     this.mockRevision();
     const accountId = this.session.activeAccountId();

@@ -200,6 +200,7 @@ describe('ApiSessionService (API mode)', () => {
     );
     expect(demoSession.activeAccountId()).toBe('account-smb-admin');
     expect(service.permissions()).toContain('manage-assistants');
+    expect(service.displayName()).toBe('安心商行管理者');
     expect(JSON.parse(storage.getItem(API_SESSION_STORAGE_KEY) ?? 'null')).toMatchObject({
       accessToken: 'access-token-1',
       identity: { demoAccountId: 'account-smb-admin', displayName: '安心商行管理者' },
@@ -217,6 +218,23 @@ describe('ApiSessionService (API mode)', () => {
     expect(demoSession.activeAccountId()).toBe('account-external-customer');
     expect(service.permissions()).toEqual(['read-own-tracking']);
     expect(service.canEnterWorkspace()).toBe(true);
+  });
+
+  it('picks up changed permissions when the identity is re-read', async () => {
+    const { service, http } = setUpApiMode();
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush(ADMIN_ME);
+    await completion;
+
+    const refresh = service.refreshIdentity();
+    await flushMicrotasks();
+    http
+      .expectOne('/api/v1/me')
+      .flush({ ...ADMIN_ME, permissions: ['manage-assistants', 'manage-data-sources'] });
+    await refresh;
+
+    expect(service.permissions()).toEqual(['manage-assistants', 'manage-data-sources']);
   });
 
   it('keeps an account that must change its password out of the workspace', async () => {
@@ -424,6 +442,7 @@ describe('ApiSessionService (mock mode)', () => {
     const { service, demoSession } = setUpMockMode();
     expect(service.apiMode).toBe(false);
     expect(service.permissions()).toEqual([]);
+    expect(service.displayName()).toBeNull();
 
     demoSession.switchAccount('account-internal-employee');
     expect(service.permissions()).toEqual(['use-shared-assistants', 'read-consented-submissions']);

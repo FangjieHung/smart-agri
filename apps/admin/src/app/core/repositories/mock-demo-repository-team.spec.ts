@@ -1,3 +1,4 @@
+import { firstValueFrom } from 'rxjs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AccountId, AccountPermission } from '../domain/account.model';
 import type { TeamView } from '../domain/team.model';
@@ -23,17 +24,25 @@ function permissionsOf(team: TeamView, accountId: AccountId): readonly AccountPe
 describe('MockDemoRepository team management', () => {
   let storage: ReturnType<typeof createMemoryStorage>;
   let repository: MockDemoRepository;
+  /** 非同步契約不再傳 viewer，改由工作階段提供；測試直接改這個值切換身分。 */
+  let viewer: AccountId | null;
+
+  const getTeam = (target: MockDemoRepository = repository) => firstValueFrom(target.getTeam());
+  const update = (member: AccountId, permissions: readonly AccountPermission[]) =>
+    firstValueFrom(repository.updateMemberPermissions(member, permissions));
 
   beforeEach(() => {
     storage = createMemoryStorage();
+    viewer = ADMIN;
     repository = new MockDemoRepository(DEMO_SEED, {
       storage,
       now: () => new Date('2026-09-23T02:00:00.000Z'),
+      viewer: () => viewer,
     });
   });
 
-  it('lists every demo persona with its role and what each permission actually does', () => {
-    const team = dataOf<TeamView>(repository.getTeam(ADMIN));
+  it('lists every demo persona with its role and what each permission actually does', async () => {
+    const team = dataOf<TeamView>(await getTeam());
 
     expect(team.members.map((member) => member.id)).toEqual([ADMIN, EMPLOYEE, CUSTOMER]);
     expect(team.members[0]).toMatchObject({ roleLabel: '管理者', isViewer: true });
@@ -55,22 +64,31 @@ describe('MockDemoRepository team management', () => {
     expect(team.savedAt).toBeNull();
   });
 
-  it('refuses the team screen to accounts without manage-assistants and leaks no names', () => {
-    for (const accountId of [EMPLOYEE, CUSTOMER]) {
-      const refused = repository.getTeam(accountId);
+  it('refuses the team screen to accounts without manage-assistants and leaks no names', async () => {
+    for (const accountId of [EMPLOYEE, CUSTOMER, null]) {
+      viewer = accountId;
+      const refused = await getTeam();
       expect(refused).toMatchObject({ status: 'permission-denied', reason: 'team' });
       if (refused.status === 'permission-denied') {
         expect(refused.message).not.toContain('安心商行管理者');
       }
-      expect(repository.updateMemberPermissions(accountId, ADMIN, [])).toMatchObject({
+      expect(await update(ADMIN, [])).toMatchObject({
         status: 'permission-denied',
         reason: 'team',
       });
     }
   });
 
-  it('persists a member’s permissions under the sme-demo: convention and reloads them', () => {
-    const updated = repository.updateMemberPermissions(ADMIN, EMPLOYEE, [
+  it('does nothing until subscribed, like the HTTP adapter', async () => {
+    const pending = repository.updateMemberPermissions(EMPLOYEE, []);
+    expect(storage.getItem('sme-demo:team-permissions')).toBeNull();
+
+    await firstValueFrom(pending);
+    expect(storage.getItem('sme-demo:team-permissions')).not.toBeNull();
+  });
+
+  it('persists a member’s permissions under the sme-demo: convention and reloads them', async () => {
+    const updated = await update(EMPLOYEE, [
       'use-shared-assistants',
       'manage-publishing',
     ]);
@@ -83,54 +101,72 @@ describe('MockDemoRepository team management', () => {
     ]);
     expect(storage.getItem('sme-demo:team-permissions')).toContain('manage-publishing');
 
-    const reloaded = new MockDemoRepository(DEMO_SEED, { storage });
-    expect(permissionsOf(dataOf<TeamView>(reloaded.getTeam(ADMIN)), EMPLOYEE)).toEqual([
+    const reloaded = new MockDemoRepository(DEMO_SEED, { storage, viewer: () => ADMIN });
+    const team = dataOf<TeamView>(await getTeam(reloaded));
+    expect(permissionsOf(team, EMPLOYEE)).toEqual([
       'manage-publishing',
       'use-shared-assistants',
     ]);
-    expect(dataOf<TeamView>(reloaded.getTeam(ADMIN)).savedAt).not.toBeNull();
+    expect(team.savedAt).not.toBeNull();
   });
 
-  it('refuses to let the acting admin remove their own manage-assistants', () => {
-    const result = repository.updateMemberPermissions(ADMIN, ADMIN, ['manage-data-sources']);
+  it('refuses to let the acting admin remove their own manage-assistants', async () => {
+    const result = await update(ADMIN, ['manage-data-sources']);
 
     expect(result).toMatchObject({ status: 'validation-failed' });
     if (result.status === 'validation-failed') {
       expect(result.message).toContain('不能移除自己');
     }
-    expect(permissionsOf(dataOf<TeamView>(repository.getTeam(ADMIN)), ADMIN)).toContain(
-      'manage-assistants',
-    );
-    expect(dataOf<TeamView>(repository.getTeam(ADMIN)).members[0].lockedPermissions).toEqual([
-      'manage-assistants',
-    ]);
+    const team = dataOf<TeamView>(await getTeam());
+    expect(permissionsOf(team, ADMIN)).toContain('manage-assistants');
+    expect(team.members[0].lockedPermissions).toEqual(['manage-assistants']);
   });
 
-  it('rejects unknown permission values without writing anything', () => {
-    const result = repository.updateMemberPermissions(ADMIN, EMPLOYEE, [
-      'not-a-permission' as AccountPermission,
-    ]);
+  it('rejects unknown permission values without writing anything', async () => {
+    const result = await update(EMPLOYEE, ['not-a-permission' as AccountPermission]);
 
     expect(result).toMatchObject({ status: 'validation-failed' });
     expect(storage.getItem('sme-demo:team-permissions')).toBeNull();
   });
 
-  it('refuses an unknown member with the same message it uses for no permission', () => {
-    const unknown = repository.updateMemberPermissions(ADMIN, 'account-ghost' as AccountId, []);
-    const noPermission = repository.updateMemberPermissions(EMPLOYEE, ADMIN, []);
+  it('refuses an unknown member with the same message it uses for no permission', async () => {
+    const unknown = await update('account-ghost' as AccountId, []);
+    viewer = EMPLOYEE;
+    const noPermission = await update(ADMIN, []);
 
     expect(unknown).toMatchObject({ status: 'permission-denied', reason: 'team' });
+    expect(noPermission).toMatchObject({ status: 'permission-denied', reason: 'team' });
     if (unknown.status === 'permission-denied' && noPermission.status === 'permission-denied') {
       expect(unknown.message).toBe(noPermission.message);
     }
   });
 
-  it('lists accounts with the edited permissions everywhere, not just on the team screen', () => {
-    repository.updateMemberPermissions(ADMIN, EMPLOYEE, []);
+  it('lists accounts with the edited permissions everywhere, not just on the team screen', async () => {
+    await update(EMPLOYEE, []);
 
     const accounts = dataOf<readonly { id: AccountId; permissions: readonly AccountPermission[] }[]>(
       repository.listAccounts(),
     );
     expect(accounts.find((account) => account.id === EMPLOYEE)?.permissions).toEqual([]);
+  });
+
+  it('uses the API permissions in API mode and ignores team edits made in mock mode', async () => {
+    await update(EMPLOYEE, ['read-consented-submissions']);
+    const apiMode = new MockDemoRepository(DEMO_SEED, {
+      storage,
+      viewer: () => EMPLOYEE,
+      accountsSource: () => ({ [EMPLOYEE]: ['use-shared-assistants'] }),
+    });
+
+    const accounts = dataOf<readonly { id: AccountId; permissions: readonly AccountPermission[] }[]>(
+      apiMode.listAccounts(),
+    );
+    expect(accounts.find((account) => account.id === EMPLOYEE)?.permissions).toEqual([
+      'use-shared-assistants',
+    ]);
+    // 沒有列出的帳號沿用 seed，而不是這台瀏覽器改過的值。
+    expect(accounts.find((account) => account.id === ADMIN)?.permissions).toEqual(
+      DEMO_SEED.accounts.find((account) => account.id === ADMIN)?.permissions,
+    );
   });
 });

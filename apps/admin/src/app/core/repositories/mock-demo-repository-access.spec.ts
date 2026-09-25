@@ -40,6 +40,7 @@ describe('MockDemoRepository data access', () => {
     repository = new MockDemoRepository(DEMO_SEED, {
       storage,
       now: () => new Date('2026-09-23T02:00:00.000Z'),
+      viewer: () => ADMIN,
     });
   });
 
@@ -53,11 +54,10 @@ describe('MockDemoRepository data access', () => {
     expect(subjectCount(repository, ADMIN, RECORDS)).toBe(3);
 
     // 只拿掉帳號層級的權限，資料管理者的指定不動。
-    repository.updateMemberPermissions(ADMIN, ADMIN, [
-      'manage-assistants',
-      'manage-data-sources',
-      'manage-publishing',
-    ]);
+    // mock 的 Observable 是同步的，訂閱當下就寫入。
+    repository
+      .updateMemberPermissions(ADMIN, ['manage-assistants', 'manage-data-sources', 'manage-publishing'])
+      .subscribe();
 
     expect(accessOf(repository, ADMIN, RECORDS)).toMatchObject({
       viewerIsDataManager: true,
@@ -143,7 +143,7 @@ describe('MockDemoRepository data access', () => {
     // 同仁是自己資料庫的擁有者，也是指定的資料管理者，所以看得到收集紀錄（目前還沒有紀錄）。
     expect(repository.getDatabaseTracking(EMPLOYEE, CHECKINS).status).toBe('ready');
 
-    repository.updateMemberPermissions(ADMIN, EMPLOYEE, ['use-shared-assistants']);
+    repository.updateMemberPermissions(EMPLOYEE, ['use-shared-assistants']).subscribe();
 
     expect(repository.getDatabaseTracking(EMPLOYEE, CHECKINS)).toMatchObject({
       status: 'permission-denied',

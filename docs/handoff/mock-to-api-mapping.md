@@ -189,6 +189,8 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `listPrivateConversations(viewer)` `:321-323` | `GET /api/v1/conversations` | `S` | `200` `PrivateConversationView[]` | `429` | `401`／`5xx` | **未被呼叫**（`/app/activity` 仍是 placeholder） |
 | `getConversation(viewer, conversationId)` `:324-327` | `GET /api/v1/conversations/{id}` | `S` + 對話屬於 viewer | `200` `PrivateConversationView` | `429` | `401`／`403 private-conversation`／`5xx` | **未被呼叫** |
 
+**已換成 API（#11）**：這兩個方法已改成非同步契約（`getTeam(): Observable<…>`、`updateMemberPermissions(memberId, permissions): Observable<…>`，不再傳 viewer）。API 模式由 `core/repositories/hybrid-demo-repository.ts` 走 HTTP，其餘方法沿用 mock；後續各區照同一個模式替換。
+
 `getTeam`／`updateMemberPermissions` 是新增的一組方法，403 用新的 `team` reason（`RepositoryPermissionDeniedReason`，`demo-repository.ts:103`）：不具備 `manage-assistants` 的帳號一律得到同一則不含成員名稱或權限內容的訊息。
 
 ### 2.7 結構化提交（3 個方法，皆未被畫面呼叫）

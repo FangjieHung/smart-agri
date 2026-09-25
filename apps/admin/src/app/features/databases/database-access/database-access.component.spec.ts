@@ -86,11 +86,13 @@ describe('DatabaseAccessComponent', () => {
   it('explains the two layers instead of blaming the designation alone', () => {
     const { repository } = render();
     // 拿掉帳號層級的權限，但保留資料管理者的指定。
-    repository.updateMemberPermissions('account-smb-admin', 'account-smb-admin', [
-      'manage-assistants',
-      'manage-data-sources',
-      'manage-publishing',
-    ]);
+    repository
+      .updateMemberPermissions('account-smb-admin', [
+        'manage-assistants',
+        'manage-data-sources',
+        'manage-publishing',
+      ])
+      .subscribe();
 
     TestBed.resetTestingModule();
     const { providers } = provideDatabaseTesting('account-smb-admin');

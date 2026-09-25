@@ -297,17 +297,23 @@ fresh Development database, since `setup` requires the database to have no organ
 yet. Set the password only when you want the demo accounts instead of running `setup`
 locally.
 
-When it is set, the value is used as-is: `DevelopmentSeeder` hashes it with
-`PasswordHasher<Account>` directly rather than going through Identity's
-`UserManager`/password validators, so it is never rejected for being "too weak" — whatever
-you set becomes the seeded accounts' password, unvalidated. (Identity's real rules —
-`AuthenticationServiceCollectionExtensions.MinimumPasswordLength` and the rest of the
-default policy — still apply the first time one of those accounts changes its own
-password through the app.) A checked-in or forgotten-default demo password still can
-never reach a database, because the value has no default here and must never be
-committed — see `deploy/.env.example` for where to set it and
-`tools/check-no-demo-secrets.sh` (run in CI) for the checks that keep a real value out of
-every checked-in file.
+When it is set, `DevelopmentSeeder` first checks it against the exact same Identity
+password rules a real account's password must satisfy (`AddIdentityCore<Account>` in
+`AuthenticationServiceCollectionExtensions.AddSmartAgriAuthentication` —
+`IdentityOptions.Password`, currently at least `MinimumPasswordLength` (12) characters
+with an upper-case letter, a lower-case letter, a digit and a symbol; see that class for
+the current values, since the rule is "same as real accounts", not a fixed list copied
+here). It resolves the same registered `IPasswordValidator<Account>`s Identity itself
+uses — it never duplicates the rule values — so a password that would be rejected when a
+real administrator sets one is rejected here too, with the same error descriptions.
+Validation runs before `migrate` creates a single organization or account: a password that
+fails makes `migrate` exit non-zero with a message listing the failing rules (never the
+password itself), and the database is left exactly as it was — no organizations, no
+accounts. Only a password that passes gets hashed with `PasswordHasher<Account>` and
+seeded as before. A checked-in or forgotten-default demo password still can never reach a
+database, because the value has no default here and must never be committed — see
+`deploy/.env.example` for where to set it and `tools/check-no-demo-secrets.sh` (run in CI)
+for the checks that keep a real value out of every checked-in file.
 
 ## Running the customer-deploy compose file end to end
 

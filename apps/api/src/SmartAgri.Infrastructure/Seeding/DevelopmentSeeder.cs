@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Tenancy;
@@ -52,15 +54,18 @@ public sealed class DevelopmentSeeder
     private readonly IConfiguration _configuration;
     private readonly DbContextOptions<AppDbContext> _dbContextOptions;
     private readonly ILogger<DevelopmentSeeder> _logger;
+    private readonly IServiceProvider _services;
 
     public DevelopmentSeeder(
         IConfiguration configuration,
         DbContextOptions<AppDbContext> dbContextOptions,
-        ILogger<DevelopmentSeeder> logger)
+        ILogger<DevelopmentSeeder> logger,
+        IServiceProvider services)
     {
         _configuration = configuration;
         _dbContextOptions = dbContextOptions;
         _logger = logger;
+        _services = services;
     }
 
     /// <remarks>
@@ -72,13 +77,17 @@ public sealed class DevelopmentSeeder
     /// (a checked-in demo password must never reach production); set it before running the
     /// `migrate` subcommand in Development to opt into the demo accounts.
     /// <para>
-    /// Only "unset or blank" is special-cased. A non-blank value is hashed and seeded
-    /// exactly as before: this class calls <see cref="PasswordHasher{TUser}"/> directly
-    /// (there is no ASP.NET Core Identity <c>UserManager</c>/<c>IPasswordValidator</c> in
-    /// this codebase), so there is no separate "valid password, but rejected by Identity's
-    /// rules" case today — any non-blank password is accepted and seeded, and any
-    /// unexpected failure while doing so still propagates and fails the `migrate`
-    /// subcommand rather than being swallowed.
+    /// A non-blank value is first run through the exact same
+    /// <see cref="IPasswordValidator{TUser}"/>s a real account's password goes through
+    /// (<c>SmartAgri.Api.Authentication.AuthenticationServiceCollectionExtensions.AddSmartAgriAuthentication</c>
+    /// — see <see cref="EnsurePasswordMeetsIdentityRulesAsync"/>), before any organization
+    /// or account is created. A password that fails throws
+    /// <see cref="InvalidOperationException"/> — which fails the `migrate` subcommand with
+    /// a non-zero exit code — listing the failing rules and never the password itself; the
+    /// database is left exactly as it was (issue #29). Only once validation passes is the
+    /// password hashed with <see cref="PasswordHasher{TUser}"/> directly and seeded exactly
+    /// as before (there is no Identity <c>UserManager.CreateAsync</c> here — see the class
+    /// remarks on why each organization needs its own <see cref="FixedOrganizationContext"/>).
     /// </para>
     /// </remarks>
     public async Task SeedAsync(CancellationToken cancellationToken = default)
@@ -92,6 +101,8 @@ public sealed class DevelopmentSeeder
                 PasswordConfigurationKey);
             return;
         }
+
+        await EnsurePasswordMeetsIdentityRulesAsync(password, cancellationToken);
 
         var hasher = new PasswordHasher<Account>();
 
@@ -108,6 +119,53 @@ public sealed class DevelopmentSeeder
             {
                 await EnsureAccountAsync(orgDbContext, organization, accountSeed, password, hasher, cancellationToken);
             }
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="password"/> through every registered
+    /// <see cref="IPasswordValidator{TUser}"/> (<see cref="UserManager{TUser}.PasswordValidators"/>)
+    /// — the exact validators and password rules a real account goes through — before
+    /// <see cref="SeedAsync"/> creates anything.
+    /// </summary>
+    /// <remarks>
+    /// Resolves <see cref="UserManager{TUser}"/> from the current DI scope (<c>_services</c>)
+    /// rather than taking it as a constructor parameter, so the unset/blank path in
+    /// <see cref="SeedAsync"/> — the documented first-install flow — never needs Identity's
+    /// user store wired up. Validates against a throwaway, never-saved probe account
+    /// instead of one of <see cref="DevelopmentSeedData.Organizations"/>'s real accounts:
+    /// <c>SEED_DEMO_PASSWORD</c> is one password shared by every seeded account across both
+    /// organizations, none of which exist in the database yet at this point, and the
+    /// registered validator only ever inspects the password string itself — never the
+    /// database or the user argument's identity.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The password fails one or more rules.
+    /// The message lists the failing rules' codes and descriptions and never the password
+    /// itself.</exception>
+    private async Task EnsurePasswordMeetsIdentityRulesAsync(string password, CancellationToken cancellationToken)
+    {
+        var userManager = _services.GetRequiredService<UserManager<Account>>();
+        var probeOrganization = new Organization(Guid.CreateVersion7(), "seed-password-probe", "seed-password-probe");
+        var probeAccount = Account.Create(probeOrganization, "seed-password-probe", "Seed Password Probe", AccountRole.SmbAdmin);
+
+        var errors = new List<IdentityError>();
+        foreach (var validator in userManager.PasswordValidators)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = await validator.ValidateAsync(userManager, probeAccount, password);
+            if (!result.Succeeded)
+            {
+                errors.AddRange(result.Errors);
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            // Only codes and (already password-agnostic) descriptions ever reach this
+            // message — never the password itself.
+            throw new InvalidOperationException(
+                $"{PasswordConfigurationKey} 不符合 Identity 密碼規則（與正式帳號相同），未建立任何種子組織或帳號：" +
+                string.Join("；", errors.Select(error => $"{error.Code}：{error.Description}")));
         }
     }
 

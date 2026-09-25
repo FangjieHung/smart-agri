@@ -68,6 +68,22 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "api-types": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": ["SmartAgri.Api:build"],
+      "inputs": [
+        "{workspaceRoot}/apps/api/openapi/v1.json",
+        {
+          "externalDependencies": ["openapi-typescript"]
+        }
+      ],
+      "outputs": ["{projectRoot}/src/app/core/api/api-schema.ts"],
+      "options": {
+        "cwd": "{workspaceRoot}",
+        "command": "openapi-typescript apps/api/openapi/v1.json -o apps/admin/src/app/core/api/api-schema.ts"
+      }
     }
   }
 }

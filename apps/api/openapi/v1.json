@@ -1,0 +1,203 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "SmartAgri API",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/v1/me": {
+      "get": {
+        "tags": [
+          "MeEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login-options": {
+      "get": {
+        "tags": [
+          "AuthEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOptionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "AuthEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "AuthEndpoints"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccountPermission": {
+        "enum": [
+          "manage-assistants",
+          "manage-data-sources",
+          "manage-publishing",
+          "read-consented-submissions",
+          "use-shared-assistants",
+          "submit-authorized-forms",
+          "read-own-tracking"
+        ]
+      },
+      "AccountRole": {
+        "enum": [
+          "smb-admin",
+          "internal-employee",
+          "external-customer"
+        ]
+      },
+      "LoginOptionsResponse": {
+        "required": [
+          "organizationCodeRequired"
+        ],
+        "type": "object",
+        "properties": {
+          "organizationCodeRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LoginRequest": {
+        "required": [
+          "organizationCode",
+          "loginName",
+          "password"
+        ],
+        "type": "object",
+        "properties": {
+          "organizationCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "loginName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "password": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "MeOrganization": {
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "MeResponse": {
+        "required": [
+          "id",
+          "displayName",
+          "role",
+          "permissions",
+          "organization"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccountRole"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountPermission"
+            }
+          },
+          "organization": {
+            "$ref": "#/components/schemas/MeOrganization"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "MeEndpoints"
+    },
+    {
+      "name": "AuthEndpoints"
+    }
+  ]
+}

@@ -22,3 +22,7 @@ jobs:
       - run: tools/check-no-demo-secrets.sh
       - run: dotnet restore apps/api/SmartAgri.slnx --locked-mode
       - run: npx nx run-many -t lint test build
+      - name: Check generated frontend types match apps/api/openapi/v1.json
+        run: |
+          npx nx run admin:api-types
+          git diff --exit-code -- apps/api/openapi apps/admin/src/app/core/api

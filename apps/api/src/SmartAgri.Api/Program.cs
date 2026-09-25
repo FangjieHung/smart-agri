@@ -17,6 +17,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddOrganizationTenancy();
 builder.AddSmartAgriAuthentication();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, _, _) =>
+{
+    document.Info.Title = "SmartAgri API";
+    document.Info.Version = "v1";
+    return Task.CompletedTask;
+}));
 
 builder.Services
     .AddHealthChecks()
@@ -46,16 +52,24 @@ if (args is [SmartAgriCommands.Migrate, ..])
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health/live", () => Results.Ok()).AllowAnonymous();
+app.MapGet("/health/live", () => Results.Ok()).AllowAnonymous().ExcludeFromDescription();
 
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready"),
-}).AllowAnonymous();
+}).AllowAnonymous().ExcludeFromDescription();
 
 app.MapConnectEndpoints();
 app.MapAuthEndpoints();
 app.MapMeEndpoints();
+
+// Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
+// see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API
+// never needs to serve its own document in production.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi().AllowAnonymous();
+}
 
 app.Run();
 

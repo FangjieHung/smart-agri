@@ -12,11 +12,12 @@ namespace SmartAgri.Api.Tests.Seeding;
 
 /// <summary>
 /// <see cref="DevelopmentSeeder"/> end to end against real PostgreSQL (M1 skeleton plan,
-/// Slice 6 acceptance): the exact accounts <c>demo-seed.ts</c> describes, idempotency, and
-/// signing in as the seeded <c>admin</c>. Reuses <see cref="AuthHostFixture"/> from the #5
-/// sign-in tests, which already runs in Development (where <see cref="DevelopmentSeeder"/>
-/// is registered) and sets <c>SEED_DEMO_PASSWORD</c>
-/// (<see cref="AuthHostFixture.SeedDemoPassword"/>).
+/// Slice 6 acceptance): the exact accounts <c>demo-seed.ts</c> describes, that re-seeding
+/// never touches an existing account's permissions (see the "Idempotency" remarks on
+/// <see cref="DevelopmentSeeder"/>), and signing in as the seeded <c>admin</c>. Reuses
+/// <see cref="AuthHostFixture"/> from the #5 sign-in tests, which already runs in
+/// Development (where <see cref="DevelopmentSeeder"/> is registered) and sets
+/// <c>SEED_DEMO_PASSWORD</c> (<see cref="AuthHostFixture.SeedDemoPassword"/>).
 /// </summary>
 [Trait("Category", TestCategories.Docker)]
 public class DevelopmentSeederTests : IClassFixture<AuthHostFixture>
@@ -48,28 +49,30 @@ public class DevelopmentSeederTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
-    public async Task Seeding_never_removes_a_manually_added_permission_and_restores_a_manually_removed_seed_permission()
+    public async Task A_manually_revoked_permission_on_an_existing_seeded_account_stays_revoked_after_reseeding()
     {
         await RunSeederAsync();
 
         var (anxinId, internalAccountId, adminAccountId) = await ReadAnxinIdsAsync();
 
-        // Simulate an operator's manual changes directly on the database, as a real admin
-        // using the (future) team panel would: give `internal` an extra permission the
-        // seed does not grant it, and take away one of `admin`'s seeded permissions.
+        // Simulate an operator revoking one of `internal`'s seeded permissions by hand
+        // (e.g. in the team panel — the scenario #11's manual acceptance exercises), and
+        // separately give `internal` an extra permission the seed never grants it, so both
+        // "don't remove" and "don't add back" are exercised on the same account.
         await using (var dbContext = _host.Postgres.CreateDbContext(anxinId))
         {
+            var revokedGrant = await dbContext.AccountPermissions.SingleAsync(
+                g => g.AccountId == internalAccountId && g.Permission == AccountPermission.ReadConsentedSubmissions,
+                CancellationToken);
+            dbContext.AccountPermissions.Remove(revokedGrant);
+
             var internalAccount = await dbContext.Accounts.SingleAsync(a => a.Id == internalAccountId, CancellationToken);
             dbContext.AccountPermissions.Add(new AccountPermissionGrant(internalAccount, AccountPermission.ManageAssistants));
-
-            var adminGrant = await dbContext.AccountPermissions.SingleAsync(
-                g => g.AccountId == adminAccountId && g.Permission == AccountPermission.ReadConsentedSubmissions,
-                CancellationToken);
-            dbContext.AccountPermissions.Remove(adminGrant);
 
             await dbContext.SaveChangesAsync(CancellationToken);
         }
 
+        // Running the seeder again must not touch `internal` at all: it already exists.
         await RunSeederAsync();
 
         await using (var dbContext = _host.Postgres.CreateDbContext(anxinId))
@@ -78,21 +81,34 @@ public class DevelopmentSeederTests : IClassFixture<AuthHostFixture>
                 .Where(g => g.AccountId == internalAccountId)
                 .Select(g => g.Permission)
                 .ToListAsync(CancellationToken);
-            // The manually added extra permission is still there — the seeder only adds,
-            // never removes (see DevelopmentSeeder's "Idempotency" remarks).
+
+            // The manually revoked seed permission stays revoked — re-seeding an existing
+            // account never re-grants anything (this is the behaviour #6's coordinator
+            // asked to fix: it previously treated the seed list as a floor and restored
+            // this exact permission, which would have broken #11's manual acceptance).
+            internalPermissions.ShouldNotContain(AccountPermission.ReadConsentedSubmissions);
+
+            // The manually added extra permission is also untouched (the seeder does not
+            // remove anything from an existing account either).
             internalPermissions.ShouldContain(AccountPermission.ManageAssistants);
             internalPermissions.ShouldContain(AccountPermission.UseSharedAssistants);
-            internalPermissions.ShouldContain(AccountPermission.ReadConsentedSubmissions);
+        }
 
+        // admin, which was never touched by hand, keeps its full seeded permission set.
+        await using (var dbContext = _host.Postgres.CreateDbContext(anxinId))
+        {
             var adminPermissions = await dbContext.AccountPermissions
                 .Where(g => g.AccountId == adminAccountId)
                 .Select(g => g.Permission)
                 .ToListAsync(CancellationToken);
-            // The manually removed *seed* permission is restored: "missing" is judged
-            // against the seed list on every run, so the seed is a floor for its own
-            // accounts, not a one-time template. This is the documented nuance from the
-            // ticket ("只補缺的權限，不覆寫手動改過的權限").
-            adminPermissions.ShouldContain(AccountPermission.ReadConsentedSubmissions);
+            adminPermissions.ShouldBe(
+                [
+                    AccountPermission.ManageAssistants,
+                    AccountPermission.ManageDataSources,
+                    AccountPermission.ManagePublishing,
+                    AccountPermission.ReadConsentedSubmissions,
+                ],
+                ignoreOrder: true);
         }
 
         // Still exactly 4 accounts: nothing above created or duplicated a row.

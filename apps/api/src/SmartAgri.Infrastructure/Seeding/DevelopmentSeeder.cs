@@ -25,20 +25,19 @@ namespace SmartAgri.Infrastructure.Seeding;
 /// yet exist to pin to before this runs.
 /// </para>
 /// <para>
-/// <b>Idempotency.</b> An organization already present (matched by <c>Code</c>) and an
-/// account already present (matched by login name within its organization) are left
-/// alone — this seeder never edits an existing organization's name or an existing
-/// account's display name or role. Permissions are additive only: on every run, each
-/// seeded account gets whichever of its <see cref="DevelopmentSeedAccount.Permissions"/>
-/// it does not already have; a permission this seeder is not told to grant is never
-/// touched, so a permission an operator has manually added beyond the seed is never
-/// removed. Because a granted permission is a presence/absence row with nothing else to
-/// "change", <c>不覆寫手動改過的權限</c> (never overwrite a manually changed permission,
-/// per the ticket) means exactly that: this seeder only ever adds rows, never removes or
-/// replaces one. One consequence worth knowing: if an operator manually revokes one of
-/// this seed's own permissions from a seeded account, running the seeder again restores
-/// it, because "missing" is judged against the seed list, not against seeding history —
-/// the seed list is a floor for its own accounts, not a one-time template.
+/// <b>Idempotency.</b> "只補缺的" (only fill in what is missing) is read at the level of
+/// organizations and accounts, not permissions: a missing organization is created, and a
+/// missing account is created with its full
+/// <see cref="DevelopmentSeedAccount.Permissions"/> list. An account that already exists
+/// is left completely untouched — its display name, role, password and permissions are
+/// never modified, added to, or removed, regardless of what they currently are. This is
+/// deliberate: an operator (or a test) may have changed a seeded account's permissions
+/// since it was created — for example revoking one in the team panel — and
+/// <c>不覆寫手動改過的權限</c> (never overwrite a manually changed permission, per the
+/// ticket) means that change must survive every later run of this seeder, including one
+/// that re-grants nothing and one that removes nothing. Concretely: seed, then revoke a
+/// permission by hand, then seed again — the revoked permission stays revoked, forever,
+/// until the account itself is dropped and recreated.
 /// </para>
 /// </remarks>
 public sealed class DevelopmentSeeder
@@ -129,37 +128,25 @@ public sealed class DevelopmentSeeder
         CancellationToken cancellationToken)
     {
         var normalizedLoginName = Account.NormalizeLoginName(seed.LoginName);
-        var account = await dbContext.Accounts.AsNoTracking()
-            .SingleOrDefaultAsync(candidate => candidate.NormalizedLoginName == normalizedLoginName, cancellationToken);
-
-        if (account is null)
+        var exists = await dbContext.Accounts.AsNoTracking()
+            .AnyAsync(candidate => candidate.NormalizedLoginName == normalizedLoginName, cancellationToken);
+        if (exists)
         {
-            account = Account.Create(organization, seed.LoginName, seed.DisplayName, seed.Role);
-            account.PasswordHash = hasher.HashPassword(account, password);
-            dbContext.Accounts.Add(account);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation(
-                "Seeded account {LoginName} in organization {OrganizationCode}.", seed.LoginName, organization.Code);
-        }
-
-        // Additive only — see the "Idempotency" remarks on this class.
-        var grantedPermissions = await dbContext.AccountPermissions
-            .Where(grant => grant.AccountId == account.Id)
-            .Select(grant => grant.Permission)
-            .ToListAsync(cancellationToken);
-        var missingPermissions = seed.Permissions.Except(grantedPermissions).ToList();
-        if (missingPermissions.Count == 0)
-        {
+            // Already seeded (or otherwise present): leave it completely alone, including
+            // its permissions — see the "Idempotency" remarks on this class.
             return;
         }
 
+        var account = Account.Create(organization, seed.LoginName, seed.DisplayName, seed.Role);
+        account.PasswordHash = hasher.HashPassword(account, password);
+        dbContext.Accounts.Add(account);
         dbContext.AccountPermissions.AddRange(
-            missingPermissions.Select(permission => new AccountPermissionGrant(account, permission)));
+            seed.Permissions.Select(permission => new AccountPermissionGrant(account, permission)));
         await dbContext.SaveChangesAsync(cancellationToken);
         _logger.LogInformation(
-            "Granted {Count} missing permission(s) to {LoginName} in organization {OrganizationCode}.",
-            missingPermissions.Count,
+            "Seeded account {LoginName} in organization {OrganizationCode} with {Count} permission(s).",
             seed.LoginName,
-            organization.Code);
+            organization.Code,
+            seed.Permissions.Count);
     }
 }

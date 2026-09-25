@@ -217,15 +217,16 @@ that file and fails the moment the two disagree). 對照組織 exists only so a 
 sign in as two different organizations' `admin` and confirm neither can see the other's
 data; it has no frontend counterpart.
 
-**Idempotent, but not in the way "idempotent" usually implies for permissions.** Running
-the seeder again never creates a duplicate organization or account (matched by code /
-login name), and never removes a permission grant. It **is** additive on every run: each
-seeded account's permissions in the table above are a floor, re-granted if missing,
-including if an operator manually revoked one since the last run. A permission an
-operator has manually *added* beyond that table is never touched (the seeder does not
-know about it, so it neither removes it nor claims credit for it). If you want to test a
-revoked permission's effect and have it stay revoked, do it in a real customer deployment
-or in a fresh test organization instead of one of these three demo accounts.
+**Idempotent at the organization/account level, not the permission level.** "只補缺的"
+(only fill in what is missing) means: a missing organization is created, and a missing
+account is created with its full permission list from the table above. An account that
+already exists is left **completely untouched** — display name, role, password and
+permissions are never added to, removed, or otherwise changed, no matter what they
+currently are. In particular, if an operator revokes one of these permissions by hand
+(e.g. in the team panel), running `migrate` again does **not** bring it back — that
+manual change survives forever, exactly as required by "不覆寫手動改過的權限" (never
+overwrite a manually changed permission). The only way to reset a seeded account back to
+its table permissions is to delete it and run the seeder again, which recreates it fresh.
 
 `SEED_DEMO_PASSWORD` has no default: `DevelopmentSeeder` refuses to run without it (before
 opening any database connection), so a checked-in or forgotten-default demo password can

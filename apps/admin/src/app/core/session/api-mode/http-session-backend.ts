@@ -5,6 +5,8 @@ import type { components } from '../../api/api-schema';
 import type { DemoKeyValueStorage } from '../../repositories/demo-repository';
 import { createMemoryStorage } from '../../repositories/memory-storage';
 import type {
+  ApiChangePasswordFieldErrors,
+  ApiChangePasswordResult,
   ApiIdentity,
   ApiLoginCredentials,
   ApiLoginOptions,
@@ -20,10 +22,17 @@ import { OIDC_CLIENT } from './oidc-client';
 type LoginRequest = components['schemas']['LoginRequest'];
 type LoginOptionsResponse = components['schemas']['LoginOptionsResponse'];
 type MeResponse = components['schemas']['MeResponse'];
+type ChangePasswordRequest = components['schemas']['ChangePasswordRequest'];
 
 export const API_LOGIN_PATH = '/api/v1/auth/login';
 export const API_LOGIN_OPTIONS_PATH = '/api/v1/auth/login-options';
 export const API_ME_PATH = '/api/v1/me';
+export const API_CHANGE_PASSWORD_PATH = '/api/v1/auth/change-password';
+
+/** 422 的 ProblemDetails 主體（`ApiErrors.ValidationFailed`）；openapi 沒有型別化內容。 */
+interface ValidationProblemBody {
+  readonly errors?: ApiChangePasswordFieldErrors;
+}
 
 /** 分頁的 sessionStorage key：token 與 `/me` 只活在這個分頁，沿用 Demo「一個分頁一個身分」。 */
 export const API_SESSION_STORAGE_KEY = 'api-session';
@@ -153,6 +162,21 @@ export class HttpSessionBackend implements ApiSessionBackend {
 
   clear(): void {
     this.storage.removeItem(API_SESSION_STORAGE_KEY);
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<ApiChangePasswordResult> {
+    const body: ChangePasswordRequest = { currentPassword, newPassword };
+    try {
+      await firstValueFrom(this.http.post<void>(API_CHANGE_PASSWORD_PATH, body));
+      return { outcome: 'success' };
+    } catch (error) {
+      if (error instanceof HttpErrorResponse && error.status === 422) {
+        const problem = error.error as ValidationProblemBody | null;
+        return { outcome: 'invalid', errors: problem?.errors ?? {} };
+      }
+      // 401（例如 token 過期）已由攔截器結束工作階段；這裡一律回報無法變更。
+      return { outcome: 'unavailable' };
+    }
   }
 
   private write(session: StoredApiSession): void {

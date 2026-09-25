@@ -34,6 +34,17 @@ export type ApiSignInCompletion = 'signed-in' | 'password-change-required' | 'fa
 /** 回到登入頁時要說明的原因（逾時說明另由 `DemoSessionService.sessionExpired` 負責）。 */
 export type ApiSessionNotice = 'password-change-required' | 'sign-in-failed';
 
+/** 422 的逐欄位訊息；每個欄位可能同時有多則（一個規則一則）。 */
+export interface ApiChangePasswordFieldErrors {
+  readonly currentPassword?: readonly string[];
+  readonly newPassword?: readonly string[];
+}
+
+export type ApiChangePasswordResult =
+  | { readonly outcome: 'success' }
+  | { readonly outcome: 'invalid'; readonly errors: ApiChangePasswordFieldErrors }
+  | { readonly outcome: 'unavailable' };
+
 /** API 模式的實作（HTTP、PKCE、token 儲存），只由 `environment.api.ts` 提供。 */
 export interface ApiSessionBackend {
   loginOptions(): Promise<ApiLoginOptions>;
@@ -47,6 +58,8 @@ export interface ApiSessionBackend {
   /** 清除本機工作階段並導向 end-session；瀏覽器會離開這個頁面。 */
   signOut(): Promise<void>;
   clear(): void;
+  /** 設定新密碼頁專用；目前密碼錯誤或新密碼不合規則都回 `invalid`，不是例外。 */
+  changePassword(currentPassword: string, newPassword: string): Promise<ApiChangePasswordResult>;
 }
 
 export const API_SESSION_BACKEND = new InjectionToken<ApiSessionBackend | null>(
@@ -135,6 +148,23 @@ export class ApiSessionService {
     }
   }
 
+  /** 設定新密碼頁呼叫；422 的逐欄位訊息交由呼叫端顯示。 */
+  changePassword(currentPassword: string, newPassword: string): Promise<ApiChangePasswordResult> {
+    return this.backend?.changePassword(currentPassword, newPassword) ?? Promise.resolve({ outcome: 'unavailable' });
+  }
+
+  /**
+   * 改密碼成功後呼叫：重新讀取 `/me`（`passwordChangeRequired` 應已為 false），
+   * 再把同角色的 Demo 身分交給 `DemoSessionService`，讓工作區守衛放行。
+   */
+  async completePasswordChange(): Promise<void> {
+    if (this.backend === null) return;
+    const identity = await this.backend.refreshIdentity();
+    this.identity.set(identity);
+    this.noticeState.set(null);
+    this.session.switchAccount(identity.demoAccountId);
+  }
+
   /** 工作區守衛：mock 只看 Demo 身分與閒置時間，API 模式還要有未過期的 token。 */
   canEnterWorkspace(): boolean {
     const demoActive = this.session.refreshActivity();
@@ -142,6 +172,8 @@ export class ApiSessionService {
       if (demoActive) this.mockRevision.update((value) => value + 1);
       return demoActive;
     }
+    // 須先改密碼：token 保留給設定新密碼頁使用，守衛會導去那裡而不是在這裡清掉工作階段。
+    if (this.passwordChangeRequired()) return false;
     if (!demoActive) {
       this.discardApiSession();
       return false;

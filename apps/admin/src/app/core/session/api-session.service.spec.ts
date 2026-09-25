@@ -233,6 +233,104 @@ describe('ApiSessionService (API mode)', () => {
     expect(service.canEnterWorkspace()).toBe(false);
   });
 
+  it('keeps the token when a password-change-required visitor is turned away from the workspace', async () => {
+    const { service, http, storage } = setUpApiMode();
+
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush({ ...ADMIN_ME, passwordChangeRequired: true });
+    await completion;
+
+    expect(service.canEnterWorkspace()).toBe(false);
+    // 不像逾時或未選身分：token 還留著給設定新密碼頁用，不能在這裡被清掉。
+    expect(storage.getItem(API_SESSION_STORAGE_KEY)).not.toBeNull();
+    expect(service.passwordChangeRequired()).toBe(true);
+  });
+
+  it('rejects the current password with 422 field errors, one message per broken rule', async () => {
+    const { service, http } = setUpApiMode();
+
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush({ ...ADMIN_ME, passwordChangeRequired: true });
+    await completion;
+
+    const result = service.changePassword('wrong', 'New-Own-Secret-42z');
+    const request = http.expectOne('/api/v1/auth/change-password');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Authorization')).toBe('Bearer access-token-1');
+    expect(request.request.body).toEqual({ currentPassword: 'wrong', newPassword: 'New-Own-Secret-42z' });
+    request.flush(
+      { message: '密碼沒有變更。', errors: { currentPassword: ['密碼不正確。'] } },
+      { status: 422, statusText: 'Unprocessable Entity' },
+    );
+
+    await expect(result).resolves.toEqual({
+      outcome: 'invalid',
+      errors: { currentPassword: ['密碼不正確。'] },
+    });
+  });
+
+  it('reports the new password rules that still fail, without ending the session', async () => {
+    const { service, http, demoSession } = setUpApiMode();
+
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush({ ...ADMIN_ME, passwordChangeRequired: true });
+    await completion;
+
+    const result = service.changePassword('One-Time-Pass-7x', 'short');
+    http
+      .expectOne('/api/v1/auth/change-password')
+      .flush(
+        { message: '密碼沒有變更。', errors: { newPassword: ['密碼長度至少需要 12 個字元。', '密碼須包含至少一個數字。'] } },
+        { status: 422, statusText: 'Unprocessable Entity' },
+      );
+
+    await expect(result).resolves.toEqual({
+      outcome: 'invalid',
+      errors: { newPassword: ['密碼長度至少需要 12 個字元。', '密碼須包含至少一個數字。'] },
+    });
+    expect(demoSession.sessionExpired()).toBe(false);
+    expect(service.passwordChangeRequired()).toBe(true);
+  });
+
+  it('reports the server being unavailable when changing the password fails for another reason', async () => {
+    const { service, http } = setUpApiMode();
+
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush({ ...ADMIN_ME, passwordChangeRequired: true });
+    await completion;
+
+    const result = service.changePassword('One-Time-Pass-7x', 'New-Own-Secret-42z');
+    http.expectOne('/api/v1/auth/change-password').flush(null, { status: 502, statusText: 'Bad Gateway' });
+
+    await expect(result).resolves.toEqual({ outcome: 'unavailable' });
+  });
+
+  it('completes a password change by re-reading /me and switching to the same-role demo account', async () => {
+    const { service, http, demoSession } = setUpApiMode();
+
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush({ ...ADMIN_ME, passwordChangeRequired: true });
+    await completion;
+    expect(demoSession.activeAccountId()).toBeNull();
+
+    const changed = service.changePassword('One-Time-Pass-7x', 'New-Own-Secret-42z');
+    http.expectOne('/api/v1/auth/change-password').flush(null, { status: 204, statusText: 'No Content' });
+    await expect(changed).resolves.toEqual({ outcome: 'success' });
+
+    const completed = service.completePasswordChange();
+    http.expectOne('/api/v1/me').flush({ ...ADMIN_ME, passwordChangeRequired: false });
+    await completed;
+
+    expect(service.passwordChangeRequired()).toBe(false);
+    expect(demoSession.activeAccountId()).toBe('account-smb-admin');
+    expect(service.canEnterWorkspace()).toBe(true);
+  });
+
   it('reports a failed callback and keeps no token', async () => {
     const { service, oidc, storage } = setUpApiMode();
     oidc.signinRedirectCallback.mockRejectedValue(new Error('No matching state found in storage'));
@@ -342,5 +440,12 @@ describe('ApiSessionService (mock mode)', () => {
 
     expect(demoSession.activeAccountId()).toBeNull();
     expect(navigateByUrl).toHaveBeenCalledWith('/login');
+  });
+
+  it('has nothing to change without an API backend', async () => {
+    const { service } = setUpMockMode();
+
+    await expect(service.changePassword('a', 'b')).resolves.toEqual({ outcome: 'unavailable' });
+    expect(service.passwordChangeRequired()).toBe(false);
   });
 });

@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SmartAgri.Api/SmartAgri.Api.csproj" />
+    <Project Path="src/SmartAgri.Domain/SmartAgri.Domain.csproj" />
+    <Project Path="src/SmartAgri.Infrastructure/SmartAgri.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SmartAgri.Api.Tests/SmartAgri.Api.Tests.csproj" />
+    <Project Path="tests/SmartAgri.Domain.Tests/SmartAgri.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

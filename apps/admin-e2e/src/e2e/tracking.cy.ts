@@ -1,6 +1,7 @@
+import { loginAs } from '../support/a11y';
+
 function loginAsAdmin(): void {
-  cy.visit('/login');
-  cy.contains('button', 'SMB 管理者').click();
+  loginAs('SMB 管理者');
   cy.location('pathname').should('eq', '/app/home');
 }
 

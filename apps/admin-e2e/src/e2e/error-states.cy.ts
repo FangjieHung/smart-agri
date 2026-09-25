@@ -1,4 +1,4 @@
-import { loginAs } from '../support/a11y';
+import { loginAs, submitDemoLogin } from '../support/a11y';
 
 /** 把已逾時的 Demo 工作階段寫進這個分頁，重現「登入逾時」狀態。 */
 function visitWithExpiredSession(path: string): void {
@@ -165,8 +165,8 @@ describe('demo states', () => {
         .and('contain.text', 'Demo 登入已逾時')
         .and('contain.text', '不是真實登入');
 
-      // 可以直接重新選一個 Demo 身分繼續。
-      cy.contains('button', 'SMB 管理者').click();
+      // 可以直接用 Demo 帳號重新登入繼續。
+      submitDemoLogin('SMB 管理者');
       cy.location('pathname').should('eq', '/app/home');
       cy.contains('Demo 登入已逾時').should('not.exist');
     });

@@ -1,7 +1,8 @@
+import { loginAs } from '../support/a11y';
+
 describe('assistant list', () => {
   it('shows the signed-in account only its permitted assistants and opens the detail tabs', () => {
-    cy.visit('/login');
-    cy.contains('button', 'SMB 管理者').click();
+    loginAs('SMB 管理者');
     cy.contains('a', '我的助理').click();
 
     cy.location('pathname').should('eq', '/app/assistants');
@@ -17,8 +18,7 @@ describe('assistant list', () => {
   });
 
   it('keeps another account\'s assistant configuration out of the management list', () => {
-    cy.visit('/login');
-    cy.contains('button', '內部使用者').click();
+    loginAs('內部使用者');
     cy.contains('a', '我的助理').click();
 
     cy.contains('尚未有可使用的助理').should('be.visible');
@@ -26,8 +26,7 @@ describe('assistant list', () => {
   });
 
   it('sends the create action to its dedicated wizard route', () => {
-    cy.visit('/login');
-    cy.contains('button', 'SMB 管理者').click();
+    loginAs('SMB 管理者');
     cy.contains('a', '建立新助理').first().click();
 
     cy.location('pathname').should('eq', '/app/assistants/new/purpose');

@@ -1,6 +1,7 @@
+import { loginAs } from '../support/a11y';
+
 function loginAsAdmin(): void {
-  cy.visit('/login');
-  cy.contains('button', 'SMB 管理者').click();
+  loginAs('SMB 管理者');
   cy.location('pathname').should('eq', '/app/home');
 }
 
@@ -91,8 +92,7 @@ describe('create assistant wizard', () => {
     cy.contains('a', '開始建立').click();
     cy.contains('label', '回答客戶問題').click();
 
-    cy.visit('/login');
-    cy.contains('button', '內部使用者').click();
+    loginAs('內部使用者');
     cy.contains('a', '繼續未完成的設定').should('not.exist');
     cy.contains('a', '開始建立').click();
     cy.contains('你沒有建立助理的權限').should('be.visible');

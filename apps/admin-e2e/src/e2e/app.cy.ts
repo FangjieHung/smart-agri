@@ -1,3 +1,5 @@
+import { submitDemoLogin } from '../support/a11y';
+
 describe('admin-e2e', () => {
   beforeEach(() => cy.visit('/'));
 
@@ -6,7 +8,7 @@ describe('admin-e2e', () => {
     cy.get('h1').should('be.visible').and('contain.text', '讓每一次服務回覆，都更有依據');
     cy.contains('a', '進入 Demo').click();
     cy.location('pathname').should('eq', '/login');
-    cy.contains('button', 'SMB 管理者').click();
+    submitDemoLogin('SMB 管理者');
     cy.location('pathname').should('eq', '/app/home');
 
     // 產品名稱留在工作台外框，每個頁面只有一個屬於自己內容的 h1。

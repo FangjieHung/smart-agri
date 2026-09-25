@@ -40,7 +40,7 @@ describe('accessibility', () => {
     auditA11y();
 
     cy.visit('/login');
-    cy.contains('h1', '選擇 Demo 身分').should('be.visible');
+    cy.contains('h1', 'Demo 登入').should('be.visible');
     auditA11y();
   });
 

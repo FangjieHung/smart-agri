@@ -1,3 +1,5 @@
+import { submitDemoLogin } from '../support/a11y';
+
 describe('demo navigation', () => {
   it('takes a visitor from the public landing through demo account selection into the workspace', () => {
     cy.visit('/');
@@ -6,8 +8,8 @@ describe('demo navigation', () => {
     cy.contains('a', '進入 Demo').click();
 
     cy.location('pathname').should('eq', '/login');
-    cy.contains('Demo 帳號切換，不是真實驗證').should('be.visible');
-    cy.contains('button', 'SMB 管理者').click();
+    cy.contains('固定示範帳號，沒有連接正式驗證服務').should('be.visible');
+    submitDemoLogin('SMB 管理者');
 
     cy.location('pathname').should('eq', '/app/home');
     cy.contains('.app-sidenav', 'AI 助理工作台').should('be.visible');

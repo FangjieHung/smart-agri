@@ -28,8 +28,25 @@ export function auditA11y(context?: string): void {
   );
 }
 
+/** `/login` 頁 Demo 帳號清單上的角色名稱 → 登入帳號（mock 模式的密碼都是 1234）。 */
+const DEMO_LOGIN_NAMES: Readonly<Record<string, string>> = {
+  'SMB 管理者': 'admin',
+  內部使用者: 'internal',
+  外部客戶: 'customer',
+};
+
+/** 在目前的 `/login` 頁填入 Demo 帳號並送出；`persona` 是 Demo 帳號清單上的角色名稱。 */
+export function submitDemoLogin(persona: string): void {
+  const loginName = DEMO_LOGIN_NAMES[persona];
+  if (!loginName) throw new Error(`unknown demo persona: ${persona}`);
+  cy.get('#demo-username').clear().type(loginName);
+  cy.get('#demo-password').clear().type('1234');
+  cy.get('form.demo-login__form').contains('button', '登入').click();
+}
+
+/** 以 Demo 帳號登入並進入 `/app/home`。 */
 export function loginAs(persona: string): void {
   cy.visit('/login');
-  cy.contains('button', persona).click();
+  submitDemoLogin(persona);
   cy.location('pathname').should('eq', '/app/home');
 }

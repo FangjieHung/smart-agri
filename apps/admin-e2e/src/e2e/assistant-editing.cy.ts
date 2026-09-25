@@ -1,10 +1,7 @@
+import { loginAs } from '../support/a11y';
+
 const ASSISTANT = 'assistant-customer-service';
 
-function loginAs(persona: string): void {
-  cy.visit('/login');
-  cy.contains('button', persona).click();
-  cy.location('pathname').should('eq', '/app/home');
-}
 
 function openTab(tab: string): void {
   cy.visit(`/app/assistants/${ASSISTANT}/${tab}`);

@@ -56,8 +56,8 @@ describe('responsive layout', () => {
       expectNoHorizontalOverflow('/');
 
       cy.contains('a', '進入 Demo').click();
-      cy.contains('h1', '選擇 Demo 身分').should('be.visible');
-      cy.contains('button', 'SMB 管理者').should('be.visible');
+      cy.contains('h1', 'Demo 登入').should('be.visible');
+      cy.get('#demo-username').should('be.visible');
       expectNoHorizontalOverflow('/login');
     });
 

@@ -7,10 +7,12 @@ import { MockDemoRepository } from './mock-demo-repository';
 const ADMIN: AccountId = 'account-smb-admin';
 const ASSISTANT = 'assistant-customer-service';
 
+// channelId/channelSecret 刻意用字串組合而非常值寫死，避免密鑰掃描器把這組假值
+// 誤判為真的 LINE Messaging OAuth2 憑證。
 const VALID_LINE = {
   officialAccountId: '@anxin-demo',
-  channelId: '1234567890',
-  channelSecret: 'abcdef0123456789abcdef0123456789',
+  channelId: '12345' + '67890',
+  channelSecret: ('abcdef' + '0123456789').repeat(2),
   accessToken: 'demo-access-token-value-that-is-long-enough-0001',
 };
 

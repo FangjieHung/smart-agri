@@ -30,10 +30,14 @@ public static class ConnectEndpoints
 
     public static IEndpointRouteBuilder MapConnectEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapMethods("/" + AuthorizePath, [HttpMethods.Get, HttpMethods.Post], AuthorizeAsync).AllowAnonymous();
-        endpoints.MapPost("/" + TokenPath, ExchangeAsync).AllowAnonymous();
-        endpoints.MapMethods("/" + EndSessionPath, [HttpMethods.Get, HttpMethods.Post], EndSessionAsync).AllowAnonymous();
-        endpoints.MapMethods("/" + UserInfoPath, [HttpMethods.Get, HttpMethods.Post], (Delegate)UserInfoAsync).AllowAnonymous();
+        // OpenIddict's own OAuth 2.0 / OpenID Connect endpoints, not part of the
+        // apps/api/openapi/v1.json JSON contract the frontend generates types from (their
+        // shapes are the OAuth/OIDC specs, not this API's DTOs); OpenIddict's own discovery
+        // document (/.well-known/openid-configuration) describes them instead.
+        endpoints.MapMethods("/" + AuthorizePath, [HttpMethods.Get, HttpMethods.Post], AuthorizeAsync).AllowAnonymous().ExcludeFromDescription();
+        endpoints.MapPost("/" + TokenPath, ExchangeAsync).AllowAnonymous().ExcludeFromDescription();
+        endpoints.MapMethods("/" + EndSessionPath, [HttpMethods.Get, HttpMethods.Post], EndSessionAsync).AllowAnonymous().ExcludeFromDescription();
+        endpoints.MapMethods("/" + UserInfoPath, [HttpMethods.Get, HttpMethods.Post], (Delegate)UserInfoAsync).AllowAnonymous().ExcludeFromDescription();
         return endpoints;
     }
 

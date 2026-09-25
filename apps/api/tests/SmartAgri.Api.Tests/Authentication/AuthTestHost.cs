@@ -16,6 +16,7 @@ using SmartAgri.Api.Tests.Infrastructure;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
+using SmartAgri.Infrastructure.Seeding;
 
 namespace SmartAgri.Api.Tests.Authentication;
 
@@ -29,6 +30,10 @@ public class AuthHostFixture : IAsyncLifetime
 {
     public const string SpaOrigin = "http://localhost:4200";
     public const string RedirectUri = SpaOrigin + "/auth/callback";
+
+    /// <summary>Satisfies ASP.NET Core Identity's default password rules, for
+    /// <c>SEED_DEMO_PASSWORD</c> in tests that exercise <c>DevelopmentSeeder</c>.</summary>
+    public const string SeedDemoPassword = "Seed-Demo-Password-1!";
 
     private readonly PostgresFixture _postgres = new();
     private AuthApiFactory? _factory;
@@ -122,6 +127,7 @@ public class AuthHostFixture : IAsyncLifetime
             builder.UseEnvironment("Development");
             builder.UseSetting("ConnectionStrings:Default", _connectionString);
             builder.UseSetting("Authentication:AdminSpa:Origins:0", SpaOrigin);
+            builder.UseSetting(DevelopmentSeeder.PasswordConfigurationKey, SeedDemoPassword);
             builder.ConfigureServices(services => services.AddSingleton(_clock).AddProtectedProbeEndpoint());
         }
     }

@@ -124,6 +124,38 @@ openssl pkcs12 -export -inkey encryption.key -in encryption.crt -out deploy/cert
 and `ADMIN_SPA_ORIGIN` from `deploy/.env`. Outside Development OpenIddict also requires
 HTTPS on `/connect/*`.
 
+## OpenAPI document and frontend types
+
+`Microsoft.AspNetCore.OpenApi` plus `Microsoft.Extensions.ApiDescription.Server` write
+`apps/api/openapi/v1.json` on every build of `SmartAgri.Api` (`dotnet build`, or the Nx
+target `SmartAgri.Api:build`); the file is committed and is the single source
+`apps/admin/src/app/core/api/api-schema.ts` is generated from by `openapi-typescript`
+(Nx target `admin:api-types`). Whenever an endpoint's request or response shape changes,
+regenerate both and commit them together:
+
+```sh
+dotnet build apps/api/src/SmartAgri.Api
+npx nx run admin:api-types
+git status   # apps/api/openapi and apps/admin/src/app/core/api should both be clean
+```
+
+CI fails on drift: after `nx run-many -t build`, it reruns `nx run admin:api-types` and
+`git diff --exit-code -- apps/api/openapi apps/admin/src/app/core/api`
+(`.github/workflows/ci.yml`). `apps/admin/src/app/core/api/api-schema.spec.ts`
+compile-time-checks (bidirectional assignability, not just `expect()`) that the generated
+`AccountRole`/`AccountPermission` unions still equal `account.model.ts`'s; a renamed wire
+value on either side fails `npx nx test admin`, not just the drift check. `api-schema.ts`
+is generated (never hand-edited): it is excluded from ESLint and Prettier.
+
+Document generation runs the app's own composition root (via the design-time host that
+`Microsoft.Extensions.ApiDescription.Server` invokes) up to
+`WebApplicationBuilder.Build()` — it never calls `.Run()`, opens an HTTP listener, or
+queries the database. `SmartAgri.Api.csproj` forces that one build-time invocation into
+the `Development` environment (see the comment on `SetOpenApiGenerationEnvironment`
+there), so it needs neither real token certificates nor a running Postgres; this does not
+relax `TokenCredentials.Resolve`'s production check itself, which still refuses to start
+outside `Development` without certificates.
+
 ## Local database (colima + Docker)
 
 Testcontainers and `deploy/docker-compose*.yml` both need a Docker daemon. On macOS
@@ -215,6 +247,52 @@ dotnet run --project apps/api/src/SmartAgri.Api
 
 The customer-deploy container (`apps/api/src/SmartAgri.Api/Dockerfile`) does exactly
 this in its entrypoint script before starting the web server.
+
+## Development seed data
+
+`DevelopmentSeeder` (`SmartAgri.Infrastructure.Seeding`) gives local development and E2E
+the same accounts as the frontend Demo (M1 skeleton plan, Slice 6). It is registered only
+in `Development` (`DevelopmentSeedingServiceCollectionExtensions.AddDevelopmentSeeding`),
+so it does not exist in any other environment's container — a Production host cannot run
+it even by mistake. `migrate` runs it right after applying migrations and registering the
+`admin-spa` client, still only in `Development`:
+
+```sh
+export SEED_DEMO_PASSWORD='choose-a-strong-password-1!'   # must satisfy Identity's default rules; no default is provided
+dotnet run --project apps/api/src/SmartAgri.Api -- migrate
+```
+
+It creates:
+
+| Organization | Code | Account | Role | Permissions |
+| --- | --- | --- | --- | --- |
+| 安心商行 | `anxin` | `admin` | `smb-admin` | `manage-assistants`, `manage-data-sources`, `manage-publishing`, `read-consented-submissions` |
+| 安心商行 | `anxin` | `internal` | `internal-employee` | `use-shared-assistants`, `read-consented-submissions` |
+| 安心商行 | `anxin` | `customer` | `external-customer` | `submit-authorized-forms`, `read-own-tracking` |
+| 對照組織 | `control` | `admin` | `smb-admin` | same as 安心商行's `admin` |
+
+The 安心商行 accounts' display names, roles and permissions are copied from
+`apps/admin/src/app/core/repositories/demo-seed.ts` (`DevelopmentSeedDataTests` parses
+that file and fails the moment the two disagree). 對照組織 exists only so a developer can
+sign in as two different organizations' `admin` and confirm neither can see the other's
+data; it has no frontend counterpart.
+
+**Idempotent at the organization/account level, not the permission level.** "只補缺的"
+(only fill in what is missing) means: a missing organization is created, and a missing
+account is created with its full permission list from the table above. An account that
+already exists is left **completely untouched** — display name, role, password and
+permissions are never added to, removed, or otherwise changed, no matter what they
+currently are. In particular, if an operator revokes one of these permissions by hand
+(e.g. in the team panel), running `migrate` again does **not** bring it back — that
+manual change survives forever, exactly as required by "不覆寫手動改過的權限" (never
+overwrite a manually changed permission). The only way to reset a seeded account back to
+its table permissions is to delete it and run the seeder again, which recreates it fresh.
+
+`SEED_DEMO_PASSWORD` has no default: `DevelopmentSeeder` refuses to run without it (before
+opening any database connection), so a checked-in or forgotten-default demo password can
+never reach a database. See `deploy/.env.example` for where to set it and
+`tools/check-no-demo-secrets.sh` (run in CI) for the checks that keep a real value out of
+every checked-in file.
 
 ## Running the customer-deploy compose file end to end
 

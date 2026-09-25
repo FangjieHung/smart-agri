@@ -29,7 +29,9 @@ public static class MeEndpoints
     {
         endpoints.MapGet("/api/v1/me", GetMeAsync)
             .RequireAuthorization()
-            .AllowWhilePasswordChangeRequired();
+            .AllowWhilePasswordChangeRequired()
+            .Produces<MeResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
         return endpoints;
     }
 

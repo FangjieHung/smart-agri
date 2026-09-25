@@ -1,34 +1,46 @@
 <main class="demo-login" aria-labelledby="demo-login-title">
   <section class="demo-login__card">
     <p class="demo-login__eyebrow">SME AI ASSISTANT</p>
-    <h1 id="demo-login-title">Demo 登入</h1>
-    <p class="demo-login__notice" role="status">固定示範帳號，沒有連接正式驗證服務</p>
+    <h1 id="demo-login-title">{{ apiMode ? '登入' : 'Demo 登入' }}</h1>
+    @if (!apiMode) {
+      <p class="demo-login__notice" role="status">固定示範帳號，沒有連接正式驗證服務</p>
+    }
 
     @if (sessionExpired()) {
       <section class="demo-login__timeout" role="alert" aria-labelledby="demo-timeout-title">
         <h2 id="demo-timeout-title">{{ timeoutNotice }}</h2>
         <p>{{ timeoutDetail }}</p>
       </section>
+    } @else if (apiNotice(); as notice) {
+      <section class="demo-login__timeout" role="alert">
+        <p>{{ notice }}</p>
+      </section>
     }
 
     <form class="demo-login__form" (submit)="submit($event)" novalidate>
+      @if (apiMode && organizationCodeRequired()) {
+        <label for="login-organization-code">組織代碼</label>
+        <input id="login-organization-code" name="organizationCode" type="text" autocomplete="organization" autocapitalize="none" spellcheck="false" [value]="organizationCode()" (input)="setOrganizationCode($event)" />
+      }
       <label for="demo-username">登入帳號</label>
       <input id="demo-username" name="username" type="text" autocomplete="username" [value]="username()" (input)="setUsername($event)" />
       <label for="demo-password">密碼</label>
       <input id="demo-password" name="password" type="password" autocomplete="current-password" [value]="password()" (input)="setPassword($event)" />
       @if (loginError()) { <p class="demo-login__error" role="alert">{{ loginError() }}</p> }
-      <button matButton="filled" type="submit">登入</button>
+      <button matButton="filled" type="submit" [disabled]="submitting()">登入</button>
     </form>
-    <h2 class="demo-login__personas-title" id="demo-login-personas-title">Demo 帳號</h2>
-    <p class="demo-login__copy">以下帳號的密碼都是 1234。身分只保留在這個瀏覽器分頁，閒置 {{ timeoutMinutes }} 分鐘後需重新登入。</p>
-    <div class="demo-login__personas" role="list" aria-labelledby="demo-login-personas-title">
-      @for (persona of personas; track persona.accountId) {
-        <div class="demo-login__persona" role="listitem">
-          <strong>{{ persona.username }}</strong>
-          <span>{{ persona.label }}</span>
-          <small>{{ persona.detail }}</small>
-        </div>
-      }
-    </div>
+    @if (!apiMode) {
+      <h2 class="demo-login__personas-title" id="demo-login-personas-title">Demo 帳號</h2>
+      <p class="demo-login__copy">以下帳號的密碼都是 1234。身分只保留在這個瀏覽器分頁，閒置 {{ timeoutMinutes }} 分鐘後需重新登入。</p>
+      <div class="demo-login__personas" role="list" aria-labelledby="demo-login-personas-title">
+        @for (persona of personas; track persona.accountId) {
+          <div class="demo-login__persona" role="listitem">
+            <strong>{{ persona.username }}</strong>
+            <span>{{ persona.label }}</span>
+            <small>{{ persona.detail }}</small>
+          </div>
+        }
+      </div>
+    }
   </section>
 </main>

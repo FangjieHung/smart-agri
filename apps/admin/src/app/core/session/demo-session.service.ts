@@ -134,6 +134,11 @@ export class DemoSessionService {
     this.reset();
   }
 
+  /** 伺服器判定工作階段已失效（API 模式的 401）：與閒置逾時一樣結束並顯示逾時說明。 */
+  expireSession(): void {
+    this.expire();
+  }
+
   private restore(): void {
     const stored = this.readStored();
     if (stored === null) return;

@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import type { AssistantConfigurationView, AssistantSummaryView } from '../../../core/domain/assistant.model';
 import type { NamedAssistantDraftView } from '../../../core/domain/assistant-draft.model';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { AssistantCardComponent } from '../components/assistant-card/assistant-card.component';
@@ -23,16 +24,12 @@ interface AssistantListItem {
 export class AssistantListPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly apiSession = inject(ApiSessionService);
 
   /** 與 repository 的 `createNamedAssistantDraft` 同一條權限：沒有權限就不提供建立入口。 */
-  protected readonly canCreateAssistant = computed(() => {
-    const accountId = this.session.activeAccountId();
-    const accounts = this.repository.listAccounts();
-    if (!accountId || accounts.status !== 'ready') return false;
-    return accounts.data.some(
-      (account) => account.id === accountId && account.permissions.includes('manage-assistants'),
-    );
-  });
+  protected readonly canCreateAssistant = computed(() =>
+    this.apiSession.permissions().includes('manage-assistants'),
+  );
 
   protected readonly myItems = computed<readonly AssistantListItem[]>(() => {
     const accountId = this.session.activeAccountId();

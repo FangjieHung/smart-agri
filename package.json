@@ -19,6 +19,7 @@
     "@angular/material": "^22.0.4",
     "@angular/platform-browser": "^22.0.0",
     "@angular/router": "^22.0.0",
+    "oidc-client-ts": "3.5.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

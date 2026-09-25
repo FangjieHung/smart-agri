@@ -54,6 +54,12 @@ public class Account : IdentityUser<Guid>, IOrganizationScoped
             DisplayName = displayName.Trim(),
             Role = role,
             SecurityStamp = Guid.NewGuid().ToString("N"),
+
+            // IdentityUser defaults this to false, and UserManager.CreateAsync only turns it
+            // on for accounts it creates itself. Accounts can also be inserted directly
+            // (seeding, setup, tests), and an account with lockout disabled could be
+            // password-guessed forever, so every account starts with it on.
+            LockoutEnabled = true,
         };
         account.SetLoginName(organization.Code, loginName);
         return account;

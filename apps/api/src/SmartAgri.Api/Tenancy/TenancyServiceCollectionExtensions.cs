@@ -13,7 +13,8 @@ public static class TenancyServiceCollectionExtensions
     public static IServiceCollection AddOrganizationTenancy(this IServiceCollection services)
     {
         services.AddHttpContextAccessor();
-        services.AddScoped<IOrganizationContext, ClaimsOrganizationContext>();
+        services.AddScoped<ClaimsOrganizationContext>();
+        services.AddScoped<IOrganizationContext>(provider => provider.GetRequiredService<ClaimsOrganizationContext>());
         services.AddScoped<AccountLookup>();
         return services;
     }

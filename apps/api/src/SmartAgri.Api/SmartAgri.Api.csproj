@@ -61,40 +61,17 @@
     Microsoft.Extensions.ApiDescription.Server's GenerateOpenApiDocuments target runs
     Program's entry point in-process (via HostFactoryResolver) up to WebApplicationBuilder.Build()
     to read endpoint metadata — no HTTP request is ever made and the app is never Run(). That
-    still executes AddSmartAgriAuthentication(), which refuses to start outside Development
-    without real token certificates (TokenCredentials.Resolve). Force that one build-time
-    invocation into Development (ephemeral keys, no certs needed) by setting
-    ASPNETCORE_ENVIRONMENT for the dotnet-getdocument child process the vendored target
-    spawns; it only affects this build, never the deployed app (which reads its own
-    environment variable at container/process startup, set by the customer's compose file or
-    orchestrator, regardless of what this build used). Connection strings are equally
-    unaffected: EF Core/Npgsql never opens a connection just from DI registration, so no
-    Postgres needs to be running, and appsettings.Development.json's placeholder
-    "Default" connection string is never dialed. This does not weaken the production check
-    itself — TokenCredentials.Resolve still refuses to start without certificates whenever
-    the environment is not Development.
-  -->
-  <UsingTask TaskName="SmartAgriSetEnvironmentVariable" TaskFactory="RoslynCodeTaskFactory"
-      AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <Name ParameterType="System.String" Required="true" />
-      <Value ParameterType="System.String" Required="true" />
-    </ParameterGroup>
-    <Task>
-      <Code Type="Fragment" Language="cs">
-        System.Environment.SetEnvironmentVariable(Name, Value);
-      </Code>
-    </Task>
-  </UsingTask>
+    still executes AddSmartAgriAuthentication(), which would otherwise refuse to start
+    outside Development without real token certificates (TokenCredentials.Resolve). Rather
+    than forcing this build's environment, Program.cs detects that generator process
+    directly (SmartAgri.Api.OpenApi.BuildTimeOpenApi.IsGeneratingDocument) and gives it
+    ephemeral keys unconditionally, regardless of $(ASPNETCORE_ENVIRONMENT) — see that
+    type's remarks. EF Core/Npgsql never opens a connection just from DI registration
+    either, so no Postgres needs to be running.
 
-  <Target Name="SetOpenApiGenerationEnvironment" BeforeTargets="GenerateOpenApiDocuments">
-    <SmartAgriSetEnvironmentVariable Name="ASPNETCORE_ENVIRONMENT" Value="Development" />
-  </Target>
-
-  <!--
-    dotnet-getdocument names the generated file after the project ("SmartAgri.Api.json"), not
-    the OpenAPI document name; rename it to the committed v1.json (AddOpenApi()'s default
-    document name is "v1", see Program.cs).
+    dotnet-getdocument also names the generated file after the project
+    ("SmartAgri.Api.json"), not the OpenAPI document name; the target below renames it to
+    the committed v1.json (AddOpenApi()'s default document name is "v1", see Program.cs).
   -->
   <Target Name="RenameOpenApiDocument" AfterTargets="GenerateOpenApiDocuments"
       Condition=" Exists('$([System.IO.Path]::Combine($(OpenApiDocumentsDirectory), &quot;$(MSBuildProjectName).json&quot;))') ">

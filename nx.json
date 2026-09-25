@@ -9,7 +9,8 @@
         "componentTestingTargetName": "component-test",
         "ciTargetName": "e2e-ci"
       }
-    }
+    },
+    "@nx/dotnet"
   ],
   "targetDefaults": {
     "build": {

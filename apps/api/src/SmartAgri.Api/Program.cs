@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Tenancy;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.HealthChecks;
 
@@ -7,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+builder.Services.AddOrganizationTenancy();
 
 builder.Services
     .AddHealthChecks()

@@ -29,7 +29,7 @@ public class DatabaseIntegrationTests : IClassFixture<PostgresFixture>
     {
         await using var dbContext = _postgres.CreateDbContext();
 
-        // First apply: creates the vector extension (and nothing else, yet).
+        // First apply: creates the vector extension and the organization/account tables.
         await dbContext.Database.MigrateAsync(TestContext.Current.CancellationToken);
         var pendingAfterFirstApply = await dbContext.Database.GetPendingMigrationsAsync(TestContext.Current.CancellationToken);
         pendingAfterFirstApply.ShouldBeEmpty();

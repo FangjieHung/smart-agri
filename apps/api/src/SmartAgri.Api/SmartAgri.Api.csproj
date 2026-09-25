@@ -18,4 +18,8 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="SmartAgri.Api.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -63,19 +63,34 @@ public sealed class DevelopmentSeeder
         _logger = logger;
     }
 
-    /// <exception cref="InvalidOperationException"><see cref="PasswordConfigurationKey"/>
-    /// is not set. Thrown before any database access, so this never depends on a running
-    /// database.</exception>
+    /// <remarks>
+    /// If <see cref="PasswordConfigurationKey"/> is not set (or is blank), this logs a
+    /// warning and returns without touching the database — it never throws for that case.
+    /// This lets the documented first-install flow (`migrate`, then `setup` against an
+    /// organization-less database; see apps/api/README.md, "Development seed data") work
+    /// without demo data. <see cref="PasswordConfigurationKey"/> has no default on purpose
+    /// (a checked-in demo password must never reach production); set it before running the
+    /// `migrate` subcommand in Development to opt into the demo accounts.
+    /// <para>
+    /// Only "unset or blank" is special-cased. A non-blank value is hashed and seeded
+    /// exactly as before: this class calls <see cref="PasswordHasher{TUser}"/> directly
+    /// (there is no ASP.NET Core Identity <c>UserManager</c>/<c>IPasswordValidator</c> in
+    /// this codebase), so there is no separate "valid password, but rejected by Identity's
+    /// rules" case today — any non-blank password is accepted and seeded, and any
+    /// unexpected failure while doing so still propagates and fails the `migrate`
+    /// subcommand rather than being swallowed.
+    /// </para>
+    /// </remarks>
     public async Task SeedAsync(CancellationToken cancellationToken = default)
     {
         var password = _configuration[PasswordConfigurationKey];
         if (string.IsNullOrWhiteSpace(password))
         {
-            throw new InvalidOperationException(
-                $"Refusing to seed development data: '{PasswordConfigurationKey}' is not set. It has no default " +
-                "on purpose (a checked-in demo password must never reach production) — set it in your shell " +
-                "before running the `migrate` subcommand in Development. See deploy/.env.example and " +
-                "apps/api/README.md, \"Development seed data\".");
+            _logger.LogWarning(
+                "{ConfigurationKey} is not set; skipping demo seed data. Set it to create the demo accounts. " +
+                "See deploy/.env.example and apps/api/README.md, \"Development seed data\".",
+                PasswordConfigurationKey);
+            return;
         }
 
         var hasher = new PasswordHasher<Account>();

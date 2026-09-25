@@ -168,11 +168,12 @@ public class TeamEndpointsTests : IClassFixture<AuthHostFixture>
         var token = await spa.SignInAsync(anxin.Code, "admin", Password);
         var before = DateTimeOffset.UtcNow.AddMinutes(-1);
 
-        // Reversed order with a duplicate; the server must normalize to ACCOUNT_PERMISSIONS order.
+        // Out of order with a duplicate; the server must normalize to ACCOUNT_PERMISSIONS order,
+        // which puts submit-authorized-forms before use-shared-assistants (unlike the enum).
         var response = await spa.PutAsync(
             $"/api/v1/team/members/{internalEmployee.Id}/permissions",
             token.AccessToken,
-            new { permissions = new[] { "read-consented-submissions", "use-shared-assistants", "use-shared-assistants" } });
+            new { permissions = new[] { "use-shared-assistants", "submit-authorized-forms", "use-shared-assistants", "read-consented-submissions" } });
 
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         var body = await BodyJsonAsync(response);
@@ -183,7 +184,7 @@ public class TeamEndpointsTests : IClassFixture<AuthHostFixture>
         var members = body.GetProperty("members").EnumerateArray().ToList();
         var internalRow = members.Single(member => member.GetProperty("id").GetGuid() == internalEmployee.Id);
         internalRow.GetProperty("permissions").EnumerateArray().Select(permission => permission.GetString())
-            .ShouldBe(["use-shared-assistants", "read-consented-submissions"]); // ACCOUNT_PERMISSIONS order
+            .ShouldBe(["read-consented-submissions", "submit-authorized-forms", "use-shared-assistants"]); // ACCOUNT_PERMISSIONS order
         internalRow.GetProperty("lockedPermissions").EnumerateArray().ShouldBeEmpty();
 
         var adminRow = members.Single(member => member.GetProperty("id").GetGuid() == admin.Id);

@@ -213,11 +213,10 @@ public static class TeamEndpoints
         return new TeamResponse(members, savedAt);
     }
 
-    /// <summary>Distinct, in <see cref="AccountPermission"/> declaration order — the
-    /// frontend's <c>ACCOUNT_PERMISSIONS</c> order (<c>team.model.ts</c>'s
-    /// <c>normalizeMemberPermissions</c>).</summary>
+    /// <summary>Distinct, in the frontend's <c>ACCOUNT_PERMISSIONS</c> order
+    /// (<c>team.model.ts</c>'s <c>normalizeMemberPermissions</c>).</summary>
     internal static IReadOnlyList<AccountPermission> Normalize(IReadOnlyCollection<AccountPermission> permissions) =>
-        [.. Enum.GetValues<AccountPermission>().Where(permissions.Contains)];
+        AccountPermissionOrder.Sort(permissions);
 
     internal static bool TryParsePermission(string? raw, out AccountPermission permission)
     {

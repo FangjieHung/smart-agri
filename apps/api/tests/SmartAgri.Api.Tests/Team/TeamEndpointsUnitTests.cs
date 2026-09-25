@@ -13,7 +13,7 @@ namespace SmartAgri.Api.Tests.Team;
 public class TeamEndpointsUnitTests
 {
     [Fact]
-    public void Normalize_orders_by_AccountPermission_declaration_and_drops_duplicates()
+    public void Normalize_orders_like_ACCOUNT_PERMISSIONS_and_drops_duplicates()
     {
         // Deliberately reversed and duplicated, like a client might send.
         var input = new[]
@@ -40,12 +40,10 @@ public class TeamEndpointsUnitTests
     }
 
     [Fact]
-    public void Normalize_of_every_permission_is_the_full_declaration_order()
+    public void Normalize_of_every_permission_is_the_full_ACCOUNT_PERMISSIONS_order()
     {
-        var everyPermission = Enum.GetValues<AccountPermission>();
-
-        // Shuffle by reversing so the input order cannot accidentally match the expected output.
-        TeamEndpoints.Normalize([.. everyPermission.Reverse()]).ShouldBe(everyPermission);
+        // Reversed so the input order cannot accidentally match the expected output.
+        TeamEndpoints.Normalize([.. AccountPermissionOrder.All.Reverse()]).ShouldBe(AccountPermissionOrder.All);
     }
 
     [Theory]

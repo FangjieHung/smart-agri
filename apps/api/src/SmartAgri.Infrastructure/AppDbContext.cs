@@ -97,6 +97,14 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // Reserved for M2's pgvector-backed embedding tables (M1 slice 2).
         modelBuilder.HasPostgresExtension("vector");
 
+        // OpenIddict's four tables (applications, authorizations, scopes, tokens). They
+        // describe OAuth clients and grants keyed by subject, not organization data, so
+        // they are deliberately not IOrganizationScoped (whitelisted by name in
+        // OrganizationModelTests). Mapped here rather than on DbContextOptions so every
+        // way of constructing the context — including the design-time factory that
+        // generates migrations — sees the same model.
+        modelBuilder.UseOpenIddict();
+
         modelBuilder.Entity<Organization>(organization =>
         {
             organization.ToTable("Organizations");

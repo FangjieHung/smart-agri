@@ -25,13 +25,12 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
 ];
 
 /** 整頁不得出現水平捲動。 */
-function expectNoHorizontalOverflow(route: string): void {
+function expectNoHorizontalOverflow(route: string, viewportWidth: number): void {
   cy.window().then((win) => {
     // Cypress 把應用程式跑在自己的 iframe 裡，iframe 有獨立的 viewport；
-    // 先確認量到的寬度就是 cy.viewport 設的寬度，再拿它下結論。
-    expect(win.innerWidth, `${route} 的 innerWidth`).to.eq(
-      win.document.documentElement.clientWidth,
-    );
+    // 先確認量到的寬度就是 cy.viewport 設的寬度，再拿它下結論。不和 clientWidth 比：
+    // Linux（CI）的傳統捲軸會佔寬度，整頁有垂直捲動時 clientWidth 本來就比 innerWidth 小。
+    expect(win.innerWidth, `${route} 的 innerWidth`).to.eq(viewportWidth);
   });
   cy.document().then((doc) => {
     const root = doc.documentElement;
@@ -55,12 +54,12 @@ describe('responsive layout', () => {
     it('fits the public landing and demo login without horizontal scrolling', () => {
       cy.visit('/');
       cy.contains('h1', '讓每一次服務回覆，都更有依據').should('be.visible');
-      expectNoHorizontalOverflow('/');
+      expectNoHorizontalOverflow('/', PHONE[0]);
 
       cy.contains('a', '進入 Demo').click();
       cy.contains('h1', 'Demo 登入').should('be.visible');
       cy.get('#demo-username').should('be.visible');
-      expectNoHorizontalOverflow('/login');
+      expectNoHorizontalOverflow('/login', PHONE[0]);
     });
 
     describe('workspace as the SMB administrator', () => {
@@ -74,7 +73,7 @@ describe('responsive layout', () => {
           cy.visit(route);
           cy.window().its('innerWidth').should('eq', PHONE[0]);
           cy.contains(control).should('exist').scrollIntoView().should('be.visible');
-          expectNoHorizontalOverflow(route);
+          expectNoHorizontalOverflow(route, PHONE[0]);
         });
       }
 
@@ -87,7 +86,7 @@ describe('responsive layout', () => {
           .should('exist')
           .scrollIntoView()
           .should('be.visible');
-        expectNoHorizontalOverflow('/app/settings（展開權限編輯器）');
+        expectNoHorizontalOverflow('/app/settings（展開權限編輯器）', PHONE[0]);
       });
 
       it('switches the shell to the mobile header and drawer', () => {
@@ -102,13 +101,13 @@ describe('responsive layout', () => {
 
         cy.location('pathname').should('eq', '/app/knowledge');
         cy.get('.app-sidenav').should('not.be.visible');
-        expectNoHorizontalOverflow('/app/knowledge');
+        expectNoHorizontalOverflow('/app/knowledge', PHONE[0]);
       });
 
       it('keeps the wide records table usable by scrolling the table, not the page', () => {
         cy.visit('/app/databases/database-customer-records/trends');
         cy.get('table.comparison-table').should('exist');
-        expectNoHorizontalOverflow('/app/databases/database-customer-records/trends');
+        expectNoHorizontalOverflow('/app/databases/database-customer-records/trends', PHONE[0]);
       });
     });
 
@@ -119,12 +118,12 @@ describe('responsive layout', () => {
       cy.contains('h1', '客服助理').should('be.visible');
       cy.get('#chat-input').should('be.visible');
       cy.get('form.composer button[type="submit"]').should('be.visible');
-      expectNoHorizontalOverflow('/use/assistant-customer-service');
+      expectNoHorizontalOverflow('/use/assistant-customer-service', PHONE[0]);
 
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
       cy.get('form.composer button[type="submit"]').click();
       cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
-      expectNoHorizontalOverflow('/use/assistant-customer-service（回答後）');
+      expectNoHorizontalOverflow('/use/assistant-customer-service（回答後）', PHONE[0]);
     });
   });
 
@@ -139,14 +138,14 @@ describe('responsive layout', () => {
 
       cy.get('.app-sidenav').should('be.visible').and('contain.text', 'AI 助理工作台');
       cy.get('.menu-toggle').should('not.be.visible');
-      expectNoHorizontalOverflow('/app/home');
+      expectNoHorizontalOverflow('/app/home', DESKTOP[0]);
     });
 
     it('runs the core flows without horizontal overflow', () => {
       for (const [route, control] of ADMIN_ROUTES) {
         cy.visit(route);
         cy.contains(control).should('exist');
-        expectNoHorizontalOverflow(route);
+        expectNoHorizontalOverflow(route, DESKTOP[0]);
       }
     });
   });

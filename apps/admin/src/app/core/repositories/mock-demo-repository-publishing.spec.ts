@@ -7,16 +7,18 @@ import type {
 } from '../domain/publishing.model';
 import type { RepositoryView } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
+import { DEMO_LINE_CHANNEL_ID, DEMO_LINE_CHANNEL_SECRET } from './demo-seed-publishing';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
 
 const ADMIN: AccountId = 'account-smb-admin';
 const CUSTOMER_SERVICE = 'assistant-customer-service';
 const ONBOARDING = 'assistant-internal-onboarding';
+// 沿用種子資料裡同一組假 channelId/channelSecret（已是組合出來的假值，見 demo-seed-publishing.ts）。
 const VALID_LINE: LineSettingsInput = {
   officialAccountId: '@anxin-demo',
-  channelId: '1650000000',
-  channelSecret: '0123456789abcdef0123456789abcdef',
+  channelId: DEMO_LINE_CHANNEL_ID,
+  channelSecret: DEMO_LINE_CHANNEL_SECRET,
   accessToken: 'demo-token-not-for-production-0123456789abcdefghij',
 };
 

@@ -103,7 +103,8 @@ describe('team management and data access', () => {
     cy.contains('王小姐').should('not.exist');
     // 拒絕時也不透露還有幾筆。
     cy.visit('/app/databases');
-    cy.contains('.database-card', '客戶資料庫')
+    // 列表已從卡片改成可整列點開的 data-table。
+    cy.contains('tr', '客戶資料庫')
       .should('contain', '僅指定資料管理者可查看')
       .and('not.contain', '筆紀錄');
 

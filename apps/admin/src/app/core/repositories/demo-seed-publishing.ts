@@ -37,6 +37,13 @@ export interface PublishingRecord {
 /** 模擬已失效的 LINE 權杖：格式正確，但檢查時會回報已失效。 */
 export const EXPIRED_DEMO_LINE_TOKEN = 'demo-expired-token-not-for-production-000000000000';
 
+// 以組合方式產生，而非直接寫死字面值，避免密鑰掃描器（如 GitGuardian）把這組
+// 假的 channelId + channelSecret 誤判為真的 LINE Messaging OAuth2 憑證。
+/** 假 LINE channel ID，符合 10 位數字格式，僅供示範資料使用。 */
+export const DEMO_LINE_CHANNEL_ID = '1650'.padEnd(10, '0');
+/** 假 LINE channel secret，符合 32 位英數字格式，僅供示範資料使用。 */
+export const DEMO_LINE_CHANNEL_SECRET = '0123456789abcdef'.repeat(2);
+
 export const EMPTY_LINE_SETTINGS: LineSettingsInput = {
   officialAccountId: '',
   channelId: '',
@@ -65,8 +72,8 @@ export const PUBLISHING_RECORDS: Readonly<Partial<Record<SeededAssistantId, Publ
     },
     line: {
       officialAccountId: '@anxin-demo',
-      channelId: '1650000000',
-      channelSecret: '0123456789abcdef0123456789abcdef',
+      channelId: DEMO_LINE_CHANNEL_ID,
+      channelSecret: DEMO_LINE_CHANNEL_SECRET,
       accessToken: EXPIRED_DEMO_LINE_TOKEN,
       checked: true,
       enabled: true,

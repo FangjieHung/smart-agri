@@ -4,6 +4,10 @@
 # First install: create the first organization and administrator once with
 # `docker compose -f deploy/docker-compose.yml run --rm api setup` (see apps/api/README.md,
 # "First install").
+# Explicit project name: both compose files live in deploy/, so without it they would both
+# default to the project "deploy" and one stack's `up` would take over the other's postgres.
+name: smartagri
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg18
@@ -12,7 +16,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-smartagri}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
     volumes:
-      - smartagri-postgres-data:/var/lib/postgresql/data
+      # PostgreSQL 18+ images keep data in a versioned subdirectory of /var/lib/postgresql
+      # (PGDATA=/var/lib/postgresql/18/docker) and refuse to start when a volume is mounted
+      # at the old /var/lib/postgresql/data path, even an empty one.
+      - smartagri-postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-smartagri} -d $${POSTGRES_DB:-smartagri}"]
       interval: 5s

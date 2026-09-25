@@ -1,7 +1,8 @@
+import { loginAs } from '../support/a11y';
+
 describe('assistant list', () => {
   it('shows the signed-in account only its permitted assistants and opens the detail tabs', () => {
-    cy.visit('/login');
-    cy.contains('button', 'SMB 管理者').click();
+    loginAs('SMB 管理者');
     cy.contains('a', '我的助理').click();
 
     cy.location('pathname').should('eq', '/app/assistants');
@@ -17,20 +18,28 @@ describe('assistant list', () => {
   });
 
   it('keeps another account\'s assistant configuration out of the management list', () => {
-    cy.visit('/login');
-    cy.contains('button', '內部使用者').click();
+    loginAs('內部使用者');
     cy.contains('a', '我的助理').click();
 
-    cy.contains('尚未有可使用的助理').should('be.visible');
-    cy.contains('客服助理').should('not.exist');
+    // 沒有「manage-assistants」權限：自己名下沒有任何助理，只有組織分享給你「使用」的那份。
+    cy.get('section[aria-labelledby="my-assistants-title"]').should('contain', '你還沒有建立助理。');
+    cy.get('section[aria-labelledby="my-assistants-title"]').should('not.contain', '客服助理');
+
+    // 分享來的助理只能「開始使用」，看不到擁有者才有的「查看設定」管理入口。
+    cy.get('section[aria-labelledby="company-assistants-title"]').within(() => {
+      cy.contains('客服助理').should('be.visible');
+      cy.contains('a', '開始使用').should('be.visible');
+      cy.contains('a', '查看設定').should('not.exist');
+    });
   });
 
-  it('sends the create action to its dedicated wizard route', () => {
-    cy.visit('/login');
-    cy.contains('button', 'SMB 管理者').click();
+  it('sends the create action to its own newly created draft', () => {
+    loginAs('SMB 管理者');
     cy.contains('a', '建立新助理').first().click();
 
-    cy.location('pathname').should('eq', '/app/assistants/new/purpose');
+    // 每次從「建立新助理」進來都會產生一份獨立草稿（newAssistantDraftGuard），
+    // 所以落地網址是 /app/assistants/drafts/<draftId>/purpose，不是固定的 /new/purpose。
+    cy.location('pathname').should('match', /^\/app\/assistants\/drafts\/draft-\d+\/purpose$/);
     cy.contains('h1', '建立新助理').should('be.visible');
   });
 });

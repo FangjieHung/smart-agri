@@ -1,6 +1,7 @@
+import { loginAs } from '../support/a11y';
+
 function loginAsAdmin(): void {
-  cy.visit('/login');
-  cy.contains('button', 'SMB 管理者').click();
+  loginAs('SMB 管理者');
   cy.location('pathname').should('eq', '/app/home');
 }
 
@@ -14,7 +15,8 @@ describe('knowledge bases', () => {
     cy.contains('nav a', '知識庫').click();
     cy.location('pathname').should('eq', '/app/knowledge');
     cy.contains('h1', '知識庫').should('be.visible');
-    cy.contains('.knowledge-card', '商品使用指南')
+    // 知識庫列表已從卡片改成可整列點開的 data-table（rowHeader 儲存格仍保留名稱連結）。
+    cy.contains('tr', '商品使用指南')
       .should('contain', '2 項需要處理')
       .and('contain', '指定帳號／團隊')
       .within(() => cy.contains('a', '商品使用指南').click());
@@ -67,7 +69,7 @@ describe('knowledge bases', () => {
     cy.get('.sharing-feedback').should('contain', '已儲存');
 
     cy.contains('nav a', '知識庫').click();
-    cy.contains('.knowledge-card', '退換貨政策').should('contain', '指定帳號／團隊');
+    cy.contains('tr', '退換貨政策').should('contain', '指定帳號／團隊');
   });
 
   it('does not reveal the name of a knowledge base the account cannot access', () => {

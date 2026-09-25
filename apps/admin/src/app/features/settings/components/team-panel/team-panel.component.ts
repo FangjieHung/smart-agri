@@ -14,7 +14,10 @@ import type {
   UpdateMemberPermissionsResult,
 } from '../../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../../core/repositories/tokens';
-import { API_SESSION_BACKEND } from '../../../../core/session/api-session.service';
+import {
+  API_SESSION_BACKEND,
+  ApiSessionService,
+} from '../../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../../shared/ui/state-panel/state-panel.component';
 
@@ -34,6 +37,7 @@ import { StatePanelComponent } from '../../../../shared/ui/state-panel/state-pan
 export class TeamPanelComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly session = inject(DemoSessionService);
+  private readonly apiSession = inject(ApiSessionService);
   private readonly destroyRef = inject(DestroyRef);
   /** API 模式的成員是真實帳號，說明文字不再提 Demo 身分與這台瀏覽器。 */
   protected readonly apiMode = inject(API_SESSION_BACKEND) !== null;
@@ -130,6 +134,8 @@ export class TeamPanelComponent {
               .join('、')}。切換到這個身分就會看到差異。`,
       );
       this.teamResource.reload();
+      // API 模式的權限來自 `/me`（例如「建立助理」入口）；改到自己時立刻重讀，不等下次啟動。
+      if (member.isViewer) void this.apiSession.refreshIdentity();
     } else if (result.status !== 'loading') {
       this.feedback.set('');
       this.error.set(result.message);

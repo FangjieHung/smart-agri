@@ -29,7 +29,11 @@ describe('chat history sidebar', () => {
 
   it('reaches the workspace chat from the side navigation and picks an assistant', () => {
     loginAs('SMB 管理者');
-    cy.contains('.app-sidenav a', '和助理對話').click();
+    // 側邊導覽不再有直達 /app/chat 的項目（workspace navigation refresh 拿掉了「和助理對話」）；
+    // 現在的路徑是先到「對話與回報紀錄」，再從那頁的「前往我的對話」連結進入聊天工作區。
+    cy.contains('.app-sidenav a', '對話與回報紀錄').click();
+    cy.location('pathname').should('eq', '/app/activity');
+    cy.contains('a', '前往我的對話').click();
     cy.location('pathname').should('eq', '/app/chat');
     cy.get('.assistant-picker').contains('a', '客服助理').click();
     cy.location('pathname').should('eq', `/app/chat/${ASSISTANT}`);

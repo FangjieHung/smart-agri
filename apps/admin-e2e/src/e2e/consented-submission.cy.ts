@@ -1,8 +1,4 @@
-function loginAs(persona: string): void {
-  cy.visit('/login');
-  cy.contains('button', persona).click();
-  cy.location('pathname').should('eq', '/app/home');
-}
+import { loginAs } from '../support/a11y';
 
 function fillOrderForm(): void {
   loginAs('外部客戶');

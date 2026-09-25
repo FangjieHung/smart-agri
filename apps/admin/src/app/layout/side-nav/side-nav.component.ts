@@ -38,6 +38,9 @@ export class SideNavComponent {
   private readonly chatRevision = inject(ChatHistoryRevisionService);
   private readonly routeRevision = toSignal(this.router.events.pipe(map(() => this.router.url), startWith(this.router.url)));
 
+  /** API 模式顯示 `/me` 的顯示名稱；mock 模式維持原本的固定文字。 */
+  protected readonly userName = computed(() => this.apiSession.displayName() ?? this.t.layout.adminUser);
+
   protected readonly recentChats = computed<readonly RecentChatThreadView[]>(() => {
     this.routeRevision();
     this.chatRevision.revision();

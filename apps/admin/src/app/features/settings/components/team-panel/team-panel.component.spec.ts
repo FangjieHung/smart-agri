@@ -9,6 +9,7 @@ import { DEMO_SEED } from '../../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../../core/repositories/memory-storage';
 import { MockDemoRepository } from '../../../../core/repositories/mock-demo-repository';
 import { DEMO_REPOSITORY } from '../../../../core/repositories/tokens';
+import { ApiSessionService } from '../../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../../core/session/demo-session.service';
 import { TeamPanelComponent } from './team-panel.component';
 
@@ -141,6 +142,42 @@ describe('TeamPanelComponent', () => {
     expect(
       accounts.data.find((account) => account.id === 'account-internal-employee')?.permissions,
     ).toEqual(['use-shared-assistants']);
+  });
+
+  it('re-reads the signed-in identity after saving the viewer’s own permissions', async () => {
+    const { fixture, host } = await render();
+    const refreshIdentity = vi
+      .spyOn(TestBed.inject(ApiSessionService), 'refreshIdentity')
+      .mockResolvedValue(undefined);
+    button(host, '變更 安心商行管理者 的權限').click();
+    fixture.detectChanges();
+
+    host.querySelector<HTMLInputElement>('#permission-account-smb-admin-manage-publishing')?.click();
+    fixture.detectChanges();
+    button(host, '儲存 安心商行管理者 的權限').click();
+    await fixture.whenStable();
+
+    expect(host.querySelector('[aria-live="polite"]')?.textContent).toContain('已更新 安心商行管理者 的權限');
+    expect(refreshIdentity).toHaveBeenCalledOnce();
+  });
+
+  it('does not re-read the signed-in identity after saving someone else’s permissions', async () => {
+    const { fixture, host } = await render();
+    const refreshIdentity = vi
+      .spyOn(TestBed.inject(ApiSessionService), 'refreshIdentity')
+      .mockResolvedValue(undefined);
+    button(host, '變更 安心商行客服同仁 的權限').click();
+    fixture.detectChanges();
+
+    host
+      .querySelector<HTMLInputElement>('#permission-account-internal-employee-read-consented-submissions')
+      ?.click();
+    fixture.detectChanges();
+    button(host, '儲存 安心商行客服同仁 的權限').click();
+    await fixture.whenStable();
+
+    expect(host.querySelector('[aria-live="polite"]')?.textContent).toContain('已更新 安心商行客服同仁 的權限');
+    expect(refreshIdentity).not.toHaveBeenCalled();
   });
 
   it('will not let the acting admin uncheck their own manage-assistants', async () => {

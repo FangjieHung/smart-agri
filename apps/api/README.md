@@ -258,7 +258,7 @@ it even by mistake. `migrate` runs it right after applying migrations and regist
 `admin-spa` client, still only in `Development`:
 
 ```sh
-export SEED_DEMO_PASSWORD='choose-a-strong-password-1!'   # must satisfy Identity's default rules; no default is provided
+export SEED_DEMO_PASSWORD='choose-a-strong-password-1!'   # optional; leave unset to skip demo seeding (see below)
 dotnet run --project apps/api/src/SmartAgri.Api -- migrate
 ```
 
@@ -288,9 +288,24 @@ manual change survives forever, exactly as required by "不覆寫手動改過的
 overwrite a manually changed permission). The only way to reset a seeded account back to
 its table permissions is to delete it and run the seeder again, which recreates it fresh.
 
-`SEED_DEMO_PASSWORD` has no default: `DevelopmentSeeder` refuses to run without it (before
-opening any database connection), so a checked-in or forgotten-default demo password can
-never reach a database. See `deploy/.env.example` for where to set it and
+`SEED_DEMO_PASSWORD` has no default and is optional. If it is unset or blank,
+`DevelopmentSeeder` logs a warning and skips seeding entirely, before opening any database
+connection — `migrate` still applies migrations, registers `admin-spa` and exits 0, just
+with no demo organizations or accounts. This is deliberate: it is what lets the local
+first-install flow below ("First install: `setup`") run `migrate` then `setup` against a
+fresh Development database, since `setup` requires the database to have no organization
+yet. Set the password only when you want the demo accounts instead of running `setup`
+locally.
+
+When it is set, the value is used as-is: `DevelopmentSeeder` hashes it with
+`PasswordHasher<Account>` directly rather than going through Identity's
+`UserManager`/password validators, so it is never rejected for being "too weak" — whatever
+you set becomes the seeded accounts' password, unvalidated. (Identity's real rules —
+`AuthenticationServiceCollectionExtensions.MinimumPasswordLength` and the rest of the
+default policy — still apply the first time one of those accounts changes its own
+password through the app.) A checked-in or forgotten-default demo password still can
+never reach a database, because the value has no default here and must never be
+committed — see `deploy/.env.example` for where to set it and
 `tools/check-no-demo-secrets.sh` (run in CI) for the checks that keep a real value out of
 every checked-in file.
 
@@ -350,7 +365,9 @@ gets role `smb-admin` and all seven permissions. Organization, account and permi
 are written in one serializable transaction, so two concurrent runs cannot both
 succeed.
 
-Locally, against `deploy/docker-compose.dev.yml`'s database:
+Locally, against `deploy/docker-compose.dev.yml`'s database, with `SEED_DEMO_PASSWORD`
+left unset so `migrate` skips the demo seed data (see "Development seed data") and the
+database stays organization-less for `setup`, which refuses once any organization exists:
 
 ```sh
 dotnet run --project apps/api/src/SmartAgri.Api -- migrate

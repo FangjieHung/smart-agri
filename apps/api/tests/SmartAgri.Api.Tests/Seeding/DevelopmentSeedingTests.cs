@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting.Internal;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
 using SmartAgri.Api.Seeding;
@@ -14,9 +15,10 @@ namespace SmartAgri.Api.Tests.Seeding;
 /// <summary>
 /// <see cref="DevelopmentSeedingServiceCollectionExtensions"/> and the parts of
 /// <see cref="DevelopmentSeeder"/> that don't need a database: whether it is registered,
-/// and its refusal to run without <c>SEED_DEMO_PASSWORD</c>. No Docker needed — this never
-/// opens a database connection (see the assertion in
-/// <see cref="SeedAsync_without_the_password_configured_fails_before_touching_the_database"/>).
+/// and that it skips seeding (with a warning, and without ever touching the database)
+/// when <c>SEED_DEMO_PASSWORD</c> is not set. No Docker needed — this never opens a
+/// database connection (see the assertion in
+/// <see cref="SeedAsync_without_the_password_configured_skips_seeding_and_logs_a_warning"/>).
 /// </summary>
 public class DevelopmentSeedingTests
 {
@@ -41,23 +43,26 @@ public class DevelopmentSeedingTests
     }
 
     [Fact]
-    public async Task SeedAsync_without_the_password_configured_fails_before_touching_the_database()
+    public async Task SeedAsync_without_the_password_configured_skips_seeding_and_logs_a_warning()
     {
         var configuration = new ConfigurationBuilder().Build();
         var dbContextOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(PostgresFixture.UnreachableConnectionString)
             .Options;
-        var seeder = new DevelopmentSeeder(configuration, dbContextOptions, NullLogger<DevelopmentSeeder>.Instance);
+        var logger = new ListLogger<DevelopmentSeeder>();
+        var seeder = new DevelopmentSeeder(configuration, dbContextOptions, logger);
 
-        var exception = await Should.ThrowAsync<InvalidOperationException>(
-            () => seeder.SeedAsync(TestContext.Current.CancellationToken));
+        // Would throw connecting to the unreachable database if this ever tried to seed.
+        await seeder.SeedAsync(TestContext.Current.CancellationToken);
 
-        exception.Message.ShouldContain("SEED_DEMO_PASSWORD");
-        exception.Message.ShouldContain(".env.example");
+        var warning = logger.Entries.ShouldHaveSingleItem();
+        warning.Level.ShouldBe(LogLevel.Warning);
+        warning.Message.ShouldContain("SEED_DEMO_PASSWORD");
+        warning.Message.ShouldContain(".env.example");
     }
 
     [Fact]
-    public async Task SeedAsync_with_a_blank_password_is_also_refused()
+    public async Task SeedAsync_with_a_blank_password_also_skips_seeding_and_logs_a_warning()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection([new KeyValuePair<string, string?>(DevelopmentSeeder.PasswordConfigurationKey, "   ")])
@@ -65,9 +70,32 @@ public class DevelopmentSeedingTests
         var dbContextOptions = new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql(PostgresFixture.UnreachableConnectionString)
             .Options;
-        var seeder = new DevelopmentSeeder(configuration, dbContextOptions, NullLogger<DevelopmentSeeder>.Instance);
+        var logger = new ListLogger<DevelopmentSeeder>();
+        var seeder = new DevelopmentSeeder(configuration, dbContextOptions, logger);
 
-        await Should.ThrowAsync<InvalidOperationException>(() => seeder.SeedAsync(TestContext.Current.CancellationToken));
+        await seeder.SeedAsync(TestContext.Current.CancellationToken);
+
+        logger.Entries.ShouldHaveSingleItem().Level.ShouldBe(LogLevel.Warning);
+    }
+
+    /// <summary>Every entry <see cref="DevelopmentSeeder"/> logs, in order — used to prove
+    /// it warns instead of throwing when <c>SEED_DEMO_PASSWORD</c> is unset.</summary>
+    private sealed class ListLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 
     private static ServiceProvider BuildProvider(string environmentName)

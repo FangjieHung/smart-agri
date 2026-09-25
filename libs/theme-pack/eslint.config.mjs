@@ -11,7 +11,12 @@ export default [
       '@nx/dependency-checks': [
         'error',
         {
-          ignoredFiles: ['{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}'],
+          // Spec files are never part of the ng-packagr build output, so their
+          // test-only imports (e.g. `vitest`) must not be required as peerDependencies.
+          ignoredFiles: [
+            '{projectRoot}/eslint.config.{js,cjs,mjs,ts,cts,mts}',
+            '{projectRoot}/**/*.spec.ts',
+          ],
         },
       ],
     },

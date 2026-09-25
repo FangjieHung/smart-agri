@@ -19,6 +19,7 @@ jobs:
           global-json-file: global.json
       - run: npm ci
       - run: tools/check-banned-packages.sh
+      - run: tools/check-no-demo-secrets.sh
       - run: dotnet restore apps/api/SmartAgri.slnx --locked-mode
       - run: npx nx run-many -t lint test build
       - name: Check generated frontend types match apps/api/openapi/v1.json

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Observability;
+using SmartAgri.Api.Seeding;
 using SmartAgri.Api.Tenancy;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.HealthChecks;
@@ -15,6 +16,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 builder.Services.AddOrganizationTenancy();
 builder.AddSmartAgriAuthentication();
+builder.Services.AddDevelopmentSeeding(builder.Environment);
 builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, _, _) =>
 {
     document.Info.Title = "SmartAgri API";
@@ -41,6 +43,9 @@ if (args is [SmartAgriCommands.Migrate, ..])
     // The admin-spa OAuth client row is deployment state like the schema: applied here,
     // never on web startup (see AdminSpaClientRegistrar).
     await scope.ServiceProvider.GetRequiredService<AdminSpaClientRegistrar>().EnsureAsync();
+
+    // No-op outside Development, where DevelopmentSeeder is never registered (Slice 6).
+    await scope.ServiceProvider.SeedDevelopmentDataAsync();
     return;
 }
 

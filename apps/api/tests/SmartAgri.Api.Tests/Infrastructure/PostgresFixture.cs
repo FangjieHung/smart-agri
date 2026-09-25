@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Infrastructure;
+using SmartAgri.Infrastructure.Tenancy;
 using Testcontainers.PostgreSql;
 
 namespace SmartAgri.Api.Tests.Infrastructure;
@@ -33,10 +34,12 @@ public sealed class PostgresFixture : IAsyncLifetime
 
     public async ValueTask DisposeAsync() => await _container.DisposeAsync();
 
-    public AppDbContext CreateDbContext()
+    /// <summary>A context acting for <paramref name="organizationId"/>, or for "no
+    /// organization" when it is <see langword="null"/>.</summary>
+    public AppDbContext CreateDbContext(Guid? organizationId = null)
     {
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
         optionsBuilder.UseNpgsql(ConnectionString);
-        return new AppDbContext(optionsBuilder.Options);
+        return new AppDbContext(optionsBuilder.Options, new FixedOrganizationContext(organizationId));
     }
 }

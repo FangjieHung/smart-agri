@@ -1,7 +1,10 @@
-# Local development: only Postgres runs in a container. The Api runs directly with
-# `dotnet run` against it (see apps/api/README.md), so `ConnectionStrings__Default`
-# is not set here — appsettings.Development.json already points at localhost:5432
-# with the same default credentials as below.
+# Local development: only Postgres and the Aspire dashboard run in containers. The Api
+# runs directly with `dotnet run` against them (see apps/api/README.md), so
+# `ConnectionStrings__Default` is not set here — appsettings.Development.json already
+# points at localhost:5432 with the same default credentials as below. Point the Api at
+# the dashboard by setting `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` in the
+# shell that runs `dotnet run` (see apps/api/README.md); traces are not exported anywhere
+# unless that variable is set.
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg18
@@ -18,6 +21,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # Dev-only OpenTelemetry viewer (observability ADR: never bundled with the customer
+  # deploy — see deploy/docker-compose.yml). UI on :18888, OTLP/gRPC on :4317.
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.5.2
+    environment:
+      ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "18888:18888"
+      - "4317:18889"
 
 volumes:
   smartagri-postgres-dev-data:

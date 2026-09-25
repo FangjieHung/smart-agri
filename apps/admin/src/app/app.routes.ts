@@ -1,4 +1,6 @@
+import { inject } from '@angular/core';
 import { Routes } from '@angular/router';
+import { ApiSessionService } from './core/session/api-session.service';
 import { demoSessionGuard } from './core/session/demo-session.guard';
 import { embeddedChatGuard } from './core/session/embedded-chat.guard';
 import { existingAssistantDraftGuard, newAssistantDraftGuard } from './features/assistants/assistant-wizard/new-assistant-draft.guard';
@@ -18,6 +20,15 @@ export const routes: Routes = [
     path: 'login',
     loadComponent: () =>
       import('./features/demo-login/demo-login-page.component').then((m) => m.DemoLoginPageComponent),
+  },
+  // OIDC 回呼只存在於 API 模式；mock 模式照舊落到最後的 `**`。
+  {
+    path: 'auth/callback',
+    canMatch: [() => inject(ApiSessionService).apiMode],
+    loadComponent: () =>
+      import('./features/auth-callback/auth-callback-page.component').then(
+        (m) => m.AuthCallbackPageComponent,
+      ),
   },
   {
     path: 'app/home',

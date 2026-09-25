@@ -25,7 +25,9 @@
           }
         ],
         "styles": ["apps/admin/src/styles.scss"],
-        "stylePreprocessorOptions": { "includePaths": ["libs"] },
+        "stylePreprocessorOptions": {
+          "includePaths": ["libs"]
+        },
         "outputPath": "dist/smart-agri-admin"
       },
       "configurations": {
@@ -48,6 +50,17 @@
           "optimization": false,
           "extractLicenses": false,
           "sourceMap": true
+        },
+        "api": {
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true,
+          "fileReplacements": [
+            {
+              "replace": "apps/admin/src/environments/environment.ts",
+              "with": "apps/admin/src/environments/environment.api.ts"
+            }
+          ]
         }
       }
     },
@@ -60,6 +73,10 @@
         },
         "development": {
           "buildTarget": "admin:build:development"
+        },
+        "api": {
+          "buildTarget": "admin:build:api",
+          "proxyConfig": "apps/admin/proxy.api.json"
         }
       }
     },

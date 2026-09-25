@@ -1,0 +1,43 @@
+using SmartAgri.Infrastructure.Seeding;
+
+namespace SmartAgri.Api.Seeding;
+
+/// <summary>
+/// Wires <see cref="DevelopmentSeeder"/> into the host, gated on the environment (the
+/// class itself has no such check — see its remarks).
+/// </summary>
+public static class DevelopmentSeedingServiceCollectionExtensions
+{
+    /// <summary>
+    /// Registers <see cref="DevelopmentSeeder"/> only in Development. Outside Development
+    /// (including the integration-test host started with
+    /// <c>ASPNETCORE_ENVIRONMENT=Production</c>) it is simply not in the container, so
+    /// <see cref="SeedDevelopmentDataAsync"/> is a no-op and there is no path that seeds a
+    /// production database. Requires <c>AddDbContext&lt;AppDbContext&gt;</c> to already be
+    /// registered (it supplies <c>DbContextOptions&lt;AppDbContext&gt;</c>); does not
+    /// itself touch the database.
+    /// </summary>
+    public static IServiceCollection AddDevelopmentSeeding(this IServiceCollection services, IHostEnvironment environment)
+    {
+        if (environment.IsDevelopment())
+        {
+            services.AddScoped<DevelopmentSeeder>();
+        }
+
+        return services;
+    }
+
+    /// <summary>
+    /// Runs <see cref="DevelopmentSeeder"/> if (and only if) it is registered for
+    /// <paramref name="services"/> — i.e. in Development. A no-op everywhere else,
+    /// including Production, so callers (the <c>migrate</c> subcommand) can call this
+    /// unconditionally.
+    /// </summary>
+    public static async Task SeedDevelopmentDataAsync(this IServiceProvider services, CancellationToken cancellationToken = default)
+    {
+        if (services.GetService<DevelopmentSeeder>() is { } seeder)
+        {
+            await seeder.SeedAsync(cancellationToken);
+        }
+    }
+}

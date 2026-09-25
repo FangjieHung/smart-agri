@@ -61,6 +61,7 @@ import type {
   KnowledgeDocumentView,
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
+import type { Observable } from 'rxjs';
 import type { TeamView } from '../domain/team.model';
 import type {
   AssistantChannelsView,
@@ -101,7 +102,9 @@ export type RepositoryPermissionDeniedReason =
   | 'chat-thread'
   | 'submission-withdrawal'
   | 'publishing'
-  | 'team';
+  | 'team'
+  /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
+  | 'password-change-required';
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -262,8 +265,11 @@ export interface DemoRepository extends DemoScenarioController {
    * 團隊與權限。Demo 的「團隊」就是三個 Demo 身分，不是真實身分系統：沒有邀請、
    * 沒有離職、沒有密碼，只能改「每個成員被允許做什麼」。只有具備 `manage-assistants`
    * 的帳號看得到，其餘一律回傳 `team` 的 permission-denied，訊息不含任何成員名稱。
+   *
+   * 第一組改成非同步契約的方法（M2 之後各功能區沿用同一個模式）：viewer 由工作階段推導，
+   * 不再由呼叫端傳入；回傳 cold Observable，訂閱時才讀取。
    */
-  getTeam(viewerAccountId: AccountId): RepositoryView<TeamView>;
+  getTeam(): Observable<RepositoryView<TeamView>>;
   /**
    * 變更單一成員的權限並立刻套用到所有檢查點（`listAccounts()` 之後就會回傳新的值）。
    * 只有具備 `manage-assistants` 的帳號可以呼叫；成員不存在與無權限回傳相同結果。
@@ -271,10 +277,9 @@ export interface DemoRepository extends DemoScenarioController {
    * 這種情況與不認得的權限值一樣回傳 validation-failed，完全不寫入。
    */
   updateMemberPermissions(
-    viewerAccountId: AccountId,
     memberAccountId: AccountId,
     permissions: readonly AccountPermission[],
-  ): UpdateMemberPermissionsResult;
+  ): Observable<UpdateMemberPermissionsResult>;
   listAssistantConfigurations(
     viewerAccountId: AccountId,
   ): RepositoryView<readonly AssistantConfigurationView[]>;

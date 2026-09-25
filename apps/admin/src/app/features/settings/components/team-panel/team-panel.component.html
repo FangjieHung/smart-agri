@@ -5,8 +5,16 @@
     <h2 id="team-title" class="ui-text-subtitle">團隊與權限</h2>
   </div>
 
-  @if (state === null || state.status === 'loading') {
+  @if (state === null) {
+    <app-state-panel
+      state="error"
+      title="目前無法載入團隊成員"
+      description="請稍後重新整理頁面再試一次。"
+    />
+  } @else if (state.status === 'loading') {
     <app-state-panel state="loading" title="正在載入團隊成員" />
+  } @else if (state.status === 'permission-denied' && state.reason === 'password-change-required') {
+    <app-state-panel state="permission-denied" title="請先設定新密碼" [description]="state.message" />
   } @else if (state.status === 'permission-denied') {
     <app-state-panel
       state="permission-denied"
@@ -14,10 +22,16 @@
       description="只有可管理助理與團隊的帳號可以查看或變更成員權限。若需要調整，請向團隊管理者提出。"
     />
   } @else if (team(); as data) {
-    <p class="hint">
-      這裡的「團隊」就是 Demo 的三個身分，<strong>不是真實的身分管理</strong>：沒有邀請、沒有離職、也沒有密碼。
-      可以變更的只有「每個成員被允許做什麼」，變更會存在這台瀏覽器，切換身分後立刻看得到差異。
-    </p>
+    @if (apiMode) {
+      <p class="hint">
+        成員是這個組織的帳號。這裡只能變更「每個成員被允許做什麼」，儲存後立即套用，該成員下次載入頁面就會看到差異。
+      </p>
+    } @else {
+      <p class="hint">
+        這裡的「團隊」就是 Demo 的三個身分，<strong>不是真實的身分管理</strong>：沒有邀請、沒有離職、也沒有密碼。
+        可以變更的只有「每個成員被允許做什麼」，變更會存在這台瀏覽器，切換身分後立刻看得到差異。
+      </p>
+    }
 
     @if (error()) {
       <p class="error" role="alert">{{ error() }}</p>
@@ -73,7 +87,7 @@
                 }
               </fieldset>
               <div class="actions">
-                <button type="submit" class="ui-button">儲存 {{ member.displayName }} 的權限</button>
+                <button type="submit" class="ui-button" [disabled]="saving()">儲存 {{ member.displayName }} 的權限</button>
                 <button type="button" class="ui-button secondary" (click)="cancelEditing()">取消</button>
               </div>
             </form>
@@ -94,7 +108,9 @@
     </ul>
 
     <p class="feedback" aria-live="polite">{{ feedback() }}</p>
-    @if (data.savedAt) {
+    @if (data.savedAt && apiMode) {
+      <p class="hint">權限最後變更於 {{ data.savedAt.slice(0, 10) }}。</p>
+    } @else if (data.savedAt) {
       <p class="hint">權限已在這台瀏覽器變更過（{{ data.savedAt.slice(0, 10) }}）。清除 <code>sme-demo:</code> 開頭的儲存就會回到初始設定。</p>
     }
   }

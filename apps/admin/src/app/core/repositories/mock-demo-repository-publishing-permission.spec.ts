@@ -21,16 +21,20 @@ describe('MockDemoRepository publishing permission', () => {
     repository = new MockDemoRepository(DEMO_SEED, {
       storage: createMemoryStorage(),
       now: () => new Date('2026-09-23T02:00:00.000Z'),
+      viewer: () => ADMIN,
     });
   });
 
   /** 拿掉 manage-publishing，但仍然是助理擁有者。 */
   function revokePublishing(): void {
-    repository.updateMemberPermissions(ADMIN, ADMIN, [
-      'manage-assistants',
-      'manage-data-sources',
-      'read-consented-submissions',
-    ]);
+    // mock 的 Observable 是同步的，訂閱當下就寫入。
+    repository
+      .updateMemberPermissions(ADMIN, [
+        'manage-assistants',
+        'manage-data-sources',
+        'read-consented-submissions',
+      ])
+      .subscribe();
   }
 
   it('lets the owner with manage-publishing read and change every channel', () => {
@@ -72,12 +76,14 @@ describe('MockDemoRepository publishing permission', () => {
   it('keeps the saved channel settings and restores them when the permission comes back', () => {
     repository.updatePlatformSharing(ADMIN, ASSISTANT, ['account-internal-employee']);
     revokePublishing();
-    repository.updateMemberPermissions(ADMIN, ADMIN, [
-      'manage-assistants',
-      'manage-data-sources',
-      'manage-publishing',
-      'read-consented-submissions',
-    ]);
+    repository
+      .updateMemberPermissions(ADMIN, [
+        'manage-assistants',
+        'manage-data-sources',
+        'manage-publishing',
+        'read-consented-submissions',
+      ])
+      .subscribe();
 
     const view = repository.getAssistantPublishing(ADMIN, ASSISTANT);
     expect(view.status).toBe('ready');

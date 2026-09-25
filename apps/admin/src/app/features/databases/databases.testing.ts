@@ -13,6 +13,7 @@ export function provideDatabaseTesting(
   const repository = new MockDemoRepository(DEMO_SEED, {
     storage: createMemoryStorage(),
     now: () => new Date('2026-09-22T02:00:00.000Z'),
+    viewer: () => accountId,
   });
 
   return {

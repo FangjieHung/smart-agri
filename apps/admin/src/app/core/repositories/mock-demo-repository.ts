@@ -1,3 +1,4 @@
+import { defer, of, type Observable } from 'rxjs';
 import {
   isVisitorId,
   type AccountId,
@@ -215,7 +216,28 @@ export interface MockDemoRepositoryOptions {
    */
   readonly visitorStorage?: DemoKeyValueStorage;
   readonly now?: () => Date;
+  /**
+   * 非同步契約的方法（目前是團隊的兩個）不再接收 viewer，改從這裡讀目前的 Demo 身分；
+   * 正式注入時接到 `DemoSessionService.activeAccountId`。未提供時視為沒有登入。
+   */
+  readonly viewer?: () => AccountId | null;
+  /**
+   * API 模式：以 API 取得的權限取代 seed 與本機的團隊設定，讓仍在 mock 的功能區
+   * （發布、收集紀錄等）套用真實權限。回傳值以 Demo 身分 id 為鍵；沒有列出的帳號
+   * 沿用 seed 的權限（API 只告訴我們看得到的帳號，見 `ApiAccountPermissions`）。
+   * 未提供時（mock 模式）行為與過去相同：seed 疊上 `sme-demo:team-permissions`。
+   */
+  readonly accountsSource?: () => AccountPermissionOverrides;
 }
+
+/** 團隊的 403 訊息；API 的 `ForbiddenReason.Team` 使用同一句話。 */
+export const TEAM_PERMISSION_DENIED_MESSAGE =
+  '只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。';
+
+/** 以 Demo 身分 id 為鍵的權限覆寫。 */
+export type AccountPermissionOverrides = Readonly<
+  Partial<Record<AccountId, readonly AccountPermission[]>>
+>;
 
 const DRAFT_KEY_PREFIX = 'sme-demo:assistant-draft:';
 const NAMED_DRAFTS_KEY_PREFIX = 'sme-demo:assistant-drafts:';
@@ -639,6 +661,8 @@ export class MockDemoRepository implements DemoRepository {
   /** 未登入訪客的對話只寫在這裡，和帳號的儲存完全分開。 */
   private readonly visitorStorage: DemoKeyValueStorage;
   private readonly now: () => Date;
+  protected readonly viewer: () => AccountId | null;
+  private readonly accountsSource: (() => AccountPermissionOverrides) | null;
   /**
    * 助理關閉「保存自己的對話」時，對話只留在這個 repository 實例的記憶體裡：
    * 不寫入 storage、不列在對話紀錄中，重新整理（重新建立實例）就消失。
@@ -652,6 +676,8 @@ export class MockDemoRepository implements DemoRepository {
     this.storage = options.storage ?? createMemoryStorage();
     this.visitorStorage = options.visitorStorage ?? createMemoryStorage();
     this.now = options.now ?? (() => new Date());
+    this.viewer = options.viewer ?? (() => null);
+    this.accountsSource = options.accountsSource ?? null;
   }
 
   setScenario(scenario: DemoScenario): void {
@@ -670,17 +696,33 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(this.accounts());
   }
 
-  getTeam(viewerAccountId: AccountId): ReturnType<DemoRepository['getTeam']> {
-    if (!this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
-    return this.applyScenario(this.teamView(viewerAccountId));
+  /** 以 `defer` 包住：與 HTTP 一樣是 cold Observable，訂閱時才讀取（也才寫入）。 */
+  getTeam(): Observable<RepositoryView<TeamView>> {
+    return defer(() => of(this.readTeam(this.viewer())));
   }
 
   updateMemberPermissions(
-    viewerAccountId: AccountId,
+    memberAccountId: AccountId,
+    permissions: readonly AccountPermission[],
+  ): Observable<UpdateMemberPermissionsResult> {
+    return defer(() => of(this.writeMemberPermissions(this.viewer(), memberAccountId, permissions)));
+  }
+
+  private readTeam(viewerAccountId: AccountId | null): RepositoryView<TeamView> {
+    if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) {
+      return this.teamPermissionDenied();
+    }
+    return this.applyScenario(this.teamView(viewerAccountId));
+  }
+
+  private writeMemberPermissions(
+    viewerAccountId: AccountId | null,
     memberAccountId: AccountId,
     permissions: readonly AccountPermission[],
   ): UpdateMemberPermissionsResult {
-    if (!this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
+    if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) {
+      return this.teamPermissionDenied();
+    }
 
     const member = this.accounts().find((account) => account.id === memberAccountId);
     // 不存在的成員與沒有權限共用同一句話，避免從差異推測有哪些帳號。
@@ -2977,11 +3019,12 @@ export class MockDemoRepository implements DemoRepository {
    * **所有權限判斷都必須經過這裡**，否則改了團隊設定畫面不會跟著變。
    */
   private accounts(): readonly AccountView[] {
-    const stored = this.storedTeamPermissions();
-    if (stored === null) return this.seed.accounts;
+    // API 模式只信任 API 給的權限；這台瀏覽器之前在 mock 模式改過的團隊設定一律不套用。
+    const overrides = this.accountsSource?.() ?? this.storedTeamPermissions()?.members;
+    if (overrides === undefined) return this.seed.accounts;
 
     return this.seed.accounts.map((account) => {
-      const permissions = stored.members[account.id];
+      const permissions = overrides[account.id];
       return permissions === undefined ? account : { ...account, permissions };
     });
   }
@@ -3011,10 +3054,7 @@ export class MockDemoRepository implements DemoRepository {
 
   /** 不存在的成員與無權限共用同一句話，也不含任何成員名稱。 */
   private teamPermissionDenied(): PermissionDeniedRepositoryView {
-    return this.permissionDenied(
-      'team',
-      '只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。',
-    );
+    return this.permissionDenied('team', TEAM_PERMISSION_DENIED_MESSAGE);
   }
 
   private draftPermissionDenied(): PermissionDeniedRepositoryView {

@@ -2,12 +2,19 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   inject,
   signal,
 } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { AccountId, AccountPermission } from '../../../../core/domain/account.model';
-import type { TeamMemberView } from '../../../../core/domain/team.model';
+import type { TeamMemberView, TeamView } from '../../../../core/domain/team.model';
+import type {
+  RepositoryView,
+  UpdateMemberPermissionsResult,
+} from '../../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../../core/repositories/tokens';
+import { API_SESSION_BACKEND } from '../../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../../shared/ui/state-panel/state-panel.component';
 
@@ -27,14 +34,24 @@ import { StatePanelComponent } from '../../../../shared/ui/state-panel/state-pan
 export class TeamPanelComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly session = inject(DemoSessionService);
-  /** repository 為同步 mock，異動後遞增此值讓畫面重新讀取。 */
-  private readonly revision = signal(0);
+  private readonly destroyRef = inject(DestroyRef);
+  /** API 模式的成員是真實帳號，說明文字不再提 Demo 身分與這台瀏覽器。 */
+  protected readonly apiMode = inject(API_SESSION_BACKEND) !== null;
 
-  protected readonly result = computed(() => {
-    this.revision();
-    const accountId = this.session.activeAccountId();
-    return accountId ? this.repository.getTeam(accountId) : null;
+  /**
+   * 非同步契約：還沒有 Demo 身分時不讀取（停在 loading），切換身分就重新讀取。
+   * `reload()` 期間保留上一份資料，儲存後不會整塊閃回載入中。
+   */
+  private readonly teamResource = rxResource<RepositoryView<TeamView>, AccountId | undefined>({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.getTeam(),
+    defaultValue: { status: 'loading' },
   });
+
+  /** 讀取失敗（5xx、連線中斷）時為 null；權限不足是正常的 permission-denied 結果。 */
+  protected readonly result = computed(() =>
+    this.teamResource.hasValue() ? this.teamResource.value() : null,
+  );
 
   protected readonly team = computed(() => {
     const result = this.result();
@@ -48,6 +65,8 @@ export class TeamPanelComponent {
   protected readonly draft = signal<ReadonlySet<AccountPermission>>(new Set());
   protected readonly feedback = signal('');
   protected readonly error = signal('');
+  /** 送出中不能再按一次儲存。 */
+  protected readonly saving = signal(false);
 
   protected labelOf(permission: AccountPermission): string {
     return (
@@ -80,13 +99,24 @@ export class TeamPanelComponent {
 
   protected save(member: TeamMemberView, event: Event): void {
     event.preventDefault();
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return;
+    if (this.saving()) return;
 
-    const result = this.repository.updateMemberPermissions(accountId, member.id, [
-      ...this.draft(),
-    ]);
+    this.saving.set(true);
+    this.repository
+      .updateMemberPermissions(member.id, [...this.draft()])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => this.saved(member, result),
+        error: () => {
+          this.saving.set(false);
+          this.feedback.set('');
+          this.error.set('目前無法儲存權限，請稍後再試。');
+        },
+      });
+  }
 
+  private saved(member: TeamMemberView, result: UpdateMemberPermissionsResult): void {
+    this.saving.set(false);
     if (result.status === 'ready' || result.status === 'partial-failure') {
       const saved =
         result.data.members.find((candidate) => candidate.id === member.id)?.permissions ?? [];
@@ -99,7 +129,7 @@ export class TeamPanelComponent {
               .map((permission) => this.labelOf(permission))
               .join('、')}。切換到這個身分就會看到差異。`,
       );
-      this.revision.update((value) => value + 1);
+      this.teamResource.reload();
     } else if (result.status !== 'loading') {
       this.feedback.set('');
       this.error.set(result.message);

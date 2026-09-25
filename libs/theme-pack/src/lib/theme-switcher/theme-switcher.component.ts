@@ -5,7 +5,7 @@ import { ThemeService } from '../theme/theme.service';
 import { texture, COLOR_THEMES } from '../theme/theme.token';
 
 @Component({
-  selector: 'app-theme-switcher',
+  selector: 'lib-theme-switcher',
   imports: [MatButtonModule, MatMenuModule],
   template: `
     <button
@@ -20,7 +20,13 @@ import { texture, COLOR_THEMES } from '../theme/theme.token';
     </button>
 
     <mat-menu #themeMenu="matMenu" class="theme-menu-panel" xPosition="before" yPosition="above">
-      <section class="theme-panel" aria-label="外觀設定" (click)="$event.stopPropagation()">
+      <!-- (click) 只阻止選單關閉，不是使用者操作；aria-label 讓讀屏仍照常朗讀 -->
+      <section
+        class="theme-panel"
+        role="presentation"
+        aria-label="外觀設定"
+        (click)="$event.stopPropagation()"
+      >
         <p class="theme-panel__title">外觀</p>
 
         <div class="theme-row">

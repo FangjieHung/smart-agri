@@ -81,22 +81,16 @@ public sealed class TelemetryCapture
 {
     private readonly ConcurrentQueue<string> _logs = new();
     private readonly ConcurrentQueue<string> _otelLogs = new();
-    private readonly List<Activity> _activities = [];
+    // Spans are turned into text as they end, on whichever thread ends them. (The in-memory
+    // exporter appended to a plain List<Activity> from that thread without any lock, so
+    // reading it here could throw "Collection was modified".)
+    private readonly ConcurrentQueue<string> _spans = new();
 
     public IReadOnlyCollection<string> Logs => _logs;
 
     public IReadOnlyCollection<string> OpenTelemetryLogs => _otelLogs;
 
-    public IReadOnlyList<string> Spans
-    {
-        get
-        {
-            lock (_activities)
-            {
-                return [.. _activities.Select(Describe)];
-            }
-        }
-    }
+    public IReadOnlyCollection<string> Spans => _spans;
 
     /// <summary>All captured text (logs, OpenTelemetry logs, spans).</summary>
     public IEnumerable<string> All => Logs.Concat(OpenTelemetryLogs).Concat(Spans);
@@ -114,7 +108,7 @@ public sealed class TelemetryCapture
         builder.ConfigureServices(services =>
             services
                 .AddOpenTelemetry()
-                .WithTracing(tracing => tracing.AddInMemoryExporter(_activities))
+                .WithTracing(tracing => tracing.AddProcessor(new CapturingSpanProcessor(_spans)))
                 .WithLogging(
                     logging => logging.AddProcessor(new CapturingLogProcessor(_otelLogs)),
                     options =>
@@ -132,6 +126,18 @@ public sealed class TelemetryCapture
                 .Concat(activity.Events.SelectMany(activityEvent =>
                     new[] { activityEvent.Name }.Concat(activityEvent.Tags.Select(tag => $"{tag.Key}={tag.Value}"))))
                 .Concat(activity.Baggage.Select(item => $"{item.Key}={item.Value}")));
+
+    private sealed class CapturingSpanProcessor : BaseProcessor<Activity>
+    {
+        private readonly ConcurrentQueue<string> _sink;
+
+        public CapturingSpanProcessor(ConcurrentQueue<string> sink)
+        {
+            _sink = sink;
+        }
+
+        public override void OnEnd(Activity data) => _sink.Enqueue(Describe(data));
+    }
 
     private sealed class CapturingLoggerProvider : ILoggerProvider
     {

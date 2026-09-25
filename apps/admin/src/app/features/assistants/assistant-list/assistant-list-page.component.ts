@@ -62,7 +62,7 @@ export class AssistantListPageComponent {
     return result.data.filter((assistant) => assistant.permission !== 'configure').map((assistant) => ({
       assistant,
       channels: [],
-      recentActivity: '公司分享',
+      recentActivity: '組織分享',
     }));
   });
 

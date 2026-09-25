@@ -130,11 +130,11 @@ export const CHAT_VISITOR_PRIVACY_NOTICE =
 /** 未登入訪客在收集紀錄中的顯示名稱；不冒認任何帳號，也不含個人資料。 */
 export const ANONYMOUS_VISITOR_SUBJECT_NAME = '未登入訪客';
 
-/** 規則關閉引用出處時附在公司資料回答下方：仍然說清楚答案的來源分類。 */
+/** 規則關閉引用出處時附在組織資料回答下方：仍然說清楚答案的來源分類。 */
 export const CHAT_CITATIONS_OFF_NOTICE =
-  '這則回答出自公司資料。這個助理設定為不顯示引用出處，所以沒有附上原文片段。';
+  '這則回答出自組織資料。這個助理設定為不顯示引用出處，所以沒有附上原文片段。';
 
-export const CHAT_GENERAL_KNOWLEDGE_NOTICE = '這不是公司資料，是一般知識補充，僅供參考。';
+export const CHAT_GENERAL_KNOWLEDGE_NOTICE = '這不是組織資料，是一般知識補充，僅供參考。';
 
 /** 對話紀錄側欄的說明：保存時。 */
 export const CHAT_HISTORY_SAVED_NOTICE =

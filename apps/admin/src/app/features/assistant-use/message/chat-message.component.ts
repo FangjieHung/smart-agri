@@ -18,7 +18,7 @@ export interface WithdrawRequest {
   readonly trigger: HTMLElement;
 }
 
-/** 三種回答狀態使用不同標示，公司資料、一般知識與查無資料不混寫。 */
+/** 三種回答狀態使用不同標示，組織資料、一般知識與查無資料不混寫。 */
 const REPLY_LABELS: Readonly<Record<ChatReplyKind, string>> = {
   'company-data': '根據你的資料',
   'general-knowledge': '一般知識補充',

@@ -22,7 +22,7 @@
       [checked]="current.knowledgeScope === 'allow-general-knowledge'"
       (change)="changed.emit({ knowledgeScope: 'allow-general-knowledge' })"
     />
-    <span>允許補充一般知識<small>一般知識會與公司資料分開標示，避免混淆。</small></span>
+    <span>允許補充一般知識<small>一般知識會與組織資料分開標示，避免混淆。</small></span>
   </label>
   @if (live()) {
     <p class="hint">改動會套用到下一則回答；已經送出的回答不會被改寫。</p>
@@ -49,7 +49,7 @@
   <lib-setting-row title="在回答下方顯示引用來源" description="讓使用者看到答案出自哪份資料。" controlId="show-citations" [toggleable]="true" [checked]="current.showCitations" (toggled)="changed.emit({ showCitations: $event })" />
   @if (live()) {
     <p id="show-citations-effect" class="hint">
-      關掉之後，公司資料的回答仍然標示「根據你的資料」，但不再提供「查看引用來源」，也看不到原文片段。
+      關掉之後，組織資料的回答仍然標示「根據你的資料」，但不再提供「查看引用來源」，也看不到原文片段。
     </p>
   }
   <lib-setting-row title="保留使用者自己的對話紀錄" description="只有發起對話的本人看得到。" controlId="keep-conversations" [toggleable]="true" [checked]="current.keepOwnConversations" (toggled)="changed.emit({ keepOwnConversations: $event })" />

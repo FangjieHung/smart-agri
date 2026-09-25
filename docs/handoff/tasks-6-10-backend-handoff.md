@@ -211,7 +211,7 @@ interface AssistantConfigurationView {
 | --- | --- | --- |
 | `keepOwnConversations` | 對話是否寫入儲存、是否列在對話紀錄側欄 | `mock-demo-repository.ts` 的 `keepsConversations()` / `historyMode()` |
 | `knowledgeScope` | 是否允許以獨立區塊補充一般知識 | `allowsGeneralKnowledge()` |
-| `showCitations` | 公司資料的回答是否附引用來源；關掉時 `citations` 為空、`citationNotice` 帶說明，**回答仍然是 `company-data`** | `showsCitations()`（`mock-demo-repository.ts:2625`），套用點在 `fixtureReply()`（`:2229`） |
+| `showCitations` | 組織資料的回答是否附引用來源；關掉時 `citations` 為空、`citationNotice` 帶說明，**回答仍然是 `company-data`** | `showsCitations()`（`mock-demo-repository.ts:2625`），套用點在 `fixtureReply()`（`:2229`） |
 | `periodicReport` + `dataWriteDatabaseId` + `dataWritePurpose` | 寫入目標資料庫的「趨勢比較」是否出現回報面板（下次回報日期＋變化摘要） | `periodicReports()`（`mock-demo-repository.ts:2633`），計算在 `database-tracking.ts:152-191` |
 | `refusalMessage` | 只用在建立精靈的試問預覽，終端對話的 `no-result` 仍用固定文案 `CHAT_NO_RESULT_TEXT` | `previewTrialAnswer()` |
 
@@ -301,7 +301,7 @@ interface AssistantDraftFieldError { field: AssistantDraftField; message: string
 
 1. **試問回答完全來自 fixture**：`previewTrialAnswer` 依 `demo-seed.ts` 的 `trialQuestions` 查表，不呼叫任何 AI（`mock-demo-repository.ts:926-982`）。契約註解：`demo-repository.ts:309`「以固定 fixture 模擬試問回答，不連接真實 AI」。計畫依據：`...-demo.md:458`。
    - 只有當「問題有 `companyAnswer`」且「該知識庫屬於 viewer」且「草稿真的連了那個知識庫」時才回 `company-data`（`:805-820`）。
-   - `showCitations` 為 false 時把 citation 設為 null（`previewTrialAnswer()` 內）——實際引用來源是否存在並未驗證。終端對話走的是另一條路（`fixtureReply()`，`mock-demo-repository.ts:2229`）：那裡**會**先用引用來源判斷助理有沒有連接到那份公司資料，關掉引用出處只是不把出處顯示出來。
+   - `showCitations` 為 false 時把 citation 設為 null（`previewTrialAnswer()` 內）——實際引用來源是否存在並未驗證。終端對話走的是另一條路（`fixtureReply()`，`mock-demo-repository.ts:2229`）：那裡**會**先用引用來源判斷助理有沒有連接到那份組織資料，關掉引用出處只是不把出處顯示出來。
    - 否則若允許一般知識且該題有 `generalAnswer`，回 `general-knowledge`（`:837-843`）。
    - 其餘一律回 `no-answer`，且**文字直接用草稿裡的 `refusalMessage`**（`:844-849`）。
 2. **助理 id 由時間戳產生**：`assistant-created-<Date.now()>`，衝突時遞增（`mock-demo-repository.ts:2192-2200`）。正式後端請改用伺服端 id，並放寬 `assistant.model.ts:10` 的字面值型別。
@@ -754,7 +754,7 @@ interface ChatFormReviewView { formId: DatabaseId; saved: false; entries: readon
 | union 值 | 中文顯示 | 必帶欄位 | 型別定義 |
 | --- | --- | --- | --- |
 | `company-data` | 根據你的資料 | `citations[]`（可展開的引用來源）、`citationNotice`（規則關掉引用出處時的說明，否則 null） | `conversation.model.ts:140-151`；設計 `...-design.md:188-192` |
-| `general-knowledge` | 一般知識補充 | `notice`（必須以獨立區塊標示，不得混進公司資料） | `:129-133` |
+| `general-knowledge` | 一般知識補充 | `notice`（必須以獨立區塊標示，不得混進組織資料） | `:129-133` |
 | `no-result` | 查無資料 | `nextSteps[]`（下一步建議） | `:134-138` |
 | `form-request` | 需要填寫資料 | `form`（含 consent） | `:139-143` |
 | `submission-receipt` | 資料已送出 | `recipient`、`entries[]`、`recordId`（可為 null）、`withdrawal` | `conversation.model.ts:161-172` |
@@ -1093,7 +1093,7 @@ interface AssistantPublishingView {        // :197-203
 | 5 | 真正的 LLM 與引用來源 | 關鍵字比對 fixture（`mock-demo-repository.ts:1886-1907`）；引用是寫死的文件名與摘錄（`demo-seed-chat.ts`） | 模型選擇與供應商、檢索策略與切塊、引用來源如何定位到文件位置、串流回應的協定、逾時與重試、成本與速率限制、`no-result` 的判定門檻、`general-knowledge` 與 `company-data` 如何在同一次回答中分區。 |
 | 6 | 同意紀錄的稽核與撤回 | 撤回**已經實作**：`withdrawChatSubmission()`（`demo-repository.ts:537-542`、`mock-demo-repository.ts:1791-1841`）由提交者本人觸發，清空 `values`、寫入 `withdrawnAt`，紀錄即刻離開收集紀錄與趨勢（`consentedRecords()`，`:2319-2324`），只留下不含內容的軌跡（`withdrawnRecords()`，`:2327-2333`）。剩下的缺口是**稽核深度**：軌跡沒有操作者、時間戳以外的任何脈絡，也沒有同意條款版本 | 撤回後既有紀錄的最終處置（Demo 選的是「清內容留軌跡」，正式版要確認是否符合法遵與保存義務）、備份與衍生資料（匯出檔、報表、模型訓練集）如何連動、同意的稽核軌跡（誰在什麼時候看到什麼版本的同意條款）、同意條款版本管理、匿名提交者的撤回憑證（見 5.7 節④）、資料管理者是否需要「代為刪除」這條另外的路徑（Demo **刻意不提供**）。 |
 | 7 | 資料保存期限 | 沒有任何 TTL 或清除機制；localStorage 永久保留。使用者可以刪掉單一段對話（`deleteChatThread`），但那是**硬刪除**，沒有軟刪除或垃圾桶（`mock-demo-repository.ts:1445-1466`） | 對話、結構化紀錄、草稿、稽核紀錄各自的保存期限與刪除方式；刪除一段對話是否連帶刪掉它產生的結構化紀錄（目前**不會**，紀錄留在 `sme-demo:chat-records`）；帳號刪除時的連動清除。 |
-| 8 | 多租戶邊界 | 只有三個固定帳號，沒有組織／團隊層級；`shareTargets` 是「除了自己以外的所有帳號」。`/app/settings` 的「團隊與權限」可以改權限，但**改不了成員**：沒有邀請、沒有離職，清單就是 seed 的三個帳號 | 租戶（公司）、團隊、使用者的三層關係；跨租戶分享是否允許；帳號目錄本身的可見性（列出所有帳號本身就是資訊洩漏——Demo 用 `team` permission-denied 對非管理者連名字都不顯示，正式版需要同等或更嚴的規則）；成員的新增、停用與移除，以及成員被移除時他既有的對話與紀錄如何處置。 |
+| 8 | 多租戶邊界 | 只有三個固定帳號，沒有組織／團隊層級；`shareTargets` 是「除了自己以外的所有帳號」。`/app/settings` 的「團隊與權限」可以改權限，但**改不了成員**：沒有邀請、沒有離職，清單就是 seed 的三個帳號 | 租戶（組織）、團隊、使用者的三層關係；跨租戶分享是否允許；帳號目錄本身的可見性（列出所有帳號本身就是資訊洩漏——Demo 用 `team` permission-denied 對非管理者連名字都不顯示，正式版需要同等或更嚴的規則）；成員的新增、停用與移除，以及成員被移除時他既有的對話與紀錄如何處置。 |
 | 9 | 權限模型的落地 | `AccountPermission` 的七個值（`account.model.ts:23-30`）中，**五個已經有單一判斷點**：`manage-assistants`（`canManageAssistants()`，`mock-demo-repository.ts:2891`）、`manage-data-sources`（`canManageDataSources()`，`:2540`）、`manage-publishing`（`canManagePublishing()`，`publishing-channels.ts:121-129`，規則為擁有者＋權限）、`read-consented-submissions`（`canReadConsentedRecords()`，`database-access.ts:22-30`，規則為帳號權限＋資料庫指定）、`submit-authorized-forms`（`mock-demo-repository.ts:914`）。權限本身可在 `/app/settings` 變更並存進 `sme-demo:team-permissions`（`:676`），但**成員清單是固定的三個 seed 帳號**，沒有邀請、離職或組織層級。**剩下兩個刻意不接行為**：`use-shared-assistants` 會和 §11 平台內發布的「使用對象＋勾選清單」重複成第二條授權路徑，而 `canOpenInPlatform()`（`publishing-channels.ts:99-108`）是刻意收斂出來的唯一判斷點，再開一條就等於有兩個真相來源；`read-own-tracking` 若真的檢查，等於允許管理者關掉別人「看自己資料」的能力，與 §10「一般使用者可查看自己的」相反，所以自己的紀錄一律只依提交者本人判斷。兩者在團隊設定畫面標示為「尚未接到行為」並寫出原因（`ACCOUNT_PERMISSIONS`，`domain/team.model.ts:40-94`），沒有假裝成可用的開關 | **這兩個刻意留白的權限正式版要不要變成真的授權關係**——若要，`use-shared-assistants` 必須取代（而不是疊加在）平台內勾選清單，`read-own-tracking` 必須先定義「誰有權關掉一個人看自己的資料」以及那是否合法。其餘待決：擁有者是否自動具備全部權限（目前**不是**，`manage-publishing` 與 `read-consented-submissions` 都要另外具備）、是否引入角色或 ACL、成員的新增與移除（Demo 完全沒有）、外部客戶的授權關係如何建立、平台內分享清單與資料管理者清單要不要升級成真正的 ACL（含授權人與時間；目前兩者都只存 accountId 陣列）。 |
 | 10 | 敏感憑證的處理 | LINE 的 `channelSecret` / `accessToken` 明文存 localStorage 並**原文回傳給前端**（`publishing-channels.ts:297-301`、`mock-demo-repository.ts:2349`） | 憑證加密保存、回傳時是否遮蔽（建議只回末四碼與是否已設定）、輪替流程、稽核。這會改動 `LineSetupView` 的契約。 |
 | 11 | 真正的官網嵌入與 LINE 串接 | 嵌入碼與 webhook 都指向 `.invalid` 保留網域（`publishing-channels.ts:117-127`、`:303`）；安裝檢查與測試訊息都是本地模擬（`mock-demo-repository.ts:804-826`、`publishing-channels.ts:203-213`） | 真實 widget 的託管與版本管理、CORS 與允許網域的執行點、安裝偵測的技術手段、LINE Messaging API 的 webhook 驗簽與重送、未登入訪客的 session 隔離（設計 `...-design.md:194-199` 已有要求）。 |

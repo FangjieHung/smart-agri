@@ -142,7 +142,7 @@ npx nx lint admin
 - LINE 逐欄驗證失敗：`/app/assistants/assistant-customer-service/publishing?channel=line`
 - 紀錄不足不顯示趨勢：`/app/databases/database-customer-records/trends?subject=subject-chen`
 - 已撤回同意的紀錄只留軌跡：`/app/databases/database-customer-records/records?subject=subject-lin`（時間軸 2 筆，下方另有一筆不含內容的撤回軌跡）
-- 同一種公司資料回答、兩種引用出處設定：`/app/chat/assistant-customer-service`（開著，有「查看引用來源」）與 `/app/chat/assistant-internal-onboarding`（關著，問「皮革怎麼清洗」仍標示「根據你的資料」，但沒有引用來源按鈕）
+- 同一種組織資料回答、兩種引用出處設定：`/app/chat/assistant-customer-service`（開著，有「查看引用來源」）與 `/app/chat/assistant-internal-onboarding`（關著，問「皮革怎麼清洗」仍標示「根據你的資料」，但沒有引用來源按鈕）
 - 定期回報：`/app/databases/database-customer-records/trends`（客服助理每月一次，顯示下次回報日期與變化摘要）；`/app/databases/database-orders/records` 沒有助理回報到這裡，所以沒有面板
 
 ---

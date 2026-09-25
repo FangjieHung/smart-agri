@@ -146,7 +146,7 @@ describe('editing an assistant after it exists', () => {
       cy.visit(`/app/chat/${ASSISTANT}`);
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
       cy.get('form.composer button[type="submit"]').click();
-      // 仍然標示成公司資料，只是不再提供引用出處。
+      // 仍然標示成組織資料，只是不再提供引用出處。
       // 先前已保存的回答不會被改寫，所以只看最新那一則。
       cy.get('[role="log"] [data-kind="company-data"]').last().within(() => {
         cy.contains('根據你的資料').should('exist');

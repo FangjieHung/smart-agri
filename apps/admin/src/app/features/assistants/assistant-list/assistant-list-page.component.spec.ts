@@ -45,7 +45,7 @@ describe('AssistantListPageComponent', () => {
     const page = fixture.nativeElement as HTMLElement;
     expect(page.textContent).toContain('內部新手助理');
     expect(page.textContent).toContain('我建立的');
-    expect(page.textContent).toContain('公司建立的');
+    expect(page.textContent).toContain('組織建立的');
     expect(page.textContent).toContain('客服助理');
     expect(page.querySelector('a[href="/app/chat/assistant-customer-service"]')?.textContent).toContain('對話');
   });

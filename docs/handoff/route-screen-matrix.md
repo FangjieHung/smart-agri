@@ -127,7 +127,7 @@ wildcard 導回 `/` 而不是 `/login`，所以未登入使用者看到的是產
 | `publishing.cy.ts` | 三種管道卡片與五種統一狀態、平台分享限定帳號、網站 widget 預覽／網域驗證／嵌入碼、LINE 逐欄驗證與遮罩、跨帳號設定隔離 |
 | `chat-history.cy.ts` | 對話側欄多對話切換／改名／刪除、跨帳號不外洩、不儲存對話的助理說明、`/use` 單欄與 `?embed=1` 去 chrome、手機版 rail 收合 |
 | `anonymous-visitor.cy.ts` | 未登入訪客開啟已對外發布的助理、對話對每個 Demo 身分與另一位訪客皆不可見、沒有對外管道的助理不揭露名稱、`?embed=1` 無工作區外框與 `/app` 連結、匿名同意送出進入資料管理者的收集紀錄、訪客可在同一分頁內撤回 |
-| `private-conversations.cy.ts` | 回答分類（公司資料含引用／一般知識／無結果）、對話對其他帳號與助理擁有者皆私密、無權限助理不揭露 |
+| `private-conversations.cy.ts` | 回答分類（組織資料含引用／一般知識／無結果）、對話對其他帳號與助理擁有者皆私密、無權限助理不揭露 |
 | `consented-submission.cy.ts` | 同意前不可送出、揭露接收方／目的／可見者／敏感資料、送出紀錄僅指定資料管理者可見、提交者可從收據撤回（紀錄離開收集紀錄與趨勢、只留不含內容的軌跡、撤不了第二次）、資料管理者沒有代為撤回的入口 |
 | `error-states.cy.ts` | **全狀態矩陣**：成功／空白、載入中、部分成功、無結果、權限不足、處理失敗與連線失敗、登入逾時、帳號切換不殘留資料 |
 | `accessibility.cy.ts` | axe critical/serious、skip-link 鍵盤流、LINE 錯誤摘要對焦欄位、引用抽屜與撤回確認對話框的 focus trap 與 Esc 還原、`prefers-reduced-motion`；掃 11 條工作區路由 |

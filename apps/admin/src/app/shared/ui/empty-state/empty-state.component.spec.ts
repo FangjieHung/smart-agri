@@ -7,7 +7,7 @@ describe('EmptyStateComponent', () => {
     fixture.componentRef.setInput('title', '尚未建立知識庫');
     fixture.componentRef.setInput(
       'description',
-      '加入公司資料，讓助理可以引用回答。',
+      '加入組織資料，讓助理可以引用回答。',
     );
     fixture.componentRef.setInput('actionLabel', '建立知識庫');
     let activated = false;

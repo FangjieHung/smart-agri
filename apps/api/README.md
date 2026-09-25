@@ -43,6 +43,31 @@ this repo uses [colima](https://github.com/abiosoft/colima) rather than Docker D
 Both variables only need to be set in shells that run `dotnet test`, `docker compose`,
 or anything else that talks to Docker.
 
+## Traces, metrics and logs (OpenTelemetry)
+
+The Api always registers OpenTelemetry instrumentation for ASP.NET Core, `HttpClient` and
+Npgsql, plus a custom `ActivitySource("SmartAgri")`
+(`SmartAgri.Domain.Observability.SmartAgriActivitySource`) for application-level spans —
+see `docs/adr/2026-09-25-observability.md`. None of it is exported anywhere unless
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set: with it unset (the default), instrumentation still
+runs (so in-process consumers like tests can see spans) but nothing leaves the process.
+This keeps the customer-deploy image free of any bundled monitoring product; customers
+point `OTEL_EXPORTER_OTLP_ENDPOINT` at their own collector.
+
+To view traces locally with the [.NET Aspire dashboard](https://aspire.dev/dashboard/standalone/)
+(`deploy/docker-compose.dev.yml`, dev-only — the customer-deploy compose file has no
+monitoring service):
+
+```sh
+docker compose -f deploy/docker-compose.dev.yml up -d
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+dotnet run --project apps/api/src/SmartAgri.Api
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:5153/health/ready
+```
+
+Open <http://localhost:18888> → Traces. The `/health/ready` request should appear with a
+child Npgsql span.
+
 ## Running migrations locally
 
 ```sh

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { ThemeService } from './theme.service';
-import { DEFAULT_THEME } from './theme.token';
+import { PARADIGM_KEY, THEME_KEY } from './theme.token';
 
 describe('ThemeService', () => {
   let svc: ThemeService;
@@ -17,18 +17,18 @@ describe('ThemeService', () => {
     svc.setTheme('midnight');
     expect(svc.theme()).toBe('midnight');
     expect(document.documentElement.dataset['theme']).toBe('midnight');
-    expect(localStorage.getItem('cr.theme')).toBe('midnight');
+    expect(localStorage.getItem(THEME_KEY)).toBe('midnight');
   });
 
   it('setParadigm 同時改 signal、dataset、localStorage', () => {
     svc.setParadigm('material');
     expect(svc.paradigm()).toBe('material');
     expect(document.documentElement.dataset['paradigm']).toBe('material');
-    expect(localStorage.getItem('cr.paradigm')).toBe('material');
+    expect(localStorage.getItem(PARADIGM_KEY)).toBe('material');
   });
 
   it('init 從 localStorage 還原；無值用預設', () => {
-    localStorage.setItem('cr.theme', 'midnight');
+    localStorage.setItem(THEME_KEY, 'midnight');
     svc.init();
     expect(svc.theme()).toBe('midnight');
     expect(svc.paradigm()).toBe('material'); // 無值 → 預設

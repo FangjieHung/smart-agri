@@ -20,6 +20,9 @@ const API_NOTICE_MESSAGES = {
   'sign-in-failed': '無法完成登入，請重新登入一次。',
 } as const;
 
+const API_TIMEOUT_NOTICE = '登入已逾時';
+const API_TIMEOUT_DETAIL = '登入已超過時限或已失效，請重新登入。';
+
 function readLastOrganizationCode(): string {
   try {
     return localStorage.getItem(LAST_ORGANIZATION_CODE_KEY) ?? '';
@@ -71,8 +74,8 @@ export class DemoLoginPageComponent {
 
   /** 逾時被結束的 Demo 工作階段，在這裡說明原因並讓使用者重新選身分。 */
   protected readonly sessionExpired = this.session.sessionExpired;
-  protected readonly timeoutNotice = this.session.timeoutNotice;
-  protected readonly timeoutDetail = this.session.timeoutDetail;
+  protected readonly timeoutNotice = this.apiMode ? API_TIMEOUT_NOTICE : this.session.timeoutNotice;
+  protected readonly timeoutDetail = this.apiMode ? API_TIMEOUT_DETAIL : this.session.timeoutDetail;
   protected readonly timeoutMinutes = this.session.timeoutMinutes;
 
   constructor() {

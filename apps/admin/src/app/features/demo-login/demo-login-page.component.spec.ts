@@ -99,12 +99,15 @@ describe('DemoLoginPageComponent (API mode)', () => {
     };
   }
 
-  async function renderApiLogin(apiSession: ReturnType<typeof createApiSession>) {
+  async function renderApiLogin(
+    apiSession: ReturnType<typeof createApiSession>,
+    session = new DemoSessionService({ storage: createMemoryStorage() }),
+  ) {
     await TestBed.configureTestingModule({
       imports: [DemoLoginPageComponent],
       providers: [
         { provide: Router, useValue: { navigateByUrl: vi.fn() } },
-        { provide: DemoSessionService, useValue: new DemoSessionService({ storage: createMemoryStorage() }) },
+        { provide: DemoSessionService, useValue: session },
         { provide: ApiSessionService, useValue: apiSession },
       ],
     }).compileComponents();
@@ -141,6 +144,19 @@ describe('DemoLoginPageComponent (API mode)', () => {
     expect(page.textContent).not.toContain('Demo 帳號');
     expect(page.textContent).not.toContain('SMB 管理者');
     expect(page.textContent).not.toContain('固定示範帳號');
+  });
+
+  it('explains an expired session without the demo-only wording', async () => {
+    const session = new DemoSessionService({ storage: createMemoryStorage() });
+    session.switchAccount('account-smb-admin');
+    session.expireSession();
+
+    const fixture = await renderApiLogin(createApiSession(true), session);
+    const alert = (fixture.nativeElement as HTMLElement).querySelector('[role="alert"]');
+
+    expect(alert?.textContent).toContain('登入已逾時');
+    expect(alert?.textContent).not.toContain('Demo');
+    expect(alert?.textContent).not.toContain('不是真實登入');
   });
 
   it('asks for the organization code when the deployment has several organizations', async () => {

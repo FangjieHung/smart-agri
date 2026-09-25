@@ -1,0 +1,3 @@
+# Secrets never belong in git: the real environment file and the token certificates.
+/.env
+/certs/

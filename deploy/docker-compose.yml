@@ -23,6 +23,17 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-smartagri};Username=${POSTGRES_USER:-smartagri};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      # Token keys: outside Development the api refuses to start without both
+      # certificates (see apps/api/README.md, "Sign-in and tokens"). Put the .pfx files
+      # in deploy/certs/ (mounted read-only below).
+      Authentication__SigningCertificatePath: /app/certs/signing.pfx
+      Authentication__SigningCertificatePassword: ${AUTH_SIGNING_CERTIFICATE_PASSWORD:-}
+      Authentication__EncryptionCertificatePath: /app/certs/encryption.pfx
+      Authentication__EncryptionCertificatePassword: ${AUTH_ENCRYPTION_CERTIFICATE_PASSWORD:-}
+      # Origin the admin SPA is served from; `migrate` registers {origin}/auth/callback.
+      Authentication__AdminSpa__Origins__0: ${ADMIN_SPA_ORIGIN:-}
+    volumes:
+      - ./certs:/app/certs:ro
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:

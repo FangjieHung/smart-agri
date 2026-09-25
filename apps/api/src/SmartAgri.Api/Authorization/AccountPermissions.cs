@@ -64,8 +64,7 @@ public sealed class RequestAccountPermissions
         return permissions;
     }
 
-    /// <summary>The permissions in <see cref="AccountPermission"/> declaration order (the
-    /// frontend's <c>ACCOUNT_PERMISSIONS</c> order).</summary>
+    /// <summary>The permissions in the frontend's <c>ACCOUNT_PERMISSIONS</c> order.</summary>
     public static IReadOnlyList<AccountPermission> Ordered(IReadOnlySet<AccountPermission> permissions) =>
-        [.. Enum.GetValues<AccountPermission>().Where(permissions.Contains)];
+        AccountPermissionOrder.Sort(permissions);
 }

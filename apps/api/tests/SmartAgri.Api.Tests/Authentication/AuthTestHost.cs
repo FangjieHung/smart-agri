@@ -258,6 +258,21 @@ public sealed class SpaClient : IDisposable
         return await Http.SendAsync(request, CancellationToken);
     }
 
+    /// <summary>PUT with a JSON body and the bearer token (none when <see langword="null"/>).</summary>
+    public async Task<HttpResponseMessage> PutAsync<TBody>(string path, string? accessToken, TBody body)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, path)
+        {
+            Content = JsonContent.Create(body),
+        };
+        if (accessToken is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        }
+
+        return await Http.SendAsync(request, CancellationToken);
+    }
+
     public static string NewCodeVerifier() => WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
 
     private static string CodeChallenge(string verifier) =>

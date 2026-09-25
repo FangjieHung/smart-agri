@@ -113,6 +113,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
             organization.Property(o => o.Name).HasMaxLength(Organization.NameMaxLength).IsRequired();
             organization.Property(o => o.Code).HasMaxLength(Organization.CodeMaxLength).IsRequired();
             organization.HasIndex(o => o.Code).IsUnique();
+            organization.Property(o => o.TeamPermissionsSavedAt);
         });
 
         modelBuilder.Entity<Account>(account =>

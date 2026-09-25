@@ -1,0 +1,23 @@
+# Local development: only Postgres runs in a container. The Api runs directly with
+# `dotnet run` against it (see apps/api/README.md), so `ConnectionStrings__Default`
+# is not set here — appsettings.Development.json already points at localhost:5432
+# with the same default credentials as below.
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartagri}
+      POSTGRES_USER: ${POSTGRES_USER:-smartagri}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartagri_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - smartagri-postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-smartagri} -d $${POSTGRES_DB:-smartagri}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  smartagri-postgres-dev-data:

@@ -6,7 +6,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { map, startWith } from 'rxjs';
-import { AuthService } from '../../core/auth/auth.service';
+import { ApiSessionService } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { ZH_TW } from '../../core/i18n/zh-tw';
 import { NavEntry, NavGroup, isNavGroup } from './nav-item.model';
@@ -31,7 +31,7 @@ import { ConversationRailComponent, type RecentChatThreadView } from '../../feat
 export class SideNavComponent {
   protected readonly t = ZH_TW;
   protected readonly isNavGroup = isNavGroup;
-  protected readonly auth = inject(AuthService);
+  private readonly apiSession = inject(ApiSessionService);
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
@@ -68,9 +68,9 @@ export class SideNavComponent {
     return this.currentGroupLabel() === group.label;
   }
 
+  /** mock 模式清除 Demo 身分回登入頁；API 模式另外走 end-session 結束伺服器端的登入。 */
   protected logout(): void {
-    this.session.clearSession();
-    this.auth.logout();
+    void this.apiSession.logout();
   }
 
   protected openRecentChat(thread: RecentChatThreadView): void {

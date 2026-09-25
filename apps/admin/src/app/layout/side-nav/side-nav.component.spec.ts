@@ -1,20 +1,19 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { vi } from 'vitest';
-import { AuthService } from '../../core/auth/auth.service';
+import { ApiSessionService } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { SideNavComponent } from './side-nav.component';
 
 describe('SideNavComponent', () => {
-  it('clears the demo persona before completing logout', async () => {
-    const clearSession = vi.fn();
-    const logout = vi.fn();
+  it('logs out through the session service', async () => {
+    const logout = vi.fn().mockResolvedValue(undefined);
     await TestBed.configureTestingModule({
       imports: [SideNavComponent],
       providers: [
         provideRouter([]),
-        { provide: DemoSessionService, useValue: { clearSession } },
-        { provide: AuthService, useValue: { logout } },
+        { provide: DemoSessionService, useValue: {} },
+        { provide: ApiSessionService, useValue: { logout } },
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(SideNavComponent);
@@ -28,13 +27,13 @@ describe('SideNavComponent', () => {
 
     (fixture.componentInstance as unknown as { logout(): void }).logout();
 
-    expect(clearSession).toHaveBeenCalledBefore(logout);
+    expect(logout).toHaveBeenCalledOnce();
   });
 
   it('labels controls whose visible text is hidden in the collapsed sidebar', async () => {
     await TestBed.configureTestingModule({
       imports: [SideNavComponent],
-      providers: [provideRouter([]), { provide: DemoSessionService, useValue: {} }, { provide: AuthService, useValue: {} }],
+      providers: [provideRouter([]), { provide: DemoSessionService, useValue: {} }, { provide: ApiSessionService, useValue: {} }],
     }).compileComponents();
     const fixture = TestBed.createComponent(SideNavComponent);
     fixture.componentRef.setInput('navItems', [{ route: '/app/home', label: '首頁', icon: 'home' }]);

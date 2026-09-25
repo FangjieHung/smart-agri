@@ -103,6 +103,11 @@ public sealed class ForbiddenReasonMetadata
 /// handler's bare <c>403</c>. "Not signed in" still goes to the authentication handler's
 /// challenge: <c>401</c> with no body.
 /// </summary>
+/// <remarks>
+/// Also enforces <see cref="PasswordChangeGate"/>: a signed-in account that must change
+/// its password gets <see cref="ForbiddenReason.PasswordChangeRequired"/> from every
+/// non-exempt endpoint, before (and instead of) any permission-specific <c>403</c>.
+/// </remarks>
 public sealed class ApiAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
     private readonly AuthorizationMiddlewareResultHandler _default = new();
@@ -113,6 +118,16 @@ public sealed class ApiAuthorizationResultHandler : IAuthorizationMiddlewareResu
         AuthorizationPolicy policy,
         PolicyAuthorizationResult authorizeResult)
     {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(authorizeResult);
+
+        // Not signed in stays a bodiless 401; the gate only concerns signed-in accounts.
+        if (!authorizeResult.Challenged && await PasswordChangeGate.BlocksAsync(context))
+        {
+            await ApiErrors.Forbidden(ForbiddenReason.PasswordChangeRequired).ExecuteAsync(context);
+            return;
+        }
+
         if (authorizeResult.Forbidden)
         {
             var reason = context.GetEndpoint()?.Metadata.GetMetadata<ForbiddenReasonMetadata>()?.Reason

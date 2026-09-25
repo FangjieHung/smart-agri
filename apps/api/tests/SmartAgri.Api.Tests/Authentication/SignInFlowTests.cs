@@ -68,7 +68,8 @@ public class SignInFlowTests : IClassFixture<AuthHostFixture>, IAsyncLifetime
         me.GetProperty("organization").GetProperty("id").GetGuid().ShouldBe(organization.Id);
         me.GetProperty("organization").GetProperty("name").GetString().ShouldBe("安心商行");
         me.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(["id", "displayName", "role", "permissions", "organization"], ignoreOrder: true);
+            .ShouldBe(["id", "displayName", "role", "permissions", "organization", "passwordChangeRequired"], ignoreOrder: true);
+        me.GetProperty("passwordChangeRequired").GetBoolean().ShouldBeFalse();
     }
 
     [Fact]

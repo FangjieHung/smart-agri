@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Observability;
+using SmartAgri.Api.Setup;
 using SmartAgri.Api.Tenancy;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.HealthChecks;
@@ -15,6 +16,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 builder.Services.AddOrganizationTenancy();
 builder.AddSmartAgriAuthentication();
+builder.Services.AddInitialSetup();
 
 builder.Services
     .AddHealthChecks()
@@ -38,6 +40,15 @@ if (args is [SmartAgriCommands.Migrate, ..])
     return;
 }
 
+// `setup` is a one-shot subcommand too: create the first organization and administrator
+// on an empty, migrated database, print the one-time password once, and exit
+// (M1 plan, Slice 11; see SetupCommand).
+if (args is [SmartAgriCommands.Setup, .. var setupArgs])
+{
+    Environment.ExitCode = await SetupCommand.RunAsync(app.Services, setupArgs, SystemSetupConsole.Instance);
+    return;
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -57,6 +68,7 @@ app.Run();
 internal static class SmartAgriCommands
 {
     public const string Migrate = "migrate";
+    public const string Setup = "setup";
 }
 
 namespace SmartAgri.Api

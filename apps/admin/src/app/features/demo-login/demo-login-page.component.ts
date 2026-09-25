@@ -16,7 +16,7 @@ export const API_LOGIN_INVALID_MESSAGE = '登入資訊不正確，請確認後�
 export const API_LOGIN_UNAVAILABLE_MESSAGE = '目前無法登入，請稍後再試。';
 
 const API_NOTICE_MESSAGES = {
-  'password-change-required': '這個帳號須先設定新密碼才能進入後台。設定新密碼的畫面尚未開放，請聯絡系統管理者。',
+  'password-change-required': '這個帳號須先設定新密碼；登入後會自動導到設定新密碼的畫面。',
   'sign-in-failed': '無法完成登入，請重新登入一次。',
 } as const;
 

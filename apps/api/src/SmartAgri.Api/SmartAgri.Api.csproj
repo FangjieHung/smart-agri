@@ -19,6 +19,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- OpenIddict server + validation (authorization code + PKCE); see Authentication/. -->
+    <PackageReference Include="OpenIddict.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- OpenTelemetry traces/metrics/logs; see Observability/OpenTelemetryExtensions.cs. -->
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />

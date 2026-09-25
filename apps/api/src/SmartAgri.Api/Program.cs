@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Accounts;
+using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.Tenancy;
 using SmartAgri.Infrastructure;
@@ -12,6 +14,7 @@ builder.AddSmartAgriObservability();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 builder.Services.AddOrganizationTenancy();
+builder.AddSmartAgriAuthentication();
 
 builder.Services
     .AddHealthChecks()
@@ -28,15 +31,26 @@ if (args is [SmartAgriCommands.Migrate, ..])
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await dbContext.Database.MigrateAsync();
+
+    // The admin-spa OAuth client row is deployment state like the schema: applied here,
+    // never on web startup (see AdminSpaClientRegistrar).
+    await scope.ServiceProvider.GetRequiredService<AdminSpaClientRegistrar>().EnsureAsync();
     return;
 }
 
-app.MapGet("/health/live", () => Results.Ok());
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/health/live", () => Results.Ok()).AllowAnonymous();
 
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains("ready"),
-});
+}).AllowAnonymous();
+
+app.MapConnectEndpoints();
+app.MapAuthEndpoints();
+app.MapMeEndpoints();
 
 app.Run();
 

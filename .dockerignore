@@ -1,0 +1,9 @@
+# The api image is built with the repo root as context (deploy/docker-compose.yml);
+# send only what the Dockerfile copies.
+*
+!global.json
+!apps/api/Directory.Build.props
+!apps/api/Directory.Packages.props
+!apps/api/src
+**/bin
+**/obj

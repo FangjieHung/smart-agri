@@ -43,6 +43,22 @@ public sealed class Organization
     public string Code { get; private set; }
 
     /// <summary>
+    /// When this organization's team permissions (<c>PUT
+    /// /api/v1/team/members/{id}/permissions</c>) were last successfully changed, or
+    /// <see langword="null"/> before the first change. Whole-organization, not per member —
+    /// mirrors the mock's single <c>TeamView.savedAt</c> (<c>mock-demo-repository.ts</c>'s
+    /// <c>StoredTeamPermissions.savedAt</c>), which is one timestamp for the whole team, not
+    /// one per row. A dedicated column rather than reusing account or permission-grant rows:
+    /// those describe "what is granted now", and seeding also writes them, so their own
+    /// timestamps would not stay null the way the mock's does before any team-panel edit.
+    /// </summary>
+    public DateTimeOffset? TeamPermissionsSavedAt { get; private set; }
+
+    /// <summary>Records that the team's permissions were just saved (called from
+    /// <c>SmartAgri.Api.Team.TeamEndpoints</c>).</summary>
+    public void RecordTeamPermissionsSaved(DateTimeOffset when) => TeamPermissionsSavedAt = when;
+
+    /// <summary>
     /// Trims and lower-cases a code, and rejects anything outside
     /// <c>[a-z0-9-]</c>. In particular <c>/</c> is never allowed: account user names are
     /// stored as <c>{code}/{loginName}</c>, and a <c>/</c> inside the code would make two

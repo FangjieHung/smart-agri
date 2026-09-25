@@ -5,6 +5,7 @@ using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Seeding;
+using SmartAgri.Api.Team;
 using SmartAgri.Api.Tenancy;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.HealthChecks;
@@ -73,6 +74,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapConnectEndpoints();
 app.MapAuthEndpoints();
 app.MapMeEndpoints();
+app.MapTeamEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

@@ -5,6 +5,10 @@
 # the dashboard by setting `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` in the
 # shell that runs `dotnet run` (see apps/api/README.md); traces are not exported anywhere
 # unless that variable is set.
+# Explicit project name: both compose files live in deploy/, so without it they would both
+# default to the project "deploy" and one stack's `up` would take over the other's postgres.
+name: smartagri-dev
+
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg18
@@ -15,7 +19,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - smartagri-postgres-dev-data:/var/lib/postgresql/data
+      # PostgreSQL 18+ images keep data in a versioned subdirectory of /var/lib/postgresql
+      # (PGDATA=/var/lib/postgresql/18/docker) and refuse to start when a volume is mounted
+      # at the old /var/lib/postgresql/data path, even an empty one.
+      - smartagri-postgres-dev-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-smartagri} -d $${POSTGRES_DB:-smartagri}"]
       interval: 5s

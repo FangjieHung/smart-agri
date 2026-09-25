@@ -25,6 +25,7 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
     <PackageReference Include="Npgsql.OpenTelemetry" />
+    <InternalsVisibleTo Include="SmartAgri.Api.Tests" />
   </ItemGroup>
 
 </Project>

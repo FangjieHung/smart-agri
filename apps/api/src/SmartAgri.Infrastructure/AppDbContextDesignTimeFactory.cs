@@ -1,12 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using SmartAgri.Infrastructure.Tenancy;
 
 namespace SmartAgri.Infrastructure;
 
 /// <summary>
 /// Lets <c>dotnet ef migrations add</c> build the model without a running database or
 /// the full Api host: the connection string here is never opened at design time, EF
-/// Core only needs it to pick the Npgsql provider.
+/// Core only needs it to pick the Npgsql provider. Design-time tooling never acts for an
+/// organization, so it gets "no organization".
 /// </summary>
 public class AppDbContextDesignTimeFactory : IDesignTimeDbContextFactory<AppDbContext>
 {
@@ -15,6 +17,6 @@ public class AppDbContextDesignTimeFactory : IDesignTimeDbContextFactory<AppDbCo
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
         optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=smartagri;Username=smartagri;Password=smartagri");
 
-        return new AppDbContext(optionsBuilder.Options);
+        return new AppDbContext(optionsBuilder.Options, FixedOrganizationContext.None);
     }
 }

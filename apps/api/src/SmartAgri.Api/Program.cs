@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Observability;
+using SmartAgri.Api.Tenancy;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.HealthChecks;
 
@@ -10,6 +11,7 @@ builder.AddSmartAgriObservability();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+builder.Services.AddOrganizationTenancy();
 
 builder.Services
     .AddHealthChecks()

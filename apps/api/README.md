@@ -5,11 +5,31 @@
 
 ```
 src/SmartAgri.Domain/          entities, enums; no third-party dependencies
-src/SmartAgri.Infrastructure/  AppDbContext, migrations, health checks
+src/SmartAgri.Infrastructure/  AppDbContext, Identity accounts, migrations, health checks
 src/SmartAgri.Api/             Minimal API, Dockerfile, migrate subcommand
 tests/SmartAgri.Domain.Tests/  unit tests, no Docker needed
 tests/SmartAgri.Api.Tests/     integration tests; some need Docker (see below)
 ```
+
+## Organization isolation
+
+Every entity implementing `IOrganizationScoped` (Domain) is isolated automatically by
+`AppDbContext` — nothing to opt into per entity:
+
+- **Reads:** the named query filter `"Organization"` keeps rows to the current
+  organization (`IOrganizationContext`, from the authenticated `org_id` claim). With no
+  organization every filtered query returns nothing, never everything.
+- **Writes:** `OrganizationSaveChangesInterceptor` fills `OrganizationId` on new rows and
+  throws `CrossOrganizationWriteException` (before any SQL is sent) for any add, change
+  or delete of another organization's row, or of any scoped row with no organization.
+  `OrganizationId` is also a concurrency token, so updates/deletes by key match on it.
+- **Turning the filter off** is allowed in one place only, `AccountLookup` (sign-in
+  lookup by organization code + login name); a source-scanning test enforces this.
+
+`OrganizationModelTests` fails if a new entity is neither organization scoped nor on its
+short whitelist (`Organization`, Identity role tables, OpenIddict's tables). Accounts'
+login names are unique per organization; Identity's internal `UserName` is stored as
+`{organizationCode}/{loginName}` and is never shown.
 
 ## Local database (colima + Docker)
 

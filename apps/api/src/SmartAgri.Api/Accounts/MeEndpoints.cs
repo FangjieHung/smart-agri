@@ -23,7 +23,10 @@ public static class MeEndpoints
 {
     public static IEndpointRouteBuilder MapMeEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/api/v1/me", GetMeAsync).RequireAuthorization();
+        endpoints.MapGet("/api/v1/me", GetMeAsync)
+            .RequireAuthorization()
+            .Produces<MeResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
         return endpoints;
     }
 

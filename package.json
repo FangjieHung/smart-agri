@@ -54,6 +54,7 @@
     "jsonc-eslint-parser": "^2.1.0",
     "ng-packagr": "^22.0.1",
     "nx": "23.1.0",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.5.16",
     "prettier": "^3.8.1",
     "tailwindcss": "^4.3.2",

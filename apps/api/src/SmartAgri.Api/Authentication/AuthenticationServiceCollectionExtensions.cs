@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Validation.AspNetCore;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.OpenApi;
 using SmartAgri.Api.Tenancy;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Accounts;
@@ -36,8 +37,13 @@ public static class AuthenticationServiceCollectionExtensions
         services.Configure<SmartAgriAuthenticationOptions>(section);
         var options = section.Get<SmartAgriAuthenticationOptions>() ?? new SmartAgriAuthenticationOptions();
 
-        // Fails fast (before the host is built) outside Development without keys.
-        var credentials = TokenCredentials.Resolve(options, builder.Environment);
+        // Fails fast (before the host is built) outside Development without keys — except
+        // while Microsoft.Extensions.ApiDescription.Server generates the OpenAPI document at
+        // build time (BuildTimeOpenApi.IsGeneratingDocument), which runs this composition
+        // root without ever starting the server or needing real certificates.
+        var credentials = BuildTimeOpenApi.IsGeneratingDocument
+            ? TokenCredentials.Ephemeral
+            : TokenCredentials.Resolve(options, builder.Environment);
         var isDevelopment = builder.Environment.IsDevelopment();
 
         services

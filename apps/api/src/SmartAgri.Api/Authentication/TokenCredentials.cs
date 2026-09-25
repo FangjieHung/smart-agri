@@ -30,6 +30,13 @@ public sealed class TokenCredentials
 
     public X509Certificate2? EncryptionCertificate { get; }
 
+    /// <summary>
+    /// Same as what <see cref="Resolve"/> returns in <c>Development</c>, for the one other
+    /// caller allowed to skip the production certificate check:
+    /// <see cref="SmartAgri.Api.OpenApi.BuildTimeOpenApi.IsGeneratingDocument"/>.
+    /// </summary>
+    public static TokenCredentials Ephemeral { get; } = new(null, null);
+
     /// <exception cref="InvalidOperationException">Outside Development, a certificate
     /// path is not configured, the file is missing, or it cannot be loaded with a private
     /// key.</exception>

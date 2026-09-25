@@ -12,11 +12,15 @@ describe('structured data and tracking', () => {
   });
 
   it('creates a database from a template, edits common fields and trial-fills the form', () => {
-    cy.contains('nav a', '資料庫').click();
+    // 側邊導覽項目已從「資料庫」改名為「數據庫」（workspace navigation refresh）。
+    cy.contains('nav a', '數據庫').click();
     cy.location('pathname').should('eq', '/app/databases');
-    cy.contains('h1', '資料庫').should('be.visible');
-    cy.contains('.database-card', '客戶資料庫').should('contain', '客服助理');
+    cy.contains('h1', '數據庫').should('be.visible');
+    // 列表已從卡片改成可整列點開的 data-table。
+    cy.contains('tr', '客戶資料庫').should('contain', '客服助理');
 
+    // 建立表單已從內嵌區塊改成對話框，要先按「新增資料庫」才會出現。
+    cy.contains('button', '新增資料庫').click();
     cy.contains('fieldset legend', '你要收集什麼？').should('be.visible');
     cy.contains('label', '滿意度調查').click();
     cy.get('#database-name').should('have.value', '滿意度調查').clear().type('門市滿意度調查');

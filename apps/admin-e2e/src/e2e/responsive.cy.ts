@@ -13,7 +13,9 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/assistants/assistant-customer-service/rules', '找不到資料時'],
   ['/app/knowledge', '商品使用指南'],
   ['/app/knowledge/knowledge-product-guide/content', '加入示範文件'],
-  ['/app/databases', '建立資料庫'],
+  // 建立表單改成對話框後，頁面上一直看得到的主要控制項是開啟對話框的「新增資料庫」按鈕
+  // （對話框裡的標題與送出按鈕才叫「建立資料庫」，預設不在畫面上）。
+  ['/app/databases', '新增資料庫'],
   ['/app/databases/database-customer-records/records', '收集紀錄'],
   ['/app/databases/database-customer-records/trends', '趨勢比較'],
   ['/app/databases/database-customer-records/access', '儲存資料管理者'],

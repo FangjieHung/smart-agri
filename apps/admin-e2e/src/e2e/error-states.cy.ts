@@ -22,8 +22,9 @@ describe('demo states', () => {
       loginAs('SMB 管理者');
       cy.visit('/app/knowledge');
 
-      cy.get('.knowledge-card').should('have.length.greaterThan', 0);
-      cy.contains('.knowledge-card', '商品使用指南').should('be.visible');
+      // 知識庫列表已從卡片改成 data-table，一列一筆資料。
+      cy.get('table.dt-table tbody tr').should('have.length.greaterThan', 0);
+      cy.contains('table.dt-table tbody tr', '商品使用指南').should('be.visible');
       cy.get('[data-state="loading"]').should('not.exist');
       cy.get('.partial-notice').should('not.exist');
     });
@@ -32,8 +33,11 @@ describe('demo states', () => {
       loginAs('內部使用者');
 
       cy.visit('/app/assistants');
-      cy.contains('尚未有可使用的助理').should('be.visible');
-      cy.contains('a', '建立新助理').should('be.visible');
+      // 「我的助理」現在分成「我建立的」與「組織建立的」兩組，各自有空狀態說明；
+      // 沒有 manage-assistants 權限的帳號也不再提供「建立新助理」入口
+      // （654d77d：只有能管理助理的帳號才給建立入口）。
+      cy.get('section[aria-labelledby="my-assistants-title"]').should('contain', '你還沒有建立助理。');
+      cy.contains('a', '建立新助理').should('not.exist');
 
       cy.visit('/app/channels');
       cy.contains('目前沒有可設定發布管道的助理').should('be.visible');
@@ -42,7 +46,7 @@ describe('demo states', () => {
       loginAs('外部客戶');
       cy.visit('/app/knowledge');
       cy.contains('還沒有知識庫').should('be.visible');
-      cy.get('.knowledge-card').should('not.exist');
+      cy.get('table.dt-table').should('not.exist');
     });
   });
 
@@ -56,7 +60,7 @@ describe('demo states', () => {
         .should('be.visible')
         .and('have.attr', 'aria-busy', 'true')
         .and('contain.text', '正在載入知識庫');
-      cy.get('.knowledge-card').should('not.exist');
+      cy.get('table.dt-table').should('not.exist');
     });
 
     it('keeps the usable items when part of the data cannot be read', () => {
@@ -68,7 +72,7 @@ describe('demo states', () => {
         .and('contain.text', '部分知識庫同步暫時無法讀取')
         .and('contain.text', '其他知識庫仍可正常使用');
       // 部分失敗不會擋住其餘內容。
-      cy.get('.knowledge-card').should('have.length.greaterThan', 0);
+      cy.get('table.dt-table tbody tr').should('have.length.greaterThan', 0);
     });
   });
 
@@ -109,7 +113,7 @@ describe('demo states', () => {
         .should('be.visible')
         .and('contain.text', '無法查看知識庫');
       cy.get('[data-state="permission-denied"] [role="alert"]').should('exist');
-      cy.get('.knowledge-card').should('not.exist');
+      cy.get('table.dt-table').should('not.exist');
     });
 
     it('blocks configuring an assistant that belongs to another account', () => {
@@ -150,7 +154,8 @@ describe('demo states', () => {
           .should('contain.text', '需要處理')
           .and('contain.text', '官網連線中斷')
           .and('contain.text', '其他管道不受影響');
-        cy.contains('app-channel-card', '平台內分享').should('contain.text', '已發布');
+        // 管道名稱已從「平台內分享」改成「組織內部分享」。
+        cy.contains('app-channel-card', '組織內部分享').should('contain.text', '已發布');
       });
     });
   });
@@ -177,7 +182,7 @@ describe('demo states', () => {
       cy.reload();
 
       cy.location('pathname').should('eq', '/app/knowledge');
-      cy.contains('.knowledge-card', '商品使用指南').should('be.visible');
+      cy.contains('table.dt-table tbody tr', '商品使用指南').should('be.visible');
     });
   });
 
@@ -185,19 +190,24 @@ describe('demo states', () => {
     it('leaves nothing the next account may not manage on screen', () => {
       loginAs('SMB 管理者');
       cy.visit('/app/knowledge');
-      cy.contains('.knowledge-card', '商品使用指南').should('be.visible');
+      cy.contains('table.dt-table tbody tr', '商品使用指南').should('be.visible');
       cy.visit('/app/assistants');
       cy.contains('客服助理').should('be.visible');
 
       loginAs('內部使用者');
 
-      // 換帳號後，管理畫面只剩下這個帳號自己的資料。
+      // 換帳號後：知識庫列表仍是「只有自己名下的資料」（listKnowledgeBaseSummaries 只依 ownerAccountId 篩選，
+      // 沒有因為導覽改版而變動）；但助理列表已改成分組呈現——沒有自己建立的助理，
+      // 但組織分享給自己「使用」的客服助理仍會出現在「組織建立的」，只是沒有管理者才有的「查看設定」連結。
       cy.visit('/app/assistants');
-      cy.contains('尚未有可使用的助理').should('be.visible');
-      cy.contains('客服助理').should('not.exist');
+      cy.get('section[aria-labelledby="my-assistants-title"]').should('contain', '你還沒有建立助理。');
+      cy.get('section[aria-labelledby="company-assistants-title"]').within(() => {
+        cy.contains('客服助理').should('be.visible');
+        cy.contains('a', '查看設定').should('not.exist');
+      });
 
       cy.visit('/app/knowledge');
-      cy.contains('.knowledge-card', '同仁個人筆記').should('be.visible');
+      cy.contains('table.dt-table tbody tr', '同仁個人筆記').should('be.visible');
       cy.contains('商品使用指南').should('not.exist');
       cy.contains('退換貨政策').should('not.exist');
 

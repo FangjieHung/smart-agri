@@ -12,6 +12,14 @@ function connectSource(name: string): void {
   });
 }
 
+/**
+ * newAssistantDraftGuard 讓每次從「開始建立」進來都產生一份獨立草稿並轉址到
+ * /app/assistants/drafts/<draftId>/<step>；不再有固定的 /app/assistants/new/<step> 網址。
+ */
+function draftStepPath(step: string): RegExp {
+  return new RegExp(`^/app/assistants/drafts/draft-\\d+/${step}$`);
+}
+
 describe('create assistant wizard', () => {
   beforeEach(() => {
     cy.clearLocalStorage();
@@ -20,7 +28,7 @@ describe('create assistant wizard', () => {
   it('creates a customer-question assistant with two knowledge bases and two databases', () => {
     loginAsAdmin();
     cy.contains('a', '開始建立').click();
-    cy.location('pathname').should('eq', '/app/assistants/new/purpose');
+    cy.location('pathname').should('match', draftStepPath('purpose'));
 
     cy.contains('label', '回答客戶問題').click();
     cy.get('#assistant-name').should('have.value', '客戶問答助理');
@@ -30,7 +38,7 @@ describe('create assistant wizard', () => {
     cy.get('.autosave').should('contain', '已自動儲存');
     cy.contains('button', '下一步').click();
 
-    cy.location('pathname').should('eq', '/app/assistants/new/sources');
+    cy.location('pathname').should('match', draftStepPath('sources'));
     cy.get('[aria-current="step"]').should('contain', '資料來源');
     connectSource('商品使用指南');
     connectSource('退換貨政策');
@@ -39,11 +47,11 @@ describe('create assistant wizard', () => {
     cy.get('.source-summary').should('contain', '2 個知識庫、2 個資料庫');
     cy.contains('button', '下一步').click();
 
-    cy.location('pathname').should('eq', '/app/assistants/new/rules');
+    cy.location('pathname').should('match', draftStepPath('rules'));
     cy.get('#scope-strict').should('be.checked');
     cy.contains('button', '下一步').click();
 
-    cy.location('pathname').should('eq', '/app/assistants/new/test');
+    cy.location('pathname').should('match', draftStepPath('test'));
     cy.contains('button', '建立助理').click();
     cy.contains('請至少試問一題').should('be.visible');
     cy.contains('.trial-question', '退貨').click();
@@ -64,14 +72,14 @@ describe('create assistant wizard', () => {
     cy.contains('label', '回答客戶問題').click();
     cy.get('#audience-internal').check();
     cy.contains('button', '下一步').click();
-    cy.location('pathname').should('eq', '/app/assistants/new/sources');
+    cy.location('pathname').should('match', draftStepPath('sources'));
     connectSource('商品使用指南');
     cy.get('.autosave').should('contain', '已自動儲存');
 
     cy.reload();
 
     // Demo 身分保存在這個瀏覽器分頁，重新整理後留在原本的步驟。
-    cy.location('pathname').should('eq', '/app/assistants/new/sources');
+    cy.location('pathname').should('match', draftStepPath('sources'));
     cy.get('.autosave').should('contain', '已載入先前的草稿');
     cy.contains('.source-row', '商品使用指南')
       .find('button')
@@ -80,10 +88,10 @@ describe('create assistant wizard', () => {
     cy.get('#assistant-name').should('have.value', '客戶問答助理');
     cy.get('#audience-internal').should('be.checked');
 
-    // 從首頁的「繼續未完成的設定」也可以回到同一份草稿。
+    // 從首頁的「繼續最近的設定」也可以回到同一份草稿（連結文字已從「繼續未完成的設定」改名）。
     cy.visit('/app/home');
-    cy.contains('a', '繼續未完成的設定').click();
-    cy.location('pathname').should('eq', '/app/assistants/new/purpose');
+    cy.contains('a', '繼續最近的設定').click();
+    cy.location('pathname').should('match', draftStepPath('purpose'));
     cy.get('#assistant-name').should('have.value', '客戶問答助理');
   });
 
@@ -93,9 +101,12 @@ describe('create assistant wizard', () => {
     cy.contains('label', '回答客戶問題').click();
 
     loginAs('內部使用者');
-    cy.contains('a', '繼續未完成的設定').should('not.exist');
+    cy.contains('a', '繼續最近的設定').should('not.exist');
+    // newAssistantDraftGuard 現在對沒有 manage-assistants 權限的帳號直接轉址回我的助理列表，
+    // 不再顯示精靈頁面裡的「你沒有建立助理的權限」提示。
     cy.contains('a', '開始建立').click();
-    cy.contains('你沒有建立助理的權限').should('be.visible');
+    cy.location('pathname').should('eq', '/app/assistants');
+    cy.contains('客戶問答助理').should('not.exist');
     cy.get('#assistant-name').should('not.exist');
   });
 });

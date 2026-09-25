@@ -30,14 +30,19 @@ describe('publishing channels', () => {
 
   it('shows three channel cards per assistant with five unified statuses and an isolated failure', () => {
     loginAs('SMB 管理者');
-    cy.contains('nav a', '發布管道').click();
+    // 側邊導覽已拿掉「發布管道」項目（workspace navigation refresh）；
+    // 現在從首頁「待處理事項」卡片的「查看發布管道」連結進入。
+    cy.contains('a', '查看發布管道').click();
     cy.location('pathname').should('eq', '/app/channels');
     cy.contains('h1', '發布管道').should('be.visible');
-    cy.contains('Demo，不會連接外部服務').should('be.visible');
+    // 頁面說明已改寫，不再顯示「Demo，不會連接外部服務」字樣（ChannelOverviewPageComponent
+    // 自己的 spec 也明確斷言這段文字已移除），改成描述管道彼此獨立的行為。
+    cy.contains('管道各自獨立').should('be.visible');
 
     cy.contains('section.assistant-channels', '客服助理').within(() => {
       cy.get('app-channel-card').should('have.length', 3);
-      cy.contains('app-channel-card', '平台內分享').should('contain', '已發布');
+      // 管道名稱已從「平台內分享」改成「組織內部分享」，呼應「組織建立的／組織資料」的用詞。
+      cy.contains('app-channel-card', '組織內部分享').should('contain', '已發布');
       cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
       cy.contains('app-channel-card', 'LINE').should('contain', '需要處理').and('contain', '其他管道不受影響');
     });
@@ -63,7 +68,7 @@ describe('publishing channels', () => {
       cy.contains('button', '儲存可使用的帳號').click();
       cy.get('[aria-live="polite"]').should('contain', '已更新可使用的帳號');
     });
-    cy.contains('app-channel-card', '平台內分享').should('contain', '已發布').and('contain', '1 個帳號');
+    cy.contains('app-channel-card', '組織內部分享').should('contain', '已發布').and('contain', '1 個帳號');
   });
 
   it('previews the website widget on desktop and mobile, validates domains and copies demo embed code', () => {

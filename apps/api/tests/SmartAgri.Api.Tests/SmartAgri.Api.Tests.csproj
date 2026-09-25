@@ -11,6 +11,14 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Shouldly" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <!--
+      Same version-conflict fix as SmartAgri.Api.csproj: Microsoft.AspNetCore.Mvc.Testing
+      pulls in the ASP.NET Core shared framework's lower compile-time reference assembly,
+      which would otherwise win over the version SmartAgri.Infrastructure needs.
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
 
   <ItemGroup>

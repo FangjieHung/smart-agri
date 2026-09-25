@@ -1,0 +1,33 @@
+# Customer self-hosted deployment (see on-prem-packaging ADR): api + postgres, no
+# monitoring services. Copy deploy/.env.example to deploy/.env and set a real
+# POSTGRES_PASSWORD before running `docker compose -f deploy/docker-compose.yml up --build`.
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartagri}
+      POSTGRES_USER: ${POSTGRES_USER:-smartagri}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - smartagri-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-smartagri} -d $${POSTGRES_DB:-smartagri}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/src/SmartAgri.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-smartagri};Username=${POSTGRES_USER:-smartagri};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  smartagri-postgres-data:

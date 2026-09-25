@@ -5,4 +5,17 @@
     <ProjectReference Include="..\SmartAgri.Domain\SmartAgri.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      Explicit reference so NuGet's normal version resolution (highest wins) applies
+      instead of the ASP.NET Core shared framework's lower compile-time reference
+      assembly winning as "primary" over the version SmartAgri.Infrastructure actually
+      needs (Npgsql.EntityFrameworkCore.PostgreSQL 10.0.3 and
+      Microsoft.EntityFrameworkCore.Design 10.0.12 do not pin the same
+      Microsoft.EntityFrameworkCore patch).
+    -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+  </ItemGroup>
+
 </Project>

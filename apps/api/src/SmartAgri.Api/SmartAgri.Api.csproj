@@ -1,5 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <!--
+      OpenAPI document generation at build time (M1 skeleton plan, Slice 7): the frontend's
+      types are generated from apps/api/openapi/v1.json by Nx target admin:api-types, so the
+      file is regenerated and committed on every API contract change (CI checks for drift,
+      see .github/workflows/ci.yml).
+    -->
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/../../openapi</OpenApiDocumentsDirectory>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\SmartAgri.Infrastructure\SmartAgri.Infrastructure.csproj" />
     <ProjectReference Include="..\SmartAgri.Domain\SmartAgri.Domain.csproj" />
@@ -24,6 +34,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      Built-in OpenAPI document generation (M1 skeleton plan §3, Slice 7): Microsoft.AspNetCore.OpenApi
+      builds the document model; Microsoft.Extensions.ApiDescription.Server's build task writes
+      apps/api/openapi/v1.json (OpenApiDocumentsDirectory above) on every build, which
+      Nx target admin:api-types then turns into frontend types.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- OpenTelemetry traces/metrics/logs; see Observability/OpenTelemetryExtensions.cs. -->
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
@@ -32,5 +56,51 @@
     <PackageReference Include="Npgsql.OpenTelemetry" />
     <InternalsVisibleTo Include="SmartAgri.Api.Tests" />
   </ItemGroup>
+
+  <!--
+    Microsoft.Extensions.ApiDescription.Server's GenerateOpenApiDocuments target runs
+    Program's entry point in-process (via HostFactoryResolver) up to WebApplicationBuilder.Build()
+    to read endpoint metadata — no HTTP request is ever made and the app is never Run(). That
+    still executes AddSmartAgriAuthentication(), which refuses to start outside Development
+    without real token certificates (TokenCredentials.Resolve). Force that one build-time
+    invocation into Development (ephemeral keys, no certs needed) by setting
+    ASPNETCORE_ENVIRONMENT for the dotnet-getdocument child process the vendored target
+    spawns; it only affects this build, never the deployed app (which reads its own
+    environment variable at container/process startup, set by the customer's compose file or
+    orchestrator, regardless of what this build used). Connection strings are equally
+    unaffected: EF Core/Npgsql never opens a connection just from DI registration, so no
+    Postgres needs to be running, and appsettings.Development.json's placeholder
+    "Default" connection string is never dialed. This does not weaken the production check
+    itself — TokenCredentials.Resolve still refuses to start without certificates whenever
+    the environment is not Development.
+  -->
+  <UsingTask TaskName="SmartAgriSetEnvironmentVariable" TaskFactory="RoslynCodeTaskFactory"
+      AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <Name ParameterType="System.String" Required="true" />
+      <Value ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Code Type="Fragment" Language="cs">
+        System.Environment.SetEnvironmentVariable(Name, Value);
+      </Code>
+    </Task>
+  </UsingTask>
+
+  <Target Name="SetOpenApiGenerationEnvironment" BeforeTargets="GenerateOpenApiDocuments">
+    <SmartAgriSetEnvironmentVariable Name="ASPNETCORE_ENVIRONMENT" Value="Development" />
+  </Target>
+
+  <!--
+    dotnet-getdocument names the generated file after the project ("SmartAgri.Api.json"), not
+    the OpenAPI document name; rename it to the committed v1.json (AddOpenApi()'s default
+    document name is "v1", see Program.cs).
+  -->
+  <Target Name="RenameOpenApiDocument" AfterTargets="GenerateOpenApiDocuments"
+      Condition=" Exists('$([System.IO.Path]::Combine($(OpenApiDocumentsDirectory), &quot;$(MSBuildProjectName).json&quot;))') ">
+    <Move
+        SourceFiles="$([System.IO.Path]::Combine($(OpenApiDocumentsDirectory), '$(MSBuildProjectName).json'))"
+        DestinationFiles="$([System.IO.Path]::Combine($(OpenApiDocumentsDirectory), 'v1.json'))" />
+  </Target>
 
 </Project>

@@ -39,9 +39,15 @@ public static class AuthEndpoints
     {
         var auth = endpoints.MapGroup("/api/v1/auth").AllowAnonymous();
 
-        auth.MapGet("/login-options", GetLoginOptionsAsync);
-        auth.MapPost("/login", LoginAsync);
-        auth.MapPost("/logout", (Delegate)LogoutAsync);
+        auth.MapGet("/login-options", GetLoginOptionsAsync)
+            .Produces<LoginOptionsResponse>(StatusCodes.Status200OK);
+
+        auth.MapPost("/login", LoginAsync)
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized);
+
+        auth.MapPost("/logout", (Delegate)LogoutAsync)
+            .Produces(StatusCodes.Status204NoContent);
 
         return endpoints;
     }

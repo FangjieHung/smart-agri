@@ -5,6 +5,34 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/auth/change-password": {
+      "post": {
+        "tags": [
+          "AuthEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/me": {
       "get": {
         "tags": [
@@ -104,6 +132,27 @@
           "external-customer"
         ]
       },
+      "ChangePasswordRequest": {
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ],
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "newPassword": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "LoginOptionsResponse": {
         "required": [
           "organizationCodeRequired"
@@ -165,7 +214,8 @@
           "displayName",
           "role",
           "permissions",
-          "organization"
+          "organization",
+          "passwordChangeRequired"
         ],
         "type": "object",
         "properties": {
@@ -187,6 +237,9 @@
           },
           "organization": {
             "$ref": "#/components/schemas/MeOrganization"
+          },
+          "passwordChangeRequired": {
+            "type": "boolean"
           }
         }
       }
@@ -194,10 +247,10 @@
   },
   "tags": [
     {
-      "name": "MeEndpoints"
+      "name": "AuthEndpoints"
     },
     {
-      "name": "AuthEndpoints"
+      "name": "MeEndpoints"
     }
   ]
 }

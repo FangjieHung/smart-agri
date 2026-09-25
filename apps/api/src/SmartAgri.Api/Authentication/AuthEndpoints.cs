@@ -57,7 +57,10 @@ public static class AuthEndpoints
         // "must change password" gate — it is how the gate is lifted.
         endpoints.MapPost("/api/v1/auth/change-password", ChangePasswordAsync)
             .RequireAuthorization()
-            .AllowWhilePasswordChangeRequired();
+            .AllowWhilePasswordChangeRequired()
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
 
         return endpoints;
     }

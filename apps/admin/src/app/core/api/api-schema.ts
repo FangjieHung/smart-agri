@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+    "/api/v1/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ChangePasswordRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -166,6 +217,10 @@ export interface components {
         AccountPermission: "manage-assistants" | "manage-data-sources" | "manage-publishing" | "read-consented-submissions" | "use-shared-assistants" | "submit-authorized-forms" | "read-own-tracking";
         /** @enum {unknown} */
         AccountRole: "smb-admin" | "internal-employee" | "external-customer";
+        ChangePasswordRequest: {
+            currentPassword: null | string;
+            newPassword: null | string;
+        };
         LoginOptionsResponse: {
             organizationCodeRequired: boolean;
         };
@@ -186,6 +241,7 @@ export interface components {
             role: components["schemas"]["AccountRole"];
             permissions: components["schemas"]["AccountPermission"][];
             organization: components["schemas"]["MeOrganization"];
+            passwordChangeRequired: boolean;
         };
     };
     responses: never;

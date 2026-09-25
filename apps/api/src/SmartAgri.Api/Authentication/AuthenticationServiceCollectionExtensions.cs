@@ -23,6 +23,9 @@ public static class AuthenticationServiceCollectionExtensions
     /// </summary>
     public static readonly TimeSpan SignInCookieLifetime = TimeSpan.FromMinutes(30);
 
+    /// <summary>Minimum length of a password set through Identity.</summary>
+    public const int MinimumPasswordLength = 12;
+
     /// <summary>
     /// ASP.NET Core Identity (accounts, password hashing, lockout, the sign-in cookie),
     /// the OpenIddict server (authorization code + PKCE only) and OpenIddict validation of
@@ -52,11 +55,18 @@ public static class AuthenticationServiceCollectionExtensions
                 // Identity's user name is "{organizationCode}/{loginName}" (authentication ADR).
                 identity.User.AllowedUserNameCharacters += "/";
 
+                // Applies whenever a password is set through Identity (setup's one-time
+                // password, change-password). Identity's default minimum of 6 is too weak
+                // for administrator accounts; the other defaults (digit, lower, upper,
+                // non-alphanumeric) stay on.
+                identity.Password.RequiredLength = MinimumPasswordLength;
+
                 identity.Lockout.AllowedForNewUsers = true;
                 identity.Lockout.MaxFailedAccessAttempts = 5;
                 identity.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             })
             .AddSignInManager()
+            .AddErrorDescriber<LocalizedIdentityErrorDescriber>()
             .AddEntityFrameworkStores<AppDbContext>()
             .AddClaimsPrincipalFactory<AccountClaimsPrincipalFactory>();
 
@@ -174,6 +184,7 @@ public static class AuthenticationServiceCollectionExtensions
         services.AddScoped<IAccountPermissionSource, DatabaseAccountPermissionSource>();
         services.AddScoped<RequestAccountPermissions>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        services.AddScoped<IPasswordChangeRequirementSource, DatabasePasswordChangeRequirementSource>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, ApiAuthorizationResultHandler>();
         services
             .AddAuthorizationBuilder()

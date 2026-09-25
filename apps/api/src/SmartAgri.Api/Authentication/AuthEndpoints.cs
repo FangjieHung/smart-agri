@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Tenancy;
 using SmartAgri.Domain.Accounts;
@@ -19,6 +20,9 @@ public sealed record LoginOptionsResponse(bool OrganizationCodeRequired);
 /// <summary><c>POST /api/v1/auth/login</c> request.</summary>
 /// <param name="OrganizationCode">May be omitted only when exactly one organization exists.</param>
 public sealed record LoginRequest(string? OrganizationCode, string? LoginName, string? Password);
+
+/// <summary><c>POST /api/v1/auth/change-password</c> request.</summary>
+public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 
 /// <summary>
 /// Sign-in endpoints used by the Angular login page. A successful login only sets the
@@ -48,6 +52,15 @@ public static class AuthEndpoints
 
         auth.MapPost("/logout", (Delegate)LogoutAsync)
             .Produces(StatusCodes.Status204NoContent);
+
+        // Outside the anonymous group: it needs the caller's bearer token. Exempt from the
+        // "must change password" gate — it is how the gate is lifted.
+        endpoints.MapPost("/api/v1/auth/change-password", ChangePasswordAsync)
+            .RequireAuthorization()
+            .AllowWhilePasswordChangeRequired()
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
 
         return endpoints;
     }
@@ -123,11 +136,113 @@ public static class AuthEndpoints
         return Results.NoContent();
     }
 
+    /// <summary>
+    /// Replaces the signed-in account's password and clears
+    /// <see cref="Account.PasswordChangeRequired"/>; <c>204</c> on success. The new password
+    /// must pass Identity's rules and differ from the current one. Identity also rotates
+    /// the security stamp, so the old password and any sign-in cookie issued before stop
+    /// working (the access token in hand keeps working until it expires, now ungated).
+    /// </summary>
+    /// <remarks>
+    /// Errors, following the API's error rules:
+    /// <list type="bullet">
+    /// <item><c>422</c> with <c>errors.currentPassword</c> — blank or wrong current password.
+    /// The caller is already authenticated as this account, so saying "wrong" reveals
+    /// nothing, and <c>401</c> would make the SPA drop the session over a typo. A wrong
+    /// current password still counts as a failed sign-in towards lockout.</item>
+    /// <item><c>422</c> with <c>errors.newPassword</c> — blank, same as the current one, or
+    /// rejected by Identity's password rules (one message per broken rule).</item>
+    /// <item><c>401</c> (no body) — no usable token, the account no longer exists, or it is
+    /// locked out (including by this attempt): it can no longer sign in, so the SPA goes
+    /// back to the login page.</item>
+    /// </list>
+    /// </remarks>
+    internal static async Task<IResult> ChangePasswordAsync(
+        ChangePasswordRequest request,
+        HttpContext httpContext,
+        SignInManager<Account> signInManager)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } accountId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        // Loaded under the organization filter of the token's org_id, tracked, so Identity
+        // can write it back.
+        var userManager = signInManager.UserManager;
+        var account = await userManager.FindByIdAsync(accountId.ToString("D"));
+        if (account is null)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var currentPassword = request.CurrentPassword ?? string.Empty;
+        var newPassword = request.NewPassword ?? string.Empty;
+
+        var blank = new Dictionary<string, string[]>();
+        if (currentPassword.Length == 0)
+        {
+            blank[CurrentPasswordField] = ["請輸入目前密碼。"];
+        }
+
+        if (newPassword.Length == 0)
+        {
+            blank[NewPasswordField] = ["請輸入新密碼。"];
+        }
+
+        if (blank.Count > 0)
+        {
+            return PasswordNotChanged(blank);
+        }
+
+        var check = await signInManager.CheckPasswordSignInAsync(account, currentPassword, lockoutOnFailure: true);
+        if (check.IsLockedOut || check.IsNotAllowed)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        if (!check.Succeeded)
+        {
+            return PasswordNotChanged(CurrentPasswordField, [userManager.ErrorDescriber.PasswordMismatch().Description]);
+        }
+
+        if (string.Equals(newPassword, currentPassword, StringComparison.Ordinal))
+        {
+            return PasswordNotChanged(NewPasswordField, ["新密碼不可與目前密碼相同。"]);
+        }
+
+        // Cleared before ChangePasswordAsync so the flag and the new hash are saved in the
+        // same UPDATE; if Identity rejects the new password nothing is saved at all.
+        var wasRequired = account.PasswordChangeRequired;
+        account.ClearPasswordChangeRequirement();
+        var result = await userManager.ChangePasswordAsync(account, currentPassword, newPassword);
+        if (!result.Succeeded)
+        {
+            if (wasRequired)
+            {
+                account.RequirePasswordChange();
+            }
+
+            return PasswordNotChanged(NewPasswordField, [.. result.Errors.Select(error => error.Description)]);
+        }
+
+        return Results.NoContent();
+    }
+
     internal static async Task<IResult> LogoutAsync(HttpContext httpContext)
     {
         await httpContext.SignOutAsync(IdentityConstants.ApplicationScheme);
         return Results.NoContent();
     }
+
+    private const string CurrentPasswordField = "currentPassword";
+    private const string NewPasswordField = "newPassword";
+
+    private static IResult PasswordNotChanged(string field, string[] errors) =>
+        PasswordNotChanged(new Dictionary<string, string[]> { [field] = errors });
+
+    private static IResult PasswordNotChanged(IReadOnlyDictionary<string, string[]> errors) =>
+        ApiErrors.ValidationFailed("密碼沒有變更。", errors);
 
     private static async Task<string?> GetSoleOrganizationCodeAsync(AppDbContext dbContext, CancellationToken cancellationToken)
     {

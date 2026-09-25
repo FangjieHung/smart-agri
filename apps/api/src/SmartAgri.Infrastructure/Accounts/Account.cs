@@ -38,6 +38,14 @@ public class Account : IdentityUser<Guid>, IOrganizationScoped
 
     public AccountRole Role { get; private set; }
 
+    /// <summary>
+    /// The account signs in with a password someone else chose (the one-time password
+    /// printed by the <c>setup</c> command) and must set its own before using anything
+    /// but <c>GET /api/v1/me</c> and <c>POST /api/v1/auth/change-password</c>. Read from
+    /// the database on every request, like permissions, never carried in a token.
+    /// </summary>
+    public bool PasswordChangeRequired { get; private set; }
+
     public static Account Create(Organization organization, string loginName, string displayName, AccountRole role)
     {
         ArgumentNullException.ThrowIfNull(organization);
@@ -64,6 +72,14 @@ public class Account : IdentityUser<Guid>, IOrganizationScoped
         account.SetLoginName(organization.Code, loginName);
         return account;
     }
+
+    /// <summary>Marks the account's current password as temporary (see
+    /// <see cref="PasswordChangeRequired"/>).</summary>
+    public void RequirePasswordChange() => PasswordChangeRequired = true;
+
+    /// <summary>Clears <see cref="PasswordChangeRequired"/>; only after the account has
+    /// set a password of its own.</summary>
+    public void ClearPasswordChangeRequirement() => PasswordChangeRequired = false;
 
     /// <summary>
     /// Same rule as Identity's default <c>UpperInvariantLookupNormalizer</c>, so the

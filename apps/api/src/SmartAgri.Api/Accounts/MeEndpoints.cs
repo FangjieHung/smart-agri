@@ -9,13 +9,17 @@ namespace SmartAgri.Api.Accounts;
 
 /// <summary><c>GET /api/v1/me</c> response. <see cref="Role"/> and
 /// <see cref="Permissions"/> serialize as the frontend's kebab-case strings
-/// (<c>account.model.ts</c>); permissions are in <c>ACCOUNT_PERMISSIONS</c> order.</summary>
+/// (<c>account.model.ts</c>); permissions are in <c>ACCOUNT_PERMISSIONS</c> order.
+/// <see cref="PasswordChangeRequired"/> is true while the account still has its one-time
+/// password from <c>setup</c>: the SPA must then send the user to set a new password
+/// (every other protected endpoint answers <c>403 password-change-required</c>).</summary>
 public sealed record MeResponse(
     Guid Id,
     string DisplayName,
     AccountRole Role,
     IReadOnlyList<AccountPermission> Permissions,
-    MeOrganization Organization);
+    MeOrganization Organization,
+    bool PasswordChangeRequired);
 
 public sealed record MeOrganization(Guid Id, string Name);
 
@@ -25,6 +29,7 @@ public static class MeEndpoints
     {
         endpoints.MapGet("/api/v1/me", GetMeAsync)
             .RequireAuthorization()
+            .AllowWhilePasswordChangeRequired()
             .Produces<MeResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
         return endpoints;
@@ -50,7 +55,7 @@ public static class MeEndpoints
         var account = await dbContext.Accounts
             .AsNoTracking()
             .Where(candidate => candidate.Id == accountId)
-            .Select(candidate => new { candidate.Id, candidate.DisplayName, candidate.Role, candidate.OrganizationId })
+            .Select(candidate => new { candidate.Id, candidate.DisplayName, candidate.Role, candidate.OrganizationId, candidate.PasswordChangeRequired })
             .SingleOrDefaultAsync(cancellationToken);
         if (account is null)
         {
@@ -70,6 +75,7 @@ public static class MeEndpoints
             account.DisplayName,
             account.Role,
             RequestAccountPermissions.Ordered(granted),
-            organization));
+            organization,
+            account.PasswordChangeRequired));
     }
 }

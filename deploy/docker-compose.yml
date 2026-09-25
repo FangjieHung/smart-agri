@@ -1,6 +1,9 @@
 # Customer self-hosted deployment (see on-prem-packaging ADR): api + postgres, no
 # monitoring services. Copy deploy/.env.example to deploy/.env and set a real
 # POSTGRES_PASSWORD before running `docker compose -f deploy/docker-compose.yml up --build`.
+# First install: create the first organization and administrator once with
+# `docker compose -f deploy/docker-compose.yml run --rm api setup` (see apps/api/README.md,
+# "First install").
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg18

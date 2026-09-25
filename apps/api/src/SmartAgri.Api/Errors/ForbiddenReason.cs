@@ -8,7 +8,8 @@ namespace SmartAgri.Api.Errors;
 /// whether it exists.
 /// </summary>
 /// <remarks>
-/// Add reasons here as their endpoints are built (M1 only needs <see cref="Team"/>); keep
+/// Add reasons here as their endpoints are built (M1 needs <see cref="Team"/> and
+/// <see cref="PasswordChangeRequired"/>); keep
 /// the wire name and message identical to the frontend's mock
 /// (<c>mock-demo-repository.ts</c>).
 /// </remarks>
@@ -19,6 +20,16 @@ public sealed class ForbiddenReason
     public static readonly ForbiddenReason Team = new(
         "team",
         "只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。");
+
+    /// <summary>
+    /// The account still has the one-time password from <c>setup</c>: until it sets its own
+    /// (<c>POST /api/v1/auth/change-password</c>), every protected endpoint except
+    /// <c>GET /api/v1/me</c> answers with this (see <c>PasswordChangeGate</c>). New in
+    /// ticket #8; the frontend adds it to its union with the change-password page (#12).
+    /// </summary>
+    public static readonly ForbiddenReason PasswordChangeRequired = new(
+        "password-change-required",
+        "請先設定新密碼，才能使用其他功能。");
 
     /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason

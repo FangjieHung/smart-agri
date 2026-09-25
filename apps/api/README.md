@@ -6,7 +6,7 @@
 ```
 src/SmartAgri.Domain/          entities, enums; no third-party dependencies
 src/SmartAgri.Infrastructure/  AppDbContext, Identity accounts, migrations, health checks
-src/SmartAgri.Api/             Minimal API, sign-in (Identity + OpenIddict), Dockerfile, migrate subcommand
+src/SmartAgri.Api/             Minimal API, sign-in (Identity + OpenIddict), Dockerfile, migrate + setup subcommands
 tests/SmartAgri.Domain.Tests/  unit tests, no Docker needed
 tests/SmartAgri.Api.Tests/     integration tests; some need Docker (see below)
 ```
@@ -51,7 +51,8 @@ public client, `admin-spa`:
 4. `POST /connect/token` (code + `code_verifier`) → a 30-minute access token (signed
    JWT) and an identity token. No refresh tokens.
 5. API calls send `Authorization: Bearer <access token>`; the Api validates its own
-   tokens. `GET /api/v1/me` → `{ id, displayName, role, permissions[], organization }`.
+   tokens. `GET /api/v1/me` →
+   `{ id, displayName, role, permissions[], organization, passwordChangeRequired }`.
 
 `/connect/endsession` and `/connect/userinfo` are also available. The access token only
 carries `sub`, `org_id` and `role`; **permissions are read from the database on every
@@ -62,6 +63,33 @@ signed-in caller unless it opts out with `AllowAnonymous()`.
 Errors: `401` has no body; `403` is ProblemDetails plus `reason` and `message`, and
 "not found" is the very same `403` (`ApiErrors.NotFound` = `ApiErrors.Forbidden`);
 `422` is ProblemDetails plus `message` and `errors`.
+
+**Must change password.** An account created by `setup` (below) carries
+`PasswordChangeRequired`. Like permissions, the flag is read from the database on every
+request, never from the token. While it is set, every protected endpoint except
+`GET /api/v1/me` and `POST /api/v1/auth/change-password` answers
+`403` `reason: password-change-required` (and this takes precedence over any
+permission `403`). Anonymous endpoints (sign-in, `/connect/*`, health) are not gated, so
+the account can still sign in and get the token it needs to change its password. New
+endpoints are gated automatically; to exempt one, add `.AllowWhilePasswordChangeRequired()`
+(`Authorization/PasswordChangeGate.cs`, enforced in `ApiAuthorizationResultHandler`).
+
+`POST /api/v1/auth/change-password` `{ currentPassword, newPassword }` (bearer token) →
+`204`. It clears the flag and rotates the security stamp, so the old password and any
+earlier sign-in cookie stop working; the access token in hand keeps working, now
+ungated, until it expires. Errors:
+
+| Status | When |
+| --- | --- |
+| `422` `errors.currentPassword` | blank or wrong current password (a wrong one also counts towards lockout) |
+| `422` `errors.newPassword` | blank, same as the current one, or breaks a password rule (one message per rule) |
+| `401` (no body) | no usable token, account gone, or account locked out (including by this attempt) |
+
+A wrong current password is `422`, not `401`: the caller is already authenticated, and
+`401` would make the SPA drop the session over a typo. Password rules for any password
+set through Identity: at least 12 characters, with an upper-case letter, a lower-case
+letter, a digit and a symbol. Identity's messages are in Traditional Chinese
+(`LocalizedIdentityErrorDescriber`).
 
 **The `admin-spa` client** is written to the database by the `migrate` subcommand (never
 on web startup), from `Authentication:AdminSpa:Origins` — each origin gets
@@ -272,6 +300,61 @@ every checked-in file.
 cp deploy/.env.example deploy/.env   # then set a real POSTGRES_PASSWORD
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/health/ready
+```
+
+## First install: `setup`
+
+A fresh deployment has no organization and no account. The first organization and its
+administrator are created once with the `setup` subcommand (on-prem-packaging ADR) —
+never by seed data, a web wizard or a password in configuration:
+
+1. Prepare `deploy/.env` (real `POSTGRES_PASSWORD`, `ADMIN_SPA_ORIGIN`, certificate
+   passwords) and put `signing.pfx` / `encryption.pfx` in `deploy/certs/` (see "Sign-in
+   and tokens"). `setup` builds the same host as the web server, so outside Development
+   it also refuses to run without the certificates.
+2. Build the image and create the schema:
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env build
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api migrate
+   ```
+   (Optional: the container entrypoint runs `migrate` before `setup` anyway, and before
+   every normal start.)
+3. Run `setup` in a terminal and answer the questions (organization name, organization
+   code, administrator login name, display name):
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api setup
+   ```
+   or non-interactively (all three flags are then required; the display name defaults to
+   the login name):
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -T api setup \
+     --organization-name "安心農場" --organization-code anxin \
+     --admin-login admin --admin-display-name "王小明"
+   ```
+   The organization code (`a-z`, `0-9`, `-`, at most 32) is typed at every login when a
+   deployment has several organizations, and **cannot be changed later**. The login
+   name is ASCII (letters, digits, `- . _ @ +`, at most 64). `setup --help` prints the
+   details.
+4. `setup` prints a **one-time password once** and exits (it never starts the web
+   server). Copy it now: it is not written to any file, log or telemetry and cannot be
+   shown again. It goes to the container's stdout, which `run --rm` discards with the
+   container; if the Docker daemon ships container output to a remote logging driver,
+   keep this in mind.
+5. Start the stack (`docker compose ... up -d`), sign in to the admin SPA as the
+   administrator with the one-time password, and set a new password when asked. Until
+   then the API only allows `GET /api/v1/me` and `POST /api/v1/auth/change-password`.
+
+`setup` refuses (exit code 1, nothing changed) when any organization already exists or
+when migrations are pending; bad or missing arguments exit with 2. The administrator
+gets role `smb-admin` and all seven permissions. Organization, account and permissions
+are written in one serializable transaction, so two concurrent runs cannot both
+succeed.
+
+Locally, against `deploy/docker-compose.dev.yml`'s database:
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- migrate
+dotnet run --project apps/api/src/SmartAgri.Api -- setup
 ```
 
 ## Running tests

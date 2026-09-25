@@ -22,6 +22,19 @@ public class AccountTests
         account.Id.ShouldNotBe(Guid.Empty);
     }
 
+    [Fact]
+    public void Password_change_requirement_is_off_by_default_and_can_be_set_and_cleared()
+    {
+        var account = Account.Create(Farm, "admin", "系統管理員", AccountRole.SmbAdmin);
+        account.PasswordChangeRequired.ShouldBeFalse();
+
+        account.RequirePasswordChange();
+        account.PasswordChangeRequired.ShouldBeTrue();
+
+        account.ClearPasswordChangeRequirement();
+        account.PasswordChangeRequired.ShouldBeFalse();
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("  ")]

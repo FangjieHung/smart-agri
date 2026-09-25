@@ -102,6 +102,15 @@ public class AuthHostFixture : IAsyncLifetime
         return account;
     }
 
+    /// <summary>Flags <paramref name="account"/> as "must change password" (as <c>setup</c> does).</summary>
+    public async Task RequirePasswordChangeAsync(Account account)
+    {
+        await using var dbContext = _postgres.CreateDbContext(account.OrganizationId);
+        var tracked = await dbContext.Accounts.SingleAsync(candidate => candidate.Id == account.Id);
+        tracked.RequirePasswordChange();
+        await dbContext.SaveChangesAsync();
+    }
+
     private sealed class AuthApiFactory : WebApplicationFactory<Program>
     {
         private readonly string _connectionString;
@@ -119,7 +128,7 @@ public class AuthHostFixture : IAsyncLifetime
             builder.UseSetting("ConnectionStrings:Default", _connectionString);
             builder.UseSetting("Authentication:AdminSpa:Origins:0", SpaOrigin);
             builder.UseSetting(DevelopmentSeeder.PasswordConfigurationKey, SeedDemoPassword);
-            builder.ConfigureServices(services => services.AddSingleton(_clock));
+            builder.ConfigureServices(services => services.AddSingleton(_clock).AddProtectedProbeEndpoint());
         }
     }
 }
@@ -224,6 +233,29 @@ public sealed class SpaClient : IDisposable
         var body = await response.Content.ReadAsStringAsync(CancellationToken);
         response.StatusCode.ShouldBe(HttpStatusCode.OK, body);
         return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    /// <summary>GET with the bearer token.</summary>
+    public async Task<HttpResponseMessage> GetAsync(string path, string accessToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        return await Http.SendAsync(request, CancellationToken);
+    }
+
+    /// <summary><c>POST /api/v1/auth/change-password</c> with the bearer token (none when <see langword="null"/>).</summary>
+    public async Task<HttpResponseMessage> ChangePasswordAsync(string? accessToken, string? currentPassword, string? newPassword)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/change-password")
+        {
+            Content = JsonContent.Create(new { currentPassword, newPassword }),
+        };
+        if (accessToken is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        }
+
+        return await Http.SendAsync(request, CancellationToken);
     }
 
     public static string NewCodeVerifier() => WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));

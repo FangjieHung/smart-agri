@@ -9,7 +9,8 @@ namespace SmartAgri.Api.Seeding;
 public static class DevelopmentSeedingServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers <see cref="DevelopmentSeeder"/> only in Development. Outside Development
+    /// Registers <see cref="DevelopmentSeeder"/> and <see cref="DemoKnowledgeSeeder"/> only in
+    /// Development. Outside Development
     /// (including the integration-test host started with
     /// <c>ASPNETCORE_ENVIRONMENT=Production</c>) it is simply not in the container, so
     /// <see cref="SeedDevelopmentDataAsync"/> is a no-op and there is no path that seeds a
@@ -26,13 +27,15 @@ public static class DevelopmentSeedingServiceCollectionExtensions
         if (environment.IsDevelopment())
         {
             services.AddScoped<DevelopmentSeeder>();
+            services.AddScoped<DemoKnowledgeSeeder>();
         }
 
         return services;
     }
 
     /// <summary>
-    /// Runs <see cref="DevelopmentSeeder"/> if (and only if) it is registered for
+    /// Runs <see cref="DevelopmentSeeder"/>, then <see cref="DemoKnowledgeSeeder"/> (which needs
+    /// its organization and account), if (and only if) they are registered for
     /// <paramref name="services"/> — i.e. in Development. A no-op everywhere else,
     /// including Production, so callers (the <c>migrate</c> subcommand) can call this
     /// unconditionally.
@@ -42,6 +45,11 @@ public static class DevelopmentSeedingServiceCollectionExtensions
         if (services.GetService<DevelopmentSeeder>() is { } seeder)
         {
             await seeder.SeedAsync(cancellationToken);
+        }
+
+        if (services.GetService<DemoKnowledgeSeeder>() is { } knowledge)
+        {
+            await knowledge.SeedAsync(cancellationToken);
         }
     }
 }

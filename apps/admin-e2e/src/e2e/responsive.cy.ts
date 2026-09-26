@@ -36,9 +36,29 @@ function expectNoHorizontalOverflow(route: string, viewportWidth: number): void 
     const root = doc.documentElement;
     expect(
       root.scrollWidth,
-      `${route} 在 ${root.clientWidth}px 下的 scrollWidth`,
+      `${route} 在 ${root.clientWidth}px 下的 scrollWidth（超出的元素：${overflowingElements(doc)}）`,
     ).to.be.at.most(root.clientWidth);
   });
+}
+
+/** 列出右緣超出 viewport、而且不在自己的水平捲動區裡的元素，讓 CI 上的失敗訊息直接指出是誰。 */
+function overflowingElements(doc: Document): string {
+  const limit = doc.documentElement.clientWidth + 0.5;
+  const win = doc.defaultView as Window;
+  const insideScroller = (el: Element): boolean => {
+    for (let node = el.parentElement; node && node !== doc.body; node = node.parentElement) {
+      if (win.getComputedStyle(node).overflowX !== 'visible') return true;
+    }
+    return false;
+  };
+  const found = Array.from(doc.body.querySelectorAll('*'))
+    .filter((el) => el.getBoundingClientRect().right > limit && !insideScroller(el))
+    .slice(0, 5)
+    .map((el) => {
+      const classes = Array.from(el.classList).slice(0, 2).map((name) => `.${name}`).join('');
+      return `${el.tagName.toLowerCase()}${classes} 右緣 ${Math.round(el.getBoundingClientRect().right)}px`;
+    });
+  return found.length > 0 ? found.join('、') : '無';
 }
 
 describe('responsive layout', () => {
@@ -96,6 +116,10 @@ describe('responsive layout', () => {
         cy.get('.app-sidenav').should('not.be.visible');
 
         cy.get('.menu-toggle').click();
+        // 開啟動畫進行中時 Cypress 會把抽屜判定成被父層裁切；CI 機器較慢，先等動畫結束。
+        cy.get('.app-sidenav', { timeout: 10000 })
+          .should('have.class', 'mat-drawer-opened')
+          .and('not.have.class', 'mat-drawer-animating');
         cy.get('.app-sidenav').should('be.visible');
         cy.contains('.app-sidenav a', '知識庫').click();
 

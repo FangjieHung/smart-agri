@@ -69,6 +69,7 @@ function browserSessionStorage(): DemoKeyValueStorage | undefined {
 
 function toIdentity(me: MeResponse): ApiIdentity {
   return {
+    accountId: me.id,
     demoAccountId: DEMO_ACCOUNT_BY_ROLE[me.role],
     displayName: me.displayName,
     permissions: me.permissions,

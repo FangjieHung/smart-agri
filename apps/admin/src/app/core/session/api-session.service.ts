@@ -24,6 +24,15 @@ export interface ApiIdentity {
   readonly displayName: string;
   readonly permissions: readonly AccountPermission[];
   readonly passwordChangeRequired: boolean;
+  /**
+   * `/me` 回傳的真實組織與帳號 GUID（不是 `demoAccountId` 那個角色對應的 Demo id）。
+   * `HybridDemoRepository` 用它們在 API 模式為 mock storage 的鍵值加前綴，讓不同組織、
+   * 同組織中不同帳號的模擬資料不會互相碰撞（見 `scoped-storage.ts`）。選填是為了不強迫
+   * 既有測試裡只關心角色／權限的最小假身分也要補上這兩個欄位；正式的 `toIdentity()`
+   * （`http-session-backend.ts`）一定會填。
+   */
+  readonly organizationId?: string;
+  readonly accountId?: string;
 }
 
 /** `redirecting`：瀏覽器即將離開這個頁面去完成 authorize。 */

@@ -481,6 +481,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.AI.Abstractions": "[10.10.1, )",
+          "Microsoft.Extensions.VectorData.Abstractions": "[10.10.0, )",
           "SmartAgri.Domain": "[1.0.0, )"
         }
       },

@@ -51,6 +51,7 @@
      ```
      實際的設定鍵名與載入方式，以 #41 完成後 `apps/api/README.md` 的說明為準。
   3. 完成後告知 Claude 檔案位置即可；Claude 只確認變數是否存在，不讀取或顯示金鑰內容。
+- **補做時的指令：** 見 `apps/api/eval/retrieval/README.md` 的「Evaluating retrieval」（PR #68）。
 - **補做時 Claude 會做的事：** 完成 #41 的「本機以真實端點處理一份 PDF，並在 Aspire 儀表板看到嵌入呼叫」，以及 #50 的 OpenAI 評測，並依結果決定 `Retrieval:MinScore` 的預設值（這個調整需另開 PR）。
 
 ## 4. 本機評測用的多語嵌入模型
@@ -60,7 +61,7 @@
   - 下載一個非中國團隊、寬鬆授權的多語嵌入模型（預定 Microsoft 的 `multilingual-e5-large`，MIT，約 2 GB）。
   - 以 Docker 啟動一個 OpenAI 相容的嵌入服務（選項為 Hugging Face 的 text-embeddings-inference 或 vLLM，實際採用時再查授權與版本）。
   - 執行期間約佔用 3–4 GB 記憶體。啟動前 Claude 會先檢查 swap 用量；記憶體不足時會停止並回報，不會硬起服務。
-- **做法：** 在對話中回覆同意即可。評測結束後，Claude 會停掉服務並說明模型快取的位置，由你決定是否刪除。
+- **做法：** 在對話中回覆同意即可。啟動與評測指令見 `apps/api/eval/retrieval/README.md`（PR #68）；FAQ 一則可能長達約 4500 字，超過 e5 的 512 token 上限，評測時要一併檢查（PR #67）。評測結束後，Claude 會停掉服務並說明模型快取的位置，由你決定是否刪除。
 
 ## 5. GitGuardian 誤報（M1 遺留）
 

@@ -16,12 +16,14 @@ import type {
   UpdateMemberPermissionsResult,
 } from './demo-repository';
 import type { DemoSeed } from './demo-seed';
+import { createMemoryStorage } from './memory-storage';
 import {
   MockDemoRepository,
   TEAM_PERMISSION_DENIED_MESSAGE,
   type AccountPermissionOverrides,
   type MockDemoRepositoryOptions,
 } from './mock-demo-repository';
+import { createScopedStorage, type StorageIdentity } from './scoped-storage';
 
 type TeamResponse = components['schemas']['TeamResponse'];
 type UpdateMemberPermissionsRequest = components['schemas']['UpdateMemberPermissionsRequest'];
@@ -55,6 +57,12 @@ export interface ApiViewerPermissions {
   readonly accountId: string;
   readonly demoAccountId: AccountId;
   readonly permissions: readonly AccountPermission[];
+  /**
+   * `/me` 的真實組織 GUID，與 `accountId` 一起為 API 模式的 mock storage 鍵值加前綴
+   * （見 `scoped-storage.ts`）。選填是為了不強迫既有只關心權限的測試假身分也要補上；
+   * 正式的 `HttpSessionBackend.restore()` 一定會填（`ApiIdentity` 的同名欄位）。
+   */
+  readonly organizationId?: string;
 }
 
 export interface HybridDemoRepositoryDeps {
@@ -110,8 +118,22 @@ export class HybridDemoRepository extends MockDemoRepository {
 
   constructor(seed: DemoSeed, options: MockDemoRepositoryOptions, deps: HybridDemoRepositoryDeps) {
     const ownFromTeam: OwnPermissionsFromTeam = { accountId: null, permissions: null };
+    // 以真實組織／帳號 GUID 為 mock storage 的鍵值加前綴：兩個組織、或同組織中同角色的
+    // 兩個帳號，共用同一瀏覽器時不會讀到彼此的草稿、對話等模擬資料（見 scoped-storage.ts）。
+    // `deps.viewerPermissions` 在每次呼叫時才讀取，所以即使 repository 在登入前就已由
+    // DI 建立，storage 也一定看到「目前」的身分，不是建構當下（那時通常還沒登入）。
+    const storage = createScopedStorage(
+      options.storage ?? createMemoryStorage(),
+      (): StorageIdentity | null => {
+        const viewer = deps.viewerPermissions();
+        return viewer?.organizationId !== undefined
+          ? { organizationId: viewer.organizationId, accountId: viewer.accountId }
+          : null;
+      },
+    );
     super(seed, {
       ...options,
+      storage,
       accountsSource: () => viewerOverride(deps.viewerPermissions(), ownFromTeam),
     });
     this.http = deps.http;

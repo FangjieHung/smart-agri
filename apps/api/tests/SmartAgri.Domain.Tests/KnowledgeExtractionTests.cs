@@ -88,6 +88,28 @@ public class KnowledgeExtractionTests
     }
 
     [Fact]
+    public void A_chunk_starts_without_a_vector_and_takes_one_with_the_model_that_made_it()
+    {
+        var chunk = KnowledgeChunk.Create(Processing(), 0, 0, "第 1 頁", "退款將於五個工作天內退回。");
+        (chunk.Embedding, chunk.EmbeddingModel).ShouldBe((null, null));
+
+        chunk.SetEmbedding([0.6f, 0.8f], "text-embedding-3-small");
+        chunk.Embedding.ShouldBe([0.6f, 0.8f]);
+        chunk.EmbeddingModel.ShouldBe("text-embedding-3-small");
+
+        chunk.SetEmbedding([1f, 0f, 0f], "multilingual-e5-large");
+        (chunk.Embedding!.Length, chunk.EmbeddingModel).ShouldBe((3, "multilingual-e5-large"));
+
+        Should.Throw<ArgumentException>(() => chunk.SetEmbedding([], "m"));
+        Should.Throw<ArgumentException>(() => chunk.SetEmbedding([0f, 0f], "m"));
+        Should.Throw<ArgumentException>(() => chunk.SetEmbedding([float.NaN, 1f], "m"));
+        Should.Throw<ArgumentException>(() => chunk.SetEmbedding([float.PositiveInfinity, 1f], "m"));
+        Should.Throw<ArgumentException>(() => chunk.SetEmbedding([1f], " "));
+        Should.Throw<ArgumentException>(() => chunk.SetEmbedding([1f], new string('m', KnowledgeChunk.EmbeddingModelMaxLength + 1)));
+        chunk.EmbeddingModel.ShouldBe("multilingual-e5-large", "a refused vector changes nothing");
+    }
+
+    [Fact]
     public void An_exclusion_change_is_logged_with_the_chunk_id_only()
     {
         var chunk = KnowledgeChunk.Create(Processing(), 0, 0, "第 1 頁", "封面：安心商行退換貨政策");

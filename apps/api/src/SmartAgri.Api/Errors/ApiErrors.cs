@@ -19,8 +19,9 @@ namespace SmartAgri.Api.Errors;
 /// <item><term><c>422</c></term><description>ProblemDetails + <c>message</c> +
 /// <c>errors</c>; plus a <c>reason</c> when the frontend has to tell refusals of the same
 /// field apart (<see cref="WithReason"/>).</description></item>
-/// <item><term><c>409</c>, <c>413</c>, <c>415</c></term><description>ProblemDetails +
-/// <c>reason</c> + <c>message</c> (<see cref="WithReason"/>).</description></item>
+/// <item><term><c>409</c>, <c>413</c>, <c>415</c>, <c>503</c></term><description>ProblemDetails +
+/// <c>reason</c> + <c>message</c> (<see cref="WithReason"/>). <c>503</c> is a dependency the
+/// request needs being unavailable (the embedding model): try again later.</description></item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -48,6 +49,7 @@ public static class ApiErrors
         [StatusCodes.Status413PayloadTooLarge] = ("https://tools.ietf.org/html/rfc9110#section-15.5.14", "Content Too Large"),
         [StatusCodes.Status415UnsupportedMediaType] = ("https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type"),
         [StatusCodes.Status422UnprocessableEntity] = ("https://tools.ietf.org/html/rfc9110#section-15.5.21", "Unprocessable Content"),
+        [StatusCodes.Status503ServiceUnavailable] = ("https://tools.ietf.org/html/rfc9110#section-15.6.4", "Service Unavailable"),
     };
 
     /// <summary><c>401</c> with no body.</summary>
@@ -99,7 +101,7 @@ public static class ApiErrors
 
     /// <summary>
     /// A refusal the caller can understand and act on: <paramref name="statusCode"/> (409,
-    /// 413, 415 or 422) with a machine-readable <paramref name="reason"/> (kebab-case, for
+    /// 413, 415, 422 or 503) with a machine-readable <paramref name="reason"/> (kebab-case, for
     /// the frontend to switch on) and a <paramref name="message"/> to show as is. A
     /// <c>422</c> also names <paramref name="field"/> in <c>errors</c>, like
     /// <see cref="ValidationFailed(string, IReadOnlyDictionary{string, string[]})"/>, so a

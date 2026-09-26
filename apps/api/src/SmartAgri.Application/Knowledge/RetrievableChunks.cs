@@ -36,7 +36,8 @@ namespace SmartAgri.Application.Knowledge;
 /// <c>collection.SearchAsync(questionVector, top, new() { Filter = RetrievableChunks.InKnowledgeBase(knowledgeBaseId, clock.GetUtcNow(), settings.Model) })</c>,
 /// with <c>settings</c> the scope's <see cref="Embeddings.KnowledgeEmbeddingSettings"/> — the
 /// model the collection itself searches. Search results do not load the navigations: read
-/// document names and version numbers separately by the results' ids.
+/// document names and version numbers separately by the results' ids. <c>KnowledgeRetriever</c>
+/// (Slice 9) does all of this — callers search through it, with <see cref="InKnowledgeBases"/>.
 /// </para>
 /// <para>
 /// "Latest" means the latest <c>EffectiveFrom</c> not after <c>now</c>, then the higher version
@@ -86,6 +87,63 @@ public static class RetrievableChunks
         return And(inKnowledgeBase, Rule(now, embeddingModel));
     }
 
+    /// <summary>
+    /// The versions the retrieval preview adds when asked to include pending ones (#43): for each
+    /// document, at most one — its <b>newest approvable version</b>, i.e. the highest-numbered
+    /// version still pending review and processed <c>ready</c> or <c>partially-readable</c>.
+    /// That is the version the owner is about to approve; a newer upload still queued,
+    /// processing or failed has no chunks and cannot be approved, so it does not hide it. An
+    /// older pending version than the one in effect counts too: approving it now would put it
+    /// in effect (see the remarks on "latest").
+    /// </summary>
+    public static Expression<Func<KnowledgeDocumentVersion, bool>> NewestApprovablePendingVersion() =>
+        version => version.ReviewState == KnowledgeReviewState.PendingReview
+            && (version.ProcessingStatus == KnowledgeDocumentStatus.Ready
+                || version.ProcessingStatus == KnowledgeDocumentStatus.PartiallyReadable)
+            && !version.Document!.Versions.Any(later =>
+                later.ReviewState == KnowledgeReviewState.PendingReview
+                && (later.ProcessingStatus == KnowledgeDocumentStatus.Ready
+                    || later.ProcessingStatus == KnowledgeDocumentStatus.PartiallyReadable)
+                && later.VersionNumber > version.VersionNumber);
+
+    /// <summary>
+    /// <see cref="Rule"/>, plus the chunks of each document's
+    /// <see cref="NewestApprovablePendingVersion"/>: <b>for the retrieval preview only</b>
+    /// (<c>includePending</c>), so an owner sees what a pending version would be cited for
+    /// before approving it. Never for answering — nothing unapproved may be cited (plan §3).
+    /// Everything else still applies to the pending chunks: not excluded, the configured
+    /// model, and <b>the document not disabled</b> — an emergency disable stops everything of
+    /// the document in every mode, and approving a pending version of a disabled document would
+    /// not make it citable until the document is enabled either.
+    /// </summary>
+    public static Expression<Func<KnowledgeChunk, bool>> RuleIncludingPending(DateTimeOffset now, string embeddingModel)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(embeddingModel);
+        Expression<Func<KnowledgeChunk, bool>> chunkAndDocument = chunk =>
+            !chunk.Excluded
+            && chunk.EmbeddingModel == embeddingModel
+            && chunk.Version!.Document!.DisabledAt == null;
+        return And(chunkAndDocument, Or(OnChunkVersion(CurrentEffectiveVersion(now)), OnChunkVersion(NewestApprovablePendingVersion())));
+    }
+
+    /// <summary>
+    /// <see cref="Rule"/> — or, with <paramref name="includePending"/>,
+    /// <see cref="RuleIncludingPending"/> — within any of <paramref name="knowledgeBaseIds"/>:
+    /// what <c>KnowledgeRetriever</c> searches. An id of another organization matches nothing,
+    /// since the organization filter applies too.
+    /// </summary>
+    public static Expression<Func<KnowledgeChunk, bool>> InKnowledgeBases(
+        IReadOnlyCollection<Guid> knowledgeBaseIds,
+        DateTimeOffset now,
+        string embeddingModel,
+        bool includePending = false)
+    {
+        ArgumentNullException.ThrowIfNull(knowledgeBaseIds);
+        var ids = knowledgeBaseIds.Distinct().ToArray();
+        Expression<Func<KnowledgeChunk, bool>> inKnowledgeBases = chunk => ids.Contains(chunk.KnowledgeBaseId);
+        return And(inKnowledgeBases, includePending ? RuleIncludingPending(now, embeddingModel) : Rule(now, embeddingModel));
+    }
+
     /// <summary><paramref name="versionRule"/> applied to <c>chunk.Version</c>.</summary>
     private static Expression<Func<KnowledgeChunk, bool>> OnChunkVersion(Expression<Func<KnowledgeDocumentVersion, bool>> versionRule)
     {
@@ -98,6 +156,12 @@ public static class RetrievableChunks
     {
         var parameter = left.Parameters[0];
         return Expression.Lambda<Func<T, bool>>(Expression.AndAlso(left.Body, ReplaceParameter.In(right, parameter)), parameter);
+    }
+
+    private static Expression<Func<T, bool>> Or<T>(Expression<Func<T, bool>> left, Expression<Func<T, bool>> right)
+    {
+        var parameter = left.Parameters[0];
+        return Expression.Lambda<Func<T, bool>>(Expression.OrElse(left.Body, ReplaceParameter.In(right, parameter)), parameter);
     }
 
     /// <summary>A lambda's body with its only parameter replaced by another expression.</summary>

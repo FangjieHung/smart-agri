@@ -126,6 +126,113 @@ public class RetrievableChunksTests
         }
     }
 
+    /// <summary>With pending versions included (the retrieval preview's <c>includePending</c>),
+    /// evaluated an hour after <see cref="Today"/>: which versions' chunks are found.</summary>
+    private static readonly Dictionary<string, (Action<Document> Arrange, int[] Expected)> PendingCases = new()
+    {
+        ["a pending version 1 alone is found"] = (
+            document => document.Upload(),
+            [1]),
+        ["the version in effect and the pending version 2 are both found"] = (
+            document =>
+            {
+                document.Approve(document.Upload(), Today);
+                document.Upload();
+            },
+            [1, 2]),
+        ["only the newest pending version, never two of one document"] = (
+            document =>
+            {
+                document.Approve(document.Upload(), Today);
+                document.Upload();
+                document.Upload(KnowledgeDocumentStatus.PartiallyReadable);
+            },
+            [1, 3]),
+        ["a newer upload that failed, is queued or processing does not hide the newest approvable one"] = (
+            document =>
+            {
+                document.Approve(document.Upload(), Today);
+                document.Upload();
+                document.Upload(KnowledgeDocumentStatus.Failed);
+                document.Upload(KnowledgeDocumentStatus.Queued);
+                document.Upload(KnowledgeDocumentStatus.Processing);
+            },
+            [1, 2]),
+        ["a pending version older than the one in effect counts: approving it would put it in effect"] = (
+            document =>
+            {
+                document.Upload();
+                document.Approve(document.Upload(), Today);
+            },
+            [1, 2]),
+        ["archived and scheduled versions stay out"] = (
+            document =>
+            {
+                document.Approve(document.Upload(), Today);
+                document.Approve(document.Upload(), Today.AddMinutes(1));
+                document.Approve(document.Upload(), Today.AddDays(1));
+                document.Upload();
+            },
+            [2, 4]),
+        ["a disabled document serves nothing, pending versions included"] = (
+            document =>
+            {
+                document.Approve(document.Upload(), Today);
+                document.Upload();
+                document.Entity.Disable(Owner, "價格錯誤", Today);
+            },
+            []),
+    };
+
+    public static TheoryData<string> PendingCaseNames => [.. PendingCases.Keys];
+
+    [Theory]
+    [MemberData(nameof(PendingCaseNames))]
+    public void Including_pending_adds_each_documents_newest_approvable_pending_version_and_nothing_else(string name)
+    {
+        var (arrange, expected) = PendingCases[name];
+        var document = new Document();
+        arrange(document);
+        var at = Today.AddHours(1);
+
+        var found = document.Chunks.Where(RetrievableChunks.RuleIncludingPending(at, Model).Compile()).ToList();
+
+        // Still one included chunk of the configured model per version: never the excluded one
+        // or the other model's.
+        found.Select(chunk => chunk.Version!.VersionNumber).Order().ToArray().ShouldBe(expected, name);
+        found.ShouldAllBe(chunk => !chunk.Excluded && chunk.EmbeddingModel == Model);
+
+        // Exactly the plain rule plus the pending version's chunks.
+        var plain = document.Chunks.Where(RetrievableChunks.Rule(at, Model).Compile()).ToList();
+        plain.ShouldAllBe(chunk => found.Contains(chunk), name);
+        found.Except(plain).ShouldAllBe(chunk => chunk.Version!.ReviewState == KnowledgeReviewState.PendingReview, name);
+        found.Except(plain).Select(chunk => chunk.VersionId).Distinct().Count().ShouldBeLessThanOrEqualTo(1, name);
+    }
+
+    [Fact]
+    public void In_knowledge_bases_keeps_to_those_knowledge_bases_with_or_without_pending_versions()
+    {
+        var first = new Document();
+        first.Approve(first.Upload(), Today);
+        first.Upload();
+        var second = new Document(KnowledgeBase.Create(first.Entity.OrganizationId, Owner, "配送", string.Empty, Today.AddYears(-1)));
+        second.Approve(second.Upload(), Today);
+        var chunks = first.Chunks.Concat(second.Chunks).ToList();
+        var (a, b) = (first.Entity.KnowledgeBaseId, second.Entity.KnowledgeBaseId);
+
+        int Count(Guid[] ids, bool includePending) =>
+            chunks.Count(RetrievableChunks.InKnowledgeBases(ids, Today, Model, includePending).Compile());
+
+        Count([a], includePending: false).ShouldBe(1);
+        Count([a], includePending: true).ShouldBe(2);
+        Count([b], includePending: true).ShouldBe(1);
+        Count([a, b, a], includePending: false).ShouldBe(2);
+        Count([a, b], includePending: true).ShouldBe(3);
+        Count([], includePending: true).ShouldBe(0);
+        Count([Guid.NewGuid()], includePending: true).ShouldBe(0);
+        Should.Throw<ArgumentException>(() => RetrievableChunks.InKnowledgeBases([a], Today, " ", includePending: true));
+    }
+
     [Fact]
     public void In_a_knowledge_base_keeps_to_that_knowledge_base()
     {
@@ -151,10 +258,15 @@ public class RetrievableChunksTests
     /// <summary>A document whose versions are processed and chunked as they are uploaded.</summary>
     private sealed class Document
     {
-        private static readonly KnowledgeBase KnowledgeBase =
+        private static readonly KnowledgeBase DefaultKnowledgeBase =
             KnowledgeBase.Create(Guid.CreateVersion7(), Owner, "退換貨政策", string.Empty, Today.AddYears(-1));
 
-        public KnowledgeDocument Entity { get; } = KnowledgeDocument.CreateUploaded(KnowledgeBase, "退貨政策.pdf", Today.AddYears(-1));
+        public Document(KnowledgeBase? knowledgeBase = null)
+        {
+            Entity = KnowledgeDocument.CreateUploaded(knowledgeBase ?? DefaultKnowledgeBase, "退貨政策.pdf", Today.AddYears(-1));
+        }
+
+        public KnowledgeDocument Entity { get; }
 
         public List<KnowledgeChunk> Chunks { get; } = [];
 
@@ -164,7 +276,17 @@ public class RetrievableChunksTests
             var uploadedAt = Today.AddYears(-1).AddMinutes(number);
             var version = KnowledgeDocumentVersion.Create(
                 Entity, number, $"退貨政策-{number}.pdf", "application/pdf", 3, new string((char)('a' + number), 64), Owner, null, uploadedAt);
+            if (outcome == KnowledgeDocumentStatus.Queued)
+            {
+                return version;
+            }
+
             version.StartProcessing(uploadedAt);
+            if (outcome == KnowledgeDocumentStatus.Processing)
+            {
+                return version;
+            }
+
             if (outcome == KnowledgeDocumentStatus.Failed)
             {
                 version.MarkFailed("找不到可讀文字", uploadedAt);

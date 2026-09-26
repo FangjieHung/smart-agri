@@ -5,7 +5,7 @@
 
 ```
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
-src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, job handler contract; Domain + abstraction packages only
+src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
 src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
@@ -436,7 +436,7 @@ ADRs). Code only ever sees `IEmbeddingGenerator<string, Embedding<float>>`
   「嵌入模型暫時無法使用，請稍後重試」.
 - **Audit:** every model call goes through `ModelInvocationRecordingEmbeddingGenerator`, which
   writes one `ModelInvocations` row — organization, account (the uploader during processing,
-  none for `reindex`), assistant (M3), purpose (`embed-document`/`embed-query`), provider,
+  the asker for a question, none for `reindex`), assistant (M3), purpose (`embed-document`/`embed-query`), provider,
   model, input tokens when the provider reports them, duration, success, time — and **never
   any content**. A call without an organization or an attribution is refused before it reaches
   the provider. It also emits one client span `embeddings {model}` with `gen_ai.*` attributes
@@ -448,7 +448,8 @@ ADRs). Code only ever sees `IEmbeddingGenerator<string, Embedding<float>>`
   cosine similarity; `Top`, `Skip`, `ScoreThreshold`), `GetAsync` (by key or keys),
   `UpsertAsync`, `DeleteAsync`. Everything else throws `NotSupportedException`.
 - **Retrieval always passes the eligibility filter** ("Versions, approval and emergency
-  disable"): `SearchAsync(vector, top, new() { Filter = RetrievableChunks.InKnowledgeBase(knowledgeBaseId, clock.GetUtcNow(), settings.Model) })`.
+  disable"): `SearchAsync(vector, top, new() { Filter = RetrievableChunks.InKnowledgeBase(knowledgeBaseId, clock.GetUtcNow(), settings.Model) })`
+  — or, simply, search through `KnowledgeRetriever` ("Retrieval preview" below), which does it.
   EF follows `KnowledgeChunk.Version` and `.Document` (query-only navigations, never loaded
   by search) into inner joins and a `NOT EXISTS` over the document's later approved versions,
   inside the same exact-search query. Without that filter a search also returns unapproved,
@@ -499,6 +500,82 @@ through a context acting for that organization, and prints progress per batch. E
 saved as it completes and only the vector columns are written, so the Api can keep running and
 an interrupted run can simply be started again. Exit codes: `0` done, `1` failed (e.g. the
 model is unreachable; what was saved stays), `2` bad arguments or unusable configuration.
+Until it has finished, the retrieval preview (and M3's answers) find nothing of the chunks not
+yet re-embedded. Similarity scores are model-specific too: set `Retrieval:MinScore` for the new
+model ("Retrieval preview" below).
+
+## Retrieval preview and `KnowledgeRetriever`
+
+`KnowledgeRetriever` (Application, scoped; M2 plan Slice 9) is **the** way to search knowledge:
+the retrieval preview uses it now and M3's conversations will call it too. It never calls a
+generation model.
+
+```csharp
+var result = await retriever.RetrieveAsync(
+    new KnowledgeRetrievalQuery(question, knowledgeBaseIds, accountId, assistantId /* M3 */,
+        IncludePending: false, Top: null /* Retrieval:Top */, MinScore: null /* Retrieval:MinScore */),
+    cancellationToken);
+// result.Passages: closest first, each with document id/name, version id/number/state,
+// location label, full chunk text and score; result.Threshold; result.BelowThreshold;
+// result.Relevant (the passages at or above the threshold).
+```
+
+1. It embeds the question (`KnowledgeChunkEmbedder.EmbedQueryAsync`, with `QueryPrefix`): one
+   `ModelInvocations` row, purpose `embed-query`, with the given account and assistant.
+2. It searches `RetrievableChunks.InKnowledgeBases(ids, now, model, includePending)` — the
+   eligibility rule of "Versions, approval and emergency disable" within those knowledge bases —
+   by exact cosine similarity, `Top` results.
+3. It reads the document names, version numbers and states of the results by id
+   (`IKnowledgeVersionSources`, Infrastructure's `EfKnowledgeVersionSources`), since search does
+   not load navigations.
+
+Everything runs in the scope's organization, so ids of another organization's knowledge bases
+match nothing; whether the caller may search the ids it passes (the owner here, an assistant's
+connections in M3) is the caller's check. It throws `KnowledgeEmbeddingException` when the
+question cannot be embedded; no knowledge base ids means no model call and no passages.
+
+`BelowThreshold` is true when no passage reaches the threshold (or nothing was found): an
+assistant restricted to the organization's data then answers 「查無結果」 without calling a model
+(grounded-answers ADR). The passages are returned anyway, so a person can see how close the
+nearest ones came.
+
+**`includePending`** (the preview only — never for answering) adds, per document, its **newest
+approvable version**: the highest-numbered version still `pending-review` and processed
+`ready`/`partially-readable` (a newer upload that is queued, processing or failed has no chunks
+and does not hide it; an older pending version than the one in effect counts, since approving it
+now would put it in effect). Its passages come back with `versionState` `pending-review`. Chunks
+still must not be excluded and must be of the configured model, and **a disabled document shows
+nothing even with `includePending`**: an emergency disable is absolute in every mode, and
+approving a pending version of a disabled document would not make it citable until the document
+is enabled either (check a corrected version of a disabled document in its extraction preview).
+Archived and scheduled versions never appear.
+
+| Endpoint | Result |
+| --- | --- |
+| `POST /api/v1/knowledge-bases/{id}/retrieval-preview` `{ question, includePending?, top? }` | `200` `{ passages: [{ documentId, documentName, versionNumber, versionState, locationLabel, excerpt, score, versionId, chunkId }], threshold, belowThreshold }` |
+
+- Owner only, with the same `403 knowledge-base` as everything else — checked before the body,
+  so a stranger learns nothing from validation either. Nothing is written except the question's
+  `ModelInvocations` row.
+- `422` (field errors) for a blank question, one longer than **500 characters** after trimming,
+  or `top` outside **1–20**. `includePending` defaults to false, `top` to `Retrieval:Top`.
+- `excerpt` is the chunk text, cut after **300 Unicode scalars** (about half a 600-character
+  chunk: its 100-character overlap and a good part of what is new) and then ending in `…`;
+  `chunkId`/`versionId` let the frontend open the passage in the extraction preview. `score` is
+  the cosine similarity (higher is closer, at most 1), `threshold` the one it was judged by.
+- `503` ProblemDetails when the question cannot be embedded, with `reason`
+  `embedding-unavailable` (the provider failed or answered unusably; message
+  「嵌入模型暫時無法使用，請稍後重試」 — try again later) or `embedding-not-configured` (no provider in
+  this deployment; 「系統尚未設定嵌入模型，請聯絡系統管理員設定後重試」). The failed call is still
+  recorded in `ModelInvocations`, and the cause is logged as a warning.
+
+Configuration (section `Retrieval`; written out in `appsettings.json`, override with e.g.
+`Retrieval__MinScore`):
+
+| Key | Default | |
+| --- | --- | --- |
+| `MinScore` | `0.3` | The relevance threshold, a cosine similarity of 0–1. **A placeholder** until the retrieval evaluation (M2 Slice 16) calibrates it for the chosen model; it depends on the model (OpenAI's `text-embedding-3` models separate related text around here, the e5 family scores almost everything above 0.7), so set it again when `Ai:Embedding:Model` changes. The `Fake` model scores the fixture's matching page at about 0.32 and unrelated text below 0.1. M3 will let an assistant tune its own. |
+| `Top` | `5` | Passages per search when the caller does not say, 1–20. |
 
 ## Development seed data
 

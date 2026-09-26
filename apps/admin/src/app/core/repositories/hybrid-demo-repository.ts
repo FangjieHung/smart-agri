@@ -1,5 +1,5 @@
 import { HttpErrorResponse, type HttpClient } from '@angular/common/http';
-import { catchError, defer, map, of, switchMap, throwError, type Observable } from 'rxjs';
+import { catchError, map, of, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
 import {
@@ -10,7 +10,6 @@ import {
   type TeamMemberView,
   type TeamView,
 } from '../domain/team.model';
-import { DEMO_ACCOUNT_BY_ROLE } from '../session/api-mode/demo-identity-bridge';
 import type {
   PermissionDeniedRepositoryView,
   RepositoryView,
@@ -47,8 +46,13 @@ interface ValidationFailedBody {
   readonly errors?: { readonly permissions?: unknown };
 }
 
-/** `/me` 中 mock 需要的部分；API 模式由 `HttpSessionBackend.restore()` 提供。 */
+/**
+ * `/me` 中 mock 需要的部分；API 模式由 `HttpSessionBackend.restore()` 提供。
+ * `accountId` 是後端的真實帳號 GUID，用來判斷團隊列表裡「哪一列是我自己」；
+ * `demoAccountId` 只給仍在 mock 的功能區（`viewerOverride`）沿用現有的權限判斷。
+ */
 export interface ApiViewerPermissions {
+  readonly accountId: string;
   readonly demoAccountId: AccountId;
   readonly permissions: readonly AccountPermission[];
 }
@@ -65,41 +69,30 @@ const ROLE_ORDER = Object.keys(ACCOUNT_ROLE_LABELS) as AccountRole[];
 /**
  * 仍在 mock 的功能區要用的權限（`MockDemoRepositoryOptions.accountsSource`）。
  *
- * API 只告訴我們「看得到的帳號」：
- * - 目前身分：永遠有 `/me`。
- * - 其他成員：只有可管理團隊的帳號在這個頁面生命週期內讀過團隊 API 後才知道；
- *   讀過之後以團隊 API 為準（比啟動時的 `/me` 新，也涵蓋改自己權限的情況）。
- * - 其餘帳號沿用 seed 的權限。mock 的檢查幾乎都只看目前身分，所以影響限於
- *   「別人的權限」出現在畫面上的地方（例如資料管理者候選人的說明）。
- * 重新整理頁面後團隊資料就不在了，回到只有 `/me` 的狀態。
+ * 只覆寫**目前登入者自己**的權限（來自 `/me`，鍵是同角色的 Demo 身分 id）。團隊 API
+ * 回傳的其他成員不再經由角色換算成 Demo 身分——同組織有兩位同角色成員時，這個對應
+ * 本來就無法一一還原，正是本票要修的問題（issue #36：改權限改到別人）。沒有被覆寫
+ * 的 Demo 帳號沿用 seed 的權限；mock 的檢查幾乎都只看目前身分，所以影響限於
+ * 「別人的權限」出現在畫面上的地方（例如資料管理者候選人的說明）。
  */
-export class ApiAccountPermissions {
-  private team: AccountPermissionOverrides = {};
-  /** Demo 身分 id → API 帳號 id；PUT 的路徑要用 API 的 id。 */
-  private readonly apiIds = new Map<AccountId, string>();
+function viewerOverride(
+  viewer: ApiViewerPermissions | null,
+  fromTeam: OwnPermissionsFromTeam,
+): AccountPermissionOverrides {
+  if (viewer === null) return {};
+  // 團隊 API 比啟動時的 `/me` 新：登入者在團隊頁改了自己的權限時，mock 區域立即生效。
+  // 以真實帳號 GUID 比對，同一分頁換帳號登入後不會套用到別人身上。
+  const permissions =
+    fromTeam.accountId === viewer.accountId && fromTeam.permissions !== null
+      ? fromTeam.permissions
+      : viewer.permissions;
+  return { [viewer.demoAccountId]: permissions };
+}
 
-  constructor(private readonly viewerPermissions: () => ApiViewerPermissions | null) {}
-
-  overrides(): AccountPermissionOverrides {
-    const viewer = this.viewerPermissions();
-    return viewer === null
-      ? this.team
-      : { [viewer.demoAccountId]: viewer.permissions, ...this.team };
-  }
-
-  apiIdOf(accountId: AccountId): string | undefined {
-    return this.apiIds.get(accountId);
-  }
-
-  remember(response: TeamResponse): void {
-    const team: Partial<Record<AccountId, readonly AccountPermission[]>> = {};
-    for (const member of response.members) {
-      const accountId = DEMO_ACCOUNT_BY_ROLE[member.role];
-      team[accountId] = normalizeMemberPermissions(member.permissions);
-      this.apiIds.set(accountId, member.id);
-    }
-    this.team = team;
-  }
+/** 最近一次團隊回應中「登入者自己」那一列的權限。 */
+interface OwnPermissionsFromTeam {
+  accountId: string | null;
+  permissions: readonly AccountPermission[] | null;
 }
 
 /**
@@ -107,18 +100,23 @@ export class ApiAccountPermissions {
  * （以繼承取得，所以 mock 的所有方法不用逐一轉接）。只由 `provideApiMode()` 建立，
  * mock 建置不含這個檔案。
  *
- * 目前接上 API 的：`getTeam`、`updateMemberPermissions`（M1）。回應的成員 id 換回
- * 同角色的 Demo 身分 id（`DEMO_ACCOUNT_BY_ROLE`），畫面與 mock 區域的呼叫點都不用改。
+ * 目前接上 API 的：`getTeam`、`updateMemberPermissions`（M1；M2 起改用真實帳號 GUID
+ * 當列表的 key、編輯目標與更新目標，不再換回同角色的 Demo 身分——見 issue #36）。
  */
 export class HybridDemoRepository extends MockDemoRepository {
   private readonly http: HttpClient;
-  private readonly known: ApiAccountPermissions;
+  private readonly viewerPermissions: () => ApiViewerPermissions | null;
+  private readonly ownFromTeam: OwnPermissionsFromTeam;
 
   constructor(seed: DemoSeed, options: MockDemoRepositoryOptions, deps: HybridDemoRepositoryDeps) {
-    const known = new ApiAccountPermissions(deps.viewerPermissions);
-    super(seed, { ...options, accountsSource: () => known.overrides() });
+    const ownFromTeam: OwnPermissionsFromTeam = { accountId: null, permissions: null };
+    super(seed, {
+      ...options,
+      accountsSource: () => viewerOverride(deps.viewerPermissions(), ownFromTeam),
+    });
     this.http = deps.http;
-    this.known = known;
+    this.viewerPermissions = deps.viewerPermissions;
+    this.ownFromTeam = ownFromTeam;
   }
 
   override getTeam(): Observable<RepositoryView<TeamView>> {
@@ -128,45 +126,44 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  /** `memberAccountId` 是團隊列表給的真實帳號 GUID；直接 PUT 到該 id，不再需要先解析。 */
   override updateMemberPermissions(
     memberAccountId: AccountId,
     permissions: readonly AccountPermission[],
   ): Observable<UpdateMemberPermissionsResult> {
-    return this.resolveApiId(memberAccountId).pipe(
-      switchMap((apiId): Observable<UpdateMemberPermissionsResult> => {
-        // 團隊裡沒有這個人：與 API 一樣，和「沒有權限」共用同一個結果。
-        if (apiId === undefined) return of(teamPermissionDenied());
-        const body: UpdateMemberPermissionsRequest = { permissions: [...permissions] };
-        return this.http
-          .put<TeamResponse>(apiMemberPermissionsPath(apiId), body)
-          .pipe(map((response) => this.teamLoaded(response)));
-      }),
+    const body: UpdateMemberPermissionsRequest = { permissions: [...permissions] };
+    return this.http.put<TeamResponse>(apiMemberPermissionsPath(memberAccountId), body).pipe(
+      map((response): UpdateMemberPermissionsResult => this.teamLoaded(response)),
       catchError((error: unknown) =>
         isHttpError(error, 422) ? of(validationFailed(error)) : this.permissionDeniedOrThrow(error),
       ),
     );
   }
 
-  /** 平常團隊面板已讀過一次；直接呼叫（或重新整理後）才需要先讀團隊取得 API 的 id。 */
-  private resolveApiId(accountId: AccountId): Observable<string | undefined> {
-    return defer(() => {
-      const known = this.known.apiIdOf(accountId);
-      if (known !== undefined) return of(known);
-      return this.http.get<TeamResponse>(API_TEAM_PATH).pipe(
-        map((response) => {
-          this.known.remember(response);
-          return this.known.apiIdOf(accountId);
-        }),
-      );
-    });
-  }
-
   private teamLoaded(response: TeamResponse): RepositoryView<TeamView> {
-    this.known.remember(response);
-    return { status: 'ready', data: toTeamView(response, this.viewer()) };
+    return {
+      status: 'ready',
+      data: toTeamView(response, this.rememberOwnPermissions(response)),
+    };
   }
 
-  /** 403 轉成既有的 permission-denied；其他錯誤（5xx、連線中斷）交給畫面的錯誤狀態。 */
+  /** 記下團隊回應中登入者自己的權限（見 `viewerOverride`），回傳登入者的帳號 GUID。 */
+  private rememberOwnPermissions(response: TeamResponse): string | null {
+    const viewerAccountId = this.viewerPermissions()?.accountId ?? null;
+    const own = response.members.find((member) => member.id === viewerAccountId);
+    if (own !== undefined) {
+      this.ownFromTeam.accountId = own.id;
+      this.ownFromTeam.permissions = normalizeMemberPermissions(own.permissions);
+    }
+    return viewerAccountId;
+  }
+
+  /**
+   * 403 轉成既有的 permission-denied；其他錯誤（5xx、連線中斷）交給畫面的錯誤狀態。
+   * 團隊端點的 403 只有兩種原因：呼叫者沒有權限，或成員不存在／不屬於這個組織——
+   * 後端刻意讓兩者回傳一模一樣的內容（`ApiErrors.NotFound` 就是 `Forbidden`），
+   * 這裡因此也共用同一個結果，不必另外分辨「找不到成員」。
+   */
   private permissionDeniedOrThrow(error: unknown): Observable<PermissionDeniedRepositoryView> {
     if (!isHttpError(error, 403)) return throwError(() => error);
     const body = (error.error ?? {}) as ForbiddenBody;
@@ -206,22 +203,21 @@ function validationFailed(error: HttpErrorResponse): UpdateMemberPermissionsResu
   };
 }
 
-export function toTeamView(response: TeamResponse, viewer: AccountId | null): TeamView {
+/** `viewerAccountId` 是目前登入者的真實帳號 GUID（來自 `/me`），不是 Demo 身分 id。 */
+export function toTeamView(response: TeamResponse, viewerAccountId: string | null): TeamView {
   const members = response.members
-    .map((member): TeamMemberView => {
-      const id = DEMO_ACCOUNT_BY_ROLE[member.role];
-      return {
-        id,
-        displayName: member.displayName,
-        role: member.role,
-        roleLabel: ACCOUNT_ROLE_LABELS[member.role],
-        roleDescription: ACCOUNT_ROLE_DESCRIPTIONS[member.role],
-        permissions: normalizeMemberPermissions(member.permissions),
-        isViewer: id === viewer,
-        lockedPermissions: normalizeMemberPermissions(member.lockedPermissions),
-      };
-    })
-    // `sort` 是穩定排序：同角色（橋接不支援的情況）維持 API 的順序。
+    .map((member): TeamMemberView => ({
+      id: member.id,
+      displayName: member.displayName,
+      role: member.role,
+      roleLabel: ACCOUNT_ROLE_LABELS[member.role],
+      roleDescription: ACCOUNT_ROLE_DESCRIPTIONS[member.role],
+      permissions: normalizeMemberPermissions(member.permissions),
+      isViewer: member.id === viewerAccountId,
+      lockedPermissions: normalizeMemberPermissions(member.lockedPermissions),
+    }))
+    // API 已依 id 排序；這裡改用 mock 慣用的角色順序呈現。`sort` 是穩定排序，
+    // 同角色的多位成員（例如兩位 smb-internal）維持 API 回傳的順序。
     .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
 
   return { members, permissions: ACCOUNT_PERMISSIONS, savedAt: response.savedAt };

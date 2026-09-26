@@ -16,10 +16,12 @@ export interface ApiLoginOptions {
 }
 
 /**
- * `/me` 轉成前端要用的樣子。`demoAccountId` 是同角色的 Demo 身分：
- * 其他功能區仍是 mock，靠它沿用現有的 `activeAccountId()` 呼叫點。
+ * `/me` 轉成前端要用的樣子。`accountId` 是後端的真實帳號 GUID（團隊面板等已接 API
+ * 的功能區用這個判斷「這一列是不是我自己」）；`demoAccountId` 是同角色的 Demo 身分，
+ * 其他仍是 mock 的功能區靠它沿用現有的 `activeAccountId()` 呼叫點。
  */
 export interface ApiIdentity {
+  readonly accountId: string;
   readonly demoAccountId: AccountId;
   readonly displayName: string;
   readonly permissions: readonly AccountPermission[];

@@ -1,7 +1,9 @@
-export type AccountId =
-  | 'account-smb-admin'
-  | 'account-internal-employee'
-  | 'account-external-customer';
+/**
+ * 帳號識別碼。mock 模式固定是三個 Demo 身分字面值（`account-smb-admin` 等）；
+ * API 模式是後端回傳的帳號 GUID。依 `docs/handoff/mock-to-api-mapping.md` §4.2
+ * 放寬成 `string`，否則團隊、知識庫分享等功能收到後端的真實 id 就會直接型別不合法。
+ */
+export type AccountId = string;
 
 /**
  * 未登入官網訪客的識別碼。它**不是帳號**：只存在於單一瀏覽器分頁，

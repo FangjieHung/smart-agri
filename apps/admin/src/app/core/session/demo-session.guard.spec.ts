@@ -24,6 +24,7 @@ function fakeBackend(overrides: Partial<ApiSessionBackend> = {}): ApiSessionBack
 }
 
 const PASSWORD_CHANGE_IDENTITY: ApiIdentity = {
+  accountId: '0199a000-0000-7000-8000-00000000000a',
   demoAccountId: 'account-smb-admin',
   displayName: '安心商行管理者',
   permissions: [],

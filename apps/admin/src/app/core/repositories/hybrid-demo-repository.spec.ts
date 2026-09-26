@@ -24,7 +24,12 @@ type TeamResponse = components['schemas']['TeamResponse'];
 const ADMIN_ID = '0199a000-0000-7000-8000-00000000000a';
 const EMPLOYEE_ID = '0199a000-0000-7000-8000-000000000001';
 const CUSTOMER_ID = '0199a000-0000-7000-8000-000000000002';
+// 同組織第二位 internal-employee：直接插進團隊回應，id 與 EMPLOYEE_ID 不同，
+// 用來驗證改權限不會透過角色轉換而互相覆蓋（issue #36）。
+const EMPLOYEE_2_ID = '0199a000-0000-7000-8000-000000000003';
 const CHECKINS = 'database-staff-checkins';
+/** 管理者自己擁有的資料庫（`demo-seed.ts`）。 */
+const ADMIN_ORDERS = 'database-orders';
 
 const ALL_ADMIN: AccountPermission[] = [
   'manage-assistants',
@@ -66,6 +71,36 @@ function teamResponse(employeePermissions: AccountPermission[], savedAt: string 
   };
 }
 
+/** 兩位 internal-employee（同角色）＋一位 admin：驗收條件要求的「同角色多人」情境。 */
+function teamResponseWithTwoSameRoleMembers(): TeamResponse {
+  return {
+    members: [
+      {
+        id: EMPLOYEE_ID,
+        displayName: '安心商行客服同仁 A',
+        role: 'internal-employee',
+        permissions: ['use-shared-assistants'],
+        lockedPermissions: [],
+      },
+      {
+        id: EMPLOYEE_2_ID,
+        displayName: '安心商行客服同仁 B',
+        role: 'internal-employee',
+        permissions: ['read-consented-submissions'],
+        lockedPermissions: [],
+      },
+      {
+        id: ADMIN_ID,
+        displayName: '安心商行管理者',
+        role: 'smb-admin',
+        permissions: ALL_ADMIN,
+        lockedPermissions: ['manage-assistants'],
+      },
+    ],
+    savedAt: null,
+  };
+}
+
 const SEED_EMPLOYEE: AccountPermission[] = [
   'read-consented-submissions',
   'use-shared-assistants',
@@ -73,7 +108,13 @@ const SEED_EMPLOYEE: AccountPermission[] = [
 
 function setUp(
   viewer: AccountId | null = 'account-smb-admin',
-  me: ApiViewerPermissions | null = { demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN },
+  me: ApiViewerPermissions | null = {
+    accountId: ADMIN_ID,
+    demoAccountId: 'account-smb-admin',
+    permissions: ALL_ADMIN,
+  },
+  /** 需要在測試中途換身分時傳入；否則固定回傳 `me`。 */
+  viewerPermissions: () => ApiViewerPermissions | null = () => me,
 ) {
   TestBed.configureTestingModule({
     providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -81,7 +122,7 @@ function setUp(
   const repository = new HybridDemoRepository(
     DEMO_SEED,
     { storage: createMemoryStorage(), viewer: () => viewer },
-    { http: TestBed.inject(HttpClient), viewerPermissions: () => me },
+    { http: TestBed.inject(HttpClient), viewerPermissions },
   );
   return { repository, controller: TestBed.inject(HttpTestingController) };
 }
@@ -99,7 +140,7 @@ function dataOf(result: RepositoryView<TeamView> | { status: string }): TeamView
 describe('HybridDemoRepository', () => {
   afterEach(() => TestBed.inject(HttpTestingController).verify());
 
-  it('reads the team over HTTP and maps API ids back to Demo identities in mock order', async () => {
+  it('reads the team over HTTP and keeps the API’s real account ids, in mock role order', async () => {
     const { repository, controller } = setUp();
     const result = pending(repository.getTeam());
 
@@ -108,11 +149,8 @@ describe('HybridDemoRepository', () => {
       .flush(teamResponse(['use-shared-assistants', 'read-consented-submissions'], '2026-09-25T01:00:00Z'));
 
     const team = dataOf(await result);
-    expect(team.members.map((member) => member.id)).toEqual([
-      'account-smb-admin',
-      'account-internal-employee',
-      'account-external-customer',
-    ]);
+    // id 就是 API 回傳的帳號 GUID，不再換回 Demo 身分。
+    expect(team.members.map((member) => member.id)).toEqual([ADMIN_ID, EMPLOYEE_ID, CUSTOMER_ID]);
     expect(team.members[0]).toMatchObject({
       displayName: '安心商行管理者',
       roleLabel: '管理者',
@@ -126,6 +164,58 @@ describe('HybridDemoRepository', () => {
     });
     expect(team.permissions).toHaveLength(7);
     expect(team.savedAt).toBe('2026-09-25T01:00:00Z');
+  });
+
+  it('renders two members with the same role as two separate rows, each keeping its own id', async () => {
+    const { repository, controller } = setUp();
+    const result = pending(repository.getTeam());
+
+    controller.expectOne(API_TEAM_PATH).flush(teamResponseWithTwoSameRoleMembers());
+
+    const team = dataOf(await result);
+    const employees = team.members.filter((member) => member.role === 'internal-employee');
+    expect(employees).toHaveLength(2);
+    expect(employees.map((member) => member.id)).toEqual([EMPLOYEE_ID, EMPLOYEE_2_ID]);
+    expect(employees[0].permissions).toEqual(['use-shared-assistants']);
+    expect(employees[1].permissions).toEqual(['read-consented-submissions']);
+  });
+
+  it('sends the edited member’s own GUID in the PUT url, leaving a same-role member untouched', async () => {
+    const { repository, controller } = setUp();
+    const first = pending(repository.getTeam());
+    controller.expectOne(API_TEAM_PATH).flush(teamResponseWithTwoSameRoleMembers());
+    await first;
+
+    const saved = pending(repository.updateMemberPermissions(EMPLOYEE_ID, ['manage-data-sources']));
+    const request = controller.expectOne({ method: 'PUT', url: apiMemberPermissionsPath(EMPLOYEE_ID) });
+    expect(request.request.url).toBe(apiMemberPermissionsPath(EMPLOYEE_ID));
+    expect(request.request.url).not.toContain(EMPLOYEE_2_ID);
+    request.flush({
+      members: [
+        {
+          id: EMPLOYEE_ID,
+          displayName: '安心商行客服同仁 A',
+          role: 'internal-employee',
+          permissions: ['manage-data-sources'],
+          lockedPermissions: [],
+        },
+        {
+          id: EMPLOYEE_2_ID,
+          displayName: '安心商行客服同仁 B',
+          role: 'internal-employee',
+          permissions: ['read-consented-submissions'],
+          lockedPermissions: [],
+        },
+      ],
+      savedAt: '2026-09-26T00:00:00Z',
+    });
+
+    const team = dataOf(await saved);
+    const memberA = team.members.find((member) => member.id === EMPLOYEE_ID);
+    const memberB = team.members.find((member) => member.id === EMPLOYEE_2_ID);
+    expect(memberA?.permissions).toEqual(['manage-data-sources']);
+    // B 從未被送進任何請求，權限維持原樣。
+    expect(memberB?.permissions).toEqual(['read-consented-submissions']);
   });
 
   it('turns 403 team into the same permission-denied the mock returns', async () => {
@@ -165,9 +255,7 @@ describe('HybridDemoRepository', () => {
     controller.expectOne(API_TEAM_PATH).flush(teamResponse(SEED_EMPLOYEE));
     await team;
 
-    const result = pending(
-      repository.updateMemberPermissions('account-smb-admin', ['manage-data-sources']),
-    );
+    const result = pending(repository.updateMemberPermissions(ADMIN_ID, ['manage-data-sources']));
     const request = controller.expectOne({
       method: 'PUT',
       url: apiMemberPermissionsPath(ADMIN_ID),
@@ -184,21 +272,19 @@ describe('HybridDemoRepository', () => {
     controller.expectNone(API_TEAM_PATH);
   });
 
-  it('saves over HTTP, and the next read and the mock areas both see the new permissions', async () => {
+  it('saves over HTTP and a subsequent read reflects the update', async () => {
     const { repository, controller } = setUp();
     const first = pending(repository.getTeam());
     controller.expectOne(API_TEAM_PATH).flush(teamResponse(SEED_EMPLOYEE));
     await first;
-    // 種子狀態：同仁是自己資料庫的資料管理者，看得到收集紀錄。
-    expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS).status).toBe('ready');
 
-    const saved = pending(
-      repository.updateMemberPermissions('account-internal-employee', ['use-shared-assistants']),
-    );
+    const saved = pending(repository.updateMemberPermissions(EMPLOYEE_ID, ['use-shared-assistants']));
     controller
       .expectOne({ method: 'PUT', url: apiMemberPermissionsPath(EMPLOYEE_ID) })
       .flush(teamResponse(['use-shared-assistants'], '2026-09-25T02:00:00Z'));
-    expect(dataOf(await saved).members[1].permissions).toEqual(['use-shared-assistants']);
+    expect(dataOf(await saved).members.find((member) => member.id === EMPLOYEE_ID)?.permissions).toEqual([
+      'use-shared-assistants',
+    ]);
 
     // 團隊面板儲存後會重新讀取。
     const reloaded = pending(repository.getTeam());
@@ -206,38 +292,85 @@ describe('HybridDemoRepository', () => {
       .expectOne({ method: 'GET', url: API_TEAM_PATH })
       .flush(teamResponse(['use-shared-assistants'], '2026-09-25T02:00:00Z'));
     expect(dataOf(await reloaded).savedAt).toBe('2026-09-25T02:00:00Z');
+  });
 
-    // 仍在 mock 的收集紀錄吃到真實權限。
+  it('updating a member does not change what the still-mock feature areas see for other Demo identities', async () => {
+    // 這個 repository 不再把「其他成員」的權限經由角色換算成 Demo 身分（issue #36），
+    // 所以編輯 internal-employee 的權限不會影響 mock 區 `account-internal-employee` 的檢查結果，
+    // 那一段行為改由 seed 的固定權限決定，直到該功能區也換成 API 為止。
+    const { repository, controller } = setUp();
+    const first = pending(repository.getTeam());
+    controller.expectOne(API_TEAM_PATH).flush(teamResponse(SEED_EMPLOYEE));
+    await first;
+    expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS).status).toBe('ready');
+
+    const saved = pending(repository.updateMemberPermissions(EMPLOYEE_ID, ['use-shared-assistants']));
+    controller
+      .expectOne({ method: 'PUT', url: apiMemberPermissionsPath(EMPLOYEE_ID) })
+      .flush(teamResponse(['use-shared-assistants'], '2026-09-25T02:00:00Z'));
+    await saved;
+
+    expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS).status).toBe('ready');
+  });
+
+  it('uses /me for the viewer’s own permissions before any team read', () => {
+    const { repository } = setUp('account-internal-employee', {
+      accountId: EMPLOYEE_ID,
+      demoAccountId: 'account-internal-employee',
+      permissions: ['use-shared-assistants'],
+    });
+
     expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS)).toMatchObject({
       status: 'permission-denied',
       reason: 'database-records',
     });
   });
 
-  it('reads the team first when saving before the API ids are known', async () => {
-    const { repository, controller } = setUp();
-    const saved = pending(
-      repository.updateMemberPermissions('account-internal-employee', ['use-shared-assistants']),
-    );
+  it('applies the viewer’s own permission change from the team API to the still-mock areas immediately', async () => {
+    let me: ApiViewerPermissions | null = {
+      accountId: ADMIN_ID,
+      demoAccountId: 'account-smb-admin',
+      permissions: ALL_ADMIN,
+    };
+    const { repository, controller } = setUp('account-smb-admin', null, () => me);
+    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
 
-    controller.expectOne({ method: 'GET', url: API_TEAM_PATH }).flush(teamResponse(SEED_EMPLOYEE));
-    controller
-      .expectOne({ method: 'PUT', url: apiMemberPermissionsPath(EMPLOYEE_ID) })
-      .flush(teamResponse(['use-shared-assistants']));
+    const withoutRecords = ALL_ADMIN.filter((permission) => permission !== 'read-consented-submissions');
+    const saved = pending(repository.updateMemberPermissions(ADMIN_ID, withoutRecords));
+    controller.expectOne({ method: 'PUT', url: apiMemberPermissionsPath(ADMIN_ID) }).flush({
+      members: [
+        {
+          id: ADMIN_ID,
+          displayName: '安心商行管理者',
+          role: 'smb-admin',
+          permissions: withoutRecords,
+          lockedPermissions: ['manage-assistants'],
+        },
+      ],
+      savedAt: '2026-09-25T02:00:00Z',
+    } satisfies TeamResponse);
+    await saved;
 
-    expect((await saved).status).toBe('ready');
+    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS)).toMatchObject({
+      status: 'permission-denied',
+      reason: 'database-records',
+    });
+
+    // 同一分頁換成另一個帳號登入（同角色、不同 GUID）：不沿用上一位的團隊結果。
+    me = { accountId: EMPLOYEE_2_ID, demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN };
+    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
   });
 
-  it('refuses a member the team does not have without sending a PUT', async () => {
+  it('turns a PUT to an unknown or foreign member id into the same permission-denied as no permission', async () => {
     const { repository, controller } = setUp();
-    const saved = pending(repository.updateMemberPermissions('account-ghost' as AccountId, []));
+    const result = pending(repository.updateMemberPermissions('11111111-1111-4111-8111-111111111111', []));
 
-    const onlyAdmin = teamResponse(SEED_EMPLOYEE);
-    controller
-      .expectOne(API_TEAM_PATH)
-      .flush({ ...onlyAdmin, members: onlyAdmin.members.filter((member) => member.id === ADMIN_ID) });
+    controller.expectOne({ method: 'PUT', url: apiMemberPermissionsPath('11111111-1111-4111-8111-111111111111') }).flush(
+      { reason: 'team', message: '只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。' },
+      { status: 403, statusText: 'Forbidden' },
+    );
 
-    expect(await saved).toMatchObject({ status: 'permission-denied', reason: 'team' });
+    expect(await result).toMatchObject({ status: 'permission-denied', reason: 'team' });
   });
 
   it('leaves server errors to the screen instead of pretending to be a result', async () => {
@@ -247,18 +380,6 @@ describe('HybridDemoRepository', () => {
     controller.expectOne(API_TEAM_PATH).flush(null, { status: 503, statusText: 'Unavailable' });
 
     expect(await result).toMatchObject({ status: 503 });
-  });
-
-  it('uses /me for the viewer’s own permissions before any team read', () => {
-    const { repository } = setUp('account-internal-employee', {
-      demoAccountId: 'account-internal-employee',
-      permissions: ['use-shared-assistants'],
-    });
-
-    expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS)).toMatchObject({
-      status: 'permission-denied',
-      reason: 'database-records',
-    });
   });
 
   it('delegates every other method to the mock', () => {

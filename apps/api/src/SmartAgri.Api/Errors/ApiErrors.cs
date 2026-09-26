@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
+using SmartAgri.Application.Validation;
 
 namespace SmartAgri.Api.Errors;
 
@@ -63,6 +64,24 @@ public static class ApiErrors
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(errors);
         return new FixedBodyResult(StatusCodes.Status422UnprocessableEntity, BuildValidationBody(message, errors));
+    }
+
+    /// <summary>
+    /// <c>422</c> for failures from an Application rule: <c>message</c> is the first
+    /// failure's, and <c>errors</c> groups every failure's message by field.
+    /// </summary>
+    public static IResult ValidationFailed(IReadOnlyList<ValidationFailure> failures)
+    {
+        ArgumentNullException.ThrowIfNull(failures);
+        if (failures.Count == 0)
+        {
+            throw new ArgumentException("A validation failure needs at least one failure.", nameof(failures));
+        }
+
+        var errors = failures
+            .GroupBy(failure => failure.Field, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(failure => failure.Message).ToArray(), StringComparer.Ordinal);
+        return ValidationFailed(failures[0].Message, errors);
     }
 
     private static byte[] BuildForbiddenBody(ForbiddenReason reason) =>

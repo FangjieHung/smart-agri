@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Business rules and, from later M2 slices on, processing pipelines, retrieval and job
+    handlers (M2 plan §3). May reference only SmartAgri.Domain plus abstraction packages
+    (Microsoft.Extensions.AI.Abstractions, Microsoft.Extensions.VectorData.Abstractions):
+    no EF Core, Npgsql, ASP.NET Core or vendor SDKs, so business code never depends on a
+    provider directly (backend-stack ADR). SmartAgri.Application.Tests'
+    ApplicationDependencyTests reads this file and fails on anything else.
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\SmartAgri.Domain\SmartAgri.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

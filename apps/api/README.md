@@ -4,12 +4,19 @@
 `docs/plans/2026-09-25-backend-milestone-1-skeleton.md`). Solution: `SmartAgri.slnx`.
 
 ```
-src/SmartAgri.Domain/          entities, enums; no third-party dependencies
-src/SmartAgri.Infrastructure/  AppDbContext, Identity accounts, migrations, health checks
-src/SmartAgri.Api/             Minimal API, sign-in (Identity + OpenIddict), Dockerfile, migrate + setup subcommands
-tests/SmartAgri.Domain.Tests/  unit tests, no Docker needed
-tests/SmartAgri.Api.Tests/     integration tests; some need Docker (see below)
+src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
+src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing); Domain + abstraction packages only
+src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), Dockerfile, migrate + setup subcommands
+tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
+tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
+tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
 ```
+
+`SmartAgri.Application` may reference only `SmartAgri.Domain` and the abstraction packages
+`Microsoft.Extensions.AI.Abstractions` / `Microsoft.Extensions.VectorData.Abstractions`
+(M2 plan §3): `ApplicationDependencyTests` reads its project file and fails on anything
+else, so EF Core, Npgsql, ASP.NET Core and vendor SDKs stay in Infrastructure and Api.
 
 ## Organization isolation
 
@@ -382,10 +389,11 @@ dotnet run --project apps/api/src/SmartAgri.Api -- setup
 
 ## Running tests
 
-Domain tests never need Docker:
+Domain and Application tests never need Docker:
 
 ```sh
 dotnet test apps/api/tests/SmartAgri.Domain.Tests
+dotnet test apps/api/tests/SmartAgri.Application.Tests
 ```
 
 Api tests are split by the xUnit trait `Category=Docker`. Tests carrying it use

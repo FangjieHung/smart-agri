@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
+using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
 using SmartAgri.Infrastructure.Tenancy;
 
@@ -41,6 +43,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     public const string OrganizationFilter = "Organization";
 
     private static readonly OrganizationSaveChangesInterceptor OrganizationWriteGuard = new();
+    private static readonly TimestampPrecisionInterceptor TimestampPrecision = new();
 
     private static readonly PropertyInfo HasCurrentOrganizationProperty =
         typeof(AppDbContext).GetProperty(nameof(HasCurrentOrganization), BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -65,6 +68,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
     public DbSet<AccountPermissionGrant> AccountPermissions => Set<AccountPermissionGrant>();
 
+    public DbSet<KnowledgeBase> KnowledgeBases => Set<KnowledgeBase>();
+
+    public DbSet<KnowledgeBaseShare> KnowledgeBaseShares => Set<KnowledgeBaseShare>();
+
+    public DbSet<KnowledgeActivity> KnowledgeActivities => Set<KnowledgeActivity>();
+
     /// <summary>
     /// Pinned so the model (and therefore the migrations) never depends on whatever
     /// <c>IdentityOptions.Stores.SchemaVersion</c> the host happens to configure.
@@ -86,8 +95,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         base.OnConfiguring(optionsBuilder);
 
         // Registered here rather than by the host so that every way of constructing the
-        // context (DI, design-time factory, tests) gets the write guard.
-        optionsBuilder.AddInterceptors(OrganizationWriteGuard);
+        // context (DI, design-time factory, tests) gets the write guard and the timestamp
+        // truncation.
+        optionsBuilder.AddInterceptors(OrganizationWriteGuard, TimestampPrecision);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -142,6 +152,13 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
                 .HasPrincipalKey(a => new { a.Id, a.OrganizationId })
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // Knowledge bases (M2 plan §4). Domain entities are POCOs; their mapping lives in
+        // Knowledge/, one IEntityTypeConfiguration per entity, applied explicitly so the
+        // model is readable from here.
+        modelBuilder.ApplyConfiguration(new KnowledgeBaseConfiguration());
+        modelBuilder.ApplyConfiguration(new KnowledgeBaseShareConfiguration());
+        modelBuilder.ApplyConfiguration(new KnowledgeActivityConfiguration());
 
         ApplyOrganizationScope(modelBuilder);
     }

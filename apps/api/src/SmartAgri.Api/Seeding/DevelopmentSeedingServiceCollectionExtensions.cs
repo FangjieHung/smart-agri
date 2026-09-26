@@ -15,7 +15,11 @@ public static class DevelopmentSeedingServiceCollectionExtensions
     /// <see cref="SeedDevelopmentDataAsync"/> is a no-op and there is no path that seeds a
     /// production database. Requires <c>AddDbContext&lt;AppDbContext&gt;</c> to already be
     /// registered (it supplies <c>DbContextOptions&lt;AppDbContext&gt;</c>); does not
-    /// itself touch the database.
+    /// itself touch the database. When <see cref="DevelopmentSeeder.PasswordConfigurationKey"/>
+    /// is set, <see cref="DevelopmentSeeder.SeedAsync"/> also resolves Identity's
+    /// <c>UserManager&lt;Account&gt;</c> from the current scope to validate it — already
+    /// registered everywhere this runs, since <c>AddSmartAgriAuthentication</c> wires up
+    /// Identity for the whole host, not just Development.
     /// </summary>
     public static IServiceCollection AddDevelopmentSeeding(this IServiceCollection services, IHostEnvironment environment)
     {

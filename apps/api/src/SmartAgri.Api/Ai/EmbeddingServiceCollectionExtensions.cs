@@ -2,6 +2,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.VectorData;
+using SmartAgri.Api.Knowledge;
 using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
@@ -24,7 +25,8 @@ public static class EmbeddingServiceCollectionExtensions
     /// (the only way code reaches a model), and <see cref="KnowledgeChunkEmbedder"/>;</item>
     /// <item>per scope, <see cref="VectorStoreCollection{TKey,TRecord}"/> of
     /// <see cref="KnowledgeChunk"/> on the scope's <see cref="AppDbContext"/>, searching the
-    /// configured model's vectors.</item>
+    /// configured model's vectors;</item>
+    /// <item>the <c>reindex</c> subcommand (<see cref="ReindexCommand"/>).</item>
     /// </list>
     /// Requires <c>AddOrganizationTenancy</c> and the <see cref="AppDbContext"/>.
     /// </summary>
@@ -50,6 +52,7 @@ public static class EmbeddingServiceCollectionExtensions
         services.AddScoped<VectorStoreCollection<Guid, KnowledgeChunk>>(provider => new KnowledgeChunkVectorCollection(
             provider.GetRequiredService<AppDbContext>(),
             provider.GetRequiredService<KnowledgeEmbeddingSettings>().Model));
+        services.AddScoped<ReindexCommand>();
         return services;
     }
 

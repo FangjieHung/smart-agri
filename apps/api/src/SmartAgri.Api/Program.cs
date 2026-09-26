@@ -72,6 +72,14 @@ if (args is [SmartAgriCommands.Setup, .. var setupArgs])
     return;
 }
 
+// `reindex` is one-shot too: re-embed chunks whose vectors are from another model than
+// Ai:Embedding:Model, per organization, printing progress, and exit (M2 plan, Slice 7).
+if (args is [SmartAgriCommands.Reindex, .. var reindexArgs])
+{
+    Environment.ExitCode = await ReindexCommand.RunAsync(app.Services, reindexArgs, Console.Out, Console.Error);
+    return;
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -104,6 +112,7 @@ internal static class SmartAgriCommands
 {
     public const string Migrate = "migrate";
     public const string Setup = "setup";
+    public const string Reindex = "reindex";
 }
 
 namespace SmartAgri.Api

@@ -28,6 +28,8 @@ const CUSTOMER_ID = '0199a000-0000-7000-8000-000000000002';
 // 用來驗證改權限不會透過角色轉換而互相覆蓋（issue #36）。
 const EMPLOYEE_2_ID = '0199a000-0000-7000-8000-000000000003';
 const CHECKINS = 'database-staff-checkins';
+/** 管理者自己擁有的資料庫（`demo-seed.ts`）。 */
+const ADMIN_ORDERS = 'database-orders';
 
 const ALL_ADMIN: AccountPermission[] = [
   'manage-assistants',
@@ -111,6 +113,8 @@ function setUp(
     demoAccountId: 'account-smb-admin',
     permissions: ALL_ADMIN,
   },
+  /** 需要在測試中途換身分時傳入；否則固定回傳 `me`。 */
+  viewerPermissions: () => ApiViewerPermissions | null = () => me,
 ) {
   TestBed.configureTestingModule({
     providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -118,7 +122,7 @@ function setUp(
   const repository = new HybridDemoRepository(
     DEMO_SEED,
     { storage: createMemoryStorage(), viewer: () => viewer },
-    { http: TestBed.inject(HttpClient), viewerPermissions: () => me },
+    { http: TestBed.inject(HttpClient), viewerPermissions },
   );
   return { repository, controller: TestBed.inject(HttpTestingController) };
 }
@@ -320,6 +324,41 @@ describe('HybridDemoRepository', () => {
       status: 'permission-denied',
       reason: 'database-records',
     });
+  });
+
+  it('applies the viewer’s own permission change from the team API to the still-mock areas immediately', async () => {
+    let me: ApiViewerPermissions | null = {
+      accountId: ADMIN_ID,
+      demoAccountId: 'account-smb-admin',
+      permissions: ALL_ADMIN,
+    };
+    const { repository, controller } = setUp('account-smb-admin', null, () => me);
+    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
+
+    const withoutRecords = ALL_ADMIN.filter((permission) => permission !== 'read-consented-submissions');
+    const saved = pending(repository.updateMemberPermissions(ADMIN_ID, withoutRecords));
+    controller.expectOne({ method: 'PUT', url: apiMemberPermissionsPath(ADMIN_ID) }).flush({
+      members: [
+        {
+          id: ADMIN_ID,
+          displayName: '安心商行管理者',
+          role: 'smb-admin',
+          permissions: withoutRecords,
+          lockedPermissions: ['manage-assistants'],
+        },
+      ],
+      savedAt: '2026-09-25T02:00:00Z',
+    } satisfies TeamResponse);
+    await saved;
+
+    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS)).toMatchObject({
+      status: 'permission-denied',
+      reason: 'database-records',
+    });
+
+    // 同一分頁換成另一個帳號登入（同角色、不同 GUID）：不沿用上一位的團隊結果。
+    me = { accountId: EMPLOYEE_2_ID, demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN };
+    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
   });
 
   it('turns a PUT to an unknown or foreign member id into the same permission-denied as no permission', async () => {

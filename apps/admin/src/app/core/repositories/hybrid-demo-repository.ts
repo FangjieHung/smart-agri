@@ -75,8 +75,24 @@ const ROLE_ORDER = Object.keys(ACCOUNT_ROLE_LABELS) as AccountRole[];
  * 的 Demo 帳號沿用 seed 的權限；mock 的檢查幾乎都只看目前身分，所以影響限於
  * 「別人的權限」出現在畫面上的地方（例如資料管理者候選人的說明）。
  */
-function viewerOverride(viewer: ApiViewerPermissions | null): AccountPermissionOverrides {
-  return viewer === null ? {} : { [viewer.demoAccountId]: viewer.permissions };
+function viewerOverride(
+  viewer: ApiViewerPermissions | null,
+  fromTeam: OwnPermissionsFromTeam,
+): AccountPermissionOverrides {
+  if (viewer === null) return {};
+  // 團隊 API 比啟動時的 `/me` 新：登入者在團隊頁改了自己的權限時，mock 區域立即生效。
+  // 以真實帳號 GUID 比對，同一分頁換帳號登入後不會套用到別人身上。
+  const permissions =
+    fromTeam.accountId === viewer.accountId && fromTeam.permissions !== null
+      ? fromTeam.permissions
+      : viewer.permissions;
+  return { [viewer.demoAccountId]: permissions };
+}
+
+/** 最近一次團隊回應中「登入者自己」那一列的權限。 */
+interface OwnPermissionsFromTeam {
+  accountId: string | null;
+  permissions: readonly AccountPermission[] | null;
 }
 
 /**
@@ -90,11 +106,17 @@ function viewerOverride(viewer: ApiViewerPermissions | null): AccountPermissionO
 export class HybridDemoRepository extends MockDemoRepository {
   private readonly http: HttpClient;
   private readonly viewerPermissions: () => ApiViewerPermissions | null;
+  private readonly ownFromTeam: OwnPermissionsFromTeam;
 
   constructor(seed: DemoSeed, options: MockDemoRepositoryOptions, deps: HybridDemoRepositoryDeps) {
-    super(seed, { ...options, accountsSource: () => viewerOverride(deps.viewerPermissions()) });
+    const ownFromTeam: OwnPermissionsFromTeam = { accountId: null, permissions: null };
+    super(seed, {
+      ...options,
+      accountsSource: () => viewerOverride(deps.viewerPermissions(), ownFromTeam),
+    });
     this.http = deps.http;
     this.viewerPermissions = deps.viewerPermissions;
+    this.ownFromTeam = ownFromTeam;
   }
 
   override getTeam(): Observable<RepositoryView<TeamView>> {
@@ -121,8 +143,19 @@ export class HybridDemoRepository extends MockDemoRepository {
   private teamLoaded(response: TeamResponse): RepositoryView<TeamView> {
     return {
       status: 'ready',
-      data: toTeamView(response, this.viewerPermissions()?.accountId ?? null),
+      data: toTeamView(response, this.rememberOwnPermissions(response)),
     };
+  }
+
+  /** 記下團隊回應中登入者自己的權限（見 `viewerOverride`），回傳登入者的帳號 GUID。 */
+  private rememberOwnPermissions(response: TeamResponse): string | null {
+    const viewerAccountId = this.viewerPermissions()?.accountId ?? null;
+    const own = response.members.find((member) => member.id === viewerAccountId);
+    if (own !== undefined) {
+      this.ownFromTeam.accountId = own.id;
+      this.ownFromTeam.permissions = normalizeMemberPermissions(own.permissions);
+    }
+    return viewerAccountId;
   }
 
   /**

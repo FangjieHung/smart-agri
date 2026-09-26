@@ -16,6 +16,14 @@ public static class KnowledgeProcessingIssues
 
     public const string Damaged = "無法讀取檔案內容，檔案可能已損毀；請確認檔案能正常開啟後重新上傳";
 
+    /// <summary>The embedding model kept failing until the job ran out of attempts (M2 plan,
+    /// Slice 7, verbatim): the provider was down, rate limited or refused the key.</summary>
+    public const string EmbeddingUnavailable = "嵌入模型暫時無法使用，請稍後重試";
+
+    /// <summary>The deployment has no embedding provider (<c>Ai:Embedding:Provider</c> unset):
+    /// only an administrator can fix that, so the owner is told whom to ask.</summary>
+    public const string EmbeddingNotConfigured = "系統尚未設定嵌入模型，請聯絡系統管理員設定後重試";
+
     /// <summary>Anything else that kept failing until the job ran out of attempts (the
     /// database, a bug): worth a retry, and never an internal error message.</summary>
     public const string Unexpected = "處理時發生錯誤，請重試。";
@@ -30,10 +38,12 @@ public static class KnowledgeProcessingIssues
 
     /// <summary>
     /// The issue for a version whose job failed for good with <paramref name="jobError"/> (the
-    /// job's last error). The processing job fails permanently with one of the messages above
-    /// as its error when the file itself cannot be read, and that message is shown as is;
-    /// any other error — an exception's own message — becomes <see cref="Unexpected"/>.
+    /// job's last error). The processing job fails permanently with one of the file messages
+    /// above as its error when the file itself cannot be read, and retryably with one of the
+    /// embedding messages (<see cref="Embeddings.KnowledgeEmbeddingException"/>) when the model
+    /// could not be reached; those are shown as they are. Any other error — an exception's own
+    /// message — becomes <see cref="Unexpected"/>.
     /// </summary>
     public static string ForFinalFailure(string jobError) =>
-        jobError is Encrypted or NotUtf8 or Damaged ? jobError : Unexpected;
+        jobError is Encrypted or NotUtf8 or Damaged or EmbeddingUnavailable or EmbeddingNotConfigured ? jobError : Unexpected;
 }

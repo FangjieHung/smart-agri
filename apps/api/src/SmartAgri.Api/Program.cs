@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
+using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
@@ -18,10 +19,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddSmartAgriObservability();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default"), npgsql => npgsql.UseVector()));
 builder.Services.AddOrganizationTenancy();
 builder.Services.AddBackgroundJobs(builder.Configuration);
 builder.Services.AddKnowledge(builder.Configuration);
+builder.Services.AddEmbeddings(builder.Configuration);
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);

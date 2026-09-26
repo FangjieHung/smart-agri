@@ -395,6 +395,56 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("KnowledgeBaseShares", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Knowledge.KnowledgeChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Excluded")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("KnowledgeBaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("LocationLabel")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("UnitOrdinal")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("VersionId", "UnitOrdinal", "Ordinal")
+                        .IsUnique();
+
+                    b.HasIndex("VersionId", "UnitOrdinal", "OrganizationId");
+
+                    b.HasIndex("VersionId", "DocumentId", "KnowledgeBaseId", "OrganizationId");
+
+                    b.ToTable("KnowledgeChunks", (string)null);
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Knowledge.KnowledgeDocument", b =>
                 {
                     b.Property<Guid>("Id")
@@ -506,6 +556,48 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "KnowledgeBaseId", "OrganizationId");
 
                     b.ToTable("KnowledgeDocumentVersions", (string)null);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Knowledge.KnowledgeExtractedUnit", b =>
+                {
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("IssueCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("LocationKind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("LocationLabel")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("Readable")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("VersionId", "Ordinal");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("VersionId", "OrganizationId");
+
+                    b.ToTable("KnowledgeExtractedUnits", (string)null);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Knowledge.KnowledgeFileContent", b =>
@@ -837,6 +929,29 @@ namespace SmartAgri.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Knowledge.KnowledgeChunk", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Knowledge.KnowledgeExtractedUnit", null)
+                        .WithMany()
+                        .HasForeignKey("VersionId", "UnitOrdinal", "OrganizationId")
+                        .HasPrincipalKey("VersionId", "Ordinal", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Knowledge.KnowledgeDocumentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("VersionId", "DocumentId", "KnowledgeBaseId", "OrganizationId")
+                        .HasPrincipalKey("Id", "DocumentId", "KnowledgeBaseId", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Knowledge.KnowledgeDocument", b =>
                 {
                     b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
@@ -872,6 +987,22 @@ namespace SmartAgri.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("DocumentId", "KnowledgeBaseId", "OrganizationId")
                         .HasPrincipalKey("Id", "KnowledgeBaseId", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Knowledge.KnowledgeExtractedUnit", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Knowledge.KnowledgeDocumentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("VersionId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

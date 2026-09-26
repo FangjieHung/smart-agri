@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Tests.Tenancy;
 using SmartAgri.Application.Knowledge;
+using SmartAgri.Application.Knowledge.Processing;
 using SmartAgri.Domain.Knowledge;
 
 namespace SmartAgri.Api.Tests.Knowledge;
@@ -65,6 +68,57 @@ public class KnowledgeStorageModelTests
         options.Validate().ShouldBeNull();
         new KnowledgeOptions { MaxFileBytes = 0 }.Validate().ShouldNotBeNull();
         new KnowledgeOptions { MaxFileBytes = KnowledgeOptions.MaxFileBytesLimit + 1 }.Validate().ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void Extraction_limits_default_to_2000_units_and_5000_rows_per_sheet_and_refuse_unusable_ones()
+    {
+        var options = new KnowledgeOptions();
+
+        options.ExtractionLimits.ShouldBe(new ExtractionLimits(2000, 5000));
+        new KnowledgeOptions { MaxExtractedUnits = 0 }.Validate().ShouldNotBeNull();
+        new KnowledgeOptions { MaxExtractedUnits = KnowledgeOptions.ExtractedUnitsLimit + 1 }.Validate().ShouldNotBeNull();
+        new KnowledgeOptions { MaxSheetRows = 0 }.Validate().ShouldNotBeNull();
+        new KnowledgeOptions { MaxSheetRows = KnowledgeOptions.SheetRowsLimit + 1 }.Validate().ShouldNotBeNull();
+        new KnowledgeOptions { MaxExtractedUnits = 1, MaxSheetRows = 1 }.Validate().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Units_and_chunks_go_with_their_version_and_a_chunks_repeated_ids_are_held_to_its_versions()
+    {
+        using var dbContext = TenancyTestContexts.Create();
+        var model = dbContext.Model;
+
+        var units = model.FindEntityType(typeof(KnowledgeExtractedUnit)).ShouldNotBeNull();
+        units.GetForeignKeys().Single(key => key.PrincipalEntityType.ClrType == typeof(KnowledgeDocumentVersion))
+            .DeleteBehavior.ShouldBe(DeleteBehavior.Cascade);
+
+        var chunks = model.FindEntityType(typeof(KnowledgeChunk)).ShouldNotBeNull();
+        var toVersion = chunks.GetForeignKeys().Single(key => key.PrincipalEntityType.ClrType == typeof(KnowledgeDocumentVersion));
+        toVersion.DeleteBehavior.ShouldBe(DeleteBehavior.Cascade);
+        toVersion.Properties.Select(property => property.Name)
+            .ShouldBe([nameof(KnowledgeChunk.VersionId), nameof(KnowledgeChunk.DocumentId), nameof(KnowledgeChunk.KnowledgeBaseId), nameof(KnowledgeChunk.OrganizationId)]);
+        var toUnit = chunks.GetForeignKeys().Single(key => key.PrincipalEntityType.ClrType == typeof(KnowledgeExtractedUnit));
+        toUnit.DeleteBehavior.ShouldBe(DeleteBehavior.Cascade);
+        toUnit.Properties.Select(property => property.Name)
+            .ShouldBe([nameof(KnowledgeChunk.VersionId), nameof(KnowledgeChunk.UnitOrdinal), nameof(KnowledgeChunk.OrganizationId)]);
+        UniqueIndexes(dbContext, typeof(KnowledgeChunk)).ShouldContain("VersionId,UnitOrdinal,Ordinal");
+    }
+
+    [Fact]
+    public void Every_file_format_has_exactly_one_text_extractor()
+    {
+        var services = new ServiceCollection()
+            .AddLogging()
+            .AddKnowledge(new ConfigurationBuilder().Build());
+        using var provider = services.BuildServiceProvider();
+
+        var extractors = provider.GetServices<IDocumentTextExtractor>().ToList();
+
+        foreach (var format in Enum.GetValues<KnowledgeFileFormat>())
+        {
+            extractors.Count(extractor => extractor.CanExtract(format)).ShouldBe(1, format.ToString());
+        }
     }
 
     private static List<string> UniqueIndexes(DbContext dbContext, Type entity) =>

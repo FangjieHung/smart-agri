@@ -14,7 +14,9 @@ using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Api.Tests.Knowledge.Extraction;
 using SmartAgri.Application.Knowledge;
+using SmartAgri.Application.Knowledge.Processing;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
@@ -39,7 +41,6 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
 {
     private const string Password = "Knowledge-Document-Pass-1!";
     private const string BasePath = "/api/v1/knowledge-bases";
-    private const string NotYetAvailable = "解析功能尚未啟用";
 
     private readonly AuthHostFixture _host;
 
@@ -337,15 +338,17 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
         response.Headers.GetValues("X-Content-Type-Options").ShouldBe(["nosniff"]);
     }
 
-    // --- Processing stand-in and retry ---------------------------------------------------
+    // --- Retry ---------------------------------------------------------------------------
 
     [Fact]
-    public async Task Processing_fails_the_version_for_now_and_only_a_failed_version_can_be_retried()
+    public async Task Only_a_failed_version_can_be_retried_and_a_repeated_job_changes_nothing()
     {
         var org = await CreateOrganizationAsync();
         var admin = await SignInAsync(org, "admin");
         var knowledgeBaseId = await CreateKnowledgeBaseAsync(admin);
-        var uploaded = await UploadAsync(admin, knowledgeBaseId, "常見問題.md", TestFiles.Markdown("重試"));
+
+        // Big5 text fails processing (not UTF-8), so there is a failed version to retry.
+        var uploaded = await UploadAsync(admin, knowledgeBaseId, "公告.txt", KnowledgeFixtures.Read(KnowledgeFixtures.Big5Text));
         var documentId = (await BodyJsonAsync(uploaded)).GetProperty("id").GetGuid();
         var versionId = await VersionIdAsync(org, documentId);
         var retryPath = $"{BasePath}/{knowledgeBaseId}/documents/{documentId}/versions/{versionId}/retry";
@@ -361,11 +364,11 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
 
         var failed = await ReloadVersionAsync(org, versionId);
         failed.ProcessingStatus.ShouldBe(KnowledgeDocumentStatus.Failed);
-        failed.Issue.ShouldBe(NotYetAvailable);
+        failed.Issue.ShouldBe(KnowledgeProcessingIssues.NotUtf8);
         var detail = await BodyJsonAsync(await admin.Spa.GetAsync($"{BasePath}/{knowledgeBaseId}", admin.Token));
         var listed = detail.GetProperty("documents").EnumerateArray().ShouldHaveSingleItem();
         listed.GetProperty("status").GetString().ShouldBe("failed");
-        listed.GetProperty("issue").GetString().ShouldBe(NotYetAvailable);
+        listed.GetProperty("issue").GetString().ShouldBe(KnowledgeProcessingIssues.NotUtf8);
 
         // Failed: 200, back to queued with a new job and an activity row.
         var retried = await admin.Spa.PostAsync(retryPath, admin.Token, new { });
@@ -429,14 +432,14 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
 
         var documents = detail.GetProperty("documents").EnumerateArray().ToList();
         documents.Select(document => (document.GetProperty("name").GetString(), document.GetProperty("status").GetString()))
-            .ShouldBe([("第一份.md", "failed"), ("第二份.pdf", "queued")]);
+            .ShouldBe([("第一份.md", "ready"), ("第二份.pdf", "queued")]);
         documents[1].GetRawText().ShouldBe((await BodyJsonAsync(second)).GetRawText());
 
         var summary = detail.GetProperty("summary");
         summary.GetProperty("documentCount").GetInt32().ShouldBe(2);
         summary.GetProperty("faqCount").GetInt32().ShouldBe(0);
         summary.GetProperty("statusCounts").EnumerateObject().Select(count => (count.Name, count.Value.GetInt32()))
-            .ShouldBe([("queued", 1), ("processing", 0), ("ready", 0), ("partially-readable", 0), ("failed", 1)]);
+            .ShouldBe([("queued", 1), ("processing", 0), ("ready", 1), ("partially-readable", 0), ("failed", 0)]);
         summary.GetProperty("updatedAt").GetDateTimeOffset().ShouldBe(documents[1].GetProperty("updatedAt").GetDateTimeOffset());
 
         var listed = (await BodyJsonAsync(await admin.Spa.GetAsync(BasePath, admin.Token))).EnumerateArray().ShouldHaveSingleItem();
@@ -450,14 +453,29 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
     // --- Acceptance: delete removes everything about the document ------------------------
 
     [Fact]
-    public async Task Deleting_a_document_removes_it_its_versions_and_files_keeps_a_content_free_record_and_its_queued_job_is_harmless()
+    public async Task Deleting_a_document_removes_it_its_versions_files_units_and_chunks_keeps_a_content_free_record_and_a_late_job_is_harmless()
     {
         var org = await CreateOrganizationAsync();
         var admin = await SignInAsync(org, "admin");
         var knowledgeBaseId = await CreateKnowledgeBaseAsync(admin);
-        var doomedId = (await BodyJsonAsync(await UploadAsync(admin, knowledgeBaseId, "要刪除.pdf", TestFiles.Pdf("刪除")))).GetProperty("id").GetGuid();
-        var keptId = (await BodyJsonAsync(await UploadAsync(admin, knowledgeBaseId, "要保留.pdf", TestFiles.Pdf("保留")))).GetProperty("id").GetGuid();
+        var doomedId = (await BodyJsonAsync(await UploadAsync(admin, knowledgeBaseId, "要刪除.pdf", KnowledgeFixtures.Read(KnowledgeFixtures.ReturnPolicyPdf))))
+            .GetProperty("id").GetGuid();
+        var keptId = (await BodyJsonAsync(await UploadAsync(admin, knowledgeBaseId, "要保留.md", KnowledgeFixtures.Read(KnowledgeFixtures.FaqMarkdown))))
+            .GetProperty("id").GetGuid();
         var doomedVersionId = await VersionIdAsync(org, doomedId);
+        var keptVersionId = await VersionIdAsync(org, keptId);
+        await Runner.RunUntilIdleAsync(CancellationToken);
+
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            (await dbContext.KnowledgeExtractedUnits.CountAsync(unit => unit.VersionId == doomedVersionId, CancellationToken)).ShouldBe(3);
+            (await dbContext.KnowledgeChunks.CountAsync(chunk => chunk.VersionId == doomedVersionId, CancellationToken)).ShouldBe(3);
+
+            // At-least-once delivery: the same job again, still queued when the document goes.
+            dbContext.BackgroundJobs.Add(BackgroundJob.Create(
+                org.Organization.Id, ProcessKnowledgeVersionJob.Kind, new ProcessKnowledgeVersionJob(doomedVersionId), _host.Clock.GetUtcNow()));
+            await dbContext.SaveChangesAsync(CancellationToken);
+        }
 
         var response = await admin.Spa.DeleteAsync($"{BasePath}/{knowledgeBaseId}/documents/{doomedId}", admin.Token);
 
@@ -467,6 +485,8 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
             (await dbContext.KnowledgeDocuments.AnyAsync(document => document.Id == doomedId, CancellationToken)).ShouldBeFalse();
             (await dbContext.KnowledgeDocumentVersions.AnyAsync(version => version.DocumentId == doomedId, CancellationToken)).ShouldBeFalse();
             (await dbContext.KnowledgeFileContents.AnyAsync(file => file.VersionId == doomedVersionId, CancellationToken)).ShouldBeFalse();
+            (await dbContext.KnowledgeExtractedUnits.AnyAsync(unit => unit.VersionId == doomedVersionId, CancellationToken)).ShouldBeFalse();
+            (await dbContext.KnowledgeChunks.AnyAsync(chunk => chunk.DocumentId == doomedId, CancellationToken)).ShouldBeFalse();
 
             var activities = await dbContext.KnowledgeActivities
                 .Where(activity => activity.DocumentId == doomedId)
@@ -480,17 +500,17 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
             // The other document is untouched.
             (await dbContext.KnowledgeDocuments.AnyAsync(document => document.Id == keptId, CancellationToken)).ShouldBeTrue();
             (await dbContext.KnowledgeFileContents.CountAsync(CancellationToken)).ShouldBe(1);
+            (await dbContext.KnowledgeExtractedUnits.Select(unit => unit.VersionId).Distinct().ToListAsync(CancellationToken)).ShouldBe([keptVersionId]);
+            (await dbContext.KnowledgeChunks.Select(chunk => chunk.VersionId).Distinct().ToListAsync(CancellationToken)).ShouldBe([keptVersionId]);
         }
 
-        // The deleted version's job still runs, finds nothing, and succeeds.
+        // The deleted version's late job still runs, finds nothing, and succeeds.
         await Runner.RunUntilIdleAsync(CancellationToken);
         await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
         {
             var jobs = await dbContext.BackgroundJobs.AsNoTracking().ToListAsync(CancellationToken);
-            var orphan = jobs.Where(job => PayloadVersionId(job) == doomedVersionId).ShouldHaveSingleItem();
-            orphan.Status.ShouldBe(BackgroundJobStatus.Succeeded);
-            orphan.LastError.ShouldBeNull();
-            jobs.ShouldAllBe(job => job.Status == BackgroundJobStatus.Succeeded);
+            jobs.Count(job => PayloadVersionId(job) == doomedVersionId).ShouldBe(2);
+            jobs.ShouldAllBe(job => job.Status == BackgroundJobStatus.Succeeded && job.LastError == null);
         }
 
         var detail = await BodyJsonAsync(await admin.Spa.GetAsync($"{BasePath}/{knowledgeBaseId}", admin.Token));
@@ -503,19 +523,16 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
-    public async Task Deleting_the_knowledge_base_cascades_to_its_documents_versions_and_files()
+    public async Task Deleting_the_knowledge_base_cascades_to_its_documents_versions_files_units_and_chunks()
     {
         var org = await CreateOrganizationAsync();
         var admin = await SignInAsync(org, "admin");
         var doomed = await CreateKnowledgeBaseAsync(admin, "要刪除的知識庫");
         var kept = await CreateKnowledgeBaseAsync(admin, "要保留的知識庫");
-        foreach (var name in new[] { "一.pdf", "二.md" })
-        {
-            var content = name.EndsWith(".pdf", StringComparison.Ordinal) ? TestFiles.Pdf(name) : TestFiles.Markdown(name);
-            (await UploadAsync(admin, doomed, name, content)).StatusCode.ShouldBe(HttpStatusCode.Created);
-        }
-
+        (await UploadAsync(admin, doomed, "一.pdf", KnowledgeFixtures.Read(KnowledgeFixtures.ReturnPolicyPdf))).StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await UploadAsync(admin, doomed, "二.md", TestFiles.Markdown("二"))).StatusCode.ShouldBe(HttpStatusCode.Created);
         (await UploadAsync(admin, kept, "保留.md", TestFiles.Markdown("保留"))).StatusCode.ShouldBe(HttpStatusCode.Created);
+        await Runner.RunUntilIdleAsync(CancellationToken);
 
         (await admin.Spa.DeleteAsync($"{BasePath}/{doomed}", admin.Token)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
@@ -527,6 +544,10 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
             keptVersion.KnowledgeBaseId.ShouldBe(kept);
             (await dbContext.KnowledgeFileContents.Select(file => file.VersionId).ToListAsync(CancellationToken))
                 .ShouldBe([keptVersion.Id]);
+            (await dbContext.KnowledgeExtractedUnits.Select(unit => unit.VersionId).Distinct().ToListAsync(CancellationToken))
+                .ShouldBe([keptVersion.Id]);
+            (await dbContext.KnowledgeChunks.Select(chunk => chunk.KnowledgeBaseId).Distinct().ToListAsync(CancellationToken))
+                .ShouldBe([kept]);
             (await dbContext.KnowledgeActivities.Where(activity => activity.KnowledgeBaseId == doomed)
                     .Select(activity => activity.Action).ToListAsync(CancellationToken))
                 .ShouldBe([KnowledgeActivityAction.KnowledgeBaseDeleted]);
@@ -789,8 +810,10 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
 
 /// <summary>
 /// Minimal files of each accepted format, generated here rather than checked in: just
-/// enough structure for the upload checks (Slice 6 adds real fixtures for parsing). Each
-/// takes a marker so different calls have different SHA-256s.
+/// enough structure for the upload checks. Only the Markdown one can really be processed
+/// (the PDF, DOCX and XLSX fail processing as damaged); tests about what processing reads
+/// use the committed <see cref="KnowledgeFixtures"/>. Each takes a marker so different calls
+/// have different SHA-256s.
 /// </summary>
 internal static class TestFiles
 {

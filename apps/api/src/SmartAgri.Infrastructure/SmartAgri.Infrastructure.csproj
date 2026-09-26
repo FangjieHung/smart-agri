@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SmartAgri.Domain\SmartAgri.Domain.csproj" />
+    <!-- Implements Application's abstractions (e.g. IDocumentTextExtractor), M2 plan §3. -->
+    <ProjectReference Include="..\SmartAgri.Application\SmartAgri.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -9,6 +11,10 @@
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="OpenIddict.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
+    <!-- Text extraction (M2 Slice 6): PdfPig (Apache-2.0) for PDF, Open XML SDK (MIT) for
+         DOCX/XLSX, per the assistant-access ADR. Infrastructure only (M2 plan §3). -->
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

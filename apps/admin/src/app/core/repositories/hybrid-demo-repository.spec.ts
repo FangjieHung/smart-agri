@@ -6,6 +6,7 @@ import { firstValueFrom, type Observable } from 'rxjs';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission } from '../domain/account.model';
+import { createEmptyAssistantDraft } from '../domain/assistant-draft.model';
 import type { TeamView } from '../domain/team.model';
 import type { RepositoryView } from './demo-repository';
 import { DEMO_SEED, type DemoSeed } from './demo-seed';
@@ -266,6 +267,44 @@ describe('HybridDemoRepository', () => {
 
     expect(repository.listAssistantTemplates().status).toBe('ready');
     expect(repository.listUsableAssistants('account-smb-admin').status).toBe('ready');
+  });
+
+  it('scopes storage by the real organization and account id from /me, read fresh on every access', () => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    const storage = createMemoryStorage();
+    let me: ApiViewerPermissions | null = {
+      demoAccountId: 'account-smb-admin',
+      permissions: ALL_ADMIN,
+      organizationId: 'org-a',
+      accountId: 'account-a-admin',
+    };
+    // 同一個 repository 實例：identity 靠 `deps.viewerPermissions()` 每次呼叫時才讀，
+    // 不是建構當下固定，這裡直接改 `me` 模擬「同一次頁面生命週期換了身分」。
+    const repository = new HybridDemoRepository(
+      DEMO_SEED,
+      { storage, viewer: () => 'account-smb-admin' },
+      { http: TestBed.inject(HttpClient), viewerPermissions: () => me },
+    );
+
+    const draft = { ...createEmptyAssistantDraft(), name: '組織 A 的草稿' };
+    repository.saveAssistantDraft('account-smb-admin', draft);
+    expect(repository.getAssistantDraft('account-smb-admin')).toMatchObject({
+      status: 'ready',
+      data: { draft: { name: '組織 A 的草稿' } },
+    });
+
+    // 換到組織 B：同一個 Demo 角色 id，但真實組織／帳號不同，看不到組織 A 的草稿。
+    me = { demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN, organizationId: 'org-b', accountId: 'account-b-admin' };
+    expect(repository.getAssistantDraft('account-smb-admin')).toEqual({ status: 'ready', data: null });
+
+    // 換回組織 A：草稿仍然看得到。
+    me = { demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN, organizationId: 'org-a', accountId: 'account-a-admin' };
+    expect(repository.getAssistantDraft('account-smb-admin')).toMatchObject({
+      status: 'ready',
+      data: { draft: { name: '組織 A 的草稿' } },
+    });
   });
 });
 

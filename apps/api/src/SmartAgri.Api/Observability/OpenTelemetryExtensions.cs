@@ -10,7 +10,8 @@ namespace SmartAgri.Api.Observability;
 
 /// <summary>
 /// Registers OpenTelemetry traces, metrics and logs (ASP.NET Core, HttpClient and Npgsql
-/// instrumentation, plus the custom <see cref="SmartAgriActivitySource"/>) — see the
+/// instrumentation, plus the custom <see cref="SmartAgriActivitySource"/> and
+/// <see cref="SmartAgriMeter"/>) — see the
 /// observability ADR (<c>docs/adr/2026-09-25-observability.md</c>) and the M1 skeleton
 /// plan, Slice 3.
 ///
@@ -51,6 +52,7 @@ public static class OpenTelemetryExtensions
             .WithMetrics(metrics =>
             {
                 metrics
+                    .AddMeter(SmartAgriMeter.Name)
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddNpgsqlInstrumentation();

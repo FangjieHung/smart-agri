@@ -128,6 +128,10 @@ public class AuthHostFixture : IAsyncLifetime
             builder.UseSetting("ConnectionStrings:Default", _connectionString);
             builder.UseSetting("Authentication:AdminSpa:Origins:0", SpaOrigin);
             builder.UseSetting(DevelopmentSeeder.PasswordConfigurationKey, SeedDemoPassword);
+
+            // Tests that need background jobs drive JobRunner themselves, so results are
+            // reproducible; no worker polls behind their back.
+            builder.UseSetting("Jobs:WorkerEnabled", "false");
             builder.ConfigureServices(services => services.AddSingleton(_clock).AddProtectedProbeEndpoint());
         }
     }

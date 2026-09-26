@@ -13,6 +13,8 @@ describe('private conversations and trustworthy answers', () => {
   it('separates company data with citations, general knowledge and no-result answers on a phone', () => {
     cy.viewport(390, 844);
     loginAs('外部客戶');
+    // 沒有 manage-assistants 權限：首頁不提供「建立新助理」入口（issue #54）。
+    cy.get('a[href="/app/assistants/new/purpose"]').should('not.exist');
     cy.get('section[aria-labelledby="usable-title"]').contains('a', '客服助理').click();
     cy.location('pathname').should('eq', '/use/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');

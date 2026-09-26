@@ -6,6 +6,7 @@ using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
+using SmartAgri.Api.Knowledge.Evaluation;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Seeding;
@@ -80,6 +81,15 @@ if (args is [SmartAgriCommands.Reindex, .. var reindexArgs])
     return;
 }
 
+// `eval-retrieval` is one-shot too, Development only: import the retrieval evaluation set into an
+// organization of its own, run every question through KnowledgeRetriever with the configured
+// embedding model and write a Markdown report, then exit (M2 plan, Slice 16).
+if (args is [SmartAgriCommands.EvalRetrieval, .. var evalArgs])
+{
+    Environment.ExitCode = await EvalRetrievalCommand.RunAsync(app.Services, evalArgs, Console.Out, Console.Error);
+    return;
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -115,6 +125,7 @@ internal static class SmartAgriCommands
     public const string Migrate = "migrate";
     public const string Setup = "setup";
     public const string Reindex = "reindex";
+    public const string EvalRetrieval = "eval-retrieval";
 }
 
 namespace SmartAgri.Api

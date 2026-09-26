@@ -4,8 +4,8 @@ namespace SmartAgri.Domain.Knowledge;
 
 /// <summary>
 /// What a <see cref="KnowledgeActivity"/> row records. Stored as the wire name (not the
-/// number), so members can be reordered safely. Later slices add document, version and
-/// segment actions (M2 plan §4).
+/// number), so members can be reordered safely. Later slices add version and segment
+/// actions (M2 plan §4).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<KnowledgeActivityAction>))]
 public enum KnowledgeActivityAction
@@ -25,4 +25,18 @@ public enum KnowledgeActivityAction
     /// knowledge base removes all of its other activity rows and then writes this one.</summary>
     [JsonStringEnumMemberName("knowledge-base-deleted")]
     KnowledgeBaseDeleted,
+
+    /// <summary>A file was uploaded as a new document (its version 1).</summary>
+    [JsonStringEnumMemberName("document-uploaded")]
+    DocumentUploaded,
+
+    /// <summary>The owner asked for a failed version to be processed again.</summary>
+    [JsonStringEnumMemberName("version-retried")]
+    VersionRetried,
+
+    /// <summary>A document was deleted with all of its versions and files. Its earlier
+    /// activity rows are kept (they hold ids only), so the log still shows who uploaded
+    /// what was deleted.</summary>
+    [JsonStringEnumMemberName("document-deleted")]
+    DocumentDeleted,
 }

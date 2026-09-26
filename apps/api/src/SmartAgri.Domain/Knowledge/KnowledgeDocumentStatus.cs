@@ -6,8 +6,8 @@ namespace SmartAgri.Domain.Knowledge;
 /// Processing status of one document or FAQ entry (the five states of the design document,
 /// §7). The serialized names must equal the frontend's <c>KnowledgeDocumentStatus</c> union
 /// in <c>knowledge-base.model.ts</c> exactly; <c>SmartAgri.Domain.Tests</c> compares them
-/// against that file. Declared now because a knowledge base's summary already reports a
-/// count per status; documents themselves arrive with the upload slice (M2 plan, Slice 5).
+/// against that file. Stored per version (<see cref="KnowledgeDocumentVersion.ProcessingStatus"/>,
+/// by wire name); a document shows its latest version's.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<KnowledgeDocumentStatus>))]
 public enum KnowledgeDocumentStatus

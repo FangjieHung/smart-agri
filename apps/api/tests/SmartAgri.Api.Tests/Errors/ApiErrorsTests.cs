@@ -73,6 +73,52 @@ public class ApiErrorsTests
     }
 
     [Fact]
+    public async Task A_422_with_reason_has_reason_message_extensions_and_the_field_error()
+    {
+        var response = await ExecuteAsync(ApiErrors.WithReason(
+            StatusCodes.Status422UnprocessableEntity,
+            "duplicate-content",
+            "內容相同。",
+            "file",
+            [new("existingDocumentName", "退貨政策.pdf")]));
+
+        response.StatusCode.ShouldBe(StatusCodes.Status422UnprocessableEntity);
+        response.ContentType.ShouldBe("application/problem+json");
+        using var json = JsonDocument.Parse(response.Body);
+        var root = json.RootElement;
+        root.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(["type", "title", "status", "reason", "message", "existingDocumentName", "errors"]);
+        root.GetProperty("title").GetString().ShouldBe("Unprocessable Content");
+        root.GetProperty("reason").GetString().ShouldBe("duplicate-content");
+        root.GetProperty("existingDocumentName").GetString().ShouldBe("退貨政策.pdf");
+        root.GetProperty("errors").GetProperty("file")[0].GetString().ShouldBe("內容相同。");
+    }
+
+    [Theory]
+    [InlineData(StatusCodes.Status409Conflict, "Conflict")]
+    [InlineData(StatusCodes.Status413PayloadTooLarge, "Content Too Large")]
+    [InlineData(StatusCodes.Status415UnsupportedMediaType, "Unsupported Media Type")]
+    public async Task Other_reasoned_errors_are_problem_details_with_reason_and_message_only(int status, string title)
+    {
+        var response = await ExecuteAsync(ApiErrors.WithReason(status, "some-reason", "訊息。"));
+
+        response.StatusCode.ShouldBe(status);
+        using var json = JsonDocument.Parse(response.Body);
+        var root = json.RootElement;
+        root.EnumerateObject().Select(property => property.Name).ShouldBe(["type", "title", "status", "reason", "message"]);
+        root.GetProperty("title").GetString().ShouldBe(title);
+        root.GetProperty("status").GetInt32().ShouldBe(status);
+    }
+
+    [Fact]
+    public void Reasoned_errors_refuse_statuses_and_fields_they_do_not_describe()
+    {
+        Should.Throw<ArgumentOutOfRangeException>(() => ApiErrors.WithReason(StatusCodes.Status400BadRequest, "x", "y"));
+        Should.Throw<ArgumentException>(() => ApiErrors.WithReason(StatusCodes.Status422UnprocessableEntity, "x", "y"));
+        Should.Throw<ArgumentException>(() => ApiErrors.WithReason(StatusCodes.Status409Conflict, "x", "y", "file"));
+    }
+
+    [Fact]
     public async Task Unauthorized_has_no_body()
     {
         var response = await ExecuteAsync(ApiErrors.Unauthorized());

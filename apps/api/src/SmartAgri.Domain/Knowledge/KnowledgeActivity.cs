@@ -10,10 +10,11 @@ namespace SmartAgri.Domain.Knowledge;
 /// or purpose.
 /// </summary>
 /// <remarks>
-/// Deliberately has no foreign key to <see cref="KnowledgeBase"/> (or, in later slices, to
-/// documents and versions): a log entry must be able to describe something that no longer
-/// exists. Deleting a knowledge base therefore removes its activity rows explicitly and
-/// then writes a single <see cref="KnowledgeActivityAction.KnowledgeBaseDeleted"/> row.
+/// Deliberately has no foreign key to <see cref="KnowledgeBase"/>, documents or versions: a
+/// log entry must be able to describe something that no longer exists. Deleting a knowledge
+/// base therefore removes its activity rows explicitly and then writes a single
+/// <see cref="KnowledgeActivityAction.KnowledgeBaseDeleted"/> row; deleting a document keeps
+/// the document's rows and adds a <see cref="KnowledgeActivityAction.DocumentDeleted"/> one.
 /// </remarks>
 public sealed class KnowledgeActivity : IOrganizationScoped
 {
@@ -27,6 +28,12 @@ public sealed class KnowledgeActivity : IOrganizationScoped
     public Guid OrganizationId { get; private set; }
 
     public Guid KnowledgeBaseId { get; private set; }
+
+    /// <summary>The document acted on, if the action concerns one.</summary>
+    public Guid? DocumentId { get; private set; }
+
+    /// <summary>The version acted on, if the action concerns one.</summary>
+    public Guid? VersionId { get; private set; }
 
     public KnowledgeActivityAction Action { get; private set; }
 
@@ -84,6 +91,53 @@ public sealed class KnowledgeActivity : IOrganizationScoped
     public static KnowledgeActivity KnowledgeBaseDeleted(KnowledgeBase knowledgeBase, Guid actorAccountId, DateTimeOffset at) =>
         New(knowledgeBase, KnowledgeActivityAction.KnowledgeBaseDeleted, actorAccountId, at, detail: null);
 
+    /// <summary>Ids only: neither the file name nor anything read from the file.</summary>
+    public static KnowledgeActivity DocumentUploaded(
+        KnowledgeDocumentVersion version,
+        Guid actorAccountId,
+        DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        return New(
+            version.OrganizationId,
+            version.KnowledgeBaseId,
+            version.DocumentId,
+            version.Id,
+            KnowledgeActivityAction.DocumentUploaded,
+            actorAccountId,
+            at,
+            detail: null);
+    }
+
+    public static KnowledgeActivity VersionRetried(KnowledgeDocumentVersion version, Guid actorAccountId, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        return New(
+            version.OrganizationId,
+            version.KnowledgeBaseId,
+            version.DocumentId,
+            version.Id,
+            KnowledgeActivityAction.VersionRetried,
+            actorAccountId,
+            at,
+            detail: null);
+    }
+
+    /// <summary>Ids only: the document's name goes with the document.</summary>
+    public static KnowledgeActivity DocumentDeleted(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return New(
+            document.OrganizationId,
+            document.KnowledgeBaseId,
+            document.Id,
+            versionId: null,
+            KnowledgeActivityAction.DocumentDeleted,
+            actorAccountId,
+            at,
+            detail: null);
+    }
+
     private static KnowledgeActivity New(
         KnowledgeBase knowledgeBase,
         KnowledgeActivityAction action,
@@ -92,6 +146,19 @@ public sealed class KnowledgeActivity : IOrganizationScoped
         string? detail)
     {
         ArgumentNullException.ThrowIfNull(knowledgeBase);
+        return New(knowledgeBase.OrganizationId, knowledgeBase.Id, documentId: null, versionId: null, action, actorAccountId, at, detail);
+    }
+
+    private static KnowledgeActivity New(
+        Guid organizationId,
+        Guid knowledgeBaseId,
+        Guid? documentId,
+        Guid? versionId,
+        KnowledgeActivityAction action,
+        Guid actorAccountId,
+        DateTimeOffset at,
+        string? detail)
+    {
         if (actorAccountId == Guid.Empty)
         {
             throw new ArgumentException("An actor id must not be empty.", nameof(actorAccountId));
@@ -100,8 +167,10 @@ public sealed class KnowledgeActivity : IOrganizationScoped
         return new KnowledgeActivity
         {
             Id = Guid.CreateVersion7(),
-            OrganizationId = knowledgeBase.OrganizationId,
-            KnowledgeBaseId = knowledgeBase.Id,
+            OrganizationId = organizationId,
+            KnowledgeBaseId = knowledgeBaseId,
+            DocumentId = documentId,
+            VersionId = versionId,
             Action = action,
             ActorAccountId = actorAccountId,
             At = at,

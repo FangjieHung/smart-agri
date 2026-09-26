@@ -36,7 +36,10 @@ public partial class KnowledgeWireNameTests
     {
         // Backend-only (not in the frontend model), but stored by wire name like the others.
         WireNames<KnowledgeActivityAction>.All.ShouldBe(
-            ["knowledge-base-created", "knowledge-base-updated", "sharing-changed", "knowledge-base-deleted"]);
+        [
+            "knowledge-base-created", "knowledge-base-updated", "sharing-changed", "knowledge-base-deleted",
+            "document-uploaded", "version-retried", "document-deleted",
+        ]);
     }
 
     private static void AssertMatchesFrontend<TEnum>(string unionName, string[] expected)

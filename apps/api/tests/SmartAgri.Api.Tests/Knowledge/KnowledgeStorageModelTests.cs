@@ -67,6 +67,28 @@ public class KnowledgeStorageModelTests
         new KnowledgeOptions { MaxFileBytes = KnowledgeOptions.MaxFileBytesLimit + 1 }.Validate().ShouldNotBeNull();
     }
 
+    [Fact]
+    public void Units_and_chunks_go_with_their_version_and_a_chunks_repeated_ids_are_held_to_its_versions()
+    {
+        using var dbContext = TenancyTestContexts.Create();
+        var model = dbContext.Model;
+
+        var units = model.FindEntityType(typeof(KnowledgeExtractedUnit)).ShouldNotBeNull();
+        units.GetForeignKeys().Single(key => key.PrincipalEntityType.ClrType == typeof(KnowledgeDocumentVersion))
+            .DeleteBehavior.ShouldBe(DeleteBehavior.Cascade);
+
+        var chunks = model.FindEntityType(typeof(KnowledgeChunk)).ShouldNotBeNull();
+        var toVersion = chunks.GetForeignKeys().Single(key => key.PrincipalEntityType.ClrType == typeof(KnowledgeDocumentVersion));
+        toVersion.DeleteBehavior.ShouldBe(DeleteBehavior.Cascade);
+        toVersion.Properties.Select(property => property.Name)
+            .ShouldBe([nameof(KnowledgeChunk.VersionId), nameof(KnowledgeChunk.DocumentId), nameof(KnowledgeChunk.KnowledgeBaseId), nameof(KnowledgeChunk.OrganizationId)]);
+        var toUnit = chunks.GetForeignKeys().Single(key => key.PrincipalEntityType.ClrType == typeof(KnowledgeExtractedUnit));
+        toUnit.DeleteBehavior.ShouldBe(DeleteBehavior.Cascade);
+        toUnit.Properties.Select(property => property.Name)
+            .ShouldBe([nameof(KnowledgeChunk.VersionId), nameof(KnowledgeChunk.UnitOrdinal), nameof(KnowledgeChunk.OrganizationId)]);
+        UniqueIndexes(dbContext, typeof(KnowledgeChunk)).ShouldContain("VersionId,UnitOrdinal,Ordinal");
+    }
+
     private static List<string> UniqueIndexes(DbContext dbContext, Type entity) =>
     [
         .. dbContext.Model.FindEntityType(entity)!.GetIndexes()

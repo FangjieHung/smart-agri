@@ -39,4 +39,13 @@ public enum KnowledgeActivityAction
     /// what was deleted.</summary>
     [JsonStringEnumMemberName("document-deleted")]
     DocumentDeleted,
+
+    /// <summary>The owner excluded a chunk from retrieval (a cover page, an appendix, outdated
+    /// terms); <see cref="KnowledgeActivity.Detail"/> names the chunk by id only.</summary>
+    [JsonStringEnumMemberName("chunk-excluded")]
+    ChunkExcluded,
+
+    /// <summary>The owner put an excluded chunk back.</summary>
+    [JsonStringEnumMemberName("chunk-included")]
+    ChunkIncluded,
 }

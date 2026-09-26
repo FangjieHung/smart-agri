@@ -62,6 +62,7 @@ public class OrganizationModelTests
                 typeof(Account), typeof(AccountClaim), typeof(AccountLogin), typeof(AccountToken), typeof(AccountPermissionGrant),
                 typeof(KnowledgeBase), typeof(KnowledgeBaseShare), typeof(KnowledgeActivity),
                 typeof(KnowledgeDocument), typeof(KnowledgeDocumentVersion), typeof(KnowledgeFileContent),
+                typeof(KnowledgeExtractedUnit), typeof(KnowledgeChunk),
                 typeof(BackgroundJob),
             ],
             ignoreOrder: true);

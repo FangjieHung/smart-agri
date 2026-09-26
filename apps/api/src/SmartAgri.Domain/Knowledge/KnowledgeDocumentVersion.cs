@@ -163,18 +163,41 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
     /// (shown to the owner as is).</summary>
     public void MarkFailed(string issue, DateTimeOffset now)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(issue);
-        if (issue.Length > IssueMaxLength)
-        {
-            throw new ArgumentException($"An issue must be at most {IssueMaxLength} characters.", nameof(issue));
-        }
-
+        RequireIssue(issue);
         if (ProcessingStatus is not (KnowledgeDocumentStatus.Queued or KnowledgeDocumentStatus.Processing))
         {
             throw new InvalidOperationException($"Only a queued or processing version can fail; this one is {ProcessingStatus}.");
         }
 
         ProcessingStatus = KnowledgeDocumentStatus.Failed;
+        Issue = issue;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// A <see cref="KnowledgeDocumentStatus.Processing"/> version's text was read: it is
+    /// <see cref="KnowledgeDocumentStatus.Ready"/> (no issue),
+    /// <see cref="KnowledgeDocumentStatus.PartiallyReadable"/> or
+    /// <see cref="KnowledgeDocumentStatus.Failed"/> (both with an issue for the owner), as the
+    /// readability rules decided (M2 plan §4).
+    /// </summary>
+    public void CompleteProcessing(KnowledgeDocumentStatus outcome, string? issue, DateTimeOffset now)
+    {
+        RequireStatus(KnowledgeDocumentStatus.Processing);
+        switch (outcome)
+        {
+            case KnowledgeDocumentStatus.Ready when issue is null:
+                break;
+            case KnowledgeDocumentStatus.PartiallyReadable or KnowledgeDocumentStatus.Failed:
+                RequireIssue(issue);
+                break;
+            default:
+                throw new ArgumentException(
+                    "Processing ends ready without an issue, or partially readable or failed with one.",
+                    nameof(outcome));
+        }
+
+        ProcessingStatus = outcome;
         Issue = issue;
         UpdatedAt = now;
     }
@@ -190,6 +213,15 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
         ProcessingStatus = KnowledgeDocumentStatus.Queued;
         Issue = null;
         UpdatedAt = now;
+    }
+
+    private static void RequireIssue([System.Diagnostics.CodeAnalysis.NotNull] string? issue)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(issue);
+        if (issue.Length > IssueMaxLength)
+        {
+            throw new ArgumentException($"An issue must be at most {IssueMaxLength} characters.", nameof(issue));
+        }
     }
 
     private void RequireStatus(KnowledgeDocumentStatus expected)

@@ -24,8 +24,9 @@ function scopedKey(identity: StorageIdentity, key: string): string {
  * `identity` 在每次 `getItem`／`setItem`／`removeItem` 呼叫時才求值，才能反映登入、
  * 重新整理、或（將來）多分頁各自登入不同帳號的最新狀態。
  *
- * 沒有身分時（尚未登入、token 已過期）一律不加前綴：這些呼叫理論上不應該發生
- * （所有會寫入的方法都先檢查權限），保底行為與改版前的單一 storage 相同。
+ * 沒有身分時（尚未登入、`/me` 還沒回來、token 已過期）一律拒絕：讀不到任何資料、
+ * 寫入與刪除直接忽略。不帶前綴的鍵值是改版前 API 模式所有帳號共用的位置，
+ * 裡面可能留有其他帳號的資料，所以不能拿來當保底。
  *
  * mock 建置（含 GitHub Pages）不使用這個裝飾器，`MockDemoRepository` 的鍵值維持不變。
  */
@@ -36,15 +37,15 @@ export function createScopedStorage(
   return {
     getItem(key: string): string | null {
       const current = identity();
-      return storage.getItem(current === null ? key : scopedKey(current, key));
+      return current === null ? null : storage.getItem(scopedKey(current, key));
     },
     setItem(key: string, value: string): void {
       const current = identity();
-      storage.setItem(current === null ? key : scopedKey(current, key), value);
+      if (current !== null) storage.setItem(scopedKey(current, key), value);
     },
     removeItem(key: string): void {
       const current = identity();
-      storage.removeItem(current === null ? key : scopedKey(current, key));
+      if (current !== null) storage.removeItem(scopedKey(current, key));
     },
   };
 }

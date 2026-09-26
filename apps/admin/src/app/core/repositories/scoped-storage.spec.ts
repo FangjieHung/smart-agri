@@ -57,12 +57,16 @@ describe('createScopedStorage', () => {
     expect(scoped.getItem('k')).toBe('a');
   });
 
-  it('falls back to the unprefixed key when there is no identity (not logged in yet)', () => {
+  it('fails closed when there is no identity: never reads or writes the shared unprefixed keys', () => {
     const raw = createMemoryStorage();
+    // 改版前 API 模式所有帳號共用的鍵值：不能在「尚未取得身分」的空檔被讀出來。
+    raw.setItem('k', 'left over from another account');
     const scoped = createScopedStorage(raw, () => null);
 
+    expect(scoped.getItem('k')).toBeNull();
     scoped.setItem('k', 'v');
-    expect(raw.getItem('k')).toBe('v');
+    scoped.removeItem('k');
+    expect(raw.getItem('k')).toBe('left over from another account');
   });
 });
 

@@ -837,6 +837,124 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge-bases/{id}/documents/{documentId}/versions/{versionId}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    documentId: string;
+                    versionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeVersionPreviewView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-bases/{id}/documents/{documentId}/versions/{versionId}/chunks/{chunkId}/exclusion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    documentId: string;
+                    versionId: string;
+                    chunkId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateKnowledgeChunkExclusionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeChunkView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -876,6 +994,13 @@ export interface components {
             updatedAt: string;
             viewerCanManage: boolean;
         };
+        KnowledgeChunkView: {
+            /** Format: uuid */
+            id: string;
+            locationLabel: string;
+            text: string;
+            excluded: boolean;
+        };
         /** @enum {unknown} */
         KnowledgeDocumentStatus: "queued" | "processing" | "ready" | "partially-readable" | "failed";
         KnowledgeDocumentStatusCounts: {
@@ -904,6 +1029,16 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        KnowledgeExtractedUnitView: {
+            /** Format: int32 */
+            ordinal: number;
+            locationKind: components["schemas"]["KnowledgeUnitLocationKind"];
+            locationLabel: string;
+            readable: boolean;
+            issueCode: null | components["schemas"]["KnowledgeUnitIssue"];
+            text: string;
+            chunks: components["schemas"]["KnowledgeChunkView"][];
+        };
         /** @enum {unknown} */
         KnowledgeItemKind: "document" | "faq";
         KnowledgeShareTargetView: {
@@ -917,6 +1052,22 @@ export interface components {
             scope: components["schemas"]["KnowledgeSharingScope"];
             sharedWithAccountIds: string[];
             allowOriginalDownload: boolean;
+        };
+        /** @enum {unknown} */
+        KnowledgeUnitIssue: "too-little-text" | "garbled-text" | "rows-truncated" | null;
+        /** @enum {unknown} */
+        KnowledgeUnitLocationKind: "page" | "section" | "sheet";
+        KnowledgeVersionPreviewView: {
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            versionId: string;
+            /** Format: int32 */
+            versionNumber: number;
+            fileName: string;
+            status: components["schemas"]["KnowledgeDocumentStatus"];
+            issue: null | string;
+            units: components["schemas"]["KnowledgeExtractedUnitView"][];
         };
         LoginOptionsResponse: {
             organizationCodeRequired: boolean;
@@ -958,6 +1109,9 @@ export interface components {
         UpdateKnowledgeBaseRequest: {
             name?: null | string;
             purpose?: null | string;
+        };
+        UpdateKnowledgeChunkExclusionRequest: {
+            excluded: null | boolean;
         };
         UpdateKnowledgeSharingRequest: {
             scope: null | string;

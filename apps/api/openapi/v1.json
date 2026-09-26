@@ -608,6 +608,136 @@
           }
         }
       }
+    },
+    "/api/v1/knowledge-bases/{id}/documents/{documentId}/versions/{versionId}/preview": {
+      "get": {
+        "tags": [
+          "KnowledgeExtractionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeVersionPreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge-bases/{id}/documents/{documentId}/versions/{versionId}/chunks/{chunkId}/exclusion": {
+      "put": {
+        "tags": [
+          "KnowledgeExtractionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "chunkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateKnowledgeChunkExclusionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeChunkView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -751,6 +881,30 @@
           }
         }
       },
+      "KnowledgeChunkView": {
+        "required": [
+          "id",
+          "locationLabel",
+          "text",
+          "excluded"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locationLabel": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "excluded": {
+            "type": "boolean"
+          }
+        }
+      },
       "KnowledgeDocumentStatus": {
         "enum": [
           "queued",
@@ -845,6 +999,52 @@
           }
         }
       },
+      "KnowledgeExtractedUnitView": {
+        "required": [
+          "ordinal",
+          "locationKind",
+          "locationLabel",
+          "readable",
+          "issueCode",
+          "text",
+          "chunks"
+        ],
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "locationKind": {
+            "$ref": "#/components/schemas/KnowledgeUnitLocationKind"
+          },
+          "locationLabel": {
+            "type": "string"
+          },
+          "readable": {
+            "type": "boolean"
+          },
+          "issueCode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KnowledgeUnitIssue"
+              }
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "chunks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeChunkView"
+            }
+          }
+        }
+      },
       "KnowledgeItemKind": {
         "enum": [
           "document",
@@ -894,6 +1094,65 @@
           },
           "allowOriginalDownload": {
             "type": "boolean"
+          }
+        }
+      },
+      "KnowledgeUnitIssue": {
+        "enum": [
+          "too-little-text",
+          "garbled-text",
+          "rows-truncated",
+          null
+        ]
+      },
+      "KnowledgeUnitLocationKind": {
+        "enum": [
+          "page",
+          "section",
+          "sheet"
+        ]
+      },
+      "KnowledgeVersionPreviewView": {
+        "required": [
+          "documentId",
+          "versionId",
+          "versionNumber",
+          "fileName",
+          "status",
+          "issue",
+          "units"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/KnowledgeDocumentStatus"
+          },
+          "issue": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeExtractedUnitView"
+            }
           }
         }
       },
@@ -1064,6 +1323,20 @@
           }
         }
       },
+      "UpdateKnowledgeChunkExclusionRequest": {
+        "required": [
+          "excluded"
+        ],
+        "type": "object",
+        "properties": {
+          "excluded": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
       "UpdateKnowledgeSharingRequest": {
         "required": [
           "scope",
@@ -1129,6 +1402,9 @@
     },
     {
       "name": "KnowledgeDocumentEndpoints"
+    },
+    {
+      "name": "KnowledgeExtractionEndpoints"
     }
   ]
 }

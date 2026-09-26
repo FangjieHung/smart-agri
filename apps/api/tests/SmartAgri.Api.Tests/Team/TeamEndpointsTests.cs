@@ -196,6 +196,64 @@ public class TeamEndpointsTests : IClassFixture<AuthHostFixture>
         (await BodyJsonAsync(getResponse)).GetProperty("savedAt").GetDateTimeOffset().ShouldBe(savedAt);
     }
 
+    /// <summary>
+    /// Review finding (docs/reviews/2026-09-26-project-review-and-backlog.md, second row of
+    /// the findings table) and M2 plan Slice 2 (issue #36): the frontend used to fold every
+    /// member into one of three fixed Demo identities by role, so a second member with the
+    /// same role silently overwrote the first's mapping and editing one could update the
+    /// other. The backend has never had that bug — members are always addressed by their own
+    /// <see cref="Account.Id"/> — but there was no test proving two same-role accounts stay
+    /// independent. The second account is inserted the same way as every other account in
+    /// this fixture: directly into the database via <see cref="AuthHostFixture.CreateAccountAsync"/>,
+    /// not through any signup flow (there isn't one yet).
+    /// </summary>
+    [Fact]
+    public async Task Two_accounts_with_the_same_role_keep_separate_ids_and_editing_one_leaves_the_other_unchanged()
+    {
+        var organization = await _host.CreateOrganizationAsync("安心商行");
+        var admin = await _host.CreateAccountAsync(
+            organization, "admin", Password, AccountRole.SmbAdmin, "安心商行管理者",
+            AccountPermission.ManageAssistants);
+        var internalA = await _host.CreateAccountAsync(
+            organization, "internal-a", Password, AccountRole.InternalEmployee, "安心商行客服同仁 A",
+            AccountPermission.UseSharedAssistants);
+        var internalB = await _host.CreateAccountAsync(
+            organization, "internal-b", Password, AccountRole.InternalEmployee, "安心商行客服同仁 B",
+            AccountPermission.ReadConsentedSubmissions);
+
+        using var spa = _host.CreateSpaClient();
+        var token = await spa.SignInAsync(organization.Code, "admin", Password);
+
+        var getTeam = await spa.GetAsync("/api/v1/team", token.AccessToken);
+        getTeam.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var body = await BodyJsonAsync(getTeam);
+        var members = body.GetProperty("members").EnumerateArray().ToList();
+
+        var sameRoleMembers = members
+            .Where(member => member.GetProperty("role").GetString() == "internal-employee")
+            .ToList();
+        sameRoleMembers.Count.ShouldBe(2);
+        var sameRoleIds = sameRoleMembers.Select(member => member.GetProperty("id").GetGuid()).ToList();
+        sameRoleIds.ShouldBe([internalA.Id, internalB.Id], ignoreOrder: true);
+        sameRoleIds.Distinct().Count().ShouldBe(2);
+
+        var response = await spa.PutAsync(
+            $"/api/v1/team/members/{internalA.Id}/permissions",
+            token.AccessToken,
+            new { permissions = new[] { "manage-data-sources" } });
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        (await CurrentPermissionsAsync(organization.Id, internalA.Id)).ShouldBe(
+            [AccountPermission.ManageDataSources]);
+        // B was never addressed by this request: its permissions are exactly what they were,
+        // not overwritten by A's update.
+        (await CurrentPermissionsAsync(organization.Id, internalB.Id)).ShouldBe(
+            [AccountPermission.ReadConsentedSubmissions]);
+        // Sanity: admin's own permission is untouched too.
+        (await CurrentPermissionsAsync(organization.Id, admin.Id)).ShouldBe(
+            [AccountPermission.ManageAssistants]);
+    }
+
     [Fact]
     public async Task Password_change_gate_still_blocks_the_team_endpoints()
     {

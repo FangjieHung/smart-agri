@@ -8,7 +8,7 @@ namespace SmartAgri.Application.Knowledge.Processing;
 /// How a location in a file is named for people — in the extraction preview and, later, in
 /// citations (ADR: document + page or section + excerpt; M2 plan §4): 「第 3 頁」, the heading
 /// path 「2 退換貨 › 2.1 退貨條件」, 「工作表『配送時間』」 and, for a worksheet's chunk,
-/// 「工作表『配送時間』第 2–30 列」.
+/// 「工作表『配送時間』第 2–30 列」; an FAQ entry is 「FAQ」.
 /// </summary>
 public static class KnowledgeLocationLabels
 {
@@ -20,6 +20,9 @@ public static class KnowledgeLocationLabels
 
     /// <summary>A plain-text file, which has no sections.</summary>
     public const string WholeText = "全文";
+
+    /// <summary>An FAQ entry: its one unit and one chunk (M2 plan §4, Slice 10).</summary>
+    public const string Faq = "FAQ";
 
     /// <summary>A longer heading is cut, so that three levels always fit
     /// <see cref="KnowledgeExtractedUnit.LocationLabelMaxLength"/>.</summary>

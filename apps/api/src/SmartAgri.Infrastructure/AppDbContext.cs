@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
+using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
 using SmartAgri.Infrastructure.Tenancy;
 
@@ -64,6 +66,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     public DbSet<Account> Accounts => Set<Account>();
 
     public DbSet<AccountPermissionGrant> AccountPermissions => Set<AccountPermissionGrant>();
+
+    public DbSet<KnowledgeBase> KnowledgeBases => Set<KnowledgeBase>();
+
+    public DbSet<KnowledgeBaseShare> KnowledgeBaseShares => Set<KnowledgeBaseShare>();
+
+    public DbSet<KnowledgeActivity> KnowledgeActivities => Set<KnowledgeActivity>();
 
     /// <summary>
     /// Pinned so the model (and therefore the migrations) never depends on whatever
@@ -142,6 +150,13 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
                 .HasPrincipalKey(a => new { a.Id, a.OrganizationId })
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // Knowledge bases (M2 plan §4). Domain entities are POCOs; their mapping lives in
+        // Knowledge/, one IEntityTypeConfiguration per entity, applied explicitly so the
+        // model is readable from here.
+        modelBuilder.ApplyConfiguration(new KnowledgeBaseConfiguration());
+        modelBuilder.ApplyConfiguration(new KnowledgeBaseShareConfiguration());
+        modelBuilder.ApplyConfiguration(new KnowledgeActivityConfiguration());
 
         ApplyOrganizationScope(modelBuilder);
     }

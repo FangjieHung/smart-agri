@@ -415,6 +415,42 @@ same rule), `awaitingApprovalCount` (latest version processed and pending) and
 `disabledCount` sit next to it; each document row has `latestVersionState`,
 `effectiveVersionNumber`, `disabled` and `inEffect`.
 
+### FAQ entries
+
+Hand-written Q&A (M2 plan Slice 10), under the same approval and retrieval rules as documents.
+An FAQ entry is a `KnowledgeDocuments` row of `kind` `faq`; every write of its question and
+answer is a new version, **pending review like every version**, so an edited answer only
+replaces the one in effect once the owner approves it (`includePending` previews it first).
+
+| Endpoint | Result |
+| --- | --- |
+| `POST .../faqs` `{ question, answer }` | `201` `KnowledgeFaqView` (the list row, `latest` and `effective` question/answer); version 1, `pending-review` |
+| `GET .../faqs/{docId}` | `200` `KnowledgeFaqView`; `effective` is `null` while no version is in effect |
+| `PUT .../faqs/{docId}` `{ question, answer }` | `200` `KnowledgeFaqView`; a new version, `pending-review`, while `effective` keeps answering; `409 concurrent-version-upload` if a concurrent change won |
+| `DELETE .../faqs/{docId}` | `204`; exactly like deleting a document, recorded as `faq-deleted` |
+
+- **Storage.** The content is stored like a file: canonical UTF-8 JSON
+  `{"question":…,"answer":…}` in `KnowledgeFileContents`, content type
+  `application/vnd.smartagri.faq+json` (`KnowledgeFaqEntry`). So an FAQ version has a size and a
+  SHA-256 like any other, and the database's per-knowledge-base SHA-256 and name indexes apply
+  unchanged.
+- **Rules** (`KnowledgeFaqRules`): the question becomes one line and the answer keeps its lines,
+  both normalized like extracted text (NFC, `\n`, trimmed); `422` for a missing or blank field,
+  a question over 500 or an answer over 4000 characters. Then, content first, `422
+  duplicate-content` (with `existingDocumentName`; an unchanged edit or one back to an older
+  version included) and `422 duplicate-name`. The entry is listed under its latest question,
+  cut to 255 characters with 「…」, and names are unique per knowledge base across documents and
+  FAQ entries, so the same question twice is `duplicate-name`.
+- **Processing.** Nothing to parse, but the `knowledge.process-version` job still runs, so
+  embedding, retries and failures are a document's: one unit and one chunk located 「FAQ」
+  (`KnowledgeFaqProcessing`), text 「問：…\n答：…」 so a question can match either, always
+  `ready`.
+- Everything else is the documents' endpoints, which take an FAQ entry as the document it is:
+  history, approval, disable/enable, extraction preview, chunk exclusion, retry, the list and
+  `faqCount`. Only `POST .../documents/{docId}/versions` refuses one (a file never becomes an
+  FAQ version) with the same `403 knowledge-base` as an FAQ path given a document's id.
+  Activity rows are content-free: `faq-created`, `faq-updated`, `faq-deleted`.
+
 ## Embeddings and vector search
 
 Processing embeds every chunk (M2 plan Slice 7; llm-providers and postgresql-as-single-store

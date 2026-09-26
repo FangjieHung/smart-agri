@@ -51,6 +51,12 @@ public sealed record KnowledgeDocumentUploadForm(IFormFile File, string? BatchId
 /// its name; the version keeps its own file name, whatever it is. Content any version of the
 /// knowledge base already has is <c>422 duplicate-content</c>.
 /// </para>
+/// <para>
+/// FAQ entries (Slice 10, <see cref="KnowledgeFaqEndpoints"/>) are documents too: retry and
+/// delete work on them here as well (deleting one records <c>faq-deleted</c>), but a file can
+/// never become a version of one — to this endpoint an FAQ entry is not a document, so it gets
+/// the same <c>403</c>. An FAQ version's "original file" is its stored JSON.
+/// </para>
 /// </remarks>
 public static class KnowledgeDocumentEndpoints
 {
@@ -222,9 +228,12 @@ public static class KnowledgeDocumentEndpoints
         }
 
         // Tracked on purpose: KnowledgeDocumentVersion.Create links the new version to it, and
-        // an untracked document reachable from an added version would be inserted again.
+        // an untracked document reachable from an added version would be inserted again. Only an
+        // uploaded document: an FAQ entry's versions are edits (KnowledgeFaqEndpoints).
         var document = await dbContext.KnowledgeDocuments.SingleOrDefaultAsync(
-            candidate => candidate.Id == documentId && candidate.KnowledgeBaseId == knowledgeBase.Id,
+            candidate => candidate.Id == documentId
+                && candidate.KnowledgeBaseId == knowledgeBase.Id
+                && candidate.Kind == KnowledgeItemKind.Document,
             cancellationToken);
         if (document is null)
         {
@@ -400,12 +409,26 @@ public static class KnowledgeDocumentEndpoints
     /// <summary>
     /// Deletes the document in one save: the document row, and by database cascade all of
     /// its versions and their original files; plus a content-free
-    /// <see cref="KnowledgeActivityAction.DocumentDeleted"/> row. Processing jobs already
-    /// queued for its versions stay and find nothing to do.
+    /// <see cref="KnowledgeActivityAction.DocumentDeleted"/> row
+    /// (<see cref="KnowledgeActivityAction.FaqDeleted"/> for an FAQ entry). Processing jobs
+    /// already queued for its versions stay and find nothing to do.
     /// </summary>
-    internal static async Task<IResult> DeleteAsync(
+    internal static Task<IResult> DeleteAsync(
         Guid id,
         Guid documentId,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        TimeProvider clock,
+        CancellationToken cancellationToken) =>
+        DeleteItemAsync(id, documentId, kind: null, httpContext, dbContext, clock, cancellationToken);
+
+    /// <summary><see cref="DeleteAsync"/> for an item of <paramref name="kind"/> only (any kind
+    /// when <see langword="null"/>): an item of another kind is not found, the same
+    /// <c>403</c>.</summary>
+    internal static async Task<IResult> DeleteItemAsync(
+        Guid id,
+        Guid documentId,
+        KnowledgeItemKind? kind,
         HttpContext httpContext,
         AppDbContext dbContext,
         TimeProvider clock,
@@ -423,9 +446,14 @@ public static class KnowledgeDocumentEndpoints
             return ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
         }
 
-        var document = await dbContext.KnowledgeDocuments.SingleOrDefaultAsync(
-            candidate => candidate.Id == documentId && candidate.KnowledgeBaseId == knowledgeBase.Id,
-            cancellationToken);
+        var candidates = dbContext.KnowledgeDocuments
+            .Where(candidate => candidate.Id == documentId && candidate.KnowledgeBaseId == knowledgeBase.Id);
+        if (kind is { } requiredKind)
+        {
+            candidates = candidates.Where(candidate => candidate.Kind == requiredKind);
+        }
+
+        var document = await candidates.SingleOrDefaultAsync(cancellationToken);
         if (document is null)
         {
             return ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
@@ -557,7 +585,7 @@ public static class KnowledgeDocumentEndpoints
     }
 
     /// <summary>The version of the knowledge base that already has this content, if any.</summary>
-    private static Task<KnowledgeExistingContent?> FindExistingContentAsync(
+    internal static Task<KnowledgeExistingContent?> FindExistingContentAsync(
         AppDbContext dbContext,
         Guid knowledgeBaseId,
         string sha256,

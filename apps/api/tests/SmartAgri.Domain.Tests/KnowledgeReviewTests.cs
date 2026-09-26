@@ -123,7 +123,7 @@ public class KnowledgeReviewTests
 
         var uploaded = KnowledgeActivity.VersionUploaded(version, Uploader, Now);
         var approved = KnowledgeActivity.VersionApproved(version, Approver, Now);
-        var disabled = KnowledgeActivity.DocumentDisabled(document, Approver, Now);
+        var disabled = KnowledgeActivity.DocumentDisabled(document, "條款待法務確認", Approver, Now);
         var enabled = KnowledgeActivity.DocumentEnabled(document, Approver, Now);
 
         (uploaded.Action, uploaded.VersionId, uploaded.ActorAccountId).ShouldBe((KnowledgeActivityAction.VersionUploaded, version.Id, Uploader));
@@ -135,8 +135,16 @@ public class KnowledgeReviewTests
             activity.OrganizationId.ShouldBe(KnowledgeBase.OrganizationId);
             activity.KnowledgeBaseId.ShouldBe(KnowledgeBase.Id);
             activity.DocumentId.ShouldBe(document.Id);
-            activity.Detail.ShouldBeNull();
         }
+
+        // Only the disable row carries anything besides ids: the owner's reason.
+        foreach (var activity in new[] { uploaded, approved, enabled })
+        {
+            activity.Detail.ShouldBeNull();
+            activity.DisableReason().ShouldBeNull();
+        }
+
+        disabled.DisableReason().ShouldBe("條款待法務確認");
 
         Should.Throw<ArgumentException>(() => KnowledgeActivity.VersionApproved(version, Guid.Empty, Now));
     }

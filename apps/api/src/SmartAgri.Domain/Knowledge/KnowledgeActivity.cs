@@ -133,11 +133,42 @@ public sealed class KnowledgeActivity : IOrganizationScoped
     public static KnowledgeActivity VersionApproved(KnowledgeDocumentVersion version, Guid actorAccountId, DateTimeOffset at) =>
         ForVersion(version, KnowledgeActivityAction.VersionApproved, actorAccountId, at);
 
-    /// <summary>Ids only: the reason is free text the owner wrote, kept on the document while
-    /// it is disabled (<see cref="KnowledgeDocument.DisabledReason"/>) and not copied into a log
-    /// that outlives the document.</summary>
-    public static KnowledgeActivity DocumentDisabled(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at) =>
-        ForDocument(document, KnowledgeActivityAction.DocumentDisabled, actorAccountId, at);
+    /// <summary>
+    /// Also keeps the owner's reason: the document clears it when enabled again, and "why was
+    /// this stopped" is what an audit asks afterwards (the business review requires operations
+    /// to be traceable). It is the operator's note, not document content.
+    /// </summary>
+    public static KnowledgeActivity DocumentDisabled(
+        KnowledgeDocument document,
+        string reason,
+        Guid actorAccountId,
+        DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return New(
+            document.OrganizationId,
+            document.KnowledgeBaseId,
+            document.Id,
+            versionId: null,
+            KnowledgeActivityAction.DocumentDisabled,
+            actorAccountId,
+            at,
+            JsonSerializer.Serialize(new { reason }));
+    }
+
+    /// <summary>The reason recorded by <see cref="DocumentDisabled"/>; <see langword="null"/> for
+    /// every other action.</summary>
+    public string? DisableReason()
+    {
+        if (Action != KnowledgeActivityAction.DocumentDisabled || Detail is null)
+        {
+            return null;
+        }
+
+        using var detail = JsonDocument.Parse(Detail);
+        return detail.RootElement.TryGetProperty("reason", out var reason) ? reason.GetString() : null;
+    }
 
     public static KnowledgeActivity DocumentEnabled(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at) =>
         ForDocument(document, KnowledgeActivityAction.DocumentEnabled, actorAccountId, at);

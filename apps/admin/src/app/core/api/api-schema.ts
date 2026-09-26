@@ -1316,6 +1316,7 @@ export interface components {
             versionId: null | string;
             /** Format: int32 */
             versionNumber: null | number;
+            reason: null | string;
         };
         KnowledgeBaseDetailView: {
             summary: components["schemas"]["KnowledgeBaseSummaryView"];

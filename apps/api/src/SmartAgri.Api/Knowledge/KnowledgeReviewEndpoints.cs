@@ -40,13 +40,16 @@ public sealed record KnowledgeVersionView(
 /// content.</summary>
 /// <param name="Actor"><see langword="null"/> for system actions.</param>
 /// <param name="VersionNumber">The version acted on, if the action concerns one.</param>
+/// <param name="Reason">The owner's reason for <c>document-disabled</c>; otherwise
+/// <see langword="null"/>.</param>
 public sealed record KnowledgeActivityView(
     Guid Id,
     KnowledgeActivityAction Action,
     KnowledgeAccountView? Actor,
     DateTimeOffset At,
     Guid? VersionId,
-    int? VersionNumber);
+    int? VersionNumber,
+    string? Reason);
 
 /// <summary><c>GET /api/v1/knowledge-bases/{id}/documents/{docId}</c> response.</summary>
 /// <param name="Document">The document as the knowledge base lists it.</param>
@@ -216,7 +219,8 @@ public static class KnowledgeReviewEndpoints
                     Account(names, activity.ActorAccountId),
                     activity.At,
                     activity.VersionId,
-                    activity.VersionId is { } versionId && numbers.TryGetValue(versionId, out var number) ? number : null)),
+                    activity.VersionId is { } versionId && numbers.TryGetValue(versionId, out var number) ? number : null,
+                    activity.DisableReason())),
             ]));
     }
 
@@ -335,7 +339,7 @@ public static class KnowledgeReviewEndpoints
 
         var now = clock.GetUtcNow();
         document.Disable(callerId, reason.Value, now);
-        dbContext.KnowledgeActivities.Add(KnowledgeActivity.DocumentDisabled(document, callerId, now));
+        dbContext.KnowledgeActivities.Add(KnowledgeActivity.DocumentDisabled(document, reason.Value, callerId, now));
         return await SaveStateChangeAsync(dbContext, document, now, AlreadyDisabledReason, KnowledgeReviewRules.AlreadyDisabledMessage, cancellationToken);
     }
 

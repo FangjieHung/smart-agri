@@ -172,7 +172,9 @@ public sealed class KnowledgeVersionEndpointsTests : IClassFixture<AuthHostFixtu
                 ("document-uploaded", 1),
             ]);
         activities.ShouldAllBe(activity => activity.GetProperty("actor").GetProperty("id").GetGuid() == owner.AccountId);
-        activities[0].EnumerateObject().Select(property => property.Name).ShouldBe(["id", "action", "actor", "at", "versionId", "versionNumber"]);
+        activities[0].EnumerateObject().Select(property => property.Name).ShouldBe(["id", "action", "actor", "at", "versionId", "versionNumber", "reason"]);
+        activities[0].GetProperty("reason").GetString().ShouldBe("條款待法務確認");
+        activities.Skip(1).ShouldAllBe(activity => activity.GetProperty("reason").ValueKind == JsonValueKind.Null);
 
         // Enabling is recorded too, and clears who, when and why.
         (await owner.Spa.PostAsync(DocumentPath(owner, documentId) + "/enable", owner.Token, new { })).StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -184,10 +186,17 @@ public sealed class KnowledgeVersionEndpointsTests : IClassFixture<AuthHostFixtu
         latest.GetProperty("action").GetString().ShouldBe("document-enabled");
         latest.GetProperty("actor").GetProperty("id").GetGuid().ShouldBe(owner.AccountId);
 
+        // The document forgets why it was stopped once enabled; the log still says.
+        var disableEntry = enabled.GetProperty("activities")[1];
+        disableEntry.GetProperty("action").GetString().ShouldBe("document-disabled");
+        disableEntry.GetProperty("reason").GetString().ShouldBe("條款待法務確認");
+
         await using var dbContext = _host.Postgres.CreateDbContext(owner.Organization.Id);
         var rows = await dbContext.KnowledgeActivities.AsNoTracking().Where(activity => activity.DocumentId == documentId).ToListAsync(CancellationToken);
         rows.Count.ShouldBe(6);
-        rows.ShouldAllBe(activity => activity.ActorAccountId == owner.AccountId && activity.Detail == null && activity.KnowledgeBaseId == owner.KnowledgeBaseId);
+        rows.ShouldAllBe(activity => activity.ActorAccountId == owner.AccountId && activity.KnowledgeBaseId == owner.KnowledgeBaseId);
+        rows.Where(activity => activity.Action != KnowledgeActivityAction.DocumentDisabled).ShouldAllBe(activity => activity.Detail == null);
+        rows.Single(activity => activity.Action == KnowledgeActivityAction.DocumentDisabled).DisableReason().ShouldBe("條款待法務確認");
     }
 
     // --- Emergency disable and enable ------------------------------------------------------------

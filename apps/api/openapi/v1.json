@@ -1168,7 +1168,8 @@
           "actor",
           "at",
           "versionId",
-          "versionNumber"
+          "versionNumber",
+          "reason"
         ],
         "type": "object",
         "properties": {
@@ -1206,6 +1207,12 @@
               "integer"
             ],
             "format": "int32"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

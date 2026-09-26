@@ -577,6 +577,88 @@ Configuration (section `Retrieval`; written out in `appsettings.json`, override 
 | `MinScore` | `0.3` | The relevance threshold, a cosine similarity of 0–1. **A placeholder** until the retrieval evaluation (M2 Slice 16) calibrates it for the chosen model; it depends on the model (OpenAI's `text-embedding-3` models separate related text around here, the e5 family scores almost everything above 0.7), so set it again when `Ai:Embedding:Model` changes. The `Fake` model scores the fixture's matching page at about 0.32 and unrelated text below 0.1. M3 will let an assistant tune its own. |
 | `Top` | `5` | Passages per search when the caller does not say, 1–20. |
 
+## Evaluating retrieval: `eval-retrieval`
+
+The testing ADR asks for a question bank so the relevance threshold and the embedding model are
+judged by data, not by feel, and the grounded-answers ADR for questions that should find nothing
+(M2 plan Slice 16, #50). The bank and its demo documents are `apps/api/eval/retrieval/` (its README
+describes the documents, the JSON format and how a run is judged); `eval-retrieval` runs it with
+the **configured** embedding model and writes a Markdown report:
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- migrate           # the database must be migrated
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-retrieval    # writes docs/evals/<date>-retrieval-<model>.md
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-retrieval --report /tmp/eval.md --set <dir> --timeout 600
+```
+
+- **Development and Testing only**: it refuses any other environment, because it writes an
+  organization into the database. `dotnet run` uses Development (launch settings).
+- It works in an organization of its own, **`retrieval-eval`** (「檢索評測（安心商行示範資料）」, with an
+  account `eval` that has no password and cannot sign in), created on first use: your demo data is
+  never touched. Every run first deletes that organization's knowledge bases, then imports the set
+  through the normal pipeline — upload (the upload rules, activity rows, a processing job), the job
+  queue (the command runs `JobRunner` itself, waiting up to `--timeout` seconds, default 600), and
+  approval in order, so 退換貨辦法's version 2 is in effect and version 1 archived — then sends every
+  question through `KnowledgeRetriever` (the set's knowledge bases, top 5, no pending versions, no
+  account). Question embeddings are recorded in `ModelInvocations` as the evaluation
+  organization's.
+- The report has the run's settings, hit@5 and hit@1 overall and per category, the highest score
+  among questions that should find nothing, the lowest score of a correct hit, a suggested
+  threshold with how many questions it and the current `Retrieval:MinScore` judge correctly,
+  every question's result, and the passages of each miss and of each should-find-nothing
+  question. It goes to `docs/evals/<date>-retrieval-<model>.md` under the repository the current
+  directory is in (overwritten by a second run the same day), or to `--report`. Exit codes: `0`
+  done, `1` the model or processing failed (e.g. a wrong key: the queue retries until
+  `--timeout`), `2` bad arguments, environment, set or configuration.
+- **CI never runs it against a model**: it needs a real model and key. The integration tests run it
+  with `Fake` to prove the pipeline end to end (`RetrievalEvaluationTests`); `Fake` scores are
+  hashes of the text, and its report says so.
+
+**With `Fake`** (`appsettings.Development.json`, no key): the command above. Only for checking the
+pipeline; never calibrate with it.
+
+**With OpenAI**: keep the key in a local file outside the repository (owner action items, item 3),
+e.g. `~/.config/smart-agri/embedding.env` with `chmod 600`, holding `Ai__Embedding__Provider=OpenAI`,
+`Ai__Embedding__Model=text-embedding-3-small` and `Ai__Embedding__ApiKey=…`:
+
+```sh
+set -a; . ~/.config/smart-agri/embedding.env; set +a
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-retrieval
+```
+
+**With a local OpenAI-compatible server** (M2 plan §7 decision 3: a permissively licensed
+multilingual model from a non-Chinese team — Microsoft's `intfloat/multilingual-e5-large` (MIT) or
+Snowflake's `Snowflake/snowflake-arctic-embed-l-v2.0` (Apache-2.0); not BAAI's bge). For example
+Hugging Face's text-embeddings-inference (Apache-2.0), which serves `/v1/embeddings`; check the
+image's current version and licence when adopting it, and check swap first — it needs about 3–4 GB:
+
+```sh
+docker run --rm -p 8081:80 -v "$HOME/.cache/smart-agri-tei:/data" \
+  ghcr.io/huggingface/text-embeddings-inference:cpu-<version> --model-id intfloat/multilingual-e5-large
+
+Ai__Embedding__Provider=OpenAICompatible \
+Ai__Embedding__Endpoint=http://localhost:8081/v1 \
+Ai__Embedding__Model=intfloat/multilingual-e5-large \
+Ai__Embedding__QueryPrefix='query: ' \
+Ai__Embedding__DocumentPrefix='passage: ' \
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-retrieval
+```
+
+The e5 family needs those prefixes (snowflake-arctic-embed-l-v2.0 takes `query: ` for questions and
+none for passages; follow the model card) and scores almost everything above 0.7, so its threshold
+lands near 0.8, far from OpenAI's.
+
+**Calibrating** (in its own PR): with the chosen model's report meeting hit@5 ≥ 90%, set the
+suggested threshold (or a value justified from the report) as `Retrieval:MinScore` in
+`appsettings.json` **and** `KnowledgeRetrievalSettings.DefaultMinScore` (`RetrievalOptionsTests`
+fails when they differ), and commit the report under `docs/evals/`.
+
+> **Deferred to the end of M2** (#50; docs/plans/2026-09-26-m2-owner-action-items.md, items 3
+> and 4): the OpenAI run with a committed report, the local-model run and its comparison with
+> OpenAI, the hit@5 ≥ 90% check, and the `Retrieval:MinScore` calibration all wait for the
+> owner's API key and consent to run a local model. Until then `Retrieval:MinScore` 0.3 stays a
+> placeholder, and only the `Fake` run is verified.
+
 ## Development seed data
 
 `DevelopmentSeeder` (`SmartAgri.Infrastructure.Seeding`) gives local development and E2E
@@ -643,6 +725,32 @@ seeded as before. A checked-in or forgotten-default demo password still can neve
 database, because the value has no default here and must never be committed — see
 `deploy/.env.example` for where to set it and `tools/check-no-demo-secrets.sh` (run in CI)
 for the checks that keep a real value out of every checked-in file.
+
+### Demo knowledge: `SEED_DEMO_KNOWLEDGE`
+
+With `SEED_DEMO_KNOWLEDGE=true` as well (Development only, like the rest), `migrate` also puts the
+retrieval evaluation's demo documents ("Evaluating retrieval" above) into 安心商行, owned by its
+`admin`: 商品使用指南, 退換貨政策 (退換貨辦法 version 1 archived, version 2 in effect) and 配送常見問題
+(the delivery timetable and the FAQ), so API mode has real knowledge to search and preview.
+
+```sh
+export SEED_DEMO_PASSWORD='choose-a-strong-password-1!' SEED_DEMO_KNOWLEDGE=true
+dotnet run --project apps/api/src/SmartAgri.Api -- migrate
+```
+
+It goes through the normal pipeline (`DemoKnowledgeSeeder`, `KnowledgeSetImporter`): each file is
+uploaded as `POST .../documents` stores one (a new version as `POST .../versions` does), and as
+`migrate` has no job worker, it runs the job queue itself once and approves what is processed, in
+order, as the owner. With the embedding model of your configuration: `Fake` by default, whatever
+`Ai__Embedding__*` says otherwise. Anything not processed yet (e.g. the model was unreachable and the
+queue will retry) stays pending review; run `migrate` again later and it is approved.
+
+**Idempotent like the accounts**: it only fills in what is missing — a knowledge base by owner and
+name, a document by name, a version by content (SHA-256) — and never touches anything that is there,
+including what you changed by hand; a document of the same name that is not the set's is left alone
+with a warning. Without the setting (or with anything but `true`) it does nothing and opens no
+connection; without 安心商行 and its `admin` (no `SEED_DEMO_PASSWORD`) it logs a warning and does
+nothing.
 
 ## Running the customer-deploy compose file end to end
 

@@ -11,7 +11,9 @@ namespace SmartAgri.Api.Errors;
 /// Add reasons here as their endpoints are built (M1 needs <see cref="Team"/> and
 /// <see cref="PasswordChangeRequired"/>); keep
 /// the wire name and message identical to the frontend's mock
-/// (<c>mock-demo-repository.ts</c>).
+/// (<c>mock-demo-repository.ts</c>). One wire name may have more than one message when the
+/// mock has (<see cref="KnowledgeBase"/> and <see cref="KnowledgeBaseCreate"/>, like the
+/// mock's <c>database</c>): the frontend switches on the reason, never on the message.
 /// </remarks>
 public sealed class ForbiddenReason
 {
@@ -20,6 +22,23 @@ public sealed class ForbiddenReason
     public static readonly ForbiddenReason Team = new(
         "team",
         "只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。");
+
+    /// <summary>
+    /// A knowledge base that does not exist, belongs to another organization, or is not the
+    /// caller's own (only the owner may open or change one). Same bytes in every case.
+    /// </summary>
+    public static readonly ForbiddenReason KnowledgeBase = new(
+        "knowledge-base",
+        "你沒有這個知識庫的存取權限，或它已不存在。");
+
+    /// <summary>
+    /// Creating a knowledge base without <c>manage-data-sources</c>. Same wire name as
+    /// <see cref="KnowledgeBase"/>; the message differs because there is no existing
+    /// resource whose existence it could reveal.
+    /// </summary>
+    public static readonly ForbiddenReason KnowledgeBaseCreate = new(
+        "knowledge-base",
+        "只有可管理資料來源的帳號可以建立知識庫。");
 
     /// <summary>
     /// The account still has the one-time password from <c>setup</c>: until it sets its own

@@ -1165,8 +1165,15 @@
           "OpenTelemetry.Extensions.Hosting": "[1.19.1, )",
           "OpenTelemetry.Instrumentation.AspNetCore": "[1.19.0, )",
           "OpenTelemetry.Instrumentation.Http": "[1.19.0, )",
+          "SmartAgri.Application": "[1.0.0, )",
           "SmartAgri.Domain": "[1.0.0, )",
           "SmartAgri.Infrastructure": "[1.0.0, )"
+        }
+      },
+      "smartagri.application": {
+        "type": "Project",
+        "dependencies": {
+          "SmartAgri.Domain": "[1.0.0, )"
         }
       },
       "smartagri.domain": {

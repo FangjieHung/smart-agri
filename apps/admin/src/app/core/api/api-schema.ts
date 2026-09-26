@@ -320,6 +320,284 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge-bases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeBaseSummaryView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateKnowledgeBaseRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeBaseSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-bases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeBaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateKnowledgeBaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeBaseSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/knowledge-bases/{id}/sharing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateKnowledgeSharingRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeSharingView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -331,6 +609,69 @@ export interface components {
         ChangePasswordRequest: {
             currentPassword: null | string;
             newPassword: null | string;
+        };
+        CreateKnowledgeBaseRequest: {
+            name: null | string;
+            purpose?: null | string;
+        };
+        KnowledgeBaseDetailView: {
+            summary: components["schemas"]["KnowledgeBaseSummaryView"];
+            documents: components["schemas"]["KnowledgeDocumentView"][];
+            sharing: components["schemas"]["KnowledgeSharingView"];
+            shareTargets: components["schemas"]["KnowledgeShareTargetView"][];
+        };
+        KnowledgeBaseSummaryView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            purpose: string;
+            /** Format: int32 */
+            documentCount: number;
+            /** Format: int32 */
+            faqCount: number;
+            statusCounts: components["schemas"]["KnowledgeDocumentStatusCounts"];
+            sharingScope: components["schemas"]["KnowledgeSharingScope"];
+            /** Format: date-time */
+            updatedAt: string;
+            viewerCanManage: boolean;
+        };
+        /** @enum {unknown} */
+        KnowledgeDocumentStatus: "queued" | "processing" | "ready" | "partially-readable" | "failed";
+        KnowledgeDocumentStatusCounts: {
+            /** Format: int32 */
+            queued: number;
+            /** Format: int32 */
+            processing: number;
+            /** Format: int32 */
+            ready: number;
+            /** Format: int32 */
+            "partially-readable": number;
+            /** Format: int32 */
+            failed: number;
+        };
+        KnowledgeDocumentView: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["KnowledgeItemKind"];
+            name: string;
+            status: components["schemas"]["KnowledgeDocumentStatus"];
+            issue: null | string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @enum {unknown} */
+        KnowledgeItemKind: "document" | "faq";
+        KnowledgeShareTargetView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+        };
+        /** @enum {unknown} */
+        KnowledgeSharingScope: "private" | "specific-accounts" | "public";
+        KnowledgeSharingView: {
+            scope: components["schemas"]["KnowledgeSharingScope"];
+            sharedWithAccountIds: string[];
+            allowOriginalDownload: boolean;
         };
         LoginOptionsResponse: {
             organizationCodeRequired: boolean;
@@ -366,6 +707,15 @@ export interface components {
             members: components["schemas"]["TeamMemberResponse"][];
             /** Format: date-time */
             savedAt: null | string;
+        };
+        UpdateKnowledgeBaseRequest: {
+            name?: null | string;
+            purpose?: null | string;
+        };
+        UpdateKnowledgeSharingRequest: {
+            scope: null | string;
+            sharedWithAccountIds: null | string[];
+            allowOriginalDownload: null | boolean;
         };
         UpdateMemberPermissionsRequest: {
             permissions: null | string[];

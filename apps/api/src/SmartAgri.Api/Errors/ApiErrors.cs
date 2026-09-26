@@ -17,7 +17,10 @@ namespace SmartAgri.Api.Errors;
 /// responses, so nobody can probe whether another organization's resource
 /// exists.</description></item>
 /// <item><term><c>422</c></term><description>ProblemDetails + <c>message</c> +
-/// <c>errors</c>.</description></item>
+/// <c>errors</c>; plus a <c>reason</c> when the frontend has to tell refusals of the same
+/// field apart (<see cref="WithReason"/>).</description></item>
+/// <item><term><c>409</c>, <c>413</c>, <c>415</c></term><description>ProblemDetails +
+/// <c>reason</c> + <c>message</c> (<see cref="WithReason"/>).</description></item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -36,6 +39,16 @@ public static class ApiErrors
     };
 
     private static readonly ConcurrentDictionary<ForbiddenReason, byte[]> ForbiddenBodies = new();
+
+    /// <summary>The ProblemDetails <c>type</c> and <c>title</c> of each status
+    /// <see cref="WithReason"/> writes (RFC 9110's names).</summary>
+    private static readonly Dictionary<int, (string Type, string Title)> ReasonStatuses = new()
+    {
+        [StatusCodes.Status409Conflict] = ("https://tools.ietf.org/html/rfc9110#section-15.5.10", "Conflict"),
+        [StatusCodes.Status413PayloadTooLarge] = ("https://tools.ietf.org/html/rfc9110#section-15.5.14", "Content Too Large"),
+        [StatusCodes.Status415UnsupportedMediaType] = ("https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type"),
+        [StatusCodes.Status422UnprocessableEntity] = ("https://tools.ietf.org/html/rfc9110#section-15.5.21", "Unprocessable Content"),
+    };
 
     /// <summary><c>401</c> with no body.</summary>
     public static IResult Unauthorized() => Results.Unauthorized();
@@ -82,6 +95,55 @@ public static class ApiErrors
             .GroupBy(failure => failure.Field, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Select(failure => failure.Message).ToArray(), StringComparer.Ordinal);
         return ValidationFailed(failures[0].Message, errors);
+    }
+
+    /// <summary>
+    /// A refusal the caller can understand and act on: <paramref name="statusCode"/> (409,
+    /// 413, 415 or 422) with a machine-readable <paramref name="reason"/> (kebab-case, for
+    /// the frontend to switch on) and a <paramref name="message"/> to show as is. A
+    /// <c>422</c> also names <paramref name="field"/> in <c>errors</c>, like
+    /// <see cref="ValidationFailed(string, IReadOnlyDictionary{string, string[]})"/>, so a
+    /// generic form handler still works. <paramref name="extensions"/> are extra string
+    /// members, e.g. <c>existingDocumentName</c>.
+    /// </summary>
+    public static IResult WithReason(
+        int statusCode,
+        string reason,
+        string message,
+        string? field = null,
+        IReadOnlyList<KeyValuePair<string, string>>? extensions = null)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        ArgumentNullException.ThrowIfNull(message);
+        if (!ReasonStatuses.TryGetValue(statusCode, out var problem))
+        {
+            throw new ArgumentOutOfRangeException(nameof(statusCode), statusCode, "Not a status WithReason describes.");
+        }
+
+        if ((field is not null) != (statusCode == StatusCodes.Status422UnprocessableEntity))
+        {
+            throw new ArgumentException("A 422 names the field it is about; other statuses do not.", nameof(field));
+        }
+
+        return new FixedBodyResult(statusCode, Write(writer =>
+        {
+            WriteProblemHeader(writer, problem.Type, problem.Title, statusCode);
+            writer.WriteString("reason", reason);
+            writer.WriteString("message", message);
+            foreach (var (name, value) in extensions ?? [])
+            {
+                writer.WriteString(name, value);
+            }
+
+            if (field is not null)
+            {
+                writer.WriteStartObject("errors");
+                writer.WriteStartArray(field);
+                writer.WriteStringValue(message);
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+        }));
     }
 
     private static byte[] BuildForbiddenBody(ForbiddenReason reason) =>

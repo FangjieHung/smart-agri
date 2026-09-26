@@ -27,13 +27,23 @@ public sealed record KnowledgeDocumentStatusCounts(
     [property: JsonPropertyName("partially-readable")] int PartiallyReadable,
     int Failed)
 {
-    public static KnowledgeDocumentStatusCounts None { get; } = new(0, 0, 0, 0, 0);
+    public static KnowledgeDocumentStatusCounts From(IReadOnlyDictionary<KnowledgeDocumentStatus, int> counts)
+    {
+        ArgumentNullException.ThrowIfNull(counts);
+        return new(
+            counts[KnowledgeDocumentStatus.Queued],
+            counts[KnowledgeDocumentStatus.Processing],
+            counts[KnowledgeDocumentStatus.Ready],
+            counts[KnowledgeDocumentStatus.PartiallyReadable],
+            counts[KnowledgeDocumentStatus.Failed]);
+    }
 }
 
 /// <summary>One row of <c>GET /api/v1/knowledge-bases</c>, and the <c>summary</c> of the
-/// detail. The document counts are zero until documents exist (M2 plan, Slice 5).</summary>
-/// <param name="UpdatedAt">The last change to the knowledge base itself; later slices also
-/// take its documents' changes into account, as the mock does.</param>
+/// detail. The counts come from <see cref="KnowledgeBaseTally"/> over
+/// <see cref="KnowledgeItemStates"/>, the single rule for what status each item shows.</summary>
+/// <param name="UpdatedAt">The later of the last change to the knowledge base itself and
+/// the last change to any of its items, as the mock does.</param>
 /// <param name="ViewerCanManage">Whether the caller may open, change, share and delete
 /// it (<see cref="KnowledgeBaseAccess.CanManage"/>).</param>
 public sealed record KnowledgeBaseSummaryView(
@@ -47,8 +57,9 @@ public sealed record KnowledgeBaseSummaryView(
     DateTimeOffset UpdatedAt,
     bool ViewerCanManage);
 
-/// <summary>A document or FAQ entry in the detail. Always an empty list until the upload
-/// slice (M2 plan, Slice 5) adds documents.</summary>
+/// <summary>A document (or, from Slice 10, FAQ entry) in the detail, and the response of an
+/// upload or retry. <see cref="Status"/>, <see cref="Issue"/> and <see cref="UpdatedAt"/> are
+/// those of the version that represents the document (<see cref="KnowledgeItemStates"/>).</summary>
 public sealed record KnowledgeDocumentView(
     Guid Id,
     KnowledgeItemKind Kind,
@@ -184,7 +195,15 @@ public static class KnowledgeBaseEndpoints
             .ThenBy(knowledgeBase => knowledgeBase.Id)
             .ToListAsync(cancellationToken);
 
-        return Results.Ok(knowledgeBases.ConvertAll(knowledgeBase => ToSummary(knowledgeBase, viewerId)));
+        var ids = knowledgeBases.ConvertAll(knowledgeBase => knowledgeBase.Id);
+        var items = (await ItemStatesAsync(
+                dbContext,
+                dbContext.KnowledgeDocuments.Where(document => ids.Contains(document.KnowledgeBaseId)),
+                cancellationToken))
+            .ToLookup(item => item.KnowledgeBaseId);
+
+        return Results.Ok(knowledgeBases.ConvertAll(knowledgeBase =>
+            ToSummary(knowledgeBase, viewerId, KnowledgeBaseTally.Of(items[knowledgeBase.Id]))));
     }
 
     /// <summary>A new, private knowledge base owned by the caller.</summary>
@@ -213,7 +232,9 @@ public static class KnowledgeBaseEndpoints
         dbContext.KnowledgeActivities.Add(KnowledgeActivity.KnowledgeBaseCreated(knowledgeBase, callerId, now));
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return Results.Created($"/api/v1/knowledge-bases/{knowledgeBase.Id}", ToSummary(knowledgeBase, callerId));
+        return Results.Created(
+            $"/api/v1/knowledge-bases/{knowledgeBase.Id}",
+            ToSummary(knowledgeBase, callerId, KnowledgeBaseTally.Empty));
     }
 
     internal static async Task<IResult> GetAsync(
@@ -240,10 +261,14 @@ public static class KnowledgeBaseEndpoints
                 .Select(share => share.AccountId)
                 .ToListAsync(cancellationToken))
             .ToHashSet();
+        var items = await ItemStatesAsync(
+            dbContext,
+            dbContext.KnowledgeDocuments.Where(document => document.KnowledgeBaseId == knowledgeBase.Id),
+            cancellationToken);
 
         return Results.Ok(new KnowledgeBaseDetailView(
-            ToSummary(knowledgeBase, viewerId),
-            Documents: [],
+            ToSummary(knowledgeBase, viewerId, KnowledgeBaseTally.Of(items)),
+            [.. items.Select(ToView)],
             new KnowledgeSharingView(
                 knowledgeBase.SharingScope,
                 [.. shareTargets.Where(target => sharedWith.Contains(target.Id)).Select(target => target.Id)],
@@ -287,15 +312,20 @@ public static class KnowledgeBaseEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Ok(ToSummary(knowledgeBase, callerId));
+        var items = await ItemStatesAsync(
+            dbContext,
+            dbContext.KnowledgeDocuments.Where(document => document.KnowledgeBaseId == knowledgeBase.Id),
+            cancellationToken);
+        return Results.Ok(ToSummary(knowledgeBase, callerId, KnowledgeBaseTally.Of(items)));
     }
 
     /// <summary>
     /// Deletes the knowledge base and everything under it, in one transaction: its shares
-    /// (database cascade) and its activity rows (no foreign key, see
-    /// <see cref="KnowledgeActivity"/>), then records the deletion itself. Later slices add
-    /// their own tables here — by cascading foreign keys to <c>KnowledgeBases</c> where they
-    /// can.
+    /// and its documents with their versions and original files (database cascades), and
+    /// its activity rows (no foreign key, see <see cref="KnowledgeActivity"/>), then records
+    /// the deletion itself. Later slices add their own tables here — by cascading foreign
+    /// keys to <c>KnowledgeBases</c> or its documents where they can. Processing jobs
+    /// already queued for its versions stay and find nothing to do.
     /// </summary>
     internal static async Task<IResult> DeleteAsync(
         Guid id,
@@ -404,9 +434,9 @@ public static class KnowledgeBaseEndpoints
     /// <summary>
     /// The knowledge base with this id if the caller may manage it; <see langword="null"/>
     /// alike when it does not exist, belongs to another organization (the query filter hides
-    /// it) or belongs to someone else.
+    /// it) or belongs to someone else. Also the first check of every document endpoint.
     /// </summary>
-    private static Task<KnowledgeBase?> FindManageableAsync(
+    internal static Task<KnowledgeBase?> FindManageableAsync(
         IQueryable<KnowledgeBase> knowledgeBases,
         Guid id,
         Guid callerId,
@@ -434,16 +464,38 @@ public static class KnowledgeBaseEndpoints
         return accounts.FindAll(account => targetIds.Contains(account.Id));
     }
 
-    private static KnowledgeBaseSummaryView ToSummary(KnowledgeBase knowledgeBase, Guid viewerId) =>
+    /// <summary>
+    /// <see cref="KnowledgeItemStates"/> for <paramref name="documents"/> (already narrowed to
+    /// one or more knowledge bases), oldest document first — the order the detail lists them
+    /// in. File contents are never part of this query.
+    /// </summary>
+    internal static async Task<List<KnowledgeItemState>> ItemStatesAsync(
+        AppDbContext dbContext,
+        IQueryable<KnowledgeDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        var items = await KnowledgeItemStates
+            .Of(documents.AsNoTracking(), dbContext.KnowledgeDocumentVersions.AsNoTracking())
+            .ToListAsync(cancellationToken);
+
+        // Ordered here rather than in SQL: EF Core cannot order by a member of a record
+        // built through its constructor, and a knowledge base's items are few.
+        return [.. items.OrderBy(item => item.CreatedAt).ThenBy(item => item.DocumentId)];
+    }
+
+    internal static KnowledgeDocumentView ToView(KnowledgeItemState item) =>
+        new(item.DocumentId, item.Kind, item.Name, item.Status, item.Issue, item.UpdatedAt);
+
+    private static KnowledgeBaseSummaryView ToSummary(KnowledgeBase knowledgeBase, Guid viewerId, KnowledgeBaseTally tally) =>
         new(
             knowledgeBase.Id,
             knowledgeBase.Name,
             knowledgeBase.Purpose,
-            DocumentCount: 0,
-            FaqCount: 0,
-            KnowledgeDocumentStatusCounts.None,
+            tally.DocumentCount,
+            tally.FaqCount,
+            KnowledgeDocumentStatusCounts.From(tally.StatusCounts),
             knowledgeBase.SharingScope,
-            knowledgeBase.UpdatedAt,
+            tally.LastItemUpdate > knowledgeBase.UpdatedAt ? tally.LastItemUpdate.Value : knowledgeBase.UpdatedAt,
             KnowledgeBaseAccess.CanManage(knowledgeBase, viewerId));
 
     private static Guid CurrentOrganizationId(AppDbContext dbContext) =>

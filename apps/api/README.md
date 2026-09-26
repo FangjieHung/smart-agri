@@ -5,7 +5,7 @@
 
 ```
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
-src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing), job handler contract; Domain + abstraction packages only
+src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming
 src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
@@ -296,8 +296,48 @@ Configuration (section `Jobs`, e.g. `Jobs__Concurrency=2` as an environment vari
 | `LeaseDuration` | `00:10:00` | Must exceed any handler's run time. |
 | `RetryBaseDelay` / `RetryMaxDelay` | `00:00:30` / `00:30:00` | Backoff: base, doubling, capped. |
 
-Integration tests turn the worker off (`AuthHostFixture`) and call
-`JobRunner.RunUntilIdleAsync()` themselves, moving the test clock for backoff and leases.
+Integration tests turn the worker off (`AuthHostFixture`, and for every other test host
+`TestHostDefaults` sets `Jobs__WorkerEnabled=false`, so no test ever processes jobs in the
+database `appsettings.Development.json` names) and call `JobRunner.RunUntilIdleAsync()`
+themselves, moving the test clock for backoff and leases.
+
+## Knowledge documents
+
+Owner-only endpoints under `/api/v1/knowledge-bases/{id}/documents` (M2 plan, Slice 5):
+
+| Endpoint | Result |
+| --- | --- |
+| `POST .../documents` (multipart: `file`, optional `batchId`) | `201` `KnowledgeDocumentView` (`queued`) |
+| `POST .../documents/{docId}/versions/{versionId}/retry` | `200` `KnowledgeDocumentView`; `409` unless the version is `failed` |
+| `GET .../documents/{docId}/versions/{versionId}/file` | the original bytes, stored content type, `Content-Disposition: attachment` with `filename*` |
+| `DELETE .../documents/{docId}` | `204`; the document, its versions and their files go in one transaction |
+
+Uploads accept one file per request: `.pdf`, `.docx`, `.xlsx`, `.txt`, `.md`, at most
+`Knowledge:MaxFileBytes`. Refusals are ProblemDetails with a `reason`: `413`
+`file-too-large`; `415` `unsupported-file-type` or `file-content-mismatch` (a PDF must start
+with `%PDF-`, a DOCX/XLSX must be a ZIP with `word/document.xml`/`xl/workbook.xml`);
+`422` `duplicate-content` (same SHA-256 already in the knowledge base, with
+`existingDocumentName`), `duplicate-name` (upload a new version instead), and
+`file-missing`/`too-many-files`/`invalid-file-name`/`invalid-batch-id`. The rules are
+`KnowledgeUploadRules` (Application); unique indexes enforce both duplicate rules in the
+database too. An accepted upload writes the document, version 1, the original file
+(`KnowledgeFileContents`, `bytea`, a table only downloads and processing read — see
+`docs/adr/2026-09-26-original-files-in-postgresql.md`; the database and its backups grow
+with the files), an activity row and a `knowledge.process-version` job in one save.
+
+**Processing is a stand-in for now:** `PlaceholderProcessVersionHandler` moves each version
+to `processing` and then `failed` with 「解析功能尚未啟用」. Slice 6 (#40) replaces it with
+real text extraction.
+
+| Key | Default | |
+| --- | --- | --- |
+| `Knowledge:MaxFileBytes` | `20971520` (20 MB) | Largest accepted file, at most 256 MB. |
+
+The upload endpoint's request body limit is `MaxFileBytes` plus 64 KB for the multipart
+envelope, set per endpoint (Kestrel refuses a larger body with `413` before buffering it;
+other endpoints keep Kestrel's default). **A reverse proxy in front of the Api must allow at
+least as much**, or it answers with its own `413` page before the Api sees the request —
+for nginx, e.g. `client_max_body_size 21m;` for the default. Raise both together.
 
 ## Development seed data
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Authentication;
+using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.Setup;
@@ -19,6 +20,7 @@ builder.AddSmartAgriObservability();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 builder.Services.AddOrganizationTenancy();
+builder.Services.AddBackgroundJobs(builder.Configuration);
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);

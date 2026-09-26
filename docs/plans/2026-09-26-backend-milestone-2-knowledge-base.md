@@ -156,7 +156,7 @@
   - 依 mapping §4.2，把 `AccountId` 放寬成 `string`。團隊與分享相關的 view 型別直接使用 API 回傳的 GUID。
   - `HybridDemoRepository` 的 `getTeam`／`updateMemberPermissions` 不再把成員 id 換成 Demo 身分 id；團隊面板以 GUID 當列表的 key、編輯目標與更新目標。
   - 「角色 → Demo 身分」的對應只保留在 `activeAccountId()`，給仍然走 mock 的功能區使用，並加註「隨 M3 助理與對話換成 API 時移除」。
-  - API 整合測試補一個情境：同組織中兩位 `smb-internal`（直接寫入資料庫）。
+  - API 整合測試補一個情境：同組織中兩位 `internal-employee`（直接寫入資料庫）。
 - **驗收：**
   - API 測試：`GET /team` 回傳兩位同角色成員、id 不同；以 A 的 id 修改權限後，B 的權限不變。
   - 前端 HttpTestingController 測試：兩位同角色成員顯示為兩列，修改 A 送出的 URL 是 A 的 GUID。

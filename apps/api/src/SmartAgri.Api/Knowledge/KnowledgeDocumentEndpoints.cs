@@ -459,7 +459,7 @@ public static class KnowledgeDocumentEndpoints
         return KnowledgeBaseEndpoints.ToView(state);
     }
 
-    private static BackgroundJob EnqueueProcessing(KnowledgeDocumentVersion version, DateTimeOffset now) =>
+    internal static BackgroundJob EnqueueProcessing(KnowledgeDocumentVersion version, DateTimeOffset now) =>
         BackgroundJob.Create(version.OrganizationId, ProcessKnowledgeVersionJob.Kind, new ProcessKnowledgeVersionJob(version.Id), now);
 
     /// <summary>The request's size (<c>413</c>, from <c>Content-Length</c> before reading
@@ -574,7 +574,7 @@ public static class KnowledgeDocumentEndpoints
 
     /// <summary><see cref="KnowledgeUploadRules.CheckDuplicates"/> against the knowledge
     /// base's current documents and versions.</summary>
-    private static async Task<KnowledgeUploadRejection?> FindDuplicateAsync(
+    internal static async Task<KnowledgeUploadRejection?> FindDuplicateAsync(
         AppDbContext dbContext,
         Guid knowledgeBaseId,
         InspectedKnowledgeFile file,

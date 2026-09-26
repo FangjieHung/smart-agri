@@ -96,6 +96,7 @@ app.MapMeEndpoints();
 app.MapTeamEndpoints();
 app.MapKnowledgeBaseEndpoints();
 app.MapKnowledgeDocumentEndpoints();
+app.MapKnowledgeFaqEndpoints();
 app.MapKnowledgeExtractionEndpoints();
 app.MapKnowledgeReviewEndpoints();
 app.MapKnowledgeRetrievalEndpoints();

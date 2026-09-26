@@ -14,7 +14,10 @@ namespace SmartAgri.Api.Knowledge;
 /// #41): reads the version's file with the <see cref="IDocumentTextExtractor"/> for its format,
 /// judges and chunks it (<see cref="KnowledgeVersionProcessing"/>), embeds every chunk
 /// (<see cref="KnowledgeChunkEmbedder"/>, in batches, on behalf of the uploader), and writes the
-/// units, the chunks with their vectors and the version's status in one transaction.
+/// units, the chunks with their vectors and the version's status in one transaction. An FAQ
+/// version (Slice 10, #44) has no file to parse: its stored question and answer become one unit
+/// and one chunk (<see cref="KnowledgeFaqProcessing"/>), and everything else — embedding,
+/// idempotency, retries, failure — is the same.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -106,8 +109,7 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
             return;
         }
 
-        var limits = _options.ExtractionLimits;
-        var processed = KnowledgeVersionProcessing.Process(Extract(version, content, limits, cancellationToken), limits, ChunkingOptions.Default);
+        var processed = Process(version, content, cancellationToken);
         var chunks = await EmbedChunksAsync(version, processed, cancellationToken);
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
@@ -184,6 +186,31 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
         }
 
         return chunks;
+    }
+
+    /// <summary>What the version's content becomes: an FAQ entry's one unit and chunk, or what
+    /// the file's extractor read, judged and chunked.</summary>
+    private ProcessedVersion Process(KnowledgeDocumentVersion version, byte[] content, CancellationToken cancellationToken)
+    {
+        if (version.IsFaq)
+        {
+            KnowledgeFaqEntry entry;
+            try
+            {
+                entry = KnowledgeFaqEntry.FromContent(content);
+            }
+            catch (FormatException exception)
+            {
+                // Only the FAQ endpoints write this content, so this is damage, not the owner's
+                // input; the same bytes will not read any better on a retry.
+                throw new PermanentJobFailure(KnowledgeProcessingIssues.For(DocumentExtractionFailure.Damaged), exception);
+            }
+
+            return KnowledgeFaqProcessing.Process(entry);
+        }
+
+        var limits = _options.ExtractionLimits;
+        return KnowledgeVersionProcessing.Process(Extract(version, content, limits, cancellationToken), limits, ChunkingOptions.Default);
     }
 
     private ExtractedDocument Extract(KnowledgeDocumentVersion version, byte[] content, ExtractionLimits limits, CancellationToken cancellationToken)

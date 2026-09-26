@@ -97,6 +97,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge-bases/{id}/retrieval-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": null | components["schemas"]["PreviewKnowledgeRetrievalRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeRetrievalPreviewView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login-options": {
         parameters: {
             query?: never;
@@ -1412,6 +1481,28 @@ export interface components {
         };
         /** @enum {unknown} */
         KnowledgeItemKind: "document" | "faq";
+        KnowledgeRetrievalPassageView: {
+            /** Format: uuid */
+            documentId: string;
+            documentName: string;
+            /** Format: int32 */
+            versionNumber: number;
+            versionState: components["schemas"]["KnowledgeVersionState"];
+            locationLabel: string;
+            excerpt: string;
+            /** Format: double */
+            score: number;
+            /** Format: uuid */
+            versionId: string;
+            /** Format: uuid */
+            chunkId: string;
+        };
+        KnowledgeRetrievalPreviewView: {
+            passages: components["schemas"]["KnowledgeRetrievalPassageView"][];
+            /** Format: double */
+            threshold: number;
+            belowThreshold: boolean;
+        };
         KnowledgeShareTargetView: {
             /** Format: uuid */
             id: string;
@@ -1488,6 +1579,12 @@ export interface components {
             permissions: components["schemas"]["AccountPermission"][];
             organization: components["schemas"]["MeOrganization"];
             passwordChangeRequired: boolean;
+        };
+        PreviewKnowledgeRetrievalRequest: {
+            question: null | string;
+            includePending?: null | boolean;
+            /** Format: int32 */
+            top?: null | number;
         };
         /** Format: binary */
         Stream: string;

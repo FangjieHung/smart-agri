@@ -4,8 +4,8 @@ namespace SmartAgri.Domain.Knowledge;
 
 /// <summary>
 /// What a <see cref="KnowledgeActivity"/> row records. Stored as the wire name (not the
-/// number), so members can be reordered safely. Later slices add version and segment
-/// actions (M2 plan §4).
+/// number), so members can be reordered safely. Every row names who acted; none carries
+/// document content (M2 plan §4).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<KnowledgeActivityAction>))]
 public enum KnowledgeActivityAction
@@ -48,4 +48,23 @@ public enum KnowledgeActivityAction
     /// <summary>The owner put an excluded chunk back.</summary>
     [JsonStringEnumMemberName("chunk-included")]
     ChunkIncluded,
+
+    /// <summary>A file was uploaded as a new version (2, 3, …) of an existing document;
+    /// pending review like every version.</summary>
+    [JsonStringEnumMemberName("version-uploaded")]
+    VersionUploaded,
+
+    /// <summary>The owner approved a version (one row per version of a batch approval); the
+    /// version itself keeps when it takes effect.</summary>
+    [JsonStringEnumMemberName("version-approved")]
+    VersionApproved,
+
+    /// <summary>The owner disabled a document in an emergency. The reason stays on the
+    /// document while it is disabled, never in the log (it is free text).</summary>
+    [JsonStringEnumMemberName("document-disabled")]
+    DocumentDisabled,
+
+    /// <summary>The owner lifted an emergency disable.</summary>
+    [JsonStringEnumMemberName("document-enabled")]
+    DocumentEnabled,
 }

@@ -39,7 +39,19 @@ public partial class KnowledgeWireNameTests
         [
             "knowledge-base-created", "knowledge-base-updated", "sharing-changed", "knowledge-base-deleted",
             "document-uploaded", "version-retried", "document-deleted", "chunk-excluded", "chunk-included",
+            "version-uploaded", "version-approved", "document-disabled", "document-enabled",
         ]);
+    }
+
+    [Fact]
+    public void Review_states_have_wire_names()
+    {
+        // Backend-only until the version screen (Slice 13) adds them to the frontend model;
+        // the check constraint on KnowledgeDocumentVersions spells them too.
+        WireNames<KnowledgeReviewState>.All.ShouldBe(["pending-review", "approved"]);
+        Enum.GetValues<KnowledgeReviewState>()
+            .Select(value => JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(value)))
+            .ShouldBe(WireNames<KnowledgeReviewState>.All);
     }
 
     [Fact]

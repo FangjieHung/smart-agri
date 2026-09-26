@@ -42,10 +42,13 @@ internal sealed class KnowledgeChunkConfiguration : IEntityTypeConfiguration<Kno
             .HasConversion(new ValueConverter<float[]?, Vector?>(values => values == null ? null : new Vector(values), vector => vector == null ? null : vector.ToArray()), EmbeddingComparer);
         builder.Property(chunk => chunk.EmbeddingModel).HasMaxLength(KnowledgeChunk.EmbeddingModelMaxLength);
 
-        builder.HasOne<KnowledgeDocumentVersion>()
+        // Navigable for query expressions only (the retrieval eligibility filter follows it to
+        // the version and its document); search results do not load it.
+        builder.HasOne(chunk => chunk.Version)
             .WithMany()
             .HasForeignKey(chunk => new { chunk.VersionId, chunk.DocumentId, chunk.KnowledgeBaseId, chunk.OrganizationId })
             .HasPrincipalKey(version => new { version.Id, version.DocumentId, version.KnowledgeBaseId, version.OrganizationId })
+            .IsRequired()
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasOne<KnowledgeExtractedUnit>()

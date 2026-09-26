@@ -70,7 +70,7 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
             ("常見問題.md", TestFiles.Markdown("常見問題"), "text/markdown"),
         };
 
-        var created = new List<(Guid DocumentId, string Name, byte[] Content, string ContentType)>();
+        var created = new List<(Guid DocumentId, string Name, byte[] Content, string ContentType, Guid LatestVersionId)>();
         foreach (var (name, content, contentType) in files)
         {
             // A bearer token and no antiforgery token: the upload endpoint does not require
@@ -79,19 +79,28 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
 
             response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(CancellationToken));
             var view = await BodyJsonAsync(response);
-            view.EnumerateObject().Select(property => property.Name).ShouldBe(["id", "kind", "name", "status", "issue", "updatedAt"]);
+            view.EnumerateObject().Select(property => property.Name).ShouldBe(
+            [
+                "id", "kind", "name", "status", "issue", "updatedAt",
+                "latestVersionId", "latestVersionNumber", "latestVersionState", "effectiveVersionNumber", "disabled", "inEffect",
+            ]);
             view.GetProperty("kind").GetString().ShouldBe("document");
             view.GetProperty("name").GetString().ShouldBe(name);
             view.GetProperty("status").GetString().ShouldBe("queued");
             view.GetProperty("issue").ValueKind.ShouldBe(JsonValueKind.Null);
+            view.GetProperty("latestVersionNumber").GetInt32().ShouldBe(1);
+            view.GetProperty("latestVersionState").GetString().ShouldBe("pending-review", "every version, version 1 included, needs approval");
+            view.GetProperty("effectiveVersionNumber").ValueKind.ShouldBe(JsonValueKind.Null);
+            view.GetProperty("disabled").GetBoolean().ShouldBeFalse();
+            view.GetProperty("inEffect").GetBoolean().ShouldBeFalse();
             var documentId = view.GetProperty("id").GetGuid();
             response.Headers.Location!.ToString().ShouldBe($"{BasePath}/{knowledgeBaseId}/documents/{documentId}");
-            created.Add((documentId, name, content, contentType));
+            created.Add((documentId, name, content, contentType, view.GetProperty("latestVersionId").GetGuid()));
         }
 
         await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
         var jobs = await dbContext.BackgroundJobs.AsNoTracking().ToListAsync(CancellationToken);
-        foreach (var (documentId, name, content, contentType) in created)
+        foreach (var (documentId, name, content, contentType, latestVersionId) in created)
         {
             var document = await dbContext.KnowledgeDocuments.SingleAsync(candidate => candidate.Id == documentId, CancellationToken);
             document.KnowledgeBaseId.ShouldBe(knowledgeBaseId);
@@ -106,6 +115,8 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
             version.ProcessingStatus.ShouldBe(KnowledgeDocumentStatus.Queued);
             version.UploadedByAccountId.ShouldBe(org.Admin.Id);
             version.UploadBatchId.ShouldBe(batchId);
+            version.ReviewState.ShouldBe(KnowledgeReviewState.PendingReview);
+            latestVersionId.ShouldBe(version.Id);
 
             (await dbContext.KnowledgeFileContents.SingleAsync(file => file.VersionId == version.Id, CancellationToken))
                 .Bytes.ShouldBe(content);
@@ -440,6 +451,8 @@ public class KnowledgeDocumentEndpointsTests : IClassFixture<AuthHostFixture>
         summary.GetProperty("faqCount").GetInt32().ShouldBe(0);
         summary.GetProperty("statusCounts").EnumerateObject().Select(count => (count.Name, count.Value.GetInt32()))
             .ShouldBe([("queued", 1), ("processing", 0), ("ready", 1), ("partially-readable", 0), ("failed", 0)]);
+        (summary.GetProperty("inEffectCount").GetInt32(), summary.GetProperty("awaitingApprovalCount").GetInt32(), summary.GetProperty("disabledCount").GetInt32())
+            .ShouldBe((0, 1, 0), "ready is not in effect: the first document waits for approval");
         summary.GetProperty("updatedAt").GetDateTimeOffset().ShouldBe(documents[1].GetProperty("updatedAt").GetDateTimeOffset());
 
         var listed = (await BodyJsonAsync(await admin.Spa.GetAsync(BasePath, admin.Token))).EnumerateArray().ShouldHaveSingleItem();

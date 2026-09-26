@@ -1,0 +1,271 @@
+{
+  "questions": [
+    {
+      "id": "returns-01",
+      "category": "returns",
+      "question": "收到商品後幾天內可以申請退貨？",
+      "note": "前端 Demo 的試問題（demo-seed.ts 的 trialQuestions）；第 1 版是十天，已封存。",
+      "expected": [
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 2 頁", "evidence": "收到商品後七天內可申請退貨" }
+      ]
+    },
+    {
+      "id": "returns-02",
+      "category": "returns",
+      "question": "退貨期限是幾天？",
+      "expected": [
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 2 頁", "evidence": "七天內可申請退貨" },
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 1 頁", "evidence": "退貨期限由十天改為七天" }
+      ]
+    },
+    {
+      "id": "returns-03",
+      "category": "returns",
+      "question": "買來的蔬菜不新鮮可以退貨嗎？",
+      "note": "第 1 版收生鮮退貨，第 2 版不收。",
+      "expected": [
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 2 頁", "evidence": "生鮮蔬果因品質容易變化，恕不接受退貨" },
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 1 頁", "evidence": "生鮮蔬果不再接受退貨" }
+      ]
+    },
+    {
+      "id": "returns-04",
+      "category": "returns",
+      "question": "退款大概要多久才會退回來？",
+      "expected": [
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 3 頁", "evidence": "五個工作天內" },
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 1 頁", "evidence": "退款天數縮短為五個工作天" }
+      ]
+    },
+    {
+      "id": "returns-05",
+      "category": "returns",
+      "question": "同一張訂單可以換貨幾次？",
+      "expected": [
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 3 頁", "evidence": "換貨以一次為限" }
+      ]
+    },
+    {
+      "id": "returns-06",
+      "category": "returns",
+      "question": "商品送到的時候就壞了該怎麼處理？",
+      "expected": [
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 2 頁", "evidence": "到貨時如有損壞" }
+      ]
+    },
+    {
+      "id": "returns-07",
+      "category": "returns",
+      "question": "新版的退換貨辦法改了哪些規定？",
+      "expected": [
+        { "document": "退換貨辦法.pdf", "version": 2, "location": "第 1 頁", "evidence": "本版的主要變更" }
+      ]
+    },
+    {
+      "id": "product-01",
+      "category": "product",
+      "question": "蔬菜箱小箱大概有多重？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "1 蔬菜箱 › 1.1 規格", "evidence": "小箱約 3 公斤" }
+      ]
+    },
+    {
+      "id": "product-02",
+      "category": "product",
+      "question": "四個人的家庭應該訂哪一種蔬菜箱？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "1 蔬菜箱 › 1.1 規格", "evidence": "適合 4 至 5 人的家庭" }
+      ]
+    },
+    {
+      "id": "product-03",
+      "category": "product",
+      "question": "蔬菜箱想跳過一期要怎麼設定？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "1 蔬菜箱 › 1.2 訂閱與暫停", "evidence": "暫停或跳過一期" }
+      ]
+    },
+    {
+      "id": "product-04",
+      "category": "product",
+      "question": "葉菜買回家要怎麼保存比較久？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "1 蔬菜箱 › 1.3 保存方式", "evidence": "沾濕的廚房紙巾" }
+      ]
+    },
+    {
+      "id": "product-05",
+      "category": "product",
+      "question": "白米開封以後要怎麼保存？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "2 米糧 › 2.1 有機白米與糙米", "evidence": "開封後請將米倒入密封罐" }
+      ]
+    },
+    {
+      "id": "product-06",
+      "category": "product",
+      "question": "你們的米有做農藥殘留檢驗嗎？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "2 米糧 › 2.2 產地與檢驗", "evidence": "250 項農藥殘留檢驗" }
+      ]
+    },
+    {
+      "id": "product-07",
+      "category": "product",
+      "question": "中秋節的水果禮盒什麼時候開始預購？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "3 禮盒 › 3.1 季節水果禮盒", "evidence": "前一個月開放預購" }
+      ]
+    },
+    {
+      "id": "product-08",
+      "category": "product",
+      "question": "公司要買 30 盒禮盒有優惠嗎？",
+      "expected": [
+        { "document": "商品使用指南.docx", "version": 1, "location": "3 禮盒 › 3.2 企業訂購", "evidence": "20 盒以上享九折優惠" }
+      ]
+    },
+    {
+      "id": "delivery-01",
+      "category": "delivery",
+      "question": "寄到澎湖要幾天？",
+      "expected": [
+        { "document": "運費與配送時間表.xlsx", "version": 1, "location": "工作表『配送時間』", "evidence": "澎湖縣 | 4 | 天" }
+      ]
+    },
+    {
+      "id": "delivery-02",
+      "category": "delivery",
+      "question": "台北市的截單時間是幾點？",
+      "expected": [
+        { "document": "運費與配送時間表.xlsx", "version": 1, "location": "工作表『配送時間』", "evidence": "台北市 | 1 | 天 | 15:00" }
+      ]
+    },
+    {
+      "id": "delivery-03",
+      "category": "delivery",
+      "question": "花蓮大概幾天會收到？",
+      "expected": [
+        { "document": "運費與配送時間表.xlsx", "version": 1, "location": "工作表『配送時間』", "evidence": "花蓮縣 | 3 | 天" }
+      ]
+    },
+    {
+      "id": "delivery-04",
+      "category": "delivery",
+      "question": "本島常溫宅配的運費是多少？",
+      "expected": [
+        { "document": "運費與配送時間表.xlsx", "version": 1, "location": "工作表『運費』", "evidence": "本島常溫 | 100 | 元" }
+      ]
+    },
+    {
+      "id": "delivery-05",
+      "category": "delivery",
+      "question": "冷藏商品買滿多少錢可以免運費？",
+      "expected": [
+        { "document": "運費與配送時間表.xlsx", "version": 1, "location": "工作表『運費』", "evidence": "本島冷藏 | 160 | 元 | 2,000 | 元" }
+      ]
+    },
+    {
+      "id": "delivery-06",
+      "category": "delivery",
+      "question": "寄冷藏商品到離島的運費是多少？",
+      "expected": [
+        { "document": "運費與配送時間表.xlsx", "version": 1, "location": "工作表『運費』", "evidence": "離島冷藏 | 260 | 元" }
+      ]
+    },
+    {
+      "id": "faq-01",
+      "category": "faq",
+      "question": "可以貨到付款嗎？",
+      "expected": [
+        { "document": "常見問題.md", "version": 1, "location": "常見問題 › 訂購與付款 › 可以使用哪些付款方式？", "evidence": "貨到付款" }
+      ]
+    },
+    {
+      "id": "faq-02",
+      "category": "faq",
+      "question": "公司報帳需要統一編號，可以開嗎？",
+      "expected": [
+        { "document": "常見問題.md", "version": 1, "location": "常見問題 › 訂購與付款 › 可以開立統一編號嗎？", "evidence": "統一編號與公司抬頭" }
+      ]
+    },
+    {
+      "id": "faq-03",
+      "category": "faq",
+      "question": "連假期間會出貨嗎？",
+      "note": "前端 Demo「配送常見問題」知識庫裡的 FAQ 標題（demo-seed.ts）。",
+      "expected": [
+        { "document": "常見問題.md", "version": 1, "location": "常見問題 › 配送 › 連假期間會出貨嗎？", "evidence": "連假結束後的第一個工作天出貨" }
+      ]
+    },
+    {
+      "id": "faq-04",
+      "category": "faq",
+      "question": "可以指定下午送到嗎？",
+      "expected": [
+        { "document": "常見問題.md", "version": 1, "location": "常見問題 › 配送 › 可以指定到貨時段嗎？", "evidence": "下午（14 點至 18 點）" }
+      ]
+    },
+    {
+      "id": "faq-05",
+      "category": "faq",
+      "question": "下單以後還能改收件地址嗎？",
+      "expected": [
+        { "document": "常見問題.md", "version": 1, "location": "常見問題 › 訂購與付款 › 訂單成立後可以修改嗎？", "evidence": "修改收件地址" }
+      ]
+    },
+    {
+      "id": "faq-06",
+      "category": "faq",
+      "question": "會員點數多久會過期？",
+      "expected": [
+        { "document": "常見問題.md", "version": 1, "location": "常見問題 › 會員 › 會員點數怎麼使用？", "evidence": "一年內有效" }
+      ]
+    },
+    {
+      "id": "none-01",
+      "category": "unanswerable",
+      "question": "可以幫我訂下週的機票嗎？",
+      "note": "前端 Demo 的試問題：沒有組織資料也沒有一般回答。",
+      "expected": []
+    },
+    {
+      "id": "none-02",
+      "category": "unanswerable",
+      "question": "皮革商品平常要怎麼保養？",
+      "note": "前端 Demo 的試問題：companyAnswer 為 null，只有一般回答。",
+      "expected": []
+    },
+    {
+      "id": "none-03",
+      "category": "unanswerable",
+      "question": "今天台北會下雨嗎？",
+      "expected": []
+    },
+    {
+      "id": "none-04",
+      "category": "unanswerable",
+      "question": "門市的營業時間是幾點到幾點？",
+      "expected": []
+    },
+    {
+      "id": "none-05",
+      "category": "unanswerable",
+      "question": "你們有賣寵物飼料嗎？",
+      "expected": []
+    },
+    {
+      "id": "none-06",
+      "category": "unanswerable",
+      "question": "員工請特休要怎麼申請？",
+      "expected": []
+    },
+    {
+      "id": "none-07",
+      "category": "unanswerable",
+      "question": "安心商行的統一編號是多少？",
+      "note": "「統一編號」也出現在常見問題裡，但那是顧客的統編，不是商行自己的：容易誤判的題目。",
+      "expected": []
+    }
+  ]
+}

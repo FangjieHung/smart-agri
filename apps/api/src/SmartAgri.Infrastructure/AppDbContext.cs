@@ -45,6 +45,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     public const string OrganizationFilter = "Organization";
 
     private static readonly OrganizationSaveChangesInterceptor OrganizationWriteGuard = new();
+    private static readonly TimestampPrecisionInterceptor TimestampPrecision = new();
 
     private static readonly PropertyInfo HasCurrentOrganizationProperty =
         typeof(AppDbContext).GetProperty(nameof(HasCurrentOrganization), BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -100,8 +101,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         base.OnConfiguring(optionsBuilder);
 
         // Registered here rather than by the host so that every way of constructing the
-        // context (DI, design-time factory, tests) gets the write guard.
-        optionsBuilder.AddInterceptors(OrganizationWriteGuard);
+        // context (DI, design-time factory, tests) gets the write guard and the timestamp
+        // truncation.
+        optionsBuilder.AddInterceptors(OrganizationWriteGuard, TimestampPrecision);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

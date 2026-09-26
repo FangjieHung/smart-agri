@@ -26,3 +26,37 @@ jobs:
         run: |
           npx nx run admin:api-types
           git diff --exit-code -- apps/api/openapi apps/admin/src/app/core/api
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # 放在 `npm ci` 之前：Cypress 的 postinstall 會檢查這個目錄，
+      # cache 命中時就不必重新下載 binary。
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            cypress-${{ runner.os }}-
+      - run: npm ci
+      # cypress.config.ts 不會被 `nx run-many -t lint test build` 的 admin-e2e:lint
+      # 型別檢查（ESLint 只做語法／規則檢查，不會跑 tsc），所以另外用 tsc 直接驗證這個
+      # e2e 專案沒有型別錯誤（包含 cypress.config.ts 本身）。
+      - run: npx tsc -p apps/admin-e2e/tsconfig.json --noEmit
+      # admin-e2e 的 e2e-ci 是給 Nx Cloud 分散執行用的「atomized」目標，這個repo
+      # 沒有接 Nx Cloud，直接 `nx run admin-e2e:e2e-ci` 會被 Nx 擋下並提示
+      # "should only be run with Nx Cloud"；改用未拆分的 e2e 目標，一次跑完全部
+      # spec（production 設定＝mock 模式，4301 埠，不需要後端）。
+      - run: npx nx run admin-e2e:e2e --configuration=production
+      - name: Upload Cypress screenshots/videos on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-e2e-cypress-artifacts
+          path: dist/cypress/apps/admin-e2e/**
+          retention-days: 7

@@ -13,8 +13,9 @@ using SmartAgri.Infrastructure.Persistence;
 namespace SmartAgri.Api.Knowledge;
 
 /// <summary>
-/// The multipart form of <c>POST /api/v1/knowledge-bases/{id}/documents</c>, for the OpenAPI
-/// document only: the endpoint reads the form itself (see <see cref="KnowledgeDocumentEndpoints"/>).
+/// The multipart form of <c>POST /api/v1/knowledge-bases/{id}/documents</c> and
+/// <c>POST .../documents/{docId}/versions</c>, for the OpenAPI document only: the endpoints
+/// read the form themselves (see <see cref="KnowledgeDocumentEndpoints"/>).
 /// </summary>
 /// <param name="File">Exactly one file.</param>
 /// <param name="BatchId">Optional GUID naming the multi-file upload this file belongs to.</param>
@@ -22,7 +23,8 @@ public sealed record KnowledgeDocumentUploadForm(IFormFile File, string? BatchId
 
 /// <summary>
 /// A knowledge base's documents (M2 plan, Slice 5; ticket #39): upload a file as a new
-/// document, retry a failed version, download a version's original file, delete a document.
+/// document, retry a failed version, download a version's original file, delete a document;
+/// and (Slice 8; ticket #42) upload a new version of an existing document.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -42,11 +44,23 @@ public sealed record KnowledgeDocumentUploadForm(IFormFile File, string? BatchId
 /// <c>multipart/form-data</c> at all never reaches the endpoint: routing answers it with a
 /// bare <c>415</c>, because the endpoint declares that content type.)
 /// </para>
+/// <para>
+/// A new version goes through the same checks and the same processing, and is pending review
+/// like every version: it is never retrieved before the owner approves it, and the version in
+/// effect keeps serving until then (<see cref="KnowledgeReviewEndpoints"/>). The document keeps
+/// its name; the version keeps its own file name, whatever it is. Content any version of the
+/// knowledge base already has is <c>422 duplicate-content</c>.
+/// </para>
 /// </remarks>
 public static class KnowledgeDocumentEndpoints
 {
     /// <summary>The <c>409</c> reason of a retry that is not allowed.</summary>
     public const string NotRetryableReason = "version-not-retryable";
+
+    /// <summary>The <c>409</c> reason of a new version that raced another one for its number.</summary>
+    public const string ConcurrentVersionUploadReason = "concurrent-version-upload";
+
+    public const string ConcurrentVersionUploadMessage = "這份文件剛剛有另一個新版本上傳完成，請重新整理後再試一次。";
 
     public static IEndpointRouteBuilder MapKnowledgeDocumentEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -68,6 +82,19 @@ public static class KnowledgeDocumentEndpoints
             .Produces<KnowledgeDocumentView>(StatusCodes.Status201Created)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status413PayloadTooLarge)
+            .Produces(StatusCodes.Status415UnsupportedMediaType)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        documents.MapPost("/{documentId:guid}/versions", UploadVersionAsync)
+            .DisableAntiforgery()
+            .WithMetadata(new RequestBodySizeLimit(options.MaxRequestBodyBytes))
+            .WithFormOptions(multipartBodyLengthLimit: options.MaxRequestBodyBytes)
+            .Accepts<KnowledgeDocumentUploadForm>("multipart/form-data")
+            .Produces<KnowledgeDocumentView>(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status409Conflict)
             .Produces(StatusCodes.Status413PayloadTooLarge)
             .Produces(StatusCodes.Status415UnsupportedMediaType)
             .Produces(StatusCodes.Status422UnprocessableEntity);
@@ -119,26 +146,13 @@ public static class KnowledgeDocumentEndpoints
             return ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
         }
 
-        var limits = options.Value;
-        if (httpContext.Request.ContentLength > limits.MaxRequestBodyBytes)
+        var upload = await ReceiveUploadAsync(httpContext, options.Value, cancellationToken);
+        if (!upload.IsAccepted)
         {
-            return Refuse(KnowledgeUploadRules.FileTooLarge(limits.MaxFileBytes));
+            return Refuse(upload.Rejection);
         }
 
-        var received = await ReceiveAsync(httpContext.Request, limits.MaxFileBytes, cancellationToken);
-        if (!received.IsAccepted)
-        {
-            return Refuse(received.Rejection);
-        }
-
-        var (content, rawFileName, batchId) = received.Value;
-        var inspection = KnowledgeUploadRules.Inspect(rawFileName, content, limits.MaxFileBytes);
-        if (!inspection.IsAccepted)
-        {
-            return Refuse(inspection.Rejection);
-        }
-
-        var file = inspection.Value;
+        var (content, file, batchId) = upload.Value;
         if (await FindDuplicateAsync(dbContext, knowledgeBase.Id, file, cancellationToken) is { } duplicate)
         {
             return Refuse(duplicate);
@@ -173,7 +187,97 @@ public static class KnowledgeDocumentEndpoints
 
         return Results.Created(
             $"/api/v1/knowledge-bases/{knowledgeBase.Id}/documents/{document.Id}",
-            new KnowledgeDocumentView(document.Id, document.Kind, document.Name, version.ProcessingStatus, version.Issue, version.UpdatedAt));
+            await DocumentViewAsync(dbContext, document.Id, now, cancellationToken));
+    }
+
+    /// <summary>
+    /// A new version of an existing document: the same checks as <see cref="UploadAsync"/> in
+    /// the same order (the document must be in the knowledge base, else the same <c>403</c>),
+    /// except that there is no name rule and content any version of the knowledge base already
+    /// has is refused with a message about versions
+    /// (<see cref="KnowledgeUploadRules.CheckNewVersionDuplicate"/>). Writes the version
+    /// (number: the document's highest plus one, pending review), its file, a
+    /// <see cref="KnowledgeActivityAction.VersionUploaded"/> row and its processing job in one
+    /// save; returns the document as listed (<c>201</c>), whose version in effect is unchanged.
+    /// </summary>
+    internal static async Task<IResult> UploadVersionAsync(
+        Guid id,
+        Guid documentId,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        IOptions<KnowledgeOptions> options,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var knowledgeBase = await KnowledgeBaseEndpoints.FindManageableAsync(
+            dbContext.KnowledgeBases.AsNoTracking(), id, callerId, cancellationToken);
+        if (knowledgeBase is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
+        }
+
+        // Tracked on purpose: KnowledgeDocumentVersion.Create links the new version to it, and
+        // an untracked document reachable from an added version would be inserted again.
+        var document = await dbContext.KnowledgeDocuments.SingleOrDefaultAsync(
+            candidate => candidate.Id == documentId && candidate.KnowledgeBaseId == knowledgeBase.Id,
+            cancellationToken);
+        if (document is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
+        }
+
+        var upload = await ReceiveUploadAsync(httpContext, options.Value, cancellationToken);
+        if (!upload.IsAccepted)
+        {
+            return Refuse(upload.Rejection);
+        }
+
+        var (content, file, batchId) = upload.Value;
+        if (KnowledgeUploadRules.CheckNewVersionDuplicate(
+                document.Id, await FindExistingContentAsync(dbContext, knowledgeBase.Id, file.Sha256, cancellationToken)) is { } duplicate)
+        {
+            return Refuse(duplicate);
+        }
+
+        var latest = await dbContext.KnowledgeDocumentVersions
+            .Where(version => version.DocumentId == document.Id)
+            .MaxAsync(version => (int?)version.VersionNumber, cancellationToken);
+        var now = clock.GetUtcNow();
+        var version = KnowledgeDocumentVersion.Create(
+            document, (latest ?? 0) + 1, file.FileName, file.ContentType, file.SizeBytes, file.Sha256, callerId, batchId, now);
+        dbContext.KnowledgeDocumentVersions.Add(version);
+        dbContext.KnowledgeFileContents.Add(new KnowledgeFileContent(version, content));
+        dbContext.KnowledgeActivities.Add(KnowledgeActivity.VersionUploaded(version, callerId, now));
+        dbContext.BackgroundJobs.Add(EnqueueProcessing(version, now));
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (DatabaseErrors.IsUniqueViolation(exception))
+        {
+            // A concurrent upload committed the same content, or took this version number, in
+            // the meantime (the unique indexes refused this one). Nothing was written.
+            dbContext.ChangeTracker.Clear();
+            return KnowledgeUploadRules.CheckNewVersionDuplicate(
+                    document.Id, await FindExistingContentAsync(dbContext, knowledgeBase.Id, file.Sha256, cancellationToken)) is { } raced
+                ? Refuse(raced)
+                : ApiErrors.WithReason(StatusCodes.Status409Conflict, ConcurrentVersionUploadReason, ConcurrentVersionUploadMessage);
+        }
+        catch (DbUpdateException exception) when (DatabaseErrors.IsForeignKeyViolation(exception))
+        {
+            // The document was deleted in the meantime: gone, and nothing was written.
+            return ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
+        }
+
+        return Results.Created(
+            $"/api/v1/knowledge-bases/{knowledgeBase.Id}/documents/{document.Id}",
+            await DocumentViewAsync(dbContext, document.Id, now, cancellationToken));
     }
 
     /// <summary>
@@ -242,9 +346,7 @@ public static class KnowledgeDocumentEndpoints
                 : ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
         }
 
-        var state = (await KnowledgeBaseEndpoints.ItemStatesAsync(
-            dbContext, dbContext.KnowledgeDocuments.Where(document => document.Id == documentId), cancellationToken)).Single();
-        return Results.Ok(KnowledgeBaseEndpoints.ToView(state));
+        return Results.Ok(await DocumentViewAsync(dbContext, documentId, now, cancellationToken));
     }
 
     /// <summary>
@@ -344,8 +446,51 @@ public static class KnowledgeDocumentEndpoints
         return Results.NoContent();
     }
 
+    /// <summary>The document as the knowledge base lists it (<see cref="KnowledgeItemStates"/>
+    /// at <paramref name="now"/>).</summary>
+    internal static async Task<KnowledgeDocumentView> DocumentViewAsync(
+        AppDbContext dbContext,
+        Guid documentId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var state = (await KnowledgeBaseEndpoints.ItemStatesAsync(
+            dbContext, dbContext.KnowledgeDocuments.Where(document => document.Id == documentId), now, cancellationToken)).Single();
+        return KnowledgeBaseEndpoints.ToView(state);
+    }
+
     private static BackgroundJob EnqueueProcessing(KnowledgeDocumentVersion version, DateTimeOffset now) =>
         BackgroundJob.Create(version.OrganizationId, ProcessKnowledgeVersionJob.Kind, new ProcessKnowledgeVersionJob(version.Id), now);
+
+    /// <summary>The request's size (<c>413</c>, from <c>Content-Length</c> before reading
+    /// anything), then its one file and <c>batchId</c>, then the file's size, name, extension
+    /// and content (<see cref="KnowledgeUploadRules.Inspect"/>): everything an upload checks
+    /// before it looks at the knowledge base.</summary>
+    private static async Task<KnowledgeUploadCheck<(byte[] Content, InspectedKnowledgeFile File, Guid? BatchId)>> ReceiveUploadAsync(
+        HttpContext httpContext,
+        KnowledgeOptions limits,
+        CancellationToken cancellationToken)
+    {
+        if (httpContext.Request.ContentLength > limits.MaxRequestBodyBytes)
+        {
+            return Refused(KnowledgeUploadRules.FileTooLarge(limits.MaxFileBytes));
+        }
+
+        var received = await ReceiveAsync(httpContext.Request, limits.MaxFileBytes, cancellationToken);
+        if (!received.IsAccepted)
+        {
+            return Refused(received.Rejection);
+        }
+
+        var (content, rawFileName, batchId) = received.Value;
+        var inspection = KnowledgeUploadRules.Inspect(rawFileName, content, limits.MaxFileBytes);
+        return inspection.IsAccepted
+            ? KnowledgeUploadCheck<(byte[], InspectedKnowledgeFile, Guid?)>.Accept((content, inspection.Value, batchId))
+            : Refused(inspection.Rejection);
+
+        static KnowledgeUploadCheck<(byte[], InspectedKnowledgeFile, Guid?)> Refused(KnowledgeUploadRejection rejection) =>
+            KnowledgeUploadCheck<(byte[], InspectedKnowledgeFile, Guid?)>.Reject(rejection);
+    }
 
     /// <summary>The request's single file (read whole; it is at most the size limit) and
     /// batch id, or why the request is refused.</summary>
@@ -411,6 +556,22 @@ public static class KnowledgeDocumentEndpoints
             KnowledgeUploadCheck<(byte[], string, Guid?)>.Reject(rejection);
     }
 
+    /// <summary>The version of the knowledge base that already has this content, if any.</summary>
+    private static Task<KnowledgeExistingContent?> FindExistingContentAsync(
+        AppDbContext dbContext,
+        Guid knowledgeBaseId,
+        string sha256,
+        CancellationToken cancellationToken) =>
+        dbContext.KnowledgeDocumentVersions
+            .AsNoTracking()
+            .Where(version => version.KnowledgeBaseId == knowledgeBaseId && version.Sha256 == sha256)
+            .Join(
+                dbContext.KnowledgeDocuments,
+                version => version.DocumentId,
+                document => document.Id,
+                (version, document) => new KnowledgeExistingContent(document.Id, document.Name, version.VersionNumber))
+            .FirstOrDefaultAsync(cancellationToken);
+
     /// <summary><see cref="KnowledgeUploadRules.CheckDuplicates"/> against the knowledge
     /// base's current documents and versions.</summary>
     private static async Task<KnowledgeUploadRejection?> FindDuplicateAsync(
@@ -419,11 +580,7 @@ public static class KnowledgeDocumentEndpoints
         InspectedKnowledgeFile file,
         CancellationToken cancellationToken)
     {
-        var documentWithSameContent = await dbContext.KnowledgeDocumentVersions
-            .AsNoTracking()
-            .Where(version => version.KnowledgeBaseId == knowledgeBaseId && version.Sha256 == file.Sha256)
-            .Join(dbContext.KnowledgeDocuments, version => version.DocumentId, document => document.Id, (_, document) => document.Name)
-            .FirstOrDefaultAsync(cancellationToken);
+        var documentWithSameContent = (await FindExistingContentAsync(dbContext, knowledgeBaseId, file.Sha256, cancellationToken))?.DocumentName;
         var nameTaken = await dbContext.KnowledgeDocuments
             .AnyAsync(document => document.KnowledgeBaseId == knowledgeBaseId && document.Name == file.FileName, cancellationToken);
         return KnowledgeUploadRules.CheckDuplicates(file.FileName, documentWithSameContent, nameTaken);

@@ -119,6 +119,26 @@ public class ApiErrorsTests
     }
 
     [Fact]
+    public async Task A_refusal_about_several_fields_is_a_reasoned_422_grouping_every_message_by_field()
+    {
+        var response = await ExecuteAsync(ApiErrors.Refused(
+            "versions-not-approvable",
+            "有 2 個版本不能確認生效。",
+            [new("versionIds[1]", "處理失敗。"), new("versionIds[3]", "已經確認過了。"), new("versionIds[1]", "另一個原因。")]));
+
+        response.StatusCode.ShouldBe(StatusCodes.Status422UnprocessableEntity);
+        response.ContentType.ShouldBe("application/problem+json");
+        using var json = JsonDocument.Parse(response.Body);
+        var root = json.RootElement;
+        root.EnumerateObject().Select(property => property.Name).ShouldBe(["type", "title", "status", "reason", "message", "errors"]);
+        root.GetProperty("reason").GetString().ShouldBe("versions-not-approvable");
+        root.GetProperty("message").GetString().ShouldBe("有 2 個版本不能確認生效。");
+        root.GetProperty("errors").EnumerateObject().Select(error => (error.Name, error.Value.GetArrayLength()))
+            .ShouldBe([("versionIds[1]", 2), ("versionIds[3]", 1)]);
+        Should.Throw<ArgumentException>(() => ApiErrors.Refused("x", "y", []));
+    }
+
+    [Fact]
     public async Task Unauthorized_has_no_body()
     {
         var response = await ExecuteAsync(ApiErrors.Unauthorized());

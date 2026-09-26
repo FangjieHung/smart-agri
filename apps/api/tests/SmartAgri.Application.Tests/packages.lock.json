@@ -203,11 +203,18 @@
       "smartagri.application": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "[10.10.1, )",
           "SmartAgri.Domain": "[1.0.0, )"
         }
       },
       "smartagri.domain": {
         "type": "Project"
+      },
+      "Microsoft.Extensions.AI.Abstractions": {
+        "type": "CentralTransitive",
+        "requested": "[10.10.1, )",
+        "resolved": "10.10.1",
+        "contentHash": "Kz6ezQfRb9x2TkIWyaXkVAfpvyoAlEDfC59klPrdr2XD5WM4HNw+PREAZ+Fo43GPldtX+E0i1aYzMFQ/zXYMLg=="
       }
     }
   }

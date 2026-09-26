@@ -1040,6 +1040,17 @@
           "Microsoft.Extensions.Logging.Abstractions": "8.0.3"
         }
       },
+      "System.ClientModel": {
+        "type": "Transitive",
+        "resolved": "1.15.0",
+        "contentHash": "y6zQLInrpX+oGL1gXM04DrUSu1O1esWxt4rD/zrujTnzIFChn/noD1OiVVpTrU8ZvglwqO2Uw038svUR3SiAOg==",
+        "dependencies": {
+          "Microsoft.Extensions.Configuration.Abstractions": "10.0.9",
+          "Microsoft.Extensions.Hosting.Abstractions": "10.0.9",
+          "Microsoft.Extensions.Logging.Abstractions": "10.0.9",
+          "System.Memory.Data": "10.0.9"
+        }
+      },
       "System.CodeDom": {
         "type": "Transitive",
         "resolved": "6.0.0",
@@ -1062,6 +1073,11 @@
         "dependencies": {
           "System.CodeDom": "6.0.0"
         }
+      },
+      "System.Memory.Data": {
+        "type": "Transitive",
+        "resolved": "10.0.9",
+        "contentHash": "YweovHiLUoEdbr2Xv8eRqCSkTu1vMms4a6xBHaQiMSFVy32PL+hXv6Vhol2NWOmLHjaVgTyhJ3R52U6JxS6w3Q=="
       },
       "System.Security.AccessControl": {
         "type": "Transitive",
@@ -1186,6 +1202,7 @@
       "smartagri.application": {
         "type": "Project",
         "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "[10.10.1, )",
           "SmartAgri.Domain": "[1.0.0, )"
         }
       },
@@ -1197,10 +1214,16 @@
         "dependencies": {
           "DocumentFormat.OpenXml": "[3.5.1, )",
           "Microsoft.AspNetCore.Identity.EntityFrameworkCore": "[10.0.12, )",
+          "Microsoft.Extensions.AI.Abstractions": "[10.10.1, )",
+          "Microsoft.Extensions.AI.OpenAI": "[10.10.1, )",
           "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions": "[10.0.12, )",
+          "Microsoft.Extensions.VectorData.Abstractions": "[10.10.0, )",
           "Npgsql.EntityFrameworkCore.PostgreSQL": "[10.0.3, )",
+          "OpenAI": "[2.14.0, )",
           "OpenIddict.EntityFrameworkCore": "[7.7.1, )",
           "PdfPig": "[0.1.16, )",
+          "Pgvector": "[0.3.2, )",
+          "Pgvector.EntityFrameworkCore": "[0.3.0, )",
           "SmartAgri.Application": "[1.0.0, )",
           "SmartAgri.Domain": "[1.0.0, )"
         }
@@ -1233,11 +1256,36 @@
           "Microsoft.OpenApi": "[2.12.0, 3.0.0)"
         }
       },
+      "Microsoft.Extensions.AI.Abstractions": {
+        "type": "CentralTransitive",
+        "requested": "[10.10.1, )",
+        "resolved": "10.10.1",
+        "contentHash": "Kz6ezQfRb9x2TkIWyaXkVAfpvyoAlEDfC59klPrdr2XD5WM4HNw+PREAZ+Fo43GPldtX+E0i1aYzMFQ/zXYMLg=="
+      },
+      "Microsoft.Extensions.AI.OpenAI": {
+        "type": "CentralTransitive",
+        "requested": "[10.10.1, )",
+        "resolved": "10.10.1",
+        "contentHash": "0cYykDvDaTyLHA73DzjVzsNO/GNOutuliPrhQ5kzKSK4BuUnpFyHnPU63XqD4jsz+FCNZefi19TGc+zkaabIBA==",
+        "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "10.10.1",
+          "OpenAI": "2.14.0"
+        }
+      },
       "Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions": {
         "type": "CentralTransitive",
         "requested": "[10.0.12, )",
         "resolved": "10.0.12",
         "contentHash": "oN4AYFq+50m7a65GgRxRqjdynWS6kVQAH6gHKRTfsrLP/aH7RvxIQ7139fjbnrxBwzfZQtZRhlcjvEIiRzihrg=="
+      },
+      "Microsoft.Extensions.VectorData.Abstractions": {
+        "type": "CentralTransitive",
+        "requested": "[10.10.0, )",
+        "resolved": "10.10.0",
+        "contentHash": "bZdR7QbdLLqmc9xPJIiD5U6H678xyv8eMATjQ0SmH7OZyi+/12G/nFAGCE6DNG22q76YNwkXo+V7GMyUckjjgw==",
+        "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "10.10.0"
+        }
       },
       "Npgsql.EntityFrameworkCore.PostgreSQL": {
         "type": "CentralTransitive",
@@ -1258,6 +1306,15 @@
         "dependencies": {
           "Npgsql": "10.0.3",
           "OpenTelemetry.API": "1.15.3"
+        }
+      },
+      "OpenAI": {
+        "type": "CentralTransitive",
+        "requested": "[2.14.0, )",
+        "resolved": "2.14.0",
+        "contentHash": "AeyC3GxbrJ7KRoWDyFeNSUOQQWD9AnNvM7LYQijCcXcqjyr53aGRcf5GBLExcSBzIs0RWYHe+NbzPrHTeuU5zA==",
+        "dependencies": {
+          "System.ClientModel": "1.15.0"
         }
       },
       "OpenIddict.AspNetCore": {
@@ -1330,6 +1387,25 @@
         "requested": "[0.1.16, )",
         "resolved": "0.1.16",
         "contentHash": "qQcbsNMYVY+K5ELptax2S8thNMk0+rSQq3H/KdYj3LLcko8yTCz8y5KIvsKxIyAuTN0ZYNnfsZkM+0EvxTwHVA=="
+      },
+      "Pgvector": {
+        "type": "CentralTransitive",
+        "requested": "[0.3.2, )",
+        "resolved": "0.3.2",
+        "contentHash": "n7M5LuNejHUmtWky3zCbNO+tP1Gnjiuv9Qtu4LyvB1602dD8RiBxxCQp9jEjM0ZFDxAZF1oOWkNIkXw46KT00Q==",
+        "dependencies": {
+          "Npgsql": "8.0.5"
+        }
+      },
+      "Pgvector.EntityFrameworkCore": {
+        "type": "CentralTransitive",
+        "requested": "[0.3.0, )",
+        "resolved": "0.3.0",
+        "contentHash": "HVMcglKLOg979w67k8DOvKO+xJvfBHv/GcAgv/fI8alK8zp9oIYJUYP9BSV6n6+3GwkfynAJ77euwow4/c7HoA==",
+        "dependencies": {
+          "Npgsql.EntityFrameworkCore.PostgreSQL": "9.0.1",
+          "Pgvector": "0.3.2"
+        }
       }
     }
   }

@@ -5,9 +5,9 @@
 
 ```
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
-src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), job handler contract; Domain + abstraction packages only
-src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup subcommands
+src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, job handler contract; Domain + abstraction packages only
+src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -338,7 +338,8 @@ for nginx, e.g. `client_max_body_size 21m;` for the default. Raise both together
 ### Text extraction, readability and chunks
 
 The `knowledge.process-version` job (`ProcessKnowledgeVersionHandler`, M2 plan Slice 6) reads
-each uploaded version and writes what it read, in one transaction with the version's status:
+each uploaded version and writes what it read, in one transaction with the version's status
+(and, since Slice 7, every chunk's vector — see "Embeddings and vector search"):
 
 - **Units** (`KnowledgeExtractedUnits`): a PDF page (PdfPig), a DOCX section at Heading 1–3
   (Open XML SDK; label = heading path, e.g. 「2 退換貨 › 2.1 退貨條件」; table rows as
@@ -371,6 +372,85 @@ how they were made: `tests/fixtures/knowledge/README.md`.
 | --- | --- | --- |
 | `Knowledge:MaxExtractedUnits` | `2000` | Pages, sections or worksheets read per file; more makes the version `partially-readable`. |
 | `Knowledge:MaxSheetRows` | `5000` | Data rows read per worksheet; more makes the version `partially-readable`. |
+
+## Embeddings and vector search
+
+Processing embeds every chunk (M2 plan Slice 7; llm-providers and postgresql-as-single-store
+ADRs). Code only ever sees `IEmbeddingGenerator<string, Embedding<float>>`
+(`Microsoft.Extensions.AI`) and `VectorStoreCollection<Guid, KnowledgeChunk>`
+(`Microsoft.Extensions.VectorData`); the provider is configuration.
+
+- **Where vectors live:** `KnowledgeChunks.Embedding`, a pgvector `vector` column **without a
+  fixed dimension**, next to `EmbeddingModel` (the configured model that produced it). A chunk
+  and its vector are written — and deleted — in one transaction. Search is exact cosine
+  distance over the current organization's chunks of the configured model; there is no HNSW
+  index in M2.
+- **Pipeline:** after chunking, chunks are embedded in batches of `Ai:Embedding:BatchSize`
+  (one model call per batch) before the version completes, so a version is never `ready`
+  without vectors. A section's heading path or a worksheet's name and rows is embedded as the
+  first line of its chunk (a page number is not). Every chunk is embedded, excluded ones too,
+  so including a chunk again needs no model call. A failing call is retried by the job queue
+  (backoff as in "Background jobs"); after the last attempt the version is `failed` with
+  「嵌入模型暫時無法使用，請稍後重試」.
+- **Audit:** every model call goes through `ModelInvocationRecordingEmbeddingGenerator`, which
+  writes one `ModelInvocations` row — organization, account (the uploader during processing,
+  none for `reindex`), assistant (M3), purpose (`embed-document`/`embed-query`), provider,
+  model, input tokens when the provider reports them, duration, success, time — and **never
+  any content**. A call without an organization or an attribution is refused before it reaches
+  the provider. It also emits one client span `embeddings {model}` with `gen_ai.*` attributes
+  (OpenTelemetry GenAI conventions) plus `smartagri.organization_id`, and the
+  `gen_ai.client.operation.duration` / `gen_ai.client.token.usage` histograms.
+- **`VectorStoreCollection<Guid, KnowledgeChunk>`** (`KnowledgeChunkVectorCollection`, scoped):
+  `SearchAsync` (a vector — `ReadOnlyMemory<float>`, `float[]` or `Embedding<float>` — not
+  text; `Filter` is an EF `Where`, and the organization filter always applies; `Score` is
+  cosine similarity; `Top`, `Skip`, `ScoreThreshold`), `GetAsync` (by key or keys),
+  `UpsertAsync`, `DeleteAsync`. Everything else throws `NotSupportedException`.
+
+Configuration (section `Ai:Embedding`; as environment variables `Ai__Embedding__Provider`, …):
+
+| Key | Default | |
+| --- | --- | --- |
+| `Provider` | (none) | `OpenAI`, `AzureOpenAI`, `OpenAICompatible` or `Fake`. |
+| `Model` | | Required with a provider. For Azure OpenAI, the deployment name. |
+| `Endpoint` | | Required for `AzureOpenAI` (the resource's v1 endpoint, `https://{resource}.openai.azure.com/openai/v1/`) and `OpenAICompatible` (e.g. `http://vllm:8000/v1`); optional for `OpenAI`. |
+| `ApiKey` | | Required for `OpenAI` and `AzureOpenAI`; optional for `OpenAICompatible`. Environment only, never a checked-in file. |
+| `DocumentPrefix` / `QueryPrefix` | empty | Put before every chunk / question, for models that need it (the e5 family: `passage: ` / `query: `). |
+| `BatchSize` | `64` | Chunks per model call, 1–2048. |
+
+All three real providers use the official `OpenAI` client (`Microsoft.Extensions.AI.OpenAI`);
+Azure OpenAI's v1 endpoint accepts it with an API key, so `Azure.AI.OpenAI` is not needed.
+**Anthropic has no embeddings API**: a deployment that answers with Claude (M3) still needs one
+of these providers for embeddings.
+
+- **`Fake`** gives deterministic hash vectors (characters and character pairs, seeded with the
+  model name; one "token" per character) and calls nothing. It is **allowed only when
+  `ASPNETCORE_ENVIRONMENT` is `Development` or `Testing`**: with any other environment the Api
+  refuses to start (and `reindex` refuses to run), saying why. `appsettings.Development.json`
+  uses it (`fake-dev`), so local development needs no key; set `Ai__Embedding__Provider`,
+  `Ai__Embedding__Model` and `Ai__Embedding__ApiKey` in your shell to try a real model.
+- **No provider** is allowed: the Api starts (and logs a warning), sign-in and uploads work,
+  and each processing job fails its attempts until the version is `failed` with
+  「系統尚未設定嵌入模型，請聯絡系統管理員設定後重試」. Configure a provider, restart, then retry the
+  versions. Anything configured but unusable (unknown provider, missing model, key or
+  endpoint) refuses to start.
+
+### Changing the embedding model: `reindex`
+
+Vectors of different models are never compared: after `Ai:Embedding:Model` changes, search
+finds none of the old vectors until they are re-embedded. Deploy the new configuration, then:
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- reindex                      # every organization
+dotnet run --project apps/api/src/SmartAgri.Api -- reindex --organization anxin --batch-size 32
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api reindex
+```
+
+It re-embeds every chunk whose `EmbeddingModel` is not the configured one (including chunks
+with no vector yet, e.g. processed before this existed), organization by organization, each
+through a context acting for that organization, and prints progress per batch. Each batch is
+saved as it completes and only the vector columns are written, so the Api can keep running and
+an interrupted run can simply be started again. Exit codes: `0` done, `1` failed (e.g. the
+model is unreachable; what was saved stays), `2` bad arguments or unusable configuration.
 
 ## Development seed data
 

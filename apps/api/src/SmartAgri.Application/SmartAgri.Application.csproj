@@ -13,4 +13,10 @@
     <ProjectReference Include="..\SmartAgri.Domain\SmartAgri.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- IEmbeddingGenerator (M2 Slice 7): the knowledge pipeline embeds through the abstraction;
+         the provider (OpenAI client, Fake) is chosen and built in Infrastructure/Api. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+  </ItemGroup>
+
 </Project>

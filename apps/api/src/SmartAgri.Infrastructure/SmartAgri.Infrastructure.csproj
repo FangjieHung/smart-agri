@@ -15,6 +15,17 @@
          DOCX/XLSX, per the assistant-access ADR. Infrastructure only (M2 plan §3). -->
     <PackageReference Include="PdfPig" />
     <PackageReference Include="DocumentFormat.OpenXml" />
+    <!-- Embeddings and vectors (M2 Slice 7): the official OpenAI client (OpenAI, Azure OpenAI's
+         v1 endpoint and OpenAI-compatible servers) behind Microsoft.Extensions.AI's
+         IEmbeddingGenerator (llm-providers ADR); VectorData's VectorStoreCollection implemented
+         on EF Core + Pgvector.EntityFrameworkCore instead of the preview connector
+         (postgresql-as-single-store ADR). All MIT. -->
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="OpenAI" />
+    <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
+    <PackageReference Include="Pgvector" />
+    <PackageReference Include="Pgvector.EntityFrameworkCore" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

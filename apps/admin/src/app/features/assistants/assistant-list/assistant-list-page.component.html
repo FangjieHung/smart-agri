@@ -10,37 +10,75 @@
 
   <section class="assistant-group" aria-labelledby="my-assistants-title">
     <h2 id="my-assistants-title">我建立的</h2>
-    @if (myItems().length > 0 || drafts().length > 0) {
-    <ul class="assistant-list" aria-label="我建立的助理">
-      @for (draft of drafts(); track draft.id) {
-        <li class="draft-card">
-          <p class="draft-card__eyebrow">草稿 · {{ draft.draft.currentStep }}</p>
-          <h3>{{ draft.draft.name || '未命名助理' }}</h3>
-          <p>{{ draft.draft.purpose || '尚未填寫用途' }}</p>
-          <a class="ui-button" [routerLink]="['/app/assistants/drafts', draft.id, draft.draft.currentStep]">繼續設定</a>
-        </li>
+    @if (myState() === 'loading') {
+      <app-state-panel state="loading" title="正在載入你建立的助理" />
+    } @else if (myState() === 'error') {
+      <app-state-panel
+        state="error"
+        title="目前無法載入你建立的助理"
+        description="請稍後重新整理頁面再試一次。"
+      />
+    } @else if (myState() === 'permission-denied') {
+      <app-state-panel
+        state="permission-denied"
+        title="無法查看你建立的助理"
+        [description]="myPermissionMessage() ?? '目前的帳號沒有查看這個區塊的權限，請洽詢可管理助理的成員。'"
+      />
+    } @else {
+      @if (myPartialFailureMessage(); as notice) {
+        <p class="partial-notice" role="status">{{ notice }} 其他助理與草稿仍可正常使用。</p>
       }
-      @for (item of myItems(); track item.assistant.id) {
-        <li>
-          <app-assistant-card
-            [assistant]="item.assistant"
-            [channels]="item.channels"
-            [recentActivity]="item.recentActivity"
-          />
-        </li>
-      }
-    </ul>
-    } @else if (canCreateAssistant()) { <p>你還沒有建立助理。從「建立新助理」開始。</p> } @else { <p>你還沒有建立助理。</p> }
+      @if (myItems().length > 0 || drafts().length > 0) {
+      <ul class="assistant-list" aria-label="我建立的助理">
+        @for (draft of drafts(); track draft.id) {
+          <li class="draft-card">
+            <p class="draft-card__eyebrow">草稿 · {{ draft.draft.currentStep }}</p>
+            <h3>{{ draft.draft.name || '未命名助理' }}</h3>
+            <p>{{ draft.draft.purpose || '尚未填寫用途' }}</p>
+            <a class="ui-button" [routerLink]="['/app/assistants/drafts', draft.id, draft.draft.currentStep]">繼續設定</a>
+          </li>
+        }
+        @for (item of myItems(); track item.assistant.id) {
+          <li>
+            <app-assistant-card
+              [assistant]="item.assistant"
+              [channels]="item.channels"
+              [recentActivity]="item.recentActivity"
+            />
+          </li>
+        }
+      </ul>
+      } @else if (canCreateAssistant()) { <p>你還沒有建立助理。從「建立新助理」開始。</p> } @else { <p>你還沒有建立助理。</p> }
+    }
   </section>
 
   <section class="assistant-group" aria-labelledby="company-assistants-title">
     <h2 id="company-assistants-title">組織建立的</h2>
-    @if (companyItems().length > 0) {
-      <ul class="assistant-list" aria-label="組織分享的助理">
-        @for (item of companyItems(); track item.assistant.id) {
-          <li><app-assistant-card [assistant]="item.assistant" [channels]="item.channels" [recentActivity]="item.recentActivity" /></li>
-        }
-      </ul>
-    } @else { <p>目前沒有分享給你的助理。</p> }
+    @if (companyState() === 'loading') {
+      <app-state-panel state="loading" title="正在載入組織分享的助理" />
+    } @else if (companyState() === 'error') {
+      <app-state-panel
+        state="error"
+        title="目前無法載入組織分享的助理"
+        description="請稍後重新整理頁面再試一次。"
+      />
+    } @else if (companyState() === 'permission-denied') {
+      <app-state-panel
+        state="permission-denied"
+        title="無法查看組織分享的助理"
+        [description]="companyPermissionMessage() ?? '目前的帳號沒有查看這個區塊的權限，請洽詢可管理助理的成員。'"
+      />
+    } @else {
+      @if (companyPartialFailureMessage(); as notice) {
+        <p class="partial-notice" role="status">{{ notice }} 其他助理仍可正常使用。</p>
+      }
+      @if (companyItems().length > 0) {
+        <ul class="assistant-list" aria-label="組織分享的助理">
+          @for (item of companyItems(); track item.assistant.id) {
+            <li><app-assistant-card [assistant]="item.assistant" [channels]="item.channels" [recentActivity]="item.recentActivity" /></li>
+          }
+        </ul>
+      } @else { <p>目前沒有分享給你的助理。</p> }
+    }
   </section>
 </section>

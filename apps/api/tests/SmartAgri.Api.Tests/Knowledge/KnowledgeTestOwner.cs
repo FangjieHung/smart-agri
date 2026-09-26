@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using SmartAgri.Api.Tests.Authentication;
@@ -18,13 +19,18 @@ internal sealed record KnowledgeTestOwner(AuthHostFixture Host, Organization Org
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
+    /// <param name="via">A host derived from <paramref name="host"/>'s (same database), e.g. with
+    /// another embedding provider, to sign in and call through; tokens are only valid on the host
+    /// that issued them. Default: <paramref name="host"/>'s own.</param>
     /// <remarks>The client is never disposed: it only wraps the test host's in-memory handler,
     /// which the fixture disposes.</remarks>
-    public static async Task<KnowledgeTestOwner> CreateAsync(AuthHostFixture host, string name = "安心商行")
+    public static async Task<KnowledgeTestOwner> CreateAsync(AuthHostFixture host, string name = "安心商行", WebApplicationFactory<Program>? via = null)
     {
         var organization = await host.CreateOrganizationAsync(name);
         await host.CreateAccountAsync(organization, "admin", Password, AccountRole.SmbAdmin, $"{name}管理者", AccountPermission.ManageDataSources);
-        var spa = host.CreateSpaClient();
+        var spa = via is null
+            ? host.CreateSpaClient()
+            : new SpaClient(via.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = true }));
         var token = (await spa.SignInAsync(organization.Code, "admin", Password)).AccessToken;
         await using var dbContext = host.Postgres.CreateDbContext(organization.Id);
         var accountId = await dbContext.Accounts.Select(account => account.Id).SingleAsync(CancellationToken);
@@ -39,6 +45,14 @@ internal sealed record KnowledgeTestOwner(AuthHostFixture Host, Organization Org
     /// the old one's lifetime.</summary>
     public async Task<KnowledgeTestOwner> SignInAgainAsync() =>
         this with { Token = (await Spa.SignInAsync(Organization.Code, "admin", Password)).AccessToken };
+
+    /// <summary>The same owner signed in through another host of the same database (see
+    /// <see cref="CreateAsync"/>'s <c>via</c>).</summary>
+    public async Task<KnowledgeTestOwner> SignInViaAsync(WebApplicationFactory<Program> via)
+    {
+        var spa = new SpaClient(via.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = true }));
+        return this with { Spa = spa, Token = (await spa.SignInAsync(Organization.Code, "admin", Password)).AccessToken };
+    }
 
     /// <summary>A multipart upload of <paramref name="content"/> as <paramref name="fileName"/>
     /// to <paramref name="path"/> (a new document, or a new version of one); the response as is.</summary>

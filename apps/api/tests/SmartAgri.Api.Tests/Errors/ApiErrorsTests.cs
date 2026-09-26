@@ -98,6 +98,7 @@ public class ApiErrorsTests
     [InlineData(StatusCodes.Status409Conflict, "Conflict")]
     [InlineData(StatusCodes.Status413PayloadTooLarge, "Content Too Large")]
     [InlineData(StatusCodes.Status415UnsupportedMediaType, "Unsupported Media Type")]
+    [InlineData(StatusCodes.Status503ServiceUnavailable, "Service Unavailable")]
     public async Task Other_reasoned_errors_are_problem_details_with_reason_and_message_only(int status, string title)
     {
         var response = await ExecuteAsync(ApiErrors.WithReason(status, "some-reason", "訊息。"));

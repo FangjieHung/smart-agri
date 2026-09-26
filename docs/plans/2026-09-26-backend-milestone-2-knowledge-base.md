@@ -1,7 +1,7 @@
-# 後端 Milestone 2｜知識庫：實作計畫（草案）
+# 後端 Milestone 2｜知識庫：實作計畫
 
 **日期：** 2026-09-26
-**狀態：** 草案，待確認第 7 節的決定事項後再拆票（`/to-tickets`）。
+**狀態：** 已確認（2026-09-26）。第 7 節的決定事項已照建議定案，可以拆票。
 **依據：** [業務流程審查](../reviews/2026-09-26-project-review-and-backlog.md)（`8d426fc`、`9c64ab2`）、[M1 計畫](2026-09-25-backend-milestone-1-skeleton.md)、`docs/adr/2026-09-25-*.md`（特別是 milestone-order、assistant-access-to-knowledge-and-databases、grounded-answers、background-jobs-on-postgresql、postgresql-as-single-store、llm-providers-and-data-residency、backend-stack、testing-and-banned-dependencies、frontend-backend-integration）、`docs/handoff/mock-to-api-mapping.md` §2.2／§3.2／§3.3／§4.2、`docs/handoff/tasks-6-10-backend-handoff.md` §3。
 **拆票方式：** 與 M1 相同。每個 Slice 都是可單獨合併的垂直切片，各自附測試與驗收條件。Slice 編號是建議順序，「依賴」欄只列硬依賴。
 
@@ -89,7 +89,7 @@
 
 **VectorData 抽象的實作範圍。** 在 Infrastructure 實作 `VectorStoreCollection<Guid, KnowledgeChunkRecord>`，底層走 EF Core 加 `Pgvector.EntityFrameworkCore`。`KnowledgeChunkRecord` 就是 EF 對應的實體，所以 `VectorSearchOptions.Filter` 可以直接交給 EF 的 `Where` 轉譯，也自動套用組織篩選。只實作 M2／M3 會用到的方法（`SearchAsync`、`UpsertAsync`、`DeleteAsync`、`GetAsync`），其餘方法丟 `NotSupportedException` 並以測試鎖住。官方 connector 轉為正式版後，可以在不改 Application 的前提下替換。
 
-**原檔存在 PostgreSQL。** 用獨立的 `knowledge_file_contents` 表（`bytea`），列表查詢不會載入內容。單檔上限預設 20 MB，可設定。理由：postgresql-as-single-store ADR 要求客戶只需維運一個資料庫；原檔和中繼資料放在同一個交易、同一份備份裡，刪除時不會留下孤兒檔。這一點 ADR 沒寫明，需要確認（第 7 節決定 2）。
+**原檔存在 PostgreSQL。** 用獨立的 `knowledge_file_contents` 表（`bytea`），列表查詢不會載入內容。單檔上限預設 20 MB，可設定。理由：postgresql-as-single-store ADR 要求客戶只需維運一個資料庫；原檔和中繼資料放在同一個交易、同一份備份裡，刪除時不會留下孤兒檔。詳見 [原檔存放 ADR](../adr/2026-09-26-original-files-in-postgresql.md)。
 
 **背景工作：一張 `background_jobs` 表、在 API 行程內執行。** 取件只用一條原生 SQL：`UPDATE … WHERE id = (SELECT id … WHERE status='queued' AND run_after <= now() ORDER BY run_after FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING …`，並設定 `locked_until` 租約。處理時一律改用 `FixedOrganizationContext(job.OrganizationId)` 建立 DbContext，所以 M1 的篩選與寫入保護照常有效。取件的類別 `JobClaimer` 是除了 `AccountLookup` 以外，唯一允許跨組織的程式碼，原始碼測試要一併鎖住這一點。Worker 由設定 `Jobs:WorkerEnabled` 開關；整合測試關掉 worker，改呼叫 `JobRunner.RunUntilIdleAsync()`，結果才可重現。
 
@@ -242,6 +242,7 @@
   - **第一步**是驗證 `Pgvector.EntityFrameworkCore` 0.3.0 能否搭配 EF Core 10／Npgsql 10.0.3：`UseVector()`、`vector` 欄位的 migration、`CosineDistance` 轉譯。不行的話，退路是 Npgsql 的 `UseVector()` 加上以原生 SQL 做距離排序，封裝在同一個 `VectorStoreCollection` 實作之內（第 7 節風險 1）。
   - `KnowledgeChunk.Embedding`／`EmbeddingModel` 的 migration。
   - Infrastructure 依 `Ai:Embedding:*` 註冊 `IEmbeddingGenerator<string, Embedding<float>>`：OpenAI 與 OpenAI 相容端點使用 `Microsoft.Extensions.AI.OpenAI`；`Fake` 的限制見第 3 節。
+  - 設定可以另外指定 `QueryPrefix`／`DocumentPrefix`：部分本機多語模型（例如 e5 系列）要求在問題與段落前加上固定前綴，否則分數會失準。
   - 用 `Microsoft.Extensions.AI` 的中介層包裝，每次呼叫都寫一筆 `ModelInvocation` 並產生 OTel span（`gen_ai.*` 屬性）；背景處理時 `AccountId` 為上傳者。
   - 處理管線在切段之後批次嵌入，段落與向量在同一個交易內寫入。嵌入服務暫時失敗時交給佇列重試；最終失敗時，版本為 `failed`，issue 為「嵌入模型暫時無法使用，請稍後重試」。
   - 實作 `VectorStoreCollection<Guid, KnowledgeChunkRecord>`（第 3 節的範圍）。
@@ -351,6 +352,7 @@
 - **內容：**
   - `apps/api/eval/retrieval/`：以安心商行為情境的示範文件（商品指南、退換貨政策第 1、2 版、配送時間表、FAQ），加上約 30 題。每題標註預期的文件、版本與位置；至少 5 題是「應該查無結果」。
   - CLI 子命令 `eval-retrieval`：以目前設定的真實嵌入模型跑完題庫，輸出前 5 名命中率、「查無結果」題的最高分，以及建議門檻；結果寫入 `docs/evals/<日期>-retrieval.md`。**不在 CI 執行**（需要真實模型與金鑰）。
+  - 依第 7 節決定 3，至少跑兩次：OpenAI 的嵌入模型一次、本機 OpenAI 相容端點上的非中國團隊多語模型一次，並在報告中比較兩者。
   - `DevelopmentSeeder` 選擇性地（`SEED_DEMO_KNOWLEDGE=true`）把同一批示範文件放進安心商行，走正常的上傳與處理管線，並確認生效。
 - **驗收：**
   - 以選定的嵌入模型跑一次並提交報告：前 5 名命中率 ≥ 90%，並依報告把 `Retrieval:MinScore` 的預設值寫進設定。
@@ -366,7 +368,7 @@
 - **驗收：** PR 上 `e2e-api` 為綠燈；故意讓試查 endpoint 回 `500`，這個 job 會失敗。
 - **依賴：** 12、13、14。
 
-### 軌道 E｜待確認是否納入 M2
+### 軌道 E｜新增組織成員（2026-09-26 決定納入 M2）
 
 #### Slice 18｜新增組織成員帳號（審查待補功能 1）
 - **內容：**
@@ -399,29 +401,30 @@
 | 中：「我的助理」把載入中、權限不足或部分失敗顯示成空白 | **不在 M2 相依鏈內**，建議開一張獨立的小票立即處理；知識庫頁面在 Slice 11 採用同樣的四種狀態 |
 | 中：首頁對沒有 `manage-assistants` 的帳號仍顯示「建立新助理」 | 獨立小票，不阻擋 M2 |
 | 待確認：首頁「開始對話」導向 `/use/:assistantId` | 平台內對話屬於 M3，在 M3 計畫中決定（第 7 節決定 6） |
-| 待補 1：新增組織成員 | Slice 18（第 7 節決定 1） |
+| 待補 1：新增組織成員 | Slice 18（第 7 節決定 1，已納入） |
 | 待補 2：建立知識庫與批次上傳 | Slice 3、5、11、12 |
 | 待補 3：版本與生效管理 | Slice 8、13 做確認生效、生效日期、封存、緊急停用與操作紀錄；「批次標籤／類別／適用對象」與「新舊版自動比對」延後 |
 | 待補 4：內容轉換、預覽與校對 | Slice 6、13 做預覽、不可讀標示與排除段落；「由文件自動整理 FAQ 草稿」延後到 M3 以後（需要模型生成） |
 | 待補 5：真實試問與持續維護 | Slice 9、14、16 做檢索層的試查與題庫；每個助理的測試題組、答錯建立處理事項、改版後重跑都在 M3 |
-| 待補 6：跨部門案件、交接與追蹤 | 不在目前的里程碑順序內，需要另一份 ADR（第 7 節決定 5） |
+| 待補 6：跨部門案件、交接與追蹤 | 排在 M4 之後，開工前先寫 ADR（第 7 節決定 5） |
 
 ---
 
-## 7. 風險與待確認
+## 7. 決定事項、風險與待辦
 
-**需要決定的事項（拆票前請確認）：**
+**已決定（2026-09-26，照草案的建議定案）：**
 
-1. **Slice 18「新增組織成員」是否納入 M2。** 建議納入，作為可平行的軌道 E。它的前置條件（Slice 1、2）本來就在 M2 裡，而 M3 開放組織內多人使用對話前一定要有這個功能。如果想縮小 M2，就移到 M3 開頭。
-2. **原檔存放位置。** 建議放在 PostgreSQL（第 3 節），代價是資料庫變大、備份變慢；替代方案是掛載磁碟。確定後補一份 ADR。
-3. **開發與評測用的嵌入模型。** 這個決定會影響 Slice 16 的費用與本機環境，需要提供金鑰或本機模型：
-   - 選項 A：OpenAI 的嵌入模型，需要 API 金鑰，費用很低。
-   - 選項 B：本機以 OpenAI 相容端點執行的多語嵌入模型，例如 bge-m3（須確認模型授權與來源，不選中國團隊的模型），需要本機運算資源，而依過往經驗本機記憶體偏緊。
-   - 建議：M2 開發用 A；評測時 A、B 各跑一次，比較繁體中文效果。
-4. **每個版本都必須人工確認生效，包括第 1 版。** 建議是（審查文件的原則）；批次確認可以降低導入成本。
-5. **跨部門案件（審查待補 6）要放在哪個里程碑。** 建議在 M4（數據庫、表單紀錄）之後另立里程碑，並先寫 ADR 定義「文件、表單、工作項目」三者的關係。
-6. **首頁「開始對話」的導向**：留到 M3 計畫決定。
-7. **是否能提供幾份去識別化的真實文件**（PDF、Excel 各 2–3 份），用來補強 fixtures 與評測題庫。台灣中小企業常見的 PDF 匯出方式與 Excel 排版，是解析品質最大的未知數。
+1. **Slice 18「新增組織成員」納入 M2**，作為可平行的軌道 E。它的前置條件（Slice 1、2）本來就在 M2 裡，而 M3 開放組織內多人使用對話前一定要有這個功能。
+2. **原檔存放在 PostgreSQL**（第 3 節），見 [原檔存放 ADR](../adr/2026-09-26-original-files-in-postgresql.md)。
+3. **嵌入模型：M2 開發使用 OpenAI 的嵌入模型（需要 API 金鑰）；評測時另以本機的 OpenAI 相容端點跑一個多語嵌入模型，比較兩者的繁體中文效果**（Slice 16）。本機模型只能從非中國團隊、寬鬆授權的模型中挑選（llm-providers ADR），例如 Microsoft 的 `multilingual-e5-large`（MIT）或 Snowflake 的 `snowflake-arctic-embed-l-v2.0`（Apache-2.0）。BAAI 的 bge 系列出自中國團隊，不採用。
+4. **每個版本都必須人工確認生效，包括第 1 版**；以批次確認降低導入成本（Slice 8、13）。
+5. **跨部門案件（審查待補 6）排在 M4（數據庫、表單紀錄）之後**，開工前先寫 ADR，定義「文件、表單、工作項目」三者的關係。已補在 [里程碑 ADR](../adr/2026-09-25-milestone-order.md)。
+6. **首頁「開始對話」的導向**：在 M3 計畫中決定。
+
+**待使用者提供：**
+
+1. **幾份去識別化的真實文件**（PDF、Excel 各 2–3 份），用來補強 Slice 6 的 fixtures 與 Slice 16 的評測題庫。台灣中小企業常見的 PDF 匯出方式與 Excel 排版，是解析品質最大的未知數。
+2. **OpenAI API 金鑰**：Slice 7 的本機手動驗收與 Slice 16 需要；只放在本機環境變數，不進 repo。
 
 **技術風險：**
 

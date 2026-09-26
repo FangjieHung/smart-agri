@@ -1026,6 +1026,208 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge-bases/{id}/faqs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": null | components["schemas"]["KnowledgeFaqRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeFaqView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge-bases/{id}/faqs/{documentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeFaqView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": null | components["schemas"]["KnowledgeFaqRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeFaqView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/knowledge-bases/{id}/documents/{documentId}/versions/{versionId}/preview": {
         parameters: {
             query?: never;
@@ -1373,7 +1575,7 @@ export interface components {
             displayName: string;
         };
         /** @enum {unknown} */
-        KnowledgeActivityAction: "knowledge-base-created" | "knowledge-base-updated" | "sharing-changed" | "knowledge-base-deleted" | "document-uploaded" | "version-retried" | "document-deleted" | "chunk-excluded" | "chunk-included" | "version-uploaded" | "version-approved" | "document-disabled" | "document-enabled";
+        KnowledgeActivityAction: "knowledge-base-created" | "knowledge-base-updated" | "sharing-changed" | "knowledge-base-deleted" | "document-uploaded" | "version-retried" | "document-deleted" | "chunk-excluded" | "chunk-included" | "version-uploaded" | "version-approved" | "document-disabled" | "document-enabled" | "faq-created" | "faq-updated" | "faq-deleted";
         KnowledgeActivityView: {
             /** Format: uuid */
             id: string;
@@ -1479,6 +1681,23 @@ export interface components {
             text: string;
             chunks: components["schemas"]["KnowledgeChunkView"][];
         };
+        KnowledgeFaqContentView: {
+            /** Format: uuid */
+            versionId: string;
+            /** Format: int32 */
+            versionNumber: number;
+            question: string;
+            answer: string;
+        };
+        KnowledgeFaqRequest: {
+            question: null | string;
+            answer: null | string;
+        };
+        KnowledgeFaqView: {
+            document: components["schemas"]["KnowledgeDocumentView"];
+            latest: components["schemas"]["KnowledgeFaqContentView"];
+            effective: null | components["schemas"]["KnowledgeFaqContentView"];
+        };
         /** @enum {unknown} */
         KnowledgeItemKind: "document" | "faq";
         KnowledgeRetrievalPassageView: {
@@ -1518,7 +1737,7 @@ export interface components {
         /** @enum {unknown} */
         KnowledgeUnitIssue: "too-little-text" | "garbled-text" | "rows-truncated" | null;
         /** @enum {unknown} */
-        KnowledgeUnitLocationKind: "page" | "section" | "sheet";
+        KnowledgeUnitLocationKind: "page" | "section" | "sheet" | "faq";
         KnowledgeVersionPreviewView: {
             /** Format: uuid */
             documentId: string;

@@ -3,7 +3,7 @@ using SmartAgri.Domain.Knowledge;
 namespace SmartAgri.Application.Knowledge;
 
 /// <summary>
-/// How one document (or, later, FAQ entry) shows in its knowledge base's list and counts: its
+/// How one document (or FAQ entry) shows in its knowledge base's list and counts: its
 /// own identity, the processing of its latest version (<see cref="Status"/>, <see cref="Issue"/>,
 /// <see cref="UpdatedAt"/> — "處理狀態"), and whether it is in effect ("是否已生效").
 /// </summary>

@@ -40,6 +40,7 @@ public partial class KnowledgeWireNameTests
             "knowledge-base-created", "knowledge-base-updated", "sharing-changed", "knowledge-base-deleted",
             "document-uploaded", "version-retried", "document-deleted", "chunk-excluded", "chunk-included",
             "version-uploaded", "version-approved", "document-disabled", "document-enabled",
+            "faq-created", "faq-updated", "faq-deleted",
         ]);
     }
 
@@ -58,7 +59,7 @@ public partial class KnowledgeWireNameTests
     public void Extraction_enums_have_wire_names()
     {
         // Backend-only until the preview screen (Slice 13) adds them to the frontend model.
-        WireNames<KnowledgeUnitLocationKind>.All.ShouldBe(["page", "section", "sheet"]);
+        WireNames<KnowledgeUnitLocationKind>.All.ShouldBe(["page", "section", "sheet", "faq"]);
         WireNames<KnowledgeUnitIssue>.All.ShouldBe(["too-little-text", "garbled-text", "rows-truncated"]);
         Enum.GetValues<KnowledgeUnitIssue>()
             .Select(value => JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(value)))

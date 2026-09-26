@@ -42,6 +42,14 @@ services:
       Authentication__EncryptionCertificatePassword: ${AUTH_ENCRYPTION_CERTIFICATE_PASSWORD:-}
       # Origin the admin SPA is served from; `migrate` registers {origin}/auth/callback.
       Authentication__AdminSpa__Origins__0: ${ADMIN_SPA_ORIGIN:-}
+      # Embedding model (apps/api/README.md, "Embeddings and vector search"). Without a
+      # provider the api starts but cannot process uploaded documents. Fake is refused here.
+      Ai__Embedding__Provider: ${EMBEDDING_PROVIDER:-}
+      Ai__Embedding__Endpoint: ${EMBEDDING_ENDPOINT:-}
+      Ai__Embedding__Model: ${EMBEDDING_MODEL:-}
+      Ai__Embedding__ApiKey: ${EMBEDDING_API_KEY:-}
+      Ai__Embedding__DocumentPrefix: ${EMBEDDING_DOCUMENT_PREFIX:-}
+      Ai__Embedding__QueryPrefix: ${EMBEDDING_QUERY_PREFIX:-}
     volumes:
       - ./certs:/app/certs:ro
     ports:

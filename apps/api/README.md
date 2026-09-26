@@ -405,7 +405,8 @@ rule).
 server's zone, so it is refused), stored in UTC, and defaults to now. It may not be earlier than
 now, with **one minute of tolerance for clock skew**: a time up to a minute in the past is
 taken as now. Every approval, upload, disable and enable writes an activity row naming the
-caller and nothing else (a disable reason stays on the document, never in the log). All owner
+caller; the disable row also keeps the owner's reason, which the document clears once enabled
+again, so the log can still say why it was stopped. All owner
 only, with the same `403 knowledge-base` as everything else.
 
 Lists and details show both questions: `statusCounts` stays the latest version's processing

@@ -25,7 +25,8 @@ namespace SmartAgri.Domain.Knowledge;
 /// <para>
 /// Every chunk of a processed version has a vector, excluded ones too: excluding is the
 /// owner's retrieval choice, and including a chunk again must not need a model call.
-/// Retrieval filters on <see cref="Excluded"/> and on the current model.
+/// Retrieval filters on <see cref="Excluded"/>, on the current model and on its version being
+/// the document's approved version in effect (the Application layer's <c>RetrievableChunks</c>).
 /// </para>
 /// </remarks>
 public sealed class KnowledgeChunk : IOrganizationScoped
@@ -72,6 +73,14 @@ public sealed class KnowledgeChunk : IOrganizationScoped
     /// <see cref="Embedding"/>. Search only compares vectors of the current model.</summary>
     public string? EmbeddingModel { get; private set; }
 
+    /// <summary>
+    /// The chunk's version, for query expressions: retrieval eligibility depends on the
+    /// version's approval and its document's state (<c>RetrievableChunks</c>), which EF Core
+    /// translates through this navigation into joins inside a vector search filter. Not loaded
+    /// from the database unless a query includes it; set in memory by <see cref="Create"/>.
+    /// </summary>
+    public KnowledgeDocumentVersion? Version { get; private set; }
+
     public static KnowledgeChunk Create(
         KnowledgeDocumentVersion version,
         int unitOrdinal,
@@ -100,6 +109,7 @@ public sealed class KnowledgeChunk : IOrganizationScoped
             LocationLabel = locationLabel,
             Text = text,
             Excluded = false,
+            Version = version,
         };
     }
 

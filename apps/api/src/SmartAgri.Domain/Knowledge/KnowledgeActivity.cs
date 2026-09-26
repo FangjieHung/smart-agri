@@ -123,6 +123,25 @@ public sealed class KnowledgeActivity : IOrganizationScoped
             detail: null);
     }
 
+    /// <summary>A new version of an existing document; ids only, like
+    /// <see cref="DocumentUploaded"/>.</summary>
+    public static KnowledgeActivity VersionUploaded(KnowledgeDocumentVersion version, Guid actorAccountId, DateTimeOffset at) =>
+        ForVersion(version, KnowledgeActivityAction.VersionUploaded, actorAccountId, at);
+
+    /// <summary>Ids only: when it takes effect is the version's own
+    /// <see cref="KnowledgeDocumentVersion.EffectiveFrom"/>, which never changes once set.</summary>
+    public static KnowledgeActivity VersionApproved(KnowledgeDocumentVersion version, Guid actorAccountId, DateTimeOffset at) =>
+        ForVersion(version, KnowledgeActivityAction.VersionApproved, actorAccountId, at);
+
+    /// <summary>Ids only: the reason is free text the owner wrote, kept on the document while
+    /// it is disabled (<see cref="KnowledgeDocument.DisabledReason"/>) and not copied into a log
+    /// that outlives the document.</summary>
+    public static KnowledgeActivity DocumentDisabled(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at) =>
+        ForDocument(document, KnowledgeActivityAction.DocumentDisabled, actorAccountId, at);
+
+    public static KnowledgeActivity DocumentEnabled(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at) =>
+        ForDocument(document, KnowledgeActivityAction.DocumentEnabled, actorAccountId, at);
+
     /// <summary>Ids only: the document's name goes with the document.</summary>
     public static KnowledgeActivity DocumentDeleted(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at)
     {
@@ -155,6 +174,26 @@ public sealed class KnowledgeActivity : IOrganizationScoped
             actorAccountId,
             at,
             JsonSerializer.Serialize(new { chunkId = chunk.Id }));
+    }
+
+    private static KnowledgeActivity ForVersion(
+        KnowledgeDocumentVersion version,
+        KnowledgeActivityAction action,
+        Guid actorAccountId,
+        DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        return New(version.OrganizationId, version.KnowledgeBaseId, version.DocumentId, version.Id, action, actorAccountId, at, detail: null);
+    }
+
+    private static KnowledgeActivity ForDocument(
+        KnowledgeDocument document,
+        KnowledgeActivityAction action,
+        Guid actorAccountId,
+        DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return New(document.OrganizationId, document.KnowledgeBaseId, document.Id, versionId: null, action, actorAccountId, at, detail: null);
     }
 
     private static KnowledgeActivity New(

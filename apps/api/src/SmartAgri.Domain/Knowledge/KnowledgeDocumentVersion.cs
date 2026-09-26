@@ -21,10 +21,14 @@ namespace SmartAgri.Domain.Knowledge;
 /// job (or two retries) cannot both act on the same state.
 /// </para>
 /// <para>
-/// Review and approval (<c>ReviewState</c>, <c>EffectiveFrom</c>, <c>ApprovedByAccountId</c>,
-/// <c>ApprovedAt</c>) are deliberately not here yet: Slice 8 (#42) adds them together with
-/// the rules that set them, with <c>pending-review</c> as the value for every existing
-/// version (every version, version 1 included, must be approved; plan §7 decision 4).
+/// Review (Slice 8, #42): every version, version 1 included, starts
+/// <see cref="KnowledgeReviewState.PendingReview"/> and is never retrieved until a person
+/// approves it (<see cref="Approve"/>, plan §7 decision 4) — only a processed, readable
+/// version can be approved, and only once. Approval fixes <see cref="EffectiveFrom"/>, which
+/// may be in the future; which approved version is in effect at a given moment is decided by
+/// query (the Application layer's <c>RetrievableChunks</c>), so nothing has to change when
+/// that moment comes. <see cref="ReviewState"/> is a concurrency token like
+/// <see cref="ProcessingStatus"/>, so two concurrent approvals cannot both succeed.
 /// Processing status and review state stay separate columns.
 /// </para>
 /// </remarks>
@@ -81,8 +85,34 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
 
     public DateTimeOffset UploadedAt { get; private set; }
 
-    /// <summary>The last change to this row: the upload, then every status change.</summary>
+    /// <summary>The last change to this row: the upload, then every status change and the
+    /// approval.</summary>
     public DateTimeOffset UpdatedAt { get; private set; }
+
+    public KnowledgeReviewState ReviewState { get; private set; }
+
+    /// <summary>From when an approved version may be in effect (never before its approval);
+    /// <see langword="null"/> while pending review.</summary>
+    public DateTimeOffset? EffectiveFrom { get; private set; }
+
+    /// <summary>Who approved it; <see langword="null"/> while pending review.</summary>
+    public Guid? ApprovedByAccountId { get; private set; }
+
+    public DateTimeOffset? ApprovedAt { get; private set; }
+
+    /// <summary>
+    /// The version's document, for query expressions (<c>version.Document.Versions</c>,
+    /// <c>chunk.Version.Document.DisabledAt</c>): EF Core translates it into a join. Not loaded
+    /// from the database unless a query includes it; set in memory by <see cref="Create"/>.
+    /// </summary>
+    public KnowledgeDocument? Document { get; private set; }
+
+    /// <summary>Whether <see cref="Approve"/> would accept this version: pending review and
+    /// processed <see cref="KnowledgeDocumentStatus.Ready"/> or
+    /// <see cref="KnowledgeDocumentStatus.PartiallyReadable"/>.</summary>
+    public bool CanBeApproved =>
+        ReviewState == KnowledgeReviewState.PendingReview
+        && ProcessingStatus is KnowledgeDocumentStatus.Ready or KnowledgeDocumentStatus.PartiallyReadable;
 
     /// <summary>A new, <see cref="KnowledgeDocumentStatus.Queued"/> version of
     /// <paramref name="document"/>. The caller enqueues its processing in the same save.</summary>
@@ -131,7 +161,7 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
             throw new ArgumentException("A batch id must not be empty; pass null for none.", nameof(uploadBatchId));
         }
 
-        return new KnowledgeDocumentVersion
+        var version = new KnowledgeDocumentVersion
         {
             Id = Guid.CreateVersion7(),
             OrganizationId = document.OrganizationId,
@@ -148,7 +178,11 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
             UploadedByAccountId = uploadedByAccountId,
             UploadedAt = now,
             UpdatedAt = now,
+            ReviewState = KnowledgeReviewState.PendingReview,
+            Document = document,
         };
+        document.AddVersion(version);
+        return version;
     }
 
     /// <summary><see cref="KnowledgeDocumentStatus.Queued"/> → <see cref="KnowledgeDocumentStatus.Processing"/>.</summary>
@@ -212,6 +246,37 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
         RequireStatus(KnowledgeDocumentStatus.Failed);
         ProcessingStatus = KnowledgeDocumentStatus.Queued;
         Issue = null;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// A person approves this version as effective from <paramref name="effectiveFrom"/>
+    /// (<paramref name="now"/> or later: an approval cannot reach into the past). Only a
+    /// version that <see cref="CanBeApproved"/> can be approved; anything else is a caller bug
+    /// here, because the rules layer refuses it first with a reason for the owner.
+    /// </summary>
+    public void Approve(Guid approvedByAccountId, DateTimeOffset effectiveFrom, DateTimeOffset now)
+    {
+        if (approvedByAccountId == Guid.Empty)
+        {
+            throw new ArgumentException("An approver id must not be empty.", nameof(approvedByAccountId));
+        }
+
+        if (effectiveFrom < now)
+        {
+            throw new ArgumentOutOfRangeException(nameof(effectiveFrom), effectiveFrom, "A version cannot take effect before it is approved.");
+        }
+
+        if (!CanBeApproved)
+        {
+            throw new InvalidOperationException(
+                $"Only a processed, readable version pending review can be approved; this one is {ProcessingStatus} and {ReviewState}.");
+        }
+
+        ReviewState = KnowledgeReviewState.Approved;
+        EffectiveFrom = effectiveFrom;
+        ApprovedByAccountId = approvedByAccountId;
+        ApprovedAt = now;
         UpdatedAt = now;
     }
 

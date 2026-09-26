@@ -245,6 +245,29 @@ public sealed class KnowledgeChunkVectorCollectionTests : IClassFixture<AuthHost
     }
 
     [Fact]
+    public async Task Upsert_writes_only_the_chunk_never_the_version_it_links_to_in_memory()
+    {
+        var owner = await KnowledgeTestOwner.CreateAsync(_host);
+        var versionId = await owner.UploadAsync(KnowledgeFixtures.ReturnPolicyPdf);
+        await RunJobsAsync();
+        await using var dbContext = _host.Postgres.CreateDbContext(owner.Organization.Id);
+        using var collection = new KnowledgeChunkVectorCollection(dbContext, AuthHostFixture.EmbeddingModel);
+
+        // A chunk created in memory links to its (untracked) version: DbSet.Add would insert
+        // that version again; the collection writes the chunk row alone.
+        var version = await dbContext.KnowledgeDocumentVersions.AsNoTracking().SingleAsync(row => row.Id == versionId, CancellationToken);
+        var chunk = KnowledgeChunk.Create(version, 0, 99, "第 1 頁", "新增的段落");
+        chunk.Version.ShouldBeSameAs(version);
+        chunk.SetEmbedding([0.6f, 0.8f], AuthHostFixture.EmbeddingModel);
+
+        await collection.UpsertAsync(chunk, CancellationToken);
+
+        dbContext.Entry(version).State.ShouldBe(Microsoft.EntityFrameworkCore.EntityState.Detached);
+        (await collection.GetAsync(chunk.Id, cancellationToken: CancellationToken)).ShouldNotBeNull().Text.ShouldBe("新增的段落");
+        (await dbContext.KnowledgeDocumentVersions.CountAsync(row => row.DocumentId == version.DocumentId, CancellationToken)).ShouldBe(1);
+    }
+
+    [Fact]
     public async Task The_scopes_collection_searches_the_configured_model()
     {
         await using var scope = _host.Factory.Services.CreateAsyncScope();

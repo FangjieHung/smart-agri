@@ -5,7 +5,7 @@ import type { NamedAssistantDraftView } from '../../../core/domain/assistant-dra
 import type { PublishingChannelView } from '../../../core/domain/publishing.model';
 import type { RepositoryView } from '../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
-import { ApiSessionService } from '../../../core/session/api-session.service';
+import { AssistantPermissionsService } from '../../../core/session/assistant-permissions.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
@@ -52,12 +52,10 @@ function readyData<T>(view: SafeView<readonly T[]>): readonly T[] {
 export class AssistantListPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
-  private readonly apiSession = inject(ApiSessionService);
+  private readonly assistantPermissions = inject(AssistantPermissionsService);
 
-  /** 與 repository 的 `createNamedAssistantDraft` 同一條權限：沒有權限就不提供建立入口。 */
-  protected readonly canCreateAssistant = computed(() =>
-    this.apiSession.permissions().includes('manage-assistants'),
-  );
+  /** 與首頁共用同一條判斷（`AssistantPermissionsService`）：沒有權限就不提供建立入口。 */
+  protected readonly canCreateAssistant = this.assistantPermissions.canCreateAssistant;
 
   private readonly myAssistantsView = computed<SafeView<readonly AssistantConfigurationView[]>>(() => {
     const accountId = this.session.activeAccountId();

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DemoSessionService } from '../../core/session/demo-session.service';
+import { AssistantPermissionsService } from '../../core/session/assistant-permissions.service';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 
@@ -14,6 +15,10 @@ import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.com
 export class HomePageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly assistantPermissions = inject(AssistantPermissionsService);
+
+  /** 與助理清單共用同一條判斷（`AssistantPermissionsService`）：沒有權限就不顯示建立入口。 */
+  protected readonly canCreateAssistant = this.assistantPermissions.canCreateAssistant;
 
   protected readonly assistantCount = computed(() => {
     const accountId = this.session.activeAccountId();
@@ -29,6 +34,9 @@ export class HomePageComponent {
     const result = this.repository.listUsableAssistants(accountId);
     return result.status === 'ready' || result.status === 'partial-failure' ? result.data : [];
   });
+
+  /** 沒有建立權限時，主要操作改指向第一個可用的助理，讓使用者能直接開始對話。 */
+  protected readonly primaryUsableAssistant = computed(() => this.usableAssistants()[0] ?? null);
 
   /** 目前帳號尚未完成的建立草稿；其他帳號的草稿不會出現在這裡。 */
   protected readonly pendingDraft = computed(() => {

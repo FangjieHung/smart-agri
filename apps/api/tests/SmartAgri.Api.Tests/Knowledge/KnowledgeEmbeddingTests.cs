@@ -91,7 +91,7 @@ public sealed class KnowledgeEmbeddingTests : IClassFixture<AuthHostFixture>
         (await dbContext.Database.SqlQueryRaw<string>(
                 "SELECT column_name AS \"Value\" FROM information_schema.columns WHERE table_name = 'ModelInvocations'")
             .ToListAsync(CancellationToken))
-            .ShouldBe(["Id", "OrganizationId", "AccountId", "AssistantId", "Purpose", "Provider", "Model", "InputTokens", "DurationMs", "Succeeded", "At"], ignoreOrder: true);
+            .ShouldBe(["Id", "OrganizationId", "AccountId", "AssistantId", "Purpose", "Provider", "Model", "InputTokens", "OutputTokens", "DurationMs", "Succeeded", "At"], ignoreOrder: true);
         var rows = await dbContext.Database.SqlQueryRaw<string>(
                 "SELECT row_to_json(m)::text AS \"Value\" FROM \"ModelInvocations\" m WHERE m.\"OrganizationId\" = {0}", owner.Organization.Id)
             .ToListAsync(CancellationToken);

@@ -48,6 +48,11 @@ public sealed class ModelInvocation : IOrganizationScoped
     /// not report usage (or the call failed).</summary>
     public long? InputTokens { get; private set; }
 
+    /// <summary>Output tokens as the provider reported them (M3: chat completions);
+    /// <see langword="null"/> for calls with no output (embeddings), when the provider did not
+    /// report usage, or when the call failed. Never estimated.</summary>
+    public long? OutputTokens { get; private set; }
+
     public long DurationMs { get; private set; }
 
     public bool Succeeded { get; private set; }
@@ -63,6 +68,7 @@ public sealed class ModelInvocation : IOrganizationScoped
         string provider,
         string model,
         long? inputTokens,
+        long? outputTokens,
         long durationMs,
         bool succeeded,
         DateTimeOffset at)
@@ -89,6 +95,11 @@ public sealed class ModelInvocation : IOrganizationScoped
             throw new ArgumentOutOfRangeException(nameof(inputTokens), inputTokens, "Token counts are never negative.");
         }
 
+        if (outputTokens is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(outputTokens), outputTokens, "Token counts are never negative.");
+        }
+
         ArgumentOutOfRangeException.ThrowIfNegative(durationMs);
 
         return new ModelInvocation
@@ -101,6 +112,7 @@ public sealed class ModelInvocation : IOrganizationScoped
             Provider = provider,
             Model = model,
             InputTokens = inputTokens,
+            OutputTokens = outputTokens,
             DurationMs = durationMs,
             Succeeded = succeeded,
             At = at,

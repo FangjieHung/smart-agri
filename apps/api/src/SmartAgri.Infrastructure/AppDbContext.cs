@@ -100,6 +100,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>A knowledge base connected to an assistant (M3 plan §4).</summary>
     public DbSet<AssistantKnowledgeBase> AssistantKnowledgeBases => Set<AssistantKnowledgeBase>();
 
+    /// <summary>An account an assistant is shared with — "平台內分享" (M3 plan §4/§5 Slice 3).</summary>
+    public DbSet<AssistantShare> AssistantShares => Set<AssistantShare>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -209,6 +212,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // Assistants (M3 plan §4).
         modelBuilder.ApplyConfiguration(new AssistantConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantKnowledgeBaseConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantShareConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

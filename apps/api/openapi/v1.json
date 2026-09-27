@@ -1598,6 +1598,134 @@
           }
         }
       }
+    },
+    "/api/v1/assistants/{id}/publishing": {
+      "get": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantPublishingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/publishing/platform": {
+      "put": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePlatformSharingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformSharingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/publishing/platform/paused": {
+      "put": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPlatformPausedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishingChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1744,6 +1872,34 @@
           "allow-general-knowledge"
         ]
       },
+      "AssistantPublishingView": {
+        "required": [
+          "assistantId",
+          "assistantName",
+          "platform",
+          "website",
+          "line"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "platform": {
+            "$ref": "#/components/schemas/PlatformSharingView"
+          },
+          "website": {
+            "$ref": "#/components/schemas/NotAvailablePublishingChannelView"
+          },
+          "line": {
+            "$ref": "#/components/schemas/NotAvailablePublishingChannelView"
+          }
+        }
+      },
       "AssistantSettingsView": {
         "required": [
           "configuration",
@@ -1786,7 +1942,8 @@
           "id",
           "name",
           "purpose",
-          "status"
+          "status",
+          "viewerIsOwner"
         ],
         "type": "object",
         "properties": {
@@ -1802,6 +1959,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/AssistantStatus"
+          },
+          "viewerIsOwner": {
+            "type": "boolean"
           }
         }
       },
@@ -2747,6 +2907,67 @@
           }
         }
       },
+      "NotAvailablePublishingChannelView": {
+        "required": [
+          "status",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "PlatformShareTargetView": {
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "PlatformSharingView": {
+        "required": [
+          "channel",
+          "usagePath",
+          "allowedAccountIds",
+          "candidates"
+        ],
+        "type": "object",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/PublishingChannelView"
+          },
+          "usagePath": {
+            "type": "string"
+          },
+          "allowedAccountIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformShareTargetView"
+            }
+          }
+        }
+      },
       "PreviewKnowledgeRetrievalRequest": {
         "required": [
           "question"
@@ -2771,6 +2992,59 @@
               "integer"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "PublishingChannelView": {
+        "required": [
+          "id",
+          "assistantId",
+          "ownerAccountId",
+          "name",
+          "type",
+          "status",
+          "statusDetail",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ownerAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "statusDetail": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SetPlatformPausedRequest": {
+        "required": [
+          "paused"
+        ],
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": "boolean"
           }
         }
       },
@@ -2942,6 +3216,23 @@
         "type": "object",
         "properties": {
           "permissions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UpdatePlatformSharingRequest": {
+        "required": [
+          "accountIds"
+        ],
+        "type": "object",
+        "properties": {
+          "accountIds": {
             "type": [
               "null",
               "array"

@@ -227,6 +227,29 @@ public sealed class Assistant : IOrganizationScoped
         return changed;
     }
 
+    /// <summary>
+    /// Pauses or resumes the assistant (<c>PUT .../publishing/platform/paused</c>, M3 plan §5
+    /// Slice 3): while <see cref="AssistantStatus.Paused"/>, only the owner may use it
+    /// (<c>AssistantUseAccess.UsableBy</c>). Returns whether anything changed; an unchanged
+    /// request touches neither <see cref="Status"/> nor <see cref="UpdatedAt"/>.
+    /// </summary>
+    public bool SetStatus(AssistantStatus status, DateTimeOffset now)
+    {
+        if (!Enum.IsDefined(status))
+        {
+            throw new ArgumentOutOfRangeException(nameof(status), status, "Not a declared status.");
+        }
+
+        if (Status == status)
+        {
+            return false;
+        }
+
+        Status = status;
+        UpdatedAt = now;
+        return true;
+    }
+
     private static void RequireId(Guid id, string parameterName)
     {
         if (id == Guid.Empty)

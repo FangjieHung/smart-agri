@@ -65,6 +65,7 @@ import type {
 } from '../domain/database.model';
 import {
   isRetryableKnowledgeDocument,
+  precheckKnowledgeUpload,
   KNOWLEDGE_BASE_NAME_MAX_LENGTH,
   KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH,
   KNOWLEDGE_DOCUMENT_STATUSES,
@@ -182,6 +183,8 @@ import type {
   UpdateMemberPermissionsResult,
   UpdatePlatformSharingResult,
   UpdateWebsiteEmbedResult,
+  UploadKnowledgeDocumentEvent,
+  UploadKnowledgeDocumentResult,
   WithdrawChatSubmissionResult,
 } from './demo-repository';
 
@@ -490,6 +493,12 @@ interface StoredKnowledgeRecord {
   readonly version: 1;
   readonly documents: readonly StoredKnowledgeDocument[];
   readonly sharing: KnowledgeSharingView;
+  /**
+   * 上傳時記錄的檔案大小，以文件 id 為鍵（issue #46）：mock 依規則「不讀取檔案內容」，
+   * 用大小模擬「內容重複」（`duplicate-content`），只涵蓋這台瀏覽器上傳過的文件；
+   * seed 內建的文件沒有記錄大小，不會被拿來比對。
+   */
+  readonly uploadedSizes?: Readonly<Record<string, number>>;
 }
 
 /** mock：開始處理後，前 2 秒是「等待處理」。 */
@@ -525,6 +534,15 @@ const KNOWLEDGE_NAME_TOO_LONG_MESSAGE = `知識庫名稱最多 ${KNOWLEDGE_BASE_
 const KNOWLEDGE_PURPOSE_TOO_LONG_MESSAGE = `用途說明最多 ${KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH} 個字。`;
 export const KNOWLEDGE_CREATE_PERMISSION_DENIED_MESSAGE = '只有可管理資料來源的帳號可以建立知識庫。';
 export const KNOWLEDGE_PERMISSION_DENIED_MESSAGE = '你沒有這個知識庫的存取權限，或它已不存在。';
+
+/** 與後端 `KnowledgeUploadRules.CheckDuplicates`／`CheckNewVersionDuplicate` 訊息格式相同。 */
+function duplicateContentMessage(existingDocumentName: string): string {
+  return `這份檔案的內容與「${existingDocumentName}」完全相同，不需要重複上傳。`;
+}
+
+function duplicateNameMessage(fileName: string): string {
+  return `這個知識庫已經有名為「${fileName}」的文件。要更新它的內容，請改用「上傳新版本」。`;
+}
 
 function isKnowledgeBaseView(value: unknown): value is KnowledgeBaseView {
   return (
@@ -1674,6 +1692,22 @@ export class MockDemoRepository implements DemoRepository {
     return defer(() => of(this.writeKnowledgeSharing(this.viewer(), knowledgeBaseId, sharing)));
   }
 
+  /** mock 不會送出進度事件：沒有真的網路傳輸可以量，直接以結果 complete。 */
+  uploadKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    file: File,
+  ): Observable<UploadKnowledgeDocumentEvent> {
+    return defer(() => of(this.writeUploadedKnowledgeDocument(this.viewer(), knowledgeBaseId, file)));
+  }
+
+  uploadKnowledgeDocumentVersion(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    file: File,
+  ): Observable<UploadKnowledgeDocumentEvent> {
+    return defer(() => of(this.writeUploadedKnowledgeDocumentVersion(this.viewer(), knowledgeBaseId, documentId, file)));
+  }
+
   private readKnowledgeSummaries(
     viewerAccountId: AccountId | null,
   ): RepositoryView<readonly KnowledgeBaseSummaryView[]> {
@@ -1851,6 +1885,127 @@ export class MockDemoRepository implements DemoRepository {
     });
 
     return this.applyScenario(saved);
+  }
+
+  /**
+   * 上傳一個檔案成為新文件（issue #46）：與 API 相同的檢查順序——擁有者、大小與副檔名
+   * （`precheckKnowledgeUpload`）、內容重複（依大小模擬，只比對這台瀏覽器上傳過的文件）、
+   * 名稱重複。全部通過才寫入一份新文件，狀態依經過時間計算（`processingStartedAt`）。
+   */
+  private writeUploadedKnowledgeDocument(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    file: File,
+  ): UploadKnowledgeDocumentResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+
+    const precheck = precheckKnowledgeUpload(file);
+    if (precheck !== null) {
+      return immutableCopy({ status: 'rejected', reason: precheck.reason, message: precheck.message });
+    }
+
+    const record = this.knowledgeRecord(knowledgeBase.id);
+    const sizes = record.uploadedSizes ?? {};
+    const documents = this.knowledgeDocuments(knowledgeBase.id);
+    const duplicateContentId = Object.keys(sizes).find((id) => sizes[id] === file.size);
+    const duplicateContent =
+      duplicateContentId === undefined
+        ? undefined
+        : documents.find((document) => document.id === duplicateContentId);
+    if (duplicateContent !== undefined) {
+      return immutableCopy({
+        status: 'rejected',
+        reason: 'duplicate-content',
+        message: duplicateContentMessage(duplicateContent.name),
+        existingDocumentName: duplicateContent.name,
+      });
+    }
+
+    if (documents.some((document) => document.name === file.name)) {
+      return immutableCopy({
+        status: 'rejected',
+        reason: 'duplicate-name',
+        message: duplicateNameMessage(file.name),
+      });
+    }
+
+    const existingIds = new Set(documents.map((document) => document.id));
+    let sequence = this.now().getTime();
+    while (existingIds.has(`${knowledgeBase.id}-doc-${sequence}`)) sequence += 1;
+    const id = `${knowledgeBase.id}-doc-${sequence}`;
+    const startedAt = this.now().toISOString();
+    const created: StoredKnowledgeDocument = {
+      id,
+      kind: 'document',
+      name: file.name,
+      status: 'queued',
+      issue: null,
+      updatedAt: startedAt,
+      processingStartedAt: startedAt,
+    };
+    this.saveKnowledgeRecord(knowledgeBase.id, {
+      ...record,
+      documents: [...record.documents, created],
+      uploadedSizes: { ...sizes, [id]: file.size },
+    });
+
+    const uploaded = this.knowledgeDocuments(knowledgeBase.id).find((document) => document.id === id);
+    return uploaded === undefined ? this.knowledgePermissionDenied() : this.applyScenario(uploaded);
+  }
+
+  /**
+   * 改把這個檔案當成既有文件的新版本上傳：與 API 一樣沒有名稱規則（文件保留自己的
+   * 名稱），但內容仍不能與知識庫中任何版本相同。mock 沒有真的多版本模型，這裡只更新
+   * 既有文件的處理狀態（與重新處理相同的時間模型），文件本身的名稱不變。
+   */
+  private writeUploadedKnowledgeDocumentVersion(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    documentId: KnowledgeDocumentId,
+    file: File,
+  ): UploadKnowledgeDocumentResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+
+    const record = this.knowledgeRecord(knowledgeBase.id);
+    const documents = this.knowledgeDocuments(knowledgeBase.id);
+    const target = documents.find((document) => document.id === documentId);
+    if (target === undefined) return this.knowledgePermissionDenied();
+
+    const precheck = precheckKnowledgeUpload(file);
+    if (precheck !== null) {
+      return immutableCopy({ status: 'rejected', reason: precheck.reason, message: precheck.message });
+    }
+
+    const sizes = record.uploadedSizes ?? {};
+    const duplicateContentId = Object.keys(sizes).find((id) => sizes[id] === file.size);
+    const duplicateContent =
+      duplicateContentId === undefined
+        ? undefined
+        : documents.find((document) => document.id === duplicateContentId);
+    if (duplicateContent !== undefined) {
+      return immutableCopy({
+        status: 'rejected',
+        reason: 'duplicate-content',
+        message: duplicateContentMessage(duplicateContent.name),
+        existingDocumentName: duplicateContent.name,
+      });
+    }
+
+    const startedAt = this.now().toISOString();
+    this.saveKnowledgeRecord(knowledgeBase.id, {
+      ...record,
+      documents: record.documents.map((document): StoredKnowledgeDocument =>
+        document.id === documentId
+          ? { ...document, status: 'queued', issue: null, updatedAt: startedAt, processingStartedAt: startedAt }
+          : document,
+      ),
+      uploadedSizes: { ...sizes, [documentId]: file.size },
+    });
+
+    const updated = this.knowledgeDocuments(knowledgeBase.id).find((document) => document.id === documentId);
+    return updated === undefined ? this.knowledgePermissionDenied() : this.applyScenario(updated);
   }
 
   listDatabaseTemplates(

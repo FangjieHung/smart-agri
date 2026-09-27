@@ -1,5 +1,11 @@
-import { HttpErrorResponse, type HttpClient } from '@angular/common/http';
-import { catchError, map, of, throwError, type Observable } from 'rxjs';
+import {
+  HttpErrorResponse,
+  HttpEventType,
+  type HttpClient,
+  type HttpProgressEvent,
+  type HttpResponse,
+} from '@angular/common/http';
+import { catchError, filter, map, of, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
 import {
@@ -10,12 +16,14 @@ import {
   type TeamMemberView,
   type TeamView,
 } from '../domain/team.model';
-import type {
-  CreateKnowledgeBaseInput,
-  KnowledgeBaseDetailView,
-  KnowledgeBaseSummaryView,
-  KnowledgeDocumentView,
-  KnowledgeSharingView,
+import {
+  isKnowledgeUploadRejectionReason,
+  type CreateKnowledgeBaseInput,
+  type KnowledgeBaseDetailView,
+  type KnowledgeBaseSummaryView,
+  type KnowledgeDocumentView,
+  type KnowledgeSharingView,
+  type KnowledgeUploadRejectionReason,
 } from '../domain/knowledge-base.model';
 import type { ConnectableSourceView } from '../domain/assistant-draft.model';
 import {
@@ -24,6 +32,7 @@ import {
   type CreateMemberInput,
   type CreateMemberResult,
   type DeleteKnowledgeResult,
+  type KnowledgeUploadRejectedView,
   type KnowledgeValidationFailedView,
   type PermissionDeniedRepositoryView,
   type RepositoryPermissionDeniedReason,
@@ -31,6 +40,7 @@ import {
   type RetryKnowledgeDocumentResult,
   type UpdateKnowledgeSharingResult,
   type UpdateMemberPermissionsResult,
+  type UploadKnowledgeDocumentEvent,
 } from './demo-repository';
 import type { DemoSeed } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
@@ -76,6 +86,14 @@ export function apiKnowledgeSharingPath(knowledgeBaseId: string): string {
 
 export function apiKnowledgeDocumentPath(knowledgeBaseId: string, documentId: string): string {
   return `${apiKnowledgeBasePath(knowledgeBaseId)}/documents/${encodeURIComponent(documentId)}`;
+}
+
+export function apiKnowledgeDocumentsPath(knowledgeBaseId: string): string {
+  return `${apiKnowledgeBasePath(knowledgeBaseId)}/documents`;
+}
+
+export function apiKnowledgeDocumentVersionsPath(knowledgeBaseId: string, documentId: string): string {
+  return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/versions`;
 }
 
 export function apiKnowledgeRetryPath(knowledgeBaseId: string, documentId: string, versionId: string): string {
@@ -411,6 +429,50 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /**
+   * 上傳一個檔案成為新文件（issue #46）：`reportProgress` 讓 `HttpClient` 送出上傳進度事件
+   * （`observe: 'events'`），只轉出上傳進度與最終回應，其餘事件類型（`Sent` 等）忽略。
+   * `413`／`415`／`422` 轉成逐檔的 `rejected` 結果；其餘沿用知識庫的 403／404 轉換。
+   */
+  override uploadKnowledgeDocument(
+    knowledgeBaseId: string,
+    file: File,
+  ): Observable<UploadKnowledgeDocumentEvent> {
+    return this.postKnowledgeUpload(apiKnowledgeDocumentsPath(knowledgeBaseId), file);
+  }
+
+  override uploadKnowledgeDocumentVersion(
+    knowledgeBaseId: string,
+    documentId: string,
+    file: File,
+  ): Observable<UploadKnowledgeDocumentEvent> {
+    return this.postKnowledgeUpload(apiKnowledgeDocumentVersionsPath(knowledgeBaseId, documentId), file);
+  }
+
+  private postKnowledgeUpload(path: string, file: File): Observable<UploadKnowledgeDocumentEvent> {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    return this.http.post<ApiKnowledgeDocument>(path, body, { reportProgress: true, observe: 'events' }).pipe(
+      filter(
+        (event): event is HttpProgressEvent | HttpResponse<ApiKnowledgeDocument> =>
+          event.type === HttpEventType.UploadProgress || event.type === HttpEventType.Response,
+      ),
+      map((event): UploadKnowledgeDocumentEvent => {
+        if (event.type === HttpEventType.Response) {
+          return { status: 'ready', data: toKnowledgeDocument(event.body as ApiKnowledgeDocument) };
+        }
+        // event.type === HttpEventType.UploadProgress（篩選過，只剩這兩種）
+        const percent = event.total ? Math.min(99, Math.round((event.loaded / event.total) * 100)) : 0;
+        return { status: 'progress', percent };
+      }),
+      catchError((error: unknown) =>
+        isHttpError(error, 413) || isHttpError(error, 415) || isHttpError(error, 422)
+          ? of(uploadRejected(error))
+          : this.knowledgeDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  /**
    * 後端沒有「已連接助理」（助理在 M3 之前仍是前端 mock 資料），由 mock 的助理補上：
    * 連接到這個 id 的、目前 Demo 身分自己的助理。
    */
@@ -497,6 +559,33 @@ function knowledgeValidationFailed(error: HttpErrorResponse): KnowledgeValidatio
   return {
     status: 'validation-failed',
     message: bodyMessage(error) ?? '這次變更沒有儲存，請再試一次。',
+  };
+}
+
+/** 413／415 沒有 `reason`（只有 422 的 body 有）時的保底原因。 */
+function fallbackUploadReason(status: number): KnowledgeUploadRejectionReason {
+  if (status === 413) return 'file-too-large';
+  if (status === 415) return 'unsupported-file-type';
+  return 'file-unreadable';
+}
+
+interface UploadRejectionBody {
+  readonly reason?: unknown;
+  readonly message?: unknown;
+  readonly existingDocumentName?: unknown;
+}
+
+/** `413`／`415`／`422`：`reason` 照 body 實際的值對應，訊息與 `existingDocumentName` 原樣轉交。 */
+function uploadRejected(error: HttpErrorResponse): KnowledgeUploadRejectedView {
+  const body = (error.error ?? {}) as UploadRejectionBody;
+  const reason = isKnowledgeUploadRejectionReason(body.reason) ? body.reason : fallbackUploadReason(error.status);
+  const message = typeof body.message === 'string' ? body.message : '這個檔案沒有上傳成功，請再試一次。';
+  const existingDocumentName = typeof body.existingDocumentName === 'string' ? body.existingDocumentName : undefined;
+  return {
+    status: 'rejected',
+    reason,
+    message,
+    ...(existingDocumentName !== undefined ? { existingDocumentName } : {}),
   };
 }
 

@@ -62,6 +62,7 @@ import type {
   KnowledgeDocumentId,
   KnowledgeDocumentView,
   KnowledgeSharingView,
+  KnowledgeUploadRejectionReason,
 } from '../domain/knowledge-base.model';
 import type { Observable } from 'rxjs';
 import type { TeamMemberView, TeamView } from '../domain/team.model';
@@ -191,6 +192,39 @@ export type RetryKnowledgeDocumentResult =
 
 /** 刪除成功時 `data` 是 null（API 回 `204`，沒有內容可以回傳）。 */
 export type DeleteKnowledgeResult = RepositoryView<null>;
+
+/**
+ * 一個檔案被拒絕上傳（issue #46，M2 Slice 12）：`reason` 是機器可讀的原因（與後端
+ * `KnowledgeUploadRejectionReason` 逐字相同），`message` 是給人看的訊息。
+ * `existingDocumentName` 只在 `duplicate-content` 時有值：內容相同的既有文件名稱。
+ */
+export interface KnowledgeUploadRejectedView {
+  readonly status: 'rejected';
+  readonly reason: KnowledgeUploadRejectionReason;
+  readonly message: string;
+  readonly existingDocumentName?: string;
+}
+
+/**
+ * 上傳中的進度（0–100）。`uploadKnowledgeDocument` 的 Observable 在完成前可以送出
+ * 0 到多次進度事件，最後一定以 `UploadKnowledgeDocumentResult` 其中一種結束並 complete；
+ * mock 不會送出進度事件（沒有真的網路傳輸可以量）。
+ */
+export interface KnowledgeUploadProgressView {
+  readonly status: 'progress';
+  readonly percent: number;
+}
+
+/**
+ * 單一檔案上傳的最終結果：成功、被拒絕，或沒有權限（知識庫不存在、不是自己的）；
+ * `loading`／`partial-failure` 只在 Demo 情境切換器選了對應情境時出現。
+ * 讀取以外的錯誤（5xx、連線中斷）以 Observable 的 error 傳出，由畫面顯示「無法上傳」。
+ */
+export type UploadKnowledgeDocumentResult =
+  | RepositoryView<KnowledgeDocumentView>
+  | KnowledgeUploadRejectedView;
+
+export type UploadKnowledgeDocumentEvent = KnowledgeUploadProgressView | UploadKnowledgeDocumentResult;
 
 export interface CreateDatabaseValidationFailedView {
   readonly status: 'validation-failed';
@@ -533,6 +567,27 @@ export interface DemoRepository extends DemoScenarioController {
     knowledgeBaseId: KnowledgeBaseId,
     sharing: KnowledgeSharingView,
   ): Observable<UpdateKnowledgeSharingResult>;
+  /**
+   * 上傳一個檔案成為知識庫的新文件（issue #46，M2 Slice 12）：每個檔案各自呼叫一次，
+   * 畫面自己決定並行數與逐檔重試，這裡只負責一個檔案。回傳的 Observable 依序送出
+   * 0 到多次上傳進度、最後一個結果（成功、被拒絕或沒有權限）後才 complete；訂閱時才真正
+   * 送出（cold）。前端已用 `precheckKnowledgeUpload` 檢查過副檔名與大小，但這裡仍會重新
+   * 檢查一次——後端規則若改變，畫面不需要跟著改。
+   */
+  uploadKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    file: File,
+  ): Observable<UploadKnowledgeDocumentEvent>;
+  /**
+   * 檔名重複時，改把這個檔案當成既有文件的新版本上傳（`documentId` 來自畫面依檔名找到的
+   * 那份文件）。文件保留原本的名稱，版本保留自己的檔名；內容與知識庫中任何版本相同一律
+   * 回傳 `duplicate-content`。新版本一律待審核，不會立刻取代目前生效的版本。
+   */
+  uploadKnowledgeDocumentVersion(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    file: File,
+  ): Observable<UploadKnowledgeDocumentEvent>;
   /** 資料庫入口先問「你要收集什麼」；只有可管理資料來源的帳號可以取得模板。 */
   listDatabaseTemplates(
     viewerAccountId: AccountId,

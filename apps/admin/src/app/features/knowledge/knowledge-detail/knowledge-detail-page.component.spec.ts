@@ -112,6 +112,32 @@ describe('KnowledgeDetailPageComponent', () => {
     expect(page().textContent).not.toContain('Demo：不會真正上傳檔案');
   });
 
+  describe('batch upload (issue #46)', () => {
+    function selectFiles(page: HTMLElement, files: readonly File[]): void {
+      const input = page.querySelector('input[type="file"]') as HTMLInputElement;
+      Object.defineProperty(input, 'files', { value: files, configurable: true });
+      input.dispatchEvent(new Event('change'));
+    }
+
+    it('shows the upload entry point for a knowledge base the viewer can manage', async () => {
+      const { page } = await openDetail('/app/knowledge/knowledge-product-guide/content');
+
+      expect(page().querySelector('app-knowledge-upload-panel input[type="file"]')).not.toBeNull();
+    });
+
+    it('uploads a file and reloads the document list to show it', async () => {
+      const { harness, page } = await openDetail('/app/knowledge/knowledge-product-guide/content');
+      const before = page().querySelectorAll('.document-list > li').length;
+
+      selectFiles(page(), [new File([new Uint8Array(10)], '新上傳文件.pdf', { type: 'application/pdf' })]);
+      await settle(harness);
+
+      expect(page().querySelectorAll('.document-list > li').length).toBe(before + 1);
+      expect(rowFor(page(), '新上傳文件.pdf')).toBeDefined();
+      expect(page().querySelector('.upload-summary')?.textContent).toContain('成功 1 檔');
+    });
+  });
+
   describe('polling while items are queued or processing', () => {
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });

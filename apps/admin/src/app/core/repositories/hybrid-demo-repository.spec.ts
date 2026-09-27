@@ -11,7 +11,12 @@ import type { TeamView } from '../domain/team.model';
 import type { RepositoryView } from './demo-repository';
 import { DEMO_SEED, type DemoSeed } from './demo-seed';
 import {
+  API_KNOWLEDGE_BASES_PATH,
   API_TEAM_PATH,
+  apiKnowledgeBasePath,
+  apiKnowledgeDocumentPath,
+  apiKnowledgeRetryPath,
+  apiKnowledgeSharingPath,
   apiMemberPermissionsPath,
   HybridDemoRepository,
   type ApiViewerPermissions,
@@ -21,6 +26,9 @@ import { MockDemoRepository, type MockDemoRepositoryOptions } from './mock-demo-
 import { API_DEMO_REPOSITORY_FACTORY, DEMO_REPOSITORY } from './tokens';
 
 type TeamResponse = components['schemas']['TeamResponse'];
+type ApiKnowledgeBaseSummary = components['schemas']['KnowledgeBaseSummaryView'];
+type ApiKnowledgeBaseDetail = components['schemas']['KnowledgeBaseDetailView'];
+type ApiKnowledgeDocument = components['schemas']['KnowledgeDocumentView'];
 
 const ADMIN_ID = '0199a000-0000-7000-8000-00000000000a';
 const EMPLOYEE_ID = '0199a000-0000-7000-8000-000000000001';
@@ -426,6 +434,332 @@ describe('HybridDemoRepository', () => {
       status: 'ready',
       data: { draft: { name: '組織 A 的草稿' } },
     });
+  });
+});
+
+const KB_ID = '0199b000-0000-7000-8000-0000000000b1';
+const DOC_ID = '0199b000-0000-7000-8000-0000000000d1';
+const VERSION_ID = '0199b000-0000-7000-8000-0000000000e1';
+
+/** 與後端 `ForbiddenReason.KnowledgeBase` 位元組相同的內容（ProblemDetails + reason + message）。 */
+const KNOWLEDGE_FORBIDDEN = {
+  type: 'https://tools.ietf.org/html/rfc9110#section-15.5.4',
+  title: 'Forbidden',
+  status: 403,
+  reason: 'knowledge-base',
+  message: '你沒有這個知識庫的存取權限，或它已不存在。',
+};
+
+function apiSummary(overrides: Partial<ApiKnowledgeBaseSummary> = {}): ApiKnowledgeBaseSummary {
+  return {
+    id: KB_ID,
+    name: '門市作業手冊',
+    purpose: '開店與結帳流程',
+    documentCount: 1,
+    faqCount: 0,
+    statusCounts: { queued: 0, processing: 0, ready: 0, 'partially-readable': 0, failed: 1 },
+    inEffectCount: 0,
+    awaitingApprovalCount: 0,
+    disabledCount: 0,
+    sharingScope: 'private',
+    updatedAt: '2026-09-27T01:00:00+00:00',
+    viewerCanManage: true,
+    ...overrides,
+  };
+}
+
+function apiDocument(overrides: Partial<ApiKnowledgeDocument> = {}): ApiKnowledgeDocument {
+  return {
+    id: DOC_ID,
+    kind: 'document',
+    name: '開店檢查表.pdf',
+    status: 'failed',
+    issue: '檔案設有開啟密碼，無法讀取內容。',
+    updatedAt: '2026-09-27T01:00:00+00:00',
+    latestVersionId: VERSION_ID,
+    latestVersionNumber: 1,
+    latestVersionState: 'pending-review',
+    effectiveVersionNumber: null,
+    disabled: false,
+    inEffect: false,
+    ...overrides,
+  };
+}
+
+function apiDetail(): ApiKnowledgeBaseDetail {
+  return {
+    summary: apiSummary(),
+    documents: [apiDocument()],
+    sharing: { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
+    shareTargets: [
+      { id: EMPLOYEE_ID, displayName: '安心商行客服同仁' },
+      { id: CUSTOMER_ID, displayName: '安心商行客戶' },
+    ],
+  };
+}
+
+describe('HybridDemoRepository knowledge bases', () => {
+  let controller: HttpTestingController;
+
+  function setUpKnowledge() {
+    const setup = setUp();
+    controller = setup.controller;
+    return setup;
+  }
+
+  afterEach(() => controller.verify());
+
+  it('lists knowledge bases over HTTP, mapped to the frontend view', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.listKnowledgeBaseSummaries());
+
+    controller.expectOne({ method: 'GET', url: API_KNOWLEDGE_BASES_PATH }).flush([apiSummary()]);
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: [
+        {
+          id: KB_ID,
+          name: '門市作業手冊',
+          purpose: '開店與結帳流程',
+          documentCount: 1,
+          faqCount: 0,
+          statusCounts: { queued: 0, processing: 0, ready: 0, 'partially-readable': 0, failed: 1 },
+          sharingScope: 'private',
+          connectedAssistantNames: [],
+          updatedAt: '2026-09-27T01:00:00+00:00',
+          viewerCanManage: true,
+        },
+      ],
+    });
+  });
+
+  it('fills in connected assistants from the still-mock assistants, matched by knowledge base id', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.listKnowledgeBaseSummaries());
+
+    // 後端沒有「已連接助理」；mock 的客服助理連接的是 `knowledge-product-guide` 這個 id。
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush([apiSummary({ id: 'knowledge-product-guide' })]);
+
+    expect(await result).toMatchObject({
+      status: 'ready',
+      data: [{ connectedAssistantNames: ['客服助理', '內部教育訓練助理'] }],
+    });
+  });
+
+  it('reads the detail, keeping the version id the retry needs and the API’s share targets', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.getKnowledgeBaseDetail(KB_ID));
+
+    controller.expectOne({ method: 'GET', url: apiKnowledgeBasePath(KB_ID) }).flush(apiDetail());
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: {
+        summary: expect.objectContaining({ id: KB_ID, viewerCanManage: true }),
+        documents: [
+          {
+            id: DOC_ID,
+            kind: 'document',
+            name: '開店檢查表.pdf',
+            status: 'failed',
+            issue: '檔案設有開啟密碼，無法讀取內容。',
+            updatedAt: '2026-09-27T01:00:00+00:00',
+            latestVersionId: VERSION_ID,
+          },
+        ],
+        connectedAssistants: [],
+        sharing: { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
+        shareTargets: [
+          { id: EMPLOYEE_ID, displayName: '安心商行客服同仁' },
+          { id: CUSTOMER_ID, displayName: '安心商行客戶' },
+        ],
+      },
+    });
+  });
+
+  it('maps 403 knowledge-base to the knowledge-base permission-denied, not team', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.getKnowledgeBaseDetail(KB_ID));
+
+    controller.expectOne(apiKnowledgeBasePath(KB_ID)).flush(KNOWLEDGE_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toEqual({
+      status: 'permission-denied',
+      reason: 'knowledge-base',
+      message: '你沒有這個知識庫的存取權限，或它已不存在。',
+    });
+  });
+
+  it('keeps the reason the API actually sent (password-change-required)', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.listKnowledgeBaseSummaries());
+
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush(
+      { reason: 'password-change-required', message: '請先設定新密碼，才能使用其他功能。' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+
+    expect(await result).toMatchObject({ status: 'permission-denied', reason: 'password-change-required' });
+  });
+
+  it('treats a 404 (an id that is not a GUID never reaches the endpoint) like 403 knowledge-base', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.getKnowledgeBaseDetail('knowledge-product-guide'));
+
+    controller.expectOne(apiKnowledgeBasePath('knowledge-product-guide')).flush(null, { status: 404, statusText: 'Not Found' });
+
+    expect(await result).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+  });
+
+  it('leaves server errors to the screen instead of pretending the list is empty', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.listKnowledgeBaseSummaries()).catch((error: unknown) => error);
+
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(await result).toMatchObject({ status: 500 });
+  });
+
+  it('creates a knowledge base, and a reload of the list shows it', async () => {
+    const { repository } = setUpKnowledge();
+    const created = pending(repository.createKnowledgeBase({ name: '門市作業手冊', purpose: '開店與結帳流程' }));
+
+    const request = controller.expectOne({ method: 'POST', url: API_KNOWLEDGE_BASES_PATH });
+    expect(request.request.body).toEqual({ name: '門市作業手冊', purpose: '開店與結帳流程' });
+    request.flush(apiSummary({ documentCount: 0, statusCounts: { queued: 0, processing: 0, ready: 0, 'partially-readable': 0, failed: 0 } }), {
+      status: 201,
+      statusText: 'Created',
+    });
+    expect(await created).toMatchObject({ status: 'ready', data: { id: KB_ID, name: '門市作業手冊' } });
+
+    const reloaded = pending(repository.listKnowledgeBaseSummaries());
+    controller.expectOne({ method: 'GET', url: API_KNOWLEDGE_BASES_PATH }).flush([apiSummary()]);
+    expect(await reloaded).toMatchObject({ status: 'ready', data: [{ id: KB_ID, name: '門市作業手冊' }] });
+  });
+
+  it('turns a 422 on create into validation-failed with the API’s message', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.createKnowledgeBase({ name: ' ', purpose: '' }));
+
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush(
+      { message: '請輸入知識庫名稱。', errors: { name: ['請輸入知識庫名稱。'] } },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '請輸入知識庫名稱。' });
+  });
+
+  it('turns a 403 on create (no manage-data-sources) into the knowledge-base permission-denied', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.createKnowledgeBase({ name: '名稱', purpose: '' }));
+
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush(
+      { reason: 'knowledge-base', message: '只有可管理資料來源的帳號可以建立知識庫。' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+
+    expect(await result).toEqual({
+      status: 'permission-denied',
+      reason: 'knowledge-base',
+      message: '只有可管理資料來源的帳號可以建立知識庫。',
+    });
+  });
+
+  it('saves sharing with a PUT of the whole setting', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(
+      repository.updateKnowledgeSharing(KB_ID, {
+        scope: 'specific-accounts',
+        sharedWithAccountIds: [EMPLOYEE_ID],
+        allowOriginalDownload: false,
+      }),
+    );
+
+    const request = controller.expectOne({ method: 'PUT', url: apiKnowledgeSharingPath(KB_ID) });
+    expect(request.request.body).toEqual({
+      scope: 'specific-accounts',
+      sharedWithAccountIds: [EMPLOYEE_ID],
+      allowOriginalDownload: false,
+    });
+    request.flush({ scope: 'specific-accounts', sharedWithAccountIds: [EMPLOYEE_ID], allowOriginalDownload: false });
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: { scope: 'specific-accounts', sharedWithAccountIds: [EMPLOYEE_ID], allowOriginalDownload: false },
+    });
+  });
+
+  it('turns a 422 on sharing (no share target) into validation-failed', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(
+      repository.updateKnowledgeSharing(KB_ID, {
+        scope: 'specific-accounts',
+        sharedWithAccountIds: ['11111111-1111-4111-8111-111111111111'],
+        allowOriginalDownload: false,
+      }),
+    );
+
+    controller.expectOne(apiKnowledgeSharingPath(KB_ID)).flush(
+      { message: '請至少選擇一個帳號或團隊。', errors: { sharedWithAccountIds: ['請至少選擇一個帳號或團隊。'] } },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '請至少選擇一個帳號或團隊。' });
+  });
+
+  it('retries the latest version and returns the requeued document', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.retryKnowledgeDocument(KB_ID, DOC_ID, VERSION_ID));
+
+    controller
+      .expectOne({ method: 'POST', url: apiKnowledgeRetryPath(KB_ID, DOC_ID, VERSION_ID) })
+      .flush(apiDocument({ status: 'queued', issue: null }));
+
+    expect(await result).toMatchObject({ status: 'ready', data: { id: DOC_ID, status: 'queued', issue: null } });
+  });
+
+  it('turns a 409 on retry into validation-failed with the API’s message', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.retryKnowledgeDocument(KB_ID, DOC_ID, VERSION_ID));
+
+    controller.expectOne(apiKnowledgeRetryPath(KB_ID, DOC_ID, VERSION_ID)).flush(
+      { reason: 'version-not-retryable', message: '只有處理失敗的版本可以重試。' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '只有處理失敗的版本可以重試。' });
+  });
+
+  it('deletes a knowledge base and a document with 204', async () => {
+    const { repository } = setUpKnowledge();
+    const knowledgeBase = pending(repository.deleteKnowledgeBase(KB_ID));
+    controller.expectOne({ method: 'DELETE', url: apiKnowledgeBasePath(KB_ID) }).flush(null, { status: 204, statusText: 'No Content' });
+    expect(await knowledgeBase).toEqual({ status: 'ready', data: null });
+
+    const document = pending(repository.deleteKnowledgeDocument(KB_ID, DOC_ID));
+    controller
+      .expectOne({ method: 'DELETE', url: apiKnowledgeDocumentPath(KB_ID, DOC_ID) })
+      .flush(null, { status: 204, statusText: 'No Content' });
+    expect(await document).toEqual({ status: 'ready', data: null });
+  });
+
+  it('turns a 403 on delete into the knowledge-base permission-denied', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.deleteKnowledgeBase(KB_ID));
+
+    controller.expectOne(apiKnowledgeBasePath(KB_ID)).flush(KNOWLEDGE_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+  });
+
+  it('is cold: nothing is sent until subscribed', () => {
+    const { repository } = setUpKnowledge();
+    repository.createKnowledgeBase({ name: '未訂閱', purpose: '' });
+    repository.deleteKnowledgeBase(KB_ID);
+
+    controller.expectNone(API_KNOWLEDGE_BASES_PATH);
+    controller.expectNone(apiKnowledgeBasePath(KB_ID));
   });
 });
 

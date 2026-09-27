@@ -48,9 +48,9 @@ export const ACCOUNT_PERMISSIONS: readonly AccountPermissionDescriptor[] = [
   {
     id: 'manage-data-sources',
     label: '管理資料來源',
-    description: '從模板建立資料庫、取得資料庫模板。',
+    description: '建立知識庫、從模板建立資料庫、取得資料庫模板。',
     enforced: true,
-    enforcedNote: '已接到行為：建立資料庫與取得模板都會檢查。',
+    enforcedNote: '已接到行為：建立知識庫、建立資料庫與取得模板都會檢查。',
   },
   {
     id: 'manage-publishing',

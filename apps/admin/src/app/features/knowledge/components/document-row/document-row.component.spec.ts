@@ -21,7 +21,12 @@ const base: KnowledgeDocumentView = {
   status: 'ready',
   issue: null,
   updatedAt: '2026-09-18T08:00:00.000Z',
+  latestVersionId: 'document-test:v1',
 };
+
+function buttonNamed(host: HTMLElement, label: string): HTMLButtonElement | undefined {
+  return Array.from(host.querySelectorAll('button')).find((button) => button.textContent?.includes(label));
+}
 
 describe('DocumentRowComponent', () => {
   it.each([
@@ -42,23 +47,42 @@ describe('DocumentRowComponent', () => {
   it('shows the failure reason and emits retry for a failed document', () => {
     const fixture = render({ ...base, status: 'failed', issue: '檔案已加密，無法開啟。' });
     const host = fixture.nativeElement as HTMLElement;
-    const emitted: string[] = [];
-    fixture.componentInstance.retry.subscribe((id) => emitted.push(id));
+    const emitted: KnowledgeDocumentView[] = [];
+    fixture.componentInstance.retry.subscribe((document) => emitted.push(document));
 
     expect(host.textContent).toContain('檔案已加密，無法開啟。');
-    const button = host.querySelector('button') as HTMLButtonElement;
-    expect(button.textContent).toContain('重新處理');
+    const button = buttonNamed(host, '重新處理') as HTMLButtonElement;
     expect(button.textContent).toContain('保固條款.pdf');
     button.click();
 
-    expect(emitted).toEqual(['document-test']);
+    expect(emitted.map((document) => document.latestVersionId)).toEqual(['document-test:v1']);
   });
 
-  it('does not offer retry for usable documents or for viewers who cannot manage', () => {
-    expect((render(base).nativeElement as HTMLElement).querySelector('button')).toBeNull();
+  it.each(['ready', 'partially-readable', 'queued', 'processing'] as const)(
+    'does not offer retry for a %s document (only failed versions can be retried)',
+    (status) => {
+      const host = render({ ...base, status }).nativeElement as HTMLElement;
+      expect(buttonNamed(host, '重新處理')).toBeUndefined();
+    },
+  );
+
+  it('offers delete to managers only, naming the document for screen readers', () => {
+    const host = render(base).nativeElement as HTMLElement;
+    const remove = buttonNamed(host, '刪除');
+    expect(remove?.textContent).toContain('保固條款.pdf');
     TestBed.resetTestingModule();
     const readonlyRow = render({ ...base, status: 'failed', issue: '無法開啟' }, false);
     expect((readonlyRow.nativeElement as HTMLElement).querySelector('button')).toBeNull();
+  });
+
+  it('disables both actions while a request for the row is in flight', () => {
+    const fixture = render({ ...base, status: 'failed', issue: '無法開啟' });
+    fixture.componentRef.setInput('busy', true);
+    fixture.detectChanges();
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+
+    expect(buttons).toHaveLength(2);
+    expect(buttons.every((button) => button.disabled)).toBe(true);
   });
 
   it('distinguishes FAQ items from documents', () => {

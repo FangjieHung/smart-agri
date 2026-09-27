@@ -466,7 +466,7 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  // ---------- 對話（issue #79：讀取與對話串管理走 API，送出訊息仍是 mock，見 #80） ----------
+  // ---------- 對話（issue #79：讀取與對話串管理走 API；送出訊息走 AG-UI 串流，見 core/chat 與 #80） ----------
 
   override listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>> {
     return this.http.get<ApiChatThreadListView>(apiAssistantChatConversationsPath(assistantId)).pipe(
@@ -795,7 +795,8 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
   };
 }
 
-function toChatMessage(message: ApiChatMessageView): ChatMessageView {
+/** 也給 AG-UI 串流的 `smartagri.reply` 使用（`ag-ui-chat-runner.ts`；值與 `GET chat` 的訊息相同）。 */
+export function toChatMessage(message: ApiChatMessageView): ChatMessageView {
   if (message.reply !== null) {
     return { id: message.id, author: 'assistant', reply: toChatReply(message.reply), createdAt: message.createdAt };
   }

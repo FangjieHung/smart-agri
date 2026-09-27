@@ -2463,12 +2463,42 @@ export class MockDemoRepository implements DemoRepository {
       {
         id: `chat-message-${messages.length + 2}`,
         author: 'assistant',
-        reply: this.resolveChatReply(viewerId, assistant, question),
+        reply: this.scenarioChatReply(viewerId, assistant, question),
         createdAt,
       },
     ];
 
     return this.applyScenario(this.writeChatMessages(viewerId, assistant, target, next));
+  }
+
+  discardChatReply(viewerId: ChatViewerId, assistantId: string, messageId: string, threadId?: string): void {
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return;
+    const target = this.resolveChatTarget(viewerId, assistant, threadId);
+    if (target === undefined) return;
+
+    const messages = this.targetMessages(viewerId, assistant, target);
+    if (!messages.some((message) => message.id === messageId && message.author === 'assistant')) return;
+    this.writeChatMessages(
+      viewerId,
+      assistant,
+      target,
+      messages.filter((message) => message.id !== messageId),
+    );
+  }
+
+  /**
+   * `?demoScenario=answer-rejected`（issue #80）：模擬串流完的回答沒有通過引用驗證，
+   * 文字問題一律改回「查無資料」；表單流程照常，才不會卡住其他 Demo。
+   */
+  private scenarioChatReply(
+    viewerId: ChatViewerId,
+    assistant: AssistantConfigurationView,
+    question: string,
+  ): ChatReplyView {
+    const reply = this.resolveChatReply(viewerId, assistant, question);
+    if (this.scenario !== 'answer-rejected' || reply.kind === 'form-request') return reply;
+    return this.noResultReply(viewerId, assistant);
   }
 
   reviewChatForm(
@@ -2953,6 +2983,10 @@ export class MockDemoRepository implements DemoRepository {
       if (reply !== null) return reply;
     }
 
+    return this.noResultReply(viewerId, assistant);
+  }
+
+  private noResultReply(viewerId: ChatViewerId, assistant: AssistantConfigurationView): ChatReplyView {
     const formAvailable = this.seed.chatResponses.some(
       (fixture) =>
         fixture.answer.kind === 'form-request' &&

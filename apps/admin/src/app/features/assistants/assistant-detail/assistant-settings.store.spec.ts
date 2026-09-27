@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import type { AccountId } from '../../../core/domain/account.model';
 import { DEMO_SEED } from '../../../core/repositories/demo-seed';
 import type { DemoKeyValueStorage } from '../../../core/repositories/demo-repository';
@@ -130,15 +130,15 @@ describe('AssistantSettingsStore', () => {
     }
   });
 
-  it('turns 保存自己的對話 off and on again through the repository', () => {
+  it('turns 保存自己的對話 off and on again through the repository', async () => {
     const { store, repository } = setup();
 
     store.updateRules({ keepOwnConversations: false });
-    const off = repository.listChatThreads('account-smb-admin', 'assistant-customer-service');
+    const off = await firstValueFrom(repository.listChatThreads('assistant-customer-service'));
     expect(off.status === 'ready' && off.data.historyMode).toBe('not-saved');
 
     store.updateRules({ keepOwnConversations: true });
-    const on = repository.listChatThreads('account-smb-admin', 'assistant-customer-service');
+    const on = await firstValueFrom(repository.listChatThreads('assistant-customer-service'));
     expect(on.status === 'ready' && on.data.historyMode).toBe('saved');
   });
 

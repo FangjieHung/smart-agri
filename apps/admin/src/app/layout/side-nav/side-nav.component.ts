@@ -10,6 +10,7 @@ import { ApiSessionService } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { ZH_TW } from '../../core/i18n/zh-tw';
 import { NavEntry, NavGroup, isNavGroup } from './nav-item.model';
+import { repositoryResource } from '../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { ChatHistoryRevisionService } from '../../core/session/chat-history-revision.service';
 import { ConversationRailComponent, type RecentChatThreadView } from '../../features/assistant-use/conversation-rail/conversation-rail.component';
@@ -41,18 +42,31 @@ export class SideNavComponent {
   /** API 模式顯示 `/me` 的顯示名稱；mock 模式維持原本的固定文字。 */
   protected readonly userName = computed(() => this.apiSession.displayName() ?? this.t.layout.adminUser);
 
+  /**
+   * 最近 10 個對話串（issue #79）：Mock 與 API 模式都走 `listRecentChatThreads`——
+   * Mock 內部仍是逐助理組裝，API 模式直接打 `GET /api/v1/chat/recent-conversations`，
+   * 呼叫端不必分辨是哪一種。換路由或對話有異動（`ChatHistoryRevisionService`）時重讀。
+   */
+  private readonly recent = repositoryResource({
+    params: () => {
+      this.routeRevision();
+      this.chatRevision.revision();
+      return this.session.activeAccountId() ?? undefined;
+    },
+    stream: () => this.repository.listRecentChatThreads(),
+  });
+
   protected readonly recentChats = computed<readonly RecentChatThreadView[]>(() => {
-    this.routeRevision();
-    this.chatRevision.revision();
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return [];
-    const assistants = this.repository.listUsableAssistants(accountId);
-    if (assistants.status !== 'ready' && assistants.status !== 'partial-failure') return [];
-    return assistants.data.flatMap((assistant) => {
-      const result = this.repository.listChatThreads(accountId, assistant.id);
-      if ((result.status !== 'ready' && result.status !== 'partial-failure') || result.data.historyMode !== 'saved') return [];
-      return result.data.threads.map((thread) => ({ ...thread, assistantId: assistant.id, assistantName: assistant.name }));
-    }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 10);
+    const result = this.recent.view();
+    if (result.status !== 'ready' && result.status !== 'partial-failure') return [];
+    return result.data.map((thread) => ({
+      id: thread.threadId,
+      title: thread.title,
+      messageCount: thread.messageCount,
+      updatedAt: thread.updatedAt,
+      assistantId: thread.assistantId,
+      assistantName: thread.assistantName,
+    }));
   });
 
   readonly navItems = input.required<NavEntry[]>();

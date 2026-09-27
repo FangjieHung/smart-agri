@@ -85,9 +85,11 @@ export interface AssistantAnalyticsView {
 /* 終端使用者對話：所有回覆都來自 fixtures，不連接真實 AI。              */
 /* ------------------------------------------------------------------ */
 
-export type ChatMessageId = `chat-message-${number}`;
+/** mock 的固定 id 或 API 的 GUID，一律當成不透明字串（與 `ChatThreadId` 相同）。 */
+export type ChatMessageId = string;
 
-export type ChatCitationId = `citation-${string}`;
+/** mock 的固定 id 或 API 的 GUID，一律當成不透明字串（與 `ChatThreadId` 相同）。 */
+export type ChatCitationId = string;
 
 /** 預先準備的回覆 id；新問題以關鍵字對應到其中一則，對應不到時回覆查無資料。 */
 export type ChatResponseId =
@@ -198,8 +200,11 @@ export interface ChatSuggestedPromptView {
   readonly text: string;
 }
 
-/** 同一個帳號與同一個助理可以有多段對話；每一段是一個 thread。 */
-export type ChatThreadId = `chat-thread-${number}`;
+/**
+ * 同一個帳號與同一個助理可以有多段對話；每一段是一個 thread。
+ * 與 `KnowledgeBaseId` 相同：mock 的固定 id 或 API 的 GUID，一律當成不透明字串。
+ */
+export type ChatThreadId = string;
 
 /**
  * 對話紀錄是否保存：`saved` 會寫入這個帳號專屬的儲存並列在側欄；
@@ -253,4 +258,17 @@ export interface ChatFormSubmission {
   readonly formId: DatabaseId;
   readonly answers: DatabaseTrialAnswers;
   readonly consent: boolean;
+}
+
+/**
+ * 側欄「最近 10 個對話串」用的一列；跨助理，只列出目前仍可使用的助理
+ * （對應後端 `GET /api/v1/chat/recent-conversations`）。
+ */
+export interface RecentConversationView {
+  readonly assistantId: AssistantId;
+  readonly assistantName: string;
+  readonly threadId: ChatThreadId;
+  readonly title: string;
+  readonly messageCount: number;
+  readonly updatedAt: string;
 }

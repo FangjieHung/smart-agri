@@ -1,3 +1,4 @@
+import { firstValueFrom } from 'rxjs';
 import type { AssistantSettingsView } from '../domain/assistant-settings.model';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
@@ -14,6 +15,7 @@ describe('MockDemoRepository assistant settings', () => {
     repository = new MockDemoRepository(DEMO_SEED, {
       storage,
       now: () => new Date('2026-09-23T02:00:00.000Z'),
+      viewer: () => 'account-smb-admin',
     });
   });
 
@@ -160,9 +162,9 @@ describe('MockDemoRepository assistant settings', () => {
     expect(settings().rules.dataWriteDatabaseId).toBeNull();
   });
 
-  it('keeps existing conversations in storage when 保存自己的對話 is turned off, and shows them again when it is turned back on', () => {
+  it('keeps existing conversations in storage when 保存自己的對話 is turned off, and shows them again when it is turned back on', async () => {
     repository.sendChatMessage('account-smb-admin', SEEDED, '收到商品後幾天內可以退貨？');
-    const before = repository.listChatThreads('account-smb-admin', SEEDED);
+    const before = await firstValueFrom(repository.listChatThreads(SEEDED));
     expect(before.status).toBe('ready');
     if (before.status === 'ready') expect(before.data.threads).toHaveLength(1);
 
@@ -170,7 +172,7 @@ describe('MockDemoRepository assistant settings', () => {
       rules: { keepOwnConversations: false },
     });
 
-    const off = repository.listChatThreads('account-smb-admin', SEEDED);
+    const off = await firstValueFrom(repository.listChatThreads(SEEDED));
     expect(off.status).toBe('ready');
     if (off.status === 'ready') {
       expect(off.data.historyMode).toBe('not-saved');
@@ -181,7 +183,7 @@ describe('MockDemoRepository assistant settings', () => {
       rules: { keepOwnConversations: true },
     });
 
-    const back = repository.listChatThreads('account-smb-admin', SEEDED);
+    const back = await firstValueFrom(repository.listChatThreads(SEEDED));
     expect(back.status).toBe('ready');
     if (back.status === 'ready') expect(back.data.threads).toHaveLength(1);
   });

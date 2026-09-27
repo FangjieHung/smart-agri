@@ -16,7 +16,7 @@
   <div class="rail-head">
     <h2 class="rail-title" id="conversation-rail-title">對話紀錄</h2>
     @if (historyMode() === 'saved') {
-      <button type="button" class="new-conversation" (click)="newConversation.emit()">開新對話</button>
+      <button type="button" class="new-conversation" [disabled]="busy()" (click)="newConversation.emit()">開新對話</button>
     }
   </div>
 

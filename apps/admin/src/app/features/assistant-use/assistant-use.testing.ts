@@ -17,14 +17,17 @@ export function provideAssistantUseTesting(
 ) {
   const storage = createMemoryStorage();
   const visitorStorage = createMemoryStorage();
+  const activeAccountId = signal<AccountId | null>(accountId);
+  const visitor = new AnonymousVisitorService({ storage: createMemoryStorage() });
+  if (accountId === null) visitor.ensureVisitor();
   const repository = new MockDemoRepository(DEMO_SEED, {
     storage,
     visitorStorage,
     now: () => new Date('2026-09-22T02:00:00.000Z'),
+    viewer: () => activeAccountId(),
+    // 非同步契約（issue #79）：已選擇的 Demo 身分優先，其次是這個分頁的匿名訪客。
+    chatViewer: () => activeAccountId() ?? visitor.visitorId(),
   });
-  const activeAccountId = signal<AccountId | null>(accountId);
-  const visitor = new AnonymousVisitorService({ storage: createMemoryStorage() });
-  if (accountId === null) visitor.ensureVisitor();
   const providers: Provider[] = [
     { provide: DEMO_REPOSITORY, useValue: repository },
     { provide: DemoSessionService, useValue: { activeAccountId } },

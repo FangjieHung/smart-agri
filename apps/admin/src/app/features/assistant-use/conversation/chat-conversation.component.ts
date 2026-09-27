@@ -11,7 +11,6 @@ import {
   input,
   linkedSignal,
   output,
-  signal,
   viewChild,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
@@ -27,8 +26,10 @@ import type {
   DatabaseRecordEntryView,
   DatabaseTrialAnswers,
 } from '../../../core/domain/database.model';
+import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { AnonymousVisitorService } from '../../../core/session/anonymous-visitor.service';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { CitationDrawerComponent } from '../citation-drawer/citation-drawer.component';
@@ -85,6 +86,7 @@ export class ChatConversationComponent {
   private readonly session = inject(DemoSessionService);
   private readonly visitor = inject(AnonymousVisitorService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly apiSession = inject(ApiSessionService);
   private readonly injector = inject(Injector);
 
   readonly assistantId = input.required<string>();
@@ -104,8 +106,8 @@ export class ChatConversationComponent {
   /** 訊息有變動時送出目前的對話 id，讓外層頁面同步網址與對話紀錄。 */
   readonly changed = output<ChatThreadId | null>();
 
-  /** 對話內容變更後遞增，讓 repository 結果重新讀取。 */
-  private readonly revision = signal(0);
+  /** API 模式暫時不能送出訊息（issue #79；串流由 #80 接上），送出前先擋在畫面上。 */
+  protected readonly apiMode = this.apiSession.apiMode;
 
   /** 目前的發起者：已選擇的 Demo 身分優先，其次才是這個分頁的匿名訪客。 */
   private readonly viewerId = computed<ChatViewerId | null>(
@@ -120,20 +122,23 @@ export class ChatConversationComponent {
     () => `${this.viewerId() ?? ''}|${this.assistantId()}|${this.threadId() ?? ''}`,
   );
 
-  protected readonly result = computed(() => {
-    this.revision();
-    const viewerId = this.viewerId();
-    if (viewerId === null) return null;
-
-    return this.repository.getAssistantChat(
-      viewerId,
-      this.assistantId(),
-      this.threadId() ?? undefined,
-    );
+  /**
+   * 非同步契約（issue #79）：`getAssistantChat` 不再接收 viewerId，由 repository 內部
+   * 推導；這裡只在有發起者時才讀取，沒有時停在 loading（與過去 `viewerId === null` 時
+   * 回傳 `null` 的行為相同）。寫入成功後呼叫 `chatResource.reload()` 重新讀取。
+   */
+  private readonly chatResource = repositoryResource({
+    params: () => {
+      const viewerId = this.viewerId();
+      if (viewerId === null) return undefined;
+      return { assistantId: this.assistantId(), threadId: this.threadId() ?? undefined };
+    },
+    stream: ({ assistantId, threadId }) => this.repository.getAssistantChat(assistantId, threadId),
   });
+  protected readonly result = this.chatResource.view;
   protected readonly chat = computed(() => {
     const result = this.result();
-    return result?.status === 'ready' || result?.status === 'partial-failure' ? result.data : null;
+    return result.status === 'ready' || result.status === 'partial-failure' ? result.data : null;
   });
 
   /** 切換帳號、助理或對話時，清除草稿、表單與引用狀態，避免殘留前一段對話的內容。 */
@@ -172,6 +177,8 @@ export class ChatConversationComponent {
   }
 
   protected ask(text: string): void {
+    // 送出訊息在 API 模式暫時不可用（issue #79；串流由 #80 接上）。
+    if (this.apiMode) return;
     const viewerId = this.viewerId();
     if (viewerId === null) return;
 
@@ -301,7 +308,7 @@ export class ChatConversationComponent {
     this.withdrawFeedback.set(
       '已撤回這筆資料：接收單位的收集紀錄已移除內容，只留下一筆「曾提交、已撤回」的軌跡。',
     );
-    this.revision.update((value) => value + 1);
+    this.chatResource.reload();
     // 撤回鍵已經消失，把焦點交回輸入框，不讓它掉回 body。
     this.composerInput()?.nativeElement.focus();
   }
@@ -326,7 +333,7 @@ export class ChatConversationComponent {
   }
 
   private refreshAndReveal(threadId: ChatThreadId | null): void {
-    this.revision.update((value) => value + 1);
+    this.chatResource.reload();
     this.changed.emit(threadId);
     afterNextRender(
       () => {

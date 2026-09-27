@@ -28,9 +28,19 @@
   </section>
 } @else {
   @let state = threadsResult();
-  @if (state === null || state.status === 'loading') {
+  @if (state.status === 'loading') {
     <section class="workspace-page">
       <app-state-panel state="loading" title="正在開啟對話" />
+    </section>
+  } @else if (state.status === 'error') {
+    <section class="workspace-page">
+      <app-state-panel
+        state="error"
+        title="目前無法載入對話紀錄"
+        description="請稍後重新整理頁面再試一次。"
+        recoveryLabel="返回首頁"
+        (recover)="returnHome()"
+      />
     </section>
   } @else if (state.status === 'permission-denied') {
     <section class="workspace-page">
@@ -78,6 +88,7 @@
             [historyMode]="list.historyMode"
             [historyNotice]="list.historyNotice"
             [renameError]="renameError()"
+            [busy]="busy()"
             (newConversation)="startNewConversation()"
             (selectThread)="openThread($event)"
             (renameThread)="rename($event)"

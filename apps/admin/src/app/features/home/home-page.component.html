@@ -15,7 +15,7 @@
       <ul>
         @for (assistant of usableAssistants(); track assistant.id) {
           <li>
-            <a [routerLink]="['/use', assistant.id]">
+            <a [routerLink]="['/app/chat', assistant.id]">
               <strong>{{ assistant.name }}</strong>
               <span>{{ assistant.purpose }}</span>
               <span class="usable__action">開始對話 <span aria-hidden="true">→</span></span>
@@ -36,7 +36,7 @@
       } @else if (primaryUsableAssistant(); as assistant) {
         <h2 id="create-title">開始使用助理</h2>
         <p>你的帳號沒有建立助理的權限，但可以直接使用組織分享給你的「{{ assistant.name }}」開始對話。</p>
-        <a class="ui-button" [routerLink]="['/use', assistant.id]">開始對話</a>
+        <a class="ui-button" [routerLink]="['/app/chat', assistant.id]">開始對話</a>
       } @else {
         <h2 id="create-title">還沒有可使用的助理</h2>
         <p>你的帳號沒有建立助理的權限，目前也還沒有組織分享的助理可以使用。請聯絡管理者開通權限或指派助理。</p>

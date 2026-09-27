@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { firstValueFrom } from 'rxjs';
 import type { AccountId } from '../domain/account.model';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
@@ -18,12 +19,16 @@ const VALID_LINE = {
 
 describe('MockDemoRepository publishing permission', () => {
   let repository: MockDemoRepository;
+  /** `getAssistantChat` 的非同步契約不再接收 viewer；用這個 box 切換目前發起者。 */
+  let chatViewerBox: { current: AccountId };
 
   beforeEach(() => {
+    chatViewerBox = { current: ADMIN };
     repository = new MockDemoRepository(DEMO_SEED, {
       storage: createMemoryStorage(),
       now: () => new Date('2026-09-23T02:00:00.000Z'),
       viewer: () => ADMIN,
+      chatViewer: () => chatViewerBox.current,
     });
   });
 
@@ -94,11 +99,12 @@ describe('MockDemoRepository publishing permission', () => {
     }
   });
 
-  it('still lets a shared account open the assistant while the owner cannot edit publishing', () => {
+  it('still lets a shared account open the assistant while the owner cannot edit publishing', async () => {
     revokePublishing();
 
     // 發布設定與「誰開得了」是兩件事：收回設定權限不等於把使用者踢出去。
-    const chat = repository.getAssistantChat('account-internal-employee', ASSISTANT);
+    chatViewerBox.current = 'account-internal-employee';
+    const chat = await firstValueFrom(repository.getAssistantChat(ASSISTANT));
     expect(chat.status).toBe('ready');
   });
 });

@@ -46,6 +46,7 @@ import type {
   ChatThreadListView,
   ChatThreadSummaryView,
   ConversationId,
+  RecentConversationView,
   StructuredSubmissionView,
   SubmissionWithdrawalView,
 } from '../domain/conversation.model';
@@ -234,6 +235,12 @@ export interface MockDemoRepositoryOptions {
    * 正式注入時接到 `DemoSessionService.activeAccountId`。未提供時視為沒有登入。
    */
   readonly viewer?: () => AccountId | null;
+  /**
+   * 對話的非同步契約（`getAssistantChat`，issue #79）不再接收 viewer，改從這裡讀目前的
+   * 發起者：已選擇的 Demo 身分優先，其次是這個瀏覽器分頁的匿名訪客。未提供時退回
+   * `viewer`（只支援 Demo 身分，不支援訪客）。
+   */
+  readonly chatViewer?: () => ChatViewerId | null;
   /**
    * API 模式：以 API 取得的權限取代 seed 與本機的團隊設定，讓仍在 mock 的功能區
    * （發布、收集紀錄等）套用真實權限。回傳值以 Demo 身分 id 為鍵，只覆寫**目前登入者
@@ -799,6 +806,7 @@ export class MockDemoRepository implements DemoRepository {
   private readonly visitorStorage: DemoKeyValueStorage;
   private readonly now: () => Date;
   protected readonly viewer: () => AccountId | null;
+  protected readonly chatViewer: () => ChatViewerId | null;
   private readonly accountsSource: (() => AccountPermissionOverrides) | null;
   /**
    * 助理關閉「保存自己的對話」時，對話只留在這個 repository 實例的記憶體裡：
@@ -814,6 +822,7 @@ export class MockDemoRepository implements DemoRepository {
     this.visitorStorage = options.visitorStorage ?? createMemoryStorage();
     this.now = options.now ?? (() => new Date());
     this.viewer = options.viewer ?? (() => null);
+    this.chatViewer = options.chatViewer ?? (() => this.viewer());
     this.accountsSource = options.accountsSource ?? null;
   }
 
@@ -2198,20 +2207,40 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(tracking);
   }
 
-  listChatThreads(
+  /**
+   * 非同步契約（issue #79）：目前帳號由 `this.viewer()` 推導，不再由呼叫端傳入。
+   * 沒有登入時視為沒有使用權限，回傳與「助理不存在」相同的 `assistant-use`。
+   */
+  listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      if (viewerAccountId === null) return of(this.assistantUsePermissionDenied());
+      return of(this.listChatThreadsSync(viewerAccountId, assistantId));
+    });
+  }
+
+  private listChatThreadsSync(
     viewerAccountId: AccountId,
     assistantId: string,
-  ): ReturnType<DemoRepository['listChatThreads']> {
+  ): RepositoryView<ChatThreadListView> {
     const assistant = this.usableAssistant(viewerAccountId, assistantId);
     if (assistant === undefined) return this.assistantUsePermissionDenied();
 
     return this.applyScenario(this.toThreadListView(viewerAccountId, assistant));
   }
 
-  createChatThread(
+  createChatThread(assistantId: string): Observable<RepositoryView<AssistantChatView>> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      if (viewerAccountId === null) return of(this.assistantUsePermissionDenied());
+      return of(this.createChatThreadSync(viewerAccountId, assistantId));
+    });
+  }
+
+  private createChatThreadSync(
     viewerAccountId: AccountId,
     assistantId: string,
-  ): ReturnType<DemoRepository['createChatThread']> {
+  ): RepositoryView<AssistantChatView> {
     const assistant = this.usableAssistant(viewerAccountId, assistantId);
     if (assistant === undefined) return this.assistantUsePermissionDenied();
 
@@ -2239,6 +2268,18 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   renameChatThread(
+    assistantId: string,
+    threadId: string,
+    title: string,
+  ): Observable<RenameChatThreadResult> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      if (viewerAccountId === null) return of(this.assistantUsePermissionDenied());
+      return of(this.renameChatThreadSync(viewerAccountId, assistantId, threadId, title));
+    });
+  }
+
+  private renameChatThreadSync(
     viewerAccountId: AccountId,
     assistantId: string,
     threadId: string,
@@ -2274,10 +2315,21 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   deleteChatThread(
+    assistantId: string,
+    threadId: string,
+  ): Observable<RepositoryView<ChatThreadListView>> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      if (viewerAccountId === null) return of(this.assistantUsePermissionDenied());
+      return of(this.deleteChatThreadSync(viewerAccountId, assistantId, threadId));
+    });
+  }
+
+  private deleteChatThreadSync(
     viewerAccountId: AccountId,
     assistantId: string,
     threadId: string,
-  ): ReturnType<DemoRepository['deleteChatThread']> {
+  ): RepositoryView<ChatThreadListView> {
     const assistant = this.usableAssistant(viewerAccountId, assistantId);
     if (assistant === undefined) return this.assistantUsePermissionDenied();
     if (!this.keepsConversations(assistant)) return this.chatThreadPermissionDenied();
@@ -2296,11 +2348,65 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(this.toThreadListView(viewerAccountId, assistant));
   }
 
+  /**
+   * 跨助理最近 10 個對話串（issue #79）：只列出目前帳號可使用、且保存對話的助理，
+   * 依最後活動時間由新到舊。沒有登入時回傳空清單，讓側欄靜靜不顯示，不當成錯誤。
+   */
+  listRecentChatThreads(): Observable<RepositoryView<readonly RecentConversationView[]>> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      if (viewerAccountId === null) return of(this.applyScenario([]));
+
+      const usable = this.listUsableAssistants(viewerAccountId);
+      const assistants =
+        usable.status === 'ready' || usable.status === 'partial-failure' ? usable.data : [];
+      const recent = assistants
+        .flatMap((assistant) => {
+          const result = this.listChatThreadsSync(viewerAccountId, assistant.id);
+          if (
+            (result.status !== 'ready' && result.status !== 'partial-failure') ||
+            result.data.historyMode !== 'saved'
+          ) {
+            return [];
+          }
+          return result.data.threads.map(
+            (thread): RecentConversationView => ({
+              assistantId: assistant.id,
+              assistantName: assistant.name,
+              threadId: thread.id,
+              title: thread.title,
+              messageCount: thread.messageCount,
+              updatedAt: thread.updatedAt,
+            }),
+          );
+        })
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 10);
+
+      return of(this.applyScenario(recent));
+    });
+  }
+
+  /**
+   * 非同步契約（issue #79）：目前發起者由 `this.chatViewer()` 推導（Demo 帳號優先，
+   * 其次是這個分頁的匿名訪客），不再由呼叫端傳入。
+   */
   getAssistantChat(
+    assistantId: string,
+    threadId?: string,
+  ): Observable<RepositoryView<AssistantChatView>> {
+    return defer(() => {
+      const viewerId = this.chatViewer();
+      if (viewerId === null) return of(this.assistantUsePermissionDenied());
+      return of(this.getAssistantChatSync(viewerId, assistantId, threadId));
+    });
+  }
+
+  private getAssistantChatSync(
     viewerId: ChatViewerId,
     assistantId: string,
     threadId?: string,
-  ): ReturnType<DemoRepository['getAssistantChat']> {
+  ): RepositoryView<AssistantChatView> {
     const assistant = this.chatAssistant(viewerId, assistantId);
     if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
 

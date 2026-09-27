@@ -1,3 +1,4 @@
+import { firstValueFrom } from 'rxjs';
 import type { ChatViewerId } from '../domain/account.model';
 import type { AssistantChatView, ChatReplyView } from '../domain/conversation.model';
 import type { DatabaseRecordId, TrackedSubjectView } from '../domain/database.model';
@@ -20,11 +21,12 @@ function answers(orderNumber: string) {
   };
 }
 
-function createRepository(storage = createMemoryStorage()) {
+function createRepository(storage = createMemoryStorage(), chatViewer: ChatViewerId = CUSTOMER) {
   return new MockDemoRepository(DEMO_SEED, {
     storage,
     visitorStorage: createMemoryStorage(),
     now: () => new Date('2026-09-22T02:00:00.000Z'),
+    chatViewer: () => chatViewer,
   });
 }
 
@@ -76,10 +78,10 @@ function messageOf(result: WithdrawChatSubmissionResult): string {
 }
 
 describe('MockDemoRepository consent withdrawal', () => {
-  it('offers withdrawal on the receipt and explains what a withdrawal leaves behind', () => {
+  it('offers withdrawal on the receipt and explains what a withdrawal leaves behind', async () => {
     const repository = createRepository();
     const recordId = submit(repository, CUSTOMER, 'DEMO-9001');
-    const receipt = lastReceipt(chatOf(repository.getAssistantChat(CUSTOMER, ASSISTANT)));
+    const receipt = lastReceipt(chatOf(await firstValueFrom(repository.getAssistantChat(ASSISTANT))));
 
     expect(receipt.recordId).toBe(recordId);
     expect(receipt.withdrawal.status).toBe('available');
@@ -87,14 +89,14 @@ describe('MockDemoRepository consent withdrawal', () => {
     expect(receipt.withdrawal.withdrawnDateLabel).toBe('');
   });
 
-  it('lets the submitter withdraw and marks the receipt as withdrawn', () => {
+  it('lets the submitter withdraw and marks the receipt as withdrawn', async () => {
     const repository = createRepository();
     const recordId = submit(repository, CUSTOMER, 'DEMO-9001');
 
     const result = repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId);
     expect(result.status).toBe('ready');
 
-    const receipt = lastReceipt(chatOf(repository.getAssistantChat(CUSTOMER, ASSISTANT)));
+    const receipt = lastReceipt(chatOf(await firstValueFrom(repository.getAssistantChat(ASSISTANT))));
     expect(receipt.withdrawal.status).toBe('withdrawn');
     expect(receipt.withdrawal.withdrawnDateLabel).toBe('2026-09-22');
   });
@@ -136,13 +138,13 @@ describe('MockDemoRepository consent withdrawal', () => {
     });
   });
 
-  it('lets an anonymous visitor withdraw a record submitted in the same tab session', () => {
-    const repository = createRepository();
+  it('lets an anonymous visitor withdraw a record submitted in the same tab session', async () => {
+    const repository = createRepository(createMemoryStorage(), VISITOR);
     const recordId = submit(repository, VISITOR, 'DEMO-9003');
 
-    expect(lastReceipt(chatOf(repository.getAssistantChat(VISITOR, ASSISTANT))).withdrawal.notice).toContain(
-      '分頁',
-    );
+    expect(
+      lastReceipt(chatOf(await firstValueFrom(repository.getAssistantChat(ASSISTANT)))).withdrawal.notice,
+    ).toContain('分頁');
     expect(repository.withdrawChatSubmission(VISITOR, ASSISTANT, recordId).status).toBe('ready');
 
     const subject = subjectOf(repository, `subject-${VISITOR}`);
@@ -186,7 +188,7 @@ describe('MockDemoRepository consent withdrawal', () => {
     expect(subjectOf(repository, `subject-${CUSTOMER}`)?.withdrawals).toHaveLength(1);
   });
 
-  it('says so instead of pretending when an older receipt cannot identify its record', () => {
+  it('says so instead of pretending when an older receipt cannot identify its record', async () => {
     const storage = createMemoryStorage();
     // 這個版本的收據還沒有 recordId：無法指認紀錄，就不提供撤回入口。
     storage.setItem(
@@ -213,7 +215,7 @@ describe('MockDemoRepository consent withdrawal', () => {
       }),
     );
     const repository = createRepository(storage);
-    const receipt = lastReceipt(chatOf(repository.getAssistantChat(CUSTOMER, ASSISTANT)));
+    const receipt = lastReceipt(chatOf(await firstValueFrom(repository.getAssistantChat(ASSISTANT))));
 
     expect(receipt.recordId).toBeNull();
     expect(receipt.withdrawal.status).toBe('unavailable');

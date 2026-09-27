@@ -1,7 +1,17 @@
 @let state = result();
-@if (state === null || state.status === 'loading') {
+@if (state.status === 'loading') {
   <main class="chat-page chat-page--state">
     <app-state-panel state="loading" title="正在開啟對話" />
+  </main>
+} @else if (state.status === 'error') {
+  <main class="chat-page chat-page--state">
+    <app-state-panel
+      state="error"
+      title="目前無法開啟對話"
+      description="請稍後重新整理頁面再試一次。"
+      [recoveryLabel]="recoveryLabel()"
+      (recover)="returnHome()"
+    />
   </main>
 } @else if (state.status === 'permission-denied') {
   <main class="chat-page chat-page--state">
@@ -109,13 +119,16 @@
           enterkeyhint="send"
           placeholder="輸入你的問題"
           [value]="draft()"
+          [disabled]="apiMode"
           [attr.aria-invalid]="composerError() ? 'true' : null"
           [attr.aria-describedby]="composerError() ? 'chat-input-error' : 'chat-input-hint'"
           (input)="updateDraft($event)"
         />
-        <button type="submit">送出</button>
+        <button type="submit" [disabled]="apiMode">送出</button>
       </form>
-      @if (composerError()) {
+      @if (apiMode) {
+        <p id="chat-input-hint" class="composer-hint">對話功能即將開放，敬請期待。</p>
+      } @else if (composerError()) {
         <p id="chat-input-error" class="composer-error" role="alert">{{ composerError() }}</p>
       } @else {
         <p id="chat-input-hint" class="composer-hint">Demo 只會以預先準備的回答回覆，不連接真實 AI。</p>

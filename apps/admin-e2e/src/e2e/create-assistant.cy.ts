@@ -102,9 +102,10 @@ describe('create assistant wizard', () => {
 
     loginAs('內部使用者');
     cy.contains('a', '繼續最近的設定').should('not.exist');
-    // newAssistantDraftGuard 現在對沒有 manage-assistants 權限的帳號直接轉址回我的助理列表，
-    // 不再顯示精靈頁面裡的「你沒有建立助理的權限」提示。
-    cy.contains('a', '開始建立').click();
+    // 沒有 manage-assistants 的帳號在首頁看不到建立入口（#54）；直接開網址時，
+    // newAssistantDraftGuard 仍會轉址回我的助理列表。
+    cy.contains('a', '開始建立').should('not.exist');
+    cy.visit('/app/assistants/new/purpose');
     cy.location('pathname').should('eq', '/app/assistants');
     cy.contains('客戶問答助理').should('not.exist');
     cy.get('#assistant-name').should('not.exist');

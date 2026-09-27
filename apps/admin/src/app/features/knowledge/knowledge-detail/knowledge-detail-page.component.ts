@@ -17,6 +17,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { Observable } from 'rxjs';
 import type { AssistantStatus } from '../../../core/domain/assistant.model';
 import {
+  isAwaitingApprovalKnowledgeDocument,
   isPendingKnowledgeDocument,
   type KnowledgeBaseDetailView,
   type KnowledgeDocumentStatus,
@@ -24,6 +25,7 @@ import {
   type KnowledgeSharingView,
 } from '../../../core/domain/knowledge-base.model';
 import type {
+  ApproveKnowledgeVersionsResult,
   DeleteKnowledgeResult,
   RepositoryView,
   RetryKnowledgeDocumentResult,
@@ -42,6 +44,7 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status-badge/status-badge.component';
 import { DocumentRowComponent } from '../components/document-row/document-row.component';
 import { DOCUMENT_STATUS_LABELS, SHARING_SCOPE_LABELS } from '../components/knowledge-labels';
+import { ReviewDialogComponent, type ReviewDialogData } from '../components/review-dialog/review-dialog.component';
 import { SharingPanelComponent } from '../components/sharing-panel/sharing-panel.component';
 import { UploadPanelComponent } from '../components/upload-panel/upload-panel.component';
 
@@ -150,6 +153,14 @@ export class KnowledgeDetailPageComponent {
   protected readonly deleting = signal(false);
   protected readonly deleteError = signal('');
 
+  /** 只顯示待確認／排程中的文件（issue #47：詳情頁「只看待確認」篩選）。 */
+  protected readonly showOnlyAwaitingApproval = signal(false);
+  /** 目前勾選要批次確認生效的文件 id。 */
+  protected readonly selectedForApproval = signal<ReadonlySet<string>>(new Set());
+  protected readonly approvingBatch = signal(false);
+  protected readonly batchApproveError = signal('');
+  protected readonly isAwaitingApproval = isAwaitingApprovalKnowledgeDocument;
+
   /** 上一次看到的各文件狀態；輪詢讀到狀態改變時才朗讀，第一次載入不朗讀。 */
   private previousStatuses: ReadonlyMap<string, KnowledgeDocumentStatus> | null = null;
 
@@ -199,6 +210,80 @@ export class KnowledgeDetailPageComponent {
       },
       '目前無法重新處理，請稍後再試。',
     );
+  }
+
+  /** 「只看待確認」篩選；不篩選版本歷程與活動紀錄，只影響內容頁籤的清單。 */
+  protected visibleDocuments(detail: KnowledgeBaseDetailView): readonly KnowledgeDocumentView[] {
+    return this.showOnlyAwaitingApproval()
+      ? detail.documents.filter((document) => isAwaitingApprovalKnowledgeDocument(document))
+      : detail.documents;
+  }
+
+  protected toggleOnlyAwaitingApproval(): void {
+    this.showOnlyAwaitingApproval.update((value) => !value);
+  }
+
+  protected isSelectedForApproval(document: KnowledgeDocumentView): boolean {
+    return this.selectedForApproval().has(document.id);
+  }
+
+  protected toggleApprovalSelection(document: KnowledgeDocumentView): void {
+    this.selectedForApproval.update((ids) => {
+      const next = new Set(ids);
+      if (next.has(document.id)) next.delete(document.id);
+      else next.add(document.id);
+      return next;
+    });
+  }
+
+  protected approveSelected(detail: KnowledgeBaseDetailView): void {
+    const selectedIds = this.selectedForApproval();
+    if (this.approvingBatch() || selectedIds.size === 0) return;
+    const versionIds = detail.documents
+      .filter((document) => selectedIds.has(document.id))
+      .map((document) => document.latestVersionId);
+
+    this.approvingBatch.set(true);
+    this.batchApproveError.set('');
+    this.repository
+      .approveKnowledgeVersions(detail.summary.id, versionIds)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result: ApproveKnowledgeVersionsResult) => {
+          this.approvingBatch.set(false);
+          if (result.status === 'ready' || result.status === 'partial-failure') {
+            this.selectedForApproval.set(new Set());
+            this.liveMessage.set(`已確認 ${result.data.length} 個版本生效。`);
+            this.detail.reload();
+          } else if (result.status !== 'loading') {
+            this.batchApproveError.set(result.message);
+          }
+        },
+        error: () => {
+          this.approvingBatch.set(false);
+          this.batchApproveError.set('目前無法批次確認生效，請稍後再試。');
+        },
+      });
+  }
+
+  protected openReview(detail: KnowledgeBaseDetailView, document: KnowledgeDocumentView): void {
+    const data: ReviewDialogData = {
+      knowledgeBaseId: detail.summary.id,
+      document,
+      canManage: detail.summary.viewerCanManage,
+    };
+    this.dialog
+      .open(ReviewDialogComponent, {
+        data,
+        width: 'min(48rem, calc(100vw - 2rem))',
+        ariaLabelledBy: 'knowledge-review-title',
+        restoreFocus: true,
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((changed: boolean | undefined) => {
+        if (changed) this.detail.reload();
+      });
   }
 
   protected saveSharing(detail: KnowledgeBaseDetailView, sharing: KnowledgeSharingView): void {

@@ -72,22 +72,67 @@ describe('DocumentRowComponent', () => {
     expect(remove?.textContent).toContain('保固條款.pdf');
     TestBed.resetTestingModule();
     const readonlyRow = render({ ...base, status: 'failed', issue: '無法開啟' }, false);
-    expect((readonlyRow.nativeElement as HTMLElement).querySelector('button')).toBeNull();
+    const readonlyHost = readonlyRow.nativeElement as HTMLElement;
+    // 唯讀身分看不到重新處理／刪除，但版本與預覽（唯讀）仍然開得起來（issue #47）。
+    expect(buttonNamed(readonlyHost, '重新處理')).toBeUndefined();
+    expect(buttonNamed(readonlyHost, '刪除')).toBeUndefined();
+    expect(buttonNamed(readonlyHost, '版本與預覽')).toBeDefined();
   });
 
-  it('disables both actions while a request for the row is in flight', () => {
+  it('disables retry and remove while a request for the row is in flight, but not the review button', () => {
     const fixture = render({ ...base, status: 'failed', issue: '無法開啟' });
     fixture.componentRef.setInput('busy', true);
     fixture.detectChanges();
-    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    const host = fixture.nativeElement as HTMLElement;
 
-    expect(buttons).toHaveLength(2);
-    expect(buttons.every((button) => button.disabled)).toBe(true);
+    expect(buttonNamed(host, '重新處理')?.disabled).toBe(true);
+    expect(buttonNamed(host, '刪除')?.disabled).toBe(true);
+    expect(buttonNamed(host, '版本與預覽')?.disabled).toBeFalsy();
   });
 
   it('distinguishes FAQ items from documents', () => {
     const fixture = render({ ...base, kind: 'faq', name: '可以開立統編嗎？' });
 
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('FAQ');
+  });
+
+  it('shows effective status alongside processing status, not just "可使用" (issue #47)', () => {
+    const inEffect = render({ ...base, inEffect: true, effectiveVersionNumber: 1 });
+    expect((inEffect.nativeElement as HTMLElement).querySelector('.document-effect')?.textContent).toContain('已生效');
+
+    TestBed.resetTestingModule();
+    const pending = render({ ...base, latestVersionState: 'pending-review', inEffect: false });
+    expect((pending.nativeElement as HTMLElement).querySelector('.document-effect')?.textContent).toContain('待確認');
+
+    TestBed.resetTestingModule();
+    const disabled = render({ ...base, disabled: true, inEffect: false });
+    expect((disabled.nativeElement as HTMLElement).querySelector('.document-effect')?.textContent).toContain('已停用');
+  });
+
+  it('emits openReview when the name or the review button is activated', () => {
+    const fixture = render(base);
+    const emitted: KnowledgeDocumentView[] = [];
+    fixture.componentInstance.openReview.subscribe((document) => emitted.push(document));
+    buttonNamed(fixture.nativeElement as HTMLElement, '版本與預覽')?.click();
+    expect(emitted).toHaveLength(1);
+  });
+
+  it('only lets a pending or scheduled version be selected for batch approval', () => {
+    const fixture = render({ ...base, latestVersionState: 'pending-review' });
+    fixture.componentRef.setInput('selectable', true);
+    fixture.detectChanges();
+    const checkbox = (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      '.document-select input',
+    );
+    expect(checkbox?.disabled).toBe(false);
+
+    TestBed.resetTestingModule();
+    const effectiveFixture = render({ ...base, latestVersionState: 'effective' });
+    effectiveFixture.componentRef.setInput('selectable', true);
+    effectiveFixture.detectChanges();
+    const effectiveCheckbox = (effectiveFixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(
+      '.document-select input',
+    );
+    expect(effectiveCheckbox?.disabled).toBe(true);
   });
 });

@@ -17,6 +17,9 @@
     <!-- IEmbeddingGenerator (M2 Slice 7): the knowledge pipeline embeds through the abstraction;
          the provider (OpenAI client, Fake) is chosen and built in Infrastructure/Api. -->
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <!-- VectorStoreCollection (M2 Slice 9): KnowledgeRetriever searches through the abstraction;
+         the collection over PostgreSQL is Infrastructure's. -->
+    <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
   </ItemGroup>
 
 </Project>

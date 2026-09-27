@@ -55,6 +55,64 @@
         }
       }
     },
+    "/api/v1/knowledge-bases/{id}/retrieval-preview": {
+      "post": {
+        "tags": [
+          "KnowledgeRetrievalEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/PreviewKnowledgeRetrievalRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeRetrievalPreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/auth/login-options": {
       "get": {
         "tags": [
@@ -1563,6 +1621,77 @@
           "faq"
         ]
       },
+      "KnowledgeRetrievalPassageView": {
+        "required": [
+          "documentId",
+          "documentName",
+          "versionNumber",
+          "versionState",
+          "locationLabel",
+          "excerpt",
+          "score",
+          "versionId",
+          "chunkId"
+        ],
+        "type": "object",
+        "properties": {
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "versionState": {
+            "$ref": "#/components/schemas/KnowledgeVersionState"
+          },
+          "locationLabel": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "versionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chunkId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "KnowledgeRetrievalPreviewView": {
+        "required": [
+          "passages",
+          "threshold",
+          "belowThreshold"
+        ],
+        "type": "object",
+        "properties": {
+          "passages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeRetrievalPassageView"
+            }
+          },
+          "threshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "belowThreshold": {
+            "type": "boolean"
+          }
+        }
+      },
       "KnowledgeShareTargetView": {
         "required": [
           "id",
@@ -1857,6 +1986,33 @@
           }
         }
       },
+      "PreviewKnowledgeRetrievalRequest": {
+        "required": [
+          "question"
+        ],
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "includePending": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "top": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "Stream": {
         "type": "string",
         "format": "binary"
@@ -2004,6 +2160,9 @@
     },
     {
       "name": "MeEndpoints"
+    },
+    {
+      "name": "KnowledgeRetrievalEndpoints"
     },
     {
       "name": "TeamEndpoints"

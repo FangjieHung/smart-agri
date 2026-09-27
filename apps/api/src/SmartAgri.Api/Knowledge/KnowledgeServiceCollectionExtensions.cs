@@ -2,6 +2,8 @@ using Microsoft.Extensions.Options;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Application.Knowledge;
 using SmartAgri.Application.Knowledge.Processing;
+using SmartAgri.Application.Knowledge.Retrieval;
+using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Knowledge.Extraction;
 
 namespace SmartAgri.Api.Knowledge;
@@ -10,8 +12,11 @@ public static class KnowledgeServiceCollectionExtensions
 {
     /// <summary>
     /// Registers what the knowledge endpoints need beyond the database: <see cref="KnowledgeOptions"/>
-    /// from the <c>Knowledge</c> section (validated on start), the text extractors, and the
-    /// handler of <see cref="ProcessKnowledgeVersionJob.Kind"/> jobs. Requires <c>AddBackgroundJobs</c>.
+    /// from the <c>Knowledge</c> section (validated on start), the text extractors, the
+    /// handler of <see cref="ProcessKnowledgeVersionJob.Kind"/> jobs, and retrieval —
+    /// <see cref="RetrievalOptions"/> from the <c>Retrieval</c> section (validated on start) and,
+    /// per scope, <see cref="KnowledgeRetriever"/>. Requires <c>AddBackgroundJobs</c> and
+    /// <c>AddEmbeddings</c> (the retriever's embedder and vector collection).
     /// </summary>
     public static IServiceCollection AddKnowledge(this IServiceCollection services, IConfiguration configuration)
     {
@@ -26,12 +31,27 @@ public static class KnowledgeServiceCollectionExtensions
         services.AddSingleton<IDocumentTextExtractor, XlsxTextExtractor>();
         services.AddSingleton<IDocumentTextExtractor, PlainTextExtractor>();
         services.AddJobHandler<ProcessKnowledgeVersionHandler>(ProcessKnowledgeVersionJob.Kind);
+
+        // Retrieval (Slice 9): the one search path, for the preview now and conversations in M3.
+        services.AddOptions<RetrievalOptions>()
+            .Bind(configuration.GetSection(RetrievalOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<RetrievalOptions>, RetrievalOptionsValidator>();
+        services.AddSingleton(provider => provider.GetRequiredService<IOptions<RetrievalOptions>>().Value.ToSettings());
+        services.AddScoped<IKnowledgeVersionSources, EfKnowledgeVersionSources>();
+        services.AddScoped<KnowledgeRetriever>();
         return services;
     }
 
     private sealed class KnowledgeOptionsValidator : IValidateOptions<KnowledgeOptions>
     {
         public ValidateOptionsResult Validate(string? name, KnowledgeOptions options) =>
+            options.Validate() is { } error ? ValidateOptionsResult.Fail(error) : ValidateOptionsResult.Success;
+    }
+
+    private sealed class RetrievalOptionsValidator : IValidateOptions<RetrievalOptions>
+    {
+        public ValidateOptionsResult Validate(string? name, RetrievalOptions options) =>
             options.Validate() is { } error ? ValidateOptionsResult.Fail(error) : ValidateOptionsResult.Success;
     }
 }

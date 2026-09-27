@@ -30,6 +30,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      AG-UI protocol .NET SDK (M3 plan §3, Slice 7; frontend-backend-integration ADR 修訂
+      2026-09-27): RunAgentInput and the event types, and their SSE formatting, for
+      POST /api/v1/assistants/{id}/chat/runs. Api layer only: Application's answer pipeline
+      stays protocol-free.
+    -->
+    <PackageReference Include="AGUI.Abstractions" />
+    <PackageReference Include="AGUI.Formatting" />
+    <PackageReference Include="AGUI.Server" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- OpenIddict server + validation (authorization code + PKCE); see Authentication/. -->
     <PackageReference Include="OpenIddict.AspNetCore" />
   </ItemGroup>

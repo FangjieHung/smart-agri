@@ -36,6 +36,9 @@
     <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.10.0" />
     <PackageVersion Include="Pgvector" Version="0.3.2" />
     <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
+    <PackageVersion Include="AGUI.Abstractions" Version="1.0.0" />
+    <PackageVersion Include="AGUI.Formatting" Version="1.0.0" />
+    <PackageVersion Include="AGUI.Server" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

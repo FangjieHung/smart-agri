@@ -1190,6 +1190,9 @@
       "smartagri.api": {
         "type": "Project",
         "dependencies": {
+          "AGUI.Abstractions": "[1.0.0, )",
+          "AGUI.Formatting": "[1.0.0, )",
+          "AGUI.Server": "[1.0.0, )",
           "Microsoft.AspNetCore.OpenApi": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.12, )",
@@ -1233,6 +1236,34 @@
           "Pgvector.EntityFrameworkCore": "[0.3.0, )",
           "SmartAgri.Application": "[1.0.0, )",
           "SmartAgri.Domain": "[1.0.0, )"
+        }
+      },
+      "AGUI.Abstractions": {
+        "type": "CentralTransitive",
+        "requested": "[1.0.0, )",
+        "resolved": "1.0.0",
+        "contentHash": "+lW3TXbkJf3j8WhVur7DlLA5WNXiowGbNQJmJuQONXzlbcv2EvqB2lH7Y7TP/1a3ftBMSECrzoN/aMO1vZNBEQ==",
+        "dependencies": {
+          "Microsoft.Extensions.AI.Abstractions": "10.6.0"
+        }
+      },
+      "AGUI.Formatting": {
+        "type": "CentralTransitive",
+        "requested": "[1.0.0, )",
+        "resolved": "1.0.0",
+        "contentHash": "CXo1iLk+SoLQ5elyKwfs8vVJinjQCYFsqtaA8gYtofKe0bGYGW+n/NV9cWbo6ET1RKNyha3IxMme17WfVCbu6w==",
+        "dependencies": {
+          "AGUI.Abstractions": "1.0.0"
+        }
+      },
+      "AGUI.Server": {
+        "type": "CentralTransitive",
+        "requested": "[1.0.0, )",
+        "resolved": "1.0.0",
+        "contentHash": "UjmAq1Zf/QHtr8DqTUWlO2Wxje7Bp9VWvLvAVU5oq6tRdC9CkqaoQClmk6/4n/lbay761KQ/oQPA60PYGpoVog==",
+        "dependencies": {
+          "AGUI.Abstractions": "1.0.0",
+          "Microsoft.Extensions.AI.Abstractions": "10.6.0"
         }
       },
       "DocumentFormat.OpenXml": {

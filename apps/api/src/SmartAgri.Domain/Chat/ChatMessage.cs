@@ -36,6 +36,8 @@ public sealed class ChatMessage : IOrganizationScoped
         Notice = notice;
         NextSteps = [.. nextSteps];
         CreatedAt = now;
+        thread.RegisterMessage(now);
+        Sequence = thread.MessageCount;
     }
 
     /// <summary>The account's own question.</summary>
@@ -70,4 +72,10 @@ public sealed class ChatMessage : IOrganizationScoped
     public IReadOnlyList<string> NextSteps { get; private set; } = [];
 
     public DateTimeOffset CreatedAt { get; private set; }
+
+    /// <summary>1-based position within the thread, assigned when the message is created
+    /// (<see cref="ChatThread.RegisterMessage"/>). Messages are ordered by this, not by
+    /// <see cref="CreatedAt"/>: two turns saved in the same instant, or ids generated in the
+    /// same millisecond, would otherwise come back in an arbitrary order.</summary>
+    public int Sequence { get; private set; }
 }

@@ -43,6 +43,6 @@ internal sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMe
             .OnDelete(DeleteBehavior.Cascade);
 
         // A thread's messages, oldest first (GET .../chat).
-        builder.HasIndex(message => new { message.ThreadId, message.CreatedAt });
+        builder.HasIndex(message => new { message.ThreadId, message.Sequence }).IsUnique();
     }
 }

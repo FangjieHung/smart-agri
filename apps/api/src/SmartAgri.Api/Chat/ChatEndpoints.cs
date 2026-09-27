@@ -477,8 +477,7 @@ public static class ChatEndpoints
         var messages = await dbContext.ChatMessages
             .AsNoTracking()
             .Where(message => message.ThreadId == threadId)
-            .OrderBy(message => message.CreatedAt)
-            .ThenBy(message => message.Id)
+            .OrderBy(message => message.Sequence)
             .ToListAsync(cancellationToken);
         if (messages.Count == 0)
         {

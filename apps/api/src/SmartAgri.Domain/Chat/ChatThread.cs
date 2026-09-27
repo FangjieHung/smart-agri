@@ -76,9 +76,9 @@ public sealed class ChatThread : IOrganizationScoped
     }
 
     /// <summary>Bumps <see cref="LastActivityAt"/> and <see cref="MessageCount"/> when a
-    /// message is added (#77 calls this once per saved turn; #76's tests call it directly to
-    /// seed a thread).</summary>
-    public void RegisterMessage(DateTimeOffset now)
+    /// message is added. Called only by <see cref="ChatMessage"/>'s factories, so every saved
+    /// turn is counted exactly once and gets the next <see cref="ChatMessage.Sequence"/>.</summary>
+    internal void RegisterMessage(DateTimeOffset now)
     {
         MessageCount += 1;
         LastActivityAt = now;

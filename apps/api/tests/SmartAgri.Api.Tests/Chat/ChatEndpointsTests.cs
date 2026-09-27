@@ -357,11 +357,9 @@ public class ChatEndpointsTests : IClassFixture<AuthHostFixture>
 
         var accountMessage = ChatMessage.Account(thread, question, now);
         dbContext.ChatMessages.Add(accountMessage);
-        thread.RegisterMessage(now);
 
         var assistantMessage = ChatMessage.Assistant(thread, answerText, ChatReplyKind.CompanyData, null, [], now);
         dbContext.ChatMessages.Add(assistantMessage);
-        thread.RegisterMessage(now);
 
         // Not-yet-real chunk/knowledge-base/document/version ids: #77 will populate real ones
         // when it saves a genuine retrieval; the optional back-reference columns tolerate null

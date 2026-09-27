@@ -60,7 +60,8 @@ namespace SmartAgri.Infrastructure.Migrations
                     ReplyKind = table.Column<int>(type: "integer", nullable: true),
                     Notice = table.Column<string>(type: "text", nullable: true),
                     NextSteps = table.Column<string>(type: "jsonb", nullable: false),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    Sequence = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -176,14 +177,15 @@ namespace SmartAgri.Infrastructure.Migrations
                 column: "OrganizationId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_ChatMessages_ThreadId_CreatedAt",
-                table: "ChatMessages",
-                columns: new[] { "ThreadId", "CreatedAt" });
-
-            migrationBuilder.CreateIndex(
                 name: "IX_ChatMessages_ThreadId_OrganizationId",
                 table: "ChatMessages",
                 columns: new[] { "ThreadId", "OrganizationId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ChatMessages_ThreadId_Sequence",
+                table: "ChatMessages",
+                columns: new[] { "ThreadId", "Sequence" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_ChatThreads_AccountId_AssistantId_LastActivityAt",

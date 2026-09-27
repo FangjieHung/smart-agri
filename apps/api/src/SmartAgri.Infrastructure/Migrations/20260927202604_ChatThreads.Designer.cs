@@ -13,7 +13,7 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260927192834_ChatThreads")]
+    [Migration("20260927202604_ChatThreads")]
     partial class ChatThreads
     {
         /// <inheritdoc />
@@ -477,6 +477,9 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<int?>("ReplyKind")
                         .HasColumnType("integer");
 
+                    b.Property<int>("Sequence")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("text");
@@ -488,9 +491,10 @@ namespace SmartAgri.Infrastructure.Migrations
 
                     b.HasIndex("OrganizationId");
 
-                    b.HasIndex("ThreadId", "CreatedAt");
-
                     b.HasIndex("ThreadId", "OrganizationId");
+
+                    b.HasIndex("ThreadId", "Sequence")
+                        .IsUnique();
 
                     b.ToTable("ChatMessages", (string)null);
                 });

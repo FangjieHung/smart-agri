@@ -602,7 +602,7 @@ public static class KnowledgeDocumentEndpoints
 
     /// <summary><see cref="KnowledgeUploadRules.CheckDuplicates"/> against the knowledge
     /// base's current documents and versions.</summary>
-    private static async Task<KnowledgeUploadRejection?> FindDuplicateAsync(
+    internal static async Task<KnowledgeUploadRejection?> FindDuplicateAsync(
         AppDbContext dbContext,
         Guid knowledgeBaseId,
         InspectedKnowledgeFile file,

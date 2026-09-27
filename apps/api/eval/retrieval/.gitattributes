@@ -1,0 +1,7 @@
+# The demo documents are uploaded byte for byte, and the importer recognizes a version it
+# already uploaded by its SHA-256: never let Git normalize them.
+files/*.md -text
+files/*.pdf binary
+files/*.docx binary
+files/*.xlsx binary
+*.ttf binary

@@ -1,0 +1,43 @@
+{
+  "knowledgeBases": [
+    {
+      "name": "商品使用指南",
+      "purpose": "商品規格、操作步驟與保養方式",
+      "documents": [
+        {
+          "versions": [
+            { "file": "files/product-guide.docx", "fileName": "商品使用指南.docx" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "退換貨政策",
+      "purpose": "退貨期限、換貨條件與退款流程",
+      "documents": [
+        {
+          "versions": [
+            { "file": "files/return-policy-v1.pdf", "fileName": "退換貨辦法.pdf" },
+            { "file": "files/return-policy-v2.pdf", "fileName": "退換貨辦法 2026 版.pdf" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "配送常見問題",
+      "purpose": "運費、配送時間與離島配送說明",
+      "documents": [
+        {
+          "versions": [
+            { "file": "files/delivery-timetable.xlsx", "fileName": "運費與配送時間表.xlsx" }
+          ]
+        },
+        {
+          "versions": [
+            { "file": "files/faq.md", "fileName": "常見問題.md" }
+          ]
+        }
+      ]
+    }
+  ]
+}

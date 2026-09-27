@@ -58,6 +58,17 @@
     <InternalsVisibleTo Include="SmartAgri.Api.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The retrieval evaluation set (M2 plan, Slice 16): `eval-retrieval` and, with
+      SEED_DEMO_KNOWLEDGE=true, DemoKnowledgeSeeder read it from eval/retrieval next to the
+      assembly (RetrievalEvalSet.DefaultDirectory). Both are Development-only, so it is never
+      published: the customer image has no use for it, and its build context does not even
+      include apps/api/eval (the glob then matches nothing).
+    -->
+    <None Include="..\..\eval\retrieval\**\*" Exclude="..\..\eval\retrieval\generator\**;..\..\eval\retrieval\private\**;..\..\eval\retrieval\README.md;..\..\eval\retrieval\.gitattributes" LinkBase="eval\retrieval" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
   <!--
     Microsoft.Extensions.ApiDescription.Server's GenerateOpenApiDocuments target runs
     Program's entry point in-process (via HostFactoryResolver) up to WebApplicationBuilder.Build()

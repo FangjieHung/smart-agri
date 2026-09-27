@@ -5,6 +5,12 @@
 
   @if (view.status === 'loading') {
     <app-state-panel state="loading" title="正在載入資料來源" />
+  } @else if (view.status === 'error') {
+    <app-state-panel
+      state="error"
+      title="目前無法載入資料來源"
+      description="請稍後重新整理頁面再試一次。"
+    />
   } @else if (view.status === 'permission-denied') {
     <app-state-panel state="permission-denied" title="無法讀取資料來源" [description]="view.message" />
   } @else {

@@ -81,8 +81,19 @@ export class SourceConnectionListComponent {
       );
   });
 
+  /**
+   * `connected` 引用的 id 若不在 `sources`（例如 API 模式下，mock 助理引用了不存在的
+   * 知識庫 id——issue #49），直接略過不計入，避免顯示「已連接」卻找不到對應的來源。
+   */
+  protected readonly connectedInSources = computed(() => {
+    const sources = this.sources();
+    return this.connected().filter((reference) =>
+      sources.some((source) => source.id === reference.id && source.type === reference.type),
+    );
+  });
+
   protected readonly summary = computed(() => {
-    const connected = this.connected();
+    const connected = this.connectedInSources();
     const knowledge = connected.filter((source) => source.type === 'knowledge-base').length;
     return `已連接 ${knowledge} 個知識庫、${connected.length - knowledge} 個資料庫`;
   });

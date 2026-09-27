@@ -430,10 +430,12 @@ export interface DemoRepository extends DemoScenarioController {
     paused: boolean,
   ): RepositoryView<PublishingChannelView>;
   listAssistantTemplates(): RepositoryView<readonly AssistantTemplateView[]>;
-  /** 知識庫與資料庫混合的可連接來源清單。 */
-  listConnectableSources(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly ConnectableSourceView[]>;
+  /**
+   * 知識庫與資料庫混合的可連接來源清單；沿用 `listKnowledgeBaseSummaries` 的非同步契約
+   * ——viewer 由工作階段推導，不由呼叫端傳入，回傳 cold Observable，訂閱時才讀取。
+   * API 模式（`HybridDemoRepository`）的知識庫走 HTTP，資料庫仍是 mock（M2 範圍外）。
+   */
+  listConnectableSources(): Observable<RepositoryView<readonly ConnectableSourceView[]>>;
   listTrialQuestions(): RepositoryView<readonly TrialQuestionView[]>;
   /** 以固定 fixture 模擬試問回答，不連接真實 AI。 */
   previewTrialAnswer(

@@ -510,7 +510,8 @@ function countStatuses(
   return counts;
 }
 
-function connectableKnowledgeStatus(
+/** 匯出給 `HybridDemoRepository`：API 模式的知識庫可連接狀態要與 mock 用同一套規則換算。 */
+export function connectableKnowledgeStatus(
   counts: KnowledgeDocumentStatusCounts,
 ): ConnectableSourceStatus {
   if (counts.queued + counts.processing > 0) return 'processing';
@@ -1272,10 +1273,11 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(this.seed.assistantTemplates);
   }
 
-  listConnectableSources(
-    viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listConnectableSources']> {
-    return this.applyScenario(this.connectableSources(viewerAccountId));
+  listConnectableSources(): ReturnType<DemoRepository['listConnectableSources']> {
+    return defer(() => {
+      const viewer = this.viewer();
+      return of(this.applyScenario(viewer === null ? [] : this.connectableSources(viewer)));
+    });
   }
 
   listTrialQuestions(): ReturnType<DemoRepository['listTrialQuestions']> {
@@ -3154,7 +3156,20 @@ export class MockDemoRepository implements DemoRepository {
           updatedAt: knowledgeBase.lastSyncedAt,
         };
       });
-    const databases = this.databases()
+
+    return [...knowledgeBases, ...this.connectableDatabaseSources(viewerAccountId)];
+  }
+
+  /**
+   * 資料庫可連接清單；沒有 `manage-assistants` 權限時回傳空陣列。獨立成 protected 方法，
+   * 讓 `HybridDemoRepository` 在知識庫已改真實資料後，仍能補上仍是 mock 的資料庫（M2 範圍外）。
+   */
+  protected connectableDatabaseSources(
+    viewerAccountId: AccountId,
+  ): readonly ConnectableSourceView[] {
+    if (!this.canManageAssistants(viewerAccountId)) return [];
+
+    return this.databases()
       .filter((database) => database.ownerAccountId === viewerAccountId)
       .map(
         (database): ConnectableSourceView => ({
@@ -3167,11 +3182,9 @@ export class MockDemoRepository implements DemoRepository {
           updatedAt: database.lastSyncedAt,
         }),
       );
-
-    return [...knowledgeBases, ...databases];
   }
 
-  private canManageAssistants(viewerAccountId: AccountId): boolean {
+  protected canManageAssistants(viewerAccountId: AccountId): boolean {
     return this.hasPermission(viewerAccountId, 'manage-assistants');
   }
 

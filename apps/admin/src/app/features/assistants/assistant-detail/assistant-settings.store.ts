@@ -14,6 +14,7 @@ import type {
   AssistantSettingsView,
 } from '../../../core/domain/assistant-settings.model';
 import type { UpdateAssistantSettingsResult } from '../../../core/repositories/demo-repository';
+import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import type { AssistantProfileChange } from '../components/assistant-profile-form/assistant-profile-form.component';
@@ -86,16 +87,16 @@ export class AssistantSettingsStore {
       : `上次儲存 · ${fmtDateTime(savedAt)}`;
   });
 
+  /** 還沒有 Demo 身分時停在載入中；換身分就重新讀取（見 `repositoryResource`）。 */
+  private readonly sourcesResource = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listConnectableSources(),
+  });
+
   /** 已連接與可連接的來源都只包含目前帳號看得到的資源。 */
   readonly connectableSources = computed<readonly ConnectableSourceView[]>(() => {
-    this.revision();
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return [];
-
-    const result = this.repository.listConnectableSources(accountId);
-    return result.status === 'ready' || result.status === 'partial-failure'
-      ? result.data
-      : [];
+    const view = this.sourcesResource.view();
+    return view.status === 'ready' || view.status === 'partial-failure' ? view.data : [];
   });
 
   /** 只有已連接到這個助理的資料庫可以當寫入對象。 */

@@ -11,6 +11,7 @@ import type { TeamView } from '../domain/team.model';
 import type { RepositoryView } from './demo-repository';
 import { DEMO_SEED, type DemoSeed } from './demo-seed';
 import {
+  API_CREATE_MEMBER_PATH,
   API_KNOWLEDGE_BASES_PATH,
   API_TEAM_PATH,
   apiKnowledgeBasePath,
@@ -389,6 +390,92 @@ describe('HybridDemoRepository', () => {
     controller.expectOne(API_TEAM_PATH).flush(null, { status: 503, statusText: 'Unavailable' });
 
     expect(await result).toMatchObject({ status: 503 });
+  });
+
+  it('creates a member over HTTP and returns the one-time password exactly once', async () => {
+    const { repository, controller } = setUp();
+    const created = pending(
+      repository.createMember({
+        loginName: 'new-hire',
+        displayName: '新進同仁',
+        role: 'internal-employee',
+        permissions: ['use-shared-assistants'],
+      }),
+    );
+
+    const request = controller.expectOne({ method: 'POST', url: API_CREATE_MEMBER_PATH });
+    expect(request.request.body).toEqual({
+      loginName: 'new-hire',
+      displayName: '新進同仁',
+      role: 'internal-employee',
+      permissions: ['use-shared-assistants'],
+    });
+    request.flush(
+      {
+        member: {
+          id: '0199a000-0000-7000-8000-0000000000ff',
+          displayName: '新進同仁',
+          role: 'internal-employee',
+          permissions: ['use-shared-assistants'],
+          lockedPermissions: [],
+        },
+        oneTimePassword: 'One-Time-Pass-1!',
+      },
+      { status: 201, statusText: 'Created' },
+    );
+
+    expect(await created).toMatchObject({
+      status: 'ready',
+      data: {
+        member: { displayName: '新進同仁', isViewer: false },
+        oneTimePassword: 'One-Time-Pass-1!',
+      },
+    });
+  });
+
+  it('turns a 422 on create (duplicate login name) into validation-failed with the API’s message', async () => {
+    const { repository, controller } = setUp();
+    const result = pending(
+      repository.createMember({
+        loginName: 'admin',
+        displayName: '重複的人',
+        role: 'internal-employee',
+        permissions: [],
+      }),
+    );
+
+    controller.expectOne(API_CREATE_MEMBER_PATH).flush(
+      { message: '這個登入名稱在目前組織已經有人使用，請改用其他名稱。', errors: { loginName: ['這個登入名稱在目前組織已經有人使用，請改用其他名稱。'] } },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({
+      status: 'validation-failed',
+      message: '這個登入名稱在目前組織已經有人使用，請改用其他名稱。',
+    });
+  });
+
+  it('turns a 403 on create (no manage-assistants) into the team permission-denied', async () => {
+    const { repository, controller } = setUp();
+    const result = pending(
+      repository.createMember({
+        loginName: 'blocked',
+        displayName: '被擋下的人',
+        role: 'internal-employee',
+        permissions: [],
+      }),
+    );
+
+    controller.expectOne(API_CREATE_MEMBER_PATH).flush(
+      { reason: 'team', message: '只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+
+    expect(await result).toEqual({
+      status: 'permission-denied',
+      reason: 'team',
+      message: '只有可管理助理與團隊的帳號可以查看或變更團隊成員權限。',
+    });
   });
 
   it('delegates every other method to the mock', () => {

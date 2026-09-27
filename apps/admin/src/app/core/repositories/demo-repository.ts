@@ -1,6 +1,7 @@
 import type {
   AccountId,
   AccountPermission,
+  AccountRole,
   AccountView,
   ChatViewerId,
 } from '../domain/account.model';
@@ -63,7 +64,7 @@ import type {
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
 import type { Observable } from 'rxjs';
-import type { TeamView } from '../domain/team.model';
+import type { TeamMemberView, TeamView } from '../domain/team.model';
 import type {
   AssistantChannelsView,
   AssistantPublishingView,
@@ -258,6 +259,28 @@ export type UpdateMemberPermissionsResult =
   | RepositoryView<TeamView>
   | TeamValidationFailedView;
 
+/** 新增成員的輸入；`role` 與 `permissions` 由團隊設定的表單提供。 */
+export interface CreateMemberInput {
+  readonly loginName: string;
+  readonly displayName: string;
+  readonly role: AccountRole;
+  readonly permissions: readonly AccountPermission[];
+}
+
+/**
+ * 新增成功的結果：新成員（可以直接併入團隊清單，或等 `getTeam()` 重新整批讀取）與
+ * 一次性密碼。`oneTimePassword` 只在這次回應中出現一次——重新整理頁面或重新讀取
+ * 團隊清單都拿不回來，畫面必須當場顯示完就不再保留。
+ */
+export interface CreatedMemberView {
+  readonly member: TeamMemberView;
+  readonly oneTimePassword: string;
+}
+
+export type CreateMemberResult =
+  | RepositoryView<CreatedMemberView>
+  | TeamValidationFailedView;
+
 export interface DatabaseAccessValidationFailedView {
   readonly status: 'validation-failed';
   readonly message: string;
@@ -308,6 +331,12 @@ export interface DemoRepository extends DemoScenarioController {
     memberAccountId: AccountId,
     permissions: readonly AccountPermission[],
   ): Observable<UpdateMemberPermissionsResult>;
+  /**
+   * 新增這個組織的成員帳號（issue #52，M2 Slice 18）：只有具備 `manage-assistants` 的帳號可以
+   * 呼叫；同組織登入名稱重複回傳 validation-failed，不同組織可以重複。回傳的一次性密碼只在
+   * 這次結果中出現一次。
+   */
+  createMember(input: CreateMemberInput): Observable<CreateMemberResult>;
   listAssistantConfigurations(
     viewerAccountId: AccountId,
   ): RepositoryView<readonly AssistantConfigurationView[]>;

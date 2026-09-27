@@ -21,6 +21,8 @@ import type { ConnectableSourceView } from '../domain/assistant-draft.model';
 import {
   isRepositoryPermissionDeniedReason,
   type CreateKnowledgeBaseResult,
+  type CreateMemberInput,
+  type CreateMemberResult,
   type DeleteKnowledgeResult,
   type KnowledgeValidationFailedView,
   type PermissionDeniedRepositoryView,
@@ -43,7 +45,10 @@ import {
 import { createScopedStorage, type StorageIdentity } from './scoped-storage';
 
 type TeamResponse = components['schemas']['TeamResponse'];
+type ApiTeamMember = components['schemas']['TeamMemberResponse'];
 type UpdateMemberPermissionsRequest = components['schemas']['UpdateMemberPermissionsRequest'];
+type CreateMemberRequest = components['schemas']['CreateMemberRequest'];
+type CreateMemberResponse = components['schemas']['CreateMemberResponse'];
 type ApiKnowledgeBaseSummary = components['schemas']['KnowledgeBaseSummaryView'];
 type ApiKnowledgeBaseDetail = components['schemas']['KnowledgeBaseDetailView'];
 type ApiKnowledgeDocument = components['schemas']['KnowledgeDocumentView'];
@@ -52,6 +57,8 @@ type CreateKnowledgeBaseRequest = components['schemas']['CreateKnowledgeBaseRequ
 type UpdateKnowledgeSharingRequest = components['schemas']['UpdateKnowledgeSharingRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
+
+export const API_CREATE_MEMBER_PATH = `${API_TEAM_PATH}/members`;
 
 export function apiMemberPermissionsPath(memberId: string): string {
   return `${API_TEAM_PATH}/members/${encodeURIComponent(memberId)}/permissions`;
@@ -227,6 +234,32 @@ export class HybridDemoRepository extends MockDemoRepository {
       map((response): UpdateMemberPermissionsResult => this.teamLoaded(response)),
       catchError((error: unknown) =>
         isHttpError(error, 422) ? of(validationFailed(error)) : this.permissionDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  /**
+   * 新增組織成員（issue #52，M2 Slice 18）：後端已經套用 `manage-assistants` 與同組織登入
+   * 名稱唯一的規則，這裡只轉譯結果——`422` 轉成 validation-failed，`403` 沿用團隊的
+   * permission-denied。一次性密碼原樣轉交給畫面，這個方法本身不記錄、不快取它。
+   */
+  override createMember(input: CreateMemberInput): Observable<CreateMemberResult> {
+    const body: CreateMemberRequest = {
+      loginName: input.loginName,
+      displayName: input.displayName,
+      role: input.role,
+      permissions: [...input.permissions],
+    };
+    return this.http.post<CreateMemberResponse>(API_CREATE_MEMBER_PATH, body).pipe(
+      map((response): CreateMemberResult => ({
+        status: 'ready',
+        data: {
+          member: toTeamMemberView(response.member, this.viewerPermissions()?.accountId ?? null),
+          oneTimePassword: response.oneTimePassword,
+        },
+      })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) ? of(createMemberValidationFailed(error)) : this.permissionDeniedOrThrow(error),
       ),
     );
   }
@@ -502,19 +535,32 @@ function validationFailed(error: HttpErrorResponse): UpdateMemberPermissionsResu
   };
 }
 
+/** 422：登入名稱重複、欄位長度不對或不認得的角色／權限值；後端的訊息直接顯示。 */
+function createMemberValidationFailed(error: HttpErrorResponse): CreateMemberResult {
+  return {
+    status: 'validation-failed',
+    message: bodyMessage(error) ?? '這次沒有新增成員，請再試一次。',
+  };
+}
+
+/** `viewerAccountId` 是目前登入者的真實帳號 GUID（來自 `/me`），不是 Demo 身分 id。 */
+function toTeamMemberView(member: ApiTeamMember, viewerAccountId: string | null): TeamMemberView {
+  return {
+    id: member.id,
+    displayName: member.displayName,
+    role: member.role,
+    roleLabel: ACCOUNT_ROLE_LABELS[member.role],
+    roleDescription: ACCOUNT_ROLE_DESCRIPTIONS[member.role],
+    permissions: normalizeMemberPermissions(member.permissions),
+    isViewer: member.id === viewerAccountId,
+    lockedPermissions: normalizeMemberPermissions(member.lockedPermissions),
+  };
+}
+
 /** `viewerAccountId` 是目前登入者的真實帳號 GUID（來自 `/me`），不是 Demo 身分 id。 */
 export function toTeamView(response: TeamResponse, viewerAccountId: string | null): TeamView {
   const members = response.members
-    .map((member): TeamMemberView => ({
-      id: member.id,
-      displayName: member.displayName,
-      role: member.role,
-      roleLabel: ACCOUNT_ROLE_LABELS[member.role],
-      roleDescription: ACCOUNT_ROLE_DESCRIPTIONS[member.role],
-      permissions: normalizeMemberPermissions(member.permissions),
-      isViewer: member.id === viewerAccountId,
-      lockedPermissions: normalizeMemberPermissions(member.lockedPermissions),
-    }))
+    .map((member) => toTeamMemberView(member, viewerAccountId))
     // API 已依 id 排序；這裡改用 mock 慣用的角色順序呈現。`sort` 是穩定排序，
     // 同角色的多位成員（例如兩位 smb-internal）維持 API 回傳的順序。
     .sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));

@@ -1,6 +1,7 @@
 :host { display: block; }
 
 .team-panel { display: grid; gap: var(--space-4); min-inline-size: 0; }
+.team-panel__header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
 h2, p { margin: 0; }
 .hint { color: var(--color-text-secondary); line-height: var(--line-height-body); }
 .error { color: var(--color-error); font-weight: 700; }
@@ -69,3 +70,31 @@ small { color: var(--color-text-secondary); font-size: var(--font-size-caption);
 .ui-button.secondary { background: var(--color-surface); color: var(--color-accent); }
 
 input:focus-visible, button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
+// ---------- 新增成員對話框 ----------
+.create-panel {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+}
+
+.create-panel h2 { margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.control { display: grid; gap: var(--space-1); }
+.control label { font-weight: 600; }
+
+.control input,
+.control select {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: max(16px, 1em);
+}
+
+.control input[aria-invalid='true'] { border-color: var(--color-error); }
+.control input:focus-visible,
+.control select:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }

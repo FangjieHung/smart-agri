@@ -41,6 +41,25 @@ public sealed class ForbiddenReason
         "只有可管理資料來源的帳號可以建立知識庫。");
 
     /// <summary>
+    /// An assistant's configuration (list, settings, source connections, deletion) that does
+    /// not exist, belongs to another organization, or is not the caller's own (only the owner
+    /// may open or change one; listing and settings also need <c>manage-assistants</c>). Same
+    /// bytes in every case (M3 plan, Slice 1 acceptance).
+    /// </summary>
+    public static readonly ForbiddenReason AssistantConfiguration = new(
+        "assistant-configuration",
+        "你沒有這個助理的存取權限，或它已不存在。");
+
+    /// <summary>
+    /// Using (chatting with) an assistant the caller may not: it does not exist, belongs to
+    /// another organization, is paused for a non-owner, or is not shared with the caller
+    /// (<c>AssistantUseAccess.UsableBy</c>, extended by #73). Same bytes in every case.
+    /// </summary>
+    public static readonly ForbiddenReason AssistantUse = new(
+        "assistant-use",
+        "你沒有使用這個助理的權限，或它已不存在。");
+
+    /// <summary>
     /// The account still has the one-time password from <c>setup</c>: until it sets its own
     /// (<c>POST /api/v1/auth/change-password</c>), every protected endpoint except
     /// <c>GET /api/v1/me</c> answers with this (see <c>PasswordChangeGate</c>). New in

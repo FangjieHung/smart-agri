@@ -5,12 +5,14 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
 using Pgvector.EntityFrameworkCore;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Ai;
+using SmartAgri.Infrastructure.Assistants;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
@@ -92,6 +94,11 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
     /// <summary>Retrievable passages, cut from readable units.</summary>
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
+
+    public DbSet<Assistant> Assistants => Set<Assistant>();
+
+    /// <summary>A knowledge base connected to an assistant (M3 plan §4).</summary>
+    public DbSet<AssistantKnowledgeBase> AssistantKnowledgeBases => Set<AssistantKnowledgeBase>();
 
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
@@ -198,6 +205,10 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new KnowledgeFileContentConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeExtractedUnitConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeChunkConfiguration());
+
+        // Assistants (M3 plan §4).
+        modelBuilder.ApplyConfiguration(new AssistantConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantKnowledgeBaseConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

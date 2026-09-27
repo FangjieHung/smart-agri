@@ -39,11 +39,14 @@ import {
 } from './demo-seed-chat';
 import { PUBLISHING_RECORDS, type PublishingRecord } from './demo-seed-publishing';
 
+/** seed 的文件不含版本 id；mock 讀取時補上 `<文件 id>:v1`（見 `MockDemoRepository`）。 */
+export type KnowledgeDocumentFixture = Omit<KnowledgeDocumentView, 'latestVersionId'>;
+
 export interface DemoSeed {
   readonly accounts: readonly AccountView[];
   readonly assistants: readonly AssistantConfigurationView[];
   readonly knowledgeBases: readonly KnowledgeBaseView[];
-  readonly knowledgeDocuments: Readonly<Record<KnowledgeBaseId, readonly KnowledgeDocumentView[]>>;
+  readonly knowledgeDocuments: Readonly<Record<KnowledgeBaseId, readonly KnowledgeDocumentFixture[]>>;
   readonly knowledgeSharing: Readonly<Record<KnowledgeBaseId, KnowledgeSharingView>>;
   readonly databases: readonly DatabaseView[];
   readonly databaseTemplates: readonly DatabaseTemplateView[];

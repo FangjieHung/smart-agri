@@ -29,5 +29,5 @@
     <p id="sharing-error" class="error" role="alert">{{ error() }}</p>
   }
 
-  <button type="submit" class="ui-button">儲存分享設定</button>
+  <button type="submit" class="ui-button" [disabled]="saving()">儲存分享設定</button>
 </form>

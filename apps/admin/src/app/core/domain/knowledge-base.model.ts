@@ -1,11 +1,11 @@
 import type { AccountId } from './account.model';
 import type { AssistantId, AssistantStatus } from './assistant.model';
 
-export type KnowledgeBaseId =
-  | 'knowledge-product-guide'
-  | 'knowledge-refund-policy'
-  | 'knowledge-shipping-faq'
-  | 'knowledge-staff-notes';
+/**
+ * mock 是 `knowledge-product-guide` 這類固定 id（建立的是 `knowledge-created-<序號>`），
+ * API 模式是後端的 GUID；兩者都只是不透明字串，畫面不得依格式判斷。
+ */
+export type KnowledgeBaseId = string;
 
 export interface KnowledgeBaseView {
   readonly id: KnowledgeBaseId;
@@ -25,8 +25,8 @@ export type KnowledgeDocumentStatus =
 
 export type KnowledgeItemKind = 'document' | 'faq';
 
-/** Demo 加入的文件 id 格式固定為 `document-demo-<序號>`。 */
-export type KnowledgeDocumentId = `document-${string}`;
+/** 與 `KnowledgeBaseId` 相同：mock 的固定 id 或 API 的 GUID，一律當成不透明字串。 */
+export type KnowledgeDocumentId = string;
 
 export interface KnowledgeDocumentView {
   readonly id: KnowledgeDocumentId;
@@ -36,6 +36,11 @@ export interface KnowledgeDocumentView {
   /** 部分內容無法讀取或處理失敗時的原因；其他狀態為 null。 */
   readonly issue: string | null;
   readonly updatedAt: string;
+  /**
+   * 最新版本的 id。重新處理是針對「版本」（`POST .../versions/{versionId}/retry`），
+   * 所以畫面要把它帶回 `retryKnowledgeDocument`；mock 沒有版本，固定是 `<文件 id>:v1`。
+   */
+  readonly latestVersionId: string;
 }
 
 export type KnowledgeSharingScope = 'private' | 'specific-accounts' | 'public';
@@ -73,7 +78,21 @@ export interface KnowledgeBaseSummaryView {
   readonly sharingScope: KnowledgeSharingScope;
   readonly connectedAssistantNames: readonly string[];
   readonly updatedAt: string;
+  /**
+   * 目前帳號能否開啟、變更、分享與刪除（API 的同名欄位）。畫面只看這個旗標，
+   * 不自己拿擁有者 id 與目前帳號比對——API 模式的帳號是 GUID，與 Demo 身分對不上。
+   */
+  readonly viewerCanManage: boolean;
 }
+
+/** 建立知識庫的輸入；名稱必填（去頭尾空白後 1–100 字），用途可空白（最多 500 字）。 */
+export interface CreateKnowledgeBaseInput {
+  readonly name: string;
+  readonly purpose: string;
+}
+
+export const KNOWLEDGE_BASE_NAME_MAX_LENGTH = 100;
+export const KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH = 500;
 
 export interface KnowledgeBaseDetailView {
   readonly summary: KnowledgeBaseSummaryView;
@@ -99,4 +118,17 @@ export function isUsableKnowledgeDocument(status: KnowledgeDocumentStatus): bool
 
 export function needsKnowledgeAttention(status: KnowledgeDocumentStatus): boolean {
   return status === 'partially-readable' || status === 'failed';
+}
+
+/**
+ * 只有處理失敗的版本可以重新處理（後端 `KnowledgeVersionRules.RetryRefusal`）：
+ * 部分內容無法讀取的文件再處理一次，讀到的還是同樣的頁面。
+ */
+export function isRetryableKnowledgeDocument(status: KnowledgeDocumentStatus): boolean {
+  return status === 'failed';
+}
+
+/** 等待中或處理中：詳情頁有這種項目時才需要輪詢。 */
+export function isPendingKnowledgeDocument(status: KnowledgeDocumentStatus): boolean {
+  return status === 'queued' || status === 'processing';
 }

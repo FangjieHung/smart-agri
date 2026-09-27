@@ -76,12 +76,19 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
     if (teamResult.status !== 'ready') throw new Error(`expected team update to succeed, got ${teamResult.status}`);
 
     // 知識庫分享設定。
-    const sharing = repository.updateKnowledgeSharing(ADMIN, 'knowledge-product-guide', {
-      scope: 'private',
-      sharedWithAccountIds: [],
-      allowOriginalDownload: false,
-    });
+    const sharing = await firstValueFrom(
+      repository.updateKnowledgeSharing('knowledge-product-guide', {
+        scope: 'private',
+        sharedWithAccountIds: [],
+        allowOriginalDownload: false,
+      }),
+    );
     if (sharing.status !== 'ready') throw new Error(`expected knowledge sharing to save, got ${sharing.status}`);
+
+    // 知識庫建立與刪除（issue #45 新增的兩個鍵；既有鍵名不變）。
+    const knowledgeBase = await firstValueFrom(repository.createKnowledgeBase({ name: '測試知識庫', purpose: '' }));
+    if (knowledgeBase.status !== 'ready') throw new Error(`expected knowledge base to be created, got ${knowledgeBase.status}`);
+    await firstValueFrom(repository.deleteKnowledgeBase(knowledgeBase.data.id));
 
     // 資料庫：建立、改欄位、改資料管理者。
     const database = repository.createDatabaseFromTemplate(ADMIN, {
@@ -119,6 +126,9 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
         `sme-demo:assistant-settings:${created.data.id}`,
         'sme-demo:team-permissions',
         'sme-demo:knowledge:knowledge-product-guide',
+        'sme-demo:created-knowledge-bases',
+        'sme-demo:deleted-knowledge-bases',
+        `sme-demo:knowledge:${knowledgeBase.data.id}`,
         'sme-demo:created-databases',
         `sme-demo:database-fields:${database.data.id}`,
         `sme-demo:database-access:${database.data.id}`,

@@ -42,6 +42,8 @@ const SCOPE_OPTIONS: readonly ScopeOption[] = [
 export class SharingPanelComponent {
   readonly sharing = input.required<KnowledgeSharingView>();
   readonly targets = input.required<readonly KnowledgeShareTargetView[]>();
+  /** 儲存中：停用送出按鈕，避免重複送出。 */
+  readonly saving = input(false);
   readonly save = output<KnowledgeSharingView>();
 
   protected readonly options = SCOPE_OPTIONS;
@@ -71,6 +73,7 @@ export class SharingPanelComponent {
 
   protected submit(event: Event): void {
     event.preventDefault();
+    if (this.saving()) return;
     const scope = this.scope();
     if (scope === 'specific-accounts' && this.selected().length === 0) {
       this.error.set('請至少選擇一個帳號或團隊，才能使用指定分享。');

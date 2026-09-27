@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using SmartAgri.Application.Knowledge.Retrieval;
+using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 
 namespace SmartAgri.Application.Answers;
@@ -82,12 +83,18 @@ public sealed record ConversationTurn(ConversationAuthor Author, string Text);
 /// <param name="AccountId">Who asked: recorded on every model call it causes.</param>
 /// <param name="AssistantId">For which assistant; <see langword="null"/> for a draft's trial
 /// answer.</param>
+/// <param name="Purpose">What the resulting model call is attributed as
+/// (<see cref="Ai.ModelInvocationAttribution"/>); <see cref="ModelInvocationPurpose.GenerateAnswer"/>
+/// for an assistant conversation, <see cref="ModelInvocationPurpose.TrialAnswer"/> for a wizard
+/// trial question (#78). Defaults to <see cref="ModelInvocationPurpose.GenerateAnswer"/> so
+/// existing callers are unaffected.</param>
 public sealed record GroundedAnswerRequest(
     GroundedAnswerProfile Profile,
     string Question,
     IReadOnlyList<ConversationTurn> History,
     Guid AccountId,
-    Guid? AssistantId);
+    Guid? AssistantId,
+    ModelInvocationPurpose Purpose = ModelInvocationPurpose.GenerateAnswer);
 
 /// <summary>The three reply kinds this pipeline produces; wire names equal the frontend's
 /// <c>ChatReplyView['kind']</c>. They never mix within one reply (M3 plan §7 B).</summary>

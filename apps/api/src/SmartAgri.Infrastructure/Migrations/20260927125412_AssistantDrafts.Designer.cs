@@ -13,7 +13,7 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260927124119_AssistantDrafts")]
+    [Migration("20260927125412_AssistantDrafts")]
     partial class AssistantDrafts
     {
         /// <inheritdoc />
@@ -427,6 +427,29 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("KnowledgeBaseId", "OrganizationId");
 
                     b.ToTable("AssistantKnowledgeBases", (string)null);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantShare", b =>
+                {
+                    b.Property<Guid>("AssistantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("AssistantId", "AccountId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AccountId", "OrganizationId");
+
+                    b.HasIndex("AssistantId", "OrganizationId");
+
+                    b.ToTable("AssistantShares", (string)null);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Jobs.BackgroundJob", b =>
@@ -1181,6 +1204,29 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasOne("SmartAgri.Domain.Knowledge.KnowledgeBase", null)
                         .WithMany()
                         .HasForeignKey("KnowledgeBaseId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantShare", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)
+                        .WithMany()
+                        .HasForeignKey("AssistantId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

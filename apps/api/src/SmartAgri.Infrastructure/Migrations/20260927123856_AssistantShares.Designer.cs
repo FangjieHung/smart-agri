@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -12,9 +13,11 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260927123856_AssistantShares")]
+    partial class AssistantShares
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -359,45 +362,6 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("OwnerAccountId", "OrganizationId");
 
                     b.ToTable("Assistants", (string)null);
-                });
-
-            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantDraft", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("OrganizationId")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("OwnerAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Payload")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<int>("Revision")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("SavedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("SchemaVersion")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId");
-
-                    b.HasIndex("OwnerAccountId", "OrganizationId");
-
-                    b.HasIndex("OwnerAccountId", "SavedAt");
-
-                    b.ToTable("AssistantDrafts", (string)null);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantKnowledgeBase", b =>
@@ -1164,22 +1128,6 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("OwnerAccountId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantDraft", b =>
-                {
-                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
-                        .WithMany()
-                        .HasForeignKey("OwnerAccountId", "OrganizationId")
-                        .HasPrincipalKey("Id", "OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

@@ -11,16 +11,21 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Api.Assistants;
 
 // View records are named after, and shaped like, the frontend's views in
-// apps/admin/src/app/core/domain/assistant.model.ts and assistant-settings.model.ts, so the
-// generated types line up. Deliberate differences:
+// apps/admin/src/app/core/domain/assistant.model.ts, assistant-settings.model.ts and
+// publishing.model.ts, so the generated types line up. Deliberate differences:
 // - ids are GUIDs;
-// - viewerCanManage is added (M2 plan §3, carried over), so the frontend never compares
-//   owner ids itself;
-// - audience / sharedWithAccountIds / databaseIds / permission are absent: the frontend mock
-//   models an audience-role gate and platform sharing that M3 Slice 1 does not build yet
-//   (sharing is #73; audience-role gating is not part of the M3 plan's data model, §4);
+// - viewerCanManage / viewerIsOwner are added (M2 plan §3, carried over), so the frontend
+//   never compares owner ids itself;
+// - audience / sharedWithAccountIds (on AssistantConfigurationView) / databaseIds are absent:
+//   the frontend mock models an audience-role gate that is not part of the M3 plan's data
+//   model (§4) — "who may use it" here is ownership + AssistantShare + use-shared-assistants
+//   only (AssistantUseAccess.UsableBy), not audience/role;
 // - minScore is a backend-only field (grounded-answers ADR), not in the frontend model, and
-//   is not exposed by this slice's PATCH endpoint.
+//   is not exposed by this slice's PATCH endpoint;
+// - AssistantPublishingView.website / .line are NotAvailablePublishingChannelView, not the
+//   frontend's full WebsiteEmbedView / LineSetupView: those channels are not implemented until
+//   a later milestone (M3 plan §5 Slice 3: "網站嵌入與 LINE 在 API 模式顯示「對外發布將於後續版本
+//   開放」"), so there is no embed code, webhook URL or field-level state to report yet.
 
 /// <summary>One row of <c>GET /api/v1/assistants</c> (the caller's own assistants).</summary>
 /// <param name="ViewerCanManage">Whether the caller may open, change or delete it
@@ -39,7 +44,63 @@ public sealed record AssistantConfigurationView(
 
 /// <summary>One row of <c>GET /api/v1/assistants?usable=true</c>: enough to pick an assistant
 /// to chat with, nothing about its configuration.</summary>
-public sealed record AssistantSummaryView(Guid Id, string Name, string Purpose, AssistantStatus Status);
+/// <param name="ViewerIsOwner">Whether the caller owns it, as opposed to it being shared with
+/// them (<see cref="AssistantUseAccess.UsableBy"/>) — the frontend mock's richer
+/// <c>AssistantSummaryView.permission</c> (<c>'use' | 'configure' | 'publish'</c>) does not
+/// apply here (M3's data model has no per-assistant publish/configure grant separate from
+/// ownership, §4), so this is a plain owner/shared flag instead.</param>
+public sealed record AssistantSummaryView(Guid Id, string Name, string Purpose, AssistantStatus Status, bool ViewerIsOwner);
+
+/// <summary>One publishing channel's status, shaped like the frontend's
+/// <c>PublishingChannelView</c>. <see cref="Id"/> follows the frontend's
+/// <c>channel-{type}:{assistantId}</c> convention.</summary>
+public sealed record PublishingChannelView(
+    string Id,
+    Guid AssistantId,
+    Guid OwnerAccountId,
+    string Name,
+    string Type,
+    string Status,
+    string StatusDetail,
+    DateTimeOffset UpdatedAt);
+
+/// <summary>One candidate the platform channel can be shared with (an org account other than
+/// the assistant's owner).</summary>
+public sealed record PlatformShareTargetView(Guid Id, string DisplayName);
+
+/// <summary>
+/// The platform channel's real data (<c>getAssistantPublishing</c> /
+/// <c>updatePlatformSharing</c>). <see cref="UsagePath"/> is the in-platform chat route
+/// (M3 plan §6: home's "開始對話" goes to <c>/app/chat/:assistantId</c>).
+/// </summary>
+public sealed record PlatformSharingView(
+    PublishingChannelView Channel,
+    string UsagePath,
+    IReadOnlyList<Guid> AllowedAccountIds,
+    IReadOnlyList<PlatformShareTargetView> Candidates);
+
+/// <summary>A channel M3 does not implement yet (website embed, LINE): fixed
+/// <c>"not-available"</c> status and an explanatory message, in place of the frontend's full
+/// per-channel view (see the class-level comment on why the shape differs).</summary>
+public sealed record NotAvailablePublishingChannelView(string Status, string Message);
+
+/// <summary><c>GET /api/v1/assistants/{id}/publishing</c> response.</summary>
+public sealed record AssistantPublishingView(
+    Guid AssistantId,
+    string AssistantName,
+    PlatformSharingView Platform,
+    NotAvailablePublishingChannelView Website,
+    NotAvailablePublishingChannelView Line);
+
+/// <summary><c>PUT /api/v1/assistants/{id}/publishing/platform</c> request: the full set of
+/// accounts to share with (not a delta). Plain strings, like
+/// <c>UpdateKnowledgeSharingRequest.SharedWithAccountIds</c>, so an unknown or malformed id is
+/// this endpoint's own silent filtering (<see cref="AssistantPublishingPolicy.Normalize"/>),
+/// not a model-binding failure.</summary>
+public sealed record UpdatePlatformSharingRequest(IReadOnlyList<string?>? AccountIds);
+
+/// <summary><c>PUT /api/v1/assistants/{id}/publishing/platform/paused</c> request.</summary>
+public sealed record SetPlatformPausedRequest(bool Paused);
 
 /// <summary>The rules governing how an assistant answers (M3 plan §4).</summary>
 public sealed record AssistantAnswerRulesView(
@@ -80,9 +141,9 @@ public sealed record AssistantAnswerRulesPatch(
     bool? KeepConversations = null);
 
 /// <summary>
-/// Assistant listing, settings, source connections and deletion (M3 plan, Slice 1;
-/// <c>docs/handoff/mock-to-api-mapping.md</c> §2.6). Creation from a wizard draft is #72;
-/// platform sharing is #73; the conversation endpoints are later Slices.
+/// Assistant listing, settings, source connections, deletion and platform sharing (M3 plan,
+/// Slices 1 and 3; <c>docs/handoff/mock-to-api-mapping.md</c> §2.5/§2.6). Creation from a
+/// wizard draft is #72; the conversation endpoints are #76.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -174,6 +235,26 @@ public static class AssistantEndpoints
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
+        // Publishing (M3 plan, Slice 3): S+OWN+MP. Website and LINE are not implemented yet
+        // (M3 plan §5 Slice 3), so only the platform channel has real read/write endpoints.
+        assistants.MapGet("/{id:guid}/publishing", GetPublishingAsync)
+            .RequirePermission(AccountPermission.ManagePublishing, ForbiddenReason.Publishing)
+            .Produces<AssistantPublishingView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        assistants.MapPut("/{id:guid}/publishing/platform", UpdatePlatformSharingAsync)
+            .RequirePermission(AccountPermission.ManagePublishing, ForbiddenReason.Publishing)
+            .Produces<PlatformSharingView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        assistants.MapPut("/{id:guid}/publishing/platform/paused", SetPlatformPausedAsync)
+            .RequirePermission(AccountPermission.ManagePublishing, ForbiddenReason.Publishing)
+            .Produces<PublishingChannelView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
         return endpoints;
     }
 
@@ -198,13 +279,15 @@ public static class AssistantEndpoints
 
         if (usable == true)
         {
+            var viewerPermissions = await permissions.GetAsync(viewerId, cancellationToken);
+            var hasUseSharedAssistants = viewerPermissions.Contains(AccountPermission.UseSharedAssistants);
             var usableAssistants = await dbContext.Assistants
                 .AsNoTracking()
-                .Where(AssistantUseAccess.UsableBy(viewerId))
+                .Where(AssistantUseAccess.UsableBy(viewerId, hasUseSharedAssistants, dbContext.AssistantShares))
                 .OrderBy(assistant => assistant.CreatedAt)
                 .ThenBy(assistant => assistant.Id)
                 .ToListAsync(cancellationToken);
-            return Results.Ok(usableAssistants.ConvertAll(ToSummary));
+            return Results.Ok(usableAssistants.ConvertAll(assistant => ToSummary(assistant, viewerId)));
         }
 
         var granted = await permissions.GetAsync(viewerId, cancellationToken);
@@ -559,6 +642,169 @@ public static class AssistantEndpoints
             "這個知識庫無法連接到這個助理，或已不存在。",
             field: "sources");
 
+    /// <summary>Platform sharing's real data, plus fixed <c>not-available</c> placeholders for
+    /// website and LINE (M3 plan §5 Slice 3).</summary>
+    internal static async Task<IResult> GetPublishingAsync(
+        Guid id,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await FindManageableAsync(dbContext.Assistants.AsNoTracking(), id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Publishing);
+        }
+
+        var allowedAccountIds = await SharedAccountIdsAsync(dbContext, assistant.Id, cancellationToken);
+        var platform = await ToPlatformSharingAsync(dbContext, assistant, allowedAccountIds, cancellationToken);
+        return Results.Ok(new AssistantPublishingView(assistant.Id, assistant.Name, platform, NotYetAvailable, NotYetAvailable));
+    }
+
+    /// <summary>
+    /// Replaces the platform channel's share list wholesale. Order of checks mirrors
+    /// <c>KnowledgeBaseEndpoints.UpdateSharingAsync</c>: owner (else <c>403</c>), then
+    /// <see cref="AssistantPublishingPolicy.Normalize"/> silently drops anything not a valid
+    /// share target — there is no failure case here (see the policy's remarks). An unchanged
+    /// request writes nothing.
+    /// </summary>
+    internal static async Task<IResult> UpdatePlatformSharingAsync(
+        Guid id,
+        UpdatePlatformSharingRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await FindManageableAsync(dbContext.Assistants, id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Publishing);
+        }
+
+        var shareTargetIds = await ShareTargetIdsAsync(dbContext, assistant, cancellationToken);
+        var next = AssistantPublishingPolicy.Normalize(request.AccountIds, shareTargetIds);
+
+        // Tracked, so removed rows become real DELETEs carrying their own OrganizationId (the
+        // write guard's concurrency token), as in KnowledgeBaseEndpoints.UpdateSharingAsync.
+        var existingShares = await dbContext.AssistantShares
+            .Where(share => share.AssistantId == assistant.Id)
+            .ToListAsync(cancellationToken);
+        var existingIds = existingShares.Select(share => share.AccountId).ToHashSet();
+        var keep = next.ToHashSet();
+
+        if (!keep.SetEquals(existingIds))
+        {
+            dbContext.AssistantShares.RemoveRange(existingShares.Where(share => !keep.Contains(share.AccountId)));
+            dbContext.AssistantShares.AddRange(next
+                .Where(accountId => !existingIds.Contains(accountId))
+                .Select(accountId => new AssistantShare(assistant, accountId)));
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Ok(await ToPlatformSharingAsync(dbContext, assistant, next, cancellationToken));
+    }
+
+    /// <summary>
+    /// Pauses or resumes the platform channel by pausing/resuming the assistant itself
+    /// (<see cref="Assistant.SetStatus"/>): M3 has one usable channel, so "pause this channel"
+    /// and "pause the assistant" (acceptance: "助理暫停後，非擁有者無法使用，擁有者可以") are the same
+    /// thing. Only this one channel's view is affected in the response, per the mapping's
+    /// <c>setPublishingChannelPaused</c> contract ("只影響這一個管道").
+    /// </summary>
+    internal static async Task<IResult> SetPlatformPausedAsync(
+        Guid id,
+        SetPlatformPausedRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await FindManageableAsync(dbContext.Assistants, id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Publishing);
+        }
+
+        var targetStatus = request.Paused ? AssistantStatus.Paused : AssistantStatus.Ready;
+        if (assistant.SetStatus(targetStatus, clock.GetUtcNow()))
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        var allowedAccountIds = await SharedAccountIdsAsync(dbContext, assistant.Id, cancellationToken);
+        return Results.Ok(ToChannelView(assistant, allowedAccountIds));
+    }
+
+    private static readonly NotAvailablePublishingChannelView NotYetAvailable = new(
+        "not-available", "官網嵌入與 LINE 對外發布將於後續版本開放。");
+
+    private static Task<List<Guid>> SharedAccountIdsAsync(AppDbContext dbContext, Guid assistantId, CancellationToken cancellationToken) =>
+        dbContext.AssistantShares
+            .AsNoTracking()
+            .Where(share => share.AssistantId == assistantId)
+            .OrderBy(share => share.AccountId)
+            .Select(share => share.AccountId)
+            .ToListAsync(cancellationToken);
+
+    private static async Task<IReadOnlyList<Guid>> ShareTargetIdsAsync(
+        AppDbContext dbContext, Assistant assistant, CancellationToken cancellationToken)
+    {
+        var accountIds = await dbContext.Accounts.AsNoTracking().Select(account => account.Id).ToListAsync(cancellationToken);
+        return AssistantPublishingPolicy.ShareTargetIds(assistant.OwnerAccountId, accountIds);
+    }
+
+    private static async Task<PlatformSharingView> ToPlatformSharingAsync(
+        AppDbContext dbContext, Assistant assistant, IReadOnlyList<Guid> allowedAccountIds, CancellationToken cancellationToken)
+    {
+        var accounts = await dbContext.Accounts
+            .AsNoTracking()
+            .OrderBy(account => account.Id)
+            .Select(account => new PlatformShareTargetView(account.Id, account.DisplayName))
+            .ToListAsync(cancellationToken);
+
+        var candidateIds = AssistantPublishingPolicy
+            .ShareTargetIds(assistant.OwnerAccountId, accounts.Select(account => account.Id))
+            .ToHashSet();
+        var candidates = accounts.FindAll(account => candidateIds.Contains(account.Id));
+
+        return new PlatformSharingView(
+            ToChannelView(assistant, allowedAccountIds), $"/app/chat/{assistant.Id}", allowedAccountIds, candidates);
+    }
+
+    private static PublishingChannelView ToChannelView(Assistant assistant, IReadOnlyList<Guid> allowedAccountIds)
+    {
+        var (status, detail) = assistant.Status == AssistantStatus.Paused
+            ? ("paused", "已暫停，除了你自己以外沒有人可以使用這個助理。")
+            : allowedAccountIds.Count > 0
+                ? ("published", $"已分享給組織內 {allowedAccountIds.Count} 位成員。")
+                : ("not-configured", "尚未分享給任何組織成員，目前只有你自己可以使用。");
+
+        return new PublishingChannelView(
+            $"channel-platform:{assistant.Id}",
+            assistant.Id,
+            assistant.OwnerAccountId,
+            assistant.Name,
+            "platform",
+            status,
+            detail,
+            assistant.UpdatedAt);
+    }
+
     /// <summary>
     /// The assistant with this id if the caller may manage it; <see langword="null"/> alike
     /// when it does not exist, belongs to another organization (the query filter hides it) or
@@ -594,8 +840,8 @@ public static class AssistantEndpoints
             assistant.CreatedAt,
             assistant.UpdatedAt);
 
-    private static AssistantSummaryView ToSummary(Assistant assistant) =>
-        new(assistant.Id, assistant.Name, assistant.Purpose, assistant.Status);
+    private static AssistantSummaryView ToSummary(Assistant assistant, Guid viewerId) =>
+        new(assistant.Id, assistant.Name, assistant.Purpose, assistant.Status, assistant.OwnerAccountId == viewerId);
 
     private static AssistantSettingsView ToSettings(Assistant assistant, Guid viewerId, IReadOnlyList<Guid> knowledgeBaseIds) =>
         new(

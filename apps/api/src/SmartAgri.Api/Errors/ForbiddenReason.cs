@@ -70,6 +70,19 @@ public sealed class ForbiddenReason
         "你沒有這份精靈草稿的存取權限，或它已不存在。");
 
     /// <summary>
+    /// An assistant's publishing settings (<c>GET/PUT .../publishing*</c>) that do not exist,
+    /// belong to another organization, or are not the caller's own (only the owner may open or
+    /// change them; also needs <c>manage-publishing</c>). Same bytes in every case, mirroring
+    /// <see cref="AssistantConfiguration"/>. Named <c>publishing</c> (not
+    /// <see cref="AssistantConfiguration"/>) because the mock's <c>getAssistantPublishing</c> /
+    /// <c>updatePlatformSharing</c> use a distinct <c>403 publishing</c> reason
+    /// (<c>docs/handoff/mock-to-api-mapping.md</c> §2.5), separate from the settings screen's.
+    /// </summary>
+    public static readonly ForbiddenReason Publishing = new(
+        "publishing",
+        "你沒有這個助理的發布設定存取權限，或它已不存在。");
+
+    /// <summary>
     /// The account still has the one-time password from <c>setup</c>: until it sets its own
     /// (<c>POST /api/v1/auth/change-password</c>), every protected endpoint except
     /// <c>GET /api/v1/me</c> answers with this (see <c>PasswordChangeGate</c>). New in

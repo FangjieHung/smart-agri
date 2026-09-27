@@ -2020,6 +2020,167 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/publishing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantPublishingView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/publishing/platform": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdatePlatformSharingRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlatformSharingView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/publishing/platform/paused": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetPlatformPausedRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PublishingChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistant-drafts": {
         parameters: {
             query?: never;
@@ -2301,6 +2462,14 @@ export interface components {
         };
         /** @enum {unknown} */
         AssistantKnowledgeScope: "company-data-only" | "allow-general-knowledge";
+        AssistantPublishingView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            platform: components["schemas"]["PlatformSharingView"];
+            website: components["schemas"]["NotAvailablePublishingChannelView"];
+            line: components["schemas"]["NotAvailablePublishingChannelView"];
+        };
         AssistantSettingsView: {
             configuration: components["schemas"]["AssistantConfigurationView"];
             knowledgeBaseIds: string[];
@@ -2316,6 +2485,7 @@ export interface components {
             name: string;
             purpose: string;
             status: components["schemas"]["AssistantStatus"];
+            viewerIsOwner: boolean;
         };
         /** @enum {unknown} */
         AssistantTone: "friendly" | "professional" | "concise";
@@ -2586,11 +2756,39 @@ export interface components {
             organization: components["schemas"]["MeOrganization"];
             passwordChangeRequired: boolean;
         };
+        NotAvailablePublishingChannelView: {
+            status: string;
+            message: string;
+        };
+        PlatformShareTargetView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+        };
+        PlatformSharingView: {
+            channel: components["schemas"]["PublishingChannelView"];
+            usagePath: string;
+            allowedAccountIds: string[];
+            candidates: components["schemas"]["PlatformShareTargetView"][];
+        };
         PreviewKnowledgeRetrievalRequest: {
             question: null | string;
             includePending?: null | boolean;
             /** Format: int32 */
             top?: null | number;
+        };
+        PublishingChannelView: {
+            id: string;
+            /** Format: uuid */
+            assistantId: string;
+            /** Format: uuid */
+            ownerAccountId: string;
+            name: string;
+            type: string;
+            status: string;
+            statusDetail: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         SaveAssistantDraftRequest: {
             payload: components["schemas"]["JsonElement"];
@@ -2601,6 +2799,9 @@ export interface components {
              * @default 1
              */
             schemaVersion: number;
+        };
+        SetPlatformPausedRequest: {
+            paused: boolean;
         };
         /** Format: binary */
         Stream: string;
@@ -2638,6 +2839,9 @@ export interface components {
         };
         UpdateMemberPermissionsRequest: {
             permissions: null | string[];
+        };
+        UpdatePlatformSharingRequest: {
+            accountIds: null | string[];
         };
     };
     responses: never;

@@ -320,6 +320,186 @@ public class AssistantEndpointsTests : IClassFixture<AuthHostFixture>
         (await anonymous.Http.GetAsync($"{BasePath}?usable=true", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
+    // === Platform sharing (#73, M3 plan §5 Slice 3) =====================================
+
+    // --- Acceptance: unsharing revokes use; resharing restores it -----------------------
+
+    [Fact]
+    public async Task Unsharing_makes_the_assistant_unusable_and_resharing_restores_it()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var internalEmployee = await SignInAsync(org, "internal"); // seeded with use-shared-assistants
+        var assistantId = await CreateAssistantAsync(org, org.Admin.Id, "分享的助理");
+
+        // Not shared yet: does not appear in the internal employee's usable list.
+        (await UsableIdsAsync(internalEmployee)).ShouldNotContain(assistantId);
+
+        // Share it.
+        var shared = await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform", admin.Token, new { accountIds = new[] { org.Internal.Id.ToString() } });
+        shared.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(shared)).GetProperty("allowedAccountIds").EnumerateArray()
+            .Select(item => item.GetGuid()).ShouldContain(org.Internal.Id);
+        (await UsableIdsAsync(internalEmployee)).ShouldContain(assistantId, "shared, and the account holds use-shared-assistants");
+
+        // Unshare it (acceptance: 取消分享後，被取消的帳號無法使用).
+        var unshared = await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform", admin.Token, new { accountIds = Array.Empty<string>() });
+        unshared.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(unshared)).GetProperty("allowedAccountIds").GetArrayLength().ShouldBe(0);
+        (await UsableIdsAsync(internalEmployee)).ShouldNotContain(assistantId);
+
+        // Reshare it (acceptance: 重新分享後，原本的存取再次出現).
+        var reshared = await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform", admin.Token, new { accountIds = new[] { org.Internal.Id.ToString() } });
+        reshared.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await UsableIdsAsync(internalEmployee)).ShouldContain(assistantId);
+    }
+
+    [Fact]
+    public async Task Sharing_without_use_shared_assistants_does_not_grant_use()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var assistantId = await CreateAssistantAsync(org, org.Admin.Id, "助理");
+
+        // The external customer has neither manage-assistants nor use-shared-assistants.
+        var customer = await SignInAsync(org, "customer");
+        await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform", admin.Token, new { accountIds = new[] { org.Customer.Id.ToString() } });
+
+        (await UsableIdsAsync(customer)).ShouldNotContain(assistantId, "shared, but lacks use-shared-assistants");
+    }
+
+    [Fact]
+    public async Task Updating_platform_sharing_drops_the_owner_unknown_ids_and_other_organizations_accounts()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var assistantId = await CreateAssistantAsync(org, org.Admin.Id, "助理");
+
+        var otherOrg = await CreateOrganizationAsync("其他組織");
+
+        var response = await admin.Spa.PutAsync($"{BasePath}/{assistantId}/publishing/platform", admin.Token, new
+        {
+            accountIds = new[]
+            {
+                org.Admin.Id.ToString(), // the owner — dropped
+                org.Internal.Id.ToString(), // valid
+                otherOrg.Admin.Id.ToString(), // another organization — dropped
+                Guid.NewGuid().ToString(), // unknown — dropped
+                "not-a-guid", // malformed — dropped
+            },
+        });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var allowed = (await BodyJsonAsync(response)).GetProperty("allowedAccountIds")
+            .EnumerateArray().Select(item => item.GetGuid()).ToList();
+        allowed.ShouldBe([org.Internal.Id]);
+
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var persisted = await dbContext.AssistantShares
+            .Where(share => share.AssistantId == assistantId)
+            .Select(share => share.AccountId)
+            .ToListAsync(CancellationToken);
+        persisted.ShouldBe([org.Internal.Id]);
+    }
+
+    // --- Acceptance: pausing blocks non-owners, never the owner --------------------------
+
+    [Fact]
+    public async Task Pausing_the_assistant_blocks_non_owners_but_the_owner_can_still_use_it()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var internalEmployee = await SignInAsync(org, "internal");
+        var assistantId = await CreateAssistantAsync(org, org.Admin.Id, "助理");
+
+        await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform", admin.Token, new { accountIds = new[] { org.Internal.Id.ToString() } });
+        (await UsableIdsAsync(internalEmployee)).ShouldContain(assistantId);
+
+        var paused = await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform/paused", admin.Token, new { paused = true });
+        paused.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(paused)).GetProperty("status").GetString().ShouldBe("paused");
+
+        (await UsableIdsAsync(internalEmployee)).ShouldNotContain(assistantId, "acceptance: 助理暫停後，非擁有者無法使用");
+        (await UsableIdsAsync(admin)).ShouldContain(assistantId, "acceptance: 擁有者可以");
+
+        var resumed = await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform/paused", admin.Token, new { paused = false });
+        resumed.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(resumed)).GetProperty("status").GetString().ShouldBe("published");
+        (await UsableIdsAsync(internalEmployee)).ShouldContain(assistantId, "resumed");
+    }
+
+    // --- GET publishing: real platform data, fixed not-available website/line ------------
+
+    [Fact]
+    public async Task Get_publishing_returns_real_platform_data_and_not_available_website_and_line()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var assistantId = await CreateAssistantAsync(org, org.Admin.Id, "助理");
+        await admin.Spa.PutAsync(
+            $"{BasePath}/{assistantId}/publishing/platform", admin.Token, new { accountIds = new[] { org.Internal.Id.ToString() } });
+
+        var response = await admin.Spa.GetAsync($"{BasePath}/{assistantId}/publishing", admin.Token);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var body = await BodyJsonAsync(response);
+        body.GetProperty("assistantId").GetGuid().ShouldBe(assistantId);
+
+        var platform = body.GetProperty("platform");
+        platform.GetProperty("allowedAccountIds").EnumerateArray().Select(item => item.GetGuid()).ShouldContain(org.Internal.Id);
+        platform.GetProperty("channel").GetProperty("type").GetString().ShouldBe("platform");
+        platform.GetProperty("channel").GetProperty("status").GetString().ShouldBe("published");
+        platform.GetProperty("candidates").EnumerateArray().Select(item => item.GetProperty("id").GetGuid())
+            .ShouldNotContain(org.Admin.Id, "the owner is never their own share candidate");
+
+        body.GetProperty("website").GetProperty("status").GetString().ShouldBe("not-available");
+        body.GetProperty("line").GetProperty("status").GetString().ShouldBe("not-available");
+    }
+
+    // --- Acceptance: another organization's assistant is indistinguishable from missing --
+
+    [Fact]
+    public async Task Publishing_endpoints_treat_another_organizations_assistant_like_a_missing_one()
+    {
+        var orgA = await CreateOrganizationAsync("組織 A");
+        var assistantId = await CreateAssistantAsync(orgA, orgA.Admin.Id, "A 的助理");
+
+        var orgB = await CreateOrganizationAsync("組織 B");
+        var adminB = await SignInAsync(orgB, "admin");
+
+        (string Verb, Func<Guid, Task<HttpResponseMessage>> Send)[] endpoints =
+        [
+            ("GET publishing", id => adminB.Spa.GetAsync($"{BasePath}/{id}/publishing", adminB.Token)),
+            ("PUT platform", id => adminB.Spa.PutAsync(
+                $"{BasePath}/{id}/publishing/platform", adminB.Token, new { accountIds = Array.Empty<string>() })),
+            ("PUT platform paused", id => adminB.Spa.PutAsync(
+                $"{BasePath}/{id}/publishing/platform/paused", adminB.Token, new { paused = true })),
+        ];
+
+        foreach (var (verb, send) in endpoints)
+        {
+            var toOtherOrganization = await send(assistantId);
+            var toNonexistent = await send(Guid.NewGuid());
+
+            toOtherOrganization.StatusCode.ShouldBe(HttpStatusCode.Forbidden, verb);
+            await AssertIdenticalAsync(toOtherOrganization, toNonexistent);
+            (await BodyJsonAsync(toNonexistent)).GetProperty("reason").GetString().ShouldBe("publishing", verb);
+        }
+    }
+
+    private static async Task<List<Guid>> UsableIdsAsync(SignedIn caller)
+    {
+        var body = await BodyJsonAsync(await caller.Spa.GetAsync($"{BasePath}?usable=true", caller.Token));
+        return [.. body.EnumerateArray().Select(item => item.GetProperty("id").GetGuid())];
+    }
+
     private static readonly AccountPermission[] AllAdminPermissions =
     [
         AccountPermission.ManageAssistants,

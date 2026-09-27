@@ -6,6 +6,7 @@ using SmartAgri.Api.Ai;
 using SmartAgri.Api.Answers;
 using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Api.Assistants;
+using SmartAgri.Api.Chat;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
@@ -126,6 +127,7 @@ app.MapKnowledgeReviewEndpoints();
 app.MapKnowledgeRetrievalEndpoints();
 app.MapAssistantEndpoints();
 app.MapAssistantDraftEndpoints();
+app.MapChatEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

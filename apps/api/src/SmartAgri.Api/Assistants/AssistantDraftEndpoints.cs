@@ -1,12 +1,18 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Knowledge;
+using SmartAgri.Application.Ai;
+using SmartAgri.Application.Answers;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Knowledge;
+using SmartAgri.Application.Knowledge.Embeddings;
+using SmartAgri.Application.Knowledge.Retrieval;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Infrastructure;
@@ -37,6 +43,56 @@ public sealed record SaveAssistantDraftRequest(JsonElement Payload, int Revision
 
 /// <summary><c>POST /api/v1/assistants</c> request: build an assistant from a saved draft.</summary>
 public sealed record CreateAssistantFromDraftRequest(Guid DraftId);
+
+/// <summary><c>POST /api/v1/assistant-drafts/{id}/trial-answers</c> request (M3 plan Slice 8;
+/// ticket #78). <see cref="Question"/> is validated by
+/// <see cref="AssistantDraftTrialAnswerRules.ValidateQuestion"/>: non-blank, at most 2,000
+/// characters.</summary>
+public sealed record TrialAnswerRequest(string? Question);
+
+/// <summary>One passage a <c>company-data</c> trial reply cites, shaped after the frontend's
+/// <c>ChatCitationView</c> minus <c>updatedLabel</c> (needs a version's <c>EffectiveFrom</c>,
+/// not carried by retrieval yet — #76/#77's follow-up per PR #89).</summary>
+public sealed record TrialAnswerCitationView(
+    int Ordinal,
+    Guid KnowledgeBaseId,
+    string KnowledgeBaseName,
+    Guid DocumentId,
+    string DocumentName,
+    string LocationLabel,
+    string Excerpt,
+    double Score);
+
+/// <summary>The trial's final reply, shaped after the frontend's <c>ChatReplyView</c>: <c>kind</c>
+/// is one of <c>company-data</c>／<c>general-knowledge</c>／<c>no-result</c> (the same wire names
+/// <see cref="GroundedReplyKind"/> already serializes as). <see cref="Citations"/> is only ever
+/// non-empty for <c>company-data</c>, <see cref="Notice"/> only for <c>general-knowledge</c>,
+/// <see cref="NextSteps"/> only for <c>no-result</c> — exactly like <c>GroundedReply</c>.</summary>
+public sealed record TrialAnswerReplyView(
+    GroundedReplyKind Kind,
+    string Text,
+    IReadOnlyList<TrialAnswerCitationView> Citations,
+    string? Notice,
+    IReadOnlyList<string> NextSteps);
+
+/// <summary>One passage retrieval found for the trial question, whatever its score — so the
+/// draft's author can see how close the nearest ones came, not only the ones that were cited.</summary>
+public sealed record TrialAnswerPassageView(
+    Guid KnowledgeBaseId,
+    string KnowledgeBaseName,
+    Guid DocumentId,
+    string DocumentName,
+    string LocationLabel,
+    string Excerpt,
+    double Score);
+
+/// <summary><c>POST /api/v1/assistant-drafts/{id}/trial-answers</c> response: the final reply,
+/// plus what retrieval found and the threshold it was judged by, so the draft's author can tell
+/// whether the threshold is set right (M3 plan Slice 8).</summary>
+public sealed record TrialAnswerResponse(
+    TrialAnswerReplyView Reply,
+    IReadOnlyList<TrialAnswerPassageView> Passages,
+    double Threshold);
 
 /// <summary>
 /// A source the caller may connect to an assistant right now
@@ -96,6 +152,13 @@ public static class AssistantDraftEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
+
+        drafts.MapPost("/{id:guid}/trial-answers", TrialAnswerAsync)
+            .Produces<TrialAnswerResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
 
         endpoints.MapGet("/api/v1/connectable-sources", ListConnectableSourcesAsync)
             .RequireAuthorization()
@@ -240,6 +303,106 @@ public static class AssistantDraftEndpoints
         await dbContext.SaveChangesAsync(cancellationToken);
         return Results.NoContent();
     }
+
+    /// <summary>
+    /// Answers <paramref name="request"/>'s question through the real answer pipeline
+    /// (<see cref="GroundedAnswerService"/>), using the draft's own rules and knowledge bases
+    /// (M3 plan Slice 8; ticket #78) — before any assistant exists. The draft need not be
+    /// complete: <see cref="AssistantDraftTrialAnswerRules.ProfileFor"/> fills in reasonable
+    /// defaults for whatever the wizard has not filled in yet. Knowledge bases the draft names
+    /// but that are no longer connectable are silently dropped, exactly as for a real assistant's
+    /// answers, so the response's passages only ever come from ones the caller can still connect.
+    /// </summary>
+    internal static async Task<IResult> TrialAnswerAsync(
+        Guid id,
+        TrialAnswerRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        GroundedAnswerService answerService,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var draft = await FindOwnedAsync(dbContext.AssistantDrafts.AsNoTracking(), id, callerId, cancellationToken);
+        if (draft is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantDraft);
+        }
+
+        var question = AssistantDraftTrialAnswerRules.ValidateQuestion(request.Question);
+        if (!question.IsValid)
+        {
+            return ApiErrors.ValidationFailed(question.Failures);
+        }
+
+        var profile = AssistantDraftTrialAnswerRules.ProfileFor(draft.Payload, callerId);
+        var answerRequest = new GroundedAnswerRequest(
+            profile, question.Value, [], callerId, AssistantId: null, ModelInvocationPurpose.TrialAnswer);
+
+        GroundedAnswerResult result;
+        try
+        {
+            result = await answerService.AnswerAsync(answerRequest, cancellationToken);
+        }
+        catch (KnowledgeEmbeddingException exception)
+        {
+            // The ModelInvocation row and span record the failed call; this says why, for operators.
+            loggerFactory.CreateLogger(typeof(AssistantDraftEndpoints).FullName!)
+                .LogWarning(exception.InnerException, "A trial answer could not embed the question: {Issue}", exception.Message);
+            return ApiErrors.WithReason(
+                StatusCodes.Status503ServiceUnavailable,
+                exception.ProviderNotConfigured
+                    ? KnowledgeRetrievalEndpoints.EmbeddingNotConfiguredReason
+                    : KnowledgeRetrievalEndpoints.EmbeddingUnavailableReason,
+                exception.Message);
+        }
+        catch (ChatGenerationException exception)
+        {
+            return ChatErrors.ToApiResult(exception);
+        }
+
+        var knowledgeBaseIds = result.Retrieval.Passages.Select(passage => passage.KnowledgeBaseId).Distinct().ToList();
+        var knowledgeBaseNames = await dbContext.KnowledgeBases.AsNoTracking()
+            .Where(knowledgeBase => knowledgeBaseIds.Contains(knowledgeBase.Id))
+            .ToDictionaryAsync(knowledgeBase => knowledgeBase.Id, knowledgeBase => knowledgeBase.Name, cancellationToken);
+
+        return Results.Ok(ToTrialAnswerResponse(result, knowledgeBaseNames));
+    }
+
+    private static TrialAnswerResponse ToTrialAnswerResponse(
+        GroundedAnswerResult result, IReadOnlyDictionary<Guid, string> knowledgeBaseNames) =>
+        new(
+            new TrialAnswerReplyView(
+                result.Reply.Kind,
+                result.Reply.Text,
+                [
+                    .. result.Reply.Citations.Select(citation => new TrialAnswerCitationView(
+                        citation.Ordinal,
+                        citation.KnowledgeBaseId,
+                        citation.KnowledgeBaseName,
+                        citation.DocumentId,
+                        citation.DocumentName,
+                        citation.LocationLabel,
+                        citation.Excerpt,
+                        citation.Score)),
+                ],
+                result.Reply.Notice,
+                result.Reply.NextSteps),
+            [
+                .. result.Retrieval.Passages.Select(passage => new TrialAnswerPassageView(
+                    passage.KnowledgeBaseId,
+                    knowledgeBaseNames.GetValueOrDefault(passage.KnowledgeBaseId, string.Empty),
+                    passage.DocumentId,
+                    passage.DocumentName,
+                    passage.LocationLabel,
+                    KnowledgeRetrievalRules.Excerpt(passage.Text),
+                    passage.Score)),
+            ],
+            result.Retrieval.Threshold);
 
     /// <summary>
     /// The knowledge bases the caller may connect right now

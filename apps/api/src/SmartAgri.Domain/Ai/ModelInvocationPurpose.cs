@@ -15,8 +15,13 @@ public enum ModelInvocationPurpose
     [JsonStringEnumMemberName("embed-query")]
     EmbedQuery,
 
-    /// <summary>Generating a grounded answer for an assistant conversation or a wizard trial
-    /// question (M3, Slice 4).</summary>
+    /// <summary>Generating a grounded answer for an assistant conversation (M3, Slice 4).</summary>
     [JsonStringEnumMemberName("generate-answer")]
     GenerateAnswer,
+
+    /// <summary>Generating a grounded answer for a wizard trial question, before any assistant
+    /// exists (M3, Slice 8): same pipeline as <see cref="GenerateAnswer"/>, distinguished so
+    /// trial calls never mix into an assistant's own usage.</summary>
+    [JsonStringEnumMemberName("trial-answer")]
+    TrialAnswer,
 }

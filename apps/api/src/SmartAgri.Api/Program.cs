@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Ai;
+using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
@@ -111,6 +112,7 @@ app.MapKnowledgeFaqEndpoints();
 app.MapKnowledgeExtractionEndpoints();
 app.MapKnowledgeReviewEndpoints();
 app.MapKnowledgeRetrievalEndpoints();
+app.MapAssistantEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

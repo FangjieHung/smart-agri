@@ -3,18 +3,37 @@ import {
   Component,
   DestroyRef,
   computed,
+  effect,
   inject,
   signal,
+  TemplateRef,
+  viewChild,
+  DOCUMENT,
 } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { DetailLayoutComponent } from '@smart-agri/ui';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import type { Observable } from 'rxjs';
 import type { AssistantStatus } from '../../../core/domain/assistant.model';
-import type {
-  KnowledgeBaseDetailView,
-  KnowledgeDocumentId,
-  KnowledgeSharingView,
+import {
+  isPendingKnowledgeDocument,
+  type KnowledgeBaseDetailView,
+  type KnowledgeDocumentStatus,
+  type KnowledgeDocumentView,
+  type KnowledgeSharingView,
 } from '../../../core/domain/knowledge-base.model';
+import type {
+  DeleteKnowledgeResult,
+  RepositoryView,
+  RetryKnowledgeDocumentResult,
+  UpdateKnowledgeSharingResult,
+} from '../../../core/repositories/demo-repository';
+import {
+  pollWhile,
+  repositoryResource,
+  type LoadedView,
+} from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
@@ -24,8 +43,8 @@ import { DocumentRowComponent } from '../components/document-row/document-row.co
 import { DOCUMENT_STATUS_LABELS, SHARING_SCOPE_LABELS } from '../components/knowledge-labels';
 import { SharingPanelComponent } from '../components/sharing-panel/sharing-panel.component';
 
-/** Demo 模擬處理時，每一個狀態停留的時間。 */
-export const DEMO_PROCESSING_STEP_MS = 900;
+/** 有等待中或處理中的項目時，每隔這麼久重新讀取一次詳情（分頁隱藏時暫停）。 */
+export const KNOWLEDGE_DETAIL_POLL_MS = 3000;
 
 type KnowledgeTabId = 'content' | 'assistants' | 'sharing';
 
@@ -47,10 +66,23 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
   paused: { label: '已暫停', tone: 'warning' },
 };
 
+/** 刪除前的確認對象：整個知識庫，或其中一份文件／FAQ。 */
+type PendingDeletion =
+  | { readonly kind: 'knowledge-base'; readonly name: string; readonly itemCount: number }
+  | { readonly kind: 'document'; readonly document: KnowledgeDocumentView };
+
+function hasPendingDocuments(view: RepositoryView<KnowledgeBaseDetailView>): boolean {
+  return (
+    (view.status === 'ready' || view.status === 'partial-failure') &&
+    view.data.documents.some((document) => isPendingKnowledgeDocument(document.status))
+  );
+}
+
 @Component({
   selector: 'app-knowledge-detail-page',
   imports: [
     RouterLink,
+    MatDialogModule,
     DetailLayoutComponent,
     PageHeaderComponent,
     StatePanelComponent,
@@ -67,33 +99,53 @@ export class KnowledgeDetailPageComponent {
   private readonly router = inject(Router);
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly document = inject(DOCUMENT);
+  private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly deleteDialog = viewChild<TemplateRef<unknown>>('deleteDialog');
   private readonly params = toSignal(this.route.paramMap, {
     initialValue: this.route.snapshot.paramMap,
   });
-  /** repository 為同步 mock，異動後遞增此值讓畫面重新讀取。 */
-  private readonly revision = signal(0);
-  private readonly timers = new Set<ReturnType<typeof setTimeout>>();
 
   protected readonly tabs = TABS;
   protected readonly knowledgeBaseId = computed(() => this.params().get('id') ?? '');
   protected readonly activeTab = computed<KnowledgeTab>(
     () => TABS.find((tab) => tab.id === this.params().get('tab')) ?? TABS[0],
   );
-  protected readonly view = computed(() => {
-    this.revision();
-    const accountId = this.session.activeAccountId();
-    return accountId
-      ? this.repository.getKnowledgeBaseDetail(accountId, this.knowledgeBaseId())
-      : null;
+
+  /**
+   * 讀取並在有等待中或處理中的項目時輪詢（`pollWhile`）：處理進度由 repository 算好
+   * （mock 依經過時間、API 由後端工作），畫面只是重新讀取，不分辨是哪一種模式。
+   * 換頁籤不會重新讀取；換知識庫或換身分才會。
+   */
+  private readonly detail = repositoryResource({
+    params: () => {
+      const accountId = this.session.activeAccountId();
+      return accountId ? { accountId, knowledgeBaseId: this.knowledgeBaseId() } : undefined;
+    },
+    stream: ({ knowledgeBaseId }) =>
+      pollWhile(() => this.repository.getKnowledgeBaseDetail(knowledgeBaseId), hasPendingDocuments, {
+        intervalMs: KNOWLEDGE_DETAIL_POLL_MS,
+        document: this.document,
+      }),
   });
+  protected readonly view = this.detail.view;
+
   protected readonly liveMessage = signal('');
+  protected readonly actionError = signal('');
   protected readonly sharingFeedback = signal('');
+  protected readonly savingSharing = signal(false);
+  /** 有請求進行中的文件 id（重新處理或刪除）。 */
+  protected readonly busyDocuments = signal<ReadonlySet<string>>(new Set());
+  protected readonly pendingDeletion = signal<PendingDeletion | null>(null);
+  protected readonly deleting = signal(false);
+  protected readonly deleteError = signal('');
+
+  /** 上一次看到的各文件狀態；輪詢讀到狀態改變時才朗讀，第一次載入不朗讀。 */
+  private previousStatuses: ReadonlyMap<string, KnowledgeDocumentStatus> | null = null;
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => {
-      this.timers.forEach((timer) => clearTimeout(timer));
-      this.timers.clear();
-    });
+    effect(() => this.announceStatusChanges(this.view()));
   }
 
   protected attention(detail: KnowledgeBaseDetailView) {
@@ -113,64 +165,176 @@ export class KnowledgeDetailPageComponent {
     return ASSISTANT_STATUS[status];
   }
 
-  protected addDemoDocument(detail: KnowledgeBaseDetailView): void {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return;
-    const result = this.repository.addDemoKnowledgeDocument(accountId, detail.summary.id);
-    if (result.status !== 'ready') return;
-
-    this.announce(result.data.name, result.data.status);
-    this.revision.update((value) => value + 1);
-    this.scheduleStep(detail, result.data.id);
+  protected isBusy(document: KnowledgeDocumentView): boolean {
+    return this.busyDocuments().has(document.id);
   }
 
-  protected retryDocument(detail: KnowledgeBaseDetailView, documentId: KnowledgeDocumentId): void {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return;
-    const result = this.repository.retryKnowledgeDocument(accountId, detail.summary.id, documentId);
-    if (result.status !== 'ready') return;
-
-    this.announce(result.data.name, result.data.status);
-    this.revision.update((value) => value + 1);
-    this.scheduleStep(detail, documentId);
+  protected retryDocument(detail: KnowledgeBaseDetailView, document: KnowledgeDocumentView): void {
+    if (this.isBusy(document)) return;
+    this.actionError.set('');
+    this.runForDocument(
+      document,
+      this.repository.retryKnowledgeDocument(detail.summary.id, document.id, document.latestVersionId),
+      (result: RetryKnowledgeDocumentResult) => {
+        if (result.status === 'ready' || result.status === 'partial-failure') {
+          this.announce(result.data.name, result.data.status);
+          this.detail.reload();
+        } else if (result.status !== 'loading') {
+          this.actionError.set(result.message);
+        }
+      },
+      '目前無法重新處理，請稍後再試。',
+    );
   }
 
   protected saveSharing(detail: KnowledgeBaseDetailView, sharing: KnowledgeSharingView): void {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return;
-    const result = this.repository.updateKnowledgeSharing(accountId, detail.summary.id, sharing);
+    if (this.savingSharing()) return;
+    this.savingSharing.set(true);
+    this.repository
+      .updateKnowledgeSharing(detail.summary.id, sharing)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result: UpdateKnowledgeSharingResult) => {
+          this.savingSharing.set(false);
+          if (result.status === 'ready' || result.status === 'partial-failure') {
+            this.sharingFeedback.set(`分享設定已儲存：${SHARING_SCOPE_LABELS[result.data.scope]}。`);
+            this.detail.reload();
+          } else if (result.status !== 'loading') {
+            this.sharingFeedback.set(result.message);
+          }
+        },
+        error: () => {
+          this.savingSharing.set(false);
+          this.sharingFeedback.set('目前無法儲存分享設定，請稍後再試。');
+        },
+      });
+  }
 
-    if (result.status === 'ready') {
-      this.sharingFeedback.set(`分享設定已儲存：${SHARING_SCOPE_LABELS[result.data.scope]}。`);
-      this.revision.update((value) => value + 1);
-    } else if (result.status === 'validation-failed' || result.status === 'permission-denied') {
-      this.sharingFeedback.set(result.message);
-    }
+  protected confirmDeleteKnowledgeBase(detail: KnowledgeBaseDetailView): void {
+    this.openDeleteDialog({
+      kind: 'knowledge-base',
+      name: detail.summary.name,
+      itemCount: detail.documents.length,
+    });
+  }
+
+  protected confirmDeleteDocument(document: KnowledgeDocumentView): void {
+    this.openDeleteDialog({ kind: 'document', document });
+  }
+
+  protected closeDeleteDialog(): void {
+    this.dialog.closeAll();
+  }
+
+  protected deleteConfirmed(): void {
+    const pending = this.pendingDeletion();
+    const knowledgeBaseId = this.knowledgeBaseId();
+    if (pending === null || this.deleting()) return;
+
+    this.deleting.set(true);
+    this.deleteError.set('');
+    const request: Observable<DeleteKnowledgeResult> =
+      pending.kind === 'knowledge-base'
+        ? this.repository.deleteKnowledgeBase(knowledgeBaseId)
+        : this.repository.deleteKnowledgeDocument(knowledgeBaseId, pending.document.id);
+    request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (result) => this.deleted(pending, result),
+      error: () => {
+        this.deleting.set(false);
+        this.deleteError.set('目前無法刪除，請稍後再試。');
+      },
+    });
   }
 
   protected returnToList(): void {
     void this.router.navigateByUrl('/app/knowledge');
   }
 
-  /** Demo：以計時器逐步推進狀態，不會上傳或讀取任何檔案。 */
-  private scheduleStep(detail: KnowledgeBaseDetailView, documentId: KnowledgeDocumentId): void {
-    const timer = setTimeout(() => {
-      this.timers.delete(timer);
-      const accountId = this.session.activeAccountId();
-      if (!accountId) return;
-      const result = this.repository.advanceKnowledgeDocument(accountId, detail.summary.id, documentId);
-      if (result.status !== 'ready') return;
-
-      this.announce(result.data.name, result.data.status);
-      this.revision.update((value) => value + 1);
-      if (result.data.status === 'queued' || result.data.status === 'processing') {
-        this.scheduleStep(detail, documentId);
-      }
-    }, DEMO_PROCESSING_STEP_MS);
-    this.timers.add(timer);
+  protected deletionTitle(pending: PendingDeletion): string {
+    return pending.kind === 'knowledge-base'
+      ? `刪除知識庫「${pending.name}」？`
+      : `刪除「${pending.document.name}」？`;
   }
 
-  private announce(name: string, status: keyof typeof DOCUMENT_STATUS_LABELS): void {
+  protected deletionDetail(pending: PendingDeletion): string {
+    return pending.kind === 'knowledge-base'
+      ? `其中的 ${pending.itemCount} 項文件與 FAQ、分享設定都會一併刪除，已連接的助理將無法再引用。這個動作無法復原。`
+      : '這份內容的所有版本都會刪除，助理將無法再引用。這個動作無法復原。';
+  }
+
+  private openDeleteDialog(pending: PendingDeletion): void {
+    const content = this.deleteDialog();
+    if (!content) return;
+    this.pendingDeletion.set(pending);
+    this.deleteError.set('');
+    this.dialog
+      .open(content, {
+        width: 'min(32rem, calc(100vw - 2rem))',
+        autoFocus: '#knowledge-delete-cancel',
+        restoreFocus: true,
+        ariaLabelledBy: 'knowledge-delete-title',
+        ariaDescribedBy: 'knowledge-delete-detail',
+        role: 'alertdialog',
+      })
+      .afterClosed()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        if (!this.deleting()) this.pendingDeletion.set(null);
+      });
+  }
+
+  private deleted(pending: PendingDeletion, result: DeleteKnowledgeResult): void {
+    this.deleting.set(false);
+    if (result.status === 'ready' || result.status === 'partial-failure') {
+      this.pendingDeletion.set(null);
+      this.closeDeleteDialog();
+      if (pending.kind === 'knowledge-base') {
+        this.returnToList();
+      } else {
+        this.liveMessage.set(`已刪除「${pending.document.name}」。`);
+        this.detail.reload();
+      }
+    } else if (result.status !== 'loading') {
+      this.deleteError.set(result.message);
+    }
+  }
+
+  /** 送出單一文件的請求：進行中停用該列按鈕，元件銷毀時取消。 */
+  private runForDocument<T>(
+    document: KnowledgeDocumentView,
+    request: Observable<T>,
+    handle: (result: T) => void,
+    failureMessage: string,
+  ): void {
+    const settle = () =>
+      this.busyDocuments.update((ids) => new Set([...ids].filter((id) => id !== document.id)));
+    this.busyDocuments.update((ids) => new Set([...ids, document.id]));
+    request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (result) => {
+        settle();
+        handle(result);
+      },
+      error: () => {
+        settle();
+        this.actionError.set(failureMessage);
+      },
+    });
+  }
+
+  private announceStatusChanges(view: LoadedView<KnowledgeBaseDetailView>): void {
+    if (view.status !== 'ready' && view.status !== 'partial-failure') return;
+    const previous = this.previousStatuses;
+    this.previousStatuses = new Map(view.data.documents.map((document) => [document.id, document.status]));
+    if (previous === null) return;
+    const changed = view.data.documents.filter((document) => {
+      const before = previous.get(document.id);
+      return before !== undefined && before !== document.status;
+    });
+    const last = changed.at(-1);
+    if (last !== undefined) this.announce(last.name, last.status);
+  }
+
+  private announce(name: string, status: KnowledgeDocumentStatus): void {
     this.liveMessage.set(`「${name}」${DOCUMENT_STATUS_LABELS[status].label}`);
   }
 }

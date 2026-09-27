@@ -3,10 +3,24 @@
   <app-page-header
     title="知識庫"
     description="整理助理可以引用的文件與 FAQ；每個知識庫可以連接到多個助理。"
-  />
+  >
+    @if (canCreate()) {
+      <button page-header-actions type="button" class="ui-button" (click)="openCreateDialog()">建立知識庫</button>
+    }
+  </app-page-header>
 
-  @if (result === null || result.status === 'loading') {
+  <p class="feedback" role="status">{{ feedback() }}</p>
+
+  @if (result.status === 'loading') {
     <app-state-panel state="loading" title="正在載入知識庫" />
+  } @else if (result.status === 'error') {
+    <app-state-panel
+      state="error"
+      title="目前無法載入知識庫"
+      description="這不代表你沒有知識庫。請稍後重新整理頁面再試一次。"
+    />
+  } @else if (result.status === 'permission-denied' && result.reason === 'password-change-required') {
+    <app-state-panel state="permission-denied" title="請先設定新密碼" [description]="result.message" />
   } @else if (result.status === 'permission-denied') {
     <app-state-panel
       state="permission-denied"
@@ -37,10 +51,52 @@
         <ng-template dtCell="updatedAt" let-item><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></ng-template>
       </lib-data-table>
     } @else {
-      <section class="ui-panel" aria-labelledby="empty-knowledge-title">
+      <section class="ui-panel empty-panel" aria-labelledby="empty-knowledge-title">
         <h2 id="empty-knowledge-title" class="ui-panel-title">還沒有知識庫</h2>
         <p class="ui-panel-description">知識庫可以整理文件與 FAQ，讓助理回答時引用組織資料。</p>
+        @if (canCreate()) {
+          <button type="button" class="ui-button" (click)="openCreateDialog()">建立知識庫</button>
+        } @else {
+          <p class="ui-panel-description">只有可管理資料來源的帳號可以建立知識庫。</p>
+        }
       </section>
     }
   }
 </section>
+
+<ng-template #createDialog>
+  <form class="create-panel" aria-labelledby="create-knowledge-title" (submit)="create($event)" novalidate>
+    <h2 id="create-knowledge-title">建立知識庫</h2>
+    <p class="hint">建立後只有你看得到；之後可以加入文件與 FAQ，並在「分享權限」開放給其他帳號。</p>
+    <div class="control">
+      <label for="knowledge-name">名稱</label>
+      <input
+        id="knowledge-name"
+        type="text"
+        autocomplete="off"
+        [attr.maxlength]="nameMaxLength"
+        [value]="name()"
+        [attr.aria-invalid]="createError() ? 'true' : null"
+        [attr.aria-describedby]="createError() ? 'knowledge-create-error' : null"
+        (input)="setName($event)"
+      />
+    </div>
+    <div class="control">
+      <label for="knowledge-purpose">用途（選填）</label>
+      <textarea
+        id="knowledge-purpose"
+        rows="3"
+        [attr.maxlength]="purposeMaxLength"
+        [value]="purpose()"
+        (input)="setPurpose($event)"
+      ></textarea>
+    </div>
+    @if (createError()) {
+      <p id="knowledge-create-error" class="error" role="alert">{{ createError() }}</p>
+    }
+    <div class="dialog-actions">
+      <button type="button" class="ui-button secondary" (click)="closeCreateDialog()">取消</button>
+      <button type="submit" class="ui-button" [disabled]="creating()">建立知識庫</button>
+    </div>
+  </form>
+</ng-template>

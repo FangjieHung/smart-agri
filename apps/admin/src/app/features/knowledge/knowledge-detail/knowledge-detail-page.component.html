@@ -1,8 +1,20 @@
 @let result = view();
 <section class="workspace-page">
-  @if (result === null || result.status === 'loading') {
+  @if (result.status === 'loading') {
     <app-page-header title="知識庫" />
     <app-state-panel state="loading" title="正在載入知識庫" />
+  } @else if (result.status === 'error') {
+    <app-page-header title="知識庫" />
+    <app-state-panel
+      state="error"
+      title="目前無法載入這個知識庫"
+      description="請稍後重新整理頁面再試一次。"
+      recoveryLabel="返回知識庫列表"
+      (recover)="returnToList()"
+    />
+  } @else if (result.status === 'permission-denied' && result.reason === 'password-change-required') {
+    <app-page-header title="知識庫" />
+    <app-state-panel state="permission-denied" title="請先設定新密碼" [description]="result.message" />
   } @else if (result.status === 'permission-denied') {
     <app-page-header title="知識庫" />
     <app-state-panel
@@ -16,7 +28,12 @@
     @let detail = result.data;
     @let counts = attention(detail);
     <app-page-header [title]="detail.summary.name" [description]="detail.summary.purpose">
-      <a page-header-actions class="page-back" routerLink="/app/knowledge">返回知識庫列表</a>
+      <div page-header-actions class="header-actions">
+        <a class="page-back" routerLink="/app/knowledge">返回知識庫列表</a>
+        @if (detail.summary.viewerCanManage) {
+          <button type="button" class="ui-button danger" (click)="confirmDeleteKnowledgeBase(detail)">刪除知識庫</button>
+        }
+      </div>
     </app-page-header>
 
     @if (result.status === 'partial-failure') {
@@ -32,12 +49,6 @@
         @case ('content') {
           <div class="content-toolbar">
             <p class="hint">共 {{ detail.summary.documentCount }} 份文件、{{ detail.summary.faqCount }} 則 FAQ</p>
-            <div class="add-demo">
-              <button type="button" class="ui-button" aria-describedby="demo-upload-note" (click)="addDemoDocument(detail)">
-                加入示範文件
-              </button>
-              <p id="demo-upload-note" class="demo-note">Demo：不會真正上傳檔案，只模擬處理進度。</p>
-            </div>
           </div>
 
           @if (counts.needs > 0) {
@@ -46,14 +57,26 @@
               {{ counts.needs }} 項需要處理，其餘 {{ counts.ready }} 項仍可供助理使用。
             </p>
           } @else if (counts.pending > 0) {
-            <p class="processing-summary">{{ counts.pending }} 項處理中，完成後助理即可引用。</p>
+            <p class="processing-summary">{{ counts.pending }} 項處理中，完成後助理即可引用。畫面會自動更新進度。</p>
+          }
+
+          @if (actionError()) {
+            <p class="action-error" role="alert">{{ actionError() }}</p>
           }
 
           <ul class="document-list" aria-label="知識庫內容">
             @for (item of detail.documents; track item.id) {
-              <li><app-document-row [document]="item" (retry)="retryDocument(detail, $event)" /></li>
+              <li>
+                <app-document-row
+                  [document]="item"
+                  [canManage]="detail.summary.viewerCanManage"
+                  [busy]="isBusy(item)"
+                  (retry)="retryDocument(detail, $event)"
+                  (remove)="confirmDeleteDocument($event)"
+                />
+              </li>
             } @empty {
-              <li class="empty">還沒有內容，先加入一份示範文件看看處理流程。</li>
+              <li class="empty">這個知識庫還沒有文件或 FAQ。</li>
             }
           </ul>
           <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage() }}</p>
@@ -79,6 +102,7 @@
           <app-sharing-panel
             [sharing]="detail.sharing"
             [targets]="detail.shareTargets"
+            [saving]="savingSharing()"
             (save)="saveSharing(detail, $event)"
           />
           <p class="sharing-feedback" role="status">{{ sharingFeedback() }}</p>
@@ -88,3 +112,19 @@
     </lib-detail-layout>
   }
 </section>
+
+<ng-template #deleteDialog>
+  @if (pendingDeletion(); as pending) {
+    <section class="delete-panel">
+      <h2 id="knowledge-delete-title">{{ deletionTitle(pending) }}</h2>
+      <p id="knowledge-delete-detail" class="hint">{{ deletionDetail(pending) }}</p>
+      @if (deleteError()) {
+        <p class="action-error" role="alert">{{ deleteError() }}</p>
+      }
+      <div class="dialog-actions">
+        <button id="knowledge-delete-cancel" type="button" class="ui-button secondary" (click)="closeDeleteDialog()">取消</button>
+        <button type="button" class="ui-button danger" [disabled]="deleting()" (click)="deleteConfirmed()">刪除</button>
+      </div>
+    </section>
+  }
+</ng-template>

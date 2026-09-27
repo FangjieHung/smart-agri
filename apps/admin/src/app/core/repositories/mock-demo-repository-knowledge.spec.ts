@@ -1,24 +1,60 @@
-import type { KnowledgeDocumentView } from '../domain/knowledge-base.model';
+import { firstValueFrom } from 'rxjs';
+import type { AccountId } from '../domain/account.model';
+import type { KnowledgeBaseDetailView } from '../domain/knowledge-base.model';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
-import { MockDemoRepository } from './mock-demo-repository';
+import {
+  MOCK_KNOWLEDGE_PROCESSING_MS,
+  MOCK_KNOWLEDGE_QUEUED_MS,
+  MockDemoRepository,
+} from './mock-demo-repository';
 
-function createRepository(storage = createMemoryStorage()) {
+const ADMIN = 'account-smb-admin';
+const EMPLOYEE = 'account-internal-employee';
+const CUSTOMER = 'account-external-customer';
+const START = new Date('2026-09-22T02:00:00.000Z').getTime();
+
+interface Options {
+  readonly storage?: ReturnType<typeof createMemoryStorage>;
+  readonly viewer?: AccountId | null;
+  /** 測試可推進的時鐘（毫秒）。 */
+  readonly clock?: { now: number };
+}
+
+function createRepository({ storage = createMemoryStorage(), viewer = ADMIN, clock = { now: START } }: Options = {}) {
   return new MockDemoRepository(DEMO_SEED, {
     storage,
-    now: () => new Date('2026-09-22T02:00:00.000Z'),
+    now: () => new Date(clock.now),
+    viewer: () => viewer,
   });
 }
 
-function detailOf(repository: MockDemoRepository, id: string) {
-  const result = repository.getKnowledgeBaseDetail('account-smb-admin', id);
+async function detailOf(repository: MockDemoRepository, id: string): Promise<KnowledgeBaseDetailView> {
+  const result = await firstValueFrom(repository.getKnowledgeBaseDetail(id));
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
   return result.data;
 }
 
+async function summaryIds(repository: MockDemoRepository): Promise<string[]> {
+  const result = await firstValueFrom(repository.listKnowledgeBaseSummaries());
+  if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+  return result.data.map((item) => item.id);
+}
+
 describe('MockDemoRepository knowledge bases', () => {
-  it('summarises the owner’s knowledge bases with item counts, status counts, sharing and connected assistants', () => {
-    const result = createRepository().listKnowledgeBaseSummaries('account-smb-admin');
+  it('is a cold Observable: nothing is read or written until subscribed', async () => {
+    const storage = createMemoryStorage();
+    const repository = createRepository({ storage });
+
+    const create = repository.createKnowledgeBase({ name: '未訂閱', purpose: '' });
+    expect((await summaryIds(repository)).some((id) => id.startsWith('knowledge-created-'))).toBe(false);
+
+    await firstValueFrom(create);
+    expect((await summaryIds(repository)).some((id) => id.startsWith('knowledge-created-'))).toBe(true);
+  });
+
+  it('summarises the owner’s knowledge bases with item counts, status counts, sharing and connected assistants', async () => {
+    const result = await firstValueFrom(createRepository().listKnowledgeBaseSummaries());
 
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') return;
@@ -34,6 +70,7 @@ describe('MockDemoRepository knowledge bases', () => {
       faqCount: 2,
       sharingScope: 'specific-accounts',
       connectedAssistantNames: ['客服助理', '內部教育訓練助理'],
+      viewerCanManage: true,
     });
     expect(guide.statusCounts).toEqual({
       queued: 0,
@@ -45,21 +82,39 @@ describe('MockDemoRepository knowledge bases', () => {
     expect(Object.isFrozen(result.data)).toBe(true);
   });
 
-  it('covers all five document statuses across the seeded knowledge bases', () => {
-    const repository = createRepository();
-    const statuses = new Set(
-      (['knowledge-product-guide', 'knowledge-refund-policy', 'knowledge-shipping-faq'] as const)
-        .flatMap((id) => detailOf(repository, id).documents)
-        .map((document) => document.status),
-    );
+  it('reads nothing for a signed-out session', async () => {
+    const repository = createRepository({ viewer: null });
 
-    expect(statuses).toEqual(
-      new Set(['queued', 'processing', 'ready', 'partially-readable', 'failed']),
-    );
+    expect(await firstValueFrom(repository.listKnowledgeBaseSummaries())).toMatchObject({
+      status: 'permission-denied',
+      reason: 'knowledge-base',
+    });
+    expect(await firstValueFrom(repository.getKnowledgeBaseDetail('knowledge-product-guide'))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'knowledge-base',
+    });
   });
 
-  it('keeps other documents usable when one document fails, and explains the failure', () => {
-    const detail = detailOf(createRepository(), 'knowledge-product-guide');
+  it('covers all five document statuses across the seeded knowledge bases', async () => {
+    const repository = createRepository();
+    const details = await Promise.all(
+      ['knowledge-product-guide', 'knowledge-refund-policy', 'knowledge-shipping-faq'].map((id) =>
+        detailOf(repository, id),
+      ),
+    );
+    const statuses = new Set(details.flatMap((detail) => detail.documents).map((document) => document.status));
+
+    expect(statuses).toEqual(new Set(['queued', 'processing', 'ready', 'partially-readable', 'failed']));
+  });
+
+  it('gives every document a version id to retry against', async () => {
+    const detail = await detailOf(createRepository(), 'knowledge-product-guide');
+
+    detail.documents.forEach((document) => expect(document.latestVersionId).toBe(`${document.id}:v1`));
+  });
+
+  it('keeps other documents usable when one document fails, and explains the failure', async () => {
+    const detail = await detailOf(createRepository(), 'knowledge-product-guide');
     const failed = detail.documents.filter((document) => document.status === 'failed');
     const ready = detail.documents.filter((document) => document.status === 'ready');
 
@@ -69,8 +124,8 @@ describe('MockDemoRepository knowledge bases', () => {
     ready.forEach((document) => expect(document.issue).toBeNull());
   });
 
-  it('lists every assistant owned by the viewer that connects the knowledge base', () => {
-    const detail = detailOf(createRepository(), 'knowledge-product-guide');
+  it('lists every assistant owned by the viewer that connects the knowledge base', async () => {
+    const detail = await detailOf(createRepository(), 'knowledge-product-guide');
 
     expect(detail.connectedAssistants.map((assistant) => assistant.id)).toEqual([
       'assistant-customer-service',
@@ -81,105 +136,248 @@ describe('MockDemoRepository knowledge bases', () => {
   it.each([
     ['another account’s knowledge base', 'knowledge-staff-notes'],
     ['an unknown id', 'knowledge-does-not-exist'],
-  ])('denies %s without revealing its name', (_label, id) => {
-    const result = createRepository().getKnowledgeBaseDetail('account-smb-admin', id);
+  ])('denies %s without revealing its name', async (_label, id) => {
+    const result = await firstValueFrom(createRepository().getKnowledgeBaseDetail(id));
 
     expect(result).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
     expect(JSON.stringify(result)).not.toContain('同仁個人筆記');
   });
 
-  it('adds a simulated document that steps through queued → processing → ready without touching others', () => {
-    const repository = createRepository();
-    const before = detailOf(repository, 'knowledge-refund-policy').documents;
+  describe('processing by elapsed time (no timers, no advance method)', () => {
+    it('retries a failed document: queued, then processing, then ready as time passes', async () => {
+      const clock = { now: START };
+      const repository = createRepository({ clock });
+      const failed = (await detailOf(repository, 'knowledge-product-guide')).documents.find(
+        (document) => document.status === 'failed',
+      );
+      if (!failed) throw new Error('seed needs a failed document');
 
-    const added = repository.addDemoKnowledgeDocument('account-smb-admin', 'knowledge-refund-policy');
-    expect(added).toMatchObject({ status: 'ready', data: { status: 'queued', kind: 'document' } });
-    if (added.status !== 'ready') return;
-    const id = added.data.id;
+      const retried = await firstValueFrom(
+        repository.retryKnowledgeDocument('knowledge-product-guide', failed.id, failed.latestVersionId),
+      );
+      expect(retried).toMatchObject({ status: 'ready', data: { status: 'queued', issue: null } });
 
-    const steps: KnowledgeDocumentView['status'][] = [];
-    for (let i = 0; i < 3; i += 1) {
-      const next = repository.advanceKnowledgeDocument('account-smb-admin', 'knowledge-refund-policy', id);
-      if (next.status === 'ready') steps.push(next.data.status);
-    }
-    expect(steps).toEqual(['processing', 'ready', 'ready']);
+      const statusAfter = async (ms: number) => {
+        clock.now = START + ms;
+        const detail = await detailOf(repository, 'knowledge-product-guide');
+        return detail.documents.find((document) => document.id === failed.id)?.status;
+      };
+      expect(await statusAfter(MOCK_KNOWLEDGE_QUEUED_MS - 1)).toBe('queued');
+      expect(await statusAfter(MOCK_KNOWLEDGE_QUEUED_MS)).toBe('processing');
+      expect(await statusAfter(MOCK_KNOWLEDGE_QUEUED_MS + MOCK_KNOWLEDGE_PROCESSING_MS - 1)).toBe('processing');
+      expect(await statusAfter(MOCK_KNOWLEDGE_QUEUED_MS + MOCK_KNOWLEDGE_PROCESSING_MS)).toBe('ready');
 
-    const after = detailOf(repository, 'knowledge-refund-policy').documents;
-    expect(after).toHaveLength(before.length + 1);
-    expect(after.slice(0, before.length)).toEqual(before);
+      const summary = (await detailOf(repository, 'knowledge-product-guide')).summary;
+      expect(summary.statusCounts).toMatchObject({ failed: 0, ready: 5 });
+      expect(summary.updatedAt).toBe(
+        new Date(START + MOCK_KNOWLEDGE_QUEUED_MS + MOCK_KNOWLEDGE_PROCESSING_MS).toISOString(),
+      );
+    });
+
+    it('keeps the progress after a reload, because only the start time is stored', async () => {
+      const storage = createMemoryStorage();
+      const clock = { now: START };
+      const repository = createRepository({ storage, clock });
+      const failed = (await detailOf(repository, 'knowledge-product-guide')).documents.find(
+        (document) => document.status === 'failed',
+      );
+      if (!failed) throw new Error('seed needs a failed document');
+      await firstValueFrom(repository.retryKnowledgeDocument('knowledge-product-guide', failed.id, failed.latestVersionId));
+
+      clock.now = START + MOCK_KNOWLEDGE_QUEUED_MS + 1;
+      const reloaded = await detailOf(createRepository({ storage, clock }), 'knowledge-product-guide');
+      expect(reloaded.documents.find((document) => document.id === failed.id)?.status).toBe('processing');
+    });
+
+    it('leaves the seeded in-progress examples as they are', async () => {
+      const clock = { now: START + 24 * 60 * 60 * 1000 };
+      const detail = await detailOf(createRepository({ clock }), 'knowledge-shipping-faq');
+
+      expect(detail.documents.map((document) => document.status)).toEqual(['ready', 'processing', 'queued']);
+    });
   });
 
-  it('persists simulated documents to the injected storage', () => {
-    const storage = createMemoryStorage();
-    const added = createRepository(storage).addDemoKnowledgeDocument(
-      'account-smb-admin',
-      'knowledge-shipping-faq',
+  it.each([
+    ['partially-readable', 'document-guide-scan', '只有處理失敗的版本可以重試。'],
+    ['ready', 'document-guide-specs', '只有處理失敗的版本可以重試。'],
+  ])('refuses to retry a %s document, like the API’s 409', async (_status, documentId, message) => {
+    const repository = createRepository();
+    const result = await firstValueFrom(
+      repository.retryKnowledgeDocument('knowledge-product-guide', documentId, `${documentId}:v1`),
     );
-    if (added.status !== 'ready') throw new Error('expected ready');
 
-    const reloaded = detailOf(createRepository(storage), 'knowledge-shipping-faq');
-    expect(reloaded.documents.map((document) => document.id)).toContain(added.data.id);
+    expect(result).toEqual({ status: 'validation-failed', message });
   });
 
-  it('retries a failed document by queueing it again and clearing the issue', () => {
-    const repository = createRepository();
-    const failed = detailOf(repository, 'knowledge-product-guide').documents.find(
-      (document) => document.status === 'failed',
-    );
-    if (!failed) throw new Error('seed needs a failed document');
-
-    const retried = repository.retryKnowledgeDocument(
-      'account-smb-admin',
-      'knowledge-product-guide',
-      failed.id,
+  it('refuses to retry a document that is still processing', async () => {
+    const result = await firstValueFrom(
+      createRepository().retryKnowledgeDocument(
+        'knowledge-shipping-faq',
+        'document-shipping-islands',
+        'document-shipping-islands:v1',
+      ),
     );
 
-    expect(retried).toMatchObject({ status: 'ready', data: { status: 'queued', issue: null } });
+    expect(result).toEqual({
+      status: 'validation-failed',
+      message: '這個版本還在等待或處理中，處理完成後才能重試。',
+    });
   });
 
-  it('refuses document changes from a viewer who does not own the knowledge base', () => {
-    const repository = createRepository();
+  it('refuses document changes from a viewer who does not own the knowledge base', async () => {
+    const repository = createRepository({ viewer: EMPLOYEE });
 
     expect(
-      repository.addDemoKnowledgeDocument('account-internal-employee', 'knowledge-product-guide'),
+      await firstValueFrom(
+        repository.retryKnowledgeDocument('knowledge-product-guide', 'document-guide-locked', 'document-guide-locked:v1'),
+      ),
     ).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+    expect(
+      await firstValueFrom(repository.deleteKnowledgeDocument('knowledge-product-guide', 'document-guide-locked')),
+    ).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+    expect(await firstValueFrom(repository.deleteKnowledgeBase('knowledge-product-guide'))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'knowledge-base',
+    });
   });
 
-  it('saves each of the three sharing scopes explicitly', () => {
-    const repository = createRepository();
+  describe('create', () => {
+    it('creates a private, empty knowledge base that appears in the owner’s list only', async () => {
+      const storage = createMemoryStorage();
+      const repository = createRepository({ storage });
 
-    for (const sharing of [
-      { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
-      {
-        scope: 'specific-accounts',
-        sharedWithAccountIds: ['account-internal-employee'],
+      const created = await firstValueFrom(
+        repository.createKnowledgeBase({ name: '  門市作業手冊  ', purpose: ' 開店與結帳流程 ' }),
+      );
+
+      expect(created).toMatchObject({
+        status: 'ready',
+        data: {
+          name: '門市作業手冊',
+          purpose: '開店與結帳流程',
+          documentCount: 0,
+          faqCount: 0,
+          sharingScope: 'private',
+          connectedAssistantNames: [],
+          viewerCanManage: true,
+        },
+      });
+      if (created.status !== 'ready') return;
+      expect(await summaryIds(repository)).toContain(created.data.id);
+      expect((await detailOf(repository, created.data.id)).sharing).toEqual({
+        scope: 'private',
+        sharedWithAccountIds: [],
         allowOriginalDownload: false,
-      },
-      { scope: 'public', sharedWithAccountIds: [], allowOriginalDownload: true },
-    ] as const) {
+      });
+      expect(await summaryIds(createRepository({ storage, viewer: EMPLOYEE }))).not.toContain(created.data.id);
+    });
+
+    it('requires manage-data-sources, with the API’s message', async () => {
+      const result = await firstValueFrom(
+        createRepository({ viewer: CUSTOMER }).createKnowledgeBase({ name: '客戶的知識庫', purpose: '' }),
+      );
+
+      expect(result).toEqual({
+        status: 'permission-denied',
+        reason: 'knowledge-base',
+        message: '只有可管理資料來源的帳號可以建立知識庫。',
+      });
+    });
+
+    it.each([
+      [{ name: '   ', purpose: '' }, '請輸入知識庫名稱。'],
+      [{ name: '名'.repeat(101), purpose: '' }, '知識庫名稱最多 100 個字。'],
+      [{ name: '合法名稱', purpose: '字'.repeat(501) }, '用途說明最多 500 個字。'],
+    ])('rejects invalid input without writing anything', async (input, message) => {
+      const repository = createRepository();
+      const before = await summaryIds(repository);
+
+      expect(await firstValueFrom(repository.createKnowledgeBase(input))).toEqual({
+        status: 'validation-failed',
+        message,
+      });
+      expect(await summaryIds(repository)).toEqual(before);
+    });
+  });
+
+  describe('delete', () => {
+    it('deletes a seeded knowledge base for good, and the id then reads like any unknown id', async () => {
+      const storage = createMemoryStorage();
+      const repository = createRepository({ storage });
+
+      expect(await firstValueFrom(repository.deleteKnowledgeBase('knowledge-refund-policy'))).toEqual({
+        status: 'ready',
+        data: null,
+      });
+      expect(await summaryIds(createRepository({ storage }))).not.toContain('knowledge-refund-policy');
+      expect(await firstValueFrom(repository.getKnowledgeBaseDetail('knowledge-refund-policy'))).toMatchObject({
+        status: 'permission-denied',
+        reason: 'knowledge-base',
+      });
+      expect(await firstValueFrom(repository.deleteKnowledgeBase('knowledge-refund-policy'))).toMatchObject({
+        status: 'permission-denied',
+      });
+    });
+
+    it('deletes a created knowledge base', async () => {
+      const repository = createRepository();
+      const created = await firstValueFrom(repository.createKnowledgeBase({ name: '暫時的', purpose: '' }));
+      if (created.status !== 'ready') throw new Error('expected ready');
+
+      await firstValueFrom(repository.deleteKnowledgeBase(created.data.id));
+
+      expect(await summaryIds(repository)).not.toContain(created.data.id);
+    });
+
+    it('deletes one document and leaves the others untouched', async () => {
+      const repository = createRepository();
+      const before = (await detailOf(repository, 'knowledge-product-guide')).documents;
+
       expect(
-        repository.updateKnowledgeSharing('account-smb-admin', 'knowledge-refund-policy', sharing),
-      ).toEqual({ status: 'ready', data: sharing });
-      expect(detailOf(repository, 'knowledge-refund-policy').sharing).toEqual(sharing);
-    }
+        await firstValueFrom(repository.deleteKnowledgeDocument('knowledge-product-guide', 'document-guide-scan')),
+      ).toEqual({ status: 'ready', data: null });
+
+      const after = (await detailOf(repository, 'knowledge-product-guide')).documents;
+      expect(after).toEqual(before.filter((document) => document.id !== 'document-guide-scan'));
+      expect(
+        await firstValueFrom(repository.deleteKnowledgeDocument('knowledge-product-guide', 'document-guide-scan')),
+      ).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+    });
   });
 
-  it('rejects account-specific sharing without any selected account', () => {
-    const result = createRepository().updateKnowledgeSharing(
-      'account-smb-admin',
-      'knowledge-refund-policy',
-      { scope: 'specific-accounts', sharedWithAccountIds: [], allowOriginalDownload: false },
-    );
+  describe('sharing', () => {
+    it('saves each of the three sharing scopes explicitly', async () => {
+      const repository = createRepository();
 
-    expect(result).toMatchObject({ status: 'validation-failed' });
-  });
+      for (const sharing of [
+        { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
+        { scope: 'specific-accounts', sharedWithAccountIds: [EMPLOYEE], allowOriginalDownload: false },
+        { scope: 'public', sharedWithAccountIds: [], allowOriginalDownload: true },
+      ] as const) {
+        expect(await firstValueFrom(repository.updateKnowledgeSharing('knowledge-refund-policy', sharing))).toEqual({
+          status: 'ready',
+          data: sharing,
+        });
+        expect((await detailOf(repository, 'knowledge-refund-policy')).sharing).toEqual(sharing);
+      }
+    });
 
-  it('offers share targets other than the owner', () => {
-    const detail = detailOf(createRepository(), 'knowledge-refund-policy');
+    it('rejects account-specific sharing without any selected account', async () => {
+      const result = await firstValueFrom(
+        createRepository().updateKnowledgeSharing('knowledge-refund-policy', {
+          scope: 'specific-accounts',
+          sharedWithAccountIds: [],
+          allowOriginalDownload: false,
+        }),
+      );
 
-    expect(detail.shareTargets.map((target) => target.id)).toEqual([
-      'account-internal-employee',
-      'account-external-customer',
-    ]);
+      expect(result).toEqual({ status: 'validation-failed', message: '請至少選擇一個帳號或團隊。' });
+    });
+
+    it('offers share targets other than the owner', async () => {
+      const detail = await detailOf(createRepository(), 'knowledge-refund-policy');
+
+      expect(detail.shareTargets.map((target) => target.id)).toEqual([EMPLOYEE, CUSTOMER]);
+    });
   });
 });

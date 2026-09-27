@@ -63,12 +63,16 @@ import type {
   TrackedSubjectView,
 } from '../domain/database.model';
 import {
+  isRetryableKnowledgeDocument,
+  KNOWLEDGE_BASE_NAME_MAX_LENGTH,
+  KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH,
   KNOWLEDGE_DOCUMENT_STATUSES,
-  needsKnowledgeAttention,
+  type CreateKnowledgeBaseInput,
   type KnowledgeBaseDetailView,
   type KnowledgeBaseId,
   type KnowledgeBaseSummaryView,
   type KnowledgeBaseView,
+  type KnowledgeConnectedAssistantView,
   type KnowledgeDocumentId,
   type KnowledgeDocumentStatus,
   type KnowledgeDocumentStatusCounts,
@@ -129,7 +133,7 @@ import {
   DEFAULT_CHAT_PROFILE,
   type ChatResponseFixture,
 } from './demo-seed-chat';
-import { DEMO_SEED, type DemoSeed } from './demo-seed';
+import { DEMO_SEED, type DemoSeed, type KnowledgeDocumentFixture } from './demo-seed';
 import type {
   DatabaseCollectionFixture,
   DatabaseRecordFixture,
@@ -154,6 +158,8 @@ import type {
   ActivateLineChannelResult,
   CreateAssistantResult,
   CreateDatabaseResult,
+  CreateKnowledgeBaseResult,
+  DeleteKnowledgeResult,
   DemoKeyValueStorage,
   DemoRepository,
   DemoScenario,
@@ -162,6 +168,7 @@ import type {
   RepositoryView,
   PreviewDatabaseEntryResult,
   RenameChatThreadResult,
+  RetryKnowledgeDocumentResult,
   ReviewChatFormResult,
   SendChatMessageResult,
   SubmitChatFormResult,
@@ -401,24 +408,71 @@ function isStoredDatabaseAccess(value: unknown): value is StoredDatabaseAccess {
 }
 
 const KNOWLEDGE_KEY_PREFIX = 'sme-demo:knowledge:';
+/** 在這台瀏覽器建立的知識庫（`KnowledgeBaseView[]`）。 */
+const CREATED_KNOWLEDGE_BASES_KEY = 'sme-demo:created-knowledge-bases';
+/** 已刪除的知識庫 id；seed 的知識庫無法從 seed 移除，所以另外記下來。 */
+const DELETED_KNOWLEDGE_BASES_KEY = 'sme-demo:deleted-knowledge-bases';
+
+/**
+ * 保存的文件：畫面的欄位，加上 mock 才有的 `processingStartedAt`（重新處理的時間）。
+ * 有這個欄位的文件，狀態依經過時間計算（`mockKnowledgeProcessingState`），不寫回 storage；
+ * seed 本來就是等待中或處理中的文件沒有這個欄位，維持示範用的固定狀態。
+ */
+interface StoredKnowledgeDocument extends KnowledgeDocumentFixture {
+  readonly latestVersionId?: string;
+  readonly processingStartedAt?: string;
+}
 
 interface StoredKnowledgeRecord {
   readonly version: 1;
-  readonly documents: readonly KnowledgeDocumentView[];
+  readonly documents: readonly StoredKnowledgeDocument[];
   readonly sharing: KnowledgeSharingView;
 }
 
-/** Demo 加入文件時輪流使用的示範檔名；不讀取任何真實檔案。 */
-const DEMO_DOCUMENT_NAMES: readonly string[] = [
-  '新品規格補充說明.pdf',
-  '門市常見問答整理.docx',
-  '包裝與配件清單.pdf',
-];
+/** mock：開始處理後，前 2 秒是「等待處理」。 */
+export const MOCK_KNOWLEDGE_QUEUED_MS = 2000;
+/** mock：接著 3 秒是「處理中」，之後就是「可使用」（開始後第 5 秒）。 */
+export const MOCK_KNOWLEDGE_PROCESSING_MS = 3000;
 
-const NEXT_DOCUMENT_STATUS: Partial<Record<KnowledgeDocumentStatus, KnowledgeDocumentStatus>> = {
-  queued: 'processing',
-  processing: 'ready',
-};
+/**
+ * mock 的處理進度：只看「開始處理後經過多久」，不需要任何計時器或推進按鈕，所以詳情頁
+ * 重新讀取（輪詢）就能看到進度，與 API 模式的行為相同。
+ */
+export function mockKnowledgeProcessingState(
+  processingStartedAt: string,
+  now: Date,
+): { readonly status: KnowledgeDocumentStatus; readonly updatedAt: string } {
+  const started = Date.parse(processingStartedAt);
+  const elapsed = now.getTime() - started;
+  if (elapsed < MOCK_KNOWLEDGE_QUEUED_MS) return { status: 'queued', updatedAt: processingStartedAt };
+  if (elapsed < MOCK_KNOWLEDGE_QUEUED_MS + MOCK_KNOWLEDGE_PROCESSING_MS) {
+    return { status: 'processing', updatedAt: new Date(started + MOCK_KNOWLEDGE_QUEUED_MS).toISOString() };
+  }
+  return {
+    status: 'ready',
+    updatedAt: new Date(started + MOCK_KNOWLEDGE_QUEUED_MS + MOCK_KNOWLEDGE_PROCESSING_MS).toISOString(),
+  };
+}
+
+/** 與 API 的訊息相同（`KnowledgeVersionRules`、`KnowledgeBaseDetailsRules`、`ForbiddenReason`）。 */
+const KNOWLEDGE_STILL_PROCESSING_MESSAGE = '這個版本還在等待或處理中，處理完成後才能重試。';
+const KNOWLEDGE_NOT_FAILED_MESSAGE = '只有處理失敗的版本可以重試。';
+const KNOWLEDGE_NAME_REQUIRED_MESSAGE = '請輸入知識庫名稱。';
+const KNOWLEDGE_NAME_TOO_LONG_MESSAGE = `知識庫名稱最多 ${KNOWLEDGE_BASE_NAME_MAX_LENGTH} 個字。`;
+const KNOWLEDGE_PURPOSE_TOO_LONG_MESSAGE = `用途說明最多 ${KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH} 個字。`;
+export const KNOWLEDGE_CREATE_PERMISSION_DENIED_MESSAGE = '只有可管理資料來源的帳號可以建立知識庫。';
+export const KNOWLEDGE_PERMISSION_DENIED_MESSAGE = '你沒有這個知識庫的存取權限，或它已不存在。';
+
+function isKnowledgeBaseView(value: unknown): value is KnowledgeBaseView {
+  return (
+    isRecord(value) &&
+    typeof value['id'] === 'string' &&
+    typeof value['ownerAccountId'] === 'string' &&
+    typeof value['name'] === 'string' &&
+    typeof value['purpose'] === 'string' &&
+    typeof value['lastSyncedAt'] === 'string'
+  );
+}
 
 const SHARING_SCOPES: readonly KnowledgeSharingScope[] = ['private', 'specific-accounts', 'public'];
 
@@ -878,7 +932,7 @@ export class MockDemoRepository implements DemoRepository {
   listKnowledgeBases(
     viewerAccountId: AccountId,
   ): ReturnType<DemoRepository['listKnowledgeBases']> {
-    const knowledgeBases = this.seed.knowledgeBases.filter(
+    const knowledgeBases = this.knowledgeBases().filter(
       (knowledgeBase) => knowledgeBase.ownerAccountId === viewerAccountId,
     );
 
@@ -1245,7 +1299,7 @@ export class MockDemoRepository implements DemoRepository {
     const knowledgeBase =
       companyAnswer === null
         ? undefined
-        : this.seed.knowledgeBases.find(
+        : this.knowledgeBases().find(
             (candidate) =>
               candidate.id === companyAnswer.sourceId &&
               candidate.ownerAccountId === viewerAccountId &&
@@ -1457,35 +1511,70 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(configuration);
   }
 
-  listKnowledgeBaseSummaries(
-    viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listKnowledgeBaseSummaries']> {
+  listKnowledgeBaseSummaries(): ReturnType<DemoRepository['listKnowledgeBaseSummaries']> {
+    return defer(() => of(this.readKnowledgeSummaries(this.viewer())));
+  }
+
+  getKnowledgeBaseDetail(knowledgeBaseId: string): ReturnType<DemoRepository['getKnowledgeBaseDetail']> {
+    return defer(() => of(this.readKnowledgeDetail(this.viewer(), knowledgeBaseId)));
+  }
+
+  createKnowledgeBase(input: CreateKnowledgeBaseInput): Observable<CreateKnowledgeBaseResult> {
+    return defer(() => of(this.writeNewKnowledgeBase(this.viewer(), input)));
+  }
+
+  deleteKnowledgeBase(knowledgeBaseId: KnowledgeBaseId): Observable<DeleteKnowledgeResult> {
+    return defer(() => of(this.removeKnowledgeBase(this.viewer(), knowledgeBaseId)));
+  }
+
+  deleteKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+  ): Observable<DeleteKnowledgeResult> {
+    return defer(() => of(this.removeKnowledgeDocument(this.viewer(), knowledgeBaseId, documentId)));
+  }
+
+  /** mock 沒有版本，`versionId` 只用來和 API 對齊簽章；判斷以文件本身為準。 */
+  retryKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    // 簽章與契約（及 API 模式的覆寫）一致；mock 只有一個版本，用不到。
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _versionId: string,
+  ): Observable<RetryKnowledgeDocumentResult> {
+    return defer(() => of(this.requeueKnowledgeDocument(this.viewer(), knowledgeBaseId, documentId)));
+  }
+
+  updateKnowledgeSharing(
+    knowledgeBaseId: KnowledgeBaseId,
+    sharing: KnowledgeSharingView,
+  ): Observable<UpdateKnowledgeSharingResult> {
+    return defer(() => of(this.writeKnowledgeSharing(this.viewer(), knowledgeBaseId, sharing)));
+  }
+
+  private readKnowledgeSummaries(
+    viewerAccountId: AccountId | null,
+  ): RepositoryView<readonly KnowledgeBaseSummaryView[]> {
+    if (viewerAccountId === null) return this.knowledgePermissionDenied();
     return this.applyScenario(
-      this.seed.knowledgeBases
+      this.knowledgeBases()
         .filter((knowledgeBase) => knowledgeBase.ownerAccountId === viewerAccountId)
         .map((knowledgeBase) => this.toKnowledgeSummary(knowledgeBase, viewerAccountId)),
     );
   }
 
-  getKnowledgeBaseDetail(
-    viewerAccountId: AccountId,
+  private readKnowledgeDetail(
+    viewerAccountId: AccountId | null,
     knowledgeBaseId: string,
-  ): ReturnType<DemoRepository['getKnowledgeBaseDetail']> {
+  ): RepositoryView<KnowledgeBaseDetailView> {
     const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
-    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+    if (viewerAccountId === null || knowledgeBase === undefined) return this.knowledgePermissionDenied();
 
-    const record = this.knowledgeRecord(knowledgeBase.id);
     const detail: KnowledgeBaseDetailView = {
       summary: this.toKnowledgeSummary(knowledgeBase, viewerAccountId),
-      documents: record.documents,
-      connectedAssistants: this.assistants()
-        .filter(
-          (assistant) =>
-            assistant.ownerAccountId === viewerAccountId &&
-            assistant.knowledgeBaseIds.includes(knowledgeBase.id),
-        )
-        .map(({ id, name, status }) => ({ id, name, status })),
-      sharing: record.sharing,
+      documents: this.knowledgeDocuments(knowledgeBase.id),
+      connectedAssistants: this.connectedKnowledgeAssistants(viewerAccountId, knowledgeBase.id),
+      sharing: this.knowledgeRecord(knowledgeBase.id).sharing,
       shareTargets: this.accounts()
         .filter((account) => account.id !== viewerAccountId)
         .map(({ id, displayName }) => ({ id, displayName })),
@@ -1494,63 +1583,120 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(detail);
   }
 
-  addDemoKnowledgeDocument(
-    viewerAccountId: AccountId,
-    knowledgeBaseId: KnowledgeBaseId,
-  ): ReturnType<DemoRepository['addDemoKnowledgeDocument']> {
+  private writeNewKnowledgeBase(
+    viewerAccountId: AccountId | null,
+    input: CreateKnowledgeBaseInput,
+  ): CreateKnowledgeBaseResult {
+    if (viewerAccountId === null || !this.canManageDataSources(viewerAccountId)) {
+      return this.permissionDenied('knowledge-base', KNOWLEDGE_CREATE_PERMISSION_DENIED_MESSAGE);
+    }
+
+    const name = input.name.trim();
+    const purpose = input.purpose.trim();
+    // 與 API 相同：第一個錯誤當訊息（名稱優先）。
+    const problem =
+      name.length === 0
+        ? KNOWLEDGE_NAME_REQUIRED_MESSAGE
+        : name.length > KNOWLEDGE_BASE_NAME_MAX_LENGTH
+          ? KNOWLEDGE_NAME_TOO_LONG_MESSAGE
+          : purpose.length > KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH
+            ? KNOWLEDGE_PURPOSE_TOO_LONG_MESSAGE
+            : null;
+    if (problem !== null) return immutableCopy({ status: 'validation-failed', message: problem });
+
+    const existing = new Set<string>(this.allKnowledgeBases().map((knowledgeBase) => knowledgeBase.id));
+    let sequence = this.now().getTime();
+    while (existing.has(`knowledge-created-${sequence}`)) sequence += 1;
+    const knowledgeBase: KnowledgeBaseView = {
+      id: `knowledge-created-${sequence}`,
+      ownerAccountId: viewerAccountId,
+      name,
+      purpose,
+      lastSyncedAt: this.now().toISOString(),
+    };
+    this.storage.setItem(
+      CREATED_KNOWLEDGE_BASES_KEY,
+      JSON.stringify([...this.createdKnowledgeBases(), knowledgeBase]),
+    );
+
+    return this.applyScenario(this.toKnowledgeSummary(knowledgeBase, viewerAccountId));
+  }
+
+  private removeKnowledgeBase(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+  ): DeleteKnowledgeResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+
+    this.storage.setItem(
+      DELETED_KNOWLEDGE_BASES_KEY,
+      JSON.stringify([...this.deletedKnowledgeBaseIds(), knowledgeBase.id]),
+    );
+    this.storage.removeItem(KNOWLEDGE_KEY_PREFIX + knowledgeBase.id);
+
+    return this.applyScenario(null);
+  }
+
+  private removeKnowledgeDocument(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    documentId: KnowledgeDocumentId,
+  ): DeleteKnowledgeResult {
     const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
     if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
 
     const record = this.knowledgeRecord(knowledgeBase.id);
-    const existing = new Set<string>(record.documents.map((document) => document.id));
-    let sequence = this.now().getTime();
-    while (existing.has(`document-demo-${sequence}`)) sequence += 1;
-    const demoCount = record.documents.filter((document) =>
-      document.id.startsWith('document-demo-'),
-    ).length;
-
-    const document: KnowledgeDocumentView = {
-      id: `document-demo-${sequence}`,
-      kind: 'document',
-      name: DEMO_DOCUMENT_NAMES[demoCount % DEMO_DOCUMENT_NAMES.length],
-      status: 'queued',
-      issue: null,
-      updatedAt: this.now().toISOString(),
-    };
+    if (!record.documents.some((document) => document.id === documentId)) {
+      return this.knowledgePermissionDenied();
+    }
     this.saveKnowledgeRecord(knowledgeBase.id, {
       ...record,
-      documents: [...record.documents, document],
+      documents: record.documents.filter((document) => document.id !== documentId),
     });
 
-    return this.applyScenario(document);
+    return this.applyScenario(null);
   }
 
-  advanceKnowledgeDocument(
-    viewerAccountId: AccountId,
-    knowledgeBaseId: KnowledgeBaseId,
+  /** 與 API 相同：只有處理失敗的文件可以重試，其餘回傳 validation-failed（API 的 `409`）。 */
+  private requeueKnowledgeDocument(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
     documentId: KnowledgeDocumentId,
-  ): ReturnType<DemoRepository['advanceKnowledgeDocument']> {
-    return this.updateKnowledgeDocument(viewerAccountId, knowledgeBaseId, documentId, (document) => {
-      const next = NEXT_DOCUMENT_STATUS[document.status];
-      return next === undefined ? document : { ...document, status: next };
+  ): RetryKnowledgeDocumentResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+
+    const record = this.knowledgeRecord(knowledgeBase.id);
+    const current = this.knowledgeDocuments(knowledgeBase.id).find((document) => document.id === documentId);
+    if (current === undefined) return this.knowledgePermissionDenied();
+    if (!isRetryableKnowledgeDocument(current.status)) {
+      return immutableCopy({
+        status: 'validation-failed',
+        message:
+          current.status === 'queued' || current.status === 'processing'
+            ? KNOWLEDGE_STILL_PROCESSING_MESSAGE
+            : KNOWLEDGE_NOT_FAILED_MESSAGE,
+      });
+    }
+
+    const startedAt = this.now().toISOString();
+    this.saveKnowledgeRecord(knowledgeBase.id, {
+      ...record,
+      documents: record.documents.map((document): StoredKnowledgeDocument =>
+        document.id === documentId
+          ? { ...document, status: 'queued', issue: null, updatedAt: startedAt, processingStartedAt: startedAt }
+          : document,
+      ),
     });
+
+    const retried = this.knowledgeDocuments(knowledgeBase.id).find((document) => document.id === documentId);
+    return retried === undefined ? this.knowledgePermissionDenied() : this.applyScenario(retried);
   }
 
-  retryKnowledgeDocument(
-    viewerAccountId: AccountId,
-    knowledgeBaseId: KnowledgeBaseId,
-    documentId: KnowledgeDocumentId,
-  ): ReturnType<DemoRepository['retryKnowledgeDocument']> {
-    return this.updateKnowledgeDocument(viewerAccountId, knowledgeBaseId, documentId, (document) =>
-      needsKnowledgeAttention(document.status)
-        ? { ...document, status: 'queued', issue: null }
-        : document,
-    );
-  }
-
-  updateKnowledgeSharing(
-    viewerAccountId: AccountId,
-    knowledgeBaseId: KnowledgeBaseId,
+  private writeKnowledgeSharing(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
     sharing: KnowledgeSharingView,
   ): UpdateKnowledgeSharingResult {
     const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
@@ -2664,14 +2810,36 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private ownedKnowledgeBase(
-    viewerAccountId: AccountId,
+    viewerAccountId: AccountId | null,
     knowledgeBaseId: string,
   ): KnowledgeBaseView | undefined {
-    return this.seed.knowledgeBases.find(
+    if (viewerAccountId === null) return undefined;
+    return this.knowledgeBases().find(
       (knowledgeBase) =>
         knowledgeBase.id === knowledgeBaseId &&
         knowledgeBase.ownerAccountId === viewerAccountId,
     );
+  }
+
+  /** seed 加上這台瀏覽器建立的知識庫，扣掉已刪除的。 */
+  private knowledgeBases(): readonly KnowledgeBaseView[] {
+    const deleted = new Set(this.deletedKnowledgeBaseIds());
+    return this.allKnowledgeBases().filter((knowledgeBase) => !deleted.has(knowledgeBase.id));
+  }
+
+  /** 含已刪除的（產生新 id 時避免重複使用）。 */
+  private allKnowledgeBases(): readonly KnowledgeBaseView[] {
+    return [...this.seed.knowledgeBases, ...this.createdKnowledgeBases()];
+  }
+
+  private createdKnowledgeBases(): readonly KnowledgeBaseView[] {
+    const stored = parseJson(this.storage.getItem(CREATED_KNOWLEDGE_BASES_KEY));
+    return Array.isArray(stored) ? stored.filter(isKnowledgeBaseView) : [];
+  }
+
+  private deletedKnowledgeBaseIds(): readonly string[] {
+    const stored = parseJson(this.storage.getItem(DELETED_KNOWLEDGE_BASES_KEY));
+    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [];
   }
 
   private knowledgeRecord(knowledgeBaseId: KnowledgeBaseId): StoredKnowledgeRecord {
@@ -2680,9 +2848,27 @@ export class MockDemoRepository implements DemoRepository {
 
     return {
       version: 1,
-      documents: this.seed.knowledgeDocuments[knowledgeBaseId],
-      sharing: this.seed.knowledgeSharing[knowledgeBaseId],
+      documents: this.seed.knowledgeDocuments[knowledgeBaseId] ?? [],
+      sharing: this.seed.knowledgeSharing[knowledgeBaseId] ?? {
+        scope: 'private',
+        sharedWithAccountIds: [],
+        allowOriginalDownload: false,
+      },
     };
+  }
+
+  /** 畫面看到的文件：補上版本 id，並依經過時間算出重新處理中文件的狀態。 */
+  private knowledgeDocuments(knowledgeBaseId: KnowledgeBaseId): readonly KnowledgeDocumentView[] {
+    const now = this.now();
+    return this.knowledgeRecord(knowledgeBaseId).documents.map(
+      ({ processingStartedAt, latestVersionId, ...document }): KnowledgeDocumentView => ({
+        ...document,
+        ...(processingStartedAt === undefined
+          ? {}
+          : mockKnowledgeProcessingState(processingStartedAt, now)),
+        latestVersionId: latestVersionId ?? `${document.id}:v1`,
+      }),
+    );
   }
 
   private saveKnowledgeRecord(
@@ -2692,39 +2878,29 @@ export class MockDemoRepository implements DemoRepository {
     this.storage.setItem(KNOWLEDGE_KEY_PREFIX + knowledgeBaseId, JSON.stringify(record));
   }
 
-  private updateKnowledgeDocument(
+  /**
+   * 目前帳號自己的助理中，連接了這個知識庫的那些。助理在 M3 之前仍是 mock 資料，
+   * 所以 API 模式（`HybridDemoRepository`）也用這裡補上後端沒有的「已連接助理」。
+   */
+  protected connectedKnowledgeAssistants(
     viewerAccountId: AccountId,
-    knowledgeBaseId: KnowledgeBaseId,
-    documentId: KnowledgeDocumentId,
-    change: (document: KnowledgeDocumentView) => KnowledgeDocumentView,
-  ): RepositoryView<KnowledgeDocumentView> {
-    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
-    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
-
-    const record = this.knowledgeRecord(knowledgeBase.id);
-    const current = record.documents.find((document) => document.id === documentId);
-    if (current === undefined) return this.knowledgePermissionDenied();
-
-    const changed = change(current);
-    const updated =
-      changed === current ? current : { ...changed, updatedAt: this.now().toISOString() };
-    if (updated !== current) {
-      this.saveKnowledgeRecord(knowledgeBase.id, {
-        ...record,
-        documents: record.documents.map((document) =>
-          document.id === documentId ? updated : document,
-        ),
-      });
-    }
-
-    return this.applyScenario(updated);
+    knowledgeBaseId: string,
+  ): readonly KnowledgeConnectedAssistantView[] {
+    return this.assistants()
+      .filter(
+        (assistant) =>
+          assistant.ownerAccountId === viewerAccountId &&
+          assistant.knowledgeBaseIds.includes(knowledgeBaseId),
+      )
+      .map(({ id, name, status }) => ({ id, name, status }));
   }
 
   private toKnowledgeSummary(
     knowledgeBase: KnowledgeBaseView,
     viewerAccountId: AccountId,
   ): KnowledgeBaseSummaryView {
-    const { documents, sharing } = this.knowledgeRecord(knowledgeBase.id);
+    const documents = this.knowledgeDocuments(knowledgeBase.id);
+    const { sharing } = this.knowledgeRecord(knowledgeBase.id);
     const updatedAt = documents.reduce(
       (latest, document) => (document.updatedAt > latest ? document.updatedAt : latest),
       knowledgeBase.lastSyncedAt,
@@ -2738,23 +2914,17 @@ export class MockDemoRepository implements DemoRepository {
       faqCount: documents.filter((document) => document.kind === 'faq').length,
       statusCounts: countStatuses(documents),
       sharingScope: sharing.scope,
-      connectedAssistantNames: this.assistants()
-        .filter(
-          (assistant) =>
-            assistant.ownerAccountId === viewerAccountId &&
-            assistant.knowledgeBaseIds.includes(knowledgeBase.id),
-        )
-        .map((assistant) => assistant.name),
+      connectedAssistantNames: this.connectedKnowledgeAssistants(viewerAccountId, knowledgeBase.id).map(
+        (assistant) => assistant.name,
+      ),
       updatedAt,
+      viewerCanManage: knowledgeBase.ownerAccountId === viewerAccountId,
     };
   }
 
   /** 不存在與無權限回傳相同結果，避免透過差異推測資源是否存在。 */
   private knowledgePermissionDenied(): PermissionDeniedRepositoryView {
-    return this.permissionDenied(
-      'knowledge-base',
-      '你沒有這個知識庫的存取權限，或它已不存在。',
-    );
+    return this.permissionDenied('knowledge-base', KNOWLEDGE_PERMISSION_DENIED_MESSAGE);
   }
 
   /** 只有可管理助理的擁有者能編輯；不存在與無權限都回傳 undefined。 */
@@ -2970,7 +3140,7 @@ export class MockDemoRepository implements DemoRepository {
   ): readonly ConnectableSourceView[] {
     if (!this.canManageAssistants(viewerAccountId)) return [];
 
-    const knowledgeBases = this.seed.knowledgeBases
+    const knowledgeBases = this.knowledgeBases()
       .filter((knowledgeBase) => knowledgeBase.ownerAccountId === viewerAccountId)
       .map((knowledgeBase): ConnectableSourceView => {
         const summary = this.toKnowledgeSummary(knowledgeBase, viewerAccountId);

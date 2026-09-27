@@ -53,6 +53,7 @@ import type {
   StructuredSubmissionView,
 } from '../domain/conversation.model';
 import type {
+  CreateKnowledgeBaseInput,
   KnowledgeBaseDetailView,
   KnowledgeBaseId,
   KnowledgeBaseSummaryView,
@@ -89,22 +90,31 @@ export type DemoScenario = (typeof DEMO_SCENARIOS)[number];
 
 export type RepositoryUnavailableResource = 'knowledge-sync';
 
-export type RepositoryPermissionDeniedReason =
-  | 'scenario'
-  | 'private-conversation'
-  | 'assistant-configuration'
-  | 'authorized-form'
-  | 'assistant-draft'
-  | 'knowledge-base'
-  | 'database'
-  | 'database-records'
-  | 'assistant-use'
-  | 'chat-thread'
-  | 'submission-withdrawal'
-  | 'publishing'
-  | 'team'
+export const REPOSITORY_PERMISSION_DENIED_REASONS = [
+  'scenario',
+  'private-conversation',
+  'assistant-configuration',
+  'authorized-form',
+  'assistant-draft',
+  'knowledge-base',
+  'database',
+  'database-records',
+  'assistant-use',
+  'chat-thread',
+  'submission-withdrawal',
+  'publishing',
+  'team',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
-  | 'password-change-required';
+  'password-change-required',
+] as const;
+
+export type RepositoryPermissionDeniedReason = (typeof REPOSITORY_PERMISSION_DENIED_REASONS)[number];
+
+export function isRepositoryPermissionDeniedReason(
+  value: unknown,
+): value is RepositoryPermissionDeniedReason {
+  return (REPOSITORY_PERMISSION_DENIED_REASONS as readonly unknown[]).includes(value);
+}
 
 export interface ReadyRepositoryView<T> {
   readonly status: 'ready';
@@ -154,14 +164,32 @@ export type UpdateAssistantSettingsResult =
   | RepositoryView<AssistantSettingsView>
   | AssistantSettingsValidationFailedView;
 
-export interface SharingValidationFailedView {
+/**
+ * 知識庫寫入被拒絕但可以修正後再試：API 的 `422`（名稱、分享對象）與 `409`（版本還在處理、
+ * 不是失敗的版本不能重試）。只有一句給人看的訊息，畫面直接顯示，不必分辨是哪一個欄位。
+ */
+export interface KnowledgeValidationFailedView {
   readonly status: 'validation-failed';
   readonly message: string;
 }
 
+/** 舊名稱，與 `KnowledgeValidationFailedView` 相同。 */
+export type SharingValidationFailedView = KnowledgeValidationFailedView;
+
 export type UpdateKnowledgeSharingResult =
   | RepositoryView<KnowledgeSharingView>
-  | SharingValidationFailedView;
+  | KnowledgeValidationFailedView;
+
+export type CreateKnowledgeBaseResult =
+  | RepositoryView<KnowledgeBaseSummaryView>
+  | KnowledgeValidationFailedView;
+
+export type RetryKnowledgeDocumentResult =
+  | RepositoryView<KnowledgeDocumentView>
+  | KnowledgeValidationFailedView;
+
+/** 刪除成功時 `data` 是 null（API 回 `204`，沒有內容可以回傳）。 */
+export type DeleteKnowledgeResult = RepositoryView<null>;
 
 export interface CreateDatabaseValidationFailedView {
   readonly status: 'validation-failed';
@@ -432,40 +460,48 @@ export interface DemoRepository extends DemoScenarioController {
     draft: AssistantDraft,
     draftId?: string,
   ): CreateAssistantResult;
-  /** 目前帳號擁有的知識庫摘要：文件／FAQ 數量、狀態統計、分享範圍與已連接助理。 */
-  listKnowledgeBaseSummaries(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly KnowledgeBaseSummaryView[]>;
-  /**
-   * 知識庫詳情。id 來自網址、未經驗證；不存在或無權限時一律回傳相同的
-   * permission-denied，訊息不包含資源名稱。
+  /*
+   * 知識庫（M2 Slice 11）：沿用 `getTeam` 的非同步契約——viewer 由工作階段推導，不由
+   * 呼叫端傳入；回傳 cold Observable，訂閱時才讀取或寫入。mock 以 `defer(() => of(...))`
+   * 實作，API 模式（`HybridDemoRepository`）走 HTTP，畫面不必知道是哪一種。
+   *
+   * 所有以 id 指定的方法：id 來自網址或畫面、未經驗證；不存在、屬於別人或屬於其他組織
+   * 一律回傳相同的 `knowledge-base` permission-denied，訊息不含資源名稱。讀取以外的錯誤
+   * （5xx、連線中斷）以 Observable 的 error 傳出，由畫面顯示「目前無法載入」。
    */
-  getKnowledgeBaseDetail(
-    viewerAccountId: AccountId,
-    knowledgeBaseId: string,
-  ): RepositoryView<KnowledgeBaseDetailView>;
-  /** Demo：只新增一筆等待處理的文件紀錄，不會真正上傳檔案。 */
-  addDemoKnowledgeDocument(
-    viewerAccountId: AccountId,
-    knowledgeBaseId: KnowledgeBaseId,
-  ): RepositoryView<KnowledgeDocumentView>;
-  /** Demo：把文件往下一個處理狀態推進一步（等待處理 → 處理中 → 可使用）。 */
-  advanceKnowledgeDocument(
-    viewerAccountId: AccountId,
+  /** 目前帳號擁有的知識庫摘要：文件／FAQ 數量、狀態統計、分享範圍與已連接助理。 */
+  listKnowledgeBaseSummaries(): Observable<RepositoryView<readonly KnowledgeBaseSummaryView[]>>;
+  /**
+   * 知識庫詳情。處理狀態依「開始處理後經過的時間」計算（mock）或由後端工作更新（API），
+   * 所以畫面在有等待中或處理中的項目時重新讀取即可看到進度，不需要另外推進。
+   */
+  getKnowledgeBaseDetail(knowledgeBaseId: string): Observable<RepositoryView<KnowledgeBaseDetailView>>;
+  /**
+   * 建立一個只有自己看得到（`private`）的空知識庫。需要 `manage-data-sources`，否則回傳
+   * `knowledge-base` permission-denied；名稱空白或過長回傳 validation-failed，完全不寫入。
+   */
+  createKnowledgeBase(input: CreateKnowledgeBaseInput): Observable<CreateKnowledgeBaseResult>;
+  /** 刪除知識庫與其中所有文件、FAQ 與分享設定；無法復原。 */
+  deleteKnowledgeBase(knowledgeBaseId: KnowledgeBaseId): Observable<DeleteKnowledgeResult>;
+  /** 刪除單一文件或 FAQ（含所有版本）；無法復原。 */
+  deleteKnowledgeDocument(
     knowledgeBaseId: KnowledgeBaseId,
     documentId: KnowledgeDocumentId,
-  ): RepositoryView<KnowledgeDocumentView>;
-  /** 把處理失敗或部分無法讀取的文件重新排入處理。 */
+  ): Observable<DeleteKnowledgeResult>;
+  /**
+   * 把處理失敗的版本重新排入處理；等待中、處理中或不是失敗的版本回傳 validation-failed
+   * （API 的 `409`）。`versionId` 是清單上的 `latestVersionId`。
+   */
   retryKnowledgeDocument(
-    viewerAccountId: AccountId,
     knowledgeBaseId: KnowledgeBaseId,
     documentId: KnowledgeDocumentId,
-  ): RepositoryView<KnowledgeDocumentView>;
+    versionId: string,
+  ): Observable<RetryKnowledgeDocumentResult>;
+  /** 指定帳號分享時至少要選一個分享對象，否則回傳 validation-failed，完全不寫入。 */
   updateKnowledgeSharing(
-    viewerAccountId: AccountId,
     knowledgeBaseId: KnowledgeBaseId,
     sharing: KnowledgeSharingView,
-  ): UpdateKnowledgeSharingResult;
+  ): Observable<UpdateKnowledgeSharingResult>;
   /** 資料庫入口先問「你要收集什麼」；只有可管理資料來源的帳號可以取得模板。 */
   listDatabaseTemplates(
     viewerAccountId: AccountId,

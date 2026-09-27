@@ -115,7 +115,10 @@ describe('accessibility', () => {
 
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
       cy.get('form.composer button[type="submit"]').click();
+      // 等串流完成（最終回覆取代串流文字、紀錄不再 aria-busy）才掃描（issue #80）。
       cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+      cy.get('[role="log"]').should('not.have.attr', 'aria-busy');
+      cy.get('button.stop').should('not.exist');
       auditA11y();
     });
 
@@ -194,7 +197,10 @@ describe('accessibility', () => {
 
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
       cy.get('form.composer button[type="submit"]').click();
+      // 等串流完成（最終回覆取代串流文字、紀錄不再 aria-busy）才掃描（issue #80）。
       cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+      cy.get('[role="log"]').should('not.have.attr', 'aria-busy');
+      cy.get('button.stop').should('not.exist');
       auditA11y();
 
       cy.visit('/use/assistant-customer-service?embed=1');

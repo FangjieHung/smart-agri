@@ -48,6 +48,18 @@ describe('private conversations and trustworthy answers', () => {
       .should('have.length.greaterThan', 0);
   });
 
+  it('replaces a streamed answer that fails citation checks with no-result', () => {
+    loginAs('外部客戶');
+    cy.visit('/use/assistant-customer-service?demoScenario=answer-rejected');
+    ask('收到商品後幾天內可以退貨？');
+
+    // 串流中的草稿（含引用標記）最後被整則換成查無資料；串流中的樣式由元件測試涵蓋。
+    cy.get('[role="log"] [data-kind="no-result"]').should('contain', '查無資料');
+    cy.get('app-streaming-reply').should('not.exist');
+    cy.get('[role="log"]').should('not.contain', '這個問題可以這樣處理');
+    cy.contains('button', '查看引用來源').should('not.exist');
+  });
+
   it('keeps a conversation private from other accounts and from the assistant owner', () => {
     loginAs('外部客戶');
     cy.visit('/use/assistant-customer-service');

@@ -1,4 +1,6 @@
 import { signal, type Provider } from '@angular/core';
+import { CHAT_RUNNER } from '../../core/chat/chat-runner';
+import { MockChatRunner } from '../../core/chat/mock-chat-runner';
 import type { AccountId } from '../../core/domain/account.model';
 import type { ChatFormView, ChatReplyView } from '../../core/domain/conversation.model';
 import { DEMO_SEED } from '../../core/repositories/demo-seed';
@@ -32,6 +34,8 @@ export function provideAssistantUseTesting(
     { provide: DEMO_REPOSITORY, useValue: repository },
     { provide: DemoSessionService, useValue: { activeAccountId } },
     { provide: AnonymousVisitorService, useValue: visitor },
+    // 串流的片段同步送完，讓既有的「送出後立即看到回覆」測試不必等計時器。
+    { provide: CHAT_RUNNER, useValue: new MockChatRunner(repository, 0) },
   ];
 
   return { providers, repository, activeAccountId, storage, visitorStorage, visitor };

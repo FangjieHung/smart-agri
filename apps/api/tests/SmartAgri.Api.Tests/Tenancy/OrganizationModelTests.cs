@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Shouldly;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
@@ -64,6 +65,7 @@ public class OrganizationModelTests
                 typeof(KnowledgeBase), typeof(KnowledgeBaseShare), typeof(KnowledgeActivity),
                 typeof(KnowledgeDocument), typeof(KnowledgeDocumentVersion), typeof(KnowledgeFileContent),
                 typeof(KnowledgeExtractedUnit), typeof(KnowledgeChunk),
+                typeof(Assistant), typeof(AssistantKnowledgeBase),
                 typeof(BackgroundJob),
                 typeof(ModelInvocation),
             ],

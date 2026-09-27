@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Ai;
 using SmartAgri.Api.Answers;
+using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Chat;
 using SmartAgri.Api.Authentication;
@@ -95,6 +96,15 @@ if (args is [SmartAgriCommands.EvalRetrieval, .. var evalArgs])
     return;
 }
 
+// `eval-answers` is one-shot too, Development only: import the answer evaluation set into an
+// organization of its own, answer every question with GroundedAnswerService with the configured
+// models and write a Markdown report, then exit (M3 plan, Slice 13).
+if (args is [SmartAgriCommands.EvalAnswers, .. var evalAnswersArgs])
+{
+    Environment.ExitCode = await EvalAnswersCommand.RunAsync(app.Services, evalAnswersArgs, Console.Out, Console.Error);
+    return;
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -135,6 +145,7 @@ internal static class SmartAgriCommands
     public const string Setup = "setup";
     public const string Reindex = "reindex";
     public const string EvalRetrieval = "eval-retrieval";
+    public const string EvalAnswers = "eval-answers";
 }
 
 namespace SmartAgri.Api

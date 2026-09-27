@@ -141,6 +141,31 @@
         }
       }
     },
+    "/api/v1/chat/recent-conversations": {
+      "get": {
+        "tags": [
+          "ChatEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecentConversationView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/api/v1/auth/login-options": {
       "get": {
         "tags": [
@@ -2019,6 +2044,278 @@
           }
         }
       }
+    },
+    "/api/v1/assistants/{id}/chat/conversations": {
+      "get": {
+        "tags": [
+          "ChatEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatThreadListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ChatEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantChatView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/conversations/{threadId}": {
+      "patch": {
+        "tags": [
+          "ChatEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameChatThreadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatThreadSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ChatEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "threadId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatThreadListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat": {
+      "get": {
+        "tags": [
+          "ChatEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conversation",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantChatView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/citations/{messageId}/{ordinal}": {
+      "get": {
+        "tags": [
+          "ChatEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCitationDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2113,6 +2410,64 @@
           },
           "keepConversations": {
             "type": "boolean"
+          }
+        }
+      },
+      "AssistantChatView": {
+        "required": [
+          "assistantId",
+          "assistantName",
+          "purpose",
+          "threadId",
+          "title",
+          "historyMode",
+          "welcome",
+          "privacyNotice",
+          "suggestedPrompts",
+          "messages"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "historyMode": {
+            "type": "string"
+          },
+          "welcome": {
+            "type": "string"
+          },
+          "privacyNotice": {
+            "type": "string"
+          },
+          "suggestedPrompts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatSuggestedPromptView"
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessageView"
+            }
           }
         }
       },
@@ -2314,6 +2669,216 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ChatCitationDetailView": {
+        "required": [
+          "id",
+          "knowledgeBaseName",
+          "documentName",
+          "locationLabel",
+          "versionNumber",
+          "updatedLabel",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "knowledgeBaseName": {
+            "type": "string"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "locationLabel": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedLabel": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatCitationView": {
+        "required": [
+          "id",
+          "knowledgeBaseName",
+          "documentName",
+          "excerpt",
+          "updatedLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "knowledgeBaseName": {
+            "type": "string"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "updatedLabel": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatMessageView": {
+        "required": [
+          "id",
+          "author",
+          "text",
+          "reply",
+          "createdAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "author": {
+            "type": "string"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reply": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatReplyView"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ChatReplyView": {
+        "required": [
+          "kind",
+          "text",
+          "citations",
+          "notice",
+          "nextSteps"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatCitationView"
+            }
+          },
+          "notice": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nextSteps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ChatSuggestedPromptView": {
+        "required": [
+          "id",
+          "text"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatThreadListView": {
+        "required": [
+          "assistantId",
+          "assistantName",
+          "historyMode",
+          "threads",
+          "historyNotice"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "historyMode": {
+            "type": "string"
+          },
+          "threads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatThreadSummaryView"
+            }
+          },
+          "historyNotice": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatThreadSummaryView": {
+        "required": [
+          "id",
+          "title",
+          "messageCount",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "messageCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -3434,6 +3999,55 @@
           }
         }
       },
+      "RecentConversationView": {
+        "required": [
+          "assistantId",
+          "assistantName",
+          "threadId",
+          "title",
+          "messageCount",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "messageCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RenameChatThreadRequest": {
+        "required": [
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "SaveAssistantDraftRequest": {
         "required": [
           "payload",
@@ -3829,6 +4443,9 @@
     },
     {
       "name": "AssistantDraftEndpoints"
+    },
+    {
+      "name": "ChatEndpoints"
     },
     {
       "name": "TeamEndpoints"

@@ -379,7 +379,8 @@ public class KnowledgeRetrieverTests
                         version.DocumentId,
                         version.Document!.Name,
                         version.VersionNumber,
-                        KnowledgeVersionStates.Of(version.ReviewState, version.EffectiveFrom, inEffect(version), now)));
+                        KnowledgeVersionStates.Of(version.ReviewState, version.EffectiveFrom, inEffect(version), now),
+                        version.EffectiveFrom));
             return Task.FromResult(found);
         }
     }

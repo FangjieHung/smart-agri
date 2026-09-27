@@ -162,7 +162,8 @@ public sealed record GroundedCitation(
     string LocationLabel,
     string Excerpt,
     string Text,
-    double Score)
+    double Score,
+    DateTimeOffset? VersionEffectiveFrom)
 {
     /// <summary>The longest excerpt, in Unicode scalars (M3 plan §4: 「取段落前 200 字」).</summary>
     public const int ExcerptMaxLength = 200;
@@ -179,7 +180,8 @@ public sealed record GroundedCitation(
         passage.LocationLabel,
         ExcerptOf(passage.Text),
         passage.Text,
-        passage.Score);
+        passage.Score,
+        passage.VersionEffectiveFrom);
 
     /// <summary>The first <see cref="ExcerptMaxLength"/> Unicode scalars of
     /// <paramref name="text"/> (never half a surrogate pair), followed by 「…」 when cut.</summary>

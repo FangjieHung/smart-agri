@@ -78,11 +78,13 @@ internal sealed class ScriptedRetriever : IKnowledgeRetriever
         return Task.FromResult(new KnowledgeRetrievalResult(found, query.MinScore ?? Settings.MinScore));
     }
 
-    public RetrievedKnowledgePassage Add(Guid knowledgeBaseId, string documentName, string location, string text, double score, int versionNumber = 1)
+    public RetrievedKnowledgePassage Add(
+        Guid knowledgeBaseId, string documentName, string location, string text, double score, int versionNumber = 1,
+        DateTimeOffset? versionEffectiveFrom = null)
     {
         var passage = new RetrievedKnowledgePassage(
             Guid.CreateVersion7(), knowledgeBaseId, Guid.CreateVersion7(), documentName, Guid.CreateVersion7(), versionNumber,
-            KnowledgeVersionState.Effective, location, text, score);
+            KnowledgeVersionState.Effective, location, text, score, versionEffectiveFrom ?? DateTimeOffset.UnixEpoch);
         Passages.Add(passage);
         return passage;
     }

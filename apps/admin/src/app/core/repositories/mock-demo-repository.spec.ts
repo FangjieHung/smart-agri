@@ -1,6 +1,9 @@
+import { firstValueFrom } from 'rxjs';
 import { MockDemoRepository } from './mock-demo-repository';
 import { DEMO_SEED } from './demo-seed';
+import { createMemoryStorage } from './memory-storage';
 import type { SubmissionConsentStatus } from '../domain/conversation.model';
+import type { CreateMemberResult } from './demo-repository';
 
 describe('MockDemoRepository', () => {
   let repository: MockDemoRepository;
@@ -311,5 +314,105 @@ describe('MockDemoRepository', () => {
     });
     expect(JSON.stringify(result)).not.toContain('messages');
     expect(JSON.stringify(result)).not.toContain('fields');
+  });
+});
+
+/** `createMember` (issue #52，M2 Slice 18)：mock 版本的新增成員。 */
+describe('MockDemoRepository createMember', () => {
+  function setUp(viewer: string | null = 'account-smb-admin') {
+    return new MockDemoRepository(DEMO_SEED, {
+      storage: createMemoryStorage(),
+      viewer: () => viewer,
+    });
+  }
+
+  async function create(
+    repository: MockDemoRepository,
+    overrides: Partial<Parameters<MockDemoRepository['createMember']>[0]> = {},
+  ): Promise<CreateMemberResult> {
+    return firstValueFrom(
+      repository.createMember({
+        loginName: 'new-hire',
+        displayName: '新進同仁',
+        role: 'internal-employee',
+        permissions: ['use-shared-assistants'],
+        ...overrides,
+      }),
+    );
+  }
+
+  it('denies an account without manage-assistants, without naming any existing member', async () => {
+    const repository = setUp('account-internal-employee');
+    const result = await create(repository);
+
+    expect(result).toMatchObject({ status: 'permission-denied', reason: 'team' });
+    expect(JSON.stringify(result)).not.toContain('安心商行');
+  });
+
+  it('creates a member with a separate id from the seed accounts and lists it in the team', async () => {
+    const repository = setUp();
+    const result = await create(repository);
+
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') throw new Error('expected ready');
+    expect(result.data.member.displayName).toBe('新進同仁');
+    expect(result.data.member.role).toBe('internal-employee');
+    expect(result.data.member.permissions).toEqual(['use-shared-assistants']);
+    expect(result.data.member.lockedPermissions).toEqual([]);
+    // 清楚標示為示範用，不是真的密碼。
+    expect(result.data.oneTimePassword).toMatch(/^Demo-/);
+
+    const team = await firstValueFrom(repository.getTeam());
+    if (team.status !== 'ready') throw new Error('expected ready');
+    expect(team.data.members.map((member) => member.id)).toContain(result.data.member.id);
+  });
+
+  it('rejects a duplicate login name and does not add a second member', async () => {
+    const repository = setUp();
+    const first = await create(repository, { loginName: 'duplicate-name' });
+    expect(first.status).toBe('ready');
+
+    const second = await create(repository, { loginName: 'duplicate-name', displayName: '另一個人' });
+    expect(second).toEqual({
+      status: 'validation-failed',
+      message: '這個登入名稱在目前組織已經有人使用，請改用其他名稱。',
+    });
+
+    const team = await firstValueFrom(repository.getTeam());
+    if (team.status !== 'ready') throw new Error('expected ready');
+    expect(team.data.members.filter((member) => member.displayName === '另一個人')).toHaveLength(0);
+  });
+
+  it('creates two same-role members with independent ids and permissions', async () => {
+    const repository = setUp();
+    const first = await create(repository, {
+      loginName: 'internal-a',
+      displayName: '客服同仁 A',
+      permissions: ['use-shared-assistants'],
+    });
+    const second = await create(repository, {
+      loginName: 'internal-b',
+      displayName: '客服同仁 B',
+      permissions: ['read-consented-submissions'],
+    });
+    if (first.status !== 'ready' || second.status !== 'ready') throw new Error('expected ready');
+
+    expect(first.data.member.id).not.toBe(second.data.member.id);
+
+    const updated = await firstValueFrom(
+      repository.updateMemberPermissions(first.data.member.id, ['manage-data-sources']),
+    );
+    expect(updated.status).toBe('ready');
+    if (updated.status !== 'ready') throw new Error('expected ready');
+    const updatedFirst = updated.data.members.find((member) => member.id === first.data.member.id);
+    const untouchedSecond = updated.data.members.find((member) => member.id === second.data.member.id);
+    expect(updatedFirst?.permissions).toEqual(['manage-data-sources']);
+    expect(untouchedSecond?.permissions).toEqual(['read-consented-submissions']);
+  });
+
+  it('rejects an empty login name or display name', async () => {
+    const repository = setUp();
+    expect(await create(repository, { loginName: '  ' })).toMatchObject({ status: 'validation-failed' });
+    expect(await create(repository, { displayName: '  ' })).toMatchObject({ status: 'validation-failed' });
   });
 });

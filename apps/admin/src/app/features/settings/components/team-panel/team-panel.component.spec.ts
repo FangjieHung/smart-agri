@@ -1,10 +1,11 @@
 import { signal, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { MatDialog, MatDialogState } from '@angular/material/dialog';
 import { firstValueFrom, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../../../../core/domain/account.model';
 import type { TeamView } from '../../../../core/domain/team.model';
-import type { RepositoryView } from '../../../../core/repositories/demo-repository';
+import type { CreateMemberResult, RepositoryView } from '../../../../core/repositories/demo-repository';
 import { DEMO_SEED } from '../../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../../core/repositories/memory-storage';
 import { MockDemoRepository } from '../../../../core/repositories/mock-demo-repository';
@@ -57,6 +58,28 @@ function button(host: HTMLElement, text: string): HTMLButtonElement {
   );
   if (!found) throw new Error(`missing button ${text}`);
   return found;
+}
+
+/** 對話框內容由 CDK overlay 掛在 `document.body`，不在元件自己的 host 底下。 */
+function documentButton(text: string): HTMLButtonElement {
+  const found = Array.from(document.querySelectorAll('button')).find((candidate) =>
+    candidate.textContent?.includes(text),
+  );
+  if (!found) throw new Error(`missing button ${text} in document`);
+  return found;
+}
+
+function typeInto(selector: string, value: string): void {
+  const field = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
+  if (!field) throw new Error(`missing ${selector}`);
+  field.value = value;
+  field.dispatchEvent(new Event(field.tagName === 'SELECT' ? 'change' : 'input'));
+}
+
+async function settle(fixture: { detectChanges(): void; whenStable(): Promise<unknown> }): Promise<void> {
+  fixture.detectChanges();
+  await fixture.whenStable();
+  fixture.detectChanges();
 }
 
 describe('TeamPanelComponent', () => {
@@ -201,3 +224,85 @@ function firstReady(): Promise<RepositoryView<TeamView>> {
   });
   return firstValueFrom(repository.getTeam());
 }
+
+describe('TeamPanelComponent adding a member (issue #52)', () => {
+  it('creates a member from the dialog, reloads the team and shows the one-time password once', async () => {
+    const { fixture, host } = await render();
+
+    button(host, '新增成員').click();
+    await settle(fixture);
+
+    typeInto('#new-member-login-name', 'new-hire');
+    typeInto('#new-member-display-name', '新進同仁');
+    typeInto('#new-member-role', 'internal-employee');
+    document
+      .querySelector<HTMLFormElement>('.create-panel')
+      ?.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+
+    // 新增對話框開始關閉（動畫結束前 DOM 可能還在，用對話框自己的狀態判斷），
+    // 換成顯示一次性密碼的對話框；一開始的新增回饋也出現。
+    expect(host.querySelector('[aria-live="polite"]')?.textContent).toContain('已新增成員「新進同仁」');
+    const passwordField = document.querySelector<HTMLInputElement>('#new-member-password');
+    expect(passwordField?.value).toMatch(/^Demo-/);
+    expect(document.body.textContent).toContain('已新增「新進同仁」');
+    const dialogStates = TestBed.inject(MatDialog).openDialogs.map((ref) => ref.getState());
+    expect(dialogStates).toContain(MatDialogState.OPEN);
+
+    // 新成員確實併入團隊清單。
+    expect(host.textContent).toContain('新進同仁');
+
+    documentButton('關閉').click();
+    await settle(fixture);
+    // 密碼對話框關閉後不再顯示於任何開著的對話框（一次性顯示，不留備份）。
+    expect(TestBed.inject(MatDialog).openDialogs.map((ref) => ref.getState())).not.toContain(MatDialogState.OPEN);
+  });
+
+  it('offers 新增成員 only to an account that can see the team panel at all', async () => {
+    const { host } = await render('account-internal-employee');
+    expect(
+      Array.from(host.querySelectorAll('button')).some((candidate) => candidate.textContent?.includes('新增成員')),
+    ).toBe(false);
+  });
+
+  it('requires a login name and a display name before calling the repository', async () => {
+    const { fixture, host, repository } = await render();
+    const create = vi.spyOn(repository, 'createMember');
+
+    button(host, '新增成員').click();
+    await settle(fixture);
+    document.querySelector<HTMLFormElement>('.create-panel')?.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+
+    expect(create).not.toHaveBeenCalled();
+    expect(document.querySelector('#add-member-error[role="alert"]')?.textContent).toContain('請輸入登入名稱。');
+  });
+
+  it('shows the repository’s validation message and blocks a second submit while in flight', async () => {
+    const { fixture, host, repository } = await render();
+    const response = new Subject<CreateMemberResult>();
+    const create = vi.spyOn(repository, 'createMember').mockReturnValue(response);
+
+    button(host, '新增成員').click();
+    await settle(fixture);
+    typeInto('#new-member-login-name', 'duplicate-name');
+    typeInto('#new-member-display-name', '重複的人');
+    const form = document.querySelector<HTMLFormElement>('.create-panel') as HTMLFormElement;
+    form.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+
+    // 送出中（回應還沒回來）再送出一次不會呼叫第二次：`creatingMember` signal 擋下重複送出。
+    form.dispatchEvent(new Event('submit'));
+    expect(create).toHaveBeenCalledTimes(1);
+
+    response.next({ status: 'validation-failed', message: '這個登入名稱在目前組織已經有人使用，請改用其他名稱。' });
+    response.complete();
+    await settle(fixture);
+
+    expect(document.querySelector('#add-member-error[role="alert"]')?.textContent).toContain(
+      '這個登入名稱在目前組織已經有人使用',
+    );
+    // 對話框仍開著（沒有因失敗而關閉）。
+    expect(document.querySelector('#new-member-login-name')).not.toBeNull();
+  });
+});

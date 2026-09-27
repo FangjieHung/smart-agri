@@ -3,6 +3,7 @@ import {
   isVisitorId,
   type AccountId,
   type AccountPermission,
+  type AccountRole,
   type AccountView,
   type ChatViewerId,
 } from '../domain/account.model';
@@ -159,6 +160,8 @@ import type {
   CreateAssistantResult,
   CreateDatabaseResult,
   CreateKnowledgeBaseResult,
+  CreateMemberInput,
+  CreateMemberResult,
   DeleteKnowledgeResult,
   DemoKeyValueStorage,
   DemoRepository,
@@ -386,6 +389,66 @@ function normalizeStoredTeamPermissions(value: unknown): StoredTeamPermissions |
   }
 
   return { version: 1, savedAt: value['savedAt'], members };
+}
+
+/**
+ * 在這台瀏覽器建立的成員（issue #52，M2 Slice 18）：Demo 的三個身分是 seed 固定的，
+ * 新增的成員另外存一份、附加到 `accounts()` 的結果後面，不會覆蓋 seed。
+ */
+const CREATED_MEMBERS_KEY = 'sme-demo:created-members';
+
+const ACCOUNT_ROLES = Object.keys(ACCOUNT_ROLE_LABELS) as readonly AccountRole[];
+
+function isAccountRole(value: unknown): value is AccountRole {
+  return (ACCOUNT_ROLES as readonly unknown[]).includes(value);
+}
+
+interface StoredCreatedMember {
+  readonly id: AccountId;
+  readonly loginName: string;
+  readonly displayName: string;
+  readonly role: AccountRole;
+  readonly permissions: readonly AccountPermission[];
+}
+
+function normalizeStoredCreatedMembers(value: unknown): readonly StoredCreatedMember[] {
+  if (!Array.isArray(value)) return [];
+  const members: StoredCreatedMember[] = [];
+  for (const entry of value) {
+    if (
+      !isRecord(entry) ||
+      typeof entry['id'] !== 'string' ||
+      typeof entry['loginName'] !== 'string' ||
+      typeof entry['displayName'] !== 'string' ||
+      !isAccountRole(entry['role']) ||
+      !Array.isArray(entry['permissions'])
+    ) {
+      continue;
+    }
+
+    members.push({
+      id: entry['id'] as AccountId,
+      loginName: entry['loginName'],
+      displayName: entry['displayName'],
+      role: entry['role'],
+      permissions: normalizeMemberPermissions(entry['permissions'].filter(isAccountPermission)),
+    });
+  }
+
+  return members;
+}
+
+/** 新增成員的帳號 id 尾碼；瀏覽器內建的 `crypto.randomUUID()` 已足夠不重複。 */
+function cryptoRandomId(): string {
+  return crypto.randomUUID();
+}
+
+/**
+ * Mock 模式的一次性密碼：字首清楚標示這只是示範用，不是真的可登入的密碼
+ * （mock 的三個 Demo 身分本來就沒有密碼）。
+ */
+function mockOneTimePassword(): string {
+  return `Demo-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
 }
 
 /** 單一資料庫的資料管理者指定；與表單欄位分開存，兩者互不影響。 */
@@ -764,6 +827,10 @@ export class MockDemoRepository implements DemoRepository {
     return defer(() => of(this.writeMemberPermissions(this.viewer(), memberAccountId, permissions)));
   }
 
+  createMember(input: CreateMemberInput): Observable<CreateMemberResult> {
+    return defer(() => of(this.writeCreateMember(this.viewer(), input)));
+  }
+
   private readTeam(viewerAccountId: AccountId | null): RepositoryView<TeamView> {
     if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) {
       return this.teamPermissionDenied();
@@ -801,6 +868,59 @@ export class MockDemoRepository implements DemoRepository {
     this.storage.setItem(TEAM_PERMISSIONS_KEY, JSON.stringify(record));
 
     return this.applyScenario(this.teamView(viewerAccountId));
+  }
+
+  /**
+   * Mock 版本的 issue #52：登入名稱只跟這台瀏覽器已建立的成員比對（seed 的三個 Demo
+   * 身分沒有登入名稱可比），一次性密碼是明顯標示為示範用的字串，不是真的密碼。
+   */
+  private writeCreateMember(viewerAccountId: AccountId | null, input: CreateMemberInput): CreateMemberResult {
+    if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) {
+      return this.teamPermissionDenied();
+    }
+
+    const loginName = input.loginName.trim();
+    const displayName = input.displayName.trim();
+    if (loginName.length === 0 || loginName.length > 64) {
+      return { status: 'validation-failed', message: '登入名稱必須是 1 到 64 個字元。' };
+    }
+    if (displayName.length === 0 || displayName.length > 200) {
+      return { status: 'validation-failed', message: '顯示名稱必須是 1 到 200 個字元。' };
+    }
+    if (!isAccountRole(input.role)) {
+      return { status: 'validation-failed', message: '有不認得的角色值，這次沒有新增成員。' };
+    }
+    if (input.permissions.some((permission) => !isAccountPermission(permission))) {
+      return { status: 'validation-failed', message: '有不認得的權限值，這次沒有新增成員。' };
+    }
+
+    const normalizedLogin = loginName.toLowerCase();
+    const created = this.createdMembers();
+    if (created.some((member) => member.loginName.toLowerCase() === normalizedLogin)) {
+      return { status: 'validation-failed', message: '這個登入名稱在目前組織已經有人使用，請改用其他名稱。' };
+    }
+
+    const member: StoredCreatedMember = {
+      id: `account-${cryptoRandomId()}` as AccountId,
+      loginName,
+      displayName,
+      role: input.role,
+      permissions: normalizeMemberPermissions(input.permissions),
+    };
+    this.storage.setItem(CREATED_MEMBERS_KEY, JSON.stringify([...created, member]));
+
+    const view = this.teamView(viewerAccountId);
+    const newMember = view.members.find((candidate) => candidate.id === member.id);
+    if (newMember === undefined) {
+      // 不會發生：member 剛寫入 storage，teamView() 一定看得到它。留著只為了型別安全。
+      return this.teamPermissionDenied();
+    }
+
+    return this.applyScenario({ member: newMember, oneTimePassword: mockOneTimePassword() });
+  }
+
+  private createdMembers(): readonly StoredCreatedMember[] {
+    return normalizeStoredCreatedMembers(parseJson(this.storage.getItem(CREATED_MEMBERS_KEY)));
   }
 
   listAssistantConfigurations(
@@ -3203,18 +3323,28 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   /**
-   * 目前生效的帳號清單：seed 的三個 Demo 身分，疊上團隊設定改過的權限。
+   * 目前生效的帳號清單：seed 的三個 Demo 身分，加上這台瀏覽器新增的成員
+   * （issue #52），疊上團隊設定改過的權限。
    * **所有權限判斷都必須經過這裡**，否則改了團隊設定畫面不會跟著變。
    */
   private accounts(): readonly AccountView[] {
     // API 模式只信任 API 給的權限；這台瀏覽器之前在 mock 模式改過的團隊設定一律不套用。
     const overrides = this.accountsSource?.() ?? this.storedTeamPermissions()?.members;
-    if (overrides === undefined) return this.seed.accounts;
+    const created: readonly AccountView[] = this.createdMembers().map((member) => ({
+      id: member.id,
+      displayName: member.displayName,
+      role: member.role,
+      permissions: member.permissions,
+    }));
 
-    return this.seed.accounts.map((account) => {
+    if (overrides === undefined) return [...this.seed.accounts, ...created];
+
+    const withOverrides = (account: AccountView): AccountView => {
       const permissions = overrides[account.id];
       return permissions === undefined ? account : { ...account, permissions };
-    });
+    };
+
+    return [...this.seed.accounts.map(withOverrides), ...created.map(withOverrides)];
   }
 
   private storedTeamPermissions(): StoredTeamPermissions | null {

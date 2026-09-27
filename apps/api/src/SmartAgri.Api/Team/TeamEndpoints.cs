@@ -1,11 +1,14 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
+using SmartAgri.Api.Setup;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Accounts;
+using SmartAgri.Infrastructure.Persistence;
 
 namespace SmartAgri.Api.Team;
 
@@ -46,9 +49,30 @@ public sealed record TeamResponse(IReadOnlyList<TeamMemberResponse> Members, Dat
 public sealed record UpdateMemberPermissionsRequest(IReadOnlyList<string>? Permissions);
 
 /// <summary>
-/// <c>GET /api/v1/team</c> and <c>PUT /api/v1/team/members/{id}/permissions</c> (M1 plan,
-/// Slice 8): replaces the frontend mock's <c>getTeam</c>/<c>updateMemberPermissions</c>, same
-/// rules. Both require <see cref="AccountPermission.ManageAssistants"/>
+/// <c>POST /api/v1/team/members</c> request. <see cref="Role"/> and <see cref="Permissions"/>
+/// are plain strings, like <see cref="UpdateMemberPermissionsRequest.Permissions"/>: an
+/// unrecognized value becomes this endpoint's own <c>422</c>, not a model-binding failure
+/// with a different, undocumented shape.
+/// </summary>
+public sealed record CreateMemberRequest(
+    string? LoginName,
+    string? DisplayName,
+    string? Role,
+    IReadOnlyList<string>? Permissions);
+
+/// <summary>
+/// <c>201</c> response of <c>POST /api/v1/team/members</c> (issue #52, M2 plan Slice 18).
+/// <see cref="OneTimePassword"/> appears here and only here: it is never logged, never
+/// recorded in OpenTelemetry, and never retrievable again afterward — the same guarantee
+/// <c>setup</c> gives its administrator's password (<see cref="OneTimePasswordGenerator"/>).
+/// </summary>
+public sealed record CreateMemberResponse(TeamMemberResponse Member, string OneTimePassword);
+
+/// <summary>
+/// <c>GET /api/v1/team</c>, <c>PUT /api/v1/team/members/{id}/permissions</c> and
+/// <c>POST /api/v1/team/members</c> (M1 plan, Slice 8; M2 plan, Slice 18 / issue #52):
+/// replaces the frontend mock's <c>getTeam</c>/<c>updateMemberPermissions</c>, same rules.
+/// All three require <see cref="AccountPermission.ManageAssistants"/>
 /// (<see cref="ForbiddenReason.Team"/>); a member id that does not exist, or belongs to
 /// another organization, gets the exact same <c>403</c> as "no permission" — never a
 /// <c>404</c>, never a message naming the member (<c>tasks-6-10-backend-handoff.md</c> §1.6).
@@ -59,6 +83,10 @@ public static class TeamEndpoints
 
     private const string SelfLockMessage =
         "不能移除自己的「管理助理與團隊」權限：移除後就打不開團隊設定，也沒有別的入口可以加回來。";
+
+    private const string UnknownRoleMessage = "有不認得的角色值，這次沒有新增成員。";
+
+    private const string DuplicateLoginNameMessage = "這個登入名稱在目前組織已經有人使用，請改用其他名稱。";
 
     public static IEndpointRouteBuilder MapTeamEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -72,6 +100,12 @@ public static class TeamEndpoints
 
         team.MapPut("/members/{id:guid}/permissions", UpdateMemberPermissionsAsync)
             .Produces<TeamResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        team.MapPost("/members", CreateMemberAsync)
+            .Produces<CreateMemberResponse>(StatusCodes.Status201Created)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
@@ -170,6 +204,112 @@ public static class TeamEndpoints
         return Results.Ok(await BuildTeamResponseAsync(dbContext, callerId, cancellationToken));
     }
 
+    /// <summary>
+    /// A new member account in the caller's organization (issue #52, M2 plan Slice 18).
+    /// Mirrors <c>EfInitialSetupStore.CreateAsync</c>'s account-creation shape (<c>Account.Create</c>
+    /// → <c>RequirePasswordChange</c> → <c>UserManager.CreateAsync</c> with a generated one-time
+    /// password → grant the requested permissions), inside one transaction so a member is never
+    /// left without the permissions it was created with. The one-time password is returned once,
+    /// in <see cref="CreateMemberResponse.OneTimePassword"/>, and nowhere else — never logged,
+    /// never traced, never stored anywhere but the account's own password hash.
+    /// </summary>
+    internal static async Task<IResult> CreateMemberAsync(
+        CreateMemberRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        UserManager<Account> userManager,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var loginName = request.LoginName?.Trim() ?? string.Empty;
+        if (loginName.Length is 0 or > Account.LoginNameMaxLength)
+        {
+            return ValidationFailed(
+                "loginName", $"登入名稱必須是 1 到 {Account.LoginNameMaxLength} 個字元。");
+        }
+
+        var displayName = request.DisplayName?.Trim() ?? string.Empty;
+        if (displayName.Length is 0 or > Account.DisplayNameMaxLength)
+        {
+            return ValidationFailed(
+                "displayName", $"顯示名稱必須是 1 到 {Account.DisplayNameMaxLength} 個字元。");
+        }
+
+        if (!TryParseRole(request.Role, out var role))
+        {
+            return ValidationFailed("role", UnknownRoleMessage);
+        }
+
+        var requested = new List<AccountPermission>();
+        foreach (var raw in request.Permissions ?? [])
+        {
+            if (!TryParsePermission(raw, out var permission))
+            {
+                return ValidationFailed("permissions", UnknownPermissionMessage);
+            }
+
+            requested.Add(permission);
+        }
+
+        // Pre-check for the common case (a fast, friendly 422); the unique index on
+        // (OrganizationId, NormalizedLoginName) is the real guard against a concurrent
+        // request choosing the same name between this check and the insert below.
+        var normalizedLogin = Account.NormalizeLoginName(loginName);
+        if (await dbContext.Accounts.AnyAsync(account => account.NormalizedLoginName == normalizedLogin, cancellationToken))
+        {
+            return ValidationFailed("loginName", DuplicateLoginNameMessage);
+        }
+
+        var organizationId = dbContext.OrganizationContext.OrganizationId
+            ?? throw new InvalidOperationException("An authenticated request must have a current organization.");
+        var organization = await dbContext.Organizations
+            .SingleAsync(candidate => candidate.Id == organizationId, cancellationToken);
+
+        var account = Account.Create(organization, loginName, displayName, role);
+        account.RequirePasswordChange();
+        var oneTimePassword = OneTimePasswordGenerator.Generate();
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        // Through UserManager, not a hand-made hash: runs Identity's user-name and password
+        // validators with the host's options, exactly as EfInitialSetupStore does.
+        var created = await userManager.CreateAsync(account, oneTimePassword);
+        if (!created.Succeeded)
+        {
+            if (created.Errors.Any(error => error.Code is "DuplicateUserName" or "DuplicateEmail"))
+            {
+                return ValidationFailed("loginName", DuplicateLoginNameMessage);
+            }
+
+            var message = created.Errors.FirstOrDefault()?.Description ?? UnknownRoleMessage;
+            return ValidationFailed("loginName", message);
+        }
+
+        var normalized = Normalize(requested);
+        dbContext.AccountPermissions.AddRange(normalized.Select(permission => new AccountPermissionGrant(account, permission)));
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (DatabaseErrors.IsUniqueViolation(exception))
+        {
+            return ValidationFailed("loginName", DuplicateLoginNameMessage);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        var response = new CreateMemberResponse(
+            new TeamMemberResponse(account.Id, account.DisplayName, account.Role, normalized, []),
+            oneTimePassword);
+
+        return Results.Created($"/api/v1/team/members/{account.Id}", response);
+    }
+
     private static async Task<TeamResponse> BuildTeamResponseAsync(
         AppDbContext dbContext,
         Guid viewerId,
@@ -230,6 +370,20 @@ public static class TeamEndpoints
         return false;
     }
 
-    private static IResult ValidationFailed(string message) =>
-        ApiErrors.ValidationFailed(message, new Dictionary<string, string[]> { ["permissions"] = [message] });
+    internal static bool TryParseRole(string? raw, out AccountRole role)
+    {
+        if (raw is not null && WireNames<AccountRole>.All.Contains(raw))
+        {
+            role = WireNames<AccountRole>.Parse(raw);
+            return true;
+        }
+
+        role = default;
+        return false;
+    }
+
+    private static IResult ValidationFailed(string message) => ValidationFailed("permissions", message);
+
+    private static IResult ValidationFailed(string field, string message) =>
+        ApiErrors.ValidationFailed(message, new Dictionary<string, string[]> { [field] = [message] });
 }

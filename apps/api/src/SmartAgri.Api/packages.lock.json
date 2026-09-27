@@ -451,6 +451,12 @@
           "Polly.Core": "8.4.2"
         }
       },
+      "smartagri.application": {
+        "type": "Project",
+        "dependencies": {
+          "SmartAgri.Domain": "[1.0.0, )"
+        }
+      },
       "smartagri.domain": {
         "type": "Project"
       },

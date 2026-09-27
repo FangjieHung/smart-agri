@@ -259,9 +259,28 @@ public sealed class SpaClient : IDisposable
     }
 
     /// <summary>PUT with a JSON body and the bearer token (none when <see langword="null"/>).</summary>
-    public async Task<HttpResponseMessage> PutAsync<TBody>(string path, string? accessToken, TBody body)
+    public Task<HttpResponseMessage> PutAsync<TBody>(string path, string? accessToken, TBody body) =>
+        SendJsonAsync(HttpMethod.Put, path, accessToken, body);
+
+    /// <summary>POST with a JSON body and the bearer token (none when <see langword="null"/>).</summary>
+    public Task<HttpResponseMessage> PostAsync<TBody>(string path, string? accessToken, TBody body) =>
+        SendJsonAsync(HttpMethod.Post, path, accessToken, body);
+
+    /// <summary>PATCH with a JSON body and the bearer token (none when <see langword="null"/>).</summary>
+    public Task<HttpResponseMessage> PatchAsync<TBody>(string path, string? accessToken, TBody body) =>
+        SendJsonAsync(HttpMethod.Patch, path, accessToken, body);
+
+    /// <summary>DELETE with the bearer token.</summary>
+    public async Task<HttpResponseMessage> DeleteAsync(string path, string accessToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Put, path)
+        using var request = new HttpRequestMessage(HttpMethod.Delete, path);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        return await Http.SendAsync(request, CancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendJsonAsync<TBody>(HttpMethod method, string path, string? accessToken, TBody body)
+    {
+        using var request = new HttpRequestMessage(method, path)
         {
             Content = JsonContent.Create(body),
         };

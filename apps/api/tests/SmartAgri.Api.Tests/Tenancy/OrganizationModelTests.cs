@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Shouldly;
+using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Accounts;
@@ -56,7 +57,10 @@ public class OrganizationModelTests
             .ToList();
 
         scoped.ShouldBe(
-            [typeof(Account), typeof(AccountClaim), typeof(AccountLogin), typeof(AccountToken), typeof(AccountPermissionGrant)],
+            [
+                typeof(Account), typeof(AccountClaim), typeof(AccountLogin), typeof(AccountToken), typeof(AccountPermissionGrant),
+                typeof(KnowledgeBase), typeof(KnowledgeBaseShare), typeof(KnowledgeActivity),
+            ],
             ignoreOrder: true);
         dbContext.Model.FindEntityType(typeof(Organization)).ShouldNotBeNull();
     }

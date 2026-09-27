@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SmartAgri.Application\SmartAgri.Application.csproj" />
     <ProjectReference Include="..\SmartAgri.Infrastructure\SmartAgri.Infrastructure.csproj" />
     <ProjectReference Include="..\SmartAgri.Domain\SmartAgri.Domain.csproj" />
   </ItemGroup>

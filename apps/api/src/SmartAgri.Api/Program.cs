@@ -1,7 +1,9 @@
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Authentication;
+using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Seeding;
@@ -20,6 +22,10 @@ builder.Services.AddOrganizationTenancy();
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
+// Numbers are JSON numbers only. ASP.NET Core's web defaults also accept "12" for an int,
+// which makes the OpenAPI document describe every integer as `integer | string` — and the
+// generated frontend types `number | string`.
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 builder.Services.AddOpenApi(options => options.AddDocumentTransformer((document, _, _) =>
 {
     document.Info.Title = "SmartAgri API";
@@ -75,6 +81,7 @@ app.MapConnectEndpoints();
 app.MapAuthEndpoints();
 app.MapMeEndpoints();
 app.MapTeamEndpoints();
+app.MapKnowledgeBaseEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

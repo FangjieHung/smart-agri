@@ -1,0 +1,8 @@
+data: {"type":"RUN_STARTED","threadId":"00000000-0000-0000-0000-000000000001","runId":"run-2"}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"00000000-0000-0000-0000-000000000002","role":"assistant"}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"00000000-0000-0000-0000-000000000002","delta":"\u6839\u64DA\u8CC7\u6599\u56DE\u7B54\uFF0C\u672C\u56DE\u7B54\u5F15\u7528\u6BB5\u843D ["}
+
+data: {"type":"RUN_ERROR","message":"\u5C0D\u8A71\u6A21\u578B\u66AB\u6642\u7121\u6CD5\u4F7F\u7528\uFF0C\u8ACB\u7A0D\u5F8C\u91CD\u8A66\u3002","code":"chat-unavailable"}
+

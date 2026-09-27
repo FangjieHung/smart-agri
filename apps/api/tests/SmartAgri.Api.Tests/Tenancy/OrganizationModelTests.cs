@@ -65,7 +65,7 @@ public class OrganizationModelTests
                 typeof(KnowledgeBase), typeof(KnowledgeBaseShare), typeof(KnowledgeActivity),
                 typeof(KnowledgeDocument), typeof(KnowledgeDocumentVersion), typeof(KnowledgeFileContent),
                 typeof(KnowledgeExtractedUnit), typeof(KnowledgeChunk),
-                typeof(Assistant), typeof(AssistantKnowledgeBase),
+                typeof(Assistant), typeof(AssistantKnowledgeBase), typeof(AssistantShare),
                 typeof(BackgroundJob),
                 typeof(ModelInvocation),
             ],

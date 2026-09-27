@@ -760,6 +760,58 @@ fails when they differ), and commit the report under `docs/evals/`.
 > owner's API key and consent to run a local model. Until then `Retrieval:MinScore` 0.3 stays a
 > placeholder, and only the `Fake` run is verified.
 
+## Evaluating answers: `eval-answers`
+
+The grounded-answers ADR asks for a question bank that also covers questions that should find
+nothing, this time for the whole answer pipeline rather than retrieval alone (M3 plan Slice 13,
+#83). The bank and its demo documents are `apps/api/eval/answers/` (its README describes the
+format and how a run is judged); `eval-answers` runs it with the **configured** embedding and chat
+models and writes a Markdown report:
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- migrate         # the database must be migrated
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-answers    # writes docs/evals/<date>-answers-<chat model>.md
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-answers --report /tmp/eval.md --set <dir> --timeout 600
+```
+
+- **Development and Testing only**, for the same reason as `eval-retrieval`. It works in its own
+  organization, **`answers-eval`** (「回答評測（安心商行示範資料）」), reset and reimported through the
+  normal pipeline on every run exactly as `eval-retrieval` does, then answers every question
+  through `GroundedAnswerService.AnswerAsync` with a `company-data-only` profile of its own (no
+  assistant) and the deployment's `Retrieval:MinScore`. A question with `followUpOf` is answered
+  with the referenced question and the reply it actually got as one-turn conversation history (M3
+  plan §7 decision D), so the retrieval query for it joins both questions.
+- The report has the run's settings, reply-kind accuracy, citation hit rate (of the `company-data`
+  questions, those citing at least one expected document), the rejection reason distribution
+  (`GroundedRejectionReason`, so the prompt and threshold can be tuned by data — grounded-answers
+  ADR), average input/output tokens from this run's `generate-answer` `ModelInvocations` (`—` when
+  none reported a number), and every question's expected and actual reply side by side. It goes to
+  `docs/evals/<date>-answers-<chat model>.md` (overwritten by a second run the same day), or to
+  `--report`. Exit codes: `0` done, `1` a model or processing failed, `2` bad arguments,
+  environment, set or configuration.
+- **CI never runs it against a model**: it needs a real chat (and embedding) model and key. The
+  integration tests run it with `Fake` to prove the pipeline end to end
+  (`EvalAnswersIntegrationTests`) and check the report is byte-for-byte reproducible; `Fake` scores,
+  citations and rejection reasons are not meaningful (`FakeChatClient` always cites the first
+  passage it is given, whatever it says), and the report says so.
+- The bank includes a **prompt-injection sample** (`notice-01`, M3 plan §7 risk 1): a document
+  whose content asks whoever reads it to ignore its rules and leak a fake coupon code without
+  citing the passage. `Fake` cannot act on it (it does not read content semantically); a real model
+  run is when a person should check the pipeline actually resists it.
+
+**With `Fake`** (`appsettings.Development.json`, no key): the command above. Only for checking the
+pipeline; never calibrate with it.
+
+**With OpenAI**: the same environment variables as `eval-retrieval` above cover both models
+(`Ai__Embedding__*` and `Ai__Chat__*`); see `apps/api/README.md`'s "Evaluating retrieval" for the
+local OpenAI-compatible embedding option (the chat model still needs OpenAI, Azure OpenAI or an
+OpenAI-compatible endpoint of its own).
+
+> **Deferred, like `eval-retrieval`'s calibration** (needs the owner's OpenAI key and consent): the
+> real-model run with a committed report, checking the prompt-injection question by hand, and any
+> resulting change to the prompt or to `Retrieval:MinScore`. Until then only the `Fake` run is
+> verified.
+
 ## Development seed data
 
 `DevelopmentSeeder` (`SmartAgri.Infrastructure.Seeding`) gives local development and E2E

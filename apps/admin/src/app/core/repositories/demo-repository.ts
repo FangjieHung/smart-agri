@@ -60,10 +60,14 @@ import type {
   KnowledgeBaseId,
   KnowledgeBaseSummaryView,
   KnowledgeBaseView,
+  KnowledgeChunkView,
+  KnowledgeDocumentDetailView,
   KnowledgeDocumentId,
   KnowledgeDocumentView,
   KnowledgeSharingView,
   KnowledgeUploadRejectionReason,
+  KnowledgeVersionPreviewView,
+  KnowledgeVersionView,
 } from '../domain/knowledge-base.model';
 import type { Observable } from 'rxjs';
 import type { TeamMemberView, TeamView } from '../domain/team.model';
@@ -193,6 +197,32 @@ export type RetryKnowledgeDocumentResult =
 
 /** 刪除成功時 `data` 是 null（API 回 `204`，沒有內容可以回傳）。 */
 export type DeleteKnowledgeResult = RepositoryView<null>;
+
+/**
+ * 版本確認相關（M2 Slice 13，issue #47）：排除段落、批次確認生效、緊急停用／恢復皆共用
+ * `KnowledgeValidationFailedView`——422（例如批次確認時有版本不可確認、停用未填原因）與
+ * 409（例如同時有其他人變更、文件已停用／已啟用）都只有一句給人看的訊息，畫面直接顯示。
+ */
+export type UpdateKnowledgeChunkExclusionResult =
+  | RepositoryView<KnowledgeChunkView>
+  | KnowledgeValidationFailedView;
+
+/**
+ * 批次確認生效：回傳的清單與 `versionIds` 一一對應（每個 id 各自現在的狀態）。
+ * 只要其中一個版本不可確認（不屬於這個知識庫、還在處理中、已經確認過），整批都不會寫入，
+ * 回傳 `validation-failed`，訊息會點名是哪些版本。
+ */
+export type ApproveKnowledgeVersionsResult =
+  | RepositoryView<readonly KnowledgeVersionView[]>
+  | KnowledgeValidationFailedView;
+
+export type DisableKnowledgeDocumentResult =
+  | RepositoryView<KnowledgeDocumentView>
+  | KnowledgeValidationFailedView;
+
+export type EnableKnowledgeDocumentResult =
+  | RepositoryView<KnowledgeDocumentView>
+  | KnowledgeValidationFailedView;
 
 /**
  * 一個檔案被拒絕上傳（issue #46，M2 Slice 12）：`reason` 是機器可讀的原因（與後端
@@ -589,6 +619,59 @@ export interface DemoRepository extends DemoScenarioController {
     documentId: KnowledgeDocumentId,
     file: File,
   ): Observable<UploadKnowledgeDocumentEvent>;
+  /**
+   * 文件詳情（issue #47，M2 Slice 13）：版本歷程（新到舊）與活動紀錄（新到舊，含停用原因）。
+   * id 來自畫面、未經驗證；不存在或不是自己的知識庫一律回傳相同的 `knowledge-base`
+   * permission-denied。
+   */
+  getKnowledgeDocumentDetail(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+  ): Observable<RepositoryView<KnowledgeDocumentDetailView>>;
+  /**
+   * 抽取預覽：依頁／章節／工作表列出抽取單位，標示不可讀的單位與原因，並列出每個單位
+   * 切出的段落（含目前是否被排除）。
+   */
+  previewKnowledgeVersion(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    versionId: string,
+  ): Observable<RepositoryView<KnowledgeVersionPreviewView>>;
+  /** 切換單一段落是否「不納入檢索」；設回原本的值不會多寫一筆活動紀錄。 */
+  updateKnowledgeChunkExclusion(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    versionId: string,
+    chunkId: string,
+    excluded: boolean,
+  ): Observable<UpdateKnowledgeChunkExclusionResult>;
+  /**
+   * 批次確認一或多個版本生效；省略 `effectiveFrom` 代表立即生效。任何一個版本不可確認
+   * （不屬於這個知識庫、還在等待或處理中、已經確認過）就整批不寫入，回傳
+   * validation-failed，點名是哪些版本。
+   */
+  approveKnowledgeVersions(
+    knowledgeBaseId: KnowledgeBaseId,
+    versionIds: readonly string[],
+    effectiveFrom?: string,
+  ): Observable<ApproveKnowledgeVersionsResult>;
+  /**
+   * 緊急停用：無論任何版本的確認狀態，立刻讓整份文件不再被引用；必須填寫原因，
+   * 原因會保留在活動紀錄。已停用的文件回傳 validation-failed（API 的 `409`）。
+   */
+  disableKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    reason: string,
+  ): Observable<DisableKnowledgeDocumentResult>;
+  /**
+   * 恢復：回到停用前的狀態，加上停用期間新確認生效的版本。不是停用中的文件回傳
+   * validation-failed（API 的 `409`）。
+   */
+  enableKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+  ): Observable<EnableKnowledgeDocumentResult>;
   /** 資料庫入口先問「你要收集什麼」；只有可管理資料來源的帳號可以取得模板。 */
   listDatabaseTemplates(
     viewerAccountId: AccountId,

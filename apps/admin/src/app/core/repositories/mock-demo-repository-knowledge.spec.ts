@@ -492,3 +492,174 @@ describe('MockDemoRepository knowledge bases', () => {
     });
   });
 });
+
+/**
+ * 版本確認、抽取預覽與緊急停用（issue #47，M2 Slice 13）。與上面同一個 mock，
+ * 但這批測試專門涵蓋生效日期、封存與停用時的行為。
+ */
+describe('MockDemoRepository knowledge review (issue #47)', () => {
+  const KB_ID = 'knowledge-refund-policy';
+  const DOC_ID = 'document-refund-policy';
+
+  function file(name: string, size: number, type = 'application/pdf'): File {
+    return new File([new Uint8Array(size)], name, { type });
+  }
+
+  it('treats a seeded document as already effective (version 1), so existing demo data keeps working', async () => {
+    const document = (await detailOf(createRepository(), KB_ID)).documents.find((item) => item.id === DOC_ID);
+
+    expect(document).toMatchObject({
+      latestVersionNumber: 1,
+      latestVersionState: 'effective',
+      effectiveVersionNumber: 1,
+      disabled: false,
+      inEffect: true,
+    });
+  });
+
+  it('requires confirmation for a brand-new document before it counts as in effect', async () => {
+    const repository = createRepository();
+    const uploaded = await firstValueFrom(repository.uploadKnowledgeDocument(KB_ID, file('新退貨辦法.pdf', 10)));
+    if (uploaded.status !== 'ready') throw new Error(`expected ready, got ${uploaded.status}`);
+
+    expect(uploaded.data).toMatchObject({
+      latestVersionState: 'pending-review',
+      effectiveVersionNumber: null,
+      inEffect: false,
+    });
+  });
+
+  it('keeps the previous version in effect while a newly uploaded version is still pending review', async () => {
+    const repository = createRepository();
+    const result = await firstValueFrom(
+      repository.uploadKnowledgeDocumentVersion(KB_ID, DOC_ID, file('退換貨辦法 2027 版.pdf', 20)),
+    );
+    if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+
+    expect(result.data).toMatchObject({
+      latestVersionNumber: 2,
+      latestVersionState: 'pending-review',
+      // v1 仍然生效中，直到 v2 被確認生效為止。
+      effectiveVersionNumber: 1,
+      inEffect: true,
+    });
+  });
+
+  it('confirms a version effective (optionally in the future), and archives the version it replaces', async () => {
+    const clock = { now: START };
+    const repository = createRepository({ clock });
+    await firstValueFrom(repository.uploadKnowledgeDocumentVersion(KB_ID, DOC_ID, file('退換貨辦法 2027 版.pdf', 20)));
+    const document = (await detailOf(repository, KB_ID)).documents.find((item) => item.id === DOC_ID);
+    if (!document) throw new Error('document not found');
+
+    const approved = await firstValueFrom(
+      repository.approveKnowledgeVersions(KB_ID, [document.latestVersionId]),
+    );
+    if (approved.status !== 'ready') throw new Error(`expected ready, got ${approved.status}`);
+    expect(approved.data).toHaveLength(1);
+    expect(approved.data[0]).toMatchObject({ versionNumber: 2, state: 'effective' });
+
+    const detail = await detailOf(repository, KB_ID);
+    const refreshed = detail.documents.find((item) => item.id === DOC_ID);
+    expect(refreshed).toMatchObject({ latestVersionNumber: 2, effectiveVersionNumber: 2, inEffect: true });
+
+    // getKnowledgeBaseDetail 不回傳版本歷程；改用 getKnowledgeDocumentDetail 驗證封存狀態。
+    const documentDetail = await firstValueFrom(repository.getKnowledgeDocumentDetail(KB_ID, DOC_ID));
+    if (documentDetail.status !== 'ready') throw new Error(`expected ready, got ${documentDetail.status}`);
+    expect(documentDetail.data.versions.map((v) => ({ versionNumber: v.versionNumber, state: v.state }))).toEqual([
+      { versionNumber: 2, state: 'effective' },
+      { versionNumber: 1, state: 'archived' },
+    ]);
+    expect(documentDetail.data.activities.map((a) => a.action)).toContain('version-approved');
+  });
+
+  it('rejects the whole batch when any one version is not approvable, and writes nothing', async () => {
+    const repository = createRepository();
+    const document = (await detailOf(repository, KB_ID)).documents.find((item) => item.id === DOC_ID);
+    if (!document) throw new Error('document not found');
+    // document-refund-policy（seed）已經是 approved，不是待確認，所以整批應該被拒絕。
+
+    const result = await firstValueFrom(
+      repository.approveKnowledgeVersions(KB_ID, [document.latestVersionId]),
+    );
+
+    expect(result).toMatchObject({ status: 'validation-failed' });
+  });
+
+  it('requires a reason to disable a document', async () => {
+    const repository = createRepository();
+
+    const result = await firstValueFrom(repository.disableKnowledgeDocument(KB_ID, DOC_ID, '   '));
+
+    expect(result).toMatchObject({ status: 'validation-failed', message: '請說明緊急停用的原因。' });
+  });
+
+  it('disables a document immediately regardless of its approval state, keeping the reason on the activity log', async () => {
+    const repository = createRepository();
+
+    const disabled = await firstValueFrom(repository.disableKnowledgeDocument(KB_ID, DOC_ID, '疑似內容錯誤，暫停使用'));
+    if (disabled.status !== 'ready') throw new Error(`expected ready, got ${disabled.status}`);
+    expect(disabled.data).toMatchObject({ disabled: true, inEffect: false });
+
+    const detail = await firstValueFrom(repository.getKnowledgeDocumentDetail(KB_ID, DOC_ID));
+    if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
+    expect(detail.data.disabledReason).toBe('疑似內容錯誤，暫停使用');
+    expect(detail.data.activities[0]).toMatchObject({ action: 'document-disabled', reason: '疑似內容錯誤，暫停使用' });
+
+    // 已停用文件的清單，即使有生效版本也不再視為生效。
+    const documentInList = (await detailOf(repository, KB_ID)).documents.find((item) => item.id === DOC_ID);
+    expect(documentInList).toMatchObject({ disabled: true, inEffect: false });
+  });
+
+  it('refuses to disable an already-disabled document, and to enable one that is not disabled', async () => {
+    const repository = createRepository();
+    await firstValueFrom(repository.disableKnowledgeDocument(KB_ID, DOC_ID, '原因'));
+
+    const secondDisable = await firstValueFrom(repository.disableKnowledgeDocument(KB_ID, DOC_ID, '另一個原因'));
+    expect(secondDisable).toMatchObject({ status: 'validation-failed' });
+
+    const otherDocument = (await detailOf(createRepository(), KB_ID)).documents.find(
+      (item) => item.id !== DOC_ID,
+    );
+    if (!otherDocument) throw new Error('need a second document in the seed');
+    const enableNotDisabled = await firstValueFrom(
+      repository.enableKnowledgeDocument(KB_ID, otherDocument.id),
+    );
+    expect(enableNotDisabled).toMatchObject({ status: 'validation-failed' });
+  });
+
+  it('restores the prior state on enable', async () => {
+    const repository = createRepository();
+    await firstValueFrom(repository.disableKnowledgeDocument(KB_ID, DOC_ID, '原因'));
+
+    const enabled = await firstValueFrom(repository.enableKnowledgeDocument(KB_ID, DOC_ID));
+    if (enabled.status !== 'ready') throw new Error(`expected ready, got ${enabled.status}`);
+    expect(enabled.data).toMatchObject({ disabled: false, inEffect: true, effectiveVersionNumber: 1 });
+  });
+
+  it('previews extracted units and chunks for a version, and lets a manager toggle exclusion', async () => {
+    const repository = createRepository();
+    const document = (await detailOf(repository, KB_ID)).documents.find((item) => item.id === DOC_ID);
+    if (!document) throw new Error('document not found');
+
+    const preview = await firstValueFrom(
+      repository.previewKnowledgeVersion(KB_ID, DOC_ID, document.latestVersionId),
+    );
+    if (preview.status !== 'ready') throw new Error(`expected ready, got ${preview.status}`);
+    expect(preview.data.units.length).toBeGreaterThan(0);
+    const chunk = preview.data.units[0].chunks[0];
+    expect(chunk.excluded).toBe(false);
+
+    const excluded = await firstValueFrom(
+      repository.updateKnowledgeChunkExclusion(KB_ID, DOC_ID, document.latestVersionId, chunk.id, true),
+    );
+    if (excluded.status !== 'ready') throw new Error(`expected ready, got ${excluded.status}`);
+    expect(excluded.data.excluded).toBe(true);
+
+    const rePreview = await firstValueFrom(
+      repository.previewKnowledgeVersion(KB_ID, DOC_ID, document.latestVersionId),
+    );
+    if (rePreview.status !== 'ready') throw new Error(`expected ready, got ${rePreview.status}`);
+    expect(rePreview.data.units[0].chunks[0].excluded).toBe(true);
+  });
+});

@@ -177,6 +177,16 @@ public static class AssistantEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
 
+        // "由草稿建立助理" (M3 plan §3, Slice 2; ticket #72). A draft that does not exist or
+        // belongs to another account gets 403 assistant-draft, not assistant-configuration —
+        // it is a different resource with its own access rule (AssistantDraftAccess).
+        assistants.MapPost("", CreateFromDraftAsync)
+            .RequirePermission(AccountPermission.ManageAssistants, ForbiddenReason.AssistantConfiguration)
+            .Produces<AssistantConfigurationView>(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
         assistants.MapGet("/{id:guid}/settings", GetSettingsAsync)
             .RequirePermission(AccountPermission.ManageAssistants, ForbiddenReason.AssistantConfiguration)
             .Produces<AssistantSettingsView>(StatusCodes.Status200OK)
@@ -293,6 +303,81 @@ public static class AssistantEndpoints
             .ThenBy(assistant => assistant.Id)
             .ToListAsync(cancellationToken);
         return Results.Ok(owned.ConvertAll(assistant => ToConfiguration(assistant, viewerId)));
+    }
+
+    /// <summary>
+    /// Builds an <see cref="Assistant"/> from the caller's own draft
+    /// (<see cref="AssistantDraftAccess.OwnedBy"/>; someone else's draft id gets
+    /// <see cref="ForbiddenReason.AssistantDraft"/>, byte-identical to a missing one).
+    /// Validates every field (<see cref="AssistantDraftCreationRules"/>) against the
+    /// knowledge bases the caller may connect right now
+    /// (<see cref="AssistantKnowledgeAccess.ConnectableBy"/>) before writing anything: on
+    /// success the assistant, its knowledge-base connections and the draft's deletion are
+    /// one <see cref="AppDbContext.SaveChangesAsync"/>; on <c>422</c> nothing is written and
+    /// the draft still exists (M3 plan Slice 2 acceptance).
+    /// </summary>
+    internal static async Task<IResult> CreateFromDraftAsync(
+        CreateAssistantFromDraftRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var draft = await dbContext.AssistantDrafts
+            .Where(AssistantDraftAccess.OwnedBy(callerId))
+            .SingleOrDefaultAsync(candidate => candidate.Id == request.DraftId, cancellationToken);
+        if (draft is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantDraft);
+        }
+
+        var connectableKnowledgeBaseIds = await dbContext.KnowledgeBases
+            .AsNoTracking()
+            .Where(AssistantKnowledgeAccess.ConnectableBy(callerId, dbContext.KnowledgeBaseShares))
+            .Select(knowledgeBase => knowledgeBase.Id)
+            .ToListAsync(cancellationToken);
+
+        var validated = AssistantDraftCreationRules.Validate(draft.Payload, connectableKnowledgeBaseIds.ToHashSet());
+        if (!validated.IsValid)
+        {
+            return ApiErrors.ValidationFailed(validated.Failures);
+        }
+
+        var value = validated.Value;
+        var now = clock.GetUtcNow();
+        var assistant = Assistant.Create(
+            draft.OrganizationId,
+            callerId,
+            value.Name,
+            value.Purpose,
+            value.TemplateId,
+            value.Tone,
+            value.RoleInstructions,
+            value.KnowledgeScope,
+            value.RefusalMessage,
+            value.ShowCitations,
+            value.KeepConversations,
+            now);
+        dbContext.Assistants.Add(assistant);
+
+        var knowledgeBasesById = await dbContext.KnowledgeBases
+            .Where(knowledgeBase => value.KnowledgeBaseIds.Contains(knowledgeBase.Id))
+            .ToDictionaryAsync(knowledgeBase => knowledgeBase.Id, cancellationToken);
+        foreach (var knowledgeBaseId in value.KnowledgeBaseIds)
+        {
+            dbContext.AssistantKnowledgeBases.Add(
+                new AssistantKnowledgeBase(assistant, knowledgeBasesById[knowledgeBaseId], now));
+        }
+
+        dbContext.AssistantDrafts.Remove(draft);
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Results.Created($"/api/v1/assistants/{assistant.Id}/settings", ToConfiguration(assistant, callerId));
     }
 
     internal static async Task<IResult> GetSettingsAsync(

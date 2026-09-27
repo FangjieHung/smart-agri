@@ -60,6 +60,16 @@ public sealed class ForbiddenReason
         "你沒有使用這個助理的權限，或它已不存在。");
 
     /// <summary>
+    /// An assistant wizard draft that does not exist, belongs to another organization, or
+    /// belongs to another account of the same organization (drafts are never shared: only
+    /// their owner may read, save or delete one). Same bytes in every case (M3 plan, Slice 2
+    /// acceptance; #72).
+    /// </summary>
+    public static readonly ForbiddenReason AssistantDraft = new(
+        "assistant-draft",
+        "你沒有這份精靈草稿的存取權限，或它已不存在。");
+
+    /// <summary>
     /// An assistant's publishing settings (<c>GET/PUT .../publishing*</c>) that do not exist,
     /// belong to another organization, or are not the caller's own (only the owner may open or
     /// change them; also needs <c>manage-publishing</c>). Same bytes in every case, mirroring

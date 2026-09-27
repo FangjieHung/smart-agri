@@ -15,18 +15,23 @@ public static class GenAiTelemetry
     public const string RequestModel = "gen_ai.request.model";
     public const string ResponseModel = "gen_ai.response.model";
     public const string InputTokens = "gen_ai.usage.input_tokens";
+    public const string OutputTokens = "gen_ai.usage.output_tokens";
     public const string TokenType = "gen_ai.token.type";
     public const string ServerAddress = "server.address";
     public const string ServerPort = "server.port";
     public const string ErrorType = "error.type";
 
-    /// <summary><c>embed-document</c> or <c>embed-query</c>.</summary>
+    /// <summary><c>embed-document</c>, <c>embed-query</c> or <c>generate-answer</c>.</summary>
     public const string Purpose = "smartagri.model_invocation.purpose";
 
     /// <summary>How many texts one call embedded.</summary>
     public const string InputCount = "smartagri.model_invocation.input_count";
 
     public const string EmbeddingsOperation = "embeddings";
+
+    /// <summary>The GenAI semantic conventions' operation name for a chat completion call
+    /// (M3 Slice 4).</summary>
+    public const string ChatOperation = "chat";
 
     public const string DurationInstrument = "gen_ai.client.operation.duration";
     public const string TokenUsageInstrument = "gen_ai.client.token.usage";

@@ -14,4 +14,9 @@ public enum ModelInvocationPurpose
     /// <summary>Embedding a question to search with (retrieval, Slice 9).</summary>
     [JsonStringEnumMemberName("embed-query")]
     EmbedQuery,
+
+    /// <summary>Generating a grounded answer for an assistant conversation or a wizard trial
+    /// question (M3, Slice 4).</summary>
+    [JsonStringEnumMemberName("generate-answer")]
+    GenerateAnswer,
 }

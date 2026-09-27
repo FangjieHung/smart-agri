@@ -148,6 +148,7 @@ public sealed class ModelInvocationRecordingEmbeddingGenerator : DelegatingEmbed
             _provider.Name,
             _provider.Model,
             inputTokens,
+            outputTokens: null,
             (long)elapsed.TotalMilliseconds,
             succeeded: failure is null,
             startedAt);

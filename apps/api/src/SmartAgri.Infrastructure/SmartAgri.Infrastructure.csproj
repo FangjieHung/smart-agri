@@ -22,6 +22,11 @@
          (postgresql-as-single-store ADR). All MIT. -->
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <!-- Chat models (M3 Slice 4): ChatClientBuilder/ConfigureOptions apply the deployment's
+         default max output tokens to the configured IChatClient (llm-providers ADR). Only the
+         full Microsoft.Extensions.AI package has the builder; Application only ever sees
+         IChatClient from Microsoft.Extensions.AI.Abstractions. -->
+    <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="OpenAI" />
     <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
     <PackageReference Include="Pgvector" />

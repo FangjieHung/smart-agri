@@ -138,6 +138,25 @@ public sealed class KnowledgeActivity : IOrganizationScoped
             detail: null);
     }
 
+    /// <summary>
+    /// <see cref="KnowledgeActivityAction.ChunkExcluded"/> or
+    /// <see cref="KnowledgeActivityAction.ChunkIncluded"/>, as <paramref name="chunk"/> is now.
+    /// The detail is the chunk's id only, never its text.
+    /// </summary>
+    public static KnowledgeActivity ChunkExclusionChanged(KnowledgeChunk chunk, Guid actorAccountId, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(chunk);
+        return New(
+            chunk.OrganizationId,
+            chunk.KnowledgeBaseId,
+            chunk.DocumentId,
+            chunk.VersionId,
+            chunk.Excluded ? KnowledgeActivityAction.ChunkExcluded : KnowledgeActivityAction.ChunkIncluded,
+            actorAccountId,
+            at,
+            JsonSerializer.Serialize(new { chunkId = chunk.Id }));
+    }
+
     private static KnowledgeActivity New(
         KnowledgeBase knowledgeBase,
         KnowledgeActivityAction action,

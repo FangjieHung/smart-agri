@@ -31,4 +31,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Knowledge extraction fixtures (M2 Slice 6), read by KnowledgeFixtures; how each was
+         made and its font licence: ../fixtures/knowledge/README.md. -->
+    <None Include="..\fixtures\knowledge\*" Exclude="..\fixtures\knowledge\README.md;..\fixtures\knowledge\.gitattributes" LinkBase="fixtures\knowledge" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

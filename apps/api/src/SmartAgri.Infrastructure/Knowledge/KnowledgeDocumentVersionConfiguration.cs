@@ -31,8 +31,12 @@ internal sealed class KnowledgeDocumentVersionConfiguration : IEntityTypeConfigu
             .IsRequired()
             .IsConcurrencyToken();
 
-        // Target of the file contents' composite foreign key.
+        // Target of the file contents' and extracted units' composite foreign keys.
         builder.HasAlternateKey(version => new { version.Id, version.OrganizationId });
+
+        // Target of the chunks' composite foreign key: a chunk's DocumentId and
+        // KnowledgeBaseId (kept for filtering retrieval) must be its version's.
+        builder.HasAlternateKey(version => new { version.Id, version.DocumentId, version.KnowledgeBaseId, version.OrganizationId });
 
         builder.HasOne<KnowledgeDocument>()
             .WithMany()

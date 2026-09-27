@@ -310,7 +310,7 @@ Owner-only endpoints under `/api/v1/knowledge-bases/{id}/documents` (M2 plan, Sl
 | `POST .../documents` (multipart: `file`, optional `batchId`) | `201` `KnowledgeDocumentView` (`queued`) |
 | `POST .../documents/{docId}/versions/{versionId}/retry` | `200` `KnowledgeDocumentView`; `409` unless the version is `failed` |
 | `GET .../documents/{docId}/versions/{versionId}/file` | the original bytes, stored content type, `Content-Disposition: attachment` with `filename*` |
-| `DELETE .../documents/{docId}` | `204`; the document, its versions and their files go in one transaction |
+| `DELETE .../documents/{docId}` | `204`; the document, its versions, their files, units and chunks go in one transaction |
 
 Uploads accept one file per request: `.pdf`, `.docx`, `.xlsx`, `.txt`, `.md`, at most
 `Knowledge:MaxFileBytes`. Refusals are ProblemDetails with a `reason`: `413`
@@ -325,10 +325,6 @@ database too. An accepted upload writes the document, version 1, the original fi
 `docs/adr/2026-09-26-original-files-in-postgresql.md`; the database and its backups grow
 with the files), an activity row and a `knowledge.process-version` job in one save.
 
-**Processing is a stand-in for now:** `PlaceholderProcessVersionHandler` moves each version
-to `processing` and then `failed` with 「解析功能尚未啟用」. Slice 6 (#40) replaces it with
-real text extraction.
-
 | Key | Default | |
 | --- | --- | --- |
 | `Knowledge:MaxFileBytes` | `20971520` (20 MB) | Largest accepted file, at most 256 MB. |
@@ -338,6 +334,43 @@ envelope, set per endpoint (Kestrel refuses a larger body with `413` before buff
 other endpoints keep Kestrel's default). **A reverse proxy in front of the Api must allow at
 least as much**, or it answers with its own `413` page before the Api sees the request —
 for nginx, e.g. `client_max_body_size 21m;` for the default. Raise both together.
+
+### Text extraction, readability and chunks
+
+The `knowledge.process-version` job (`ProcessKnowledgeVersionHandler`, M2 plan Slice 6) reads
+each uploaded version and writes what it read, in one transaction with the version's status:
+
+- **Units** (`KnowledgeExtractedUnits`): a PDF page (PdfPig), a DOCX section at Heading 1–3
+  (Open XML SDK; label = heading path, e.g. 「2 退換貨 › 2.1 退貨條件」; table rows as
+  `cell | cell`), an XLSX worksheet (cells as Excel displays them; hidden sheets skipped), a
+  Markdown section at `#`–`###`, or a whole TXT file. TXT/MD must be UTF-8 (a BOM is fine).
+- **Readability** (`KnowledgeReadability`): a PDF page with fewer than 10 characters, or any
+  unit more than 30% U+FFFD/private-use/control characters, is unreadable and gets no chunks.
+  All readable → `ready`; some → `partially-readable` (the issue lists the pages); none →
+  `failed` (「找不到可讀文字，可能是掃描檔；目前不支援 OCR」). No OCR.
+- **Chunks** (`KnowledgeChunks`, `KnowledgeChunker`): never across a unit; about 600, at most
+  1000 characters (Unicode scalars, so one Chinese character is one), 100 overlapping. Each
+  worksheet chunk is whole rows headed by the sheet's header row, labelled
+  「工作表『配送時間』第 2–30 列」.
+- A password-protected PDF, non-UTF-8 text (e.g. Big5) or a damaged file fails the job at once
+  (`PermanentJobFailure`, one attempt) with an issue telling the owner what to do.
+
+The job is idempotent: a version already processed is left alone, and a reprocessed one (after
+a retry) has its units and chunks replaced, never added to. Units and chunks are deleted with
+their version, document and knowledge base (database cascades).
+
+| Endpoint | Result |
+| --- | --- |
+| `GET .../documents/{docId}/versions/{versionId}/preview` | `200` `KnowledgeVersionPreviewView`: status, issue, units in order (location, readable, issue code, text) with their chunks (text, excluded) |
+| `PUT .../documents/{docId}/versions/{versionId}/chunks/{chunkId}/exclusion` `{ excluded }` | `200` `KnowledgeChunkView`; a changed value writes a `chunk-excluded`/`chunk-included` activity row (chunk id only); `422` without `excluded` |
+
+Both are owner only, with the same `403 knowledge-base` for everything else. Test fixtures and
+how they were made: `tests/fixtures/knowledge/README.md`.
+
+| Key | Default | |
+| --- | --- | --- |
+| `Knowledge:MaxExtractedUnits` | `2000` | Pages, sections or worksheets read per file; more makes the version `partially-readable`. |
+| `Knowledge:MaxSheetRows` | `5000` | Data rows read per worksheet; more makes the version `partially-readable`. |
 
 ## Development seed data
 

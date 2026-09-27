@@ -1,0 +1,8 @@
+# The fixtures are read byte for byte (encodings, byte order marks, line endings): never let
+# Git normalize them.
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.ttf binary
+holiday-notice-big5.txt binary
+faq.md -text

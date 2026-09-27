@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Options;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Application.Knowledge;
+using SmartAgri.Application.Knowledge.Processing;
+using SmartAgri.Infrastructure.Knowledge.Extraction;
 
 namespace SmartAgri.Api.Knowledge;
 
@@ -8,8 +10,8 @@ public static class KnowledgeServiceCollectionExtensions
 {
     /// <summary>
     /// Registers what the knowledge endpoints need beyond the database: <see cref="KnowledgeOptions"/>
-    /// from the <c>Knowledge</c> section (validated on start), and the handler of
-    /// <see cref="ProcessKnowledgeVersionJob.Kind"/> jobs. Requires <c>AddBackgroundJobs</c>.
+    /// from the <c>Knowledge</c> section (validated on start), the text extractors, and the
+    /// handler of <see cref="ProcessKnowledgeVersionJob.Kind"/> jobs. Requires <c>AddBackgroundJobs</c>.
     /// </summary>
     public static IServiceCollection AddKnowledge(this IServiceCollection services, IConfiguration configuration)
     {
@@ -18,8 +20,12 @@ public static class KnowledgeServiceCollectionExtensions
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<KnowledgeOptions>, KnowledgeOptionsValidator>();
 
-        // TEMPORARY (M2 Slice 5, #39): replaced by the real processing handler in Slice 6 (#40).
-        services.AddJobHandler<PlaceholderProcessVersionHandler>(ProcessKnowledgeVersionJob.Kind);
+        // Text extraction (Slice 6): exactly one extractor per KnowledgeFileFormat. Stateless.
+        services.AddSingleton<IDocumentTextExtractor, PdfTextExtractor>();
+        services.AddSingleton<IDocumentTextExtractor, DocxTextExtractor>();
+        services.AddSingleton<IDocumentTextExtractor, XlsxTextExtractor>();
+        services.AddSingleton<IDocumentTextExtractor, PlainTextExtractor>();
+        services.AddJobHandler<ProcessKnowledgeVersionHandler>(ProcessKnowledgeVersionJob.Kind);
         return services;
     }
 

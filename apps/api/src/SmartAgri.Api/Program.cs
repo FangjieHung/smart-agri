@@ -86,6 +86,7 @@ app.MapMeEndpoints();
 app.MapTeamEndpoints();
 app.MapKnowledgeBaseEndpoints();
 app.MapKnowledgeDocumentEndpoints();
+app.MapKnowledgeExtractionEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

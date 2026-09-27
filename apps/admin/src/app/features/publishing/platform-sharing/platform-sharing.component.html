@@ -7,7 +7,11 @@
   </p>
   <p class="hint">
     取消勾選會立刻收回使用權限，但<strong>不會刪除</strong>該帳號既有的對話；重新勾選後，他的對話會原封不動回來。
-    使用對象（內部員工／外部客戶）仍然有效：角色不符的帳號就算被勾選也開不了。
+    @if (apiMode) {
+      被勾選的帳號還需要具備「使用分享給我的助理」權限才開得了；助理暫停時，除了你以外沒有人可以使用。
+    } @else {
+      使用對象（內部員工／外部客戶）仍然有效：角色不符的帳號就算被勾選也開不了。
+    }
   </p>
 
   <div class="usage-link">
@@ -37,7 +41,9 @@
   </fieldset>
 
   <div class="actions">
-    <button type="submit" class="ui-button">儲存可使用的帳號</button>
+    <button type="submit" class="ui-button" [disabled]="saving()" [attr.aria-busy]="saving() ? 'true' : null">
+      {{ saving() ? '儲存中…' : '儲存可使用的帳號' }}
+    </button>
   </div>
   <p class="feedback" aria-live="polite">{{ feedback() }}</p>
 </form>

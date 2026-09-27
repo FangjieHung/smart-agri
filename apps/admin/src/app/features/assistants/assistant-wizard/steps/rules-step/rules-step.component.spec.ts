@@ -9,11 +9,13 @@ async function render() {
     providers: [AssistantDraftStore, ...provideWizardTesting().providers],
   });
   const store = TestBed.inject(AssistantDraftStore);
-  store.toggleSource({ id: 'database-orders', type: 'database' });
   const fixture = TestBed.createComponent(RulesStepComponent);
   fixture.detectChanges();
-  // `writableDatabases` 依賴 `listConnectableSources()`（非同步契約，issue #49）；
-  // 即使 mock 是同步 Observable，仍要等一輪穩定才能讀到 `ready` 的結果。
+  // 草稿與 `listConnectableSources()` 都是非同步契約（issue #49、#81）；即使 mock 是同步
+  // Observable，仍要等一輪穩定才能讀到 `ready` 的結果，草稿讀到之前的編輯會被讀取結果蓋掉。
+  await fixture.whenStable();
+  store.toggleSource({ id: 'database-orders', type: 'database' });
+  fixture.detectChanges();
   await fixture.whenStable();
   fixture.detectChanges();
   return { fixture, page: fixture.nativeElement as HTMLElement, store };

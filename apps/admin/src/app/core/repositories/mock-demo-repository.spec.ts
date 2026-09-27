@@ -9,18 +9,19 @@ describe('MockDemoRepository', () => {
   let repository: MockDemoRepository;
 
   beforeEach(() => {
-    repository = new MockDemoRepository();
+    // 助理清單方法改為由建構子的 `viewer` 選項推導身分（不再由呼叫端傳入），這裡固定
+    // 用種子的 admin 帳號；需要別的身分的測試另外建立自己的 repository 實例。
+    repository = new MockDemoRepository(DEMO_SEED, { viewer: () => 'account-smb-admin' });
   });
 
-  it('keeps assistant configuration private while allowing a shared assistant to be used', () => {
-    const adminConfigurations =
-      repository.listAssistantConfigurations('account-smb-admin');
-    const employeeConfigurations = repository.listAssistantConfigurations(
-      'account-internal-employee',
-    );
-    const employeeAssistants = repository.listUsableAssistants(
-      'account-internal-employee',
-    );
+  it('keeps assistant configuration private while allowing a shared assistant to be used', async () => {
+    const employeeRepository = new MockDemoRepository(DEMO_SEED, {
+      viewer: () => 'account-internal-employee',
+    });
+
+    const adminConfigurations = await firstValueFrom(repository.listAssistantConfigurations());
+    const employeeConfigurations = await firstValueFrom(employeeRepository.listAssistantConfigurations());
+    const employeeAssistants = await firstValueFrom(employeeRepository.listUsableAssistants());
 
     expect(adminConfigurations).toMatchObject({
       status: 'ready',
@@ -151,19 +152,20 @@ describe('MockDemoRepository', () => {
     expect(employeeView).toEqual({ status: 'ready', data: [] });
   });
 
-  it('rejects an external customer submitting to an assistant they cannot use', () => {
-    const privateAssistantRepository = new MockDemoRepository({
-      ...DEMO_SEED,
-      assistants: DEMO_SEED.assistants.map((assistant) => ({
-        ...assistant,
-        audience: 'account-members',
-        sharedWithAccountIds: [],
-      })),
-    });
-
-    const usableAssistants = privateAssistantRepository.listUsableAssistants(
-      'account-external-customer',
+  it('rejects an external customer submitting to an assistant they cannot use', async () => {
+    const privateAssistantRepository = new MockDemoRepository(
+      {
+        ...DEMO_SEED,
+        assistants: DEMO_SEED.assistants.map((assistant) => ({
+          ...assistant,
+          audience: 'account-members',
+          sharedWithAccountIds: [],
+        })),
+      },
+      { viewer: () => 'account-external-customer' },
     );
+
+    const usableAssistants = await firstValueFrom(privateAssistantRepository.listUsableAssistants());
     const submission = privateAssistantRepository.submitAuthorizedForm(
       'account-external-customer',
       {
@@ -252,10 +254,10 @@ describe('MockDemoRepository', () => {
   it.each([
     ['loading', 'loading'],
     ['permission-denied', 'permission-denied'],
-  ] as const)('reproduces the %s scenario', (scenario, expectedStatus) => {
+  ] as const)('reproduces the %s scenario', async (scenario, expectedStatus) => {
     repository.setScenario(scenario);
 
-    expect(repository.listUsableAssistants('account-smb-admin')).toMatchObject({
+    expect(await firstValueFrom(repository.listUsableAssistants())).toMatchObject({
       status: expectedStatus,
     });
     expect(repository.getScenario()).toBe(scenario);
@@ -273,12 +275,12 @@ describe('MockDemoRepository', () => {
     });
   });
 
-  it('reproduces a disconnected publishing channel without changing the seed', () => {
+  it('reproduces a disconnected publishing channel without changing the seed', async () => {
     repository.setScenario('disconnected-channel');
 
-    const disconnected = repository.listPublishingChannels('account-smb-admin');
+    const disconnected = await firstValueFrom(repository.listPublishingChannels());
     repository.resetScenario();
-    const restored = repository.listPublishingChannels('account-smb-admin');
+    const restored = await firstValueFrom(repository.listPublishingChannels());
 
     expect(disconnected.status).toBe('ready');
     expect(restored.status).toBe('ready');

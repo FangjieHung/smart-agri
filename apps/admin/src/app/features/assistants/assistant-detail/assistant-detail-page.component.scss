@@ -68,3 +68,15 @@ p { color: var(--color-text-secondary); line-height: var(--line-height-body); }
 .usage-summary div { display: grid; gap: var(--space-1); padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-control); }
 .usage-summary dt { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 .usage-summary dd { margin: 0; color: var(--color-text); font-size: var(--font-size-heading); font-weight: 700; }
+
+.page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); }
+.ui-button.danger { border-color: var(--color-error); background: var(--color-error); color: var(--color-on-accent); }
+.ui-button.secondary { background: var(--color-surface); color: var(--color-accent); }
+.action-error { color: var(--color-error); font-weight: 700; }
+.delete-panel {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--color-surface);
+}
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }

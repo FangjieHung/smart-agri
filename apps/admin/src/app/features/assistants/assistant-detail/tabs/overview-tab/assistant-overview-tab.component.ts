@@ -6,6 +6,7 @@ import {
   type StatusTone,
 } from '../../../../../shared/ui/status-badge/status-badge.component';
 import { AssistantProfileFormComponent } from '../../../components/assistant-profile-form/assistant-profile-form.component';
+import { ApiSessionService } from '../../../../../core/session/api-session.service';
 import { AssistantSettingsStore } from '../../assistant-settings.store';
 
 const STATUS: Record<AssistantStatus, { readonly label: string; readonly tone: StatusTone }> = {
@@ -34,6 +35,8 @@ const AUDIENCE_LABELS: Record<AssistantAudience, string> = {
 })
 export class AssistantOverviewTabComponent {
   protected readonly store = inject(AssistantSettingsStore);
+  /** API 模式（M3）只開放組織內部使用。 */
+  protected readonly apiMode = inject(ApiSessionService).apiMode;
 
   protected readonly profile = computed(() => {
     const settings = this.store.settings();
@@ -54,12 +57,12 @@ export class AssistantOverviewTabComponent {
   }));
 
   protected readonly status = computed(() => {
-    const settings = this.store.settings();
+    const settings = this.store.savedSettings();
     return settings === null ? null : STATUS[settings.configuration.status];
   });
 
   protected readonly summary = computed(() => {
-    const settings = this.store.settings();
+    const settings = this.store.savedSettings();
     if (settings === null) return null;
 
     const knowledge = settings.sources.filter(

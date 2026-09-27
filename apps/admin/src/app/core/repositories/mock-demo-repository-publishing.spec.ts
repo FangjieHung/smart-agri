@@ -1,8 +1,11 @@
+import { firstValueFrom } from 'rxjs';
 import type { AccountId } from '../domain/account.model';
 import type {
   AssistantPublishingView,
+  ConfigurableAssistantPublishingView,
   LineSettingsInput,
   PublishingChannelStatus,
+  PublishingChannelType,
   WebsiteEmbedSettings,
 } from '../domain/publishing.model';
 import type { RepositoryView } from './demo-repository';
@@ -22,11 +25,55 @@ const VALID_LINE: LineSettingsInput = {
   accessToken: 'demo-token-not-for-production-0123456789abcdefghij',
 };
 
+/** `listChannelOverview`／`getAssistantPublishing` 等的非同步契約不再接收 viewer；用這個 box 切換。 */
+const viewerBoxes = new WeakMap<MockDemoRepository, { current: AccountId | null }>();
+
 function createRepository(storage = createMemoryStorage()) {
-  return new MockDemoRepository(DEMO_SEED, {
+  const box: { current: AccountId | null } = { current: ADMIN };
+  const repository = new MockDemoRepository(DEMO_SEED, {
     storage,
     now: () => new Date('2026-09-22T02:00:00.000Z'),
+    viewer: () => box.current,
   });
+  viewerBoxes.set(repository, box);
+  return repository;
+}
+
+function boxOf(repository: MockDemoRepository) {
+  const box = viewerBoxes.get(repository);
+  if (box === undefined) throw new Error('unknown repository: use createRepository()');
+  return box;
+}
+
+async function overviewAs(repository: MockDemoRepository, viewer: AccountId | null) {
+  boxOf(repository).current = viewer;
+  return firstValueFrom(repository.listChannelOverview());
+}
+
+async function publishingAs(repository: MockDemoRepository, viewer: AccountId | null, assistantId: string) {
+  boxOf(repository).current = viewer;
+  return firstValueFrom(repository.getAssistantPublishing(assistantId));
+}
+
+async function updatePlatformSharingAs(
+  repository: MockDemoRepository,
+  viewer: AccountId | null,
+  assistantId: string,
+  accountIds: readonly AccountId[],
+) {
+  boxOf(repository).current = viewer;
+  return firstValueFrom(repository.updatePlatformSharing(assistantId, accountIds));
+}
+
+async function setPublishingChannelPausedAs(
+  repository: MockDemoRepository,
+  viewer: AccountId | null,
+  assistantId: string,
+  channelType: PublishingChannelType,
+  paused: boolean,
+) {
+  boxOf(repository).current = viewer;
+  return firstValueFrom(repository.setPublishingChannelPaused(assistantId, channelType, paused));
 }
 
 function dataOf<T>(result: RepositoryView<T> | { status: 'validation-failed' }): T {
@@ -42,14 +89,23 @@ function statusesOf(view: AssistantPublishingView): Record<string, PublishingCha
   };
 }
 
+/**
+ * mock 模式一律回傳完整的 `WebsiteEmbedView`／`LineSetupView`（官網與 LINE 的
+ * `UnavailablePublishingChannelView` 只在 API 模式出現），所以在讀取可設定欄位時
+ * 安全地窄化成 `ConfigurableAssistantPublishingView`。
+ */
+function asConfigurable(view: AssistantPublishingView): ConfigurableAssistantPublishingView {
+  return view as ConfigurableAssistantPublishingView;
+}
+
 function websiteSettings(view: AssistantPublishingView, patch: Partial<WebsiteEmbedSettings> = {}): WebsiteEmbedSettings {
-  const { displayName, welcomeMessage, brandColor, position, allowedDomains } = view.website;
+  const { displayName, welcomeMessage, brandColor, position, allowedDomains } = asConfigurable(view).website;
   return { displayName, welcomeMessage, brandColor, position, allowedDomains, ...patch };
 }
 
 describe('MockDemoRepository publishing channels', () => {
-  it('lists three channels per owned assistant covering all five unified statuses', () => {
-    const overview = dataOf(createRepository().listChannelOverview(ADMIN));
+  it('lists three channels per owned assistant covering all five unified statuses', async () => {
+    const overview = dataOf(await overviewAs(createRepository(), ADMIN));
 
     expect(overview.map((entry) => entry.assistantName)).toEqual(['客服助理', '內部教育訓練助理']);
     for (const entry of overview) {
@@ -60,36 +116,40 @@ describe('MockDemoRepository publishing channels', () => {
     expect([...statuses].sort()).toEqual(['needs-attention', 'not-configured', 'paused', 'published', 'testing']);
   });
 
-  it('isolates a failing LINE channel from the platform and website channels', () => {
-    const view = dataOf(createRepository().getAssistantPublishing(ADMIN, CUSTOMER_SERVICE));
+  it('isolates a failing LINE channel from the platform and website channels', async () => {
+    const view = dataOf(await publishingAs(createRepository(), ADMIN, CUSTOMER_SERVICE));
 
     expect(statusesOf(view)).toEqual({ platform: 'published', website: 'published', line: 'needs-attention' });
     expect(view.line.channel.statusDetail).toContain('其他管道不受影響');
-    expect(view.line.checks.find((check) => check.field === 'accessToken')).toMatchObject({ state: 'failed' });
+    expect(asConfigurable(view).line.checks.find((check) => check.field === 'accessToken')).toMatchObject({
+      state: 'failed',
+    });
   });
 
-  it('marks only the website channel when the disconnected-channel scenario is active', () => {
+  it('marks only the website channel when the disconnected-channel scenario is active', async () => {
     const repository = createRepository();
     repository.setScenario('disconnected-channel');
-    const disconnected = dataOf(repository.getAssistantPublishing(ADMIN, CUSTOMER_SERVICE));
+    const disconnected = dataOf(await publishingAs(repository, ADMIN, CUSTOMER_SERVICE));
     repository.resetScenario();
-    const restored = dataOf(repository.getAssistantPublishing(ADMIN, CUSTOMER_SERVICE));
+    const restored = dataOf(await publishingAs(repository, ADMIN, CUSTOMER_SERVICE));
 
     expect(disconnected.website.channel.status).toBe('needs-attention');
     expect(disconnected.platform.channel.status).toBe('published');
     expect(restored.website.channel.status).toBe('published');
   });
 
-  it('denies other accounts and unknown ids with the same message that names nothing', () => {
+  it('denies other accounts and unknown ids with the same message that names nothing', async () => {
     const repository = createRepository();
-    const otherAccount = repository.getAssistantPublishing('account-internal-employee', CUSTOMER_SERVICE);
-    const unknown = repository.getAssistantPublishing(ADMIN, 'assistant-missing');
+    const otherAccount = await publishingAs(repository, 'account-internal-employee', CUSTOMER_SERVICE);
+    const unknown = await publishingAs(repository, ADMIN, 'assistant-missing');
 
     expect(otherAccount).toEqual(unknown);
     expect(otherAccount).toMatchObject({ status: 'permission-denied', reason: 'publishing' });
     expect(JSON.stringify(otherAccount)).not.toContain('客服助理');
-    expect(dataOf(repository.listChannelOverview('account-internal-employee'))).toEqual([]);
-    expect(repository.updatePlatformSharing('account-external-customer', CUSTOMER_SERVICE, [])).toMatchObject({
+    expect(dataOf(await overviewAs(repository, 'account-internal-employee'))).toEqual([]);
+    expect(
+      await updatePlatformSharingAs(repository, 'account-external-customer', CUSTOMER_SERVICE, []),
+    ).toMatchObject({
       status: 'permission-denied',
     });
     expect(repository.saveLineSettings('account-internal-employee', CUSTOMER_SERVICE, VALID_LINE)).toMatchObject({
@@ -97,30 +157,32 @@ describe('MockDemoRepository publishing channels', () => {
     });
   });
 
-  it('restricts platform sharing to known accounts and treats an empty list as not configured', () => {
+  it('restricts platform sharing to known accounts and treats an empty list as not configured', async () => {
     const repository = createRepository();
-    const initial = dataOf(repository.getAssistantPublishing(ADMIN, CUSTOMER_SERVICE)).platform;
+    const initial = dataOf(await publishingAs(repository, ADMIN, CUSTOMER_SERVICE)).platform;
     expect(initial.candidates.map((candidate) => candidate.id)).toEqual([
       'account-internal-employee',
       'account-external-customer',
     ]);
     expect(initial.usagePath).toBe('/use/assistant-customer-service');
 
-    const invalid = repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, [ADMIN]);
+    const invalid = await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, [ADMIN]);
     expect(invalid).toMatchObject({ status: 'validation-failed' });
 
-    const cleared = dataOf(repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, []));
+    const cleared = dataOf(await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, []));
     expect(cleared.channel.status).toBe('not-configured');
-    const shared = dataOf(repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, ['account-internal-employee']));
+    const shared = dataOf(
+      await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, ['account-internal-employee']),
+    );
     expect(shared.allowedAccountIds).toEqual(['account-internal-employee']);
     expect(shared.channel.status).toBe('published');
   });
 
-  it('validates allowed domains and requires a new installation check after they change', () => {
+  it('validates allowed domains and requires a new installation check after they change', async () => {
     const repository = createRepository();
-    const view = dataOf(repository.getAssistantPublishing(ADMIN, CUSTOMER_SERVICE));
-    expect(view.website.embedCode).toContain('Demo');
-    expect(view.website.embedCode).toContain('.invalid');
+    const view = dataOf(await publishingAs(repository, ADMIN, CUSTOMER_SERVICE));
+    expect(asConfigurable(view).website.embedCode).toContain('Demo');
+    expect(asConfigurable(view).website.embedCode).toContain('.invalid');
 
     const invalid = repository.updateWebsiteEmbed(
       ADMIN,
@@ -136,7 +198,9 @@ describe('MockDemoRepository publishing channels', () => {
       repository.updateWebsiteEmbed(
         ADMIN,
         CUSTOMER_SERVICE,
-        websiteSettings(view, { allowedDomains: [...view.website.allowedDomains, 'Blog.Anxin-Demo.Example '] }),
+        websiteSettings(view, {
+          allowedDomains: [...asConfigurable(view).website.allowedDomains, 'Blog.Anxin-Demo.Example '],
+        }),
       ),
     );
     expect(saved.allowedDomains).toContain('blog.anxin-demo.example');
@@ -179,20 +243,20 @@ describe('MockDemoRepository publishing channels', () => {
     expect(activated.channel.status).toBe('published');
   });
 
-  it('pauses and resumes one channel without touching the others and keeps changes per account storage', () => {
+  it('pauses and resumes one channel without touching the others and keeps changes per account storage', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
 
-    const paused = dataOf(repository.setPublishingChannelPaused(ADMIN, CUSTOMER_SERVICE, 'website', true));
+    const paused = dataOf(await setPublishingChannelPausedAs(repository, ADMIN, CUSTOMER_SERVICE, 'website', true));
     expect(paused.status).toBe('paused');
-    const reloaded = dataOf(createRepository(storage).getAssistantPublishing(ADMIN, CUSTOMER_SERVICE));
+    const reloaded = dataOf(await publishingAs(createRepository(storage), ADMIN, CUSTOMER_SERVICE));
     expect(statusesOf(reloaded)).toEqual({ platform: 'published', website: 'paused', line: 'needs-attention' });
 
-    const resumed = dataOf(repository.setPublishingChannelPaused(ADMIN, CUSTOMER_SERVICE, 'website', false));
+    const resumed = dataOf(await setPublishingChannelPausedAs(repository, ADMIN, CUSTOMER_SERVICE, 'website', false));
     expect(resumed.status).toBe('published');
   });
 
-  it('gives assistants created in the wizard three unconfigured channels', () => {
+  it('gives assistants created in the wizard three unconfigured channels', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
     storage.setItem(
@@ -207,8 +271,8 @@ describe('MockDemoRepository publishing channels', () => {
       ]),
     );
 
-    const view = dataOf(repository.getAssistantPublishing(ADMIN, 'assistant-created-1'));
+    const view = dataOf(await publishingAs(repository, ADMIN, 'assistant-created-1'));
     expect(statusesOf(view)).toEqual({ platform: 'not-configured', website: 'not-configured', line: 'not-configured' });
-    expect(view.line.checks.every((check) => check.state === 'pending')).toBe(true);
+    expect(asConfigurable(view).line.checks.every((check) => check.state === 'pending')).toBe(true);
   });
 });

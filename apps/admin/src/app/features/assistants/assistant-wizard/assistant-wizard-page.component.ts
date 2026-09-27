@@ -3,11 +3,13 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   ElementRef,
   inject,
   Injector,
+  untracked,
 } from '@angular/core';
-import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import {
@@ -80,12 +82,12 @@ export class AssistantWizardPageComponent {
   );
 
   constructor() {
-    this.route.paramMap
-      .pipe(
-        map((params) => toStep(params.get('step'))),
-        takeUntilDestroyed(),
-      )
-      .subscribe((step) => this.syncStep(step));
+    // 草稿是非同步讀取的：讀到之後（`canManage` 變成 true）才能判斷網址上的步驟能不能去。
+    effect(() => {
+      const step = this.requestedStep();
+      if (!this.store.canManage()) return;
+      untracked(() => this.syncStep(step));
+    });
   }
 
   protected isComplete(step: AssistantWizardStep): boolean {
@@ -111,8 +113,8 @@ export class AssistantWizardPageComponent {
     if (previous !== undefined) void this.goTo(previous);
   }
 
-  protected create(): void {
-    const assistantId = this.store.create();
+  protected async create(): Promise<void> {
+    const assistantId = await this.store.create();
     if (assistantId === null) {
       this.focusFirstError();
       return;
@@ -125,8 +127,6 @@ export class AssistantWizardPageComponent {
 
   /** 步驟跟著網址走；未完成前面步驟時，直接連到後面會被帶回第一個未完成步驟。 */
   private syncStep(step: AssistantWizardStep | null): void {
-    if (!this.store.canManage()) return;
-
     if (step === null || !this.store.canVisit(step)) {
       const fallback = step === null ? this.store.draft().currentStep : this.store.firstIncompleteStep();
       void this.goTo(this.store.canVisit(fallback) ? fallback : this.store.firstIncompleteStep(), true);

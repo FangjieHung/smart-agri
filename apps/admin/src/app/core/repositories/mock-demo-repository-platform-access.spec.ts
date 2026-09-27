@@ -1,6 +1,7 @@
 import { firstValueFrom } from 'rxjs';
 import type { AccountId, ChatViewerId, VisitorId } from '../domain/account.model';
 import type { AssistantChatView, ChatThreadListView } from '../domain/conversation.model';
+import type { PublishingChannelType } from '../domain/publishing.model';
 import type { RepositoryView } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
@@ -63,8 +64,31 @@ function dataOf<T>(result: RepositoryView<T> | { status: 'validation-failed' }):
   return result.data;
 }
 
-function usableIds(repository: MockDemoRepository, viewer: AccountId): readonly string[] {
-  return dataOf(repository.listUsableAssistants(viewer)).map((assistant) => assistant.id);
+async function usableIds(repository: MockDemoRepository, viewer: AccountId): Promise<readonly string[]> {
+  boxOf(repository).current = viewer;
+  const result = await firstValueFrom(repository.listUsableAssistants());
+  return dataOf(result).map((assistant) => assistant.id);
+}
+
+async function updatePlatformSharingAs(
+  repository: MockDemoRepository,
+  viewer: AccountId,
+  assistantId: string,
+  accountIds: readonly AccountId[],
+) {
+  boxOf(repository).current = viewer;
+  return firstValueFrom(repository.updatePlatformSharing(assistantId, accountIds));
+}
+
+async function setPublishingChannelPausedAs(
+  repository: MockDemoRepository,
+  viewer: AccountId,
+  assistantId: string,
+  channelType: PublishingChannelType,
+  paused: boolean,
+) {
+  boxOf(repository).current = viewer;
+  return firstValueFrom(repository.setPublishingChannelPaused(assistantId, channelType, paused));
 }
 
 function threadsOf(result: RepositoryView<ChatThreadListView>): ChatThreadListView {
@@ -79,20 +103,20 @@ describe('MockDemoRepository platform sharing decides who may open an assistant'
   it('lets a listed account in and shuts the same account out once it is unticked', async () => {
     const repository = createRepository();
 
-    expect(usableIds(repository, EMPLOYEE)).toContain(CUSTOMER_SERVICE);
+    expect(await usableIds(repository, EMPLOYEE)).toContain(CUSTOMER_SERVICE);
     expect((await chatAs(repository, EMPLOYEE, CUSTOMER_SERVICE)).status).toBe('ready');
 
-    repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, [CUSTOMER]);
+    await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, [CUSTOMER]);
 
-    expect(usableIds(repository, EMPLOYEE)).not.toContain(CUSTOMER_SERVICE);
+    expect(await usableIds(repository, EMPLOYEE)).not.toContain(CUSTOMER_SERVICE);
     const denied = await chatAs(repository, EMPLOYEE, CUSTOMER_SERVICE);
     const unknown = await chatAs(repository, EMPLOYEE, 'assistant-does-not-exist');
     expect(denied).toEqual(unknown);
     expect(denied).toMatchObject({ status: 'permission-denied', reason: 'assistant-use' });
     expect(JSON.stringify(denied)).not.toContain('客服助理');
 
-    repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, [EMPLOYEE, CUSTOMER]);
-    expect(usableIds(repository, EMPLOYEE)).toContain(CUSTOMER_SERVICE);
+    await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, [EMPLOYEE, CUSTOMER]);
+    expect(await usableIds(repository, EMPLOYEE)).toContain(CUSTOMER_SERVICE);
   });
 
   it('keeps the conversations of an account that loses access and gives them back on re-adding', async () => {
@@ -104,7 +128,7 @@ describe('MockDemoRepository platform sharing decides who may open an assistant'
     expect(storage.getItem(chatKey)).not.toBeNull();
     expect(threadsOf(await threadsAs(repository, EMPLOYEE, CUSTOMER_SERVICE)).threads).toHaveLength(1);
 
-    repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, [CUSTOMER]);
+    await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, [CUSTOMER]);
 
     expect(await threadsAs(repository, EMPLOYEE, CUSTOMER_SERVICE)).toMatchObject({
       status: 'permission-denied',
@@ -113,7 +137,7 @@ describe('MockDemoRepository platform sharing decides who may open an assistant'
     // 被取消勾選只收回權限，不刪資料：對話仍留在儲存中。
     expect(storage.getItem(chatKey)).toContain('退貨');
 
-    repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, [EMPLOYEE, CUSTOMER]);
+    await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, [EMPLOYEE, CUSTOMER]);
     const restored = threadsOf(await threadsAs(repository, EMPLOYEE, CUSTOMER_SERVICE));
     expect(restored.threads).toHaveLength(1);
     expect(chatOf(await chatAs(repository, EMPLOYEE, CUSTOMER_SERVICE)).messages.length).toBeGreaterThan(0);
@@ -122,44 +146,44 @@ describe('MockDemoRepository platform sharing decides who may open an assistant'
   it('keeps the owner in even when nobody is ticked and when the channel is paused', async () => {
     const repository = createRepository();
 
-    dataOf(repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, []));
-    expect(usableIds(repository, ADMIN)).toContain(CUSTOMER_SERVICE);
+    dataOf(await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, []));
+    expect(await usableIds(repository, ADMIN)).toContain(CUSTOMER_SERVICE);
     expect((await chatAs(repository, ADMIN, CUSTOMER_SERVICE)).status).toBe('ready');
 
-    repository.setPublishingChannelPaused(ADMIN, CUSTOMER_SERVICE, 'platform', true);
+    await setPublishingChannelPausedAs(repository, ADMIN, CUSTOMER_SERVICE, 'platform', true);
     expect((await chatAs(repository, ADMIN, CUSTOMER_SERVICE)).status).toBe('ready');
   });
 
-  it('closes the platform door for everyone but the owner while the channel is paused', () => {
+  it('closes the platform door for everyone but the owner while the channel is paused', async () => {
     const repository = createRepository();
 
     // 種子資料：內部教育訓練助理的平台內分享已暫停，同仁雖在清單內也開不了。
-    expect(usableIds(repository, EMPLOYEE)).not.toContain(ONBOARDING);
-    expect(usableIds(repository, ADMIN)).toContain(ONBOARDING);
+    expect(await usableIds(repository, EMPLOYEE)).not.toContain(ONBOARDING);
+    expect(await usableIds(repository, ADMIN)).toContain(ONBOARDING);
 
-    repository.setPublishingChannelPaused(ADMIN, ONBOARDING, 'platform', false);
-    expect(usableIds(repository, EMPLOYEE)).toContain(ONBOARDING);
+    await setPublishingChannelPausedAs(repository, ADMIN, ONBOARDING, 'platform', false);
+    expect(await usableIds(repository, EMPLOYEE)).toContain(ONBOARDING);
   });
 
   it('lets the audience decide the kind of viewer and the list decide which accounts', async () => {
     const repository = createRepository();
-    repository.setPublishingChannelPaused(ADMIN, ONBOARDING, 'platform', false);
+    await setPublishingChannelPausedAs(repository, ADMIN, ONBOARDING, 'platform', false);
 
     // 內部教育訓練助理的使用對象只有內部員工：外部客戶就算被勾選也開不了。
-    dataOf(repository.updatePlatformSharing(ADMIN, ONBOARDING, [EMPLOYEE, CUSTOMER]));
-    expect(usableIds(repository, EMPLOYEE)).toContain(ONBOARDING);
-    expect(usableIds(repository, CUSTOMER)).not.toContain(ONBOARDING);
+    dataOf(await updatePlatformSharingAs(repository, ADMIN, ONBOARDING, [EMPLOYEE, CUSTOMER]));
+    expect(await usableIds(repository, EMPLOYEE)).toContain(ONBOARDING);
+    expect(await usableIds(repository, CUSTOMER)).not.toContain(ONBOARDING);
     expect(await chatAs(repository, CUSTOMER, ONBOARDING)).toMatchObject({
       status: 'permission-denied',
       reason: 'assistant-use',
     });
   });
 
-  it('demonstrates the rule with the seed: the employee can use one assistant and not the other', () => {
+  it('demonstrates the rule with the seed: the employee can use one assistant and not the other', async () => {
     const repository = createRepository();
 
-    expect(usableIds(repository, EMPLOYEE)).toEqual([CUSTOMER_SERVICE]);
-    expect(usableIds(repository, CUSTOMER)).toEqual([CUSTOMER_SERVICE]);
+    expect(await usableIds(repository, EMPLOYEE)).toEqual([CUSTOMER_SERVICE]);
+    expect(await usableIds(repository, CUSTOMER)).toEqual([CUSTOMER_SERVICE]);
   });
 
   it('leaves anonymous visitors to the external channels, not to the platform list', async () => {
@@ -168,12 +192,12 @@ describe('MockDemoRepository platform sharing decides who may open an assistant'
     expect((await chatAs(repository, VISITOR, CUSTOMER_SERVICE)).status).toBe('ready');
 
     // 清空平台內分享清單不影響未登入訪客：他們由官網嵌入／LINE 是否已發布決定。
-    dataOf(repository.updatePlatformSharing(ADMIN, CUSTOMER_SERVICE, []));
+    dataOf(await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, []));
     expect((await chatAs(repository, VISITOR, CUSTOMER_SERVICE)).status).toBe('ready');
 
     // 反過來，勾選帳號也不會讓內部助理對外開放。
-    repository.setPublishingChannelPaused(ADMIN, ONBOARDING, 'platform', false);
-    dataOf(repository.updatePlatformSharing(ADMIN, ONBOARDING, [EMPLOYEE]));
+    await setPublishingChannelPausedAs(repository, ADMIN, ONBOARDING, 'platform', false);
+    dataOf(await updatePlatformSharingAs(repository, ADMIN, ONBOARDING, [EMPLOYEE]));
     expect(await chatAs(repository, VISITOR, ONBOARDING)).toMatchObject({
       status: 'permission-denied',
       reason: 'assistant-use',

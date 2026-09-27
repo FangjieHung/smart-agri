@@ -1192,7 +1192,6 @@
         "dependencies": {
           "AGUI.Abstractions": "[1.0.0, )",
           "AGUI.Formatting": "[1.0.0, )",
-          "AGUI.Server": "[1.0.0, )",
           "Microsoft.AspNetCore.OpenApi": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore.Relational": "[10.0.12, )",
@@ -1254,16 +1253,6 @@
         "contentHash": "CXo1iLk+SoLQ5elyKwfs8vVJinjQCYFsqtaA8gYtofKe0bGYGW+n/NV9cWbo6ET1RKNyha3IxMme17WfVCbu6w==",
         "dependencies": {
           "AGUI.Abstractions": "1.0.0"
-        }
-      },
-      "AGUI.Server": {
-        "type": "CentralTransitive",
-        "requested": "[1.0.0, )",
-        "resolved": "1.0.0",
-        "contentHash": "UjmAq1Zf/QHtr8DqTUWlO2Wxje7Bp9VWvLvAVU5oq6tRdC9CkqaoQClmk6/4n/lbay761KQ/oQPA60PYGpoVog==",
-        "dependencies": {
-          "AGUI.Abstractions": "1.0.0",
-          "Microsoft.Extensions.AI.Abstractions": "10.6.0"
         }
       },
       "DocumentFormat.OpenXml": {

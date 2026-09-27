@@ -38,7 +38,6 @@
     <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
     <PackageVersion Include="AGUI.Abstractions" Version="1.0.0" />
     <PackageVersion Include="AGUI.Formatting" Version="1.0.0" />
-    <PackageVersion Include="AGUI.Server" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

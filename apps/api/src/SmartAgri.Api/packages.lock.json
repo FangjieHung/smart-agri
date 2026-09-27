@@ -20,16 +20,6 @@
           "AGUI.Abstractions": "1.0.0"
         }
       },
-      "AGUI.Server": {
-        "type": "Direct",
-        "requested": "[1.0.0, )",
-        "resolved": "1.0.0",
-        "contentHash": "UjmAq1Zf/QHtr8DqTUWlO2Wxje7Bp9VWvLvAVU5oq6tRdC9CkqaoQClmk6/4n/lbay761KQ/oQPA60PYGpoVog==",
-        "dependencies": {
-          "AGUI.Abstractions": "1.0.0",
-          "Microsoft.Extensions.AI.Abstractions": "10.6.0"
-        }
-      },
       "Microsoft.AspNetCore.OpenApi": {
         "type": "Direct",
         "requested": "[10.0.12, )",

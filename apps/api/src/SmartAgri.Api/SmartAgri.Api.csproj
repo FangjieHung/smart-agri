@@ -38,7 +38,6 @@
     -->
     <PackageReference Include="AGUI.Abstractions" />
     <PackageReference Include="AGUI.Formatting" />
-    <PackageReference Include="AGUI.Server" />
   </ItemGroup>
 
   <ItemGroup>

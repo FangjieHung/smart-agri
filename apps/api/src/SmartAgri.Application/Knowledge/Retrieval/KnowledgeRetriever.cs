@@ -38,6 +38,8 @@ public sealed record KnowledgeRetrievalQuery(
 /// <see cref="KnowledgeVersionState.PendingReview"/> for a pending version's passage
 /// (<see cref="KnowledgeRetrievalQuery.IncludePending"/> only).</param>
 /// <param name="Score">Cosine similarity to the question: higher is closer, 1 is identical.</param>
+/// <param name="VersionEffectiveFrom">When this version took (or takes) effect; carried onto a
+/// saved citation's snapshot for <c>ChatCitationView.updatedLabel</c> (M3 plan §4).</param>
 public sealed record RetrievedKnowledgePassage(
     Guid ChunkId,
     Guid KnowledgeBaseId,
@@ -48,7 +50,8 @@ public sealed record RetrievedKnowledgePassage(
     KnowledgeVersionState VersionState,
     string LocationLabel,
     string Text,
-    double Score);
+    double Score,
+    DateTimeOffset? VersionEffectiveFrom);
 
 /// <summary>The passages found, closest first, and the threshold they were judged by.</summary>
 /// <param name="Passages">The top passages whatever their score, so a person can see how close
@@ -194,7 +197,8 @@ public sealed class KnowledgeRetriever : IKnowledgeRetriever
                     source.State,
                     chunk.LocationLabel,
                     chunk.Text,
-                    hit.Score ?? throw new InvalidOperationException("The vector collection returned a result without a score."));
+                    hit.Score ?? throw new InvalidOperationException("The vector collection returned a result without a score."),
+                    source.EffectiveFrom);
             })
             .ToList();
         return new KnowledgeRetrievalResult(passages, threshold);

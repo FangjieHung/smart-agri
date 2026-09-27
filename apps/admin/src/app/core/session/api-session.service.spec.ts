@@ -207,6 +207,23 @@ describe('ApiSessionService (API mode)', () => {
     });
   });
 
+  it('keeps /me’s real organization and account GUIDs on the identity for storage scoping', async () => {
+    const { service, http } = setUpApiMode();
+    const backend = TestBed.inject(HttpSessionBackend);
+
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush(ADMIN_ME);
+    await completion;
+
+    // `HybridDemoRepository` 讀這兩個欄位為 mock storage 的鍵值加前綴（見 scoped-storage.ts）；
+    // 一定要是 `/me` 的真實 GUID，不能是 `demoAccountId` 那個角色對應的 Demo id。
+    expect(backend.restore()).toMatchObject({
+      organizationId: ADMIN_ME.organization.id,
+      accountId: ADMIN_ME.id,
+    });
+  });
+
   it('uses the permissions from /me, not the mock account list', async () => {
     const { service, http, demoSession } = setUpApiMode();
 

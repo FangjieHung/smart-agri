@@ -48,4 +48,39 @@ public sealed record ModelInvocationAttribution(ModelInvocationPurpose Purpose, 
 
         return copy is { AdditionalProperties: null, ModelId: null, Dimensions: null, RawRepresentationFactory: null } ? null : copy;
     }
+
+    /// <summary>New chat options carrying only this attribution (M3: <see cref="ChatOptions"/>
+    /// is the chat client's equivalent of <see cref="EmbeddingGenerationOptions"/>).</summary>
+    public ChatOptions ToChatOptions() =>
+        new() { AdditionalProperties = new AdditionalPropertiesDictionary { [PropertyName] = this } };
+
+    /// <summary>The attribution <paramref name="options"/> carry, if any.</summary>
+    public static ModelInvocationAttribution? From(ChatOptions? options) =>
+        options?.AdditionalProperties is { } properties && properties.TryGetValue(PropertyName, out var value)
+            ? value as ModelInvocationAttribution
+            : null;
+
+    /// <summary>A copy of <paramref name="options"/> without the attribution (the caller's
+    /// instance is left as it was). Unlike <see cref="Strip(EmbeddingGenerationOptions)"/>,
+    /// this never collapses to <see langword="null"/>: <see cref="ChatOptions"/> has far more
+    /// settable members (temperature, max tokens, tools, …), so there is no cheap exhaustive
+    /// "everything is still default" check — returning the (possibly still fully default) copy
+    /// is always correct, just occasionally a harmless non-null empty options instance.</summary>
+    public static ChatOptions? Strip(ChatOptions? options)
+    {
+        if (options is null)
+        {
+            return null;
+        }
+
+        var copy = options.Clone();
+        if (copy.AdditionalProperties is { } properties)
+        {
+            var remaining = new AdditionalPropertiesDictionary(properties);
+            remaining.Remove(PropertyName);
+            copy.AdditionalProperties = remaining.Count == 0 ? null : remaining;
+        }
+
+        return copy;
+    }
 }

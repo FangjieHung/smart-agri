@@ -13,7 +13,7 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260927080803_ChatOutputTokens")]
+    [Migration("20260927083558_ChatOutputTokens")]
     partial class ChatOutputTokens
     {
         /// <inheritdoc />
@@ -287,6 +287,107 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("OrganizationId", "At");
 
                     b.ToTable("ModelInvocations", (string)null);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.Assistant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("KeepConversations")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("KnowledgeScope")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<double?>("MinScore")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OwnerAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("RefusalMessage")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("RoleInstructions")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<bool>("ShowCitations")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TemplateId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("OwnerAccountId", "OrganizationId");
+
+                    b.ToTable("Assistants", (string)null);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantKnowledgeBase", b =>
+                {
+                    b.Property<Guid>("AssistantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("KnowledgeBaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ConnectedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("AssistantId", "KnowledgeBaseId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AssistantId", "OrganizationId");
+
+                    b.HasIndex("KnowledgeBaseId", "OrganizationId");
+
+                    b.ToTable("AssistantKnowledgeBases", (string)null);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Jobs.BackgroundJob", b =>
@@ -989,6 +1090,45 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("AccountId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.Assistant", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerAccountId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantKnowledgeBase", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)
+                        .WithMany()
+                        .HasForeignKey("AssistantId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Knowledge.KnowledgeBase", null)
+                        .WithMany()
+                        .HasForeignKey("KnowledgeBaseId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Jobs.BackgroundJob", b =>

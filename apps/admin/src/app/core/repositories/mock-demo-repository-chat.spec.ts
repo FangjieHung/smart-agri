@@ -1,6 +1,7 @@
+import { firstValueFrom } from 'rxjs';
 import type { AccountId } from '../domain/account.model';
 import type { AssistantChatView, ChatMessageView, ChatReplyView } from '../domain/conversation.model';
-import type { SendChatMessageResult, SubmitChatFormResult } from './demo-repository';
+import type { RepositoryView, SendChatMessageResult, SubmitChatFormResult } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
@@ -12,11 +13,30 @@ const ORDER_ANSWERS = {
   'field-reported-on': '2026-09-21',
 };
 
+/** `getAssistantChat` 的非同步契約不再接收 viewer；用這個 box 讓測試切換目前帳號。 */
+const viewerBoxes = new WeakMap<MockDemoRepository, { current: AccountId | null }>();
+
 function createRepository(storage = createMemoryStorage()) {
-  return new MockDemoRepository(DEMO_SEED, {
+  const box = { current: 'account-external-customer' as AccountId | null };
+  const repository = new MockDemoRepository(DEMO_SEED, {
     storage,
     now: () => new Date('2026-09-22T02:00:00.000Z'),
+    viewer: () => box.current,
   });
+  viewerBoxes.set(repository, box);
+  return repository;
+}
+
+/** 以指定帳號讀取這個助理的對話（非同步契約，issue #79）。 */
+async function chatAs(
+  repository: MockDemoRepository,
+  account: AccountId,
+  assistantId: string,
+): Promise<RepositoryView<AssistantChatView>> {
+  const box = viewerBoxes.get(repository);
+  if (box === undefined) throw new Error('unknown repository: use createRepository()');
+  box.current = account;
+  return firstValueFrom(repository.getAssistantChat(assistantId));
 }
 
 function chatOf(result: SendChatMessageResult | SubmitChatFormResult): AssistantChatView {
@@ -35,8 +55,9 @@ function ask(repository: MockDemoRepository, text: string, account: AccountId = 
 }
 
 describe('MockDemoRepository assistant chat', () => {
-  it('opens an empty private conversation with a welcome, privacy notice and fixture prompts', () => {
-    const chat = chatOf(createRepository().getAssistantChat('account-external-customer', ASSISTANT));
+  it('opens an empty private conversation with a welcome, privacy notice and fixture prompts', async () => {
+    const repository = createRepository();
+    const chat = chatOf(await chatAs(repository, 'account-external-customer', ASSISTANT));
 
     expect(chat.assistantName).toBe('客服助理');
     expect(chat.messages).toEqual([]);
@@ -51,10 +72,10 @@ describe('MockDemoRepository assistant chat', () => {
     expect(Object.isFrozen(chat)).toBe(true);
   });
 
-  it('denies an unknown or unusable assistant with the same message', () => {
+  it('denies an unknown or unusable assistant with the same message', async () => {
     const repository = createRepository();
-    const unknown = repository.getAssistantChat('account-external-customer', 'assistant-does-not-exist');
-    const membersOnly = repository.getAssistantChat('account-external-customer', 'assistant-internal-onboarding');
+    const unknown = await chatAs(repository, 'account-external-customer', 'assistant-does-not-exist');
+    const membersOnly = await chatAs(repository, 'account-external-customer', 'assistant-internal-onboarding');
 
     expect(unknown).toMatchObject({ status: 'permission-denied', reason: 'assistant-use' });
     expect(membersOnly).toEqual(unknown);
@@ -97,23 +118,24 @@ describe('MockDemoRepository assistant chat', () => {
     expect(reply.nextSteps.length).toBeGreaterThan(0);
   });
 
-  it('rejects an empty question without storing it', () => {
+  it('rejects an empty question without storing it', async () => {
     const repository = createRepository();
 
     expect(repository.sendChatMessage('account-external-customer', ASSISTANT, '   ')).toMatchObject({
       status: 'validation-failed',
     });
-    expect(chatOf(repository.getAssistantChat('account-external-customer', ASSISTANT)).messages).toEqual([]);
+    expect(chatOf(await chatAs(repository, 'account-external-customer', ASSISTANT)).messages).toEqual([]);
   });
 
-  it('keeps each account’s conversation private, including from the assistant owner', () => {
+  it('keeps each account’s conversation private, including from the assistant owner', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
     repository.sendChatMessage('account-external-customer', ASSISTANT, '我的私人問題：退貨要幾天？');
 
-    const customer = chatOf(createRepository(storage).getAssistantChat('account-external-customer', ASSISTANT));
-    const employee = chatOf(repository.getAssistantChat('account-internal-employee', ASSISTANT));
-    const owner = chatOf(repository.getAssistantChat('account-smb-admin', ASSISTANT));
+    const other = createRepository(storage);
+    const customer = chatOf(await chatAs(other, 'account-external-customer', ASSISTANT));
+    const employee = chatOf(await chatAs(repository, 'account-internal-employee', ASSISTANT));
+    const owner = chatOf(await chatAs(repository, 'account-smb-admin', ASSISTANT));
     const analytics = repository.getAssistantAnalytics('account-smb-admin', ASSISTANT);
 
     expect(customer.messages).toHaveLength(2);
@@ -176,7 +198,7 @@ describe('MockDemoRepository assistant chat', () => {
     });
   });
 
-  it('shows a consented submission only to the designated data manager', () => {
+  it('shows a consented submission only to the designated data manager', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
 
@@ -204,7 +226,7 @@ describe('MockDemoRepository assistant chat', () => {
     expect(repository.getDatabaseTracking('account-external-customer', 'database-orders').status).toBe(
       'permission-denied',
     );
-    expect(JSON.stringify(repository.getAssistantChat('account-smb-admin', ASSISTANT))).not.toContain('DEMO-2001');
+    expect(JSON.stringify(await chatAs(repository, 'account-smb-admin', ASSISTANT))).not.toContain('DEMO-2001');
   });
 
   it('does not offer the form when the assistant is not connected to the database', () => {
@@ -244,7 +266,7 @@ describe('MockDemoRepository assistant chat', () => {
     expect(reply.nextSteps.length).toBeGreaterThan(0);
   });
 
-  it('leaves already saved refusals alone when the rule changes afterwards', () => {
+  it('leaves already saved refusals alone when the rule changes afterwards', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
     ask(repository, '可以幫我訂下週的機票嗎？');
@@ -254,9 +276,8 @@ describe('MockDemoRepository assistant chat', () => {
       rules: { ...settings.data.rules, refusalMessage: '改過的拒答文案。' },
     });
 
-    const chat = chatOf(
-      createRepository(storage).getAssistantChat('account-external-customer', ASSISTANT),
-    );
+    const reloaded = createRepository(storage);
+    const chat = chatOf(await chatAs(reloaded, 'account-external-customer', ASSISTANT));
     expect(JSON.stringify(chat.messages)).not.toContain('改過的拒答文案。');
   });
 });

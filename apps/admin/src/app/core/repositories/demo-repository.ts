@@ -51,6 +51,7 @@ import type {
   ChatThreadSummaryView,
   ConversationId,
   PrivateConversationView,
+  RecentConversationView,
   StructuredSubmissionView,
 } from '../domain/conversation.model';
 import type {
@@ -590,45 +591,42 @@ export interface DemoRepository extends DemoScenarioController {
    * 目前帳號與助理的對話清單，依最後活動時間由新到舊。id 來自網址、未經驗證；
    * 不存在或無使用權限時回傳 `assistant-use` 的 permission-denied。
    * 助理關閉「保存自己的對話」時 threads 為空，並以 historyNotice 說明原因。
+   *
+   * 非同步契約（M3 Slice 9，issue #79）：目前帳號由 repository 內部的工作階段推導，
+   * 不再由呼叫端傳入；API 模式走 `GET /api/v1/assistants/{id}/chat/conversations`。
    */
-  listChatThreads(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): RepositoryView<ChatThreadListView>;
+  listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>>;
   /** 開一段新的空白對話並立刻保存；不保存對話的助理回傳同一段暫時對話。 */
-  createChatThread(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): RepositoryView<AssistantChatView>;
+  createChatThread(assistantId: string): Observable<RepositoryView<AssistantChatView>>;
   /** 改名。threadId 來自網址、未經驗證；不存在或屬於其他帳號一律回傳 `chat-thread`。 */
   renameChatThread(
-    viewerAccountId: AccountId,
     assistantId: string,
     threadId: string,
     title: string,
-  ): RenameChatThreadResult;
+  ): Observable<RenameChatThreadResult>;
   /** 刪除一段對話，回傳剩下的清單；不存在或屬於其他帳號一律回傳 `chat-thread`。 */
   deleteChatThread(
-    viewerAccountId: AccountId,
     assistantId: string,
     threadId: string,
-  ): RepositoryView<ChatThreadListView>;
+  ): Observable<RepositoryView<ChatThreadListView>>;
+  /**
+   * 跨助理最近 10 個對話串，只列出目前仍可使用的助理
+   * （API 模式：`GET /api/v1/chat/recent-conversations`）。
+   */
+  listRecentChatThreads(): Observable<RepositoryView<readonly RecentConversationView[]>>;
   /**
    * 目前發起者與助理的一段私人對話。id 來自網址、未經驗證；助理不存在或無使用權限時
    * 回傳 `assistant-use`，對話不存在或屬於其他發起者時回傳 `chat-thread`，兩者的訊息
    * 都不包含資源名稱。省略 threadId 時開啟最後一次使用的對話，沒有就回傳空白對話。
    * 對話只屬於發起者，助理擁有者也看不到其他人的內容。
    *
-   * `viewerId` 可以是 Demo 帳號，也可以是未登入官網訪客（`VisitorId`）。訪客只能開啟
-   * **已發布到官網嵌入或 LINE** 的助理；其餘一律回傳與「助理不存在」相同的
-   * `assistant-use`，不洩漏助理名稱或是否存在。訪客的對話與每個帳號、每位其他訪客
-   * 都互相隔離，且只存在於該瀏覽器分頁。
+   * 目前發起者由 repository 內部的工作階段推導，不再由呼叫端傳入：已選擇的 Demo 帳號
+   * 優先，其次是這個瀏覽器分頁的匿名訪客（`VisitorId`，僅 Mock 模式提供，API 模式的
+   * 匿名對話留待 M5）。訪客只能開啟**已發布到官網嵌入或 LINE**的助理；其餘一律回傳與
+   * 「助理不存在」相同的 `assistant-use`，不洩漏助理名稱或是否存在。訪客的對話與每個
+   * 帳號、每位其他訪客都互相隔離，且只存在於該瀏覽器分頁。
    */
-  getAssistantChat(
-    viewerId: ChatViewerId,
-    assistantId: string,
-    threadId?: string,
-  ): RepositoryView<AssistantChatView>;
+  getAssistantChat(assistantId: string, threadId?: string): Observable<RepositoryView<AssistantChatView>>;
   /**
    * 以預先準備的 response map 回覆；對應不到時回覆查無資料與下一步，不模擬 LLM。
    * 省略 threadId 時寫入最後一次使用的對話，沒有就開一段新的。

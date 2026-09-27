@@ -16,7 +16,8 @@ describe('private conversations and trustworthy answers', () => {
     // 沒有 manage-assistants 權限：首頁不提供「建立新助理」入口（issue #54）。
     cy.get('a[href="/app/assistants/new/purpose"]').should('not.exist');
     cy.get('section[aria-labelledby="usable-title"]').contains('a', '客服助理').click();
-    cy.location('pathname').should('eq', '/use/assistant-customer-service');
+    // 首頁「開始對話」改進工作區流程（issue #79）：`/use/:assistantId` 留給對外發布。
+    cy.location('pathname').should('eq', '/app/chat/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('.privacy-notice').should('contain', '助理建立者');
     cy.document().its('documentElement.scrollWidth').should('be.lte', 390);

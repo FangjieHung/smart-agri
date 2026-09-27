@@ -39,6 +39,8 @@ export class ConversationRailComponent {
   readonly recentThreads = input<readonly RecentChatThreadView[] | null>(null);
   /** 改名被 repository 拒絕時由外層傳入的訊息。 */
   readonly renameError = input('');
+  /** 有寫入請求進行中（開新對話、改名、刪除）：擋掉「開新對話」的重複送出。 */
+  readonly busy = input(false);
 
   readonly newConversation = output<void>();
   readonly selectThread = output<string>();

@@ -2,6 +2,7 @@ import { HttpErrorResponse, type HttpClient } from '@angular/common/http';
 import { catchError, map, of, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
+import type { AssistantId } from '../domain/assistant.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -18,6 +19,14 @@ import type {
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
 import type { ConnectableSourceView } from '../domain/assistant-draft.model';
+import type {
+  AssistantChatView,
+  ChatMessageView,
+  ChatReplyView,
+  ChatThreadListView,
+  ChatThreadSummaryView,
+  RecentConversationView,
+} from '../domain/conversation.model';
 import {
   isRepositoryPermissionDeniedReason,
   type CreateKnowledgeBaseResult,
@@ -26,6 +35,7 @@ import {
   type DeleteKnowledgeResult,
   type KnowledgeValidationFailedView,
   type PermissionDeniedRepositoryView,
+  type RenameChatThreadResult,
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
   type RetryKnowledgeDocumentResult,
@@ -55,6 +65,13 @@ type ApiKnowledgeDocument = components['schemas']['KnowledgeDocumentView'];
 type ApiKnowledgeSharing = components['schemas']['KnowledgeSharingView'];
 type CreateKnowledgeBaseRequest = components['schemas']['CreateKnowledgeBaseRequest'];
 type UpdateKnowledgeSharingRequest = components['schemas']['UpdateKnowledgeSharingRequest'];
+type ApiChatThreadListView = components['schemas']['ChatThreadListView'];
+type ApiChatThreadSummaryView = components['schemas']['ChatThreadSummaryView'];
+type ApiAssistantChatView = components['schemas']['AssistantChatView'];
+type ApiChatMessageView = components['schemas']['ChatMessageView'];
+type ApiChatReplyView = components['schemas']['ChatReplyView'];
+type ApiRecentConversationView = components['schemas']['RecentConversationView'];
+type RenameChatThreadRequest = components['schemas']['RenameChatThreadRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -81,6 +98,21 @@ export function apiKnowledgeDocumentPath(knowledgeBaseId: string, documentId: st
 export function apiKnowledgeRetryPath(knowledgeBaseId: string, documentId: string, versionId: string): string {
   return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/versions/${encodeURIComponent(versionId)}/retry`;
 }
+
+export function apiAssistantChatConversationsPath(assistantId: string): string {
+  return `/api/v1/assistants/${encodeURIComponent(assistantId)}/chat/conversations`;
+}
+
+export function apiAssistantChatConversationPath(assistantId: string, threadId: string): string {
+  return `${apiAssistantChatConversationsPath(assistantId)}/${encodeURIComponent(threadId)}`;
+}
+
+export function apiAssistantChatPath(assistantId: string, threadId?: string): string {
+  const base = `/api/v1/assistants/${encodeURIComponent(assistantId)}/chat`;
+  return threadId === undefined ? base : `${base}?conversation=${encodeURIComponent(threadId)}`;
+}
+
+export const API_RECENT_CONVERSATIONS_PATH = '/api/v1/chat/recent-conversations';
 
 /** 設定新密碼前 API 回的 403 訊息；與 API 的 `ForbiddenReason.PasswordChangeRequired` 相同。 */
 const PASSWORD_CHANGE_REQUIRED_MESSAGE = '請先設定新密碼，才能使用其他功能。';
@@ -109,6 +141,12 @@ const TEAM_DENIED: PermissionDeniedFallback = { reason: 'team', message: TEAM_PE
 const KNOWLEDGE_DENIED: PermissionDeniedFallback = {
   reason: 'knowledge-base',
   message: KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
+};
+
+/** 對話端點的 403 後端一定會帶 `assistant-use` 或 `chat-thread`；這是保底用的預設值。 */
+const CHAT_DENIED: PermissionDeniedFallback = {
+  reason: 'assistant-use',
+  message: '你沒有使用這個助理的權限，或它已不存在。',
 };
 
 /**
@@ -410,6 +448,87 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  // ---------- 對話（issue #79：讀取與對話串管理走 API，送出訊息仍是 mock，見 #80） ----------
+
+  override listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>> {
+    return this.http.get<ApiChatThreadListView>(apiAssistantChatConversationsPath(assistantId)).pipe(
+      map((response): RepositoryView<ChatThreadListView> => ({
+        status: 'ready',
+        data: toChatThreadListView(response),
+      })),
+      catchError((error: unknown) => this.chatDeniedOrThrow(error)),
+    );
+  }
+
+  override createChatThread(assistantId: string): Observable<RepositoryView<AssistantChatView>> {
+    return this.http.post<ApiAssistantChatView>(apiAssistantChatConversationsPath(assistantId), null).pipe(
+      map((response): RepositoryView<AssistantChatView> => ({
+        status: 'ready',
+        data: toAssistantChatView(response),
+      })),
+      catchError((error: unknown) => this.chatDeniedOrThrow(error)),
+    );
+  }
+
+  override renameChatThread(
+    assistantId: string,
+    threadId: string,
+    title: string,
+  ): Observable<RenameChatThreadResult> {
+    const body: RenameChatThreadRequest = { title };
+    return this.http
+      .patch<ApiChatThreadSummaryView>(apiAssistantChatConversationPath(assistantId, threadId), body)
+      .pipe(
+        map((response): RenameChatThreadResult => ({ status: 'ready', data: toChatThreadSummary(response) })),
+        catchError((error: unknown) =>
+          isHttpError(error, 422) ? of(chatValidationFailed(error)) : this.chatDeniedOrThrow(error),
+        ),
+      );
+  }
+
+  override deleteChatThread(
+    assistantId: string,
+    threadId: string,
+  ): Observable<RepositoryView<ChatThreadListView>> {
+    return this.http.delete<ApiChatThreadListView>(apiAssistantChatConversationPath(assistantId, threadId)).pipe(
+      map((response): RepositoryView<ChatThreadListView> => ({
+        status: 'ready',
+        data: toChatThreadListView(response),
+      })),
+      catchError((error: unknown) => this.chatDeniedOrThrow(error)),
+    );
+  }
+
+  /** 側欄的最近對話：讀取失敗時當作沒有可顯示的，不讓整個側欄跟著顯示錯誤。 */
+  override listRecentChatThreads(): Observable<RepositoryView<readonly RecentConversationView[]>> {
+    return this.http.get<ApiRecentConversationView[]>(API_RECENT_CONVERSATIONS_PATH).pipe(
+      map((response): RepositoryView<readonly RecentConversationView[]> => ({
+        status: 'ready',
+        data: response.map(toRecentConversationView),
+      })),
+      catchError(() => of({ status: 'ready' as const, data: [] })),
+    );
+  }
+
+  override getAssistantChat(
+    assistantId: string,
+    threadId?: string,
+  ): Observable<RepositoryView<AssistantChatView>> {
+    return this.http.get<ApiAssistantChatView>(apiAssistantChatPath(assistantId, threadId)).pipe(
+      map((response): RepositoryView<AssistantChatView> => ({
+        status: 'ready',
+        data: toAssistantChatView(response),
+      })),
+      catchError((error: unknown) => this.chatDeniedOrThrow(error)),
+    );
+  }
+
+  /** `403` 的 `reason` 一定是 `assistant-use` 或 `chat-thread`；`404` 視同對話不存在。 */
+  private chatDeniedOrThrow(error: unknown): Observable<PermissionDeniedRepositoryView> {
+    if (isHttpError(error, 404)) return of(permissionDenied({ reason: 'chat-thread', message: '找不到這段對話，或它不屬於你的帳號。' }));
+    return this.permissionDeniedOrThrow(error, CHAT_DENIED);
+  }
+
   /**
    * 後端沒有「已連接助理」（助理在 M3 之前仍是前端 mock 資料），由 mock 的助理補上：
    * 連接到這個 id 的、目前 Demo 身分自己的助理。
@@ -524,6 +643,103 @@ function toKnowledgeSharing(sharing: ApiKnowledgeSharing): KnowledgeSharingView 
     scope: sharing.scope,
     sharedWithAccountIds: [...sharing.sharedWithAccountIds],
     allowOriginalDownload: sharing.allowOriginalDownload,
+  };
+}
+
+/** `422`（標題空白或過長）只有一句 `message`。 */
+function chatValidationFailed(error: HttpErrorResponse): RenameChatThreadResult {
+  return {
+    status: 'validation-failed',
+    message: bodyMessage(error) ?? '這次沒有儲存，請再試一次。',
+  };
+}
+
+function toChatThreadSummary(summary: ApiChatThreadSummaryView): ChatThreadSummaryView {
+  return {
+    id: summary.id,
+    title: summary.title,
+    messageCount: summary.messageCount,
+    updatedAt: summary.updatedAt,
+  };
+}
+
+function toChatThreadListView(response: ApiChatThreadListView): ChatThreadListView {
+  return {
+    assistantId: response.assistantId as AssistantId,
+    assistantName: response.assistantName,
+    historyMode: response.historyMode as ChatThreadListView['historyMode'],
+    threads: response.threads.map((thread) => ({
+      id: thread.id,
+      title: thread.title,
+      messageCount: thread.messageCount,
+      updatedAt: thread.updatedAt,
+    })),
+    historyNotice: response.historyNotice,
+  };
+}
+
+/**
+ * 後端的 `ChatReplyView` 是同一個扁平形狀（不適用的欄位省略），不是前端的
+ * discriminated union（`docs/plans/2026-09-27-backend-milestone-3-in-platform-chat.md`
+ * 第 3 節「與前端型別的差異」）；這裡依 `kind` 轉回前端的三種變體。`form-request` 與
+ * `submission-receipt` 兩種目前後端還沒有，理論上不會出現。
+ */
+function toChatReply(reply: ApiChatReplyView): ChatReplyView {
+  if (reply.kind === 'general-knowledge') {
+    return { kind: 'general-knowledge', text: reply.text, notice: reply.notice ?? '' };
+  }
+  if (reply.kind === 'no-result') {
+    return { kind: 'no-result', text: reply.text, nextSteps: [...reply.nextSteps] };
+  }
+  // 'company-data'，以及任何後端未來新增、前端還不認得的 kind 一律當成組織資料回覆。
+  return {
+    kind: 'company-data',
+    text: reply.text,
+    citations: reply.citations.map((citation) => ({
+      id: citation.id,
+      knowledgeBaseName: citation.knowledgeBaseName,
+      documentName: citation.documentName,
+      excerpt: citation.excerpt,
+      updatedLabel: citation.updatedLabel,
+    })),
+    citationNotice: reply.notice ?? null,
+  };
+}
+
+function toChatMessage(message: ApiChatMessageView): ChatMessageView {
+  if (message.reply !== null) {
+    return { id: message.id, author: 'assistant', reply: toChatReply(message.reply), createdAt: message.createdAt };
+  }
+  return { id: message.id, author: 'account', text: message.text ?? '', createdAt: message.createdAt };
+}
+
+function toAssistantChatView(response: ApiAssistantChatView): AssistantChatView {
+  return {
+    assistantId: response.assistantId as AssistantId,
+    assistantName: response.assistantName,
+    purpose: response.purpose,
+    threadId: response.threadId,
+    title: response.title,
+    historyMode: response.historyMode as AssistantChatView['historyMode'],
+    welcome: response.welcome,
+    privacyNotice: response.privacyNotice,
+    // 後端目前固定回傳 `[]`（PR #94）；id 一律當成不透明字串轉型，即使日後開放也不必再改。
+    suggestedPrompts: response.suggestedPrompts.map((prompt) => ({
+      id: prompt.id as AssistantChatView['suggestedPrompts'][number]['id'],
+      text: prompt.text,
+    })),
+    messages: response.messages.map(toChatMessage),
+  };
+}
+
+function toRecentConversationView(view: ApiRecentConversationView): RecentConversationView {
+  return {
+    assistantId: view.assistantId as AssistantId,
+    assistantName: view.assistantName,
+    threadId: view.threadId,
+    title: view.title,
+    messageCount: view.messageCount,
+    updatedAt: view.updatedAt,
   };
 }
 

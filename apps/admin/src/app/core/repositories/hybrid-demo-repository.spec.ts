@@ -13,7 +13,11 @@ import { DEMO_SEED, type DemoSeed } from './demo-seed';
 import {
   API_CREATE_MEMBER_PATH,
   API_KNOWLEDGE_BASES_PATH,
+  API_RECENT_CONVERSATIONS_PATH,
   API_TEAM_PATH,
+  apiAssistantChatConversationPath,
+  apiAssistantChatConversationsPath,
+  apiAssistantChatPath,
   apiKnowledgeBasePath,
   apiKnowledgeDocumentPath,
   apiKnowledgeRetryPath,
@@ -30,6 +34,11 @@ type TeamResponse = components['schemas']['TeamResponse'];
 type ApiKnowledgeBaseSummary = components['schemas']['KnowledgeBaseSummaryView'];
 type ApiKnowledgeBaseDetail = components['schemas']['KnowledgeBaseDetailView'];
 type ApiKnowledgeDocument = components['schemas']['KnowledgeDocumentView'];
+type ApiChatThreadListView = components['schemas']['ChatThreadListView'];
+type ApiChatThreadSummaryView = components['schemas']['ChatThreadSummaryView'];
+type ApiAssistantChatView = components['schemas']['AssistantChatView'];
+type ApiChatMessageView = components['schemas']['ChatMessageView'];
+type ApiRecentConversationView = components['schemas']['RecentConversationView'];
 
 const ADMIN_ID = '0199a000-0000-7000-8000-00000000000a';
 const EMPLOYEE_ID = '0199a000-0000-7000-8000-000000000001';
@@ -847,6 +856,342 @@ describe('HybridDemoRepository knowledge bases', () => {
 
     controller.expectNone(API_KNOWLEDGE_BASES_PATH);
     controller.expectNone(apiKnowledgeBasePath(KB_ID));
+  });
+});
+
+const CHAT_ASSISTANT_ID = '0199a000-0000-7000-8000-0000000000c1';
+const CHAT_THREAD_ID = '0199a000-0000-7000-8000-0000000000c2';
+
+function apiThreadSummary(overrides: Partial<ApiChatThreadSummaryView> = {}): ApiChatThreadSummaryView {
+  return {
+    id: CHAT_THREAD_ID,
+    title: '退貨問題',
+    messageCount: 2,
+    updatedAt: '2026-09-27T01:00:00+00:00',
+    ...overrides,
+  };
+}
+
+function apiThreadList(overrides: Partial<ApiChatThreadListView> = {}): ApiChatThreadListView {
+  return {
+    assistantId: CHAT_ASSISTANT_ID,
+    assistantName: '客服助理',
+    historyMode: 'saved',
+    threads: [apiThreadSummary()],
+    historyNotice: '對話只留在你的帳號，助理擁有者看不到內容。',
+    ...overrides,
+  };
+}
+
+function apiAccountMessage(overrides: Partial<ApiChatMessageView> = {}): ApiChatMessageView {
+  return {
+    id: '0199a000-0000-7000-8000-0000000000d1',
+    author: 'account',
+    text: '收到商品後幾天內可以退貨？',
+    reply: null,
+    createdAt: '2026-09-27T01:00:00+00:00',
+    ...overrides,
+  };
+}
+
+function apiAssistantMessage(reply: ApiChatMessageView['reply']): ApiChatMessageView {
+  return {
+    id: '0199a000-0000-7000-8000-0000000000d2',
+    author: 'assistant',
+    text: null,
+    reply,
+    createdAt: '2026-09-27T01:00:01+00:00',
+  };
+}
+
+function apiAssistantChat(overrides: Partial<ApiAssistantChatView> = {}): ApiAssistantChatView {
+  return {
+    assistantId: CHAT_ASSISTANT_ID,
+    assistantName: '客服助理',
+    purpose: '回答退換貨、保養與訂單問題',
+    threadId: CHAT_THREAD_ID,
+    title: '退貨問題',
+    historyMode: 'saved',
+    welcome: '哈囉，我可以幫你查退換貨、保養與訂單問題。',
+    privacyNotice: '這段對話只屬於你的帳號，助理建立者看不到內容。',
+    suggestedPrompts: [],
+    messages: [],
+    ...overrides,
+  };
+}
+
+const CHAT_FORBIDDEN = { reason: 'assistant-use', message: '你沒有使用這個助理的權限，或它已不存在。' };
+
+describe('HybridDemoRepository chat (issue #79)', () => {
+  let controller: HttpTestingController;
+
+  function setUpChat() {
+    const setup = setUp();
+    controller = setup.controller;
+    return setup;
+  }
+
+  afterEach(() => controller.verify());
+
+  it('lists chat threads over HTTP, mapped to the frontend view', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.listChatThreads(CHAT_ASSISTANT_ID));
+
+    controller.expectOne({ method: 'GET', url: apiAssistantChatConversationsPath(CHAT_ASSISTANT_ID) }).flush(apiThreadList());
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: {
+        assistantId: CHAT_ASSISTANT_ID,
+        assistantName: '客服助理',
+        historyMode: 'saved',
+        threads: [{ id: CHAT_THREAD_ID, title: '退貨問題', messageCount: 2, updatedAt: '2026-09-27T01:00:00+00:00' }],
+        historyNotice: '對話只留在你的帳號，助理擁有者看不到內容。',
+      },
+    });
+  });
+
+  it('turns 403 assistant-use on listing threads into the matching permission-denied', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.listChatThreads(CHAT_ASSISTANT_ID));
+
+    controller
+      .expectOne(apiAssistantChatConversationsPath(CHAT_ASSISTANT_ID))
+      .flush(CHAT_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toEqual({
+      status: 'permission-denied',
+      reason: 'assistant-use',
+      message: CHAT_FORBIDDEN.message,
+    });
+  });
+
+  it('creates a chat thread with a 201 and returns the empty conversation', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.createChatThread(CHAT_ASSISTANT_ID));
+
+    const request = controller.expectOne({ method: 'POST', url: apiAssistantChatConversationsPath(CHAT_ASSISTANT_ID) });
+    request.flush(apiAssistantChat({ messages: [] }), { status: 201, statusText: 'Created' });
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: expect.objectContaining({ threadId: CHAT_THREAD_ID, messages: [] }),
+    });
+  });
+
+  it('renames a thread with a PATCH and turns a blank-or-long-title 422 into validation-failed', async () => {
+    const { repository } = setUpChat();
+    const renamed = pending(repository.renameChatThread(CHAT_ASSISTANT_ID, CHAT_THREAD_ID, '退貨與換貨'));
+
+    const request = controller.expectOne({
+      method: 'PATCH',
+      url: apiAssistantChatConversationPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID),
+    });
+    expect(request.request.body).toEqual({ title: '退貨與換貨' });
+    request.flush(apiThreadSummary({ title: '退貨與換貨' }));
+
+    expect(await renamed).toEqual({
+      status: 'ready',
+      data: { id: CHAT_THREAD_ID, title: '退貨與換貨', messageCount: 2, updatedAt: '2026-09-27T01:00:00+00:00' },
+    });
+
+    const rejected = pending(repository.renameChatThread(CHAT_ASSISTANT_ID, CHAT_THREAD_ID, ''));
+    controller
+      .expectOne({ method: 'PATCH', url: apiAssistantChatConversationPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID) })
+      .flush({ message: '請輸入對話名稱。' }, { status: 422, statusText: 'Unprocessable Entity' });
+
+    expect(await rejected).toEqual({ status: 'validation-failed', message: '請輸入對話名稱。' });
+  });
+
+  it('deletes a thread and returns the remaining list; 403 chat-thread maps to the thread permission-denied', async () => {
+    const { repository } = setUpChat();
+    const deleted = pending(repository.deleteChatThread(CHAT_ASSISTANT_ID, CHAT_THREAD_ID));
+
+    controller
+      .expectOne({ method: 'DELETE', url: apiAssistantChatConversationPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID) })
+      .flush(apiThreadList({ threads: [] }));
+
+    expect(await deleted).toEqual({
+      status: 'ready',
+      data: expect.objectContaining({ threads: [] }),
+    });
+
+    const forbidden = pending(repository.deleteChatThread(CHAT_ASSISTANT_ID, 'not-mine'));
+    controller
+      .expectOne({ method: 'DELETE', url: apiAssistantChatConversationPath(CHAT_ASSISTANT_ID, 'not-mine') })
+      .flush(
+        { reason: 'chat-thread', message: '找不到這段對話，或它不屬於你的帳號。' },
+        { status: 403, statusText: 'Forbidden' },
+      );
+
+    expect(await forbidden).toEqual({
+      status: 'permission-denied',
+      reason: 'chat-thread',
+      message: '找不到這段對話，或它不屬於你的帳號。',
+    });
+  });
+
+  it('reads a conversation and adapts the flat backend reply into the frontend union for each kind', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID, CHAT_THREAD_ID));
+
+    controller
+      .expectOne({ method: 'GET', url: apiAssistantChatPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID) })
+      .flush(
+        apiAssistantChat({
+          messages: [
+            apiAccountMessage(),
+            apiAssistantMessage({
+              kind: 'company-data',
+              text: '7 天內可以退貨。',
+              citations: [
+                {
+                  id: 'citation-1',
+                  knowledgeBaseName: '退換貨政策',
+                  documentName: '退換貨辦法 2026 版.pdf',
+                  excerpt: '商品到貨 7 天內可申請退貨。',
+                  updatedLabel: '2026-01-01',
+                },
+              ],
+              notice: null,
+              nextSteps: [],
+            }),
+          ],
+        }),
+      );
+
+    const view = await result;
+    if (view.status !== 'ready') throw new Error(`expected ready, got ${view.status}`);
+    expect(view.data.messages).toEqual([
+      { id: apiAccountMessage().id, author: 'account', text: '收到商品後幾天內可以退貨？', createdAt: '2026-09-27T01:00:00+00:00' },
+      {
+        id: '0199a000-0000-7000-8000-0000000000d2',
+        author: 'assistant',
+        createdAt: '2026-09-27T01:00:01+00:00',
+        reply: {
+          kind: 'company-data',
+          text: '7 天內可以退貨。',
+          citations: [
+            {
+              id: 'citation-1',
+              knowledgeBaseName: '退換貨政策',
+              documentName: '退換貨辦法 2026 版.pdf',
+              excerpt: '商品到貨 7 天內可申請退貨。',
+              updatedLabel: '2026-01-01',
+            },
+          ],
+          citationNotice: null,
+        },
+      },
+    ]);
+  });
+
+  it('adapts a general-knowledge reply, keeping the notice and dropping citations', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID));
+
+    controller.expectOne(apiAssistantChatPath(CHAT_ASSISTANT_ID)).flush(
+      apiAssistantChat({
+        messages: [
+          apiAssistantMessage({
+            kind: 'general-knowledge',
+            text: '皮革建議乾布擦拭。',
+            citations: [],
+            notice: '以下是一般知識，並非貴公司資料。',
+            nextSteps: [],
+          }),
+        ],
+      }),
+    );
+
+    const view = await result;
+    if (view.status !== 'ready') throw new Error(`expected ready, got ${view.status}`);
+    const last = view.data.messages.at(-1);
+    if (last?.author !== 'assistant') throw new Error('expected an assistant reply');
+    expect(last.reply).toEqual({
+      kind: 'general-knowledge',
+      text: '皮革建議乾布擦拭。',
+      notice: '以下是一般知識，並非貴公司資料。',
+    });
+  });
+
+  it('adapts a no-result reply, keeping the next steps', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID));
+
+    controller.expectOne(apiAssistantChatPath(CHAT_ASSISTANT_ID)).flush(
+      apiAssistantChat({
+        messages: [
+          apiAssistantMessage({
+            kind: 'no-result',
+            text: '這題我查不到相關資料。',
+            citations: [],
+            notice: null,
+            nextSteps: ['請改用其他關鍵字再試一次', '或聯絡客服人員'],
+          }),
+        ],
+      }),
+    );
+
+    const view = await result;
+    if (view.status !== 'ready') throw new Error(`expected ready, got ${view.status}`);
+    const last = view.data.messages.at(-1);
+    if (last?.author !== 'assistant') throw new Error('expected an assistant reply');
+    expect(last.reply).toEqual({
+      kind: 'no-result',
+      text: '這題我查不到相關資料。',
+      nextSteps: ['請改用其他關鍵字再試一次', '或聯絡客服人員'],
+    });
+  });
+
+  it('turns 403 assistant-use on reading a conversation into the matching permission-denied', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID));
+
+    controller
+      .expectOne(apiAssistantChatPath(CHAT_ASSISTANT_ID))
+      .flush(CHAT_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toEqual({
+      status: 'permission-denied',
+      reason: 'assistant-use',
+      message: CHAT_FORBIDDEN.message,
+    });
+  });
+
+  it('lists the most recent conversations across assistants', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.listRecentChatThreads());
+
+    const recent: ApiRecentConversationView = {
+      assistantId: CHAT_ASSISTANT_ID,
+      assistantName: '客服助理',
+      threadId: CHAT_THREAD_ID,
+      title: '退貨問題',
+      messageCount: 2,
+      updatedAt: '2026-09-27T01:00:00+00:00',
+    };
+    controller.expectOne({ method: 'GET', url: API_RECENT_CONVERSATIONS_PATH }).flush([recent]);
+
+    expect(await result).toEqual({ status: 'ready', data: [recent] });
+  });
+
+  it('falls back to an empty ready list instead of an error when the recent-conversations request fails', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.listRecentChatThreads());
+
+    controller.expectOne(API_RECENT_CONVERSATIONS_PATH).flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(await result).toEqual({ status: 'ready', data: [] });
+  });
+
+  it('is cold: nothing is sent until subscribed', () => {
+    const { repository } = setUpChat();
+    repository.createChatThread(CHAT_ASSISTANT_ID);
+    repository.listRecentChatThreads();
+
+    controller.expectNone(apiAssistantChatConversationsPath(CHAT_ASSISTANT_ID));
+    controller.expectNone(API_RECENT_CONVERSATIONS_PATH);
   });
 });
 

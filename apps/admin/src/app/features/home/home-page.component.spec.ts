@@ -82,7 +82,7 @@ describe('HomePageComponent', () => {
       anchor.textContent?.includes('客服助理'),
     );
     expect(section?.textContent).toContain('我的助理');
-    expect(link?.getAttribute('href')).toBe('/use/assistant-customer-service');
+    expect(link?.getAttribute('href')).toBe('/app/chat/assistant-customer-service');
     expect(section?.textContent).not.toContain('內部教育訓練助理');
   });
 
@@ -105,7 +105,7 @@ describe('HomePageComponent', () => {
 
     const primaryCard = page.querySelector('.home-card--primary');
     expect(primaryCard?.textContent).toContain('客服助理');
-    expect(primaryCard?.querySelector('a')?.getAttribute('href')).toBe('/use/assistant-customer-service');
+    expect(primaryCard?.querySelector('a')?.getAttribute('href')).toBe('/app/chat/assistant-customer-service');
   });
 
   it('tells an account without manage-assistants and without any usable assistant who to contact', async () => {

@@ -1,4 +1,5 @@
-import type { AccountId, VisitorId } from '../domain/account.model';
+import { firstValueFrom } from 'rxjs';
+import { isVisitorId, type AccountId, type ChatViewerId, type VisitorId } from '../domain/account.model';
 import type { AssistantChatView } from '../domain/conversation.model';
 import type { SendChatMessageResult, SubmitChatFormResult } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
@@ -15,13 +16,23 @@ const ORDER_ANSWERS = {
   'field-reported-on': '2026-09-21',
 };
 
+/** 讓測試可以在同一個 repository 實例上切換「目前發起者」（帳號或訪客）。 */
+interface ViewerRef {
+  current: ChatViewerId | null;
+}
+
 /** shared＝所有帳號共用的 localStorage；visitor＝只屬於一個瀏覽器分頁的 sessionStorage。 */
 function createRepository(shared = createMemoryStorage(), visitorStorage = createMemoryStorage()) {
-  return new MockDemoRepository(DEMO_SEED, {
+  const viewerRef: ViewerRef = { current: VISITOR };
+  const repository = new MockDemoRepository(DEMO_SEED, {
     storage: shared,
     visitorStorage,
     now: () => new Date('2026-09-22T02:00:00.000Z'),
+    // `listChatThreads` 只認帳號（`viewer`），`getAssistantChat` 帳號或訪客皆可（`chatViewer`）。
+    viewer: () => (viewerRef.current !== null && isVisitorId(viewerRef.current) ? null : viewerRef.current),
+    chatViewer: () => viewerRef.current,
   });
+  return { repository, viewerRef };
 }
 
 function chatOf(result: SendChatMessageResult | SubmitChatFormResult): AssistantChatView {
@@ -37,9 +48,22 @@ function ask(
   return chatOf(repository.sendChatMessage(viewer, PUBLISHED, text));
 }
 
+/** 以 `viewerRef` 切換目前發起者後讀取這個助理的對話。 */
+async function chatAs(
+  viewerRef: ViewerRef,
+  repository: MockDemoRepository,
+  viewer: ChatViewerId,
+  assistantId: string,
+  threadId?: string,
+) {
+  viewerRef.current = viewer;
+  return firstValueFrom(repository.getAssistantChat(assistantId, threadId));
+}
+
 describe('MockDemoRepository anonymous visitors', () => {
-  it('opens an assistant that is published to an external channel', () => {
-    const result = createRepository().getAssistantChat(VISITOR, PUBLISHED);
+  it('opens an assistant that is published to an external channel', async () => {
+    const { repository, viewerRef } = createRepository();
+    const result = await chatAs(viewerRef, repository, VISITOR, PUBLISHED);
 
     expect(result.status).toBe('ready');
     if (result.status !== 'ready') return;
@@ -47,19 +71,20 @@ describe('MockDemoRepository anonymous visitors', () => {
     expect(result.data.messages).toEqual([]);
   });
 
-  it('tells the visitor the conversation ends with the browser tab', () => {
-    const result = createRepository().getAssistantChat(VISITOR, PUBLISHED);
+  it('tells the visitor the conversation ends with the browser tab', async () => {
+    const { repository, viewerRef } = createRepository();
+    const result = await chatAs(viewerRef, repository, VISITOR, PUBLISHED);
 
     if (result.status !== 'ready') throw new Error('expected ready');
     expect(result.data.privacyNotice).toContain('關閉這個分頁');
     expect(result.data.privacyNotice).not.toContain('你的帳號');
   });
 
-  it('refuses an internal-only assistant with the same answer as an unknown one', () => {
-    const repository = createRepository();
+  it('refuses an internal-only assistant with the same answer as an unknown one', async () => {
+    const { repository, viewerRef } = createRepository();
 
-    const internal = repository.getAssistantChat(VISITOR, INTERNAL_ONLY);
-    const unknown = repository.getAssistantChat(VISITOR, 'assistant-does-not-exist');
+    const internal = await chatAs(viewerRef, repository, VISITOR, INTERNAL_ONLY);
+    const unknown = await chatAs(viewerRef, repository, VISITOR, 'assistant-does-not-exist');
 
     expect(internal.status).toBe('permission-denied');
     expect(internal).toEqual(unknown);
@@ -68,22 +93,22 @@ describe('MockDemoRepository anonymous visitors', () => {
     expect(internal.reason).toBe('assistant-use');
   });
 
-  it('closes the anonymous door when the external channel is paused', () => {
-    const repository = createRepository();
+  it('closes the anonymous door when the external channel is paused', async () => {
+    const { repository, viewerRef } = createRepository();
     repository.setPublishingChannelPaused('account-smb-admin', PUBLISHED, 'website', true);
 
-    expect(repository.getAssistantChat(VISITOR, PUBLISHED).status).toBe('permission-denied');
+    expect((await chatAs(viewerRef, repository, VISITOR, PUBLISHED)).status).toBe('permission-denied');
   });
 
-  it('closes the anonymous door while the website channel needs attention', () => {
-    const repository = createRepository();
+  it('closes the anonymous door while the website channel needs attention', async () => {
+    const { repository, viewerRef } = createRepository();
     repository.setScenario('disconnected-channel');
 
-    expect(repository.getAssistantChat(VISITOR, PUBLISHED).status).toBe('permission-denied');
+    expect((await chatAs(viewerRef, repository, VISITOR, PUBLISHED)).status).toBe('permission-denied');
   });
 
-  it('keeps the visitor conversation out of every demo account and every other visitor', () => {
-    const repository = createRepository();
+  it('keeps the visitor conversation out of every demo account and every other visitor', async () => {
+    const { repository, viewerRef } = createRepository();
     ask(repository, VISITOR, '我的訪客問題：退貨要幾天？');
 
     const accounts: readonly AccountId[] = [
@@ -92,15 +117,15 @@ describe('MockDemoRepository anonymous visitors', () => {
       'account-external-customer',
     ];
     for (const account of accounts) {
-      const view = repository.getAssistantChat(account, PUBLISHED);
+      const view = await chatAs(viewerRef, repository, account, PUBLISHED);
       if (view.status !== 'ready') throw new Error(`expected ready for ${account}`);
       expect(view.data.messages).toEqual([]);
-      const threads = repository.listChatThreads(account, PUBLISHED);
+      const threads = await firstValueFrom(repository.listChatThreads(PUBLISHED));
       if (threads.status !== 'ready') throw new Error(`expected ready threads for ${account}`);
       expect(threads.data.threads).toEqual([]);
     }
 
-    const other = repository.getAssistantChat(OTHER_VISITOR, PUBLISHED);
+    const other = await chatAs(viewerRef, repository, OTHER_VISITOR, PUBLISHED);
     if (other.status !== 'ready') throw new Error('expected ready');
     expect(other.data.messages).toEqual([]);
   });
@@ -108,7 +133,7 @@ describe('MockDemoRepository anonymous visitors', () => {
   it('stores the visitor conversation only in the per-tab storage', () => {
     const shared = createMemoryStorage();
     const visitorStorage = createMemoryStorage();
-    const repository = createRepository(shared, visitorStorage);
+    const { repository } = createRepository(shared, visitorStorage);
 
     ask(repository, VISITOR, '收到商品後幾天內可以退貨？');
 
@@ -117,7 +142,7 @@ describe('MockDemoRepository anonymous visitors', () => {
   });
 
   it('leaves the owner’s anonymous usage count untouched by visitor conversations', () => {
-    const repository = createRepository();
+    const { repository } = createRepository();
     ask(repository, VISITOR, '收到商品後幾天內可以退貨？');
 
     const analytics = repository.getAssistantAnalytics('account-smb-admin', PUBLISHED);
@@ -127,7 +152,7 @@ describe('MockDemoRepository anonymous visitors', () => {
   });
 
   it('answers a visitor from the same fixtures as a signed-in account', () => {
-    const chat = ask(createRepository(), VISITOR, '收到商品後幾天內可以退貨？');
+    const chat = ask(createRepository().repository, VISITOR, '收到商品後幾天內可以退貨？');
 
     const last = chat.messages[chat.messages.length - 1];
     if (last?.author !== 'assistant') throw new Error('expected an assistant reply');
@@ -135,7 +160,7 @@ describe('MockDemoRepository anonymous visitors', () => {
   });
 
   it('still discloses recipient, purpose, viewers and the sensitive-data notice to a visitor', () => {
-    const chat = ask(createRepository(), VISITOR, '我要回報訂單問題');
+    const chat = ask(createRepository().repository, VISITOR, '我要回報訂單問題');
 
     const last = chat.messages[chat.messages.length - 1];
     if (last?.author !== 'assistant' || last.reply.kind !== 'form-request') {
@@ -150,7 +175,7 @@ describe('MockDemoRepository anonymous visitors', () => {
   });
 
   it('refuses to save an anonymous submission without consent', () => {
-    const repository = createRepository();
+    const { repository } = createRepository();
     ask(repository, VISITOR, '我要回報訂單問題');
 
     const result = repository.submitChatForm(VISITOR, PUBLISHED, {
@@ -166,7 +191,7 @@ describe('MockDemoRepository anonymous visitors', () => {
   });
 
   it('delivers a consented anonymous submission to the data manager without inventing an identity', () => {
-    const repository = createRepository();
+    const { repository } = createRepository();
     ask(repository, VISITOR, '我要回報訂單問題');
     chatOf(
       repository.submitChatForm(VISITOR, PUBLISHED, {
@@ -190,7 +215,7 @@ describe('MockDemoRepository anonymous visitors', () => {
   });
 
   it('keeps the anonymous submission away from an account that is not the data manager', () => {
-    const repository = createRepository();
+    const { repository } = createRepository();
     ask(repository, VISITOR, '我要回報訂單問題');
     repository.submitChatForm(VISITOR, PUBLISHED, {
       formId: 'database-orders',
@@ -203,13 +228,13 @@ describe('MockDemoRepository anonymous visitors', () => {
     expect(tracking.status).toBe('permission-denied');
   });
 
-  it('never lets a visitor reach another visitor’s conversation through a thread id', () => {
-    const repository = createRepository();
+  it('never lets a visitor reach another visitor’s conversation through a thread id', async () => {
+    const { repository, viewerRef } = createRepository();
     const chat = ask(repository, VISITOR, '我的訪客問題：退貨要幾天？');
     const threadId = chat.threadId;
     expect(threadId).not.toBeNull();
 
-    const stolen = repository.getAssistantChat(OTHER_VISITOR, PUBLISHED, threadId ?? '');
+    const stolen = await chatAs(viewerRef, repository, OTHER_VISITOR, PUBLISHED, threadId ?? '');
 
     expect(stolen.status).toBe('permission-denied');
     if (stolen.status !== 'permission-denied') return;

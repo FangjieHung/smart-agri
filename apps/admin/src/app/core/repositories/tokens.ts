@@ -1,4 +1,5 @@
 import { inject, InjectionToken } from '@angular/core';
+import { AnonymousVisitorService } from '../session/anonymous-visitor.service';
 import { DemoSessionService } from '../session/demo-session.service';
 import type { DemoRepository } from './demo-repository';
 import { readDemoScenario } from './demo-scenario-param';
@@ -19,6 +20,7 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>(
     providedIn: 'root',
     factory: () => {
       const session = inject(DemoSessionService);
+      const visitor = inject(AnonymousVisitorService);
       const options: MockDemoRepositoryOptions = {
         storage:
           typeof localStorage === 'undefined' ? undefined : localStorage,
@@ -26,6 +28,9 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>(
         visitorStorage:
           typeof sessionStorage === 'undefined' ? undefined : sessionStorage,
         viewer: () => session.activeAccountId(),
+        // 對話的非同步契約（issue #79）：已選擇的 Demo 身分優先，其次是這個分頁的
+        // 匿名訪客（`embeddedChatGuard` 會先發一個，沒發過時這裡是 null）。
+        chatViewer: () => session.activeAccountId() ?? visitor.visitorId(),
       };
       // API 模式：已接上 API 的方法走 HTTP，其餘仍由 mock 回答。
       const createApiRepository = inject(API_DEMO_REPOSITORY_FACTORY);

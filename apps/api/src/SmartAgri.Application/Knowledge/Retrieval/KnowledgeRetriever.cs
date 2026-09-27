@@ -69,6 +69,20 @@ public sealed record KnowledgeRetrievalResult(IReadOnlyList<RetrievedKnowledgePa
 }
 
 /// <summary>
+/// What <see cref="KnowledgeRetriever"/> offers, so code that retrieves (M3's
+/// <c>GroundedAnswerService</c>) can be tested with scripted passages and scores instead of
+/// an embedding model and a vector collection.
+/// </summary>
+public interface IKnowledgeRetriever
+{
+    /// <summary>The deployment's defaults.</summary>
+    KnowledgeRetrievalSettings Settings { get; }
+
+    /// <inheritdoc cref="KnowledgeRetriever.RetrieveAsync"/>
+    Task<KnowledgeRetrievalResult> RetrieveAsync(KnowledgeRetrievalQuery query, CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// <b>The</b> retrieval entry point (M2 plan Slice 9; ticket #43): the retrieval preview uses it
 /// now, and M3's conversations will call the same service. It embeds the question (one
 /// <c>ModelInvocation</c>, purpose <see cref="ModelInvocationPurpose.EmbedQuery"/>, attributed
@@ -91,7 +105,7 @@ public sealed record KnowledgeRetrievalResult(IReadOnlyList<RetrievedKnowledgePa
 /// is not a failure: see <see cref="KnowledgeRetrievalResult.BelowThreshold"/>.
 /// </para>
 /// </remarks>
-public sealed class KnowledgeRetriever
+public sealed class KnowledgeRetriever : IKnowledgeRetriever
 {
     private readonly KnowledgeChunkEmbedder _embedder;
     private readonly VectorStoreCollection<Guid, KnowledgeChunk> _chunks;

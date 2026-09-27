@@ -69,13 +69,13 @@ function browserSessionStorage(): DemoKeyValueStorage | undefined {
 
 function toIdentity(me: MeResponse): ApiIdentity {
   return {
+    accountId: me.id,
     demoAccountId: DEMO_ACCOUNT_BY_ROLE[me.role],
     displayName: me.displayName,
     permissions: me.permissions,
     passwordChangeRequired: me.passwordChangeRequired,
-    // 真實 GUID：見 `ApiIdentity.organizationId`／`accountId` 的說明。
+    // 真實 GUID：見 `ApiIdentity.organizationId` 的說明。
     organizationId: me.organization.id,
-    accountId: me.id,
   };
 }
 

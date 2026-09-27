@@ -14,7 +14,8 @@ namespace SmartAgri.Domain.Knowledge;
 /// log entry must be able to describe something that no longer exists. Deleting a knowledge
 /// base therefore removes its activity rows explicitly and then writes a single
 /// <see cref="KnowledgeActivityAction.KnowledgeBaseDeleted"/> row; deleting a document keeps
-/// the document's rows and adds a <see cref="KnowledgeActivityAction.DocumentDeleted"/> one.
+/// the document's rows and adds a <see cref="KnowledgeActivityAction.DocumentDeleted"/> one
+/// (<see cref="KnowledgeActivityAction.FaqDeleted"/> for an FAQ entry).
 /// </remarks>
 public sealed class KnowledgeActivity : IOrganizationScoped
 {
@@ -173,7 +174,9 @@ public sealed class KnowledgeActivity : IOrganizationScoped
     public static KnowledgeActivity DocumentEnabled(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at) =>
         ForDocument(document, KnowledgeActivityAction.DocumentEnabled, actorAccountId, at);
 
-    /// <summary>Ids only: the document's name goes with the document.</summary>
+    /// <summary>Ids only: the document's name goes with the document. The action is
+    /// <see cref="KnowledgeActivityAction.FaqDeleted"/> for an FAQ entry, so the log can still
+    /// tell what was deleted once the document is gone.</summary>
     public static KnowledgeActivity DocumentDeleted(KnowledgeDocument document, Guid actorAccountId, DateTimeOffset at)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -182,11 +185,19 @@ public sealed class KnowledgeActivity : IOrganizationScoped
             document.KnowledgeBaseId,
             document.Id,
             versionId: null,
-            KnowledgeActivityAction.DocumentDeleted,
+            document.Kind == KnowledgeItemKind.Faq ? KnowledgeActivityAction.FaqDeleted : KnowledgeActivityAction.DocumentDeleted,
             actorAccountId,
             at,
             detail: null);
     }
+
+    /// <summary>A new FAQ entry (its version 1); ids only, never the question or answer.</summary>
+    public static KnowledgeActivity FaqCreated(KnowledgeDocumentVersion version, Guid actorAccountId, DateTimeOffset at) =>
+        ForVersion(version, KnowledgeActivityAction.FaqCreated, actorAccountId, at);
+
+    /// <summary>An edit of an FAQ entry (a new version, pending review); ids only.</summary>
+    public static KnowledgeActivity FaqUpdated(KnowledgeDocumentVersion version, Guid actorAccountId, DateTimeOffset at) =>
+        ForVersion(version, KnowledgeActivityAction.FaqUpdated, actorAccountId, at);
 
     /// <summary>
     /// <see cref="KnowledgeActivityAction.ChunkExcluded"/> or

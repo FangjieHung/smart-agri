@@ -5,8 +5,10 @@ namespace SmartAgri.Domain.Knowledge;
 /// <summary>
 /// One document in a knowledge base (table <c>KnowledgeDocuments</c>, M2 plan §4): the
 /// logical document, whose content lives in its <see cref="KnowledgeDocumentVersion"/>s.
-/// Uploading a file creates the document together with its version 1; later slices add
-/// further versions (Slice 8) and FAQ entries (<see cref="KnowledgeItemKind.Faq"/>, Slice 10).
+/// Uploading a file creates the document together with its version 1, and a new file makes a
+/// new version (Slice 8). An FAQ entry (<see cref="KnowledgeItemKind.Faq"/>, Slice 10) is a
+/// document too: each edit of its question and answer is a new version
+/// (<see cref="KnowledgeFaqEntry"/>), approved like any other.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -46,9 +48,10 @@ public sealed class KnowledgeDocument : IOrganizationScoped
 
     /// <summary>
     /// What the document is listed as. For an uploaded document, the file name of its first
-    /// version (e.g. <c>退貨政策.pdf</c>), kept when later versions have other file names.
-    /// Unique within the knowledge base, compared exactly (after the upload rules'
-    /// normalization).
+    /// version (e.g. <c>退貨政策.pdf</c>), kept when later versions have other file names; for an
+    /// FAQ entry, its latest question (shortened by the FAQ rules), which follows every edit
+    /// (<see cref="RenameFaq"/>). Unique within the knowledge base, compared exactly (after the
+    /// upload or FAQ rules' normalization).
     /// </summary>
     public string Name { get; private set; } = string.Empty;
 
@@ -74,26 +77,30 @@ public sealed class KnowledgeDocument : IOrganizationScoped
     /// <summary>A new document for an uploaded file; its version 1 is created with it.</summary>
     /// <param name="name">Already normalized by the upload rules; must not be blank or
     /// padded, nor longer than <see cref="NameMaxLength"/>.</param>
-    public static KnowledgeDocument CreateUploaded(KnowledgeBase knowledgeBase, string name, DateTimeOffset now)
+    public static KnowledgeDocument CreateUploaded(KnowledgeBase knowledgeBase, string name, DateTimeOffset now) =>
+        Create(knowledgeBase, KnowledgeItemKind.Document, name, now);
+
+    /// <summary>A new FAQ entry; its version 1 (<see cref="KnowledgeDocumentVersion.CreateFaq"/>)
+    /// is created with it.</summary>
+    /// <param name="name">Already derived from the question by the FAQ rules; the same limits as
+    /// <see cref="CreateUploaded"/>'s.</param>
+    public static KnowledgeDocument CreateFaq(KnowledgeBase knowledgeBase, string name, DateTimeOffset now) =>
+        Create(knowledgeBase, KnowledgeItemKind.Faq, name, now);
+
+    /// <summary>
+    /// An FAQ entry is listed under its latest question, so an edit that changes the question
+    /// renames it (the edit itself is a new version, pending review). Only for
+    /// <see cref="KnowledgeItemKind.Faq"/>: an uploaded document keeps its first file's name.
+    /// </summary>
+    public void RenameFaq(string name)
     {
-        ArgumentNullException.ThrowIfNull(knowledgeBase);
-        ArgumentNullException.ThrowIfNull(name);
-        if (name.Length is 0 or > NameMaxLength || name.Trim().Length != name.Length)
+        if (Kind != KnowledgeItemKind.Faq)
         {
-            throw new ArgumentException(
-                $"A document name must be 1-{NameMaxLength} characters without surrounding white space.",
-                nameof(name));
+            throw new InvalidOperationException("Only an FAQ entry is renamed; a document keeps its first file's name.");
         }
 
-        return new KnowledgeDocument
-        {
-            Id = Guid.CreateVersion7(),
-            OrganizationId = knowledgeBase.OrganizationId,
-            KnowledgeBaseId = knowledgeBase.Id,
-            Kind = KnowledgeItemKind.Document,
-            Name = name,
-            CreatedAt = now,
-        };
+        RequireName(name);
+        Name = name;
     }
 
     /// <summary>
@@ -141,6 +148,33 @@ public sealed class KnowledgeDocument : IOrganizationScoped
         DisabledReason = null;
     }
 
-    /// <summary>Called by <see cref="KnowledgeDocumentVersion.Create"/> only.</summary>
+    /// <summary>Called by <see cref="KnowledgeDocumentVersion"/>'s factories only.</summary>
     internal void AddVersion(KnowledgeDocumentVersion version) => _versions.Add(version);
+
+    private static KnowledgeDocument Create(KnowledgeBase knowledgeBase, KnowledgeItemKind kind, string name, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(knowledgeBase);
+        RequireName(name);
+
+        return new KnowledgeDocument
+        {
+            Id = Guid.CreateVersion7(),
+            OrganizationId = knowledgeBase.OrganizationId,
+            KnowledgeBaseId = knowledgeBase.Id,
+            Kind = kind,
+            Name = name,
+            CreatedAt = now,
+        };
+    }
+
+    private static void RequireName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (name.Length is 0 or > NameMaxLength || name.Trim().Length != name.Length)
+        {
+            throw new ArgumentException(
+                $"A document name must be 1-{NameMaxLength} characters without surrounding white space.",
+                nameof(name));
+        }
+    }
 }

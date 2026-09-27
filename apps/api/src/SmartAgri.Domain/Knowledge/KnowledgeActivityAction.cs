@@ -67,4 +67,19 @@ public enum KnowledgeActivityAction
     /// <summary>The owner lifted an emergency disable.</summary>
     [JsonStringEnumMemberName("document-enabled")]
     DocumentEnabled,
+
+    /// <summary>The owner wrote a new FAQ entry (its version 1, pending review). Ids only:
+    /// neither the question nor the answer.</summary>
+    [JsonStringEnumMemberName("faq-created")]
+    FaqCreated,
+
+    /// <summary>The owner edited an FAQ entry: a new version, pending review, while the version
+    /// in effect keeps answering. Ids only.</summary>
+    [JsonStringEnumMemberName("faq-updated")]
+    FaqUpdated,
+
+    /// <summary>An FAQ entry was deleted with all of its versions, like
+    /// <see cref="DocumentDeleted"/> for a document.</summary>
+    [JsonStringEnumMemberName("faq-deleted")]
+    FaqDeleted,
 }

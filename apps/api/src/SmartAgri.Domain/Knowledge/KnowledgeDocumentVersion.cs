@@ -4,9 +4,9 @@ namespace SmartAgri.Domain.Knowledge;
 
 /// <summary>
 /// One uploaded file of a <see cref="KnowledgeDocument"/> (table
-/// <c>KnowledgeDocumentVersions</c>, M2 plan §4) and where its processing stands. The file's
-/// bytes are a separate <see cref="KnowledgeFileContent"/> row, so reading versions never
-/// reads files.
+/// <c>KnowledgeDocumentVersions</c>, M2 plan §4) — or one edit of an FAQ entry's question and
+/// answer (<see cref="CreateFaq"/>) — and where its processing stands. The file's bytes are a
+/// separate <see cref="KnowledgeFileContent"/> row, so reading versions never reads files.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -59,12 +59,18 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
     /// <summary>1 for the upload that created the document, then 2, 3, … per document.</summary>
     public int VersionNumber { get; private set; }
 
-    /// <summary>The uploaded file's name (normalized), also used when it is downloaded.</summary>
+    /// <summary>The uploaded file's name (normalized), also used when it is downloaded. For an
+    /// FAQ version, the name its question gave the entry (see <see cref="CreateFaq"/>).</summary>
     public string FileName { get; private set; } = string.Empty;
 
     /// <summary>The canonical content type of the file's format
-    /// (<see cref="KnowledgeFileFormats.ContentType"/>).</summary>
+    /// (<see cref="KnowledgeFileFormats.ContentType"/>), or <see cref="KnowledgeFaqEntry.ContentType"/>
+    /// for an FAQ version.</summary>
     public string ContentType { get; private set; } = string.Empty;
+
+    /// <summary>Whether this is a version of an FAQ entry, whose content is a
+    /// <see cref="KnowledgeFaqEntry"/> rather than an uploaded file.</summary>
+    public bool IsFaq => ContentType == KnowledgeFaqEntry.ContentType;
 
     public long SizeBytes { get; private set; }
 
@@ -128,8 +134,60 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
         DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(document);
-        ArgumentNullException.ThrowIfNull(fileName);
         ArgumentNullException.ThrowIfNull(contentType);
+        if (document.Kind != KnowledgeItemKind.Document)
+        {
+            throw new ArgumentException("An FAQ entry's versions are created with CreateFaq.", nameof(document));
+        }
+
+        if (!KnowledgeFileFormats.TryFromContentType(contentType, out _))
+        {
+            throw new ArgumentException("Only a knowledge file format's canonical content type can be stored.", nameof(contentType));
+        }
+
+        return New(document, versionNumber, fileName, contentType, sizeBytes, sha256, uploadedByAccountId, uploadBatchId, now);
+    }
+
+    /// <summary>
+    /// A new, <see cref="KnowledgeDocumentStatus.Queued"/> version of an FAQ entry, whose
+    /// content is <paramref name="content"/>'s <see cref="KnowledgeFaqEntry.ToContent"/> (the
+    /// caller stores those bytes as its <see cref="KnowledgeFileContent"/> and enqueues its
+    /// processing in the same save). Pending review like every version.
+    /// </summary>
+    /// <param name="name">What the question names the entry (<see cref="KnowledgeDocument.Name"/>'s
+    /// rules), kept as the version's <see cref="FileName"/>.</param>
+    /// <param name="sha256">The SHA-256 of <paramref name="content"/>'s bytes.</param>
+    public static KnowledgeDocumentVersion CreateFaq(
+        KnowledgeDocument document,
+        int versionNumber,
+        string name,
+        byte[] content,
+        string sha256,
+        Guid uploadedByAccountId,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(content);
+        if (document.Kind != KnowledgeItemKind.Faq)
+        {
+            throw new ArgumentException("Only an FAQ entry has FAQ versions.", nameof(document));
+        }
+
+        return New(document, versionNumber, name, KnowledgeFaqEntry.ContentType, content.LongLength, sha256, uploadedByAccountId, uploadBatchId: null, now);
+    }
+
+    private static KnowledgeDocumentVersion New(
+        KnowledgeDocument document,
+        int versionNumber,
+        string fileName,
+        string contentType,
+        long sizeBytes,
+        string sha256,
+        Guid uploadedByAccountId,
+        Guid? uploadBatchId,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(fileName);
         ArgumentNullException.ThrowIfNull(sha256);
         ArgumentOutOfRangeException.ThrowIfLessThan(versionNumber, 1);
         ArgumentOutOfRangeException.ThrowIfNegative(sizeBytes);
@@ -139,11 +197,6 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
             throw new ArgumentException(
                 $"A file name must be 1-{FileNameMaxLength} characters without surrounding white space.",
                 nameof(fileName));
-        }
-
-        if (!KnowledgeFileFormats.TryFromContentType(contentType, out _))
-        {
-            throw new ArgumentException("Only a knowledge file format's canonical content type can be stored.", nameof(contentType));
         }
 
         if (sha256.Length != Sha256Length || !sha256.All(char.IsAsciiHexDigitLower))

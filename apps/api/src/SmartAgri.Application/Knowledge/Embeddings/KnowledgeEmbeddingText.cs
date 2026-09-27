@@ -12,7 +12,8 @@ public static class KnowledgeEmbeddingText
     /// A section's heading path (「2 退換貨 › 2.1 退貨條件」) or a worksheet's name and rows
     /// (「工作表『配送時間』第 2–30 列」) says what the passage is about — often more than the
     /// passage itself, e.g. a bare table of fees under 「2.2 運費」 — so it goes on the first
-    /// line. A page label (「第 3 頁」) says nothing about the content and is left out.
+    /// line. A page label (「第 3 頁」) says nothing about the content and is left out, and so is
+    /// an FAQ entry's 「FAQ」: its text already starts with the question.
     /// </summary>
     public static string For(KnowledgeUnitLocationKind kind, string locationLabel, string text)
     {
@@ -21,7 +22,7 @@ public static class KnowledgeEmbeddingText
 
         return kind switch
         {
-            KnowledgeUnitLocationKind.Page => text,
+            KnowledgeUnitLocationKind.Page or KnowledgeUnitLocationKind.Faq => text,
             KnowledgeUnitLocationKind.Section or KnowledgeUnitLocationKind.Sheet => string.Concat(locationLabel, "\n", text),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
         };

@@ -363,6 +363,7 @@ public class AssistantDraftEndpointsTests : IClassFixture<AuthHostFixture>
         ("GET", id => caller.Spa.GetAsync($"{DraftsPath}/{id}", caller.Token)),
         ("PUT", id => caller.Spa.PutAsync($"{DraftsPath}/{id}", caller.Token, new { payload = new { name = "改名" }, revision = 1 })),
         ("DELETE", id => caller.Spa.DeleteAsync($"{DraftsPath}/{id}", caller.Token)),
+        ("POST trial-answers", id => caller.Spa.PostAsync($"{DraftsPath}/{id}/trial-answers", caller.Token, new { question = "測試問題" })),
     ];
 
     private static async Task AssertIdenticalAsync(HttpResponseMessage first, HttpResponseMessage second)

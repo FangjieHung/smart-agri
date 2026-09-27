@@ -1967,6 +1967,58 @@
           }
         }
       }
+    },
+    "/api/v1/assistant-drafts/{id}/trial-answers": {
+      "post": {
+        "tags": [
+          "AssistantDraftEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialAnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrialAnswerResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2363,6 +2415,13 @@
             ]
           }
         }
+      },
+      "GroundedReplyKind": {
+        "enum": [
+          "company-data",
+          "general-knowledge",
+          "no-result"
+        ]
       },
       "IFormFile": {
         "type": "string",
@@ -3464,6 +3523,160 @@
               "string"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "TrialAnswerCitationView": {
+        "required": [
+          "ordinal",
+          "knowledgeBaseId",
+          "knowledgeBaseName",
+          "documentId",
+          "documentName",
+          "locationLabel",
+          "excerpt",
+          "score"
+        ],
+        "type": "object",
+        "properties": {
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "knowledgeBaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "knowledgeBaseName": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "locationLabel": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "TrialAnswerPassageView": {
+        "required": [
+          "knowledgeBaseId",
+          "knowledgeBaseName",
+          "documentId",
+          "documentName",
+          "locationLabel",
+          "excerpt",
+          "score"
+        ],
+        "type": "object",
+        "properties": {
+          "knowledgeBaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "knowledgeBaseName": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "locationLabel": {
+            "type": "string"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "TrialAnswerReplyView": {
+        "required": [
+          "kind",
+          "text",
+          "citations",
+          "notice",
+          "nextSteps"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/GroundedReplyKind"
+          },
+          "text": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialAnswerCitationView"
+            }
+          },
+          "notice": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nextSteps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TrialAnswerRequest": {
+        "required": [
+          "question"
+        ],
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "TrialAnswerResponse": {
+        "required": [
+          "reply",
+          "passages",
+          "threshold"
+        ],
+        "type": "object",
+        "properties": {
+          "reply": {
+            "$ref": "#/components/schemas/TrialAnswerReplyView"
+          },
+          "passages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrialAnswerPassageView"
+            }
+          },
+          "threshold": {
+            "type": "number",
+            "format": "double"
           }
         }
       },

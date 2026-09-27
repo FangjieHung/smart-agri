@@ -540,6 +540,71 @@ Until it has finished, the retrieval preview (and M3's answers) find nothing of 
 yet re-embedded. Similarity scores are model-specific too: set `Retrieval:MinScore` for the new
 model ("Retrieval preview" below).
 
+## Chat model
+
+Conversations answer through `IChatClient` (`Microsoft.Extensions.AI.Abstractions`; M3 plan,
+Slice 4), the same shape as "Embeddings and vector search" above — configuration section
+`Ai:Chat`, its own `ChatClientProvider`/`ChatModelOptions`, and its own recording middleware.
+There is no public conversation endpoint yet (that is Slice 7); this section documents the
+plumbing so later slices only ever call `IChatClient`.
+
+- **Audit:** every model call goes through `ModelInvocationRecordingChatClient`, which writes one
+  `ModelInvocations` row — organization, account, assistant, purpose (`generate-answer`),
+  provider, model, input **and output** tokens when the provider reports them, duration, success,
+  time — and **never any content**. It wraps both `GetResponseAsync` and
+  `GetStreamingResponseAsync`; for a streaming call, tokens come only from a `UsageContent` update
+  the provider actually sends (never estimated from the text seen so far), and a call cancelled
+  mid-stream is still recorded (`Succeeded = false`). A call without an organization or an
+  attribution is refused before it reaches the provider. It also emits one client span
+  `chat {model}` with `gen_ai.*` attributes plus `smartagri.organization_id`, and the
+  `gen_ai.client.operation.duration` / `gen_ai.client.token.usage` histograms (shared with
+  embeddings).
+- **Errors:** an unconfigured deployment throws `ChatGenerationException` (`ProviderNotConfigured`
+  = true) on every call, before reaching any provider; a configured provider's own failure is
+  wrapped the same way (`ProviderNotConfigured` = false). `SmartAgri.Api.Ai.ChatErrors.ToApiResult`
+  maps either to `503` with reason `chat-not-configured` / `chat-unavailable` — the same shape as
+  the embedding pipeline's `embedding-not-configured` / `embedding-unavailable`.
+
+Configuration (section `Ai:Chat`; as environment variables `Ai__Chat__Provider`, …):
+
+| Key | Default | |
+| --- | --- | --- |
+| `Provider` | (none) | `OpenAI`, `AzureOpenAI`, `OpenAICompatible` or `Fake`. |
+| `Model` | | Required with a provider. For Azure OpenAI, the deployment name. |
+| `Endpoint` | | Required for `AzureOpenAI` and `OpenAICompatible`; optional for `OpenAI`. |
+| `ApiKey` | | Required for `OpenAI` and `AzureOpenAI`; optional for `OpenAICompatible`. Environment only, never a checked-in file. |
+| `MaxOutputTokens` | (provider default) | Applied to every call that does not set its own, through `ChatClientBuilder.ConfigureOptions` (the full `Microsoft.Extensions.AI` package — the only thing Infrastructure needs it for). |
+| `TimeoutSeconds` | (client default) | Applied to the OpenAI client's `NetworkTimeout`. |
+
+- **`Fake`** (`FakeChatClient`) is a scripted, reproducible answer generator, no model and no
+  network. It reads the highest `[n]` passage number anywhere in the messages it is given and
+  answers citing `[1]`, unless the last user message contains one of these test instructions
+  (`SmartAgri.Application.Ai.FakeChatDirectives`), used by Slice 5's integration tests to exercise
+  every validation branch:
+
+  | Directive | Answers with |
+  | --- | --- |
+  | *(none)* | A generic sentence citing `[1]` (or nothing, if no passage was supplied). |
+  | `#invalid-citation` | A citation past the last supplied passage (`[k+1]`). |
+  | `#no-marker` | Prose with no `[n]` citation at all. |
+  | `#cannot-answer` | Exactly `SmartAgri.Application.Ai.ChatAnswerMarkers.CannotAnswer`. |
+  | `#fail-midway` | One streamed chunk, then a thrown exception (fails outright when not streaming). |
+
+  Streaming always splits the answer into at least two chunks, and — whenever it contains a `[n]`
+  marker — splits the marker itself across two chunks (right after its `[`), so the citation
+  scanner is exercised against a marker that arrives in pieces. It is **allowed only when
+  `ASPNETCORE_ENVIRONMENT` is `Development` or `Testing`**, exactly like the fake embedding
+  provider: any other environment refuses to start. `appsettings.Development.json` uses it
+  (`fake-chat-dev`).
+- **No provider** is allowed: the Api starts (and logs a warning); every call throws
+  `ChatGenerationException(ProviderNotConfigured: true)` until one is configured.
+- **Real providers not yet verified end to end**: `ChatClientProvider`'s OpenAI-style construction
+  mirrors `EmbeddingProvider`'s (same official `OpenAI` client, same v1-endpoint approach for Azure
+  OpenAI), but confirming a real OpenAI streaming response actually carries usage — and that
+  `GetStreamingResponseAsync`'s `UsageContent` update surfaces it — needs a real API key. Until
+  that is verified, treat streaming usage from a real provider as **unconfirmed**; the middleware
+  already handles "no usage reported" correctly (records `null`, never estimates) either way.
+
 ## Retrieval preview and `KnowledgeRetriever`
 
 `KnowledgeRetriever` (Application, scoped; M2 plan Slice 9) is **the** way to search knowledge:

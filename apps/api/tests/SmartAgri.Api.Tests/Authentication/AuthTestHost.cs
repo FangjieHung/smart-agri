@@ -38,6 +38,9 @@ public class AuthHostFixture : IAsyncLifetime
     /// <summary>The <c>Fake</c> embedding model the host is configured with.</summary>
     public const string EmbeddingModel = "fake-test";
 
+    /// <summary>The <c>Fake</c> chat model the host is configured with.</summary>
+    public const string ChatModel = "fake-chat-test";
+
     private readonly PostgresFixture _postgres = new();
     private AuthApiFactory? _factory;
 
@@ -139,6 +142,10 @@ public class AuthHostFixture : IAsyncLifetime
             // Processing embeds every chunk: deterministic hash vectors, no network (Slice 7).
             builder.UseSetting("Ai:Embedding:Provider", "Fake");
             builder.UseSetting("Ai:Embedding:Model", EmbeddingModel);
+
+            // Conversations answer with a scripted, reproducible fake, no network (M3 Slice 4).
+            builder.UseSetting("Ai:Chat:Provider", "Fake");
+            builder.UseSetting("Ai:Chat:Model", ChatModel);
             builder.ConfigureServices(services => services.AddSingleton(_clock).AddProtectedProbeEndpoint());
         }
     }

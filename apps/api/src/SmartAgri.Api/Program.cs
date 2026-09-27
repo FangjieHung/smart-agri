@@ -25,6 +25,7 @@ builder.Services.AddOrganizationTenancy();
 builder.Services.AddBackgroundJobs(builder.Configuration);
 builder.Services.AddKnowledge(builder.Configuration);
 builder.Services.AddEmbeddings(builder.Configuration);
+builder.Services.AddChat(builder.Configuration);
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);

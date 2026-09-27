@@ -1,7 +1,7 @@
 # 後端 Milestone 3｜平台內對話：實作計畫
 
 **日期：** 2026-09-27
-**狀態：** 草案，待負責人確認第 7 節「待確認」各項後拆票。
+**狀態：** 已確認（2026-09-27）。第 7 節的決定事項已照建議定案，可以拆票。
 **依據：** [M3 交接](2026-09-27-m3-handoff.md)、[M2 計畫](2026-09-26-backend-milestone-2-knowledge-base.md)、[業務流程審查](../reviews/2026-09-26-project-review-and-backlog.md)、`docs/adr/`（milestone-order、grounded-answers、frontend-backend-integration、backend-stack、llm-providers-and-data-residency、assistant-workspace-model、assistant-access-to-knowledge-and-databases、testing-and-banned-dependencies、withdrawal-and-retention、observability）、`docs/handoff/mock-to-api-mapping.md` §2.1／§2.4／§2.5／§2.6、`docs/handoff/tasks-6-10-backend-handoff.md` §3／§5、`docs/handoff/route-screen-matrix.md` §3.3／§5。
 **拆票方式：** 與 M1、M2 相同。每個 Slice 都是可單獨合併的垂直切片，各自附測試與驗收條件。Slice 編號是建議順序，「依賴」欄只列硬依賴。
 
@@ -76,12 +76,12 @@
 
 - 端點用 `AGUI.Abstractions` 的 `RunAgentInput` 當 body，以 `AGUI.Formatting` 輸出 SSE，事件格式與官方 hosting 相同；日後 hosting 轉正式版，只要換掉 Api 層的端點，Application 不受影響。
 - M3 的回答流程是固定管線（檢索 → 門檻 → 生成 → 驗證），沒有工具呼叫，也沒有多步驟工作流程，用不到 Agent Framework 的編排能力。等 M4 的「固定查詢工具」與表單流程出現時再引入，屆時仍只放在編排層。
-- 這項選擇需要修改兩份 ADR 的措辭（第 7 節待確認 A）。
+- 這項選擇已寫進兩份 ADR（第 7 節決定 A）。
 
 **回答流程集中在 Application 的 `GroundedAnswerService`，端點只負責協定。** 同一個服務供三個入口使用：對話串流、精靈試問（不串流）、回答評測工具。它輸出一串與協定無關的領域事件：`TextDelta`、`Completed(reply, citations)`、`Rejected(reason)`，Api 層再轉成 AG-UI 事件。流程：
 
 1. **決定可用的知識庫。** 取助理連接的知識庫，**在回答當下**重新檢查每一個是否仍可被助理擁有者連接：擁有者自己的、`Public`、或 `SpecificAccounts` 且包含擁有者。分享被收回的知識庫直接排除，不必等人修改助理設定。
-2. **檢索。** 呼叫 `KnowledgeRetriever.RetrieveAsync`，`MinScore = 助理自訂門檻 ?? 部署預設`、`AssistantId` 帶入；`IncludePending` 一律為 false。多輪對話時，檢索查詢使用「上一則使用者問題＋這一則問題」，不另外呼叫模型改寫問題（見第 7 節待確認 D）。
+2. **檢索。** 呼叫 `KnowledgeRetriever.RetrieveAsync`，`MinScore = 助理自訂門檻 ?? 部署預設`、`AssistantId` 帶入；`IncludePending` 一律為 false。多輪對話時，檢索查詢使用「上一則使用者問題＋這一則問題」，不另外呼叫模型改寫問題（見第 7 節決定 D）。
 3. **門檻。** `BelowThreshold` 時：
    - `company-data-only`：**不呼叫模型**，直接回 `no-result`，文字用助理的 `refusalMessage`，`nextSteps` 用固定的建議清單。
    - `allow-general-knowledge`：以「不附任何段落」的提示呼叫模型，回覆類型固定為 `general-knowledge`，並附上固定的提示文字（例如「以下是一般知識，並非貴公司資料」）。這一段回答裡的任何引用標記都會被移除。
@@ -92,7 +92,7 @@
    - 模型輸出「無法回答」標記。
    通過時，回覆類型為 `company-data`，引用只列出實際被標記到的段落，依第一次出現的順序編號。
 
-**先串流、驗證失敗時整則替換。** 為了讓使用者不必等整段生成完畢，文字邊生成邊送出；引用標記在前端先顯示成「確認中」的樣式，收到最終的 `smartagri.reply` 事件後才變成可點開的引用。驗證失敗時，最終事件帶的是 `no-result`，前端把已顯示的文字整則換掉。另一種做法是「整段生成完、驗證後才一次送出」，最安全但每題要多等數秒到十幾秒（第 7 節待確認 C）。
+**先串流、驗證失敗時整則替換。** 為了讓使用者不必等整段生成完畢，文字邊生成邊送出；引用標記在前端先顯示成「確認中」的樣式，收到最終的 `smartagri.reply` 事件後才變成可點開的引用。驗證失敗時，最終事件帶的是 `no-result`，前端把已顯示的文字整則換掉。另一種做法是「整段生成完、驗證後才一次送出」，最安全但每題要多等數秒到十幾秒（第 7 節決定 C）。
 
 **AG-UI 事件對應。** 標準事件：`RUN_STARTED`、`TEXT_MESSAGE_START`／`CONTENT`／`END`、`RUN_FINISHED`、`RUN_ERROR`。自訂事件（`CUSTOM`）：
 
@@ -105,7 +105,7 @@
 
 - `keepOwnConversations = true`：使用者問題在串流開始前寫入；助理回覆在最終事件送出前、同一個交易內與引用一起寫入。使用者中途按「停止」或斷線時，只保留使用者訊息，助理那一則不寫入。
 - `keepOwnConversations = false`：**完全不寫入**對話串與訊息（withdrawal-and-retention ADR）。前端把本頁的歷史放在 `RunAgentInput.messages` 送上來，伺服器只把它當成前文（字數有上限），**引用永遠只從本次檢索產生**，不接受用戶端傳來的引用。模型呼叫紀錄照寫（不含內容）。
-- 引用在寫入時保存當下的快照：知識庫名稱、文件名稱、版本號、位置、原文摘錄，以及可為 null 的 `ChunkId`。文件改版或刪除後，舊對話仍顯示當時引用的內容（第 7 節待確認 F）。
+- 引用在寫入時保存當下的快照：知識庫名稱、文件名稱、版本號、位置、原文摘錄，以及可為 null 的 `ChunkId`。文件改版或刪除後，舊對話仍顯示當時引用的內容（第 7 節決定 F）。
 
 **對話模型的設定與稽核照抄嵌入的模式。**
 
@@ -173,7 +173,7 @@
     - `GET /api/v1/assistants?usable=true`（`S`，自己擁有的，加上分享給我的；沒有 `use-shared-assistants` 時只有自己的）；
     - `GET`／`PATCH /api/v1/assistants/{id}/settings`（`S+MA+OWN`，驗證失敗時完全不寫入）；
     - `PUT`／`DELETE /api/v1/assistants/{id}/sources/knowledge-base/{knowledgeBaseId}`（不能連接不可連接的知識庫，也不能解除最後一個來源，兩者都回 `422`）；
-    - `DELETE /api/v1/assistants/{id}`（連帶刪除所有人的對話串，第 7 節待確認 G）。
+    - `DELETE /api/v1/assistants/{id}`（連帶刪除所有人的對話串，第 7 節決定 G）。
   - `sources/database/*` 回 `422`，訊息寫明「數據庫將於後續版本開放」。
   - 同步更新 `openapi/v1.json` 與前端型別。
 - **驗收（整合測試）：**
@@ -381,8 +381,8 @@
 | 高：API 模式的 mock 草稿／對話共用 `localStorage` | 草稿與對話在 API 模式改由後端保存（Slice 2、6、9、11），徹底移除這個風險 |
 | 中：「我的助理」把載入中、權限不足或部分失敗顯示成空白 | Slice 11 替換時採用與知識庫頁相同的四種狀態 |
 | 中：首頁對沒有 `manage-assistants` 的帳號仍顯示「建立新助理」 | 已在 M2 期間處理（#54，已關閉）；Slice 11 在 API 模式以權限旗標維持同樣行為 |
-| 待補 5：真實試問驗收與持續維護 | M3 做精靈的真實試問（Slice 8、12）與回答評測（Slice 13）。「每個助理可保存的測試題組、答錯建立處理事項、改版後重跑」建議排在 M3 之後、對外發布之前（第 7 節待確認 E） |
-| 問題未解決時轉人工 | 審查建議「平台內對話完成後、對外發布前」。M3 只做到 `no-result` 有明確下一步（`refusalMessage` 與 `nextSteps` 可以寫聯絡窗口）；真正的轉派與指派建議與上一列一起排在 M3 之後（第 7 節待確認 E） |
+| 待補 5：真實試問驗收與持續維護 | M3 做精靈的真實試問（Slice 8、12）與回答評測（Slice 13）。「每個助理可保存的測試題組、答錯建立處理事項、改版後重跑」排在 M3 之後、對外發布之前（第 7 節決定 E） |
+| 問題未解決時轉人工 | 審查建議「平台內對話完成後、對外發布前」。M3 只做到 `no-result` 有明確下一步（`refusalMessage` 與 `nextSteps` 可以寫聯絡窗口）；真正的轉派與指派與上一列一起排在 M3 之後（第 7 節決定 E） |
 | 營運追蹤 | M3 先留下不含內容的指標：查無資料率、引用被拒絕率、依助理的 token 用量（Slice 4、5）。工作清單與畫面在 M3 之後 |
 | 待補 4：由文件自動整理 FAQ 草稿 | 不在 M3（第 8 節） |
 
@@ -402,27 +402,27 @@
 3. **開發用對話模型：OpenAI**（與嵌入共用同一把金鑰）。程式碼只依賴 `IChatClient`，Azure OpenAI 與 OpenAI 相容端點也一併支援。實際模型名稱在補做真實驗收時由負責人確認，寫在本機設定，不寫死在程式碼。
 4. **首頁「開始對話」導向 `/app/chat/:assistantId`**；`/use/:assistantId` 保留給 M5 對外發布，API 模式下轉址。M2 期間的 mock 助理資料不遷移，在發布說明中註明。
 
-**待確認（附建議；確認後再拆票）：**
+**已決定（2026-09-27，負責人對草案的待確認項回覆「按建議」）：**
 
-- **A. AG-UI 用正式版 `AGUI.*` SDK 加自訂端點，M3 不引入 Agent Framework。** 建議採用。確認後，在同一個 PR 更新兩份 ADR：
-  - frontend-backend-integration ADR：「後端使用 Agent Framework 的 AG-UI hosting」改成「後端以 AG-UI 官方 .NET SDK 輸出；Agent Framework 的 hosting 轉正式版後可以替換」；
-  - backend-stack ADR：補一句「Agent Framework 在需要工具呼叫的 M4 才引入」。
-  替代方案是直接使用 preview 的 `Microsoft.Agents.AI.Hosting.AGUI.AspNetCore` 並鎖定版本，開發較快，但違反「核心只用正式版」，而且那個套件已經改名過一次。
+- **A. AG-UI 用正式版 `AGUI.*` SDK 加自訂端點，M3 不引入 Agent Framework。** 已在本計畫的 PR 中更新兩份 ADR：
+  - [前後端整合 ADR](../adr/2026-09-25-frontend-backend-integration.md)：新增「修訂（2026-09-27）」，後端改以 AG-UI 官方 .NET SDK 輸出，Agent Framework 的 hosting 轉正式版後可以替換；
+  - [後端技術棧 ADR](../adr/2026-09-25-backend-stack.md)：新增「補充（2026-09-27）」，Agent Framework 在需要工具呼叫的 M4 才引入。
+  不採用的替代方案是直接使用 preview 的 `Microsoft.Agents.AI.Hosting.AGUI.AspNetCore` 並鎖定版本，開發較快，但違反「核心只用正式版」，而且那個套件已經改名過一次。
 - **B. `allow-general-knowledge` 的語意**：
   - 檢索低於門檻時，才以不附段落的方式呼叫模型，回 `general-knowledge`；
   - 高於門檻時一律只回 `company-data`；
   - M3 不做「同一則回答混合兩種類型」，維持 union 互斥，前端契約不必改。
-  建議採用。代價是有段落時就不會補充一般知識。
-- **C. 先串流、驗證失敗時整則替換**（建議），或「整段生成完、驗證後才送出」。後者最保守，但每題要多等數秒到十幾秒，也失去串流的意義。
-- **D. 多輪對話的檢索查詢**：M3 用「上一則使用者問題＋這一則問題」，不另外呼叫模型改寫問題（省一次呼叫，也不會在門檻判斷前就產生費用）。Slice 13 的題庫要加入追問題；結果不好再加入改寫。建議採用。
+  代價是有段落時就不會補充一般知識。
+- **C. 先串流、驗證失敗時整則替換。** 不採用「整段生成完、驗證後才送出」：它最保守，但每題要多等數秒到十幾秒，也失去串流的意義。
+- **D. 多輪對話的檢索查詢**：M3 用「上一則使用者問題＋這一則問題」，不另外呼叫模型改寫問題（省一次呼叫，也不會在門檻判斷前就產生費用）。Slice 13 的題庫要加入追問題；結果不好再加入改寫。
 - **E. M3 之後、對外發布之前，另排一個里程碑**：
   - 每個助理可保存的測試題組與「全部重跑」；
   - 答錯或查無資料時建立處理事項並指派負責人（包含轉人工）；
   - 文件改版後重跑受影響的題組；
   - 營運追蹤清單。
-  這些都以 M3 的真實對話與指標為基礎，也是 M5 對外發布的閘門。建議採用，並補進 milestone-order ADR。
-- **F. 引用保存快照**：對話保存當時的摘錄與版本；文件刪除後，舊對話仍顯示快照。建議採用。替代方案是來源刪除時一併清除對話中的引用，但會讓舊回答失去依據。
-- **G. 刪除助理時，連帶刪除所有成員的對話串**，刪除確認文字要寫明這一點。建議採用。替代方案是只允許「暫停」，但資料就會一直留著。
+  這些都以 M3 的真實對話與指標為基礎，也是 M5 對外發布的閘門。已補進 [里程碑 ADR](../adr/2026-09-25-milestone-order.md) 的「補充（2026-09-27）」。
+- **F. 引用保存快照**：對話保存當時的摘錄與版本；文件刪除後，舊對話仍顯示快照。不採用的替代方案是來源刪除時一併清除對話中的引用，但會讓舊回答失去依據。
+- **G. 刪除助理時，連帶刪除所有成員的對話串**，刪除確認文字要寫明這一點。不採用的替代方案是只允許「暫停」，但資料就會一直留著。
 
 **待使用者提供**（沿用 [負責人待辦事項](2026-09-26-m2-owner-action-items.md) 第 3 項）：OpenAI API 金鑰，用於 Slice 4 的本機手動驗收與 Slice 13 的真實評測。提供之前這兩項標「待補做」，不阻擋其他票。
 
@@ -441,9 +441,9 @@
 
 - 對外發布：`/use` 的匿名訪客、網站嵌入、LINE、CORS／CSP `frame-ancestors`、防濫用與額度（M5）。
 - 表單請求、同意、提交回執與撤回的真實後端（`form-request`／`submission-receipt`，屬於 M4 數據庫）；對話頁的這兩種回覆在 API 模式不會出現。
-- Agent Framework、工具呼叫、MCP（M4 起，依第 7 節待確認 A）。
-- 每個助理的測試題組、答錯建立處理事項、轉人工、改版後自動重跑、營運追蹤畫面（第 7 節待確認 E）。
-- 同一則回答混合組織資料與一般知識（第 7 節待確認 B）。
+- Agent Framework、工具呼叫、MCP（M4 起，依第 7 節決定 A）。
+- 每個助理的測試題組、答錯建立處理事項、轉人工、改版後自動重跑、營運追蹤畫面（第 7 節決定 E）。
+- 同一則回答混合組織資料與一般知識（第 7 節決定 B）。
 - 以模型改寫追問、混合檢索、重新排序模型、HNSW 索引。
 - 對話保存期限的組織設定與自動刪除工作：ADR 預設是永久保存，使用者可以自行刪除對話串；設定畫面與排程刪除放在組織設定一起做（M5）。
 - 由文件自動整理 FAQ 草稿。

@@ -1,6 +1,6 @@
 # ADR｜後端技術棧：.NET + Microsoft Agent Framework + Microsoft.Extensions.AI／VectorData
 
-**狀態：** 已確認（2026-09-25）
+**狀態：** 已確認（2026-09-25）；2026-09-27 補充 Agent Framework 的引入時點（見文末「補充」）
 
 ## 決策
 
@@ -28,3 +28,7 @@ Agent Framework 發布後仍約每週一個小版本，且 .NET 端尚無自動�
 
 - 每次升級 Agent Framework 需有整合測試覆蓋編排層。
 - 自行實作的向量存取需能以設定切換成官方 connector，不得讓業務程式碼知道差異。
+
+## 補充（2026-09-27）
+
+M3（平台內對話）的回答流程是固定管線：檢索 → 門檻 → 生成 → 引用驗證。流程裡沒有工具呼叫，也沒有多步驟工作流程，所以 **M3 不引入 Agent Framework**：直接使用 `IChatClient`，AG-UI 串流改用官方 `AGUI.*` SDK（見 [前後端整合 ADR](2026-09-25-frontend-backend-integration.md) 的修訂）。Agent Framework 在需要工具呼叫的數據庫里程碑（固定查詢工具、表單流程）才引入，並依上方決策只放在編排層。

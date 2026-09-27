@@ -18,12 +18,18 @@ import {
   apiAssistantChatConversationPath,
   apiAssistantChatConversationsPath,
   apiAssistantChatPath,
+  apiKnowledgeApprovePath,
   apiKnowledgeBasePath,
+  apiKnowledgeChunkExclusionPath,
+  apiKnowledgeDisablePath,
+  apiKnowledgeDocumentDetailPath,
   apiKnowledgeDocumentPath,
   apiKnowledgeDocumentsPath,
   apiKnowledgeDocumentVersionsPath,
+  apiKnowledgeEnablePath,
   apiKnowledgeRetryPath,
   apiKnowledgeSharingPath,
+  apiKnowledgeVersionPreviewPath,
   apiMemberPermissionsPath,
   HybridDemoRepository,
   type ApiViewerPermissions,
@@ -36,6 +42,11 @@ type TeamResponse = components['schemas']['TeamResponse'];
 type ApiKnowledgeBaseSummary = components['schemas']['KnowledgeBaseSummaryView'];
 type ApiKnowledgeBaseDetail = components['schemas']['KnowledgeBaseDetailView'];
 type ApiKnowledgeDocument = components['schemas']['KnowledgeDocumentView'];
+type ApiKnowledgeDocumentDetail = components['schemas']['KnowledgeDocumentDetailView'];
+type ApiKnowledgeVersion = components['schemas']['KnowledgeVersionView'];
+type ApiKnowledgeActivity = components['schemas']['KnowledgeActivityView'];
+type ApiKnowledgeAccount = components['schemas']['KnowledgeAccountView'];
+type ApiKnowledgeVersionPreview = components['schemas']['KnowledgeVersionPreviewView'];
 type ApiChatThreadListView = components['schemas']['ChatThreadListView'];
 type ApiChatThreadSummaryView = components['schemas']['ChatThreadSummaryView'];
 type ApiAssistantChatView = components['schemas']['AssistantChatView'];
@@ -596,6 +607,80 @@ function apiDetail(): ApiKnowledgeBaseDetail {
   };
 }
 
+function apiAccount(overrides: Partial<ApiKnowledgeAccount> = {}): ApiKnowledgeAccount {
+  return { id: ADMIN_ID, displayName: '安心商行管理者', ...overrides };
+}
+
+function apiVersion(overrides: Partial<ApiKnowledgeVersion> = {}): ApiKnowledgeVersion {
+  return {
+    id: VERSION_ID,
+    documentId: DOC_ID,
+    versionNumber: 1,
+    fileName: '退換貨辦法 2026 版.pdf',
+    contentType: 'application/pdf',
+    sizeBytes: 1024,
+    status: 'ready',
+    issue: null,
+    state: 'effective',
+    effectiveFrom: '2026-09-27T01:00:00+00:00',
+    uploadedBy: apiAccount(),
+    uploadedAt: '2026-09-27T01:00:00+00:00',
+    approvedBy: apiAccount(),
+    approvedAt: '2026-09-27T01:00:00+00:00',
+    updatedAt: '2026-09-27T01:00:00+00:00',
+    ...overrides,
+  };
+}
+
+function apiActivity(overrides: Partial<ApiKnowledgeActivity> = {}): ApiKnowledgeActivity {
+  return {
+    id: 'activity-1',
+    action: 'version-approved',
+    actor: apiAccount(),
+    at: '2026-09-27T01:00:00+00:00',
+    versionId: VERSION_ID,
+    versionNumber: 1,
+    reason: null,
+    ...overrides,
+  };
+}
+
+function apiDocumentDetail(overrides: Partial<ApiKnowledgeDocumentDetail> = {}): ApiKnowledgeDocumentDetail {
+  return {
+    document: apiDocument({ latestVersionState: 'effective', effectiveVersionNumber: 1, inEffect: true }),
+    createdAt: '2026-09-27T01:00:00+00:00',
+    disabledAt: null,
+    disabledBy: null,
+    disabledReason: null,
+    versions: [apiVersion()],
+    activities: [apiActivity()],
+    ...overrides,
+  };
+}
+
+function apiVersionPreview(overrides: Partial<ApiKnowledgeVersionPreview> = {}): ApiKnowledgeVersionPreview {
+  return {
+    documentId: DOC_ID,
+    versionId: VERSION_ID,
+    versionNumber: 1,
+    fileName: '退換貨辦法 2026 版.pdf',
+    status: 'ready',
+    issue: null,
+    units: [
+      {
+        ordinal: 1,
+        locationKind: 'page',
+        locationLabel: '第 1 頁',
+        readable: true,
+        issueCode: null,
+        text: '封面',
+        chunks: [{ id: 'chunk-1', locationLabel: '第 1 頁', text: '封面', excluded: false }],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 describe('HybridDemoRepository knowledge bases', () => {
   let controller: HttpTestingController;
 
@@ -623,6 +708,9 @@ describe('HybridDemoRepository knowledge bases', () => {
           documentCount: 1,
           faqCount: 0,
           statusCounts: { queued: 0, processing: 0, ready: 0, 'partially-readable': 0, failed: 1 },
+          inEffectCount: 0,
+          awaitingApprovalCount: 0,
+          disabledCount: 0,
           sharingScope: 'private',
           connectedAssistantNames: [],
           updatedAt: '2026-09-27T01:00:00+00:00',
@@ -664,6 +752,11 @@ describe('HybridDemoRepository knowledge bases', () => {
             issue: '檔案設有開啟密碼，無法讀取內容。',
             updatedAt: '2026-09-27T01:00:00+00:00',
             latestVersionId: VERSION_ID,
+            latestVersionNumber: 1,
+            latestVersionState: 'pending-review',
+            effectiveVersionNumber: null,
+            disabled: false,
+            inEffect: false,
           },
         ],
         connectedAssistants: [],
@@ -860,6 +953,160 @@ describe('HybridDemoRepository knowledge bases', () => {
     controller.expectNone(API_KNOWLEDGE_BASES_PATH);
     controller.expectNone(apiKnowledgeBasePath(KB_ID));
     controller.expectNone(apiKnowledgeDocumentsPath(KB_ID));
+  });
+
+  // ---------- 版本確認、抽取預覽與緊急停用（issue #47，M2 Slice 13） ----------
+
+  it('reads a document’s detail: version history and activity log', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.getKnowledgeDocumentDetail(KB_ID, DOC_ID));
+
+    controller.expectOne({ method: 'GET', url: apiKnowledgeDocumentDetailPath(KB_ID, DOC_ID) }).flush(apiDocumentDetail());
+
+    expect(await result).toMatchObject({
+      status: 'ready',
+      data: {
+        document: { id: DOC_ID, inEffect: true },
+        versions: [{ id: VERSION_ID, versionNumber: 1, state: 'effective' }],
+        activities: [{ action: 'version-approved' }],
+      },
+    });
+  });
+
+  it('reads a version’s extraction preview, including chunk exclusion', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.previewKnowledgeVersion(KB_ID, DOC_ID, VERSION_ID));
+
+    controller
+      .expectOne({ method: 'GET', url: apiKnowledgeVersionPreviewPath(KB_ID, DOC_ID, VERSION_ID) })
+      .flush(apiVersionPreview());
+
+    expect(await result).toMatchObject({
+      status: 'ready',
+      data: { versionId: VERSION_ID, units: [{ locationLabel: '第 1 頁', chunks: [{ excluded: false }] }] },
+    });
+  });
+
+  it('toggles a chunk’s exclusion with a PUT of the new value', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(
+      repository.updateKnowledgeChunkExclusion(KB_ID, DOC_ID, VERSION_ID, 'chunk-1', true),
+    );
+
+    const request = controller.expectOne({
+      method: 'PUT',
+      url: apiKnowledgeChunkExclusionPath(KB_ID, DOC_ID, VERSION_ID, 'chunk-1'),
+    });
+    expect(request.request.body).toEqual({ excluded: true });
+    request.flush({ id: 'chunk-1', locationLabel: '第 1 頁', text: '封面', excluded: true });
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: { id: 'chunk-1', locationLabel: '第 1 頁', text: '封面', excluded: true },
+    });
+  });
+
+  it('approves versions in a batch, sending the optional effective date', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.approveKnowledgeVersions(KB_ID, [VERSION_ID], '2026-10-01T00:00:00Z'));
+
+    const request = controller.expectOne({ method: 'POST', url: apiKnowledgeApprovePath(KB_ID) });
+    expect(request.request.body).toEqual({ versionIds: [VERSION_ID], effectiveFrom: '2026-10-01T00:00:00Z' });
+    request.flush([apiVersion({ state: 'scheduled', effectiveFrom: '2026-10-01T00:00:00Z' })]);
+
+    expect(await result).toMatchObject({ status: 'ready', data: [{ id: VERSION_ID, state: 'scheduled' }] });
+  });
+
+  it('turns a 422 on batch approve (a version is not approvable) into validation-failed, naming which ones', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.approveKnowledgeVersions(KB_ID, [VERSION_ID, 'not-a-real-version']));
+
+    controller.expectOne(apiKnowledgeApprovePath(KB_ID)).flush(
+      {
+        reason: 'versions-not-approvable',
+        message: '這些版本剛剛有其他變更，請重新整理後再試一次。',
+        errors: { 'versionIds[1]': ['這個版本不存在，或不是待確認的版本。'] },
+      },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({
+      status: 'validation-failed',
+      message: '這些版本剛剛有其他變更，請重新整理後再試一次。',
+    });
+  });
+
+  it('turns a 409 on batch approve (concurrent change) into validation-failed', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.approveKnowledgeVersions(KB_ID, [VERSION_ID]));
+
+    controller.expectOne(apiKnowledgeApprovePath(KB_ID)).flush(
+      { reason: 'approval-conflict', message: '這些版本剛剛有其他變更，請重新整理後再試一次。' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    expect(await result).toEqual({
+      status: 'validation-failed',
+      message: '這些版本剛剛有其他變更，請重新整理後再試一次。',
+    });
+  });
+
+  it('disables a document with the required reason', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.disableKnowledgeDocument(KB_ID, DOC_ID, '疑似內容錯誤'));
+
+    const request = controller.expectOne({ method: 'POST', url: apiKnowledgeDisablePath(KB_ID, DOC_ID) });
+    expect(request.request.body).toEqual({ reason: '疑似內容錯誤' });
+    request.flush(apiDocument({ disabled: true, inEffect: false }));
+
+    expect(await result).toMatchObject({ status: 'ready', data: { disabled: true, inEffect: false } });
+  });
+
+  it('turns a 422 on disable (missing reason) into validation-failed', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.disableKnowledgeDocument(KB_ID, DOC_ID, ''));
+
+    controller.expectOne(apiKnowledgeDisablePath(KB_ID, DOC_ID)).flush(
+      { message: '請說明緊急停用的原因。', errors: { reason: ['請說明緊急停用的原因。'] } },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '請說明緊急停用的原因。' });
+  });
+
+  it('turns a 409 on disable (already disabled) into validation-failed', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.disableKnowledgeDocument(KB_ID, DOC_ID, '原因'));
+
+    controller.expectOne(apiKnowledgeDisablePath(KB_ID, DOC_ID)).flush(
+      { reason: 'document-already-disabled', message: '這份文件已經停用了。' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '這份文件已經停用了。' });
+  });
+
+  it('enables a document', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.enableKnowledgeDocument(KB_ID, DOC_ID));
+
+    controller
+      .expectOne({ method: 'POST', url: apiKnowledgeEnablePath(KB_ID, DOC_ID) })
+      .flush(apiDocument({ disabled: false, inEffect: true }));
+
+    expect(await result).toMatchObject({ status: 'ready', data: { disabled: false, inEffect: true } });
+  });
+
+  it('turns a 409 on enable (not disabled) into validation-failed', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.enableKnowledgeDocument(KB_ID, DOC_ID));
+
+    controller.expectOne(apiKnowledgeEnablePath(KB_ID, DOC_ID)).flush(
+      { reason: 'document-not-disabled', message: '這份文件目前沒有停用，不需要恢復。' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '這份文件目前沒有停用，不需要恢復。' });
   });
 });
 

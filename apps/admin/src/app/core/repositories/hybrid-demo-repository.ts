@@ -20,11 +20,19 @@ import {
 import {
   isKnowledgeUploadRejectionReason,
   type CreateKnowledgeBaseInput,
+  type KnowledgeAccountRefView,
+  type KnowledgeActivityAction,
+  type KnowledgeActivityView,
   type KnowledgeBaseDetailView,
   type KnowledgeBaseSummaryView,
+  type KnowledgeChunkView,
+  type KnowledgeDocumentDetailView,
   type KnowledgeDocumentView,
+  type KnowledgeExtractedUnitView,
   type KnowledgeSharingView,
   type KnowledgeUploadRejectionReason,
+  type KnowledgeVersionPreviewView,
+  type KnowledgeVersionView,
 } from '../domain/knowledge-base.model';
 import type { ConnectableSourceView } from '../domain/assistant-draft.model';
 import type {
@@ -37,10 +45,13 @@ import type {
 } from '../domain/conversation.model';
 import {
   isRepositoryPermissionDeniedReason,
+  type ApproveKnowledgeVersionsResult,
   type CreateKnowledgeBaseResult,
   type CreateMemberInput,
   type CreateMemberResult,
   type DeleteKnowledgeResult,
+  type DisableKnowledgeDocumentResult,
+  type EnableKnowledgeDocumentResult,
   type KnowledgeUploadRejectedView,
   type KnowledgeValidationFailedView,
   type PermissionDeniedRepositoryView,
@@ -48,6 +59,7 @@ import {
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
   type RetryKnowledgeDocumentResult,
+  type UpdateKnowledgeChunkExclusionResult,
   type UpdateKnowledgeSharingResult,
   type UpdateMemberPermissionsResult,
   type UploadKnowledgeDocumentEvent,
@@ -75,6 +87,16 @@ type ApiKnowledgeDocument = components['schemas']['KnowledgeDocumentView'];
 type ApiKnowledgeSharing = components['schemas']['KnowledgeSharingView'];
 type CreateKnowledgeBaseRequest = components['schemas']['CreateKnowledgeBaseRequest'];
 type UpdateKnowledgeSharingRequest = components['schemas']['UpdateKnowledgeSharingRequest'];
+type ApiKnowledgeDocumentDetail = components['schemas']['KnowledgeDocumentDetailView'];
+type ApiKnowledgeVersion = components['schemas']['KnowledgeVersionView'];
+type ApiKnowledgeActivity = components['schemas']['KnowledgeActivityView'];
+type ApiKnowledgeAccount = components['schemas']['KnowledgeAccountView'];
+type ApiKnowledgeVersionPreview = components['schemas']['KnowledgeVersionPreviewView'];
+type ApiKnowledgeExtractedUnit = components['schemas']['KnowledgeExtractedUnitView'];
+type ApiKnowledgeChunk = components['schemas']['KnowledgeChunkView'];
+type ApproveKnowledgeVersionsRequest = components['schemas']['ApproveKnowledgeVersionsRequest'];
+type DisableKnowledgeDocumentRequest = components['schemas']['DisableKnowledgeDocumentRequest'];
+type UpdateKnowledgeChunkExclusionRequest = components['schemas']['UpdateKnowledgeChunkExclusionRequest'];
 type ApiChatThreadListView = components['schemas']['ChatThreadListView'];
 type ApiChatThreadSummaryView = components['schemas']['ChatThreadSummaryView'];
 type ApiAssistantChatView = components['schemas']['AssistantChatView'];
@@ -115,6 +137,36 @@ export function apiKnowledgeDocumentVersionsPath(knowledgeBaseId: string, docume
 
 export function apiKnowledgeRetryPath(knowledgeBaseId: string, documentId: string, versionId: string): string {
   return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/versions/${encodeURIComponent(versionId)}/retry`;
+}
+
+/** 文件詳情：與 `apiKnowledgeDocumentPath` 相同的網址，動詞是 `GET`（issue #47）。 */
+export function apiKnowledgeDocumentDetailPath(knowledgeBaseId: string, documentId: string): string {
+  return apiKnowledgeDocumentPath(knowledgeBaseId, documentId);
+}
+
+export function apiKnowledgeVersionPreviewPath(knowledgeBaseId: string, documentId: string, versionId: string): string {
+  return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/versions/${encodeURIComponent(versionId)}/preview`;
+}
+
+export function apiKnowledgeChunkExclusionPath(
+  knowledgeBaseId: string,
+  documentId: string,
+  versionId: string,
+  chunkId: string,
+): string {
+  return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/versions/${encodeURIComponent(versionId)}/chunks/${encodeURIComponent(chunkId)}/exclusion`;
+}
+
+export function apiKnowledgeApprovePath(knowledgeBaseId: string): string {
+  return `${apiKnowledgeBasePath(knowledgeBaseId)}/versions/approve`;
+}
+
+export function apiKnowledgeDisablePath(knowledgeBaseId: string, documentId: string): string {
+  return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/disable`;
+}
+
+export function apiKnowledgeEnablePath(knowledgeBaseId: string, documentId: string): string {
+  return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/enable`;
 }
 
 export function apiAssistantChatConversationsPath(assistantId: string): string {
@@ -466,6 +518,108 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  // ---------- 版本確認、抽取預覽與緊急停用（issue #47，M2 Slice 13） ----------
+
+  override getKnowledgeDocumentDetail(
+    knowledgeBaseId: string,
+    documentId: string,
+  ): Observable<RepositoryView<KnowledgeDocumentDetailView>> {
+    return this.http.get<ApiKnowledgeDocumentDetail>(apiKnowledgeDocumentDetailPath(knowledgeBaseId, documentId)).pipe(
+      map((response): RepositoryView<KnowledgeDocumentDetailView> => ({
+        status: 'ready',
+        data: toKnowledgeDocumentDetail(response),
+      })),
+      catchError((error: unknown) => this.knowledgeDeniedOrThrow(error)),
+    );
+  }
+
+  override previewKnowledgeVersion(
+    knowledgeBaseId: string,
+    documentId: string,
+    versionId: string,
+  ): Observable<RepositoryView<KnowledgeVersionPreviewView>> {
+    return this.http
+      .get<ApiKnowledgeVersionPreview>(apiKnowledgeVersionPreviewPath(knowledgeBaseId, documentId, versionId))
+      .pipe(
+        map((response): RepositoryView<KnowledgeVersionPreviewView> => ({
+          status: 'ready',
+          data: toKnowledgeVersionPreview(response),
+        })),
+        catchError((error: unknown) => this.knowledgeDeniedOrThrow(error)),
+      );
+  }
+
+  override updateKnowledgeChunkExclusion(
+    knowledgeBaseId: string,
+    documentId: string,
+    versionId: string,
+    chunkId: string,
+    excluded: boolean,
+  ): Observable<UpdateKnowledgeChunkExclusionResult> {
+    const body: UpdateKnowledgeChunkExclusionRequest = { excluded };
+    return this.http
+      .put<ApiKnowledgeChunk>(apiKnowledgeChunkExclusionPath(knowledgeBaseId, documentId, versionId, chunkId), body)
+      .pipe(
+        map((response): UpdateKnowledgeChunkExclusionResult => ({
+          status: 'ready',
+          data: toKnowledgeChunk(response),
+        })),
+        catchError((error: unknown) =>
+          isHttpError(error, 422) ? of(knowledgeValidationFailed(error)) : this.knowledgeDeniedOrThrow(error),
+        ),
+      );
+  }
+
+  override approveKnowledgeVersions(
+    knowledgeBaseId: string,
+    versionIds: readonly string[],
+    effectiveFrom?: string,
+  ): Observable<ApproveKnowledgeVersionsResult> {
+    const body: ApproveKnowledgeVersionsRequest = {
+      versionIds: [...versionIds],
+      ...(effectiveFrom !== undefined ? { effectiveFrom } : {}),
+    };
+    return this.http.post<ApiKnowledgeVersion[]>(apiKnowledgeApprovePath(knowledgeBaseId), body).pipe(
+      map((response): ApproveKnowledgeVersionsResult => ({
+        status: 'ready',
+        data: response.map(toKnowledgeVersion),
+      })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) || isHttpError(error, 409)
+          ? of(knowledgeValidationFailed(error))
+          : this.knowledgeDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  override disableKnowledgeDocument(
+    knowledgeBaseId: string,
+    documentId: string,
+    reason: string,
+  ): Observable<DisableKnowledgeDocumentResult> {
+    const body: DisableKnowledgeDocumentRequest = { reason };
+    return this.http.post<ApiKnowledgeDocument>(apiKnowledgeDisablePath(knowledgeBaseId, documentId), body).pipe(
+      map((response): DisableKnowledgeDocumentResult => ({ status: 'ready', data: toKnowledgeDocument(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) || isHttpError(error, 409)
+          ? of(knowledgeValidationFailed(error))
+          : this.knowledgeDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  override enableKnowledgeDocument(
+    knowledgeBaseId: string,
+    documentId: string,
+  ): Observable<EnableKnowledgeDocumentResult> {
+    return this.http.post<ApiKnowledgeDocument>(apiKnowledgeEnablePath(knowledgeBaseId, documentId), null).pipe(
+      map((response): EnableKnowledgeDocumentResult => ({ status: 'ready', data: toKnowledgeDocument(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 409) ? of(knowledgeValidationFailed(error)) : this.knowledgeDeniedOrThrow(error),
+      ),
+    );
+  }
+
   // ---------- 對話（issue #79：讀取與對話串管理走 API，送出訊息仍是 mock，見 #80） ----------
 
   override listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>> {
@@ -612,6 +766,9 @@ export class HybridDemoRepository extends MockDemoRepository {
       connectedAssistantNames: this.connectedAssistantsOf(summary.id).map((assistant) => assistant.name),
       updatedAt: summary.updatedAt,
       viewerCanManage: summary.viewerCanManage,
+      inEffectCount: summary.inEffectCount,
+      awaitingApprovalCount: summary.awaitingApprovalCount,
+      disabledCount: summary.disabledCount,
     };
   }
 
@@ -724,6 +881,107 @@ function toKnowledgeDocument(document: ApiKnowledgeDocument): KnowledgeDocumentV
     issue: document.issue,
     updatedAt: document.updatedAt,
     latestVersionId: document.latestVersionId,
+    latestVersionNumber: document.latestVersionNumber,
+    latestVersionState: document.latestVersionState,
+    effectiveVersionNumber: document.effectiveVersionNumber,
+    disabled: document.disabled,
+    inEffect: document.inEffect,
+  };
+}
+
+function toKnowledgeAccountRef(account: ApiKnowledgeAccount | null): KnowledgeAccountRefView | null {
+  return account === null ? null : { id: account.id, displayName: account.displayName };
+}
+
+function toKnowledgeVersion(version: ApiKnowledgeVersion): KnowledgeVersionView {
+  return {
+    id: version.id,
+    documentId: version.documentId,
+    versionNumber: version.versionNumber,
+    fileName: version.fileName,
+    contentType: version.contentType,
+    sizeBytes: version.sizeBytes,
+    status: version.status,
+    issue: version.issue,
+    state: version.state,
+    effectiveFrom: version.effectiveFrom,
+    uploadedBy: toKnowledgeAccountRef(version.uploadedBy) ?? { id: version.id, displayName: '不明帳號' },
+    uploadedAt: version.uploadedAt,
+    approvedBy: toKnowledgeAccountRef(version.approvedBy),
+    approvedAt: version.approvedAt,
+    updatedAt: version.updatedAt,
+  };
+}
+
+/**
+ * 活動紀錄的 `action` 後端是跨知識庫事件的完整聯集（含分享、知識庫本身的建立／刪除），
+ * 但這個端點（文件詳情）只會回傳與這份文件或其版本有關的子集；未知值一律當成
+ * `document-uploaded`（畫面只用來挑圖示與文字，不影響任何判斷）。
+ */
+function toKnowledgeActivityAction(action: ApiKnowledgeActivity['action']): KnowledgeActivityAction {
+  const known: readonly string[] = [
+    'document-uploaded',
+    'version-uploaded',
+    'version-retried',
+    'version-approved',
+    'chunk-excluded',
+    'chunk-included',
+    'document-disabled',
+    'document-enabled',
+    'document-deleted',
+  ];
+  return (known.includes(action) ? action : 'document-uploaded') as KnowledgeActivityAction;
+}
+
+function toKnowledgeActivity(activity: ApiKnowledgeActivity): KnowledgeActivityView {
+  return {
+    id: activity.id,
+    action: toKnowledgeActivityAction(activity.action),
+    actor: toKnowledgeAccountRef(activity.actor),
+    at: activity.at,
+    versionId: activity.versionId,
+    versionNumber: activity.versionNumber,
+    reason: activity.reason,
+  };
+}
+
+function toKnowledgeDocumentDetail(detail: ApiKnowledgeDocumentDetail): KnowledgeDocumentDetailView {
+  return {
+    document: toKnowledgeDocument(detail.document),
+    createdAt: detail.createdAt,
+    disabledAt: detail.disabledAt,
+    disabledBy: toKnowledgeAccountRef(detail.disabledBy),
+    disabledReason: detail.disabledReason,
+    versions: detail.versions.map(toKnowledgeVersion),
+    activities: detail.activities.map(toKnowledgeActivity),
+  };
+}
+
+function toKnowledgeChunk(chunk: ApiKnowledgeChunk): KnowledgeChunkView {
+  return { id: chunk.id, locationLabel: chunk.locationLabel, text: chunk.text, excluded: chunk.excluded };
+}
+
+function toKnowledgeExtractedUnit(unit: ApiKnowledgeExtractedUnit): KnowledgeExtractedUnitView {
+  return {
+    ordinal: unit.ordinal,
+    locationKind: unit.locationKind,
+    locationLabel: unit.locationLabel,
+    readable: unit.readable,
+    issueCode: unit.issueCode,
+    text: unit.text,
+    chunks: unit.chunks.map(toKnowledgeChunk),
+  };
+}
+
+function toKnowledgeVersionPreview(preview: ApiKnowledgeVersionPreview): KnowledgeVersionPreviewView {
+  return {
+    documentId: preview.documentId,
+    versionId: preview.versionId,
+    versionNumber: preview.versionNumber,
+    fileName: preview.fileName,
+    status: preview.status,
+    issue: preview.issue,
+    units: preview.units.map(toKnowledgeExtractedUnit),
   };
 }
 

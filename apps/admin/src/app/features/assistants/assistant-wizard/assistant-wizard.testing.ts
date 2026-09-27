@@ -18,13 +18,16 @@ export function provideWizardTesting(
   readonly providers: (Provider | EnvironmentProviders)[];
   readonly repository: MockDemoRepository;
 } {
-  const repository = new MockDemoRepository(DEMO_SEED, {
-    storage: options.storage ?? createMemoryStorage(),
-    now: () => new Date('2026-09-22T02:00:00.000Z'),
-  });
   const activeAccountId = signal<AccountId | null>(
     options.accountId ?? 'account-smb-admin',
   );
+  const repository = new MockDemoRepository(DEMO_SEED, {
+    storage: options.storage ?? createMemoryStorage(),
+    now: () => new Date('2026-09-22T02:00:00.000Z'),
+    // `listConnectableSources()` 是非同步契約，viewer 由 repository 的 `viewer` 選項推導，
+    // 要與上面 `DemoSessionService` 的假身分一致，否則精靈的資料來源清單一律是空的。
+    viewer: () => activeAccountId(),
+  });
 
   return {
     repository,

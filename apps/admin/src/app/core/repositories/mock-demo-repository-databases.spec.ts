@@ -1,3 +1,5 @@
+import { firstValueFrom } from 'rxjs';
+import type { AccountId } from '../domain/account.model';
 import {
   DATABASE_FIELD_TYPES,
   createDatabaseField,
@@ -8,10 +10,15 @@ import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
 
-function createRepository(seed = DEMO_SEED, storage = createMemoryStorage()) {
+function createRepository(
+  seed = DEMO_SEED,
+  storage = createMemoryStorage(),
+  viewer: AccountId | null = 'account-smb-admin',
+) {
   return new MockDemoRepository(seed, {
     storage,
     now: () => new Date('2026-09-22T02:00:00.000Z'),
+    viewer: () => viewer,
   });
 }
 
@@ -66,7 +73,7 @@ describe('MockDemoRepository databases', () => {
     expect(Object.isFrozen(result.data)).toBe(true);
   });
 
-  it('creates a database from a template, persists it and connects it for the owner only', () => {
+  it('creates a database from a template, persists it and connects it for the owner only', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(DEMO_SEED, storage);
 
@@ -97,7 +104,7 @@ describe('MockDemoRepository databases', () => {
     expect(reloaded.getDatabaseDetail('account-internal-employee', created.data.id).status).toBe(
       'permission-denied',
     );
-    const sources = reloaded.listConnectableSources('account-smb-admin');
+    const sources = await firstValueFrom(reloaded.listConnectableSources());
     expect(sources.status === 'ready' && sources.data.some((source) => source.id === created.data.id)).toBe(true);
   });
 

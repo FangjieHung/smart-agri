@@ -763,6 +763,129 @@ describe('HybridDemoRepository knowledge bases', () => {
   });
 });
 
+describe('HybridDemoRepository connectable sources (issue #49)', () => {
+  let controller: HttpTestingController;
+
+  function setUpSources(viewer: AccountId | null = 'account-smb-admin') {
+    const setup = setUp(viewer);
+    controller = setup.controller;
+    return setup;
+  }
+
+  afterEach(() => controller.verify());
+
+  it('mixes real knowledge bases from the API with the still-mock databases', async () => {
+    const { repository } = setUpSources();
+    const result = pending(repository.listConnectableSources());
+
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush([apiSummary()]);
+
+    expect(await result).toMatchObject({
+      status: 'ready',
+      data: [
+        expect.objectContaining({ id: KB_ID, type: 'knowledge-base', name: '門市作業手冊' }),
+        expect.objectContaining({ id: 'database-orders', type: 'database' }),
+        expect.objectContaining({ id: 'database-customer-records', type: 'database' }),
+      ],
+    });
+  });
+
+  it('drops knowledge bases the viewer cannot manage, matching the mock’s owner-only rule', async () => {
+    const { repository } = setUpSources();
+    const pendingResult = pending(repository.listConnectableSources());
+
+    controller
+      .expectOne(API_KNOWLEDGE_BASES_PATH)
+      .flush([apiSummary({ viewerCanManage: false }), apiSummary({ id: 'knowledge-product-guide' })]);
+
+    const result = await pendingResult;
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.data.map((source) => source.id)).toEqual(
+      expect.arrayContaining(['knowledge-product-guide', 'database-orders', 'database-customer-records']),
+    );
+    expect(result.data.map((source) => source.id)).not.toContain(KB_ID);
+  });
+
+  it('returns an empty ready list without calling the API when the viewer cannot manage assistants', async () => {
+    const { repository } = setUp('account-external-customer', {
+      accountId: CUSTOMER_ID,
+      demoAccountId: 'account-external-customer',
+      permissions: ['use-shared-assistants'],
+    });
+    controller = TestBed.inject(HttpTestingController);
+
+    expect(await pending(repository.listConnectableSources())).toEqual({ status: 'ready', data: [] });
+    controller.expectNone(API_KNOWLEDGE_BASES_PATH);
+  });
+
+  it('returns an empty ready list without calling the API when signed out', async () => {
+    const { repository } = setUpSources(null);
+
+    expect(await pending(repository.listConnectableSources())).toEqual({ status: 'ready', data: [] });
+    controller.expectNone(API_KNOWLEDGE_BASES_PATH);
+  });
+
+  it('maps a 403 to the knowledge-base permission-denied', async () => {
+    const { repository } = setUpSources();
+    const result = pending(repository.listConnectableSources());
+
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush(KNOWLEDGE_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+  });
+
+  /** 寫入 mock storage 的測試需要組織 id：沒有它時 scoped storage 不落地（見 `scoped-storage.ts`）。 */
+  function setUpWithOrganization() {
+    const setup = setUp('account-smb-admin', {
+      accountId: ADMIN_ID,
+      demoAccountId: 'account-smb-admin',
+      permissions: ALL_ADMIN,
+      organizationId: 'org-a',
+    });
+    controller = setup.controller;
+    return setup;
+  }
+
+  it('keeps a real knowledge base picked in the wizard when the mock assistant is created', async () => {
+    const { repository } = setUpWithOrganization();
+    const listed = pending(repository.listConnectableSources());
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush([apiSummary()]);
+    await listed;
+
+    const created = repository.createAssistantFromDraft('account-smb-admin', {
+      ...createEmptyAssistantDraft(),
+      templateId: 'answer-customer-questions',
+      name: '門市問答助理',
+      purpose: '回答門市作業問題',
+      audience: 'account-members',
+      sources: [{ id: KB_ID, type: 'knowledge-base' }],
+      testedQuestionIds: ['trial-refund-window'],
+      currentStep: 'test',
+    });
+
+    expect(created).toMatchObject({ status: 'ready', data: { knowledgeBaseIds: [KB_ID] } });
+  });
+
+  it('lets the settings page connect a real knowledge base to a mock assistant', async () => {
+    const { repository } = setUpWithOrganization();
+    const listed = pending(repository.listConnectableSources());
+    controller.expectOne(API_KNOWLEDGE_BASES_PATH).flush([apiSummary()]);
+    await listed;
+
+    const result = repository.setAssistantSourceConnection(
+      'account-smb-admin',
+      'assistant-customer-service',
+      { id: KB_ID, type: 'knowledge-base' },
+      true,
+    );
+
+    expect(result.status).toBe('ready');
+    if (result.status !== 'ready') return;
+    expect(result.data.sources).toContainEqual({ id: KB_ID, type: 'knowledge-base' });
+  });
+});
+
 describe('DEMO_REPOSITORY factory', () => {
   it('is the plain mock when API mode provides nothing', () => {
     TestBed.configureTestingModule({});

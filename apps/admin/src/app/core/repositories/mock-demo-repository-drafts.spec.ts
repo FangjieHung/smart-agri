@@ -1,3 +1,5 @@
+import { firstValueFrom } from 'rxjs';
+import type { AccountId } from '../domain/account.model';
 import {
   createEmptyAssistantDraft,
   type AssistantDraft,
@@ -27,12 +29,15 @@ function completeDraft(): AssistantDraft {
 describe('MockDemoRepository assistant creation', () => {
   let storage: ReturnType<typeof createMemoryStorage>;
   let repository: MockDemoRepository;
+  let viewer: AccountId | null;
 
   beforeEach(() => {
     storage = createMemoryStorage();
+    viewer = 'account-smb-admin';
     repository = new MockDemoRepository(DEMO_SEED, {
       storage,
       now: () => new Date('2026-09-22T02:00:00.000Z'),
+      viewer: () => viewer,
     });
   });
 
@@ -49,8 +54,9 @@ describe('MockDemoRepository assistant creation', () => {
     }
   });
 
-  it('lists knowledge bases and databases in one mixed list with type, permission, status and update time', () => {
-    const result = repository.listConnectableSources('account-smb-admin');
+  it('lists knowledge bases and databases in one mixed list with type, permission, status and update time', async () => {
+    viewer = 'account-smb-admin';
+    const result = await firstValueFrom(repository.listConnectableSources());
 
     expect(result.status).toBe('ready');
     if (result.status === 'ready') {
@@ -76,7 +82,9 @@ describe('MockDemoRepository assistant creation', () => {
         }),
       );
     }
-    expect(repository.listConnectableSources('account-internal-employee')).toEqual({
+
+    viewer = 'account-internal-employee';
+    expect(await firstValueFrom(repository.listConnectableSources())).toEqual({
       status: 'ready',
       data: [],
     });

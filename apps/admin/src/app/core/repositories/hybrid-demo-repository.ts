@@ -17,6 +17,7 @@ import type {
   KnowledgeDocumentView,
   KnowledgeSharingView,
 } from '../domain/knowledge-base.model';
+import type { ConnectableSourceView } from '../domain/assistant-draft.model';
 import {
   isRepositoryPermissionDeniedReason,
   type CreateKnowledgeBaseResult,
@@ -32,6 +33,7 @@ import {
 import type { DemoSeed } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import {
+  connectableKnowledgeStatus,
   KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
   MockDemoRepository,
   TEAM_PERMISSION_DENIED_MESSAGE,
@@ -164,7 +166,8 @@ interface OwnPermissionsFromTeam {
  *
  * 目前接上 API 的：`getTeam`、`updateMemberPermissions`（M1；M2 起改用真實帳號 GUID
  * 當列表的 key、編輯目標與更新目標，不再換回同角色的 Demo 身分——見 issue #36）；
- * 知識庫的清單、詳情、建立、刪除、重新處理與分享（M2 Slice 11，issue #45）。
+ * 知識庫的清單、詳情、建立、刪除、重新處理與分享（M2 Slice 11，issue #45）；助理精靈與
+ * 設定頁的可連接來源清單（M2 Slice 15，issue #49）。
  *
  * 每個方法的形狀都一樣（後續功能區照做）：`http.<verb>` → `map` 成前端 view →
  * `catchError` 把可恢復的狀態碼（403／404／409／422）轉成結果，其餘錯誤原樣拋出，
@@ -172,6 +175,13 @@ interface OwnPermissionsFromTeam {
  */
 export class HybridDemoRepository extends MockDemoRepository {
   private readonly http: HttpClient;
+  /**
+   * 最近一次從 API 讀到、這個帳號可連接的知識庫。助理仍是 mock（#81 才換 API），
+   * 同步的 `createAssistantFromDraft`／`setAssistantSourceConnection` 要用它驗證來源，
+   * 否則真實 GUID 會被 mock 的種子清單當成「不可連接」而默默濾掉。精靈與設定頁的 store
+   * 一建立就會呼叫 `listConnectableSources`，所以寫入前這份清單已經讀過。
+   */
+  private readonly apiConnectableKnowledge = new Map<AccountId, readonly ConnectableSourceView[]>();
   private readonly viewerPermissions: () => ApiViewerPermissions | null;
   private readonly ownFromTeam: OwnPermissionsFromTeam;
 
@@ -249,6 +259,50 @@ export class HybridDemoRepository extends MockDemoRepository {
       })),
       catchError((error: unknown) => this.permissionDeniedOrThrow(error, KNOWLEDGE_DENIED)),
     );
+  }
+
+  /**
+   * 助理精靈與設定頁的可連接來源清單（M2 Slice 15，issue #49）：知識庫走 API、只列出
+   * `viewerCanManage` 為真的（與 mock 只列自己擁有的一致），資料庫仍是 mock，
+   * 由繼承的 `connectableDatabaseSources` 補上。沒有 `manage-assistants` 權限時
+   * （或尚未登入）直接回傳空清單，不必打 API。
+   */
+  override listConnectableSources(): Observable<RepositoryView<readonly ConnectableSourceView[]>> {
+    const viewer = this.viewer();
+    if (viewer === null || !this.canManageAssistants(viewer)) {
+      return of({ status: 'ready', data: [] });
+    }
+
+    return this.http.get<ApiKnowledgeBaseSummary[]>(API_KNOWLEDGE_BASES_PATH).pipe(
+      map((response): RepositoryView<readonly ConnectableSourceView[]> => {
+        const knowledgeBases = response
+          .filter((summary) => summary.viewerCanManage)
+          .map((summary): ConnectableSourceView => ({
+            id: summary.id,
+            type: 'knowledge-base',
+            name: summary.name,
+            summary: `${summary.documentCount} 份文件、${summary.faqCount} 則 FAQ`,
+            permission: 'owner',
+            status: connectableKnowledgeStatus(summary.statusCounts),
+            updatedAt: summary.updatedAt,
+          }));
+
+        this.apiConnectableKnowledge.set(viewer, knowledgeBases);
+        return {
+          status: 'ready',
+          data: [...knowledgeBases, ...this.connectableDatabaseSources(viewer)],
+        };
+      }),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, KNOWLEDGE_DENIED)),
+    );
+  }
+
+  protected override connectableSources(viewerAccountId: AccountId): readonly ConnectableSourceView[] {
+    if (!this.canManageAssistants(viewerAccountId)) return [];
+    return [
+      ...(this.apiConnectableKnowledge.get(viewerAccountId) ?? []),
+      ...this.connectableDatabaseSources(viewerAccountId),
+    ];
   }
 
   override getKnowledgeBaseDetail(knowledgeBaseId: string): Observable<RepositoryView<KnowledgeBaseDetailView>> {

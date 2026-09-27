@@ -35,6 +35,7 @@ import {
   type LoadedView,
 } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
@@ -99,6 +100,7 @@ export class KnowledgeDetailPageComponent {
   private readonly router = inject(Router);
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly apiSession = inject(ApiSessionService);
   private readonly document = inject(DOCUMENT);
   private readonly dialog = inject(MatDialog);
   private readonly destroyRef = inject(DestroyRef);
@@ -108,6 +110,11 @@ export class KnowledgeDetailPageComponent {
   });
 
   protected readonly tabs = TABS;
+  /**
+   * 已連接助理清單在 API 模式由 mock 助理推得（issue #49）；畫面用這個判斷是否要加註
+   * 「助理設定仍為示範資料」，避免讓人誤以為那份清單也是真實資料。
+   */
+  protected readonly isApiMode = this.apiSession.apiMode;
   protected readonly knowledgeBaseId = computed(() => this.params().get('id') ?? '');
   protected readonly activeTab = computed<KnowledgeTab>(
     () => TABS.find((tab) => tab.id === this.params().get('tab')) ?? TABS[0],

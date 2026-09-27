@@ -25,6 +25,7 @@ import type {
 import { fmtDateTime } from '../../../core/date-utils';
 import { ActivatedRoute } from '@angular/router';
 import type { RepositoryView } from '../../../core/repositories/demo-repository';
+import { repositoryResource, type LoadedView } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 
@@ -49,7 +50,7 @@ interface DraftState {
   readonly createError: string | null;
 }
 
-function dataOf<T>(view: RepositoryView<T>, fallback: T): T {
+function dataOf<T>(view: RepositoryView<T> | LoadedView<T>, fallback: T): T {
   return view.status === 'ready' || view.status === 'partial-failure'
     ? view.data
     : fallback;
@@ -100,14 +101,13 @@ export class AssistantDraftStore {
     dataOf(this.repository.listAssistantTemplates(), []),
   );
 
-  readonly sourcesView = computed<RepositoryView<readonly ConnectableSourceView[]>>(
-    () => {
-      const accountId = this.state().accountId;
-      return accountId === null
-        ? { status: 'ready', data: [] }
-        : this.repository.listConnectableSources(accountId);
-    },
-  );
+  /** 還沒有 Demo 身分時停在載入中；換身分就重新讀取（見 `repositoryResource`）。 */
+  private readonly sourcesResource = repositoryResource({
+    params: () => this.state().accountId ?? undefined,
+    stream: () => this.repository.listConnectableSources(),
+  });
+
+  readonly sourcesView = this.sourcesResource.view;
 
   readonly connectableSources = computed<readonly ConnectableSourceView[]>(() =>
     dataOf(this.sourcesView(), []),

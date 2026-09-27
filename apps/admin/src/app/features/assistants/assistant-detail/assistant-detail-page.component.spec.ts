@@ -132,9 +132,13 @@ describe('AssistantDetailPageComponent', () => {
   ): Promise<{ readonly page: HTMLElement; readonly flush: () => void }> {
     TestBed.resetTestingModule();
     const params = new BehaviorSubject(new Map([['id', 'assistant-customer-service'], ['tab', tab]]));
+    const accountId = options.accountId ?? 'account-smb-admin';
     const repository = new MockDemoRepository(DEMO_SEED, {
       storage: options.storage ?? createMemoryStorage(),
       now: () => new Date('2026-09-23T02:00:00.000Z'),
+      // `listConnectableSources()` 是非同步契約，viewer 由 repository 的 `viewer` 選項
+      // 推導，要與下面 `DemoSessionService` 的假身分一致（issue #49）。
+      viewer: () => accountId,
     });
     await TestBed.configureTestingModule({
       imports: [AssistantDetailPageComponent],
@@ -145,12 +149,16 @@ describe('AssistantDetailPageComponent', () => {
         {
           provide: DemoSessionService,
           useValue: {
-            activeAccountId: signal<AccountId | null>(options.accountId ?? 'account-smb-admin'),
+            activeAccountId: signal<AccountId | null>(accountId),
           },
         },
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(AssistantDetailPageComponent);
+    fixture.detectChanges();
+    // `connectableSources` 依賴 `listConnectableSources()`；即使 mock 是同步 Observable，
+    // 仍要等一輪穩定才能讀到 `ready` 的結果。
+    await fixture.whenStable();
     fixture.detectChanges();
     return {
       page: fixture.nativeElement as HTMLElement,

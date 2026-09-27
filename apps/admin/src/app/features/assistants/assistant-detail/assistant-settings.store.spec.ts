@@ -15,9 +15,13 @@ function setup(
   options: { readonly accountId?: AccountId; readonly storage?: DemoKeyValueStorage } = {},
 ) {
   const storage = options.storage ?? createMemoryStorage();
+  const accountId = options.accountId ?? 'account-smb-admin';
   const repository = new MockDemoRepository(DEMO_SEED, {
     storage,
     now: () => new Date('2026-09-23T02:00:00.000Z'),
+    // `listConnectableSources()` 是非同步契約，viewer 由 repository 的 `viewer` 選項推導
+    // （不再接收呼叫端傳入的帳號），要與下面 `DemoSessionService` 的假身分一致。
+    viewer: () => accountId,
   });
   const params = new BehaviorSubject(new Map([['id', 'assistant-customer-service']]));
 
@@ -28,7 +32,7 @@ function setup(
       {
         provide: DemoSessionService,
         useValue: {
-          activeAccountId: signal<AccountId | null>(options.accountId ?? 'account-smb-admin'),
+          activeAccountId: signal<AccountId | null>(accountId),
         },
       },
       {
@@ -39,6 +43,17 @@ function setup(
   });
 
   return { store: TestBed.inject(AssistantSettingsStore), repository, storage };
+}
+
+/**
+ * `connectableSources` 現在由 `repositoryResource`（`rxResource`）驅動：即使底層是
+ * `defer(() => of(...))` 同步發出，`resource()` 內部仍透過 Promise 回報結果，沒有
+ * component fixture 可用的 `whenStable()` 時，用 `TestBed.tick()` 搭配一次微任務等待。
+ */
+async function settleResource(): Promise<void> {
+  await Promise.resolve();
+  TestBed.tick();
+  await Promise.resolve();
 }
 
 describe('AssistantSettingsStore', () => {
@@ -90,8 +105,9 @@ describe('AssistantSettingsStore', () => {
     expect(store.settings()?.configuration.name).toBe('售後服務助理');
   });
 
-  it('connects and disconnects a data source through the repository', () => {
+  it('connects and disconnects a data source through the repository', async () => {
     const { store } = setup();
+    await settleResource();
     const guide = store
       .connectableSources()
       .find((source) => source.id === 'knowledge-product-guide');
@@ -104,8 +120,9 @@ describe('AssistantSettingsStore', () => {
     expect(store.settings()?.configuration.knowledgeBaseIds).toContain('knowledge-product-guide');
   });
 
-  it('only offers sources this account can see', () => {
+  it('only offers sources this account can see', async () => {
     const { store } = setup();
+    await settleResource();
 
     expect(store.connectableSources().length).toBeGreaterThan(0);
     for (const source of store.connectableSources()) {

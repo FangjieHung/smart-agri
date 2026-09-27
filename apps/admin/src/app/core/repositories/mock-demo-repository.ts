@@ -3137,7 +3137,11 @@ export class MockDemoRepository implements DemoRepository {
     return `assistant-created-${sequence}`;
   }
 
-  private connectableSources(
+  /**
+   * 精靈建立助理與設定頁連接來源時，用來驗證「這個來源是否可連接」的清單。
+   * `HybridDemoRepository` 會覆寫：API 模式的知識庫是真實 GUID，不在 mock 的種子資料裡。
+   */
+  protected connectableSources(
     viewerAccountId: AccountId,
   ): readonly ConnectableSourceView[] {
     if (!this.canManageAssistants(viewerAccountId)) return [];

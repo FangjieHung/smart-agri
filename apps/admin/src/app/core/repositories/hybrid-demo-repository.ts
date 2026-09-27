@@ -175,6 +175,13 @@ interface OwnPermissionsFromTeam {
  */
 export class HybridDemoRepository extends MockDemoRepository {
   private readonly http: HttpClient;
+  /**
+   * 最近一次從 API 讀到、這個帳號可連接的知識庫。助理仍是 mock（#81 才換 API），
+   * 同步的 `createAssistantFromDraft`／`setAssistantSourceConnection` 要用它驗證來源，
+   * 否則真實 GUID 會被 mock 的種子清單當成「不可連接」而默默濾掉。精靈與設定頁的 store
+   * 一建立就會呼叫 `listConnectableSources`，所以寫入前這份清單已經讀過。
+   */
+  private readonly apiConnectableKnowledge = new Map<AccountId, readonly ConnectableSourceView[]>();
   private readonly viewerPermissions: () => ApiViewerPermissions | null;
   private readonly ownFromTeam: OwnPermissionsFromTeam;
 
@@ -280,6 +287,7 @@ export class HybridDemoRepository extends MockDemoRepository {
             updatedAt: summary.updatedAt,
           }));
 
+        this.apiConnectableKnowledge.set(viewer, knowledgeBases);
         return {
           status: 'ready',
           data: [...knowledgeBases, ...this.connectableDatabaseSources(viewer)],
@@ -287,6 +295,14 @@ export class HybridDemoRepository extends MockDemoRepository {
       }),
       catchError((error: unknown) => this.permissionDeniedOrThrow(error, KNOWLEDGE_DENIED)),
     );
+  }
+
+  protected override connectableSources(viewerAccountId: AccountId): readonly ConnectableSourceView[] {
+    if (!this.canManageAssistants(viewerAccountId)) return [];
+    return [
+      ...(this.apiConnectableKnowledge.get(viewerAccountId) ?? []),
+      ...this.connectableDatabaseSources(viewerAccountId),
+    ];
   }
 
   override getKnowledgeBaseDetail(knowledgeBaseId: string): Observable<RepositoryView<KnowledgeBaseDetailView>> {

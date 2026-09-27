@@ -60,6 +60,16 @@ public sealed class ForbiddenReason
         "你沒有使用這個助理的權限，或它已不存在。");
 
     /// <summary>
+    /// An assistant wizard draft that does not exist, belongs to another organization, or
+    /// belongs to another account of the same organization (drafts are never shared: only
+    /// their owner may read, save or delete one). Same bytes in every case (M3 plan, Slice 2
+    /// acceptance; #72).
+    /// </summary>
+    public static readonly ForbiddenReason AssistantDraft = new(
+        "assistant-draft",
+        "你沒有這份精靈草稿的存取權限，或它已不存在。");
+
+    /// <summary>
     /// The account still has the one-time password from <c>setup</c>: until it sets its own
     /// (<c>POST /api/v1/auth/change-password</c>), every protected endpoint except
     /// <c>GET /api/v1/me</c> answers with this (see <c>PasswordChangeGate</c>). New in

@@ -1794,7 +1794,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
 
   it('creates an assistant from a draft with POST { draftId } and returns the new assistant', async () => {
     const { repository } = setUpAssistants();
-    const result = pending(repository.createAssistantFromDraft(DRAFT_ID, completeDraft([{ id: KB_ID, type: 'knowledge-base' }])));
+    const result = pending(repository.createAssistantFromDraft(DRAFT_ID));
 
     const request = controller.expectOne({ method: 'POST', url: API_ASSISTANTS_PATH });
     expect(request.request.body).toEqual({ draftId: DRAFT_ID });
@@ -1805,7 +1805,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
 
   it('turns the 422 errors object of creating from a draft into the wizard’s per-field errors', async () => {
     const { repository } = setUpAssistants();
-    const result = pending(repository.createAssistantFromDraft(DRAFT_ID, completeDraft([])));
+    const result = pending(repository.createAssistantFromDraft(DRAFT_ID));
 
     controller.expectOne(API_ASSISTANTS_PATH).flush(
       validationFailed('草稿裡的知識庫無法連接，可能已不存在、屬於其他組織，或已被收回分享。', {
@@ -1829,7 +1829,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
 
   it('maps a 403 assistant-draft on creating from a missing draft', async () => {
     const { repository } = setUpAssistants();
-    const result = pending(repository.createAssistantFromDraft(DRAFT_ID, completeDraft([])));
+    const result = pending(repository.createAssistantFromDraft(DRAFT_ID));
 
     controller.expectOne(API_ASSISTANTS_PATH).flush(DRAFT_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
 
@@ -1909,7 +1909,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     put.flush(apiDraft(draft, { revision: 2 }));
     expect(await saved).toMatchObject({ status: 'ready', data: { revision: 2 } });
 
-    const assistant = pending(repository.createAssistantFromDraft(DRAFT_ID, draft));
+    const assistant = pending(repository.createAssistantFromDraft(DRAFT_ID));
     controller.expectOne({ method: 'POST', url: API_ASSISTANTS_PATH }).flush(apiConfiguration(), { status: 201, statusText: 'Created' });
     const result = await assistant;
     if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);

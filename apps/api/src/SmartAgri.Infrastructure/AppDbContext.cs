@@ -4,10 +4,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
+using Pgvector.EntityFrameworkCore;
 using SmartAgri.Infrastructure.Accounts;
+using SmartAgri.Infrastructure.Ai;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
@@ -90,6 +93,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Retrievable passages, cut from readable units.</summary>
     public DbSet<KnowledgeChunk> KnowledgeChunks => Set<KnowledgeChunk>();
 
+    /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
+    public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
+
     /// <summary>The background job queue (M2 plan, Slice 4). Enqueue by adding a
     /// <see cref="BackgroundJob"/> in the same save as the rows it is about.</summary>
     public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
@@ -118,13 +124,21 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // context (DI, design-time factory, tests) gets the write guard and the timestamp
         // truncation.
         optionsBuilder.AddInterceptors(OrganizationWriteGuard, TimestampPrecision);
+
+        // pgvector's type mapping and distance functions (KnowledgeChunks.Embedding, M2 Slice 7),
+        // for the same reason. The host adds it where it configures Npgsql; this covers every
+        // other construction (keeping its connection settings), once per options instance.
+        if (optionsBuilder.Options.FindExtension<VectorDbContextOptionsExtension>() is null)
+        {
+            optionsBuilder.UseNpgsql(npgsql => npgsql.UseVector());
+        }
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        // Reserved for M2's pgvector-backed embedding tables (M1 slice 2).
+        // pgvector: KnowledgeChunks.Embedding (created in M1 slice 2, used from M2 Slice 7).
         modelBuilder.HasPostgresExtension("vector");
 
         // OpenIddict's four tables (applications, authorizations, scopes, tokens). They
@@ -184,6 +198,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new KnowledgeFileContentConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeExtractedUnitConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeChunkConfiguration());
+
+        // Model-call audit log (M2 plan, Slice 7).
+        modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());
 
         // Background jobs (M2 plan, Slice 4): organization scoped like everything else;
         // only Jobs/JobClaimer reads the table across organizations.

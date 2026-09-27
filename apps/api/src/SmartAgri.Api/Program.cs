@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
+using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
@@ -18,10 +19,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddSmartAgriObservability();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Default"), npgsql => npgsql.UseVector()));
 builder.Services.AddOrganizationTenancy();
 builder.Services.AddBackgroundJobs(builder.Configuration);
 builder.Services.AddKnowledge(builder.Configuration);
+builder.Services.AddEmbeddings(builder.Configuration);
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
@@ -70,6 +72,14 @@ if (args is [SmartAgriCommands.Setup, .. var setupArgs])
     return;
 }
 
+// `reindex` is one-shot too: re-embed chunks whose vectors are from another model than
+// Ai:Embedding:Model, per organization, printing progress, and exit (M2 plan, Slice 7).
+if (args is [SmartAgriCommands.Reindex, .. var reindexArgs])
+{
+    Environment.ExitCode = await ReindexCommand.RunAsync(app.Services, reindexArgs, Console.Out, Console.Error);
+    return;
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -102,6 +112,7 @@ internal static class SmartAgriCommands
 {
     public const string Migrate = "migrate";
     public const string Setup = "setup";
+    public const string Reindex = "reindex";
 }
 
 namespace SmartAgri.Api

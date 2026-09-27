@@ -35,6 +35,9 @@ public class AuthHostFixture : IAsyncLifetime
     /// <c>SEED_DEMO_PASSWORD</c> in tests that exercise <c>DevelopmentSeeder</c>.</summary>
     public const string SeedDemoPassword = "Seed-Demo-Password-1!";
 
+    /// <summary>The <c>Fake</c> embedding model the host is configured with.</summary>
+    public const string EmbeddingModel = "fake-test";
+
     private readonly PostgresFixture _postgres = new();
     private AuthApiFactory? _factory;
 
@@ -132,6 +135,10 @@ public class AuthHostFixture : IAsyncLifetime
             // Tests that need background jobs drive JobRunner themselves, so results are
             // reproducible; no worker polls behind their back.
             builder.UseSetting("Jobs:WorkerEnabled", "false");
+
+            // Processing embeds every chunk: deterministic hash vectors, no network (Slice 7).
+            builder.UseSetting("Ai:Embedding:Provider", "Fake");
+            builder.UseSetting("Ai:Embedding:Model", EmbeddingModel);
             builder.ConfigureServices(services => services.AddSingleton(_clock).AddProtectedProbeEndpoint());
         }
     }

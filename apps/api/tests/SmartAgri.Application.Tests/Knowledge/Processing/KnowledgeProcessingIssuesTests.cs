@@ -14,6 +14,7 @@ public class KnowledgeProcessingIssuesTests
         KnowledgeProcessingIssues.For(DocumentExtractionFailure.Encrypted).ShouldBe(KnowledgeProcessingIssues.Encrypted);
         KnowledgeProcessingIssues.For(DocumentExtractionFailure.NotUtf8).ShouldBe(KnowledgeProcessingIssues.NotUtf8);
         KnowledgeProcessingIssues.For(DocumentExtractionFailure.Damaged).ShouldBe(KnowledgeProcessingIssues.Damaged);
+        KnowledgeProcessingIssues.EmbeddingUnavailable.ShouldBe("嵌入模型暫時無法使用，請稍後重試");
     }
 
     [Fact]
@@ -22,6 +23,8 @@ public class KnowledgeProcessingIssuesTests
         KnowledgeProcessingIssues.ForFinalFailure(KnowledgeProcessingIssues.Encrypted).ShouldBe(KnowledgeProcessingIssues.Encrypted);
         KnowledgeProcessingIssues.ForFinalFailure(KnowledgeProcessingIssues.NotUtf8).ShouldBe(KnowledgeProcessingIssues.NotUtf8);
         KnowledgeProcessingIssues.ForFinalFailure(KnowledgeProcessingIssues.Damaged).ShouldBe(KnowledgeProcessingIssues.Damaged);
+        KnowledgeProcessingIssues.ForFinalFailure(KnowledgeProcessingIssues.EmbeddingUnavailable).ShouldBe(KnowledgeProcessingIssues.EmbeddingUnavailable);
+        KnowledgeProcessingIssues.ForFinalFailure(KnowledgeProcessingIssues.EmbeddingNotConfigured).ShouldBe(KnowledgeProcessingIssues.EmbeddingNotConfigured);
 
         // Never an internal exception message.
         KnowledgeProcessingIssues.ForFinalFailure("Npgsql.NpgsqlException: connection refused").ShouldBe("處理時發生錯誤，請重試。");

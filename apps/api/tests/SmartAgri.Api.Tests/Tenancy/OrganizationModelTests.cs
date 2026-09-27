@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Shouldly;
+using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
@@ -64,6 +65,7 @@ public class OrganizationModelTests
                 typeof(KnowledgeDocument), typeof(KnowledgeDocumentVersion), typeof(KnowledgeFileContent),
                 typeof(KnowledgeExtractedUnit), typeof(KnowledgeChunk),
                 typeof(BackgroundJob),
+                typeof(ModelInvocation),
             ],
             ignoreOrder: true);
         dbContext.Model.FindEntityType(typeof(Organization)).ShouldNotBeNull();

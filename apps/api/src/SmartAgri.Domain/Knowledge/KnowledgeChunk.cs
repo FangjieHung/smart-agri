@@ -16,12 +16,24 @@ namespace SmartAgri.Domain.Knowledge;
 /// and with its unit (database cascades).
 /// </para>
 /// <para>
-/// Written only by version processing, together with the units. Slice 7 (#41) adds the
-/// embedding and the model that produced it to this same row.
+/// Written by version processing, together with the units. The vector lives in this same row
+/// (<see cref="Embedding"/>, a <c>vector</c> column without a fixed dimension) with the model
+/// that produced it (<see cref="EmbeddingModel"/>), so a chunk and its vector are written and
+/// deleted in one transaction (postgresql-as-single-store ADR) and a model change needs no
+/// migration, only <c>reindex</c> (M2 plan §3).
+/// </para>
+/// <para>
+/// Every chunk of a processed version has a vector, excluded ones too: excluding is the
+/// owner's retrieval choice, and including a chunk again must not need a model call.
+/// Retrieval filters on <see cref="Excluded"/> and on the current model.
 /// </para>
 /// </remarks>
 public sealed class KnowledgeChunk : IOrganizationScoped
 {
+    /// <summary>Longer than any hosted model or deployment name (Azure allows 64 characters,
+    /// Hugging Face ids are "owner/name").</summary>
+    public const int EmbeddingModelMaxLength = 200;
+
     /// <summary>For EF Core materialization.</summary>
     private KnowledgeChunk()
     {
@@ -52,6 +64,14 @@ public sealed class KnowledgeChunk : IOrganizationScoped
     /// <summary>Set by the owner: an excluded chunk is never retrieved.</summary>
     public bool Excluded { get; private set; }
 
+    /// <summary>The chunk's vector from <see cref="EmbeddingModel"/>; <see langword="null"/>
+    /// only for chunks written before embeddings existed, until <c>reindex</c> embeds them.</summary>
+    public float[]? Embedding { get; private set; }
+
+    /// <summary>The configured embedding model (<c>Ai:Embedding:Model</c>) that produced
+    /// <see cref="Embedding"/>. Search only compares vectors of the current model.</summary>
+    public string? EmbeddingModel { get; private set; }
+
     public static KnowledgeChunk Create(
         KnowledgeDocumentVersion version,
         int unitOrdinal,
@@ -81,6 +101,27 @@ public sealed class KnowledgeChunk : IOrganizationScoped
             Text = text,
             Excluded = false,
         };
+    }
+
+    /// <summary>Sets the chunk's vector and the model that produced it, replacing any earlier
+    /// one. The vector must be non-empty, finite and not all zeros (its cosine distance to
+    /// anything would be undefined).</summary>
+    public void SetEmbedding(float[] embedding, string model)
+    {
+        ArgumentNullException.ThrowIfNull(embedding);
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
+        if (model.Length > EmbeddingModelMaxLength)
+        {
+            throw new ArgumentException($"An embedding model name must be at most {EmbeddingModelMaxLength} characters.", nameof(model));
+        }
+
+        if (embedding.Length == 0 || !embedding.All(float.IsFinite) || embedding.All(value => value == 0))
+        {
+            throw new ArgumentException("An embedding must be non-empty, finite and not all zeros.", nameof(embedding));
+        }
+
+        Embedding = embedding;
+        EmbeddingModel = model;
     }
 
     /// <summary>Excludes or includes the chunk; false when it already was.</summary>

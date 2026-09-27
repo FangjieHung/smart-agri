@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Pgvector;
 using SmartAgri.Domain.Knowledge;
 
 namespace SmartAgri.Infrastructure.Knowledge;
@@ -9,8 +12,24 @@ namespace SmartAgri.Infrastructure.Knowledge;
 /// (version, document, knowledge base, organization — so the repeated ids always match the
 /// version's) and to the unit it was cut from (version, unit ordinal, organization).
 /// </summary>
+/// <remarks>
+/// <see cref="KnowledgeChunk.Embedding"/> is a pgvector <c>vector</c> column without a fixed
+/// dimension (M2 plan §3), mapped from the domain's <c>float[]</c> to <see cref="Vector"/> by
+/// Pgvector.EntityFrameworkCore (<c>UseVector()</c>, see <see cref="AppDbContext"/>). No
+/// approximate (HNSW) index: search is exact, filtered by organization and model first.
+/// </remarks>
 internal sealed class KnowledgeChunkConfiguration : IEntityTypeConfiguration<KnowledgeChunk>
 {
+    /// <summary>pgvector's type without a dimension: any model's vectors fit.</summary>
+    public const string VectorColumnType = "vector";
+
+    /// <summary>Compares vectors by value (and snapshots a copy), so replacing one is detected
+    /// and an unchanged one is not written again.</summary>
+    private static readonly ValueComparer<float[]?> EmbeddingComparer = new(
+        (left, right) => left == right || (left != null && right != null && left.SequenceEqual(right)),
+        vector => vector == null ? 0 : vector.Aggregate(vector.Length, (hash, value) => HashCode.Combine(hash, value)),
+        vector => vector == null ? null : vector.ToArray());
+
     public void Configure(EntityTypeBuilder<KnowledgeChunk> builder)
     {
         builder.ToTable("KnowledgeChunks");
@@ -18,6 +37,10 @@ internal sealed class KnowledgeChunkConfiguration : IEntityTypeConfiguration<Kno
         builder.Property(chunk => chunk.Id).ValueGeneratedNever();
         builder.Property(chunk => chunk.LocationLabel).HasMaxLength(KnowledgeExtractedUnit.LocationLabelMaxLength).IsRequired();
         builder.Property(chunk => chunk.Text).IsRequired();
+        builder.Property(chunk => chunk.Embedding)
+            .HasColumnType(VectorColumnType)
+            .HasConversion(new ValueConverter<float[]?, Vector?>(values => values == null ? null : new Vector(values), vector => vector == null ? null : vector.ToArray()), EmbeddingComparer);
+        builder.Property(chunk => chunk.EmbeddingModel).HasMaxLength(KnowledgeChunk.EmbeddingModelMaxLength);
 
         builder.HasOne<KnowledgeDocumentVersion>()
             .WithMany()

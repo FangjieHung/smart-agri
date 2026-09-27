@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SmartAgri.Application.Jobs;
 using SmartAgri.Application.Knowledge;
+using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Application.Knowledge.Processing;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Infrastructure;
@@ -9,10 +10,11 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Api.Knowledge;
 
 /// <summary>
-/// Handles <see cref="ProcessKnowledgeVersionJob.Kind"/> (M2 plan, Slice 6; ticket #40): reads
-/// the version's file with the <see cref="IDocumentTextExtractor"/> for its format, judges and
-/// chunks it (<see cref="KnowledgeVersionProcessing"/>), and writes the units, the chunks and
-/// the version's status in one transaction.
+/// Handles <see cref="ProcessKnowledgeVersionJob.Kind"/> (M2 plan, Slices 6 and 7; tickets #40,
+/// #41): reads the version's file with the <see cref="IDocumentTextExtractor"/> for its format,
+/// judges and chunks it (<see cref="KnowledgeVersionProcessing"/>), embeds every chunk
+/// (<see cref="KnowledgeChunkEmbedder"/>, in batches, on behalf of the uploader), and writes the
+/// units, the chunks with their vectors and the version's status in one transaction.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,17 +29,30 @@ namespace SmartAgri.Api.Knowledge;
 /// — either way exactly one result is committed.
 /// </para>
 /// <para>
+/// Embedding happens before that transaction (no row is locked while the model is called) and
+/// before the version completes, so a version is never <c>ready</c> without vectors: a run that
+/// fails to embed commits nothing but its <c>ModelInvocation</c> rows and stays
+/// <c>processing</c>, and the next attempt starts over. Every chunk is embedded, as none is
+/// excluded yet; the owner's later exclusions keep the vector, so including a chunk again needs
+/// no model call.
+/// </para>
+/// <para>
 /// A file that cannot be read at all (a password, not UTF-8, damaged) fails the job at once
 /// with <see cref="PermanentJobFailure"/> — the bytes will not change on a retry — and its
-/// message is the owner's issue (<see cref="KnowledgeProcessingIssues.ForFinalFailure"/>).
-/// Anything else (the database, a bug) is retried by the queue; after the last attempt the
-/// version fails with a generic "retry" issue.
+/// message is the owner's issue (<see cref="KnowledgeProcessingIssues.ForFinalFailure"/>). An
+/// embedding failure (<see cref="KnowledgeEmbeddingException"/>: the provider is down, rate
+/// limited, refuses the key or is not configured) is retried by the queue, and after the last
+/// attempt the version fails with the exception's message
+/// (<see cref="KnowledgeProcessingIssues.EmbeddingUnavailable"/> or
+/// <see cref="KnowledgeProcessingIssues.EmbeddingNotConfigured"/>). Anything else (the database,
+/// a bug) is retried too and ends with a generic "retry" issue.
 /// </para>
 /// </remarks>
 internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
 {
     private readonly AppDbContext _dbContext;
     private readonly IEnumerable<IDocumentTextExtractor> _extractors;
+    private readonly KnowledgeChunkEmbedder _embedder;
     private readonly KnowledgeOptions _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<ProcessKnowledgeVersionHandler> _logger;
@@ -45,12 +60,14 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
     public ProcessKnowledgeVersionHandler(
         AppDbContext dbContext,
         IEnumerable<IDocumentTextExtractor> extractors,
+        KnowledgeChunkEmbedder embedder,
         IOptions<KnowledgeOptions> options,
         TimeProvider clock,
         ILogger<ProcessKnowledgeVersionHandler> logger)
     {
         _dbContext = dbContext;
         _extractors = extractors;
+        _embedder = embedder;
         _options = options.Value;
         _clock = clock;
         _logger = logger;
@@ -91,6 +108,7 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
 
         var limits = _options.ExtractionLimits;
         var processed = KnowledgeVersionProcessing.Process(Extract(version, content, limits, cancellationToken), limits, ChunkingOptions.Default);
+        var chunks = await EmbedChunksAsync(version, processed, cancellationToken);
 
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
         version.CompleteProcessing(processed.Status, processed.Issue, _clock.GetUtcNow());
@@ -105,12 +123,9 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
         {
             _dbContext.KnowledgeExtractedUnits.Add(KnowledgeExtractedUnit.Create(
                 version, unit.Ordinal, unit.Kind, unit.LocationLabel, unit.Text, unit.Readable, unit.IssueCode));
-            for (var ordinal = 0; ordinal < unit.Chunks.Count; ordinal++)
-            {
-                var chunk = unit.Chunks[ordinal];
-                _dbContext.KnowledgeChunks.Add(KnowledgeChunk.Create(version, unit.Ordinal, ordinal, chunk.LocationLabel, chunk.Text));
-            }
         }
+
+        _dbContext.KnowledgeChunks.AddRange(chunks);
 
         await _dbContext.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
@@ -140,6 +155,35 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
             // What an earlier processing of a retried version left no longer describes it.
             await DeleteExtractionAsync(version.Id, cancellationToken);
         }
+    }
+
+    /// <summary>The version's chunks, each with its vector from the configured model.</summary>
+    private async Task<List<KnowledgeChunk>> EmbedChunksAsync(KnowledgeDocumentVersion version, ProcessedVersion processed, CancellationToken cancellationToken)
+    {
+        var chunks = new List<KnowledgeChunk>();
+        var texts = new List<string>();
+        foreach (var unit in processed.Units)
+        {
+            for (var ordinal = 0; ordinal < unit.Chunks.Count; ordinal++)
+            {
+                var chunk = unit.Chunks[ordinal];
+                chunks.Add(KnowledgeChunk.Create(version, unit.Ordinal, ordinal, chunk.LocationLabel, chunk.Text));
+                texts.Add(KnowledgeEmbeddingText.For(unit.Kind, chunk.LocationLabel, chunk.Text));
+            }
+        }
+
+        if (chunks.Count == 0)
+        {
+            return chunks;
+        }
+
+        var vectors = await _embedder.EmbedDocumentsAsync(texts, version.UploadedByAccountId, cancellationToken);
+        for (var i = 0; i < chunks.Count; i++)
+        {
+            chunks[i].SetEmbedding(vectors[i], _embedder.Model);
+        }
+
+        return chunks;
     }
 
     private ExtractedDocument Extract(KnowledgeDocumentVersion version, byte[] content, ExtractionLimits limits, CancellationToken cancellationToken)

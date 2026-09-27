@@ -166,6 +166,63 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/chat/runs": {
+      "post": {
+        "tags": [
+          "ChatRunEndpoints"
+        ],
+        "summary": "Answer one question as an AG-UI event stream",
+        "description": "Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch). 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply / smartagri.thread, RUN_FINISHED or RUN_ERROR); see ChatRunEndpoints' remarks.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAgentInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/auth/login-options": {
       "get": {
         "tags": [
@@ -2376,6 +2433,79 @@
           "external-customer"
         ]
       },
+      "AGUIContext": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "AGUIResume": {
+        "type": "object",
+        "properties": {
+          "interruptId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "payload": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        }
+      },
+      "AGUITool": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "parameters": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          }
+        }
+      },
       "ApproveKnowledgeVersionsRequest": {
         "required": [
           "versionIds"
@@ -4139,6 +4269,79 @@
           }
         }
       },
+      "RunAgentInput": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "protocolVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parentRunId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "messages": {
+            "type": "array"
+          },
+          "tools": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AGUITool"
+            }
+          },
+          "context": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AGUIContext"
+            }
+          },
+          "forwardedProps": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            ]
+          },
+          "resume": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AGUIResume"
+            }
+          }
+        }
+      },
       "SaveAssistantDraftRequest": {
         "required": [
           "payload",
@@ -4537,6 +4740,9 @@
     },
     {
       "name": "ChatEndpoints"
+    },
+    {
+      "name": "ChatRunEndpoints"
     },
     {
       "name": "TeamEndpoints"

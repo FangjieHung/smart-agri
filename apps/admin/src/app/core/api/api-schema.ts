@@ -257,6 +257,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/chat/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer one question as an AG-UI event stream
+         * @description Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch). 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply / smartagri.thread, RUN_FINISHED or RUN_ERROR); see ChatRunEndpoints' remarks.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RunAgentInput"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login-options": {
         parameters: {
             query?: never;
@@ -2888,6 +2968,22 @@ export interface components {
         AccountPermission: "manage-assistants" | "manage-data-sources" | "manage-publishing" | "read-consented-submissions" | "use-shared-assistants" | "submit-authorized-forms" | "read-own-tracking";
         /** @enum {unknown} */
         AccountRole: "smb-admin" | "internal-employee" | "external-customer";
+        AGUIContext: {
+            description?: string;
+            value?: string;
+        };
+        AGUIResume: {
+            interruptId?: string;
+            status?: string;
+            payload?: null | components["schemas"]["JsonElement"];
+            metadata?: null | components["schemas"]["JsonElement"];
+        };
+        AGUITool: {
+            name?: string;
+            description?: string;
+            parameters?: null | components["schemas"]["JsonElement"];
+            metadata?: null | components["schemas"]["JsonElement"];
+        };
         ApproveKnowledgeVersionsRequest: {
             versionIds: null | string[];
             effectiveFrom?: null | string;
@@ -3353,6 +3449,18 @@ export interface components {
         };
         RenameChatThreadRequest: {
             title: null | string;
+        };
+        RunAgentInput: {
+            threadId?: string;
+            runId?: string;
+            protocolVersion?: null | string;
+            parentRunId?: null | string;
+            state?: null | components["schemas"]["JsonElement"];
+            messages?: unknown[];
+            tools?: null | components["schemas"]["AGUITool"][];
+            context?: null | components["schemas"]["AGUIContext"][];
+            forwardedProps?: null | components["schemas"]["JsonElement"];
+            resume?: null | components["schemas"]["AGUIResume"][];
         };
         SaveAssistantDraftRequest: {
             payload: components["schemas"]["JsonElement"];

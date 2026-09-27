@@ -132,3 +132,72 @@ export function isRetryableKnowledgeDocument(status: KnowledgeDocumentStatus): b
 export function isPendingKnowledgeDocument(status: KnowledgeDocumentStatus): boolean {
   return status === 'queued' || status === 'processing';
 }
+
+/**
+ * 上傳文件（issue #46，M2 Slice 12）：後端與前端預檢共用同一套副檔名與大小上限
+ * （`KnowledgeUploadRules`、`KnowledgeOptions.DefaultMaxFileBytes`）。前端的預檢只是先擋掉
+ * 明顯不會過的檔案，省一次來回；實際結果一律以後端回應為準。
+ */
+export const KNOWLEDGE_UPLOAD_ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.txt', '.md'] as const;
+
+export const KNOWLEDGE_UPLOAD_ACCEPT = KNOWLEDGE_UPLOAD_ACCEPTED_EXTENSIONS.join(',');
+
+/** 與後端 `KnowledgeOptions.DefaultMaxFileBytes` 相同（20 MB）。 */
+export const KNOWLEDGE_UPLOAD_MAX_FILE_BYTES = 20 * 1024 * 1024;
+
+export const KNOWLEDGE_UPLOAD_UNSUPPORTED_TYPE_MESSAGE =
+  '只支援 PDF、Word（.docx）、Excel（.xlsx）、純文字（.txt）與 Markdown（.md）檔案。';
+
+/** 每個檔案被拒絕上傳的原因；wire name 與後端 `KnowledgeUploadRejectionReason` 逐字相同。 */
+export const KNOWLEDGE_UPLOAD_REJECTION_REASONS = [
+  'file-missing',
+  'too-many-files',
+  'file-unreadable',
+  'invalid-file-name',
+  'invalid-batch-id',
+  'file-too-large',
+  'unsupported-file-type',
+  'file-content-mismatch',
+  'duplicate-content',
+  'duplicate-name',
+] as const;
+
+export type KnowledgeUploadRejectionReason = (typeof KNOWLEDGE_UPLOAD_REJECTION_REASONS)[number];
+
+export function isKnowledgeUploadRejectionReason(value: unknown): value is KnowledgeUploadRejectionReason {
+  return (KNOWLEDGE_UPLOAD_REJECTION_REASONS as readonly unknown[]).includes(value);
+}
+
+/** 檔名重複時可以改成「上傳新版本」；只有這個原因會提供這個選項。 */
+export function offersUploadAsNewVersion(reason: KnowledgeUploadRejectionReason): boolean {
+  return reason === 'duplicate-name';
+}
+
+function knowledgeUploadExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  return dot === -1 ? '' : fileName.slice(dot).toLowerCase();
+}
+
+/** 前端預檢结果：`null` 代表看起來沒問題（仍要送到後端才算數）。 */
+export interface KnowledgeUploadPrecheckFailure {
+  readonly reason: KnowledgeUploadRejectionReason;
+  readonly message: string;
+}
+
+/**
+ * 送出前先在前端檢查副檔名與大小，讓使用者不必等一次網路來回就知道明顯會被拒絕的檔案；
+ * 不讀取檔案內容，所以無法預先偵測重複或格式偽裝，那些只能由後端回應。
+ */
+export function precheckKnowledgeUpload(file: File): KnowledgeUploadPrecheckFailure | null {
+  if (file.size > KNOWLEDGE_UPLOAD_MAX_FILE_BYTES) {
+    return {
+      reason: 'file-too-large',
+      message: `檔案超過 ${Math.round(KNOWLEDGE_UPLOAD_MAX_FILE_BYTES / (1024 * 1024))} MB 的上限，請分割或壓縮後再上傳。`,
+    };
+  }
+  const extension = knowledgeUploadExtension(file.name);
+  if (!(KNOWLEDGE_UPLOAD_ACCEPTED_EXTENSIONS as readonly string[]).includes(extension)) {
+    return { reason: 'unsupported-file-type', message: KNOWLEDGE_UPLOAD_UNSUPPORTED_TYPE_MESSAGE };
+  }
+  return null;
+}

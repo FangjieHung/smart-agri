@@ -130,4 +130,65 @@ describe('knowledge bases', () => {
     cy.contains('只有可管理資料來源的帳號可以建立知識庫。').should('be.visible');
     cy.contains('button', '建立知識庫').should('not.exist');
   });
+
+  // issue #46（M2 Slice 12）：批次上傳與逐檔結果。
+  describe('batch upload', () => {
+    beforeEach(() => cy.visit('/app/knowledge/knowledge-product-guide/content'));
+
+    it('uploads a new file and shows it queued for processing', () => {
+      cy.get('.document-list > li').should('have.length', 6);
+
+      cy.get('input[type="file"]').selectFile(
+        { contents: Cypress.Buffer.from('%PDF-1.4 test'), fileName: '新品錄影腳本.pdf', mimeType: 'application/pdf' },
+        { force: true },
+      );
+
+      cy.get('.document-list > li').should('have.length', 7);
+      cy.contains('.document-list > li', '新品錄影腳本.pdf').find('.document-status').should('have.attr', 'data-status', 'queued');
+      cy.get('.upload-summary').should('contain', '成功 1 檔');
+    });
+
+    it('rejects an unsupported file at the front end without touching the document list', () => {
+      cy.get('input[type="file"]').selectFile(
+        { contents: Cypress.Buffer.from('not a real exe'), fileName: '安裝程式.exe', mimeType: 'application/octet-stream' },
+        { force: true },
+      );
+
+      cy.get('.upload-item').should('contain', '只支援 PDF、Word（.docx）、Excel（.xlsx）、純文字（.txt）與 Markdown（.md）檔案。');
+      cy.get('.document-list > li').should('have.length', 6);
+    });
+
+    it('rejects a duplicate name and offers uploading it as a new version instead', () => {
+      cy.get('input[type="file"]').selectFile(
+        { contents: Cypress.Buffer.from('%PDF-1.4 test'), fileName: '商品規格總表.pdf', mimeType: 'application/pdf' },
+        { force: true },
+      );
+
+      cy.get('.upload-item').should('contain', '要更新它的內容，請改用「上傳新版本」');
+      cy.contains('.upload-item', '商品規格總表.pdf').contains('button', '改為上傳新版本').should('be.visible');
+      // 只是被拒絕，沒有多寫入一份同名文件。
+      cy.get('.document-list > li').should('have.length', 6);
+    });
+
+    it('uploads five files at once, three at a time, and lets only the rejected one be retried', () => {
+      // 內容長度各不相同：mock 用檔案大小模擬「內容重複」，同樣的內容會被判定成同一份檔案。
+      const files = ['批次一.pdf', '批次二.pdf', '批次三.pdf', '批次四.pdf'].map((fileName, index) => ({
+        contents: Cypress.Buffer.from(`%PDF-1.4 test ${'x'.repeat(index)}`),
+        fileName,
+        mimeType: 'application/pdf',
+      }));
+      cy.get('input[type="file"]').selectFile(
+        [...files, { contents: Cypress.Buffer.from('not a real exe'), fileName: '批次五.exe', mimeType: 'application/octet-stream' }],
+        { force: true },
+      );
+
+      cy.get('.upload-summary').should('contain', '成功 4 檔').and('contain', '失敗 1 檔');
+      cy.contains('.upload-item', '批次五.exe').should('contain', '只支援');
+      cy.get('.document-list > li').should('have.length', 10);
+
+      cy.contains('.upload-item', '批次五.exe').contains('button', '重新上傳').click();
+      cy.contains('.upload-item', '批次五.exe').should('contain', '只支援');
+      cy.get('.document-list > li').should('have.length', 10);
+    });
+  });
 });

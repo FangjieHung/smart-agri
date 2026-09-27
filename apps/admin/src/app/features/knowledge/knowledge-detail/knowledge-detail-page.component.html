@@ -51,6 +51,14 @@
             <p class="hint">共 {{ detail.summary.documentCount }} 份文件、{{ detail.summary.faqCount }} 則 FAQ</p>
           </div>
 
+          @if (detail.summary.viewerCanManage) {
+            <app-knowledge-upload-panel
+              [knowledgeBaseId]="detail.summary.id"
+              [documents]="detail.documents"
+              (uploaded)="handleUploaded()"
+            />
+          }
+
           @if (counts.needs > 0) {
             <p class="attention-summary">
               <span aria-hidden="true">!</span>

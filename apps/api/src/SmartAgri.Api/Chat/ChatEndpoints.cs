@@ -98,8 +98,9 @@ public sealed record RecentConversationView(
 
 /// <summary>
 /// Conversation thread CRUD and history reads (M3 plan §4/§5 Slice 6; mapping §2.4). Sending a
-/// message and streaming a reply are #77; this class only ever reads or writes rows that #77 (or
-/// a test standing in for it) already created.
+/// message and streaming a reply are <see cref="ChatRunEndpoints"/> (#77), which reuses this
+/// class's access checks and views so a streamed reply looks exactly like the same message read
+/// back through <c>GET chat</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -123,7 +124,7 @@ public static class ChatEndpoints
 {
     private const string SavedHistoryNotice = "只有你自己看得到這裡的對話紀錄，助理擁有者無法讀取對話內容。";
     private const string NotSavedHistoryNotice = "這個助理的規則關閉了保存對話，離開這個畫面後就不會留下紀錄。";
-    private const string DefaultThreadTitle = "新的對話";
+    private const string DefaultThreadTitle = ChatRunRules.DefaultThreadTitle;
 
     public static IEndpointRouteBuilder MapChatEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -443,7 +444,7 @@ public static class ChatEndpoints
         return Results.Ok(view);
     }
 
-    private static async Task<Assistant?> FindUsableAsync(
+    internal static async Task<Assistant?> FindUsableAsync(
         AppDbContext dbContext, RequestAccountPermissions permissions, Guid assistantId, Guid viewerId, CancellationToken cancellationToken)
     {
         var granted = await permissions.GetAsync(viewerId, cancellationToken);
@@ -453,7 +454,7 @@ public static class ChatEndpoints
             .SingleOrDefaultAsync(assistant => assistant.Id == assistantId, cancellationToken);
     }
 
-    private static Task<ChatThread?> FindThreadAsync(
+    internal static Task<ChatThread?> FindThreadAsync(
         AppDbContext dbContext, Guid assistantId, Guid viewerId, Guid threadId, CancellationToken cancellationToken) =>
         dbContext.ChatThreads
             .Where(ChatThreadAccess.OwnedBy(viewerId, assistantId))
@@ -497,7 +498,7 @@ public static class ChatEndpoints
             ToMessageView(message, citationsByMessage.TryGetValue(message.Id, out var found) ? found : []))];
     }
 
-    private static ChatMessageView ToMessageView(ChatMessage message, IReadOnlyList<ChatMessageCitation> citations) =>
+    internal static ChatMessageView ToMessageView(ChatMessage message, IReadOnlyList<ChatMessageCitation> citations) =>
         message.Author == ChatMessageAuthor.Account
             ? new ChatMessageView(message.Id, "account", message.Text, null, message.CreatedAt)
             : new ChatMessageView(message.Id, "assistant", null, ToReplyView(message, citations), message.CreatedAt);
@@ -514,7 +515,7 @@ public static class ChatEndpoints
             _ => throw new InvalidOperationException("An assistant message must have a reply kind."),
         };
 
-    private static ChatCitationView ToCitationView(ChatMessageCitation citation) =>
+    internal static ChatCitationView ToCitationView(ChatMessageCitation citation) =>
         new(CitationId(citation), citation.KnowledgeBaseName, citation.DocumentName, citation.Excerpt, UpdatedLabel(citation.VersionEffectiveFrom));
 
     private static ChatCitationDetailView ToCitationDetail(ChatMessageCitation citation) =>
@@ -527,9 +528,11 @@ public static class ChatEndpoints
             UpdatedLabel(citation.VersionEffectiveFrom),
             citation.Text);
 
-    private static string CitationId(ChatMessageCitation citation) => $"citation-{citation.MessageId}-{citation.Ordinal}";
+    private static string CitationId(ChatMessageCitation citation) => CitationId(citation.MessageId, citation.Ordinal);
 
-    private static string UpdatedLabel(DateTimeOffset? effectiveFrom) =>
+    internal static string CitationId(Guid messageId, int ordinal) => $"citation-{messageId}-{ordinal}";
+
+    internal static string UpdatedLabel(DateTimeOffset? effectiveFrom) =>
         effectiveFrom?.ToString("yyyy-MM-dd") ?? string.Empty;
 
     private static AssistantChatView ToChatView(Assistant assistant, ChatThread? thread, IReadOnlyList<ChatMessageView> messages)

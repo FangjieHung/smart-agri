@@ -605,6 +605,40 @@ Configuration (section `Ai:Chat`; as environment variables `Ai__Chat__Provider`,
   that is verified, treat streaming usage from a real provider as **unconfirmed**; the middleware
   already handles "no usage reported" correctly (records `null`, never estimates) either way.
 
+## Conversation runs (AG-UI)
+
+`POST /api/v1/assistants/{id}/chat/runs` (M3 plan Slice 7; `SmartAgri.Api.Chat.ChatRunEndpoints`)
+answers one question as an [AG-UI](https://docs.ag-ui.com) event stream, written with the
+official .NET SDK (`AGUI.Abstractions`/`AGUI.Formatting`, Api layer only), and saves the exchange
+in the same request. The body is AG-UI's `RunAgentInput` (what `@ag-ui/client`'s `HttpAgent`
+sends); the question is the last `user` message; `threadId` empty/omitted means "the most recent
+thread, or a new one". Refusals before the stream are ordinary JSON (`403 assistant-use`,
+`403 chat-thread`, `422`, `503 chat-not-configured`/`embedding-not-configured`,
+`409 chat-run-in-progress`); after that everything is an event:
+
+`RUN_STARTED` → `TEXT_MESSAGE_START` → `TEXT_MESSAGE_CONTENT`… → `TEXT_MESSAGE_END` →
+`CUSTOM smartagri.reply` (the final `ChatMessageView`, as `GET chat` returns it) →
+`CUSTOM smartagri.thread` (`{ threadId, title }`, saved conversations only) → `RUN_FINISHED`;
+or, when the model or embedding fails mid-way, `RUN_ERROR` with `code` = the `503` reason and
+nothing saved but the question. The class remarks spell out every rule.
+
+`409 chat-run-in-progress` uses an in-memory lock (`ChatRunLocks`): correct for one Api process
+per deployment, not for several behind a load balancer.
+
+**Protocol check with the JavaScript client.** `tools/agui-contract/fixtures/*.sse` are streams
+recorded from the real endpoint (ids, timestamps and dates normalized).
+`ChatRunEndpointsTests.The_recorded_streams_match_the_fixtures_the_ag_ui_client_check_parses`
+fails when the endpoint's output drifts from them, and CI runs
+`node tools/agui-contract/check-agui-stream.mjs`, which parses each one with `@ag-ui/client`'s
+`HttpAgent` (pinned in the root `package.json`). After an intended change to the stream:
+
+```bash
+UPDATE_AGUI_FIXTURES=1 dotnet test apps/api/tests/SmartAgri.Api.Tests --filter-method '*The_recorded_streams_match*'
+node tools/agui-contract/check-agui-stream.mjs
+# or against a running Api:
+node tools/agui-contract/check-agui-stream.mjs --url http://localhost:5153/api/v1/assistants/<id>/chat/runs --token <access token> --question '退貨運費由誰負擔？'
+```
+
 ## Retrieval preview and `KnowledgeRetriever`
 
 `KnowledgeRetriever` (Application, scoped; M2 plan Slice 9) is **the** way to search knowledge:

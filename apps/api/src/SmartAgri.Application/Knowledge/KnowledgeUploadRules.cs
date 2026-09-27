@@ -68,6 +68,9 @@ public sealed record KnowledgeUploadRejection(
         : KnowledgeUploadRules.FileField;
 }
 
+/// <summary>The version that already has an uploaded file's content, for the duplicate rules.</summary>
+public sealed record KnowledgeExistingContent(Guid DocumentId, string DocumentName, int VersionNumber);
+
 /// <summary>An uploaded file that passed every check that does not need the database.</summary>
 /// <param name="FileName">Normalized (<see cref="KnowledgeUploadRules.NormalizeFileName"/>).</param>
 /// <param name="Sha256">Lower-case hex, as stored and compared for duplicates.</param>
@@ -249,6 +252,26 @@ public static class KnowledgeUploadRules
                 KnowledgeUploadRejectionReason.DuplicateName,
                 $"這個知識庫已經有名為「{fileName}」的文件。要更新它的內容，請改用「上傳新版本」。")
             : null;
+    }
+
+    /// <summary>
+    /// The duplicate rule for a new version (<c>POST .../documents/{docId}/versions</c>): the
+    /// SHA-256 is unique per knowledge base, so content that any version already has is
+    /// refused — also an earlier version of the same document (to go back to it, that version
+    /// is still there). There is no name rule: the document keeps its name, and the version
+    /// keeps its own file name. <see langword="null"/> when <paramref name="existing"/> is.
+    /// </summary>
+    public static KnowledgeUploadRejection? CheckNewVersionDuplicate(Guid documentId, KnowledgeExistingContent? existing)
+    {
+        if (existing is null)
+        {
+            return null;
+        }
+
+        var message = existing.DocumentId == documentId
+            ? $"這份檔案的內容與這份文件的第 {existing.VersionNumber} 版完全相同，不需要再上傳一次。"
+            : $"這份檔案的內容與「{existing.DocumentName}」的第 {existing.VersionNumber} 版完全相同，不能當作這份文件的新版本上傳。";
+        return new KnowledgeUploadRejection(KnowledgeUploadRejectionReason.DuplicateContent, message, existing.DocumentName);
     }
 
     /// <summary>Lower-case hexadecimal SHA-256 of <paramref name="content"/>.</summary>

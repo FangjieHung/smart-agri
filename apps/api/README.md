@@ -303,7 +303,8 @@ themselves, moving the test clock for backoff and leases.
 
 ## Knowledge documents
 
-Owner-only endpoints under `/api/v1/knowledge-bases/{id}/documents` (M2 plan, Slice 5):
+Owner-only endpoints under `/api/v1/knowledge-bases/{id}/documents` (M2 plan, Slice 5; new
+versions, approval and disabling in "Versions, approval and emergency disable" below):
 
 | Endpoint | Result |
 | --- | --- |
@@ -373,6 +374,47 @@ how they were made: `tests/fixtures/knowledge/README.md`.
 | `Knowledge:MaxExtractedUnits` | `2000` | Pages, sections or worksheets read per file; more makes the version `partially-readable`. |
 | `Knowledge:MaxSheetRows` | `5000` | Data rows read per worksheet; more makes the version `partially-readable`. |
 
+### Versions, approval and emergency disable
+
+Processed `ready` only means the text could be read. **Nothing is retrievable until a person
+approves it** — every version, version 1 included (M2 plan Slice 8, §7 decision 4). The rule,
+in one place (`RetrievableChunks`, Application):
+
+> a chunk is retrievable when it is not excluded **and** its version is its document's
+> *current effective version* — approved, processed `ready`/`partially-readable`, and the one
+> with the latest `EffectiveFrom ≤ now` among those (the higher version number on a tie) —
+> **and** the document is not disabled **and** its `EmbeddingModel` is the configured model.
+
+`EffectiveFrom ≤ @now` is part of the SQL, so a version scheduled for tomorrow takes over
+tomorrow with nothing to run. "Scheduled", "effective" and "archived" are derived, never
+stored; the database stores only `ReviewState` (`pending-review`/`approved`, a concurrency
+token), `EffectiveFrom`, `ApprovedByAccountId`, `ApprovedAt` on versions and `DisabledAt`,
+`DisabledByAccountId`, `DisabledReason` on documents (check constraints keep each group
+consistent; a partial index on approved versions by document and `EffectiveFrom` serves the
+rule).
+
+| Endpoint | Result |
+| --- | --- |
+| `POST .../documents/{docId}/versions` (multipart: `file`, optional `batchId`) | `201` `KnowledgeDocumentView`; the upload checks and processing of a new document, `pending-review`; the document keeps its name, the version its file name; `422 duplicate-content` when any version in the knowledge base has the same bytes; `409 concurrent-version-upload` if another version took the number |
+| `POST .../versions/approve` `{ versionIds, effectiveFrom? }` | `200` the approved versions; all or nothing: `422 versions-not-approvable` with `errors["versionIds[i]"]` for each entry not in this knowledge base, not processed readable, or already approved |
+| `POST .../documents/{docId}/disable` `{ reason }` | `200` `KnowledgeDocumentView`; retrieval stops with this save; `422` without a reason (max 500), `409 document-already-disabled` |
+| `POST .../documents/{docId}/enable` | `200`; back to exactly the state before (approvals made meanwhile included); `409 document-not-disabled` |
+| `GET .../documents/{docId}` | `200` `KnowledgeDocumentDetailView`: the list row, disable details, versions newest first (processing status, `state` = `pending-review`/`scheduled`/`effective`/`archived`, uploader, approver, times) and the document's activity log |
+
+`effectiveFrom` is ISO 8601 **with a time zone** (without one it would silently be read in the
+server's zone, so it is refused), stored in UTC, and defaults to now. It may not be earlier than
+now, with **one minute of tolerance for clock skew**: a time up to a minute in the past is
+taken as now. Every approval, upload, disable and enable writes an activity row naming the
+caller; the disable row also keeps the owner's reason, which the document clears once enabled
+again, so the log can still say why it was stopped. All owner
+only, with the same `403 knowledge-base` as everything else.
+
+Lists and details show both questions: `statusCounts` stays the latest version's processing
+status, and `inEffectCount` (a version in effect and not disabled — the document level of the
+same rule), `awaitingApprovalCount` (latest version processed and pending) and
+`disabledCount` sit next to it; each document row has `latestVersionState`,
+`effectiveVersionNumber`, `disabled` and `inEffect`.
+
 ## Embeddings and vector search
 
 Processing embeds every chunk (M2 plan Slice 7; llm-providers and postgresql-as-single-store
@@ -405,6 +447,12 @@ ADRs). Code only ever sees `IEmbeddingGenerator<string, Embedding<float>>`
   text; `Filter` is an EF `Where`, and the organization filter always applies; `Score` is
   cosine similarity; `Top`, `Skip`, `ScoreThreshold`), `GetAsync` (by key or keys),
   `UpsertAsync`, `DeleteAsync`. Everything else throws `NotSupportedException`.
+- **Retrieval always passes the eligibility filter** ("Versions, approval and emergency
+  disable"): `SearchAsync(vector, top, new() { Filter = RetrievableChunks.InKnowledgeBase(knowledgeBaseId, clock.GetUtcNow(), settings.Model) })`.
+  EF follows `KnowledgeChunk.Version` and `.Document` (query-only navigations, never loaded
+  by search) into inner joins and a `NOT EXISTS` over the document's later approved versions,
+  inside the same exact-search query. Without that filter a search also returns unapproved,
+  archived, scheduled and disabled content.
 
 Configuration (section `Ai:Embedding`; as environment variables `Ai__Embedding__Provider`, …):
 

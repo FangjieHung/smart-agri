@@ -146,6 +146,44 @@ public static class ApiErrors
         }));
     }
 
+    /// <summary>
+    /// A <c>422</c> <see cref="WithReason"/> about several fields at once: a machine-readable
+    /// <paramref name="reason"/>, a summary <paramref name="message"/>, and <c>errors</c>
+    /// grouping every failure's message by field — e.g. a refused batch naming each refused
+    /// entry as <c>versionIds[2]</c>.
+    /// </summary>
+    public static IResult Refused(string reason, string message, IReadOnlyList<ValidationFailure> failures)
+    {
+        ArgumentNullException.ThrowIfNull(reason);
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(failures);
+        if (failures.Count == 0)
+        {
+            throw new ArgumentException("A refusal needs at least one failure.", nameof(failures));
+        }
+
+        var problem = ReasonStatuses[StatusCodes.Status422UnprocessableEntity];
+        return new FixedBodyResult(StatusCodes.Status422UnprocessableEntity, Write(writer =>
+        {
+            WriteProblemHeader(writer, problem.Type, problem.Title, StatusCodes.Status422UnprocessableEntity);
+            writer.WriteString("reason", reason);
+            writer.WriteString("message", message);
+            writer.WriteStartObject("errors");
+            foreach (var group in failures.GroupBy(failure => failure.Field, StringComparer.Ordinal))
+            {
+                writer.WriteStartArray(group.Key);
+                foreach (var failure in group)
+                {
+                    writer.WriteStringValue(failure.Message);
+                }
+
+                writer.WriteEndArray();
+            }
+
+            writer.WriteEndObject();
+        }));
+    }
+
     private static byte[] BuildForbiddenBody(ForbiddenReason reason) =>
         Write(writer =>
         {

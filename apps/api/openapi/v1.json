@@ -460,6 +460,73 @@
         }
       }
     },
+    "/api/v1/knowledge-bases/{id}/documents/{documentId}/versions": {
+      "post": {
+        "tags": [
+          "KnowledgeDocumentEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeDocumentUploadForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "413": {
+            "description": "Payload Too Large"
+          },
+          "415": {
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/knowledge-bases/{id}/documents/{documentId}": {
       "delete": {
         "tags": [
@@ -488,6 +555,49 @@
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "KnowledgeReviewEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentDetailView"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized"
@@ -738,6 +848,182 @@
           }
         }
       }
+    },
+    "/api/v1/knowledge-bases/{id}/versions/approve": {
+      "post": {
+        "tags": [
+          "KnowledgeReviewEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ApproveKnowledgeVersionsRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/KnowledgeVersionView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge-bases/{id}/documents/{documentId}/disable": {
+      "post": {
+        "tags": [
+          "KnowledgeReviewEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DisableKnowledgeDocumentRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/knowledge-bases/{id}/documents/{documentId}/enable": {
+      "post": {
+        "tags": [
+          "KnowledgeReviewEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "documentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -759,6 +1045,29 @@
           "internal-employee",
           "external-customer"
         ]
+      },
+      "ApproveKnowledgeVersionsRequest": {
+        "required": [
+          "versionIds"
+        ],
+        "type": "object",
+        "properties": {
+          "versionIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "effectiveFrom": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "ChangePasswordRequest": {
         "required": [
@@ -801,9 +1110,111 @@
           }
         }
       },
+      "DisableKnowledgeDocumentRequest": {
+        "required": [
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "IFormFile": {
         "type": "string",
         "format": "binary"
+      },
+      "KnowledgeAccountView": {
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "KnowledgeActivityAction": {
+        "enum": [
+          "knowledge-base-created",
+          "knowledge-base-updated",
+          "sharing-changed",
+          "knowledge-base-deleted",
+          "document-uploaded",
+          "version-retried",
+          "document-deleted",
+          "chunk-excluded",
+          "chunk-included",
+          "version-uploaded",
+          "version-approved",
+          "document-disabled",
+          "document-enabled"
+        ]
+      },
+      "KnowledgeActivityView": {
+        "required": [
+          "id",
+          "action",
+          "actor",
+          "at",
+          "versionId",
+          "versionNumber",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "$ref": "#/components/schemas/KnowledgeActivityAction"
+          },
+          "actor": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KnowledgeAccountView"
+              }
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "versionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "versionNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "KnowledgeBaseDetailView": {
         "required": [
@@ -842,6 +1253,9 @@
           "documentCount",
           "faqCount",
           "statusCounts",
+          "inEffectCount",
+          "awaitingApprovalCount",
+          "disabledCount",
           "sharingScope",
           "updatedAt",
           "viewerCanManage"
@@ -868,6 +1282,18 @@
           },
           "statusCounts": {
             "$ref": "#/components/schemas/KnowledgeDocumentStatusCounts"
+          },
+          "inEffectCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "awaitingApprovalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "disabledCount": {
+            "type": "integer",
+            "format": "int32"
           },
           "sharingScope": {
             "$ref": "#/components/schemas/KnowledgeSharingScope"
@@ -902,6 +1328,62 @@
           },
           "excluded": {
             "type": "boolean"
+          }
+        }
+      },
+      "KnowledgeDocumentDetailView": {
+        "required": [
+          "document",
+          "createdAt",
+          "disabledAt",
+          "disabledBy",
+          "disabledReason",
+          "versions",
+          "activities"
+        ],
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/KnowledgeDocumentView"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disabledAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "disabledBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KnowledgeAccountView"
+              }
+            ]
+          },
+          "disabledReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeVersionView"
+            }
+          },
+          "activities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeActivityView"
+            }
           }
         }
       },
@@ -970,7 +1452,13 @@
           "name",
           "status",
           "issue",
-          "updatedAt"
+          "updatedAt",
+          "latestVersionId",
+          "latestVersionNumber",
+          "latestVersionState",
+          "effectiveVersionNumber",
+          "disabled",
+          "inEffect"
         ],
         "type": "object",
         "properties": {
@@ -996,6 +1484,30 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "latestVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latestVersionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "latestVersionState": {
+            "$ref": "#/components/schemas/KnowledgeVersionState"
+          },
+          "effectiveVersionNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "inEffect": {
+            "type": "boolean"
           }
         }
       },
@@ -1153,6 +1665,105 @@
             "items": {
               "$ref": "#/components/schemas/KnowledgeExtractedUnitView"
             }
+          }
+        }
+      },
+      "KnowledgeVersionState": {
+        "enum": [
+          "pending-review",
+          "scheduled",
+          "effective",
+          "archived"
+        ]
+      },
+      "KnowledgeVersionView": {
+        "required": [
+          "id",
+          "documentId",
+          "versionNumber",
+          "fileName",
+          "contentType",
+          "sizeBytes",
+          "status",
+          "issue",
+          "state",
+          "effectiveFrom",
+          "uploadedBy",
+          "uploadedAt",
+          "approvedBy",
+          "approvedAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "documentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/KnowledgeDocumentStatus"
+          },
+          "issue": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/KnowledgeVersionState"
+          },
+          "effectiveFrom": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "uploadedBy": {
+            "$ref": "#/components/schemas/KnowledgeAccountView"
+          },
+          "uploadedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvedBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/KnowledgeAccountView"
+              }
+            ]
+          },
+          "approvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -1402,6 +2013,9 @@
     },
     {
       "name": "KnowledgeDocumentEndpoints"
+    },
+    {
+      "name": "KnowledgeReviewEndpoints"
     },
     {
       "name": "KnowledgeExtractionEndpoints"

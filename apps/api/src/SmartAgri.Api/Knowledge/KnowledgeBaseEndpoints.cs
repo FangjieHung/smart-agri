@@ -42,6 +42,13 @@ public sealed record KnowledgeDocumentStatusCounts(
 /// <summary>One row of <c>GET /api/v1/knowledge-bases</c>, and the <c>summary</c> of the
 /// detail. The counts come from <see cref="KnowledgeBaseTally"/> over
 /// <see cref="KnowledgeItemStates"/>, the single rule for what status each item shows.</summary>
+/// <param name="StatusCounts">Items by the processing status of their latest version
+/// ("處理狀態").</param>
+/// <param name="InEffectCount">Items assistants may use now ("是否已生效"): a version in effect
+/// under the retrieval eligibility rule (<see cref="RetrievableChunks"/>) and not disabled.</param>
+/// <param name="AwaitingApprovalCount">Items whose latest version is processed and waits for
+/// the owner's approval.</param>
+/// <param name="DisabledCount">Items disabled in an emergency.</param>
 /// <param name="UpdatedAt">The later of the last change to the knowledge base itself and
 /// the last change to any of its items, as the mock does.</param>
 /// <param name="ViewerCanManage">Whether the caller may open, change, share and delete
@@ -53,20 +60,39 @@ public sealed record KnowledgeBaseSummaryView(
     int DocumentCount,
     int FaqCount,
     KnowledgeDocumentStatusCounts StatusCounts,
+    int InEffectCount,
+    int AwaitingApprovalCount,
+    int DisabledCount,
     KnowledgeSharingScope SharingScope,
     DateTimeOffset UpdatedAt,
     bool ViewerCanManage);
 
-/// <summary>A document (or, from Slice 10, FAQ entry) in the detail, and the response of an
-/// upload or retry. <see cref="Status"/>, <see cref="Issue"/> and <see cref="UpdatedAt"/> are
-/// those of the version that represents the document (<see cref="KnowledgeItemStates"/>).</summary>
+/// <summary>
+/// A document (or, from Slice 10, FAQ entry) in the detail, and the response of an upload,
+/// new version, retry, disable or enable (<see cref="KnowledgeItemStates"/>). Two separate
+/// questions, both answered: how far processing got (<see cref="Status"/>, <see cref="Issue"/>,
+/// <see cref="UpdatedAt"/> — the latest version's) and whether assistants may use it
+/// (<see cref="InEffect"/>) — "可使用" alone never means "in use".
+/// </summary>
+/// <param name="LatestVersionId">The latest version, e.g. to approve it from the list.</param>
+/// <param name="LatestVersionState">The latest version's review state.</param>
+/// <param name="EffectiveVersionNumber">The version in effect now, or <see langword="null"/>
+/// when none is (never approved, or only scheduled).</param>
+/// <param name="Disabled">Disabled in an emergency (see the document's detail for who, when and why).</param>
+/// <param name="InEffect">A version is in effect and the document is not disabled.</param>
 public sealed record KnowledgeDocumentView(
     Guid Id,
     KnowledgeItemKind Kind,
     string Name,
     KnowledgeDocumentStatus Status,
     string? Issue,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    Guid LatestVersionId,
+    int LatestVersionNumber,
+    KnowledgeVersionState LatestVersionState,
+    int? EffectiveVersionNumber,
+    bool Disabled,
+    bool InEffect);
 
 /// <summary>A knowledge base's sharing; also the response of <c>PUT .../sharing</c>.</summary>
 /// <param name="SharedWithAccountIds">Empty unless <paramref name="Scope"/> is
@@ -181,6 +207,7 @@ public static class KnowledgeBaseEndpoints
     internal static async Task<IResult> ListAsync(
         HttpContext httpContext,
         AppDbContext dbContext,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
@@ -199,6 +226,7 @@ public static class KnowledgeBaseEndpoints
         var items = (await ItemStatesAsync(
                 dbContext,
                 dbContext.KnowledgeDocuments.Where(document => ids.Contains(document.KnowledgeBaseId)),
+                clock.GetUtcNow(),
                 cancellationToken))
             .ToLookup(item => item.KnowledgeBaseId);
 
@@ -241,6 +269,7 @@ public static class KnowledgeBaseEndpoints
         Guid id,
         HttpContext httpContext,
         AppDbContext dbContext,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
@@ -264,6 +293,7 @@ public static class KnowledgeBaseEndpoints
         var items = await ItemStatesAsync(
             dbContext,
             dbContext.KnowledgeDocuments.Where(document => document.KnowledgeBaseId == knowledgeBase.Id),
+            clock.GetUtcNow(),
             cancellationToken);
 
         return Results.Ok(new KnowledgeBaseDetailView(
@@ -315,6 +345,7 @@ public static class KnowledgeBaseEndpoints
         var items = await ItemStatesAsync(
             dbContext,
             dbContext.KnowledgeDocuments.Where(document => document.KnowledgeBaseId == knowledgeBase.Id),
+            now,
             cancellationToken);
         return Results.Ok(ToSummary(knowledgeBase, callerId, KnowledgeBaseTally.Of(items)));
     }
@@ -465,17 +496,18 @@ public static class KnowledgeBaseEndpoints
     }
 
     /// <summary>
-    /// <see cref="KnowledgeItemStates"/> for <paramref name="documents"/> (already narrowed to
-    /// one or more knowledge bases), oldest document first — the order the detail lists them
-    /// in. File contents are never part of this query.
+    /// <see cref="KnowledgeItemStates"/> at <paramref name="now"/> for <paramref name="documents"/>
+    /// (already narrowed to one or more knowledge bases), oldest document first — the order the
+    /// detail lists them in. File contents are never part of this query.
     /// </summary>
     internal static async Task<List<KnowledgeItemState>> ItemStatesAsync(
         AppDbContext dbContext,
         IQueryable<KnowledgeDocument> documents,
+        DateTimeOffset now,
         CancellationToken cancellationToken)
     {
         var items = await KnowledgeItemStates
-            .Of(documents.AsNoTracking(), dbContext.KnowledgeDocumentVersions.AsNoTracking())
+            .Of(documents.AsNoTracking(), dbContext.KnowledgeDocumentVersions.AsNoTracking(), now)
             .ToListAsync(cancellationToken);
 
         // Ordered here rather than in SQL: EF Core cannot order by a member of a record
@@ -484,7 +516,19 @@ public static class KnowledgeBaseEndpoints
     }
 
     internal static KnowledgeDocumentView ToView(KnowledgeItemState item) =>
-        new(item.DocumentId, item.Kind, item.Name, item.Status, item.Issue, item.UpdatedAt);
+        new(
+            item.DocumentId,
+            item.Kind,
+            item.Name,
+            item.Status,
+            item.Issue,
+            item.UpdatedAt,
+            item.LatestVersionId,
+            item.LatestVersionNumber,
+            item.LatestVersionState,
+            item.EffectiveVersionNumber,
+            item.Disabled,
+            item.InEffect);
 
     private static KnowledgeBaseSummaryView ToSummary(KnowledgeBase knowledgeBase, Guid viewerId, KnowledgeBaseTally tally) =>
         new(
@@ -494,6 +538,9 @@ public static class KnowledgeBaseEndpoints
             tally.DocumentCount,
             tally.FaqCount,
             KnowledgeDocumentStatusCounts.From(tally.StatusCounts),
+            tally.InEffectCount,
+            tally.AwaitingApprovalCount,
+            tally.DisabledCount,
             knowledgeBase.SharingScope,
             tally.LastItemUpdate > knowledgeBase.UpdatedAt ? tally.LastItemUpdate.Value : knowledgeBase.UpdatedAt,
             KnowledgeBaseAccess.CanManage(knowledgeBase, viewerId));

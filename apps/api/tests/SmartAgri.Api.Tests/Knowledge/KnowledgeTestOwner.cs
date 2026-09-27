@@ -35,6 +35,26 @@ internal sealed record KnowledgeTestOwner(AuthHostFixture Host, Organization Org
         return new KnowledgeTestOwner(host, organization, spa, token, accountId, knowledgeBaseId);
     }
 
+    /// <summary>The same owner with a fresh access token, e.g. after the test clock moved past
+    /// the old one's lifetime.</summary>
+    public async Task<KnowledgeTestOwner> SignInAgainAsync() =>
+        this with { Token = (await Spa.SignInAsync(Organization.Code, "admin", Password)).AccessToken };
+
+    /// <summary>A multipart upload of <paramref name="content"/> as <paramref name="fileName"/>
+    /// to <paramref name="path"/> (a new document, or a new version of one); the response as is.</summary>
+    public async Task<HttpResponseMessage> PostFileAsync(string path, string fileName, byte[] content)
+    {
+        using var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(content);
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        form.Add(file, "file", fileName);
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = form };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+        var response = await Spa.Http.SendAsync(request, CancellationToken);
+        await response.Content.LoadIntoBufferAsync(CancellationToken);
+        return response;
+    }
+
     /// <summary>Uploads a committed fixture; returns its version id (processing is queued).</summary>
     public async Task<Guid> UploadAsync(string fixture, string? fileName = null)
     {

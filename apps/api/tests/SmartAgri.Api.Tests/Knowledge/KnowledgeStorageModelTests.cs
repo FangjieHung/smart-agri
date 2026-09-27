@@ -40,7 +40,7 @@ public class KnowledgeStorageModelTests
     {
         using var dbContext = TenancyTestContexts.Create(Guid.NewGuid());
 
-        var sql = KnowledgeItemStates.Of(dbContext.KnowledgeDocuments, dbContext.KnowledgeDocumentVersions).ToQueryString();
+        var sql = KnowledgeItemStates.Of(dbContext.KnowledgeDocuments, dbContext.KnowledgeDocumentVersions, DateTimeOffset.UtcNow).ToQueryString();
 
         sql.ShouldContain("\"KnowledgeDocumentVersions\"");
         sql.ShouldNotContain("KnowledgeFileContents");

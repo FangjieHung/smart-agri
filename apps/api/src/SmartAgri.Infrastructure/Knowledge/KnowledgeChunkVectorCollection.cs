@@ -150,8 +150,9 @@ public sealed class KnowledgeChunkVectorCollection : VectorStoreCollection<Guid,
     /// tracks (read through it, then e.g. <see cref="KnowledgeChunk.SetEmbedding"/>) writes only
     /// what changed — <c>reindex</c> relies on that, so an exclusion the owner changes meanwhile
     /// is not overwritten. Any other record replaces the stored row with its id, or is inserted
-    /// when there is none (its version and unit must exist). The write guard refuses records of
-    /// another organization.
+    /// when there is none (its version and unit must exist). Only the chunk row itself is
+    /// written, never an entity reachable from it (<see cref="KnowledgeChunk.Version"/>). The
+    /// write guard refuses records of another organization.
     /// </summary>
     public override async Task UpsertAsync(IEnumerable<KnowledgeChunk> records, CancellationToken cancellationToken = default)
     {
@@ -167,14 +168,9 @@ public sealed class KnowledgeChunkVectorCollection : VectorStoreCollection<Guid,
                 .ToListAsync(cancellationToken)).ToHashSet();
             foreach (var record in untracked)
             {
-                if (existing.Contains(record.Id))
-                {
-                    _dbContext.KnowledgeChunks.Update(record);
-                }
-                else
-                {
-                    _dbContext.KnowledgeChunks.Add(record);
-                }
+                // The entry's state, not DbSet.Update/Add: those would also start tracking (and
+                // write) the version a record created in memory links to.
+                _dbContext.Entry(record).State = existing.Contains(record.Id) ? EntityState.Modified : EntityState.Added;
             }
         }
 

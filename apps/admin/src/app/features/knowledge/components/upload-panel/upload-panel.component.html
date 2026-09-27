@@ -1,0 +1,53 @@
+<div class="upload-panel">
+  <div class="upload-dropzone" (dragover)="onDragOver($event)" (drop)="onDrop($event)">
+    <label class="upload-label">
+      <input type="file" multiple [attr.accept]="accept" (change)="onFilesSelected($event)" />
+      選擇檔案或拖放到這裡上傳
+    </label>
+    <p class="hint">
+      支援 PDF、Word（.docx）、Excel（.xlsx）、純文字（.txt）與 Markdown（.md），單檔最大 {{ maxFileMegabytes }} MB。
+    </p>
+  </div>
+
+  @if (items().length > 0) {
+    <ul class="upload-list" aria-label="上傳清單">
+      @for (item of items(); track item.localId) {
+        <li class="upload-item" [attr.data-status]="item.status">
+          <span class="upload-name">{{ item.file.name }}</span>
+          @switch (item.status) {
+            @case ('queued') {
+              <span class="upload-state">等待上傳</span>
+            }
+            @case ('uploading') {
+              <progress class="upload-progress" [value]="item.percent" max="100"></progress>
+              <span class="upload-state">上傳中 {{ item.percent }}%</span>
+            }
+            @case ('succeeded') {
+              <span class="upload-state upload-state--success">上傳成功</span>
+            }
+            @case ('rejected') {
+              <span class="upload-state upload-state--error" role="alert">{{ item.message }}</span>
+              <div class="upload-actions">
+                @if (canRetryAsNewVersion(item)) {
+                  <button type="button" class="upload-retry" (click)="retryAsNewVersion(item)">
+                    改為上傳新版本<span class="visually-hidden">{{ item.file.name }}</span>
+                  </button>
+                }
+                <button type="button" class="upload-retry" (click)="retry(item)">
+                  重新上傳<span class="visually-hidden">{{ item.file.name }}</span>
+                </button>
+                <button type="button" class="upload-dismiss" (click)="dismiss(item)">
+                  移除<span class="visually-hidden">{{ item.file.name }}</span>
+                </button>
+              </div>
+            }
+          }
+        </li>
+      }
+    </ul>
+    @let counts = summary();
+    <p class="upload-summary" role="status">
+      共 {{ counts.total }} 檔：成功 {{ counts.succeeded }} 檔、失敗 {{ counts.rejected }} 檔@if (counts.pending > 0) {，上傳中 {{ counts.pending }} 檔}。
+    </p>
+  }
+</div>

@@ -380,4 +380,115 @@ describe('MockDemoRepository knowledge bases', () => {
       expect(detail.shareTargets.map((target) => target.id)).toEqual([EMPLOYEE, CUSTOMER]);
     });
   });
+
+  describe('uploads (issue #46)', () => {
+    function file(name: string, size: number, type = 'application/pdf'): File {
+      return new File([new Uint8Array(size)], name, { type });
+    }
+
+    it('is a cold Observable: nothing is written until subscribed', async () => {
+      const repository = createRepository();
+      const upload = repository.uploadKnowledgeDocument('knowledge-product-guide', file('未訂閱.pdf', 10));
+
+      expect((await detailOf(repository, 'knowledge-product-guide')).documents.some((d) => d.name === '未訂閱.pdf')).toBe(
+        false,
+      );
+
+      await firstValueFrom(upload);
+      expect((await detailOf(repository, 'knowledge-product-guide')).documents.some((d) => d.name === '未訂閱.pdf')).toBe(
+        true,
+      );
+    });
+
+    it('accepts a new file, queues it, and lets it become ready after the mock’s processing time', async () => {
+      const clock = { now: START };
+      const repository = createRepository({ clock });
+
+      const result = await firstValueFrom(
+        repository.uploadKnowledgeDocument('knowledge-product-guide', file('新品錄影腳本.pdf', 1024)),
+      );
+      expect(result).toMatchObject({ status: 'ready', data: { name: '新品錄影腳本.pdf', status: 'queued' } });
+
+      clock.now = START + MOCK_KNOWLEDGE_QUEUED_MS + MOCK_KNOWLEDGE_PROCESSING_MS + 1;
+      const detail = await detailOf(repository, 'knowledge-product-guide');
+      expect(detail.documents.find((d) => d.name === '新品錄影腳本.pdf')).toMatchObject({ status: 'ready' });
+    });
+
+    it('rejects an unsupported extension without writing anything', async () => {
+      const repository = createRepository();
+
+      const result = await firstValueFrom(
+        repository.uploadKnowledgeDocument('knowledge-product-guide', file('病毒.exe', 10, 'application/octet-stream')),
+      );
+
+      expect(result).toMatchObject({ status: 'rejected', reason: 'unsupported-file-type' });
+      expect((await detailOf(repository, 'knowledge-product-guide')).documents.some((d) => d.name === '病毒.exe')).toBe(
+        false,
+      );
+    });
+
+    it('rejects a file larger than the limit', async () => {
+      const repository = createRepository();
+
+      const result = await firstValueFrom(
+        repository.uploadKnowledgeDocument('knowledge-product-guide', file('太大.pdf', 21 * 1024 * 1024)),
+      );
+
+      expect(result).toMatchObject({ status: 'rejected', reason: 'file-too-large' });
+    });
+
+    it('rejects a duplicate name, pointing at uploading a new version instead', async () => {
+      const repository = createRepository();
+
+      const result = await firstValueFrom(
+        repository.uploadKnowledgeDocument('knowledge-product-guide', file('商品規格總表.pdf', 10)),
+      );
+
+      expect(result).toEqual({
+        status: 'rejected',
+        reason: 'duplicate-name',
+        message: '這個知識庫已經有名為「商品規格總表.pdf」的文件。要更新它的內容，請改用「上傳新版本」。',
+      });
+    });
+
+    it('rejects content identical (by size) to a file already uploaded in this browser, naming the existing document', async () => {
+      const repository = createRepository();
+      await firstValueFrom(repository.uploadKnowledgeDocument('knowledge-product-guide', file('第一次.pdf', 4321)));
+
+      const result = await firstValueFrom(
+        repository.uploadKnowledgeDocument('knowledge-product-guide', file('第二次.pdf', 4321)),
+      );
+
+      expect(result).toEqual({
+        status: 'rejected',
+        reason: 'duplicate-content',
+        message: '這份檔案的內容與「第一次.pdf」完全相同，不需要重複上傳。',
+        existingDocumentName: '第一次.pdf',
+      });
+    });
+
+    it('returns the same permission-denied as other knowledge methods for someone else’s knowledge base', async () => {
+      const repository = createRepository({ viewer: EMPLOYEE });
+
+      const result = await firstValueFrom(
+        repository.uploadKnowledgeDocument('knowledge-product-guide', file('x.pdf', 10)),
+      );
+
+      expect(result).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+    });
+
+    it('uploads a new version of an existing document without touching its name', async () => {
+      const repository = createRepository();
+
+      const result = await firstValueFrom(
+        repository.uploadKnowledgeDocumentVersion(
+          'knowledge-product-guide',
+          'document-guide-specs',
+          file('商品規格總表-v2.pdf', 10),
+        ),
+      );
+
+      expect(result).toMatchObject({ status: 'ready', data: { id: 'document-guide-specs', name: '商品規格總表.pdf', status: 'queued' } });
+    });
+  });
 });

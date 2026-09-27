@@ -43,6 +43,7 @@ import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status
 import { DocumentRowComponent } from '../components/document-row/document-row.component';
 import { DOCUMENT_STATUS_LABELS, SHARING_SCOPE_LABELS } from '../components/knowledge-labels';
 import { SharingPanelComponent } from '../components/sharing-panel/sharing-panel.component';
+import { UploadPanelComponent } from '../components/upload-panel/upload-panel.component';
 
 /** 有等待中或處理中的項目時，每隔這麼久重新讀取一次詳情（分頁隱藏時暫停）。 */
 export const KNOWLEDGE_DETAIL_POLL_MS = 3000;
@@ -90,6 +91,7 @@ function hasPendingDocuments(view: RepositoryView<KnowledgeBaseDetailView>): boo
     StatusBadgeComponent,
     DocumentRowComponent,
     SharingPanelComponent,
+    UploadPanelComponent,
   ],
   templateUrl: './knowledge-detail-page.component.html',
   styleUrl: './knowledge-detail-page.component.scss',
@@ -174,6 +176,11 @@ export class KnowledgeDetailPageComponent {
 
   protected isBusy(document: KnowledgeDocumentView): boolean {
     return this.busyDocuments().has(document.id);
+  }
+
+  /** 上傳成功後重新讀取：處理進度改由既有的輪詢接手（issue #46）。 */
+  protected handleUploaded(): void {
+    this.detail.reload();
   }
 
   protected retryDocument(detail: KnowledgeBaseDetailView, document: KnowledgeDocumentView): void {

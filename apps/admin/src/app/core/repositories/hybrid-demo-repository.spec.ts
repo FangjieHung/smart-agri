@@ -1,4 +1,4 @@
-import { HttpClient, provideHttpClient } from '@angular/common/http';
+import { HttpClient, HttpEventType, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -16,6 +16,8 @@ import {
   API_TEAM_PATH,
   apiKnowledgeBasePath,
   apiKnowledgeDocumentPath,
+  apiKnowledgeDocumentsPath,
+  apiKnowledgeDocumentVersionsPath,
   apiKnowledgeRetryPath,
   apiKnowledgeSharingPath,
   apiMemberPermissionsPath,
@@ -844,9 +846,141 @@ describe('HybridDemoRepository knowledge bases', () => {
     const { repository } = setUpKnowledge();
     repository.createKnowledgeBase({ name: '未訂閱', purpose: '' });
     repository.deleteKnowledgeBase(KB_ID);
+    repository.uploadKnowledgeDocument(KB_ID, testFile());
 
     controller.expectNone(API_KNOWLEDGE_BASES_PATH);
     controller.expectNone(apiKnowledgeBasePath(KB_ID));
+    controller.expectNone(apiKnowledgeDocumentsPath(KB_ID));
+  });
+});
+
+function testFile(name = 'x.pdf'): File {
+  return new File([new Uint8Array(10)], name, { type: 'application/pdf' });
+}
+
+describe('HybridDemoRepository uploads (issue #46)', () => {
+  let controller: HttpTestingController;
+
+  function setUpUploads() {
+    const setup = setUp();
+    controller = setup.controller;
+    return setup;
+  }
+
+  afterEach(() => controller.verify());
+
+  it('uploads over HTTP as multipart form data, reporting progress before the final result', async () => {
+    const { repository } = setUpUploads();
+    const events: unknown[] = [];
+    repository.uploadKnowledgeDocument(KB_ID, testFile('新規格書.pdf')).subscribe((event) => events.push(event));
+
+    const request = controller.expectOne({ method: 'POST', url: apiKnowledgeDocumentsPath(KB_ID) });
+    expect(request.request.body).toBeInstanceOf(FormData);
+    expect((request.request.body as FormData).get('file')).toBeInstanceOf(File);
+
+    request.event({ type: HttpEventType.UploadProgress, loaded: 5, total: 10 });
+    request.flush(apiDocument({ name: '新規格書.pdf' }), { status: 201, statusText: 'Created' });
+
+    expect(events).toEqual([
+      { status: 'progress', percent: 50 },
+      { status: 'ready', data: expect.objectContaining({ name: '新規格書.pdf' }) },
+    ]);
+  });
+
+  it('turns a 413 into a rejected result', async () => {
+    const { repository } = setUpUploads();
+    const result = pending(repository.uploadKnowledgeDocument(KB_ID, testFile()));
+
+    controller.expectOne(apiKnowledgeDocumentsPath(KB_ID)).flush(
+      { reason: 'file-too-large', message: '檔案超過 20 MB 的上限，請分割或壓縮後再上傳。' },
+      { status: 413, statusText: 'Content Too Large' },
+    );
+
+    expect(await result).toEqual({
+      status: 'rejected',
+      reason: 'file-too-large',
+      message: '檔案超過 20 MB 的上限，請分割或壓縮後再上傳。',
+    });
+  });
+
+  it('turns a 415 into a rejected result', async () => {
+    const { repository } = setUpUploads();
+    const result = pending(repository.uploadKnowledgeDocument(KB_ID, testFile()));
+
+    controller.expectOne(apiKnowledgeDocumentsPath(KB_ID)).flush(
+      { reason: 'unsupported-file-type', message: '只支援 PDF、Word（.docx）、Excel（.xlsx）、純文字（.txt）與 Markdown（.md）檔案。' },
+      { status: 415, statusText: 'Unsupported Media Type' },
+    );
+
+    expect(await result).toEqual({
+      status: 'rejected',
+      reason: 'unsupported-file-type',
+      message: '只支援 PDF、Word（.docx）、Excel（.xlsx）、純文字（.txt）與 Markdown（.md）檔案。',
+    });
+  });
+
+  it('turns a 422 duplicate-content into a rejected result naming the existing document', async () => {
+    const { repository } = setUpUploads();
+    const result = pending(repository.uploadKnowledgeDocument(KB_ID, testFile()));
+
+    controller.expectOne(apiKnowledgeDocumentsPath(KB_ID)).flush(
+      {
+        reason: 'duplicate-content',
+        message: '這份檔案的內容與「開店檢查表.pdf」完全相同，不需要重複上傳。',
+        existingDocumentName: '開店檢查表.pdf',
+        errors: { file: ['這份檔案的內容與「開店檢查表.pdf」完全相同，不需要重複上傳。'] },
+      },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({
+      status: 'rejected',
+      reason: 'duplicate-content',
+      message: '這份檔案的內容與「開店檢查表.pdf」完全相同，不需要重複上傳。',
+      existingDocumentName: '開店檢查表.pdf',
+    });
+  });
+
+  it('turns a 403 into the knowledge-base permission-denied, like the other document endpoints', async () => {
+    const { repository } = setUpUploads();
+    const result = pending(repository.uploadKnowledgeDocument(KB_ID, testFile()));
+
+    controller.expectOne(apiKnowledgeDocumentsPath(KB_ID)).flush(KNOWLEDGE_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toMatchObject({ status: 'permission-denied', reason: 'knowledge-base' });
+  });
+
+  it('leaves server errors to the screen', async () => {
+    const { repository } = setUpUploads();
+    const result = pending(repository.uploadKnowledgeDocument(KB_ID, testFile())).catch((error: unknown) => error);
+
+    controller.expectOne(apiKnowledgeDocumentsPath(KB_ID)).flush(null, { status: 500, statusText: 'Server Error' });
+
+    expect(await result).toMatchObject({ status: 500 });
+  });
+
+  it('uploads a new version to the versions endpoint', async () => {
+    const { repository } = setUpUploads();
+    const result = pending(repository.uploadKnowledgeDocumentVersion(KB_ID, DOC_ID, testFile('開店檢查表-v2.pdf')));
+
+    const request = controller.expectOne({ method: 'POST', url: apiKnowledgeDocumentVersionsPath(KB_ID, DOC_ID) });
+    request.flush(apiDocument(), { status: 201, statusText: 'Created' });
+
+    expect(await result).toMatchObject({ status: 'ready', data: { id: DOC_ID } });
+  });
+
+  it('turns a 409 on a new version into a rejected result', async () => {
+    const { repository } = setUpUploads();
+    const result = pending(repository.uploadKnowledgeDocumentVersion(KB_ID, DOC_ID, testFile()));
+
+    controller.expectOne(apiKnowledgeDocumentVersionsPath(KB_ID, DOC_ID)).flush(
+      { reason: 'concurrent-version-upload', message: '這份文件剛剛有另一個新版本上傳完成，請重新整理後再試一次。' },
+      { status: 409, statusText: 'Conflict' },
+    );
+
+    // 409 目前不是逐檔的 rejected 原因之一（後端保留給併發競賽，見 KnowledgeDocumentEndpoints）；
+    // 這裡沒有特別轉換，交給畫面的一般錯誤處理。
+    expect(await result.catch((error: unknown) => error)).toMatchObject({ status: 409 });
   });
 });
 

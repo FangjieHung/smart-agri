@@ -472,10 +472,11 @@ public static class AssistantEndpoints
     }
 
     /// <summary>
-    /// Deletes the assistant and its source connections (database cascade). Later Slices add
-    /// their own tables here: from #76, every account's <c>ChatThread</c>s for this assistant
-    /// must be deleted in the same save (M3 plan §7 decision G — deleting an assistant deletes
-    /// everyone's conversations with it, and the confirmation text must say so).
+    /// Deletes the assistant, its source connections, its shares, and — since #76 —
+    /// every account's <see cref="Domain.Chat.ChatThread"/>s with it, all by database cascade
+    /// (<c>ChatThreadConfiguration</c>): one <c>DELETE</c> here removes everyone's
+    /// conversations with this assistant in the same transaction (M3 plan §7 decision G — the
+    /// confirmation text must say so).
     /// </summary>
     internal static async Task<IResult> DeleteAsync(
         Guid id,

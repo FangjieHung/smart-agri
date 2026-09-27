@@ -107,5 +107,6 @@ public sealed class AnswerEvalScoringTests
         LocationLabel: "第 1 頁",
         Excerpt: "節錄",
         Text: "原文",
-        Score: 0.9);
+        Score: 0.9,
+        VersionEffectiveFrom: null);
 }

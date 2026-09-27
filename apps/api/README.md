@@ -5,9 +5,9 @@
 
 ```
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
-src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing); Domain + abstraction packages only
-src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), Dockerfile, migrate + setup subcommands
+src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing), job handler contract; Domain + abstraction packages only
+src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -32,6 +32,12 @@ Every entity implementing `IOrganizationScoped` (Domain) is isolated automatical
   `OrganizationId` is also a concurrency token, so updates/deletes by key match on it.
 - **Turning the filter off** is allowed in one place only, `AccountLookup` (sign-in
   lookup by organization code + login name); a source-scanning test enforces this.
+- **Raw SQL** (which neither the filter nor the write guard sees) is allowed in one place
+  only, `JobClaimer` (claiming background jobs across organizations, see below); the
+  same source-scanning test class enforces this.
+- **Background jobs** run in a scope whose organization is the job's
+  (`JobOrganizationScope`, entered only by `JobRunner`), so the filter and the write
+  guard apply to job handlers exactly as to requests.
 
 `OrganizationModelTests` fails if a new entity is neither organization scoped nor on its
 short whitelist (`Organization`, Identity role tables, OpenIddict's tables). Accounts'
@@ -254,6 +260,44 @@ dotnet run --project apps/api/src/SmartAgri.Api
 
 The customer-deploy container (`apps/api/src/SmartAgri.Api/Dockerfile`) does exactly
 this in its entrypoint script before starting the web server.
+
+## Background jobs
+
+Background work (document processing from M2 on, later periodic reports) runs on a
+PostgreSQL table used as a queue, inside the Api process
+(`docs/adr/2026-09-25-background-jobs-on-postgresql.md`, M2 plan Slice 4):
+
+- **Enqueue** by adding a row in the same save as the business rows it is about, so both
+  commit or neither does:
+  `dbContext.BackgroundJobs.Add(BackgroundJob.Create(organizationId, kind, payload, clock.GetUtcNow()))`.
+  Payloads are small JSON (ids, never document content).
+- **Handle** a kind by implementing `IJobHandler` (Application) and registering it with
+  `builder.Services.AddJobHandler<THandler>("kind")`. Each run gets a fresh scope acting
+  for the job's organization. Delivery is at least once, so handlers must be idempotent.
+- **Claiming** (`JobClaimer`) is one `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED
+  LIMIT 1) RETURNING …`: concurrent runners never get the same job, and a job still
+  `running` after its lease (`Jobs:LeaseDuration`) expired — its process stopped — is
+  claimed again. Only kinds with a registered handler are claimed.
+- **Failures:** throwing `PermanentJobFailure` (or a `CrossOrganizationWriteException`)
+  fails the job at once; any other exception retries it with exponential backoff until
+  its `MaxAttempts`. On failing for good, the handler's `OnFinalFailureAsync` runs in the
+  same transaction as marking the job `failed`. `LastError` keeps the latest error.
+- **Telemetry:** one `smartagri.job` span per run (tags `smartagri.job.kind`,
+  `smartagri.job.attempt`, `smartagri.job.outcome`, `smartagri.organization_id`) and the
+  gauge `smartagri.jobs.queued` (per kind, refreshed every 15 s by the worker).
+
+Configuration (section `Jobs`, e.g. `Jobs__Concurrency=2` as an environment variable):
+
+| Key | Default | |
+| --- | --- | --- |
+| `WorkerEnabled` | `true` | Run `JobWorker` in this process. |
+| `PollInterval` | `00:00:02` | Wait after finding nothing to claim. |
+| `Concurrency` | `1` | Jobs run at the same time by this process. |
+| `LeaseDuration` | `00:10:00` | Must exceed any handler's run time. |
+| `RetryBaseDelay` / `RetryMaxDelay` | `00:00:30` / `00:30:00` | Backoff: base, doubling, capped. |
+
+Integration tests turn the worker off (`AuthHostFixture`) and call
+`JobRunner.RunUntilIdleAsync()` themselves, moving the test clock for backoff and leases.
 
 ## Development seed data
 

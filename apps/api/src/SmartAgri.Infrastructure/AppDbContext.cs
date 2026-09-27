@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
+using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
 using SmartAgri.Infrastructure.Tenancy;
@@ -73,6 +75,10 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     public DbSet<KnowledgeBaseShare> KnowledgeBaseShares => Set<KnowledgeBaseShare>();
 
     public DbSet<KnowledgeActivity> KnowledgeActivities => Set<KnowledgeActivity>();
+
+    /// <summary>The background job queue (M2 plan, Slice 4). Enqueue by adding a
+    /// <see cref="BackgroundJob"/> in the same save as the rows it is about.</summary>
+    public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
 
     /// <summary>
     /// Pinned so the model (and therefore the migrations) never depends on whatever
@@ -159,6 +165,10 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new KnowledgeBaseConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeBaseShareConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeActivityConfiguration());
+
+        // Background jobs (M2 plan, Slice 4): organization scoped like everything else;
+        // only Jobs/JobClaimer reads the table across organizations.
+        modelBuilder.ApplyConfiguration(new BackgroundJobConfiguration());
 
         ApplyOrganizationScope(modelBuilder);
     }

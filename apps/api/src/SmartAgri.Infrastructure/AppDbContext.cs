@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
@@ -13,6 +14,7 @@ using Pgvector.EntityFrameworkCore;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Ai;
 using SmartAgri.Infrastructure.Assistants;
+using SmartAgri.Infrastructure.Chat;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
@@ -104,6 +106,15 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     public DbSet<AssistantDraft> AssistantDrafts => Set<AssistantDraft>();
     /// <summary>An account an assistant is shared with — "平台內分享" (M3 plan §4/§5 Slice 3).</summary>
     public DbSet<AssistantShare> AssistantShares => Set<AssistantShare>();
+
+    /// <summary>One account's private conversation with one assistant (M3 plan §4; #76).</summary>
+    public DbSet<ChatThread> ChatThreads => Set<ChatThread>();
+
+    /// <summary>A thread's turns, saved only for a validated assistant reply (#76/#77).</summary>
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+
+    /// <summary>A <c>company-data</c> message's cited passages, as a snapshot (#76).</summary>
+    public DbSet<ChatMessageCitation> ChatMessageCitations => Set<ChatMessageCitation>();
 
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
@@ -216,6 +227,11 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new AssistantKnowledgeBaseConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantDraftConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantShareConfiguration());
+
+        // Conversations (M3 plan §4; #76).
+        modelBuilder.ApplyConfiguration(new ChatThreadConfiguration());
+        modelBuilder.ApplyConfiguration(new ChatMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new ChatMessageCitationConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

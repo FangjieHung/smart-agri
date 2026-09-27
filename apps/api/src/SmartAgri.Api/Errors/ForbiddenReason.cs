@@ -83,6 +83,17 @@ public sealed class ForbiddenReason
         "你沒有這個助理的發布設定存取權限，或它已不存在。");
 
     /// <summary>
+    /// A conversation thread (<c>threadId</c>) that does not exist, belongs to another
+    /// organization, or belongs to another account — including another account the caller's
+    /// assistant is shared with, and the assistant's own owner when the thread is someone
+    /// else's. Same bytes whether the id is missing or simply not the caller's own (M3 plan,
+    /// Slice 6 acceptance; #76): a <c>threadId</c> is always treated as unauthenticated input.
+    /// </summary>
+    public static readonly ForbiddenReason ChatThread = new(
+        "chat-thread",
+        "你沒有這段對話的存取權限，或它已不存在。");
+
+    /// <summary>
     /// The account still has the one-time password from <c>setup</c>: until it sets its own
     /// (<c>POST /api/v1/auth/change-password</c>), every protected endpoint except
     /// <c>GET /api/v1/me</c> answers with this (see <c>PasswordChangeGate</c>). New in

@@ -1,0 +1,42 @@
+{
+  "knowledgeBases": [
+    {
+      "name": "商品使用指南",
+      "purpose": "商品的規格與保存方式",
+      "documents": [
+        {
+          "versions": [
+            { "file": "files/product-guide.md", "fileName": "商品使用指南.md" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "退換貨政策",
+      "purpose": "退換貨與退款規則",
+      "documents": [
+        {
+          "versions": [
+            { "file": "files/return-policy.md", "fileName": "退換貨辦法.md" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "常見問題與公告",
+      "purpose": "常見問題與系統公告",
+      "documents": [
+        {
+          "versions": [
+            { "file": "files/faq.md", "fileName": "常見問題.md" }
+          ]
+        },
+        {
+          "versions": [
+            { "file": "files/notice.md", "fileName": "系統公告.md" }
+          ]
+        }
+      ]
+    }
+  ]
+}

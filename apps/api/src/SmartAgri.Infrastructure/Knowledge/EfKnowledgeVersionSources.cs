@@ -60,6 +60,7 @@ public sealed class EfKnowledgeVersionSources : IKnowledgeVersionSources
                 version.DocumentId,
                 version.DocumentName,
                 version.VersionNumber,
-                KnowledgeVersionStates.Of(version.ReviewState, version.EffectiveFrom, inEffect.Contains(version.Id), now)));
+                KnowledgeVersionStates.Of(version.ReviewState, version.EffectiveFrom, inEffect.Contains(version.Id), now),
+                version.EffectiveFrom));
     }
 }

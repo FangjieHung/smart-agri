@@ -215,6 +215,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chat/recent-conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RecentConversationView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login-options": {
         parameters: {
             query?: never;
@@ -2471,6 +2513,373 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistant-drafts/{id}/trial-answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TrialAnswerRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TrialAnswerResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatThreadListView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantChatView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/conversations/{threadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    threadId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatThreadListView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    threadId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RenameChatThreadRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatThreadSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    conversation?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantChatView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/citations/{messageId}/{ordinal}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    messageId: string;
+                    ordinal: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatCitationDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2494,6 +2903,20 @@ export interface components {
             refusalMessage: string;
             showCitations: boolean;
             keepConversations: boolean;
+        };
+        AssistantChatView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            purpose: string;
+            /** Format: uuid */
+            threadId: null | string;
+            title: string;
+            historyMode: string;
+            welcome: string;
+            privacyNotice: string;
+            suggestedPrompts: components["schemas"]["ChatSuggestedPromptView"][];
+            messages: components["schemas"]["ChatMessageView"][];
         };
         AssistantConfigurationView: {
             /** Format: uuid */
@@ -2553,6 +2976,60 @@ export interface components {
             currentPassword: null | string;
             newPassword: null | string;
         };
+        ChatCitationDetailView: {
+            id: string;
+            knowledgeBaseName: string;
+            documentName: string;
+            locationLabel: string;
+            /** Format: int32 */
+            versionNumber: number;
+            updatedLabel: string;
+            text: string;
+        };
+        ChatCitationView: {
+            id: string;
+            knowledgeBaseName: string;
+            documentName: string;
+            excerpt: string;
+            updatedLabel: string;
+        };
+        ChatMessageView: {
+            /** Format: uuid */
+            id: string;
+            author: string;
+            text: null | string;
+            reply: null | components["schemas"]["ChatReplyView"];
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ChatReplyView: {
+            kind: string;
+            text: string;
+            citations: components["schemas"]["ChatCitationView"][];
+            notice: null | string;
+            nextSteps: string[];
+        };
+        ChatSuggestedPromptView: {
+            id: string;
+            text: string;
+        };
+        ChatThreadListView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            historyMode: string;
+            threads: components["schemas"]["ChatThreadSummaryView"][];
+            historyNotice: string;
+        };
+        ChatThreadSummaryView: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** Format: int32 */
+            messageCount: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         ConnectableSourceView: {
             /** Format: uuid */
             id: string;
@@ -2593,6 +3070,8 @@ export interface components {
         DisableKnowledgeDocumentRequest: {
             reason: null | string;
         };
+        /** @enum {unknown} */
+        GroundedReplyKind: "company-data" | "general-knowledge" | "no-result";
         /** Format: binary */
         IFormFile: string;
         JsonElement: unknown;
@@ -2860,6 +3339,21 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        RecentConversationView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            /** Format: uuid */
+            threadId: string;
+            title: string;
+            /** Format: int32 */
+            messageCount: number;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        RenameChatThreadRequest: {
+            title: null | string;
+        };
         SaveAssistantDraftRequest: {
             payload: components["schemas"]["JsonElement"];
             /** Format: int32 */
@@ -2887,6 +3381,48 @@ export interface components {
             members: components["schemas"]["TeamMemberResponse"][];
             /** Format: date-time */
             savedAt: null | string;
+        };
+        TrialAnswerCitationView: {
+            /** Format: int32 */
+            ordinal: number;
+            /** Format: uuid */
+            knowledgeBaseId: string;
+            knowledgeBaseName: string;
+            /** Format: uuid */
+            documentId: string;
+            documentName: string;
+            locationLabel: string;
+            excerpt: string;
+            /** Format: double */
+            score: number;
+        };
+        TrialAnswerPassageView: {
+            /** Format: uuid */
+            knowledgeBaseId: string;
+            knowledgeBaseName: string;
+            /** Format: uuid */
+            documentId: string;
+            documentName: string;
+            locationLabel: string;
+            excerpt: string;
+            /** Format: double */
+            score: number;
+        };
+        TrialAnswerReplyView: {
+            kind: components["schemas"]["GroundedReplyKind"];
+            text: string;
+            citations: components["schemas"]["TrialAnswerCitationView"][];
+            notice: null | string;
+            nextSteps: string[];
+        };
+        TrialAnswerRequest: {
+            question: null | string;
+        };
+        TrialAnswerResponse: {
+            reply: components["schemas"]["TrialAnswerReplyView"];
+            passages: components["schemas"]["TrialAnswerPassageView"][];
+            /** Format: double */
+            threshold: number;
         };
         UpdateAssistantSettingsRequest: {
             name?: null | string;

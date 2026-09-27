@@ -259,7 +259,7 @@ public sealed class GroundedAnswerService
     }
 
     private static ChatOptions Options(GroundedAnswerRequest request) =>
-        new ModelInvocationAttribution(ModelInvocationPurpose.GenerateAnswer, request.AccountId, request.AssistantId).ToChatOptions();
+        new ModelInvocationAttribution(request.Purpose, request.AccountId, request.AssistantId).ToChatOptions();
 
     /// <summary>Whether <paramref name="answer"/> so far could still be (or already is)
     /// <see cref="ChatAnswerMarkers.CannotAnswer"/>: held back instead of streamed, so the marker

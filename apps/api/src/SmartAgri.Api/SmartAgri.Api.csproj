@@ -67,6 +67,12 @@
       include apps/api/eval (the glob then matches nothing).
     -->
     <None Include="..\..\eval\retrieval\**\*" Exclude="..\..\eval\retrieval\generator\**;..\..\eval\retrieval\private\**;..\..\eval\retrieval\README.md;..\..\eval\retrieval\.gitattributes" LinkBase="eval\retrieval" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+    <!--
+      The answer evaluation set (M3 plan, Slice 13; ticket #83): `eval-answers` reads it from
+      eval/answers next to the assembly (AnswerEvalSet.DefaultDirectory). Development-only, like
+      eval/retrieval above, and never published.
+    -->
+    <None Include="..\..\eval\answers\**\*" Exclude="..\..\eval\answers\README.md" LinkBase="eval\answers" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <!--

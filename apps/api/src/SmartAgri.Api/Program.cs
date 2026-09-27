@@ -21,6 +21,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 builder.Services.AddOrganizationTenancy();
 builder.Services.AddBackgroundJobs(builder.Configuration);
+builder.Services.AddKnowledge(builder.Configuration);
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
@@ -84,6 +85,7 @@ app.MapAuthEndpoints();
 app.MapMeEndpoints();
 app.MapTeamEndpoints();
 app.MapKnowledgeBaseEndpoints();
+app.MapKnowledgeDocumentEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

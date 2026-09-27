@@ -40,13 +40,28 @@ public class JobOptionsTests
         });
 
         var options = factory.Services.GetRequiredService<IOptions<JobOptions>>().Value;
-        options.WorkerEnabled.ShouldBeTrue();
         options.Concurrency.ShouldBe(3);
         options.PollInterval.ShouldBe(TimeSpan.FromSeconds(5));
         factory.Services.GetServices<IHostedService>().OfType<JobWorker>().ShouldHaveSingleItem();
 
-        // No handler is registered yet (M2 plan, Slice 6 adds document processing), so the
-        // worker never polls the database.
-        factory.Services.GetRequiredService<JobRunner>().Kinds.ShouldBeEmpty();
+        // Registered by the Api itself (document processing, M2 plan Slice 5). Because
+        // there is a handler, the worker would poll the configured database: every test
+        // host has it turned off (TestHostDefaults), which is also what this host sees.
+        factory.Services.GetRequiredService<JobRunner>().Kinds.ShouldBe(["knowledge.process-version"]);
+        options.WorkerEnabled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void A_test_host_can_still_turn_the_worker_on()
+    {
+        // UseSetting wins over TestHostDefaults' environment variable. The database is
+        // unreachable, so the worker that starts here finds nothing to do.
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:Default", Infrastructure.PostgresFixture.UnreachableConnectionString);
+            builder.UseSetting("Jobs:WorkerEnabled", "true");
+        });
+
+        factory.Services.GetRequiredService<IOptions<JobOptions>>().Value.WorkerEnabled.ShouldBeTrue();
     }
 }

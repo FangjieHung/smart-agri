@@ -76,6 +76,14 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
     public DbSet<KnowledgeActivity> KnowledgeActivities => Set<KnowledgeActivity>();
 
+    public DbSet<KnowledgeDocument> KnowledgeDocuments => Set<KnowledgeDocument>();
+
+    public DbSet<KnowledgeDocumentVersion> KnowledgeDocumentVersions => Set<KnowledgeDocumentVersion>();
+
+    /// <summary>Original files (<c>bytea</c>). Only downloads and background processing
+    /// query this set; nothing navigates to it, so no other query loads file bytes.</summary>
+    public DbSet<KnowledgeFileContent> KnowledgeFileContents => Set<KnowledgeFileContent>();
+
     /// <summary>The background job queue (M2 plan, Slice 4). Enqueue by adding a
     /// <see cref="BackgroundJob"/> in the same save as the rows it is about.</summary>
     public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
@@ -165,6 +173,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new KnowledgeBaseConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeBaseShareConfiguration());
         modelBuilder.ApplyConfiguration(new KnowledgeActivityConfiguration());
+        modelBuilder.ApplyConfiguration(new KnowledgeDocumentConfiguration());
+        modelBuilder.ApplyConfiguration(new KnowledgeDocumentVersionConfiguration());
+        modelBuilder.ApplyConfiguration(new KnowledgeFileContentConfiguration());
 
         // Background jobs (M2 plan, Slice 4): organization scoped like everything else;
         // only Jobs/JobClaimer reads the table across organizations.

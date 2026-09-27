@@ -26,8 +26,8 @@ internal sealed class KnowledgeBaseConfiguration : IEntityTypeConfiguration<Know
             .IsRequired();
 
         // Target of the composite foreign keys from the knowledge base's own rows
-        // (KnowledgeBaseShares now, documents and versions in later slices), so the
-        // database refuses a child row whose organization differs from its knowledge base's.
+        // (KnowledgeBaseShares, KnowledgeDocuments), so the database refuses a child row
+        // whose organization differs from its knowledge base's.
         builder.HasAlternateKey(knowledgeBase => new { knowledgeBase.Id, knowledgeBase.OrganizationId });
 
         // The owner must be an account of the same organization. Restrict: an account that

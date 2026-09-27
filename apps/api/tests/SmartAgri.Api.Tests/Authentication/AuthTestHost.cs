@@ -137,10 +137,15 @@ public class AuthHostFixture : IAsyncLifetime
     }
 }
 
-/// <summary>A settable clock starting at the real current time.</summary>
+/// <summary>
+/// A settable clock starting at the real current time plus 7 ticks. The extra sub-microsecond
+/// ticks make every run behave like Linux, whose clock has 100 ns resolution: a timestamp that
+/// is not truncated to PostgreSQL's microseconds before a response is built then fails here on
+/// macOS too, instead of only in CI.
+/// </summary>
 public sealed class TestClock : TimeProvider
 {
-    private TimeSpan _offset = TimeSpan.Zero;
+    private TimeSpan _offset = TimeSpan.FromTicks(7);
 
     public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + _offset;
 

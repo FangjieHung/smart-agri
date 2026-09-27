@@ -3,7 +3,9 @@
     title="首頁"
     description="從這裡開始建立、整理與發布你的 AI 助理。"
   >
-    <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
+    @if (canCreateAssistant()) {
+      <a page-header-actions class="ui-button" routerLink="/app/assistants/new/purpose">建立新助理</a>
+    }
   </app-page-header>
 
   @if (usableAssistants().length > 0) {
@@ -27,9 +29,18 @@
   <div class="home-grid">
     <section class="home-card home-card--primary" aria-labelledby="create-title">
       <p class="home-card__eyebrow">下一步</p>
-      <h2 id="create-title">建立新助理</h2>
-      <p>用四個簡單步驟，從用途、資料來源到試用確認，完成第一個可用助理。</p>
-      <a class="ui-button" routerLink="/app/assistants/new/purpose">開始建立</a>
+      @if (canCreateAssistant()) {
+        <h2 id="create-title">建立新助理</h2>
+        <p>用四個簡單步驟，從用途、資料來源到試用確認，完成第一個可用助理。</p>
+        <a class="ui-button" routerLink="/app/assistants/new/purpose">開始建立</a>
+      } @else if (primaryUsableAssistant(); as assistant) {
+        <h2 id="create-title">開始使用助理</h2>
+        <p>你的帳號沒有建立助理的權限，但可以直接使用組織分享給你的「{{ assistant.name }}」開始對話。</p>
+        <a class="ui-button" [routerLink]="['/use', assistant.id]">開始對話</a>
+      } @else {
+        <h2 id="create-title">還沒有可使用的助理</h2>
+        <p>你的帳號沒有建立助理的權限，目前也還沒有組織分享的助理可以使用。請聯絡管理者開通權限或指派助理。</p>
+      }
     </section>
 
     <section class="home-card" aria-labelledby="continue-title">

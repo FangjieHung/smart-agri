@@ -223,8 +223,9 @@ export interface MockDemoRepositoryOptions {
   readonly viewer?: () => AccountId | null;
   /**
    * API 模式：以 API 取得的權限取代 seed 與本機的團隊設定，讓仍在 mock 的功能區
-   * （發布、收集紀錄等）套用真實權限。回傳值以 Demo 身分 id 為鍵；沒有列出的帳號
-   * 沿用 seed 的權限（API 只告訴我們看得到的帳號，見 `ApiAccountPermissions`）。
+   * （發布、收集紀錄等）套用真實權限。回傳值以 Demo 身分 id 為鍵，只覆寫**目前登入者
+   * 自己**這一筆（`hybrid-demo-repository.ts` 的 `viewerOverride`）；其他組織成員不再
+   * 經由角色換算成 Demo id，因為同角色的多人無法一一對應，沒有列出的帳號沿用 seed 的權限。
    * 未提供時（mock 模式）行為與過去相同：seed 疊上 `sme-demo:team-permissions`。
    */
   readonly accountsSource?: () => AccountPermissionOverrides;

@@ -76,6 +76,10 @@ public sealed partial class ChatRunEndpointsTests : IClassFixture<AuthHostFixtur
         run.CustomNames.ShouldBe([ChatRunEndpoints.ReplyEventName, ChatRunEndpoints.ThreadEventName]);
 
         var reply = run.Custom(ChatRunEndpoints.ReplyEventName)!.Value;
+        // Issue #106: smartagri.reply's value is shaped like ChatMessageView (not documented as
+        // its own OpenAPI response since this endpoint streams SSE, but the schema is the same
+        // component GET chat's `messages[]` uses).
+        OpenApiContract.AssertKeysMatchSchema(reply, "ChatMessageView");
         reply.GetProperty("author").GetString().ShouldBe("assistant");
         reply.GetProperty("reply").GetProperty("kind").GetString().ShouldBe("company-data");
         var citations = reply.GetProperty("reply").GetProperty("citations");

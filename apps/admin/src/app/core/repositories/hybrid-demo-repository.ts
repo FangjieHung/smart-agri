@@ -1816,8 +1816,9 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
 
 /** 也給 AG-UI 串流的 `smartagri.reply` 使用（`ag-ui-chat-runner.ts`；值與 `GET chat` 的訊息相同）。 */
 export function toChatMessage(message: ApiChatMessageView): ChatMessageView {
-  // 後端以 `JsonIgnore(WhenWritingNull)` 省略 null 欄位：使用者訊息根本沒有 `reply` 這個鍵
-  // （OpenAPI 產生的型別卻寫成必填的 `null | …`），所以 `undefined` 要與 `null` 一視同仁。
+  // issue #106：後端現在一律送出 `reply`（有值或明確的 `null`），不再用
+  // `JsonIgnore(WhenWritingNull)` 省略——PR #103 修過一次「省略鍵被誤判成 undefined」的 bug，
+  // 這裡繼續容忍 `undefined` 只是防禦性寫法，不代表現在真的會發生。
   if (message.reply !== null && message.reply !== undefined) {
     return { id: message.id, author: 'assistant', reply: toChatReply(message.reply), createdAt: message.createdAt };
   }

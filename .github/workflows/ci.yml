@@ -63,3 +63,102 @@ jobs:
           name: admin-e2e-cypress-artifacts
           path: dist/cypress/apps/admin-e2e/**
           retention-days: 7
+
+  # API 模式的 E2E（M2 Slice 17，issue #51）：真實 API＋PostgreSQL（pgvector）＋背景工作 worker，
+  # 嵌入與對話都用 `Fake`（不需要任何金鑰），admin 以 `api` configuration 經 dev-server proxy 提供，
+  # 再跑 apps/admin-e2e/src/e2e-api/ 的 spec。與上面 mock 模式的 `e2e` job 互不重疊：
+  # cypress.config.ts 只收 src/e2e/，cypress.api.config.ts 只收 src/e2e-api/。
+  e2e-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ASPNETCORE_ENVIRONMENT: Development
+      # CI 專用的公開測試值，只用在這個 job 自己的一次性服務容器；不是 secret，也不可用在任何真實資料庫。
+      # tools/check-no-demo-secrets.sh 只容許 ci.yml 設定這一個值（做法見該腳本開頭的註解）。
+      # migrate 用它建立示範帳號，Cypress 用它登入（cypress.api.config.ts 讀同一個環境變數）。
+      SEED_DEMO_PASSWORD: 'Ci-E2e-Only-Pass-2026!'
+    services:
+      # 版本與 deploy/docker-compose.dev.yml 相同；帳密是 appsettings.Development.json 的開發預設值，
+      # 所以 API 不必另外設定連線字串。
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg18
+        env:
+          POSTGRES_DB: smartagri
+          POSTGRES_USER: smartagri
+          POSTGRES_PASSWORD: smartagri_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U smartagri -d smartagri"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/Cypress
+          key: cypress-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            cypress-${{ runner.os }}-
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: npm ci
+      - run: dotnet restore apps/api/SmartAgri.slnx --locked-mode
+      - run: dotnet build apps/api/src/SmartAgri.Api --no-restore
+      # 套用 migration、註冊 admin-spa（redirect URI 用 Development 預設的 http://localhost:4200），
+      # 並以 SEED_DEMO_PASSWORD 建立 安心商行（anxin）與 對照組織（control）的示範帳號。
+      # 不設 SEED_DEMO_KNOWLEDGE：spec 自己建立並刪除它用到的知識庫。
+      - name: Migrate and seed the demo accounts
+        run: dotnet run --no-build --no-launch-profile --project apps/api/src/SmartAgri.Api -- migrate
+      - name: Start the API in the background
+        env:
+          ASPNETCORE_URLS: http://localhost:5153
+          Ai__Embedding__Provider: Fake
+          Ai__Embedding__Model: fake-dev
+          Ai__Chat__Provider: Fake
+          Ai__Chat__Model: fake-chat-dev
+          Jobs__WorkerEnabled: 'true'
+        run: |
+          nohup dotnet run --no-build --no-launch-profile --project apps/api/src/SmartAgri.Api \
+            > "$RUNNER_TEMP/api.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS --max-time 3 -o /dev/null http://localhost:5153/health/ready; then
+              echo "API is ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become ready" >&2
+          tail -n 100 "$RUNNER_TEMP/api.log" >&2
+          exit 1
+      # apps/admin/proxy.api.json 把 /api、/connect、/.well-known 轉給 5153，前端與 API 同源，
+      # PKCE 登入不必跨網域。
+      - name: Serve admin in API mode in the background
+        run: |
+          nohup npx nx run admin:serve:api --port=4200 > "$RUNNER_TEMP/admin.log" 2>&1 &
+          for _ in $(seq 1 90); do
+            if curl -fsS --max-time 3 -o /dev/null http://localhost:4200/ \
+              && curl -fsS --max-time 3 -o /dev/null http://localhost:4200/api/v1/auth/login-options; then
+              echo "admin is being served and proxies to the API"; exit 0
+            fi
+            sleep 2
+          done
+          echo "admin dev server did not become ready" >&2
+          tail -n 100 "$RUNNER_TEMP/admin.log" >&2
+          exit 1
+      - run: npx nx run admin-e2e:e2e-api
+      - name: Upload Cypress screenshots and server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-e2e-api-artifacts
+          path: |
+            dist/cypress/apps/admin-e2e-api/**
+            ${{ runner.temp }}/api.log
+            ${{ runner.temp }}/admin.log
+          retention-days: 7

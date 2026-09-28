@@ -19,34 +19,78 @@ async function render() {
   return { fixture, page: fixture.nativeElement as HTMLElement, store };
 }
 
-function ask(page: HTMLElement, text: string): void {
-  const button = Array.from(page.querySelectorAll<HTMLButtonElement>('.trial-question')).find(
-    (candidate) => candidate.textContent?.includes(text),
+function suggestion(page: HTMLElement, text: string): HTMLButtonElement | undefined {
+  return Array.from(page.querySelectorAll<HTMLButtonElement>('.trial-question')).find((candidate) =>
+    candidate.textContent?.includes(text),
   );
-  button?.click();
 }
 
-describe('TestStepComponent', () => {
-  it('previews a cited company-data answer from fixtures', async () => {
+async function ask(fixture: { whenStable(): Promise<unknown> }, page: HTMLElement, text: string): Promise<void> {
+  suggestion(page, text)?.click();
+  await fixture.whenStable();
+}
+
+async function askFreeText(
+  fixture: { whenStable(): Promise<unknown> },
+  page: HTMLElement,
+  text: string,
+): Promise<void> {
+  const input = page.querySelector<HTMLInputElement>('.ask-input');
+  if (input === null) throw new Error('expected the free-text input to exist');
+  input.value = text;
+  input.dispatchEvent(new Event('input'));
+  page.querySelector<HTMLFormElement>('.ask-form')?.dispatchEvent(new Event('submit', { cancelable: true }));
+  await fixture.whenStable();
+}
+
+describe('TestStepComponent (issue #82: trial answers share ChatReplyView)', () => {
+  it('previews a cited company-data answer with the retrieved passages and threshold', async () => {
     const { fixture, page, store } = await render();
 
-    ask(page, '退貨');
+    await ask(fixture, page, '退貨');
     fixture.detectChanges();
 
     const answer = page.querySelector('.trial-answer') as HTMLElement;
+    expect(answer.getAttribute('data-kind')).toBe('company-data');
     expect(answer.textContent).toContain('根據你的資料');
     expect(answer.textContent).toContain('退換貨政策');
-    expect(store.draft().testedQuestionIds).toEqual(['trial-refund-window']);
+    expect(answer.textContent).toContain('門檻');
+    expect(store.draft().hasTrialAnswer).toBe(true);
   });
 
-  it('shows the configured refusal when strict mode has no matching data', async () => {
+  it('shows the configured refusal as no-result when strict mode has no matching data', async () => {
     const { fixture, page, store } = await render();
 
-    ask(page, '皮革');
+    await ask(fixture, page, '皮革');
     fixture.detectChanges();
 
     const answer = page.querySelector('.trial-answer') as HTMLElement;
-    expect(answer.textContent).toContain('資料中沒有答案');
+    expect(answer.getAttribute('data-kind')).toBe('no-result');
+    expect(answer.textContent).toContain('查無資料');
     expect(answer.textContent).toContain(store.draft().rules.refusalMessage);
+  });
+
+  it('shows the general-knowledge notice when the scope allows it', async () => {
+    const { fixture, page, store } = await render();
+    store.updateRules({ knowledgeScope: 'allow-general-knowledge' });
+    fixture.detectChanges();
+
+    await ask(fixture, page, '皮革');
+    fixture.detectChanges();
+
+    const answer = page.querySelector('.trial-answer') as HTMLElement;
+    expect(answer.getAttribute('data-kind')).toBe('general-knowledge');
+    expect(answer.textContent).toContain('一般知識補充');
+  });
+
+  it('accepts a freely typed question, not only the fixed suggestions', async () => {
+    const { fixture, page } = await render();
+
+    await askFreeText(fixture, page, '收到商品後幾天內可以申請退貨？');
+    fixture.detectChanges();
+
+    const answer = page.querySelector('.trial-answer') as HTMLElement;
+    expect(answer.textContent).toContain('收到商品後幾天內可以申請退貨？');
+    expect(answer.getAttribute('data-kind')).toBe('company-data');
   });
 });

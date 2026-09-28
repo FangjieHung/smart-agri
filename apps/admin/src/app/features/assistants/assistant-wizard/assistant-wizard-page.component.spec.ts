@@ -132,7 +132,7 @@ describe('AssistantWizardPageComponent', () => {
       purpose: '回答客戶問題',
       audience: 'account-members',
       sources: [{ id: 'knowledge-refund-policy', type: 'knowledge-base' }],
-      testedQuestionIds: ['trial-refund-window'],
+      hasTrialAnswer: true,
       currentStep: 'test',
     };
     const { harness, repository } = await openWizard('test', { draft: complete });

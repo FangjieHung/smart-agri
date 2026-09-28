@@ -23,6 +23,11 @@ import {
   type AssistantDraftFieldError,
   type ConnectableSourceView,
   type NamedAssistantDraftView,
+  type TrialAnswerCitationView,
+  type TrialAnswerPassageView,
+  type TrialAnswerRequest,
+  type TrialAnswerResultView,
+  type TrialAnswerView,
 } from '../domain/assistant-draft.model';
 import type {
   AssistantSettingsField,
@@ -88,6 +93,7 @@ import {
   type KnowledgeUploadRejectedView,
   type KnowledgeValidationFailedView,
   type PermissionDeniedRepositoryView,
+  type PreviewTrialAnswerResult,
   type RenameChatThreadResult,
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
@@ -149,6 +155,11 @@ type ApiAssistantDraft = components['schemas']['AssistantDraftView'];
 type CreateAssistantDraftRequest = components['schemas']['CreateAssistantDraftRequest'];
 type SaveAssistantDraftRequest = components['schemas']['SaveAssistantDraftRequest'];
 type CreateAssistantFromDraftRequest = components['schemas']['CreateAssistantFromDraftRequest'];
+type ApiTrialAnswerRequest = components['schemas']['TrialAnswerRequest'];
+type ApiTrialAnswerResponse = components['schemas']['TrialAnswerResponse'];
+type ApiTrialAnswerReply = components['schemas']['TrialAnswerReplyView'];
+type ApiTrialAnswerCitation = components['schemas']['TrialAnswerCitationView'];
+type ApiTrialAnswerPassage = components['schemas']['TrialAnswerPassageView'];
 type ApiConnectableSource = components['schemas']['ConnectableSourceView'];
 type ApiAssistantPublishing = components['schemas']['AssistantPublishingView'];
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
@@ -267,6 +278,10 @@ export const API_ASSISTANT_DRAFTS_PATH = '/api/v1/assistant-drafts';
 
 export function apiAssistantDraftPath(draftId: string): string {
   return `${API_ASSISTANT_DRAFTS_PATH}/${encodeURIComponent(draftId)}`;
+}
+
+export function apiTrialAnswersPath(draftId: string): string {
+  return `${apiAssistantDraftPath(draftId)}/trial-answers`;
 }
 
 export const API_CONNECTABLE_SOURCES_PATH = '/api/v1/connectable-sources';
@@ -692,6 +707,41 @@ export class HybridDemoRepository extends MockDemoRepository {
       catchError((error: unknown) =>
         isHttpError(error, 422) ? of(draftValidationFailed(error)) : this.draftDeniedOrThrow(error),
       ),
+    );
+  }
+
+  /**
+   * `POST /api/v1/assistant-drafts/{id}/trial-answers`（issue #82，M3 計畫 Slice 8、12）：
+   * 依伺服器上保存的草稿呼叫真實回答流程，`request.sources`／`request.rules` 只有 Mock
+   * 用得到，這裡不送出。`422`（問題空白或超過 2,000 字）轉成 `validation-failed`；
+   * `503`（嵌入或對話模型未設定、呼叫失敗）轉成 `unavailable`；別人的草稿與不存在的草稿
+   * 回同一個 `403 assistant-draft`。
+   */
+  override previewTrialAnswer(
+    draftId: string,
+    request: TrialAnswerRequest,
+  ): Observable<PreviewTrialAnswerResult> {
+    const body: ApiTrialAnswerRequest = { question: request.question };
+    return this.http.post<ApiTrialAnswerResponse>(apiTrialAnswersPath(draftId), body).pipe(
+      map((response): PreviewTrialAnswerResult => ({
+        status: 'ready',
+        data: toTrialAnswerResult(request.question, response),
+      })),
+      catchError((error: unknown) => {
+        if (isHttpError(error, 422)) {
+          return of<PreviewTrialAnswerResult>({
+            status: 'validation-failed',
+            message: bodyMessage(error) ?? '請確認輸入的問題。',
+          });
+        }
+        if (isHttpError(error, 503)) {
+          return of<PreviewTrialAnswerResult>({
+            status: 'unavailable',
+            message: bodyMessage(error) ?? '目前無法產生回答，請稍後再試。',
+          });
+        }
+        return this.draftDeniedOrThrow(error);
+      }),
     );
   }
 
@@ -1308,6 +1358,63 @@ function toNamedDraft(draft: ApiAssistantDraft): NamedAssistantDraftView {
     draft: normalizeDraftPayload(draft.payload) ?? createEmptyAssistantDraft(),
     savedAt: draft.savedAt,
     revision: draft.revision,
+  };
+}
+
+function toTrialAnswerCitation(citation: ApiTrialAnswerCitation): TrialAnswerCitationView {
+  return {
+    knowledgeBaseName: citation.knowledgeBaseName,
+    documentName: citation.documentName,
+    locationLabel: citation.locationLabel,
+    excerpt: citation.excerpt,
+    score: citation.score,
+  };
+}
+
+function toTrialAnswerPassage(passage: ApiTrialAnswerPassage): TrialAnswerPassageView {
+  return {
+    knowledgeBaseName: passage.knowledgeBaseName,
+    documentName: passage.documentName,
+    locationLabel: passage.locationLabel,
+    excerpt: passage.excerpt,
+    score: passage.score,
+  };
+}
+
+/**
+ * 後端用一個形狀（`kind`、`text`、`citations`、`notice`、`nextSteps` 全部都在）表示三種回覆，
+ * 不像 `TrialAnswerView` 依 `kind` 分成互斥的欄位；這裡依 `kind` 只取用該種類真正需要的欄位。
+ */
+function toTrialAnswerReply(reply: ApiTrialAnswerReply): TrialAnswerView {
+  switch (reply.kind) {
+    case 'company-data':
+      return {
+        kind: 'company-data',
+        text: reply.text,
+        citations: reply.citations.map(toTrialAnswerCitation),
+        citationNotice: reply.notice,
+      };
+    case 'general-knowledge':
+      return {
+        kind: 'general-knowledge',
+        text: reply.text,
+        notice: reply.notice ?? '',
+      };
+    case 'no-result':
+      return {
+        kind: 'no-result',
+        text: reply.text,
+        nextSteps: reply.nextSteps,
+      };
+  }
+}
+
+function toTrialAnswerResult(question: string, response: ApiTrialAnswerResponse): TrialAnswerResultView {
+  return {
+    question,
+    reply: toTrialAnswerReply(response.reply),
+    passages: response.passages.map(toTrialAnswerPassage),
+    threshold: response.threshold,
   };
 }
 

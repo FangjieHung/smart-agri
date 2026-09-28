@@ -309,7 +309,7 @@ describe('MockDemoRepository assistant settings', () => {
         purpose: '測試用途',
         audience: 'account-members' as const,
         sources: [{ id: 'knowledge-product-guide', type: 'knowledge-base' as const }],
-        testedQuestionIds: ['trial-refund-window' as const],
+        hasTrialAnswer: true,
         currentStep: 'test' as const,
       };
       const created = await firstValueFrom(repository.createAssistantFromDraft(draftCreated.data.id, draft));

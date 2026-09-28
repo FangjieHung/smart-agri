@@ -20,6 +20,7 @@ import {
   type SavedAssistantDraftView,
   type TrialAnswerRequest,
   type TrialAnswerView,
+  type TrialAnswerResultView,
 } from '../domain/assistant-draft.model';
 import type {
   AssistantAudience,
@@ -188,6 +189,7 @@ import type {
   DisableKnowledgeDocumentResult,
   EnableKnowledgeDocumentResult,
   PermissionDeniedRepositoryView,
+  PreviewTrialAnswerResult,
   RepositoryPermissionDeniedReason,
   RepositoryView,
   PreviewDatabaseEntryResult,
@@ -318,12 +320,22 @@ export function normalizeDraftPayload(stored: unknown): AssistantDraft | null {
 
   const empty = createEmptyAssistantDraft();
   const step = ASSISTANT_WIZARD_STEPS.find((candidate) => candidate === stored['currentStep']);
+  /**
+   * 舊版本（issue #82 之前）以 `testedQuestionIds: TrialQuestionId[]` 記錄「已試問」；
+   * 沒有 `hasTrialAnswer` 時從舊欄位推導，讓既有的本機草稿不會因為改版而整份被丟棄。
+   */
+  const hasTrialAnswer =
+    typeof stored['hasTrialAnswer'] === 'boolean'
+      ? stored['hasTrialAnswer']
+      : Array.isArray(stored['testedQuestionIds'])
+        ? stored['testedQuestionIds'].length > 0
+        : null;
 
   if (
     typeof stored['name'] !== 'string' ||
     typeof stored['purpose'] !== 'string' ||
     !Array.isArray(stored['sources']) ||
-    !Array.isArray(stored['testedQuestionIds']) ||
+    hasTrialAnswer === null ||
     !isRecord(stored['rules']) ||
     step === undefined
   ) {
@@ -333,6 +345,7 @@ export function normalizeDraftPayload(stored: unknown): AssistantDraft | null {
   return {
     ...empty,
     ...stored,
+    hasTrialAnswer,
     rules: { ...empty.rules, ...stored['rules'] },
     currentStep: step,
   } as AssistantDraft;
@@ -809,6 +822,12 @@ const CHAT_KEY_PREFIX = 'sme-demo:chat:';
 const PUBLISHING_KEY_PREFIX = 'sme-demo:publishing:';
 const CHAT_RECORDS_KEY = 'sme-demo:chat-records';
 const MAX_QUESTION_LENGTH = 500;
+
+/** 與後端 `POST .../trial-answers` 的 422 限制相同（M3 計畫 Slice 8，PR #92）。 */
+const MAX_TRIAL_QUESTION_LENGTH = 2000;
+/** 示範用的門檻與命中分數；只用來展示 UI，不代表真實的相似度計算。 */
+const TRIAL_ANSWER_THRESHOLD = 0.3;
+const TRIAL_ANSWER_MATCH_SCORE = 0.82;
 
 const MAX_THREAD_TITLE_LENGTH = 60;
 
@@ -1719,18 +1738,44 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  /**
+   * 試問（issue #82）：以自由輸入的問題與固定題組的關鍵字比對，模擬真實回答流程；不接受
+   * `draftId`（Mock 不需要，草稿內容由呼叫端的 `request.sources`／`request.rules` 提供）。
+   */
   previewTrialAnswer(
+    _draftId: string,
+    request: TrialAnswerRequest,
+  ): Observable<PreviewTrialAnswerResult> {
+    return this.signedIn(
+      (viewer): PreviewTrialAnswerResult => this.previewTrialAnswerSync(viewer, request),
+      () => this.draftPermissionDenied(),
+    );
+  }
+
+  private previewTrialAnswerSync(
     viewerAccountId: AccountId,
     request: TrialAnswerRequest,
-  ): ReturnType<DemoRepository['previewTrialAnswer']> {
+  ): PreviewTrialAnswerResult {
     if (!this.canManageAssistants(viewerAccountId)) {
       return this.draftPermissionDenied();
     }
 
-    const question = this.seed.trialQuestions.find(
-      (candidate) => candidate.id === request.questionId,
+    const question = request.question.trim();
+    if (question.length === 0) {
+      return immutableCopy({ status: 'validation-failed', message: '請先輸入問題。' });
+    }
+    if (question.length > MAX_TRIAL_QUESTION_LENGTH) {
+      return immutableCopy({
+        status: 'validation-failed',
+        message: `問題請在 ${MAX_TRIAL_QUESTION_LENGTH} 個字以內。`,
+      });
+    }
+
+    const normalized = question.replace(/\s+/g, '');
+    const fixture = this.seed.trialQuestions.find(
+      (candidate) => candidate.keyword !== null && normalized.includes(candidate.keyword),
     );
-    const companyAnswer = question?.companyAnswer ?? null;
+    const companyAnswer = fixture?.companyAnswer ?? null;
     const knowledgeBase =
       companyAnswer === null
         ? undefined
@@ -1744,38 +1789,44 @@ export class MockDemoRepository implements DemoRepository {
               ),
           );
 
-    let answer: TrialAnswerView;
+    const threshold = TRIAL_ANSWER_THRESHOLD;
+    let reply: TrialAnswerView;
+    let passages: TrialAnswerResultView['passages'] = [];
     if (companyAnswer !== null && knowledgeBase !== undefined) {
-      answer = {
+      const passage = {
+        knowledgeBaseName: knowledgeBase.name,
+        documentName: companyAnswer.documentName,
+        locationLabel: companyAnswer.locationLabel,
+        excerpt: companyAnswer.excerpt,
+        score: TRIAL_ANSWER_MATCH_SCORE,
+      };
+      passages = [passage];
+      reply = {
         kind: 'company-data',
-        questionId: request.questionId,
         text: companyAnswer.text,
-        citation: request.rules.showCitations
-          ? {
-              sourceId: knowledgeBase.id,
-              sourceName: knowledgeBase.name,
-              excerpt: companyAnswer.excerpt,
-            }
-          : null,
+        citations: request.rules.showCitations ? [{ ...passage }] : [],
+        citationNotice: request.rules.showCitations
+          ? null
+          : '助理的規則關閉了「顯示引用出處」，回答仍然標示成組織資料。',
       };
     } else if (
-      question?.generalAnswer != null &&
+      fixture?.generalAnswer != null &&
       request.rules.knowledgeScope === 'allow-general-knowledge'
     ) {
-      answer = {
+      reply = {
         kind: 'general-knowledge',
-        questionId: request.questionId,
-        text: question.generalAnswer,
+        text: fixture.generalAnswer,
+        notice: '這是一般知識補充，不是組織資料。',
       };
     } else {
-      answer = {
-        kind: 'no-answer',
-        questionId: request.questionId,
+      reply = {
+        kind: 'no-result',
         text: request.rules.refusalMessage,
+        nextSteps: ['換個說法再問一次，或點選建議問題。'],
       };
     }
 
-    return this.applyScenario(answer);
+    return this.applyScenario<TrialAnswerResultView>({ question, reply, passages, threshold });
   }
 
   private namedDrafts(viewerAccountId: AccountId): NamedAssistantDraftView[] {

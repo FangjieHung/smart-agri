@@ -16,8 +16,7 @@ import {
   type AssistantWizardStep,
   type ConnectableSourceView,
   type NamedAssistantDraftView,
-  type TrialAnswerView,
-  type TrialQuestionId,
+  type TrialAnswerResultView,
   type TrialQuestionView,
 } from '../../../core/domain/assistant-draft.model';
 import type {
@@ -27,7 +26,7 @@ import type {
 } from '../../../core/domain/assistant.model';
 import { fmtDateTime } from '../../../core/date-utils';
 import { ActivatedRoute } from '@angular/router';
-import type { RepositoryView } from '../../../core/repositories/demo-repository';
+import type { PreviewTrialAnswerResult, RepositoryView } from '../../../core/repositories/demo-repository';
 import { repositoryResource, type LoadedView } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
@@ -56,7 +55,9 @@ interface DraftState {
   readonly conflicted: boolean;
   readonly save: DraftSaveState;
   readonly attemptedSteps: readonly AssistantWizardStep[];
-  readonly answers: readonly TrialAnswerView[];
+  readonly answers: readonly TrialAnswerResultView[];
+  /** 試問本身被拒絕（422）或暫時無法完成（503）時的訊息；下一次試問或編輯都會清掉。 */
+  readonly trialError: string | null;
   readonly createError: string | null;
   /** 「建立助理」被伺服器以逐欄錯誤拒絕（`422`）時的錯誤；任何編輯都會清掉。 */
   readonly serverErrors: readonly AssistantDraftFieldError[];
@@ -65,6 +66,7 @@ interface DraftState {
 const SAVE_FAILED_MESSAGE = '自動儲存失敗，變更暫時只保留在這個畫面。';
 const CREATE_FAILED_MESSAGE = '目前無法建立助理，請稍後再試。';
 const DRAFT_NOT_FOUND_MESSAGE = '找不到這份草稿，或它不屬於你的帳號。';
+const TRIAL_FAILED_MESSAGE = '目前無法產生回答，請稍後再試。';
 
 function dataOf<T>(view: RepositoryView<T> | LoadedView<T>, fallback: T): T {
   return view.status === 'ready' || view.status === 'partial-failure'
@@ -117,9 +119,12 @@ export class AssistantDraftStore {
   readonly canManage = computed(() => this.state().canManage);
   readonly saveState = computed(() => this.state().save);
   readonly answers = computed(() => this.state().answers);
+  readonly trialError = computed(() => this.state().trialError);
   readonly createError = computed(() => this.state().createError);
   /** 建立中：按鈕要停用，避免重複送出。 */
   readonly creating = signal(false);
+  /** 試問中：按鈕要停用，避免重複送出。 */
+  readonly trialing = signal(false);
 
   readonly saveStatusLabel = computed(() => {
     const save = this.state().save;
@@ -294,34 +299,52 @@ export class AssistantDraftStore {
     return true;
   }
 
-  runTrial(questionId: TrialQuestionId): TrialAnswerView | null {
-    const { accountId } = this.state();
-    if (accountId === null) return null;
+  /**
+   * 試問可以自由輸入問題（issue #82）；`draftId` 尚未就緒或已有一個試問在進行中時忽略。
+   * 成功時把回答放到 `answers` 的最前面，並記下「已至少試問一次」；422／503 只設定
+   * `trialError`，不影響已經顯示的回答清單。
+   */
+  async runTrial(question: string): Promise<TrialAnswerResultView | null> {
+    const draftId = this.draftId;
+    const trimmed = question.trim();
+    if (draftId === null || trimmed === '' || this.trialing()) return null;
 
-    const draft = this.draft();
-    const result = this.repository.previewTrialAnswer(accountId, {
-      questionId,
-      sources: draft.sources,
-      rules: draft.rules,
-    });
-    if (result.status !== 'ready') return null;
+    this.trialing.set(true);
+    try {
+      const draft = this.draft();
+      const result: PreviewTrialAnswerResult = await firstValueFrom(
+        this.repository.previewTrialAnswer(draftId, {
+          question: trimmed,
+          sources: draft.sources,
+          rules: draft.rules,
+        }),
+      );
 
-    const answer = result.data;
-    this.state.update((state) => ({
-      ...state,
-      answers: [
-        answer,
-        ...state.answers.filter((existing) => existing.questionId !== questionId),
-      ],
-    }));
-    if (!draft.testedQuestionIds.includes(questionId)) {
-      this.commit({
-        ...draft,
-        testedQuestionIds: [...draft.testedQuestionIds, questionId],
-      });
+      if (result.status === 'ready' || result.status === 'partial-failure') {
+        const answer = result.data;
+        this.state.update((state) => ({
+          ...state,
+          answers: [answer, ...state.answers],
+          trialError: null,
+        }));
+        if (!draft.hasTrialAnswer) {
+          this.commit({ ...draft, hasTrialAnswer: true });
+        }
+        return answer;
+      }
+
+      const message =
+        result.status === 'validation-failed' || result.status === 'unavailable'
+          ? result.message
+          : TRIAL_FAILED_MESSAGE;
+      this.state.update((state) => ({ ...state, trialError: message }));
+      return null;
+    } catch {
+      this.state.update((state) => ({ ...state, trialError: TRIAL_FAILED_MESSAGE }));
+      return null;
+    } finally {
+      this.trialing.set(false);
     }
-
-    return answer;
   }
 
   /**
@@ -457,6 +480,7 @@ export class AssistantDraftStore {
       save: { status: 'new' },
       attemptedSteps: [],
       answers: [],
+      trialError: null,
       createError: null,
       serverErrors: [],
     };

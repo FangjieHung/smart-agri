@@ -1,13 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import type { TrialAnswerView } from '../../../../../core/domain/assistant-draft.model';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { REPLY_KIND_LABELS, type ChatReplyKind } from '../../../../../core/domain/conversation.model';
 import type { AssistantAudience } from '../../../../../core/domain/assistant.model';
 import { AssistantDraftStore } from '../../assistant-draft.store';
-
-const ANSWER_LABELS: Record<TrialAnswerView['kind'], string> = {
-  'company-data': '根據你的資料',
-  'general-knowledge': '一般知識補充',
-  'no-answer': '資料中沒有答案',
-};
 
 const AUDIENCE_LABELS: Record<AssistantAudience, string> = {
   'account-members': '內部員工',
@@ -15,6 +9,11 @@ const AUDIENCE_LABELS: Record<AssistantAudience, string> = {
   'members-and-external-customers': '內部員工與外部客戶',
 };
 
+/**
+ * 精靈的試問（issue #82，M3 計畫 Slice 12）：與正式對話用同一套回覆類型（`ChatReplyView`
+ * 的子集），問題可以自由輸入，固定題組保留作為建議按鈕；另外顯示檢索到的段落、分數與門檻，
+ * 讓建立者判斷門檻是否合適。
+ */
 @Component({
   selector: 'app-test-step',
   templateUrl: './test-step.component.html',
@@ -24,9 +23,8 @@ const AUDIENCE_LABELS: Record<AssistantAudience, string> = {
 export class TestStepComponent {
   protected readonly store = inject(AssistantDraftStore);
 
-  protected readonly questionText = computed(
-    () => new Map(this.store.trialQuestions().map((question) => [question.id, question.text])),
-  );
+  /** 自由輸入的問題；不屬於草稿內容，只存在這個畫面。 */
+  protected readonly questionDraft = signal('');
 
   protected readonly summary = computed(() => {
     const draft = this.store.draft();
@@ -43,7 +41,28 @@ export class TestStepComponent {
     };
   });
 
-  protected answerLabel(kind: TrialAnswerView['kind']): string {
-    return ANSWER_LABELS[kind];
+  protected answerLabel(kind: ChatReplyKind): string {
+    return REPLY_KIND_LABELS[kind];
+  }
+
+  protected formatScore(value: number): string {
+    return value.toFixed(2);
+  }
+
+  /** 點選建議問題：直接用固定題組的文字試問，不需要先填進輸入框。 */
+  protected askSuggested(text: string): void {
+    void this.store.runTrial(text);
+  }
+
+  protected submitQuestion(event: Event): void {
+    event.preventDefault();
+    const question = this.questionDraft().trim();
+    if (question === '' || this.store.trialing()) return;
+    this.questionDraft.set('');
+    void this.store.runTrial(question);
+  }
+
+  protected onQuestionInput(event: Event): void {
+    this.questionDraft.set((event.target as HTMLInputElement).value);
   }
 }

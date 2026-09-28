@@ -100,6 +100,12 @@ public static class KnowledgeRetrievalEndpoints
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        // TEMPORARY negative check for #51 (reverted in the next commit): e2e-api must fail.
+        if (id != Guid.Empty)
+        {
+            return Results.StatusCode(StatusCodes.Status500InternalServerError);
+        }
+
         if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
         {
             return ApiErrors.Unauthorized();

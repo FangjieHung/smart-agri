@@ -54,12 +54,17 @@ export class TestStepComponent {
     void this.store.runTrial(text);
   }
 
+  /**
+   * 只有成功取得回覆時才清空輸入框（issue #114）：`runTrial` 失敗（422／503／網路錯誤）
+   * 回傳 `null`，這時保留使用者輸入的內容，讓使用者不用重打一次問題。
+   */
   protected submitQuestion(event: Event): void {
     event.preventDefault();
     const question = this.questionDraft().trim();
     if (question === '' || this.store.trialing()) return;
-    this.questionDraft.set('');
-    void this.store.runTrial(question);
+    void this.store.runTrial(question).then((result) => {
+      if (result !== null) this.questionDraft.set('');
+    });
   }
 
   protected onQuestionInput(event: Event): void {

@@ -1471,7 +1471,14 @@ function toTrialAnswerResult(question: string, response: ApiTrialAnswerResponse)
   };
 }
 
-const CONNECTABLE_STATUSES: readonly ConnectableSourceView['status'][] = ['ready', 'processing', 'needs-attention'];
+// `empty`（issue #115）：後端目前未必已回傳這個值，先收在允許清單裡，等後端補上就能生效；
+// 沒收到已知值時仍退回 `ready`（與原本行為一致）。
+const CONNECTABLE_STATUSES: readonly ConnectableSourceView['status'][] = [
+  'ready',
+  'processing',
+  'needs-attention',
+  'empty',
+];
 
 function toConnectableSource(source: ApiConnectableSource): ConnectableSourceView {
   return {

@@ -780,12 +780,18 @@ function countStatuses(
   return counts;
 }
 
-/** 匯出給 `HybridDemoRepository`：API 模式的知識庫可連接狀態要與 mock 用同一套規則換算。 */
+/**
+ * 匯出給 `HybridDemoRepository`：API 模式的知識庫可連接狀態要與 mock 用同一套規則換算。
+ * `contentCount`（文件數 + FAQ 數）是 0 時顯示「尚無內容」（issue #115），不歸類成
+ * `ready`（全部可使用），避免讓人誤以為已經有可用內容。
+ */
 export function connectableKnowledgeStatus(
   counts: KnowledgeDocumentStatusCounts,
+  contentCount: number,
 ): ConnectableSourceStatus {
   if (counts.queued + counts.processing > 0) return 'processing';
   if (counts['partially-readable'] + counts.failed > 0) return 'needs-attention';
+  if (contentCount === 0) return 'empty';
   return 'ready';
 }
 
@@ -4548,7 +4554,7 @@ export class MockDemoRepository implements DemoRepository {
           name: knowledgeBase.name,
           summary: `${summary.documentCount} 份文件、${summary.faqCount} 則 FAQ`,
           permission: 'owner',
-          status: connectableKnowledgeStatus(summary.statusCounts),
+          status: connectableKnowledgeStatus(summary.statusCounts, summary.documentCount + summary.faqCount),
           updatedAt: knowledgeBase.lastSyncedAt,
         };
       });

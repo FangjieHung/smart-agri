@@ -109,6 +109,32 @@ describe('MockDemoRepository assistant creation', () => {
     });
   });
 
+  /**
+   * issue #115：沒有任何文件或 FAQ 的知識庫，可連接清單要顯示「尚無內容」（`empty`），
+   * 不能落到「全部可使用」（`ready`）——後者容易讓人以為已經有可用內容。
+   */
+  it('marks a freshly created (still empty) knowledge base as empty, not ready', async () => {
+    const repository = createRepository({ viewer: ADMIN });
+    const created = await firstValueFrom(
+      repository.createKnowledgeBase({ name: '全新知識庫', purpose: '尚未上傳任何內容' }),
+    );
+    if (created.status !== 'ready') throw new Error(`expected ready, got ${created.status}`);
+
+    const result = await firstValueFrom(repository.listConnectableSources());
+    if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+
+    expect(result.data).toContainEqual(
+      expect.objectContaining({
+        id: created.data.id,
+        type: 'knowledge-base',
+        summary: '0 份文件、0 則 FAQ',
+        status: 'empty',
+      }),
+    );
+    // 既有、已經有內容的知識庫不受影響。
+    expect(result.data).toContainEqual(expect.objectContaining({ id: 'database-orders', status: 'ready' }));
+  });
+
   it('persists a named draft per account so another account never sees it', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository({ storage });

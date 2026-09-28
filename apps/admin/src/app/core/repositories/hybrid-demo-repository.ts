@@ -1375,7 +1375,9 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
 }
 
 function toChatMessage(message: ApiChatMessageView): ChatMessageView {
-  if (message.reply !== null) {
+  // 後端以 `JsonIgnore(WhenWritingNull)` 省略 null 欄位：使用者訊息根本沒有 `reply` 這個鍵
+  // （OpenAPI 產生的型別卻寫成必填的 `null | …`），所以 `undefined` 要與 `null` 一視同仁。
+  if (message.reply !== null && message.reply !== undefined) {
     return { id: message.id, author: 'assistant', reply: toChatReply(message.reply), createdAt: message.createdAt };
   }
   return { id: message.id, author: 'account', text: message.text ?? '', createdAt: message.createdAt };

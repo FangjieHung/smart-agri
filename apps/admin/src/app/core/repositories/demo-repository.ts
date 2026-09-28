@@ -18,7 +18,9 @@ import type {
   ConnectableSourceView,
   NamedAssistantDraftView,
   TrialAnswerRequest,
-  TrialAnswerView,
+  TrialAnswerResultView,
+  TrialAnswerUnavailableView,
+  TrialAnswerValidationFailedView,
   TrialQuestionView,
 } from '../domain/assistant-draft.model';
 import type {
@@ -174,6 +176,16 @@ export interface DraftConflictView {
 }
 
 export type SaveAssistantDraftResult = RepositoryView<NamedAssistantDraftView> | DraftConflictView;
+
+/**
+ * 試問結果（issue #82）：422（問題空白或超過長度限制）與 503（嵌入或對話模型未設定、
+ * 呼叫失敗）各自獨立於 `RepositoryView`（403／loading／partial-failure）之外，
+ * 因為兩者都不是「讀不到」，而是這次呼叫本身被拒絕或暫時無法完成。
+ */
+export type PreviewTrialAnswerResult =
+  | RepositoryView<TrialAnswerResultView>
+  | TrialAnswerValidationFailedView
+  | TrialAnswerUnavailableView;
 
 /** 刪除成功時 `data` 是 null（API 回 `204`）。 */
 export type DeleteAssistantResult = RepositoryView<null>;
@@ -564,11 +576,16 @@ export interface DemoRepository extends DemoScenarioController {
    */
   listConnectableSources(): Observable<RepositoryView<readonly ConnectableSourceView[]>>;
   listTrialQuestions(): RepositoryView<readonly TrialQuestionView[]>;
-  /** 以固定 fixture 模擬試問回答，不連接真實 AI。 */
+  /**
+   * 試問與正式對話用同一套回覆類型（issue #82，M3 計畫 Slice 12）：API 模式呼叫真實回答
+   * 流程（`POST /api/v1/assistant-drafts/{id}/trial-answers`），Mock 模式以固定 fixture
+   * 模擬。API 模式以伺服器上保存的草稿為準，`request.sources`／`request.rules` 只有
+   * Mock 用得到。viewer 由工作階段推導，回傳 cold Observable，訂閱時才讀取。
+   */
   previewTrialAnswer(
-    viewerAccountId: AccountId,
+    draftId: string,
     request: TrialAnswerRequest,
-  ): RepositoryView<TrialAnswerView>;
+  ): Observable<PreviewTrialAnswerResult>;
   /*
    * 精靈草稿（M3 Slice 11）：每個帳號可以有多份具名草稿，只有擁有者看得到。需要
    * `manage-assistants`，否則回傳 `assistant-draft` permission-denied；以 id 指定的方法

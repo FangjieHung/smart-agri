@@ -1,5 +1,6 @@
 @let info = summary();
 @let trialError = store.fieldError('test', 'trial');
+@let runError = store.trialError();
 <div class="step">
   <dl class="summary">
     <div><dt>助理名稱</dt><dd>{{ info.name }}</dd></div>
@@ -8,32 +9,100 @@
     <div><dt>回答範圍</dt><dd>{{ info.scope }}</dd></div>
   </dl>
 
-  <section class="group" aria-labelledby="trial-title" [attr.aria-describedby]="trialError ? 'trial-error' : 'trial-hint'">
+  <section
+    class="group"
+    aria-labelledby="trial-title"
+    [attr.aria-describedby]="trialError ? 'trial-error' : 'trial-hint'"
+  >
     <h3 id="trial-title" class="label">試問看看</h3>
-    <p id="trial-hint" class="hint">這是以範例回答模擬的預覽，不會連接真實 AI。選一個問題，確認回答方式符合預期。</p>
+    <p id="trial-hint" class="hint">用真實的回答流程試問，確認資料來源與回答規則符合預期。也可以直接輸入問題。</p>
+
     <div class="questions">
       @for (question of store.trialQuestions(); track question.id) {
-        <button type="button" class="trial-question" (click)="store.runTrial(question.id)">
+        <button
+          type="button"
+          class="trial-question"
+          [disabled]="store.trialing()"
+          (click)="askSuggested(question.text)"
+        >
           試問：{{ question.text }}
         </button>
       }
     </div>
+
+    <form class="ask-form" (submit)="submitQuestion($event)">
+      <label for="trial-question-input" class="visually-hidden">輸入問題</label>
+      <input
+        id="trial-question-input"
+        class="ask-input"
+        type="text"
+        name="question"
+        autocomplete="off"
+        placeholder="輸入你想問的問題"
+        [value]="questionDraft()"
+        [disabled]="store.trialing()"
+        (input)="onQuestionInput($event)"
+      />
+      <button type="submit" class="ask-submit" [disabled]="store.trialing() || questionDraft().trim() === ''">
+        {{ store.trialing() ? '試問中…' : '送出' }}
+      </button>
+    </form>
+
     @if (trialError) {
       <p id="trial-error" class="error" role="alert">{{ trialError }}</p>
+    }
+    @if (runError) {
+      <p class="error" role="alert">{{ runError }}</p>
     }
   </section>
 
   <div class="answers" aria-live="polite">
-    @for (answer of store.answers(); track answer.questionId) {
-      <article class="trial-answer" [attr.data-kind]="answer.kind">
-        <p class="question">問：{{ questionText().get(answer.questionId) }}</p>
-        <p class="kind">{{ answerLabel(answer.kind) }}</p>
-        <p>{{ answer.text }}</p>
-        @if (answer.kind === 'company-data' && answer.citation; as citation) {
-          <blockquote>
-            <p>「{{ citation.excerpt }}」</p>
-            <footer>來源：{{ citation.sourceName }}</footer>
-          </blockquote>
+    @for (result of store.answers(); track $index) {
+      <article class="trial-answer" [attr.data-kind]="result.reply.kind">
+        <p class="question">問：{{ result.question }}</p>
+        <p class="kind">{{ answerLabel(result.reply.kind) }}</p>
+        <p>{{ result.reply.text }}</p>
+
+        @if (result.reply.kind === 'company-data') {
+          @for (citation of result.reply.citations; track $index) {
+            <blockquote>
+              <p>「{{ citation.excerpt }}」</p>
+              <footer>
+                來源：{{ citation.knowledgeBaseName }} · {{ citation.documentName }}（{{ citation.locationLabel }}）
+                · 分數 {{ formatScore(citation.score) }}
+              </footer>
+            </blockquote>
+          }
+          @if (result.reply.citationNotice) {
+            <p class="notice">{{ result.reply.citationNotice }}</p>
+          }
+        }
+        @if (result.reply.kind === 'general-knowledge') {
+          <p class="notice">{{ result.reply.notice }}</p>
+        }
+        @if (result.reply.kind === 'no-result' && result.reply.nextSteps.length > 0) {
+          <ul class="next-steps">
+            @for (step of result.reply.nextSteps; track $index) {
+              <li>{{ step }}</li>
+            }
+          </ul>
+        }
+
+        @if (result.passages.length > 0) {
+          <details class="passages">
+            <summary>檢索到的段落（門檻 {{ formatScore(result.threshold) }}）</summary>
+            <ul>
+              @for (passage of result.passages; track $index) {
+                <li>
+                  <p>「{{ passage.excerpt }}」</p>
+                  <footer>
+                    {{ passage.knowledgeBaseName }} · {{ passage.documentName }}（{{ passage.locationLabel }}）
+                    · 分數 {{ formatScore(passage.score) }}
+                  </footer>
+                </li>
+              }
+            </ul>
+          </details>
         }
       </article>
     }

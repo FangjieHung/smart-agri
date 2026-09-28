@@ -14,11 +14,36 @@ h3 { margin: 0; font-size: var(--font-size-heading); }
   text-align: start;
   cursor: pointer;
 }
+.ask-form { display: flex; gap: var(--space-2); margin-block-start: var(--space-2); }
+.ask-input {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+.ask-submit {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-accent);
+  color: var(--color-on-accent, #fff);
+  font-weight: 700;
+  cursor: pointer;
+}
+.ask-submit:disabled, .trial-question:disabled { opacity: 0.6; cursor: not-allowed; }
 .answers { display: grid; gap: var(--space-3); }
 .trial-answer { display: grid; gap: var(--space-2); padding: var(--space-4); border: var(--border-default); border-inline-start: var(--space-1) solid var(--color-success); border-radius: var(--radius-container); background: var(--color-surface); }
 .trial-answer[data-kind='general-knowledge'] { border-inline-start-color: var(--color-warning); }
-.trial-answer[data-kind='no-answer'] { border-inline-start-color: var(--color-text-secondary); }
+.trial-answer[data-kind='no-result'] { border-inline-start-color: var(--color-text-secondary); }
 .question { color: var(--color-text-secondary); }
 .kind { font-size: var(--font-size-caption); font-weight: 700; }
+.notice { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.next-steps { margin: 0; padding-inline-start: var(--space-4); color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.passages summary { cursor: pointer; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.passages ul { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; list-style: none; }
 blockquote { margin: 0; padding: var(--space-3); border-radius: var(--radius-control); background: var(--color-accent-soft); }
 footer { margin-block-start: var(--space-1); color: var(--color-text-secondary); font-size: var(--font-size-caption); }

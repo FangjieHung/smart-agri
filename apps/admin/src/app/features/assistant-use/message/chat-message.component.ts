@@ -1,9 +1,10 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
-import type {
-  ChatCitationView,
-  ChatFormView,
-  ChatMessageView,
-  ChatReplyKind,
+import {
+  REPLY_KIND_LABELS,
+  type ChatCitationView,
+  type ChatFormView,
+  type ChatMessageView,
+  type ChatReplyKind,
 } from '../../../core/domain/conversation.model';
 import type { DatabaseRecordId } from '../../../core/domain/database.model';
 
@@ -17,15 +18,6 @@ export interface WithdrawRequest {
   readonly recordId: DatabaseRecordId;
   readonly trigger: HTMLElement;
 }
-
-/** 三種回答狀態使用不同標示，組織資料、一般知識與查無資料不混寫。 */
-const REPLY_LABELS: Readonly<Record<ChatReplyKind, string>> = {
-  'company-data': '根據你的資料',
-  'general-knowledge': '一般知識補充',
-  'no-result': '查無資料',
-  'form-request': '需要填寫資料',
-  'submission-receipt': '資料已送出',
-};
 
 @Component({
   selector: 'app-chat-message',
@@ -43,7 +35,7 @@ export class ChatMessageComponent {
   readonly withdrawSubmission = output<WithdrawRequest>();
 
   protected label(kind: ChatReplyKind): string {
-    return REPLY_LABELS[kind];
+    return REPLY_KIND_LABELS[kind];
   }
 
   protected showCitations(citations: readonly ChatCitationView[], event: Event): void {

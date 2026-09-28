@@ -62,7 +62,8 @@ export interface AssistantDraft {
   readonly roleInstructions: string;
   readonly sources: readonly AssistantSourceReference[];
   readonly rules: AssistantAnswerRules;
-  readonly testedQuestionIds: readonly TrialQuestionId[];
+  /** 已至少試問一次（自由輸入或固定題組皆可）；建立助理前的必要條件。 */
+  readonly hasTrialAnswer: boolean;
   readonly currentStep: AssistantWizardStep;
 }
 
@@ -118,35 +119,82 @@ export interface TrialQuestionView {
   readonly text: string;
 }
 
-export interface TrialCitationView {
-  readonly sourceId: KnowledgeBaseId;
-  readonly sourceName: string;
+/**
+ * 試問的引用來源；沒有 `updatedLabel`（版本的 `EffectiveFrom` 要等 #76 補上，
+ * 見 PR #92 的說明），其餘欄位與 `ChatCitationView` 相同意義。
+ */
+export interface TrialAnswerCitationView {
+  readonly knowledgeBaseName: KnowledgeBaseId | string;
+  readonly documentName: string;
+  readonly locationLabel: string;
   readonly excerpt: string;
+  readonly score: number;
 }
 
+/**
+ * 試問與正式對話用同一套回覆類型（issue #82，M3 計畫 Slice 12）：`ChatReplyView` 拿掉
+ * `form-request`、`submission-receipt`（試問不牽涉表單）的子集，`citations` 換成試問專用的
+ * `TrialAnswerCitationView`（多一個 `score`）。
+ */
 export type TrialAnswerView =
   | {
       readonly kind: 'company-data';
-      readonly questionId: TrialQuestionId;
       readonly text: string;
-      readonly citation: TrialCitationView | null;
+      readonly citations: readonly TrialAnswerCitationView[];
+      readonly citationNotice: string | null;
     }
   | {
       readonly kind: 'general-knowledge';
-      readonly questionId: TrialQuestionId;
       readonly text: string;
+      readonly notice: string;
     }
   | {
-      readonly kind: 'no-answer';
-      readonly questionId: TrialQuestionId;
+      readonly kind: 'no-result';
       readonly text: string;
+      readonly nextSteps: readonly string[];
     };
 
+export type TrialAnswerKind = TrialAnswerView['kind'];
+
+/** 檢索到的段落與分數；讓建立者對照 `threshold` 判斷門檻是否合適，不限於命中的段落。 */
+export interface TrialAnswerPassageView {
+  readonly knowledgeBaseName: string;
+  readonly documentName: string;
+  readonly locationLabel: string;
+  readonly excerpt: string;
+  readonly score: number;
+}
+
+/** 一次試問的完整結果：回覆本身，加上檢索到的段落與門檻。 */
+export interface TrialAnswerResultView {
+  readonly question: string;
+  readonly reply: TrialAnswerView;
+  readonly passages: readonly TrialAnswerPassageView[];
+  readonly threshold: number;
+}
+
+/**
+ * API 模式下試問可以自由輸入問題（固定題組仍保留作為建議按鈕）；Mock 模式另外需要草稿的
+ * 來源與回答規則才能模擬結果，API 模式以伺服器上保存的草稿為準，不會送出這兩個欄位。
+ */
 export interface TrialAnswerRequest {
-  readonly questionId: TrialQuestionId;
+  readonly question: string;
   readonly sources: readonly AssistantSourceReference[];
   readonly rules: AssistantAnswerRules;
 }
+
+/** 問題空白或超過長度限制（422）。 */
+export interface TrialAnswerValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly message: string;
+}
+
+/** 嵌入或對話模型未設定、或呼叫失敗（503）。 */
+export interface TrialAnswerUnavailableView {
+  readonly status: 'unavailable';
+  readonly message: string;
+}
+
 
 export const DEFAULT_REFUSAL_MESSAGE =
   '目前的資料中找不到這個問題的答案。請留下聯絡方式，我們會由專人回覆你。';
@@ -169,7 +217,7 @@ export function createEmptyAssistantDraft(): AssistantDraft {
       dataWritePurpose: '',
       periodicReport: 'off',
     },
-    testedQuestionIds: [],
+    hasTrialAnswer: false,
     currentStep: 'purpose',
   };
 }
@@ -243,7 +291,7 @@ export function validateAssistantDraftStep(
     }
   }
 
-  if (step === 'test' && draft.testedQuestionIds.length === 0) {
+  if (step === 'test' && !draft.hasTrialAnswer) {
     errors.push({ field: 'trial', message: '請至少試問一題，確認回答符合預期。' });
   }
 

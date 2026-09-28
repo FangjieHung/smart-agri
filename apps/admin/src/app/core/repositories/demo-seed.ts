@@ -90,10 +90,17 @@ export const ASSISTANT_RULE_DEFAULTS: AssistantRuleDefaults = {
   },
 };
 
-/** 試問固定回答：不連接真實 AI，依來源與規則挑選其中一種回答。 */
+/**
+ * 試問固定回答：不連接真實 AI，依來源與規則挑選其中一種回答。`keyword` 是判斷「輸入的問題
+ * 是否命中這一題」的關鍵字，null 代表永遠不命中（例如與資料無關的問題）；固定題組仍保留
+ * 作為建議按鈕，但 API 模式下可以自由輸入問題（issue #82）。
+ */
 export interface TrialQuestionFixture extends TrialQuestionView {
+  readonly keyword: string | null;
   readonly companyAnswer: {
     readonly sourceId: KnowledgeBaseView['id'];
+    readonly documentName: string;
+    readonly locationLabel: string;
     readonly text: string;
     readonly excerpt: string;
   } | null;
@@ -397,8 +404,11 @@ export const DEMO_SEED: DemoSeed = {
     {
       id: 'trial-refund-window',
       text: '收到商品後幾天內可以申請退貨？',
+      keyword: '退貨',
       companyAnswer: {
         sourceId: 'knowledge-refund-policy',
+        documentName: '退換貨政策.pdf',
+        locationLabel: '第 1 頁',
         text: '收到商品後 7 天內可以申請退貨，商品需保持完整包裝。',
         excerpt: '消費者於收受商品後七日內，得申請退貨，商品應保持原包裝完整。',
       },
@@ -407,12 +417,14 @@ export const DEMO_SEED: DemoSeed = {
     {
       id: 'trial-leather-care',
       text: '皮革商品平常要怎麼保養？',
+      keyword: '皮革',
       companyAnswer: null,
       generalAnswer: '一般建議避免長時間日曬與潮濕，並定期使用皮革保養油。這不是組織資料，僅供參考。',
     },
     {
       id: 'trial-unrelated-request',
       text: '可以幫我訂下週的機票嗎？',
+      keyword: null,
       companyAnswer: null,
       generalAnswer: null,
     },

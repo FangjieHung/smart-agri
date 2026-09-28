@@ -24,6 +24,7 @@ import {
   apiAssistantPlatformSharingPath,
   apiAssistantPublishingPath,
   apiAssistantSettingsPath,
+  apiTrialAnswersPath,
   API_RECENT_CONVERSATIONS_PATH,
   API_TEAM_PATH,
   apiAssistantChatConversationPath,
@@ -1836,7 +1837,7 @@ function completeDraft(sources: AssistantDraft['sources']): AssistantDraft {
     purpose: '回答門市作業問題',
     audience: 'account-members',
     sources,
-    testedQuestionIds: ['trial-refund-window'],
+    hasTrialAnswer: true,
     currentStep: 'test',
   };
 }
@@ -2224,6 +2225,158 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     controller.expectOne(API_ASSISTANTS_PATH).flush(DRAFT_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
 
     expect(await result).toMatchObject({ status: 'permission-denied', reason: 'assistant-draft' });
+  });
+
+  // ---------- 試問（issue #82，M3 計畫 Slice 8、12） ----------
+
+  it('calls trial-answers with the free-text question and maps the reply, passages and threshold', async () => {
+    const { repository } = setUpAssistants();
+    const draft = completeDraft([{ id: KB_ID, type: 'knowledge-base' }]);
+    const result = pending(
+      repository.previewTrialAnswer(DRAFT_ID, {
+        question: '收到商品後幾天內可以申請退貨？',
+        sources: draft.sources,
+        rules: draft.rules,
+      }),
+    );
+
+    const request = controller.expectOne({ method: 'POST', url: apiTrialAnswersPath(DRAFT_ID) });
+    expect(request.request.body).toEqual({ question: '收到商品後幾天內可以申請退貨？' });
+    request.flush({
+      reply: {
+        kind: 'company-data',
+        text: '收到商品後 7 天內可以申請退貨。',
+        citations: [
+          {
+            ordinal: 1,
+            knowledgeBaseId: KB_ID,
+            knowledgeBaseName: '退換貨政策',
+            documentId: '0199c000-0000-7000-8000-0000000000d1',
+            documentName: '退換貨政策.pdf',
+            locationLabel: '第 1 頁',
+            excerpt: '消費者於收受商品後七日內，得申請退貨。',
+            score: 0.82,
+          },
+        ],
+        notice: null,
+        nextSteps: [],
+      },
+      passages: [
+        {
+          knowledgeBaseId: KB_ID,
+          knowledgeBaseName: '退換貨政策',
+          documentId: '0199c000-0000-7000-8000-0000000000d1',
+          documentName: '退換貨政策.pdf',
+          locationLabel: '第 1 頁',
+          excerpt: '消費者於收受商品後七日內，得申請退貨。',
+          score: 0.82,
+        },
+      ],
+      threshold: 0.3,
+    });
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: {
+        question: '收到商品後幾天內可以申請退貨？',
+        reply: {
+          kind: 'company-data',
+          text: '收到商品後 7 天內可以申請退貨。',
+          citations: [
+            {
+              knowledgeBaseName: '退換貨政策',
+              documentName: '退換貨政策.pdf',
+              locationLabel: '第 1 頁',
+              excerpt: '消費者於收受商品後七日內，得申請退貨。',
+              score: 0.82,
+            },
+          ],
+          citationNotice: null,
+        },
+        passages: [
+          {
+            knowledgeBaseName: '退換貨政策',
+            documentName: '退換貨政策.pdf',
+            locationLabel: '第 1 頁',
+            excerpt: '消費者於收受商品後七日內，得申請退貨。',
+            score: 0.82,
+          },
+        ],
+        threshold: 0.3,
+      },
+    });
+  });
+
+  it('maps a general-knowledge reply from the actual JSON the backend sends (nullable notice omitted, issue #103’s lesson)', async () => {
+    const { repository } = setUpAssistants();
+    const draft = completeDraft([]);
+    const result = pending(
+      repository.previewTrialAnswer(DRAFT_ID, {
+        question: '皮革商品平常要怎麼保養？',
+        sources: draft.sources,
+        rules: { ...draft.rules, knowledgeScope: 'allow-general-knowledge' },
+      }),
+    );
+
+    const request = controller.expectOne({ method: 'POST', url: apiTrialAnswersPath(DRAFT_ID) });
+    // 用實際的 JSON 字串驗證：PR #103 發現後端會用 `JsonIgnore(WhenWritingNull)` 省略掉
+    // nullable 的欄位，而 OpenAPI 仍標成必填——這裡故意不送 `notice`，確認 adapter 不會炸掉。
+    const body = JSON.parse(
+      '{"reply":{"kind":"general-knowledge","text":"一般建議避免長時間日曬與潮濕。","citations":[],"nextSteps":[]},"passages":[],"threshold":0.3}',
+    ) as unknown;
+    request.flush(body as never);
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: {
+        question: '皮革商品平常要怎麼保養？',
+        reply: { kind: 'general-knowledge', text: '一般建議避免長時間日曬與潮濕。', notice: '' },
+        passages: [],
+        threshold: 0.3,
+      },
+    });
+  });
+
+  it('is validation-failed (422) when the question is blank or over 2,000 characters', async () => {
+    const { repository } = setUpAssistants();
+    const draft = completeDraft([]);
+    const result = pending(
+      repository.previewTrialAnswer(DRAFT_ID, { question: '', sources: draft.sources, rules: draft.rules }),
+    );
+
+    controller
+      .expectOne({ method: 'POST', url: apiTrialAnswersPath(DRAFT_ID) })
+      .flush({ message: '請先輸入問題。' }, { status: 422, statusText: 'Unprocessable Entity' });
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '請先輸入問題。' });
+  });
+
+  it('maps a 403 assistant-draft on a missing or someone else’s draft', async () => {
+    const { repository } = setUpAssistants();
+    const draft = completeDraft([]);
+    const result = pending(
+      repository.previewTrialAnswer(DRAFT_ID, { question: '問題', sources: draft.sources, rules: draft.rules }),
+    );
+
+    controller
+      .expectOne({ method: 'POST', url: apiTrialAnswersPath(DRAFT_ID) })
+      .flush(DRAFT_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toMatchObject({ status: 'permission-denied', reason: 'assistant-draft' });
+  });
+
+  it('is unavailable (503) when the embedding or chat model is not configured', async () => {
+    const { repository } = setUpAssistants();
+    const draft = completeDraft([]);
+    const result = pending(
+      repository.previewTrialAnswer(DRAFT_ID, { question: '問題', sources: draft.sources, rules: draft.rules }),
+    );
+
+    controller
+      .expectOne({ method: 'POST', url: apiTrialAnswersPath(DRAFT_ID) })
+      .flush({ message: '尚未設定對話模型，請先完成設定。' }, { status: 503, statusText: 'Service Unavailable' });
+
+    expect(await result).toEqual({ status: 'unavailable', message: '尚未設定對話模型，請先完成設定。' });
   });
 
   // ---------- 可連接來源 ----------

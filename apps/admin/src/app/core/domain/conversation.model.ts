@@ -181,6 +181,18 @@ export type ChatReplyView =
 
 export type ChatReplyKind = ChatReplyView['kind'];
 
+/**
+ * 三種回答狀態使用不同標示，組織資料、一般知識與查無資料不混寫；精靈的試問（`TrialAnswerView`）
+ * 只用得到前三個 key，`form-request`／`submission-receipt` 不牽涉試問（issue #82）。
+ */
+export const REPLY_KIND_LABELS: Readonly<Record<ChatReplyKind, string>> = {
+  'company-data': '根據你的資料',
+  'general-knowledge': '一般知識補充',
+  'no-result': '查無資料',
+  'form-request': '需要填寫資料',
+  'submission-receipt': '資料已送出',
+};
+
 export type ChatMessageView =
   | {
       readonly id: ChatMessageId;

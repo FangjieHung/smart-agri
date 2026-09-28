@@ -22,7 +22,7 @@ function completeDraft(): AssistantDraft {
       { id: 'knowledge-product-guide', type: 'knowledge-base' },
       { id: 'database-orders', type: 'database' },
     ],
-    testedQuestionIds: ['trial-refund-window'],
+    hasTrialAnswer: true,
     currentStep: 'test',
   };
 }

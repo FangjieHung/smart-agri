@@ -11,6 +11,7 @@ import {
   API_ASSISTANTS_PATH,
   API_CONNECTABLE_SOURCES_PATH,
   apiAssistantDraftPath,
+  apiTrialAnswersPath,
   HybridDemoRepository,
 } from '../../../core/repositories/hybrid-demo-repository';
 import { createMemoryStorage } from '../../../core/repositories/memory-storage';
@@ -211,10 +212,10 @@ describe('AssistantDraftStore', () => {
 
     expect(await store.create()).toBeNull();
 
-    const answer = store.runTrial('trial-refund-window');
+    const answer = await store.runTrial('收到商品後幾天內可以申請退貨？');
 
-    expect(answer?.kind).toBe('company-data');
-    expect(store.draft().testedQuestionIds).toEqual(['trial-refund-window']);
+    expect(answer?.reply.kind).toBe('company-data');
+    expect(store.draft().hasTrialAnswer).toBe(true);
 
     const assistantId = await store.create();
 
@@ -230,7 +231,7 @@ describe('AssistantDraftStore', () => {
     store.applyTemplate('answer-customer-questions');
     store.setAudience({ internal: true, external: false });
     store.toggleSource({ id: 'knowledge-refund-policy', type: 'knowledge-base' });
-    store.runTrial('trial-refund-window');
+    await store.runTrial('收到商品後幾天內可以申請退貨？');
     repository.createAssistantFromDraft = () =>
       of({
         status: 'validation-failed',
@@ -257,7 +258,7 @@ describe('AssistantDraftStore', () => {
     store.applyTemplate('answer-customer-questions');
     store.setAudience({ internal: true, external: false });
     store.toggleSource({ id: 'knowledge-refund-policy', type: 'knowledge-base' });
-    store.runTrial('trial-refund-window');
+    await store.runTrial('收到商品後幾天內可以申請退貨？');
     await settle();
     let created = false;
     repository.saveNamedAssistantDraft = () => of({ status: 'conflict', message: '這份草稿已在其他分頁被更新過，請重新載入後再修改。' });
@@ -343,24 +344,39 @@ describe('AssistantDraftStore in API mode', () => {
     await settle();
     expect(store.connectableSources().map((source) => source.id)).toEqual([KB_GUID]);
 
-    // 精靈的四個步驟：每次變更都自動保存，一次只送一個 PUT，帶上一次回來的 revision。
+    // 試問走真實的 API（issue #82）：POST 到 trial-answers、再由回答結果觸發一次自動儲存
+    // （記下「已至少試問一次」），各自完整走完一次來回才繼續下一步，避免跟後面幾個同步變更
+    // 的自動儲存混在一起、卡住同一條 `saveChain`。
+    void store.runTrial('收到商品後幾天內可以申請退貨？');
+    await settle();
+    controller.expectOne({ method: 'POST', url: apiTrialAnswersPath(DRAFT_GUID) }).flush({
+      reply: { kind: 'no-result', text: '目前的資料中找不到這個問題的答案。', citations: [], notice: null, nextSteps: [] },
+      passages: [],
+      threshold: 0.3,
+    });
+    await settle();
+    const trialSave = controller.expectOne({ method: 'PUT', url: apiAssistantDraftPath(DRAFT_GUID) });
+    expect(trialSave.request.body.revision).toBe(1);
+    trialSave.flush(draftView(trialSave.request.body.payload, 2));
+    await settle();
+
+    // 精靈的其餘步驟：每次變更都自動保存，一次只送一個 PUT，帶上一次回來的 revision。
     store.applyTemplate('answer-customer-questions');
     store.setAudience({ internal: true, external: false });
     const picked = store.connectableSources()[0];
     store.toggleSource(picked);
-    store.runTrial('trial-refund-window');
     await settle();
     const autosave = controller.expectOne({ method: 'PUT', url: apiAssistantDraftPath(DRAFT_GUID) });
-    expect(autosave.request.body.revision).toBe(1);
-    autosave.flush(draftView(autosave.request.body.payload, 2));
+    expect(autosave.request.body.revision).toBe(2);
+    autosave.flush(draftView(autosave.request.body.payload, 3));
     await settle();
 
     const creating = store.create();
     await settle();
     const finalSave = controller.expectOne({ method: 'PUT', url: apiAssistantDraftPath(DRAFT_GUID) });
-    expect(finalSave.request.body.revision).toBe(2);
+    expect(finalSave.request.body.revision).toBe(3);
     expect(finalSave.request.body.payload.sources).toEqual([{ id: KB_GUID, type: 'knowledge-base' }]);
-    finalSave.flush(draftView(finalSave.request.body.payload, 3));
+    finalSave.flush(draftView(finalSave.request.body.payload, 4));
     await settle();
 
     const post = controller.expectOne({ method: 'POST', url: API_ASSISTANTS_PATH });

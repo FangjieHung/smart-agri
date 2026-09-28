@@ -27,7 +27,7 @@ function completeDraft(): AssistantDraft {
       { id: 'database-orders', type: 'database' },
       { id: 'database-customer-records', type: 'database' },
     ],
-    testedQuestionIds: ['trial-refund-window'],
+    hasTrialAnswer: true,
     currentStep: 'test',
   };
 }
@@ -204,41 +204,68 @@ describe('MockDemoRepository assistant creation', () => {
     });
   });
 
-  it('answers trial questions from fixtures according to sources and rules', () => {
+  it('answers trial questions from fixtures according to sources and rules (issue #82)', async () => {
     const repository = createRepository();
     const draft = completeDraft();
 
-    const cited = repository.previewTrialAnswer('account-smb-admin', {
-      questionId: 'trial-refund-window',
-      sources: draft.sources,
-      rules: draft.rules,
-    });
-    const strictGeneral = repository.previewTrialAnswer('account-smb-admin', {
-      questionId: 'trial-leather-care',
-      sources: draft.sources,
-      rules: draft.rules,
-    });
-    const allowedGeneral = repository.previewTrialAnswer('account-smb-admin', {
-      questionId: 'trial-leather-care',
-      sources: draft.sources,
-      rules: { ...draft.rules, knowledgeScope: 'allow-general-knowledge' },
-    });
+    const cited = await firstValueFrom(
+      repository.previewTrialAnswer('draft-any', {
+        question: '收到商品後幾天內可以申請退貨？',
+        sources: draft.sources,
+        rules: draft.rules,
+      }),
+    );
+    const strictGeneral = await firstValueFrom(
+      repository.previewTrialAnswer('draft-any', {
+        question: '皮革商品平常要怎麼保養？',
+        sources: draft.sources,
+        rules: draft.rules,
+      }),
+    );
+    const allowedGeneral = await firstValueFrom(
+      repository.previewTrialAnswer('draft-any', {
+        question: '皮革商品平常要怎麼保養？',
+        sources: draft.sources,
+        rules: { ...draft.rules, knowledgeScope: 'allow-general-knowledge' },
+      }),
+    );
 
     expect(cited).toMatchObject({
       status: 'ready',
       data: {
-        kind: 'company-data',
-        citation: { sourceId: 'knowledge-refund-policy', sourceName: '退換貨政策' },
+        reply: {
+          kind: 'company-data',
+          citations: [{ knowledgeBaseName: '退換貨政策' }],
+        },
       },
     });
     expect(strictGeneral).toMatchObject({
       status: 'ready',
-      data: { kind: 'no-answer', text: draft.rules.refusalMessage },
+      data: { reply: { kind: 'no-result', text: draft.rules.refusalMessage } },
     });
     expect(allowedGeneral).toMatchObject({
       status: 'ready',
-      data: { kind: 'general-knowledge' },
+      data: { reply: { kind: 'general-knowledge' } },
     });
+  });
+
+  it('rejects a blank or over-length trial question with validation-failed (issue #82)', async () => {
+    const repository = createRepository();
+    const draft = completeDraft();
+
+    const blank = await firstValueFrom(
+      repository.previewTrialAnswer('draft-any', { question: '   ', sources: draft.sources, rules: draft.rules }),
+    );
+    const tooLong = await firstValueFrom(
+      repository.previewTrialAnswer('draft-any', {
+        question: '問'.repeat(2001),
+        sources: draft.sources,
+        rules: draft.rules,
+      }),
+    );
+
+    expect(blank).toMatchObject({ status: 'validation-failed' });
+    expect(tooLong).toMatchObject({ status: 'validation-failed' });
   });
 
   describe('saveNamedAssistantDraft revisions', () => {
@@ -407,7 +434,7 @@ describe('MockDemoRepository assistant creation', () => {
         repository.createAssistantFromDraft(created.data.id, {
           ...completeDraft(),
           sources: [],
-          testedQuestionIds: [],
+          hasTrialAnswer: false,
         }),
       );
 

@@ -1,10 +1,28 @@
-@if (configuration(); as assistant) {
+@if (loadStatus() === 'loading') {
+  <section class="workspace-page">
+    <app-state-panel state="loading" title="正在載入助理設定" />
+  </section>
+} @else if (loadStatus() === 'error') {
+  <section class="workspace-page">
+    <app-page-header title="無法載入助理設定" description="這可能是暫時的連線問題。" />
+    <app-state-panel
+      state="error"
+      title="目前無法載入這個助理"
+      description="請稍後重新整理頁面再試一次。"
+      recoveryLabel="返回我的助理"
+      (recover)="returnToList()"
+    />
+  </section>
+} @else if (configuration(); as assistant) {
   <section class="workspace-page">
     <app-page-header
       [title]="assistant.name"
       description="選擇要處理的工作；概覽、資料來源與回答設定的變更會自動保存，可以中途離開稍後再回來。"
     >
-      <a page-header-actions class="page-back" routerLink="/app/assistants">返回我的助理</a>
+      <div page-header-actions class="page-actions">
+        <a class="page-back" routerLink="/app/assistants">返回我的助理</a>
+        <button type="button" class="ui-button danger" (click)="confirmDelete()">刪除助理</button>
+      </div>
     </app-page-header>
 
     @if (justCreated) {
@@ -59,7 +77,7 @@
               }
             </p>
           }
-          <a class="panel-link" [routerLink]="['/use', assistantId()]">開啟使用者對話畫面 <span aria-hidden="true">→</span></a>
+          <a class="panel-link" [routerLink]="apiMode ? ['/app/chat', assistantId()] : ['/use', assistantId()]">開啟使用者對話畫面 <span aria-hidden="true">→</span></a>
         }
         @case ('activity') {
           @if (analytics(); as usage) {
@@ -68,6 +86,8 @@
               <div><dt>已解決</dt><dd>{{ usage.resolvedCount }}</dd></div>
               <div><dt>回饋為有幫助</dt><dd>{{ usage.helpfulRatingPercent }}%</dd></div>
             </dl>
+          } @else if (apiMode) {
+            <p>匿名使用統計將於後續版本提供。</p>
           } @else {
             <p>目前還沒有使用紀錄。</p>
           }
@@ -93,3 +113,22 @@
     />
   </section>
 }
+
+<ng-template #deleteDialog>
+  <section class="delete-panel">
+    <h2 id="assistant-delete-title">刪除助理「{{ configuration()?.name }}」？</h2>
+    <p id="assistant-delete-detail" class="hint">
+      助理的設定、資料來源連接與分享對象都會刪除，<strong>所有成員與這個助理的對話紀錄也會一併刪除</strong>，
+      包含分享對象自己的對話。知識庫本身不受影響。這個動作無法復原。
+    </p>
+    @if (deleteError()) {
+      <p class="action-error" role="alert">{{ deleteError() }}</p>
+    }
+    <div class="dialog-actions">
+      <button id="assistant-delete-cancel" type="button" class="ui-button secondary" (click)="closeDeleteDialog()">取消</button>
+      <button type="button" class="ui-button danger" [disabled]="deleting()" (click)="deleteConfirmed()">
+        {{ deleting() ? '刪除中…' : '刪除助理與所有對話' }}
+      </button>
+    </div>
+  </section>
+</ng-template>

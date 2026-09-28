@@ -169,6 +169,15 @@ npx nx lint admin
 - **回答規則已經全部接到行為，沒有純裝飾的設定值。** 嚴格／一般知識（`knowledgeScope`）、保存自己的對話（`keepOwnConversations`）、顯示引用出處（`showCitations`）、定期回報（`periodicReport` 搭配寫入的資料庫），以及「找不到資料時的回覆」（`refusalMessage`）都會改變行為。`refusalMessage` 既用在建立精靈的試問預覽（`core/repositories/mock-demo-repository.ts:1240`），也用在終端對話的「查無資料」（`:2322`）；種子助理的預設值就是原本那句固定文案（`demo-seed.ts` 的 `ASSISTANT_RULE_DEFAULTS`），所以**未編輯過的助理行為不變**，而「回答與記錄」頁籤顯示的就是對話真的會說的那一句。和 `showCitations` 一樣，**已經保存的回答不會被改寫**，規則只影響之後的新回答。
 - **撤回同意可以用了，但稽核軌跡很淺。** 提交者可以在對話的送出收據上撤回自己送出的紀錄：撤回會清掉內容、紀錄立刻離開收集紀錄與趨勢比較，只在收集紀錄留下「提交日期、撤回日期、來源」的軌跡。資料管理者**不能**代為撤回或代為刪除。軌跡沒有操作者、IP 或同意條款版本——mock 存不住，所以也沒有假裝存著。未登入訪客只能在**同一個瀏覽器分頁內**撤回，分頁一關就再也指認不到那筆紀錄，畫面對此直說。
 
+### API 模式（M3）：mock 助理資料不會遷移
+
+以 API 模式（`provideApiMode()`，接真實後端）使用時，助理的清單、設定、資料來源連接、刪除、建立精靈的草稿、「由草稿建立助理」、平台內分享與暫停都讀寫後端（issue #81）。
+
+- **M2 期間存在瀏覽器 `localStorage` 裡的 mock 助理與草稿不會遷移到後端**（`sme-demo:created-assistants`、`sme-demo:assistant-drafts:*`、`sme-demo:assistant-draft:*`、`sme-demo:assistant-settings:*`、`sme-demo:publishing:*`）。切到 API 模式後，「我的助理」只會列出後端的助理，請在 API 模式重新用精靈建立（M3 計畫第 7 節已決定 4）。這些 key 仍留在瀏覽器裡，Mock 模式（GitHub Pages Demo）照常使用它們。
+- 刪除助理會連同**所有成員**與這個助理的對話紀錄一併刪除，無法復原。
+- API 模式只開放組織內部使用：精靈與設定頁不提供「外部客戶」使用對象、資料庫來源、資料庫寫入與定期回報；發布頁的官網嵌入與 LINE 顯示「對外發布將於後續版本開放」。
+- 知識庫的「已連接助理」在 API 模式暫不顯示（後端的知識庫回應沒有這個欄位），請到助理設定的「資料來源」頁籤查看。
+
 ### 測試現況
 
 - `npx nx test admin`：67 個檔案、380 個測試全部通過。

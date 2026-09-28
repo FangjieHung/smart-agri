@@ -1,8 +1,10 @@
-import { ChangeDetectionStrategy, Component, inject, input, linkedSignal, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, input, linkedSignal, output, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { AccountId } from '../../../core/domain/account.model';
 import type { PlatformSharingView } from '../../../core/domain/publishing.model';
+import type { UpdatePlatformSharingResult } from '../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
-import { DemoSessionService } from '../../../core/session/demo-session.service';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 
 /** 平台內分享：指定可使用助理的帳號。使用者只能操作助理，不能查看設定。 */
 @Component({
@@ -13,7 +15,9 @@ import { DemoSessionService } from '../../../core/session/demo-session.service';
 })
 export class PlatformSharingComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
-  private readonly session = inject(DemoSessionService);
+  private readonly destroyRef = inject(DestroyRef);
+  /** API 模式（M3）的分享只看帳號；mock 模式另外有「使用對象」的角色限制。 */
+  protected readonly apiMode = inject(ApiSessionService).apiMode;
 
   readonly assistantId = input.required<string>();
   readonly view = input.required<PlatformSharingView>();
@@ -22,6 +26,8 @@ export class PlatformSharingComponent {
   protected readonly selected = linkedSignal(() => new Set<AccountId>(this.view().allowedAccountIds));
   protected readonly feedback = signal('');
   protected readonly error = signal('');
+  /** 儲存中：按鈕停用，避免重複送出。 */
+  protected readonly saving = signal(false);
 
   protected toggle(accountId: AccountId, event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
@@ -35,10 +41,26 @@ export class PlatformSharingComponent {
 
   protected save(event: Event): void {
     event.preventDefault();
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return;
+    if (this.saving()) return;
     const before = this.view().allowedAccountIds;
-    const result = this.repository.updatePlatformSharing(accountId, this.assistantId(), [...this.selected()]);
+    this.saving.set(true);
+    this.repository
+      .updatePlatformSharing(this.assistantId(), [...this.selected()])
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.saving.set(false);
+          this.saved(before, result);
+        },
+        error: () => {
+          this.saving.set(false);
+          this.feedback.set('');
+          this.error.set('目前無法儲存可使用的帳號，請稍後再試。');
+        },
+      });
+  }
+
+  private saved(before: readonly AccountId[], result: UpdatePlatformSharingResult): void {
     if (result.status === 'ready' || result.status === 'partial-failure') {
       this.error.set('');
       const removed = before.filter((id) => !result.data.allowedAccountIds.includes(id)).length;

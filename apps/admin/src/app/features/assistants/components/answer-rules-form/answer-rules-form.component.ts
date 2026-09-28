@@ -39,6 +39,11 @@ export class AnswerRulesFormComponent {
    * 而不是只描述「之後」的行為。
    */
   readonly live = input(false);
+  /**
+   * 資料庫寫入與定期回報可以設定嗎？資料庫屬於 M4，API 模式（M3）不提供這兩項，
+   * 改成說明「後續開放」。
+   */
+  readonly databaseFeaturesAvailable = input(true);
   readonly changed = output<Partial<AssistantAnswerRules>>();
 
   protected readonly reportOptions = REPORT_OPTIONS;

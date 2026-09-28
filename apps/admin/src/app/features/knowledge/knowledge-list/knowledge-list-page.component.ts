@@ -50,6 +50,8 @@ export class KnowledgeListPageComponent {
   protected readonly purposeMaxLength = KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH;
   private readonly session = inject(DemoSessionService);
   private readonly apiSession = inject(ApiSessionService);
+  /** API 模式的知識庫回應沒有「已連接助理」（issue #81），這一欄改成提示到助理設定查看。 */
+  protected readonly apiMode = this.apiSession.apiMode;
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);

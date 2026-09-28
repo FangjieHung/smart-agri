@@ -2,8 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink } from '@angular/router';
 import type { AssistantConfigurationView, AssistantSummaryView } from '../../../core/domain/assistant.model';
 import type { NamedAssistantDraftView } from '../../../core/domain/assistant-draft.model';
-import type { PublishingChannelView } from '../../../core/domain/publishing.model';
-import type { RepositoryView } from '../../../core/repositories/demo-repository';
+import { repositoryResource, type LoadedView } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { AssistantPermissionsService } from '../../../core/session/assistant-permissions.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
@@ -17,8 +16,8 @@ interface AssistantListItem {
   readonly recentActivity: string;
 }
 
-/** 讀取失敗（未預期的例外）時視為 `error`，與其餘三種 repository 狀態並列。 */
-type SafeView<T> = RepositoryView<T> | { readonly status: 'error' };
+/** `repositoryResource` 的四種畫面狀態，外加 ready／partial-failure 的資料。 */
+type SafeView<T> = LoadedView<T>;
 
 /** 「我建立的」「組織建立的」各自要在畫面上呈現的整體狀態：loading／error／permission-denied 蓋過內容，其餘照常顯示（含 partial-failure 的資料）。 */
 type SectionStatus = 'loading' | 'error' | 'permission-denied' | 'ready';
@@ -57,16 +56,34 @@ export class AssistantListPageComponent {
   /** 與首頁共用同一條判斷（`AssistantPermissionsService`）：沒有權限就不提供建立入口。 */
   protected readonly canCreateAssistant = this.assistantPermissions.canCreateAssistant;
 
-  private readonly myAssistantsView = computed<SafeView<readonly AssistantConfigurationView[]>>(() => {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return { status: 'loading' };
-    return this.safeRead(() => this.repository.listAssistantConfigurations(accountId));
+  /**
+   * 非同步契約（issue #81）：四份清單各自用 `repositoryResource` 讀取，換身分就重新讀取；
+   * 讀取失敗顯示錯誤狀態，不會被當成空清單。
+   */
+  private readonly myAssistants = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listAssistantConfigurations(),
   });
 
+  private readonly draftList = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listNamedAssistantDrafts(),
+  });
+
+  private readonly channelList = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listPublishingChannels(),
+  });
+
+  private readonly company = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listUsableAssistants(),
+  });
+
+  private readonly myAssistantsView = this.myAssistants.view;
+
   private readonly draftsView = computed<SafeView<readonly NamedAssistantDraftView[]>>(() => {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return { status: 'loading' };
-    const view = this.safeRead(() => this.repository.listNamedAssistantDrafts(accountId));
+    const view = this.draftList.view();
     // 沒有 manage-assistants 的帳號結構上本來就不能有草稿，這跟「建立新助理」入口用同一條權限判斷，
     // 不是需要另外中斷畫面的錯誤；維持顯示「還沒有建立助理」而不是權限不足面板。
     if (view.status === 'permission-denied' && view.reason === 'assistant-draft') {
@@ -75,17 +92,10 @@ export class AssistantListPageComponent {
     return view;
   });
 
-  private readonly channelsView = computed<SafeView<readonly PublishingChannelView[]>>(() => {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return { status: 'loading' };
-    return this.safeRead(() => this.repository.listPublishingChannels(accountId));
-  });
+  /** 管道清單只用來補充頻道名稱：讀取失敗就不顯示名稱，不擋住助理與草稿本身。 */
+  private readonly channelsView = this.channelList.view;
 
-  private readonly companyView = computed<SafeView<readonly AssistantSummaryView[]>>(() => {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return { status: 'loading' };
-    return this.safeRead(() => this.repository.listUsableAssistants(accountId));
-  });
+  private readonly companyView = this.company.view;
 
   /** 「我建立的」區塊的整體狀態；管道清單只用來補充頻道名稱，讀取失敗不擋住助理與草稿本身。 */
   protected readonly myState = computed<SectionStatus>(() =>
@@ -124,7 +134,8 @@ export class AssistantListPageComponent {
 
   protected readonly companyItems = computed<readonly AssistantListItem[]>(() => {
     const assistants = readyData(this.companyView());
-    return assistants.filter((assistant) => assistant.permission !== 'configure').map((assistant) => ({
+    // 分享給我的（`use`）；自己擁有的（`configure`／`publish`）已列在「我建立的」。
+    return assistants.filter((assistant) => assistant.permission === 'use').map((assistant) => ({
       assistant,
       channels: [],
       recentActivity: '組織分享',
@@ -132,15 +143,6 @@ export class AssistantListPageComponent {
   });
 
   protected readonly drafts = computed<readonly NamedAssistantDraftView[]>(() => readyData(this.draftsView()));
-
-  /** 同步呼叫理論上不會拋出例外，仍防禦性接住並顯示為 `error`，不讓整頁白畫面。 */
-  private safeRead<T>(read: () => RepositoryView<T>): SafeView<T> {
-    try {
-      return read();
-    } catch {
-      return { status: 'error' };
-    }
-  }
 
   private toConfigurableSummary(
     assistant: AssistantConfigurationView,

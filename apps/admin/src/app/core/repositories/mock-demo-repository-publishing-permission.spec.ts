@@ -44,44 +44,44 @@ describe('MockDemoRepository publishing permission', () => {
       .subscribe();
   }
 
-  it('lets the owner with manage-publishing read and change every channel', () => {
-    expect(repository.getAssistantPublishing(ADMIN, ASSISTANT).status).toBe('ready');
-    expect(repository.updatePlatformSharing(ADMIN, ASSISTANT, []).status).toBe('ready');
+  it('lets the owner with manage-publishing read and change every channel', async () => {
+    expect((await firstValueFrom(repository.getAssistantPublishing(ASSISTANT))).status).toBe('ready');
+    expect((await firstValueFrom(repository.updatePlatformSharing(ASSISTANT, []))).status).toBe('ready');
   });
 
-  it('refuses every publishing method once manage-publishing is revoked, with one message', () => {
+  it('refuses every publishing method once manage-publishing is revoked, with one message', async () => {
     revokePublishing();
 
     const calls = [
-      repository.getAssistantPublishing(ADMIN, ASSISTANT),
-      repository.updatePlatformSharing(ADMIN, ASSISTANT, []),
+      await firstValueFrom(repository.getAssistantPublishing(ASSISTANT)),
+      await firstValueFrom(repository.updatePlatformSharing(ASSISTANT, [])),
       repository.checkWebsiteInstallation(ADMIN, ASSISTANT),
       repository.saveLineSettings(ADMIN, ASSISTANT, VALID_LINE),
       repository.sendLineTestMessage(ADMIN, ASSISTANT),
       repository.activateLineChannel(ADMIN, ASSISTANT),
-      repository.setPublishingChannelPaused(ADMIN, ASSISTANT, 'platform', true),
+      await firstValueFrom(repository.setPublishingChannelPaused(ASSISTANT, 'platform', true)),
     ];
 
     for (const call of calls) {
       expect(call).toMatchObject({ status: 'permission-denied', reason: 'publishing' });
     }
     // 不存在與無權限共用同一句話。
-    const unknown = repository.getAssistantPublishing(ADMIN, 'assistant-nope');
+    const unknown = await firstValueFrom(repository.getAssistantPublishing('assistant-nope'));
     if (calls[0].status === 'permission-denied' && unknown.status === 'permission-denied') {
       expect(calls[0].message).toBe(unknown.message);
       expect(calls[0].message).not.toContain('客服助理');
     }
   });
 
-  it('empties the channel overview instead of listing channels it cannot open', () => {
+  it('empties the channel overview instead of listing channels it cannot open', async () => {
     revokePublishing();
 
-    expect(repository.listChannelOverview(ADMIN)).toEqual({ status: 'ready', data: [] });
-    expect(repository.listPublishingChannels(ADMIN)).toEqual({ status: 'ready', data: [] });
+    expect(await firstValueFrom(repository.listChannelOverview())).toEqual({ status: 'ready', data: [] });
+    expect(await firstValueFrom(repository.listPublishingChannels())).toEqual({ status: 'ready', data: [] });
   });
 
-  it('keeps the saved channel settings and restores them when the permission comes back', () => {
-    repository.updatePlatformSharing(ADMIN, ASSISTANT, ['account-internal-employee']);
+  it('keeps the saved channel settings and restores them when the permission comes back', async () => {
+    await firstValueFrom(repository.updatePlatformSharing(ASSISTANT, ['account-internal-employee']));
     revokePublishing();
     repository
       .updateMemberPermissions(ADMIN, [
@@ -92,7 +92,7 @@ describe('MockDemoRepository publishing permission', () => {
       ])
       .subscribe();
 
-    const view = repository.getAssistantPublishing(ADMIN, ASSISTANT);
+    const view = await firstValueFrom(repository.getAssistantPublishing(ASSISTANT));
     expect(view.status).toBe('ready');
     if (view.status === 'ready') {
       expect(view.data.platform.allowedAccountIds).toEqual(['account-internal-employee']);

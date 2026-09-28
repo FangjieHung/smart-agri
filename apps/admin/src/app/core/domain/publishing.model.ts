@@ -194,10 +194,34 @@ export interface LineSetupView extends LineSettingsInput {
 
 // ---------- 單一助理的發布設定 ----------
 
+/**
+ * 還沒有開放的對外管道（API 模式的官網嵌入與 LINE，M3 只做組織內部分享）。`channel` 是給
+ * 管道卡片用的狀態（固定「尚未設定」，說明文字就是 `message`），沒有任何可設定的欄位。
+ */
+export interface UnavailablePublishingChannelView {
+  readonly availability: 'not-available';
+  readonly channel: PublishingChannelView;
+  readonly message: string;
+}
+
+export const EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE = '官網嵌入與 LINE 對外發布將於後續版本開放。';
+
+export function isUnavailableChannel(
+  view: WebsiteEmbedView | LineSetupView | UnavailablePublishingChannelView,
+): view is UnavailablePublishingChannelView {
+  return 'availability' in view && view.availability === 'not-available';
+}
+
 export interface AssistantPublishingView {
   readonly assistantId: AssistantId;
   readonly assistantName: string;
   readonly platform: PlatformSharingView;
+  readonly website: WebsiteEmbedView | UnavailablePublishingChannelView;
+  readonly line: LineSetupView | UnavailablePublishingChannelView;
+}
+
+/** 三個管道都可以設定的發布設定（mock 模式；API 模式的官網與 LINE 尚未開放）。 */
+export interface ConfigurableAssistantPublishingView extends AssistantPublishingView {
   readonly website: WebsiteEmbedView;
   readonly line: LineSetupView;
 }

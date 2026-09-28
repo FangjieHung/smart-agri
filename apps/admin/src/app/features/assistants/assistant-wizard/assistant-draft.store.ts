@@ -1,6 +1,8 @@
-import { computed, inject, Injectable, linkedSignal } from '@angular/core';
+import { computed, inject, Injectable, linkedSignal, signal } from '@angular/core';
+import { firstValueFrom, of, type Observable } from 'rxjs';
 import type { AccountId } from '../../../core/domain/account.model';
 import {
+  ASSISTANT_DRAFT_FIELD_STEPS,
   ASSISTANT_WIZARD_STEPS,
   createEmptyAssistantDraft,
   validateAssistantDraft,
@@ -13,6 +15,7 @@ import {
   type AssistantTemplateView,
   type AssistantWizardStep,
   type ConnectableSourceView,
+  type NamedAssistantDraftView,
   type TrialAnswerView,
   type TrialQuestionId,
   type TrialQuestionView,
@@ -35,6 +38,9 @@ export type DraftSaveState =
   | { readonly status: 'saved'; readonly savedAt: string }
   | { readonly status: 'error'; readonly message: string };
 
+/** 讀取草稿的畫面狀態：載入中、讀取失敗、沒有權限（含不存在與別人的草稿）或可以編輯。 */
+export type DraftLoadStatus = 'loading' | 'error' | 'permission-denied' | 'ready';
+
 export interface AudienceFlags {
   readonly internal: boolean;
   readonly external: boolean;
@@ -44,11 +50,21 @@ interface DraftState {
   readonly accountId: AccountId | null;
   readonly canManage: boolean;
   readonly draft: AssistantDraft;
+  /** 下一次保存要帶的樂觀鎖版本（`NamedAssistantDraftView.revision`）。 */
+  readonly revision: number;
+  /** 另一個分頁先存過（`conflict`）：之後的保存一定也會衝突，所以停止自動保存。 */
+  readonly conflicted: boolean;
   readonly save: DraftSaveState;
   readonly attemptedSteps: readonly AssistantWizardStep[];
   readonly answers: readonly TrialAnswerView[];
   readonly createError: string | null;
+  /** 「建立助理」被伺服器以逐欄錯誤拒絕（`422`）時的錯誤；任何編輯都會清掉。 */
+  readonly serverErrors: readonly AssistantDraftFieldError[];
 }
+
+const SAVE_FAILED_MESSAGE = '自動儲存失敗，變更暫時只保留在這個畫面。';
+const CREATE_FAILED_MESSAGE = '目前無法建立助理，請稍後再試。';
+const DRAFT_NOT_FOUND_MESSAGE = '找不到這份草稿，或它不屬於你的帳號。';
 
 function dataOf<T>(view: RepositoryView<T> | LoadedView<T>, fallback: T): T {
   return view.status === 'ready' || view.status === 'partial-failure'
@@ -64,24 +80,46 @@ function sameSource(
 }
 
 /**
- * 建立精靈的草稿狀態：每次變更都透過 repository 自動保存，
- * 並依目前 Demo 帳號各自載入，切換帳號不會帶出前一位的草稿。
+ * 建立精靈的草稿狀態：每次變更都透過 repository 自動保存，並依目前帳號各自載入，
+ * 切換帳號不會帶出前一位的草稿。
+ *
+ * 非同步契約（issue #81）：草稿以 `repositoryResource` 讀取；保存一次只送一個請求，
+ * 送出期間的變更合併成下一次保存（讀取當下最新的草稿），每次都帶上一次回來的
+ * `revision`，所以自己連續的保存不會互相衝突，只有另一個分頁先存過才會 `conflict`。
  */
 @Injectable()
 export class AssistantDraftStore {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
-  private readonly draftId = inject(ActivatedRoute, { optional: true })?.snapshot.paramMap.get('draftId') ?? null;
+  readonly draftId = inject(ActivatedRoute, { optional: true })?.snapshot.paramMap.get('draftId') ?? null;
 
-  private readonly state = linkedSignal<DraftState>(() =>
-    this.load(this.session.activeAccountId()),
-  );
+  private readonly loaded = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: (): Observable<RepositoryView<NamedAssistantDraftView>> =>
+      this.draftId === null
+        ? of({ status: 'permission-denied', reason: 'assistant-draft', message: DRAFT_NOT_FOUND_MESSAGE })
+        : this.repository.getNamedAssistantDraft(this.draftId),
+  });
+
+  /** 讀取結果一變（第一次讀到、換身分）就重設畫面狀態；之後的編輯只改這份本地狀態。 */
+  private readonly state = linkedSignal<LoadedView<NamedAssistantDraftView>, DraftState>({
+    source: this.loaded.view,
+    computation: (view) => this.fromLoaded(view),
+  });
+
+  readonly loadStatus = computed<DraftLoadStatus>(() => {
+    const view = this.loaded.view();
+    if (view.status === 'ready' || view.status === 'partial-failure') return 'ready';
+    return view.status;
+  });
 
   readonly draft = computed(() => this.state().draft);
   readonly canManage = computed(() => this.state().canManage);
   readonly saveState = computed(() => this.state().save);
   readonly answers = computed(() => this.state().answers);
   readonly createError = computed(() => this.state().createError);
+  /** 建立中：按鈕要停用，避免重複送出。 */
+  readonly creating = signal(false);
 
   readonly saveStatusLabel = computed(() => {
     const save = this.state().save;
@@ -103,7 +141,7 @@ export class AssistantDraftStore {
 
   /** 還沒有 Demo 身分時停在載入中；換身分就重新讀取（見 `repositoryResource`）。 */
   private readonly sourcesResource = repositoryResource({
-    params: () => this.state().accountId ?? undefined,
+    params: () => this.session.activeAccountId() ?? undefined,
     stream: () => this.repository.listConnectableSources(),
   });
 
@@ -145,6 +183,9 @@ export class AssistantDraftStore {
     );
   });
 
+  private saveScheduled = false;
+  private saveChain: Promise<boolean> = Promise.resolve(true);
+
   canVisit(step: AssistantWizardStep): boolean {
     return (
       ASSISTANT_WIZARD_STEPS.indexOf(step) <=
@@ -152,11 +193,20 @@ export class AssistantDraftStore {
     );
   }
 
-  /** 只在使用者嘗試離開該步驟後才顯示錯誤，避免一進畫面就滿是紅字。 */
+  /**
+   * 只在使用者嘗試離開該步驟後才顯示畫面自己的檢查結果，避免一進畫面就滿是紅字；
+   * 伺服器拒絕建立時的逐欄錯誤（`422`）一律顯示在欄位所屬的步驟。
+   */
   errorsFor(step: AssistantWizardStep): readonly AssistantDraftFieldError[] {
-    return this.state().attemptedSteps.includes(step)
+    const local = this.state().attemptedSteps.includes(step)
       ? validateAssistantDraftStep(this.draft(), step)
       : [];
+    const server = this.state().serverErrors.filter(
+      (error) =>
+        ASSISTANT_DRAFT_FIELD_STEPS[error.field] === step &&
+        !local.some((existing) => existing.field === error.field),
+    );
+    return [...local, ...server];
   }
 
   fieldError(
@@ -274,26 +324,52 @@ export class AssistantDraftStore {
     return answer;
   }
 
-  /** 以完整草稿建立助理；成功後清除草稿並回傳新助理 id。 */
-  create(): AssistantId | null {
-    const { accountId } = this.state();
+  /**
+   * 以完整草稿建立助理，成功時回傳新助理 id。先等進行中的自動保存結束、再保存一次目前的
+   * 草稿（API 以伺服器上的草稿為準），才送出建立。建立中重複呼叫直接忽略。
+   */
+  async create(): Promise<AssistantId | null> {
+    if (this.creating()) return null;
     this.markAttempted('test');
-    if (accountId === null || validateAssistantDraft(this.draft()).length > 0) {
+    const draftId = this.draftId;
+    if (!this.state().canManage || draftId === null || validateAssistantDraft(this.draft()).length > 0) {
       return null;
     }
 
-    const result = this.repository.createAssistantFromDraft(accountId, this.draft(), this.draftId ?? undefined);
-    if (result.status !== 'ready') {
-      this.state.update((state) => ({
-        ...state,
-        createError:
-          'message' in result ? result.message : '目前無法建立助理，請稍後再試。',
-      }));
-      return null;
-    }
+    this.creating.set(true);
+    try {
+      if (!(await this.scheduleSave())) {
+        const save = this.state().save;
+        this.setCreateError(save.status === 'error' ? save.message : SAVE_FAILED_MESSAGE);
+        return null;
+      }
 
-    this.state.set(this.emptyState(accountId, true));
-    return result.data.id;
+      const result = await firstValueFrom(this.repository.createAssistantFromDraft(draftId, this.draft()));
+      if (result.status === 'ready' || result.status === 'partial-failure') {
+        return result.data.id;
+      }
+      if (result.status === 'validation-failed') {
+        const steps = result.errors.map((error) => ASSISTANT_DRAFT_FIELD_STEPS[error.field]);
+        this.state.update((state) => ({
+          ...state,
+          createError: result.message,
+          serverErrors: result.errors,
+          attemptedSteps: [...new Set([...state.attemptedSteps, ...steps])],
+        }));
+        return null;
+      }
+      this.setCreateError(result.status === 'loading' ? CREATE_FAILED_MESSAGE : result.message);
+      return null;
+    } catch {
+      this.setCreateError(CREATE_FAILED_MESSAGE);
+      return null;
+    } finally {
+      this.creating.set(false);
+    }
+  }
+
+  private setCreateError(message: string): void {
+    this.state.update((state) => ({ ...state, createError: message }));
   }
 
   private markAttempted(step: AssistantWizardStep): void {
@@ -305,39 +381,69 @@ export class AssistantDraftStore {
   }
 
   private commit(draft: AssistantDraft): void {
-    const { accountId, canManage } = this.state();
-    let save: DraftSaveState = this.state().save;
-
-    if (accountId !== null && canManage) {
-      const result = this.draftId
-        ? this.repository.saveNamedAssistantDraft(accountId, this.draftId, draft)
-        : this.repository.saveAssistantDraft(accountId, draft);
-      save =
-        result.status === 'ready' && result.data !== null
-          ? { status: 'saved', savedAt: result.data.savedAt }
-          : { status: 'error', message: '自動儲存失敗，變更暫時只保留在這個畫面。' };
-    }
-
-    this.state.update((state) => ({ ...state, draft, save, createError: null }));
+    this.state.update((state) => ({ ...state, draft, createError: null, serverErrors: [] }));
+    if (this.state().canManage) void this.scheduleSave();
   }
 
-  private load(accountId: AccountId | null): DraftState {
-    if (accountId === null) return this.emptyState(null, false);
+  /**
+   * 排一次保存並回傳「到這次保存為止」的結果。已經有一次排隊中（還沒開始送出）時共用它，
+   * 它開始時會讀取當下最新的草稿，所以連續的變更只會多送一次。
+   */
+  private scheduleSave(): Promise<boolean> {
+    if (!this.saveScheduled) {
+      this.saveScheduled = true;
+      this.saveChain = this.saveChain.then(() => {
+        this.saveScheduled = false;
+        return this.persist();
+      });
+    }
+    return this.saveChain;
+  }
 
-    const result = this.draftId
-      ? this.repository.getNamedAssistantDraft(accountId, this.draftId)
-      : this.repository.getAssistantDraft(accountId);
-    if (result.status === 'permission-denied') {
+  private async persist(): Promise<boolean> {
+    const { canManage, conflicted, draft, revision } = this.state();
+    if (!canManage || this.draftId === null) return false;
+    if (conflicted) return false;
+
+    try {
+      const result = await firstValueFrom(
+        this.repository.saveNamedAssistantDraft(this.draftId, draft, revision),
+      );
+      if (result.status === 'ready' || result.status === 'partial-failure') {
+        const saved = result.data;
+        this.state.update((state) => ({
+          ...state,
+          revision: saved.revision,
+          save: { status: 'saved', savedAt: saved.savedAt },
+        }));
+        return true;
+      }
+      if (result.status === 'conflict') {
+        this.state.update((state) => ({
+          ...state,
+          conflicted: true,
+          save: { status: 'error', message: result.message },
+        }));
+        return false;
+      }
+    } catch {
+      // 連線中斷或 5xx：下一次變更會再試。
+    }
+    this.state.update((state) => ({ ...state, save: { status: 'error', message: SAVE_FAILED_MESSAGE } }));
+    return false;
+  }
+
+  private fromLoaded(view: LoadedView<NamedAssistantDraftView>): DraftState {
+    const accountId = this.session.activeAccountId();
+    if (view.status !== 'ready' && view.status !== 'partial-failure') {
       return this.emptyState(accountId, false);
     }
 
-    const saved = dataOf(result, null);
-    if (saved === null) return this.emptyState(accountId, true);
-
     return {
       ...this.emptyState(accountId, true),
-      draft: saved.draft,
-      save: { status: 'resumed', savedAt: saved.savedAt },
+      draft: view.data.draft,
+      revision: view.data.revision,
+      save: { status: 'resumed', savedAt: view.data.savedAt },
     };
   }
 
@@ -346,10 +452,13 @@ export class AssistantDraftStore {
       accountId,
       canManage,
       draft: createEmptyAssistantDraft(),
+      revision: 1,
+      conflicted: false,
       save: { status: 'new' },
       attemptedSteps: [],
       answers: [],
       createError: null,
+      serverErrors: [],
     };
   }
 }

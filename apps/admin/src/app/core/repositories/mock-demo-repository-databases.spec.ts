@@ -305,11 +305,13 @@ describe('MockDemoRepository databases', () => {
     }
   });
 
-  it('drops the 定期回報 surface when the assistant turns 定期回報 off', () => {
+  it('drops the 定期回報 surface when the assistant turns 定期回報 off', async () => {
     const repository = createRepository();
-    repository.updateAssistantSettings('account-smb-admin', 'assistant-customer-service', {
-      rules: { periodicReport: 'off' },
-    });
+    await firstValueFrom(
+      repository.updateAssistantSettings('assistant-customer-service', {
+        rules: { periodicReport: 'off' },
+      }),
+    );
 
     expect(trackingOf(repository).periodicReports).toHaveLength(0);
   });

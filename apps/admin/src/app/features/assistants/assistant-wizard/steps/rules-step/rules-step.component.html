@@ -3,6 +3,7 @@
     [rules]="store.draft().rules"
     [writableDatabases]="writableDatabases()"
     [errors]="errors()"
+    [databaseFeaturesAvailable]="!apiMode"
     (changed)="store.updateRules($event)"
   />
 </div>

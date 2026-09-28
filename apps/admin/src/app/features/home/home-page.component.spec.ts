@@ -6,7 +6,20 @@ import { MockDemoRepository } from '../../core/repositories/mock-demo-repository
 import { DEMO_SEED } from '../../core/repositories/demo-seed';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { DemoSessionService } from '../../core/session/demo-session.service';
+import type { AccountId } from '../../core/domain/account.model';
 import { HomePageComponent } from './home-page.component';
+
+/** mock 的非同步契約由 `viewer` 推導目前帳號，要與假工作階段一致。 */
+function mockRepository(viewer: AccountId, seed = DEMO_SEED): MockDemoRepository {
+  return new MockDemoRepository(seed, { storage: createMemoryStorage(), viewer: () => viewer });
+}
+
+/** 清單以 `repositoryResource` 非同步讀取：等它落地再檢查畫面。 */
+async function render<T>(fixture: import('@angular/core/testing').ComponentFixture<T>): Promise<void> {
+  fixture.detectChanges();
+  await fixture.whenStable();
+  fixture.detectChanges();
+}
 
 describe('HomePageComponent', () => {
   it('shows the create, continue, and pending-work areas for a signed-in account', async () => {
@@ -22,7 +35,7 @@ describe('HomePageComponent', () => {
     }).compileComponents();
 
     const fixture = TestBed.createComponent(HomePageComponent);
-    fixture.detectChanges();
+    await render(fixture);
 
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector('.page-header__actions a[href="/app/assistants/new/purpose"]')?.textContent).toContain(
@@ -34,12 +47,14 @@ describe('HomePageComponent', () => {
   });
 
   it('offers to resume the signed-in account\'s unfinished assistant draft at its saved step', async () => {
-    const repository = new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage() });
-    repository.saveAssistantDraft('account-smb-admin', {
-      ...createEmptyAssistantDraft(),
-      name: '客戶問答助理',
-      currentStep: 'rules',
+    const repository = mockRepository('account-smb-admin');
+    let draftId = '';
+    repository.createNamedAssistantDraft().subscribe((result) => {
+      if (result.status === 'ready') draftId = result.data.id;
     });
+    repository
+      .saveNamedAssistantDraft(draftId, { ...createEmptyAssistantDraft(), name: '客戶問答助理', currentStep: 'rules' }, 1)
+      .subscribe();
 
     await TestBed.configureTestingModule({
       imports: [HomePageComponent],
@@ -54,14 +69,14 @@ describe('HomePageComponent', () => {
     }).compileComponents();
 
     const fixture = TestBed.createComponent(HomePageComponent);
-    fixture.detectChanges();
+    await render(fixture);
 
     const page = fixture.nativeElement as HTMLElement;
     const link = Array.from(page.querySelectorAll('a')).find((anchor) =>
       anchor.textContent?.includes('繼續最近的設定'),
     );
     expect(page.textContent).toContain('客戶問答助理');
-    expect(link?.getAttribute('href')).toBe('/app/assistants/drafts/draft-legacy/rules');
+    expect(link?.getAttribute('href')).toBe(`/app/assistants/drafts/${draftId}/rules`);
   });
 
   it('lists the assistants an external customer can use with a link into the chat', async () => {
@@ -69,13 +84,13 @@ describe('HomePageComponent', () => {
       imports: [HomePageComponent],
       providers: [
         provideRouter([]),
-        { provide: DEMO_REPOSITORY, useValue: new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage() }) },
+        { provide: DEMO_REPOSITORY, useValue: mockRepository('account-external-customer') },
         { provide: DemoSessionService, useValue: { activeAccountId: () => 'account-external-customer' } },
       ],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(HomePageComponent);
-    fixture.detectChanges();
+    await render(fixture);
 
     const section = (fixture.nativeElement as HTMLElement).querySelector('section[aria-labelledby="usable-title"]');
     const link = Array.from(section?.querySelectorAll('a') ?? []).find((anchor) =>
@@ -91,13 +106,13 @@ describe('HomePageComponent', () => {
       imports: [HomePageComponent],
       providers: [
         provideRouter([]),
-        { provide: DEMO_REPOSITORY, useValue: new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage() }) },
+        { provide: DEMO_REPOSITORY, useValue: mockRepository('account-external-customer') },
         { provide: DemoSessionService, useValue: { activeAccountId: () => 'account-external-customer' } },
       ],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(HomePageComponent);
-    fixture.detectChanges();
+    await render(fixture);
 
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector('a[href="/app/assistants/new/purpose"]')).toBeNull();
@@ -115,13 +130,13 @@ describe('HomePageComponent', () => {
       imports: [HomePageComponent],
       providers: [
         provideRouter([]),
-        { provide: DEMO_REPOSITORY, useValue: new MockDemoRepository(seed, { storage: createMemoryStorage() }) },
+        { provide: DEMO_REPOSITORY, useValue: mockRepository('account-external-customer', seed) },
         { provide: DemoSessionService, useValue: { activeAccountId: () => 'account-external-customer' } },
       ],
     }).compileComponents();
 
     const fixture = TestBed.createComponent(HomePageComponent);
-    fixture.detectChanges();
+    await render(fixture);
 
     const page = fixture.nativeElement as HTMLElement;
     expect(page.querySelector('a[href="/app/assistants/new/purpose"]')).toBeNull();

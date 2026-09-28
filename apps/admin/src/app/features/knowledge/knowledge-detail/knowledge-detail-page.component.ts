@@ -113,8 +113,8 @@ export class KnowledgeDetailPageComponent {
 
   protected readonly tabs = TABS;
   /**
-   * 已連接助理清單在 API 模式由 mock 助理推得（issue #49）；畫面用這個判斷是否要加註
-   * 「助理設定仍為示範資料」，避免讓人誤以為那份清單也是真實資料。
+   * API 模式的知識庫回應沒有「已連接助理」，而助理已改成真實資料（issue #81）：這一頁籤
+   * 在 API 模式改成提示到助理設定查看，不顯示一份推算出來、可能不完整的清單。
    */
   protected readonly isApiMode = this.apiSession.apiMode;
   protected readonly knowledgeBaseId = computed(() => this.params().get('id') ?? '');

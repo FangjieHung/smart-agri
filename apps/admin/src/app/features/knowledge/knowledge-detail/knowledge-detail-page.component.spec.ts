@@ -266,7 +266,7 @@ describe('KnowledgeDetailPageComponent', () => {
    * 對應 issue #49：助理在 M3 之前仍是 mock 資料，API 模式下「已連接助理」這份清單是
    * 由 mock 助理推算出來的，不是後端的真實紀錄，畫面要加註提醒，避免誤以為是真實資料。
    */
-  it('notes that the assistant list is still demo data in API mode', async () => {
+  it('points to the assistants’ settings instead of listing mock assistants in API mode (issue #81)', async () => {
     const testing = provideKnowledgeTesting('account-smb-admin');
     TestBed.configureTestingModule({
       providers: [
@@ -282,7 +282,10 @@ describe('KnowledgeDetailPageComponent', () => {
     await harness.navigateByUrl('/app/knowledge/knowledge-product-guide/assistants');
     await settle(harness);
 
-    expect(harness.routeNativeElement?.textContent).toContain('助理設定仍為示範資料');
+    const text = harness.routeNativeElement?.textContent ?? '';
+    expect(text).toContain('請到各助理設定的「資料來源」頁籤查看');
+    // mock 的客服助理連接了這個知識庫，但 API 模式不能把它當成真實紀錄列出來。
+    expect(text).not.toContain('客服助理');
   });
 
   it('saves sharing changes from the 分享權限 tab and confirms them', async () => {

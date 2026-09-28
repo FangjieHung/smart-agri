@@ -137,6 +137,9 @@
             <p class="empty">尚未連接任何助理。可在建立或設定助理時，於「資料來源」加入此知識庫。</p>
           }
         }
+        @case ('retrieval') {
+          <app-knowledge-retrieval-panel [knowledgeBaseId]="detail.summary.id" />
+        }
         @case ('sharing') {
           <p class="hint">目前分享範圍：{{ scopeLabel(detail) }}</p>
           <app-sharing-panel

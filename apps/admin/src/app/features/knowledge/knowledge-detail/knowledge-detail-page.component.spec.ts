@@ -89,12 +89,12 @@ describe('KnowledgeDetailPageComponent', () => {
     delete (document as { visibilityState?: unknown }).visibilityState;
   });
 
-  it('renders the three detail tabs with the active tab marked for assistive tech', async () => {
+  it('renders the four detail tabs with the active tab marked for assistive tech', async () => {
     const { page } = await openDetail('/app/knowledge/knowledge-product-guide/content');
     const tabs = Array.from(page().querySelectorAll('nav.tabs a'));
 
     expect(page().querySelector('h1')?.textContent).toContain('商品使用指南');
-    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['內容', '已連接助理', '分享權限']);
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['內容', '已連接助理', '試查', '分享權限']);
     expect(page().querySelector('nav.tabs [aria-current="page"]')?.textContent).toContain('內容');
     expect(page().querySelector('nav.tabs')?.getAttribute('aria-label')).toBe('知識庫頁籤');
   });

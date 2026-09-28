@@ -38,6 +38,7 @@ import {
   apiKnowledgeDocumentsPath,
   apiKnowledgeDocumentVersionsPath,
   apiKnowledgeEnablePath,
+  apiKnowledgeRetrievalPreviewPath,
   apiKnowledgeRetryPath,
   apiKnowledgeSharingPath,
   apiKnowledgeVersionPreviewPath,
@@ -58,6 +59,7 @@ type ApiKnowledgeVersion = components['schemas']['KnowledgeVersionView'];
 type ApiKnowledgeActivity = components['schemas']['KnowledgeActivityView'];
 type ApiKnowledgeAccount = components['schemas']['KnowledgeAccountView'];
 type ApiKnowledgeVersionPreview = components['schemas']['KnowledgeVersionPreviewView'];
+type ApiKnowledgeRetrievalPreview = components['schemas']['KnowledgeRetrievalPreviewView'];
 type ApiChatThreadListView = components['schemas']['ChatThreadListView'];
 type ApiChatThreadSummaryView = components['schemas']['ChatThreadSummaryView'];
 type ApiAssistantChatView = components['schemas']['AssistantChatView'];
@@ -1122,6 +1124,117 @@ describe('HybridDemoRepository knowledge bases', () => {
     );
 
     expect(await result).toEqual({ status: 'validation-failed', message: '這份文件目前沒有停用，不需要恢復。' });
+  });
+
+  // ---------- 檢索試查（issue #48，M2 Slice 14） ----------
+
+  it('previews retrieval with a POST of the question and includePending', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.previewKnowledgeRetrieval(KB_ID, '收到商品幾天內可以退貨？', true));
+
+    const request = controller.expectOne({ method: 'POST', url: apiKnowledgeRetrievalPreviewPath(KB_ID) });
+    expect(request.request.body).toEqual({ question: '收到商品幾天內可以退貨？', includePending: true });
+    // 一條真正的 JSON 字串 fixture（PR #103 的教訓：後端以 JsonIgnore(WhenWritingNull) 省略
+    // null 欄位時，OpenAPI 仍把型別寫成必填，adapter 要同時處理 undefined）。
+    request.flush(
+      JSON.parse(`{
+        "passages": [
+          {
+            "documentId": "${DOC_ID}",
+            "documentName": "退換貨辦法 2026 版.pdf",
+            "versionNumber": 1,
+            "versionState": "effective",
+            "locationLabel": "第 2 頁",
+            "excerpt": "收到商品後 7 天內可以申請退貨。",
+            "score": 0.82,
+            "versionId": "${VERSION_ID}",
+            "chunkId": "0199b000-0000-7000-8000-0000000000f1"
+          }
+        ],
+        "threshold": 0.3,
+        "belowThreshold": false
+      }`) as ApiKnowledgeRetrievalPreview,
+    );
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: {
+        passages: [
+          {
+            documentId: DOC_ID,
+            documentName: '退換貨辦法 2026 版.pdf',
+            versionNumber: 1,
+            versionState: 'effective',
+            locationLabel: '第 2 頁',
+            excerpt: '收到商品後 7 天內可以申請退貨。',
+            score: 0.82,
+            versionId: VERSION_ID,
+            chunkId: '0199b000-0000-7000-8000-0000000000f1',
+          },
+        ],
+        threshold: 0.3,
+        belowThreshold: false,
+      },
+    });
+  });
+
+  it('maps 403 to the knowledge-base permission-denied', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.previewKnowledgeRetrieval(KB_ID, '退貨期限', false));
+
+    controller
+      .expectOne(apiKnowledgeRetrievalPreviewPath(KB_ID))
+      .flush(KNOWLEDGE_FORBIDDEN, { status: 403, statusText: 'Forbidden' });
+
+    expect(await result).toEqual({
+      status: 'permission-denied',
+      reason: 'knowledge-base',
+      message: '你沒有這個知識庫的存取權限，或它已不存在。',
+    });
+  });
+
+  it('turns a 422 (blank or too-long question) into validation-failed', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.previewKnowledgeRetrieval(KB_ID, '', false));
+
+    controller.expectOne(apiKnowledgeRetrievalPreviewPath(KB_ID)).flush(
+      { message: '請輸入要試查的問題。', errors: { question: ['請輸入要試查的問題。'] } },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({ status: 'validation-failed', message: '請輸入要試查的問題。' });
+  });
+
+  it('turns a 503 embedding-not-configured into unavailable, keeping the reason', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.previewKnowledgeRetrieval(KB_ID, '退貨期限', false));
+
+    controller.expectOne(apiKnowledgeRetrievalPreviewPath(KB_ID)).flush(
+      { reason: 'embedding-not-configured', message: '這個部署尚未設定嵌入模型，請聯絡管理員。' },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+
+    expect(await result).toEqual({
+      status: 'unavailable',
+      reason: 'embedding-not-configured',
+      message: '這個部署尚未設定嵌入模型，請聯絡管理員。',
+    });
+  });
+
+  it('turns a 503 embedding-unavailable into unavailable', async () => {
+    const { repository } = setUpKnowledge();
+    const result = pending(repository.previewKnowledgeRetrieval(KB_ID, '退貨期限', false));
+
+    controller.expectOne(apiKnowledgeRetrievalPreviewPath(KB_ID)).flush(
+      { reason: 'embedding-unavailable', message: '嵌入模型暫時無法使用，請稍後重試。' },
+      { status: 503, statusText: 'Service Unavailable' },
+    );
+
+    expect(await result).toEqual({
+      status: 'unavailable',
+      reason: 'embedding-unavailable',
+      message: '嵌入模型暫時無法使用，請稍後重試。',
+    });
   });
 });
 

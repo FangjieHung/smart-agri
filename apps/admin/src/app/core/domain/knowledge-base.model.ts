@@ -308,6 +308,59 @@ export function offersUploadAsNewVersion(reason: KnowledgeUploadRejectionReason)
   return reason === 'duplicate-name';
 }
 
+/**
+ * 檢索試查（issue #48，M2 Slice 14）：與正式對話同一套檢索邏輯，只回傳命中的段落，
+ * 不生成任何回答（後端 `KnowledgeRetrievalPassageView`）。
+ */
+export interface KnowledgeRetrievalPassageView {
+  readonly documentId: KnowledgeDocumentId;
+  readonly documentName: string;
+  readonly versionNumber: number;
+  /** `effective`，或含 `includePending` 時該文件最新的待確認／排程生效版本。 */
+  readonly versionState: KnowledgeVersionState;
+  /** 「第 2 頁」、章節標題路徑，或工作表列數。 */
+  readonly locationLabel: string;
+  /** 段落內容，超過後端上限會被截斷並以「…」結尾。 */
+  readonly excerpt: string;
+  /** 與問題的餘弦相似度，最高為 1，分數越高代表越相關。 */
+  readonly score: number;
+  readonly versionId: string;
+  readonly chunkId: string;
+}
+
+export interface KnowledgeRetrievalPreviewView {
+  /** 依分數由高到低，即使全部低於門檻也會列出，最多 5 筆。 */
+  readonly passages: readonly KnowledgeRetrievalPassageView[];
+  /** 相關性門檻（後端 `Retrieval:MinScore`，目前預設 0.3）。 */
+  readonly threshold: number;
+  /** 沒有任何段落達到門檻：只使用組織資料的助理會回答「查無結果」。 */
+  readonly belowThreshold: boolean;
+}
+
+/** 與後端 `KnowledgeRetrievalRules.QuestionMaxLength` 相同。 */
+export const KNOWLEDGE_RETRIEVAL_QUESTION_MAX_LENGTH = 500;
+
+export const KNOWLEDGE_RETRIEVAL_QUESTION_REQUIRED_MESSAGE = '請輸入要試查的問題。';
+
+export const KNOWLEDGE_RETRIEVAL_QUESTION_TOO_LONG_MESSAGE = `問題最多 ${KNOWLEDGE_RETRIEVAL_QUESTION_MAX_LENGTH} 個字。`;
+
+/** 與後端 `KnowledgeRetrievalSettings.DefaultMinScore`／`DefaultTop` 相同（M2 計畫定案）。 */
+export const KNOWLEDGE_RETRIEVAL_DEFAULT_THRESHOLD = 0.3;
+export const KNOWLEDGE_RETRIEVAL_DEFAULT_TOP = 5;
+
+/** 低於門檻時的提示文字（issue #48）。 */
+export const KNOWLEDGE_RETRIEVAL_BELOW_THRESHOLD_MESSAGE =
+  '助理設定為只用組織資料時，這題會回答查無結果。';
+
+/** 嵌入模型暫時無法使用，或部署尚未設定嵌入模型（API 的 `503`）。 */
+export const KNOWLEDGE_RETRIEVAL_UNAVAILABLE_REASONS = ['embedding-unavailable', 'embedding-not-configured'] as const;
+
+export type KnowledgeRetrievalUnavailableReason = (typeof KNOWLEDGE_RETRIEVAL_UNAVAILABLE_REASONS)[number];
+
+export function isKnowledgeRetrievalUnavailableReason(value: unknown): value is KnowledgeRetrievalUnavailableReason {
+  return (KNOWLEDGE_RETRIEVAL_UNAVAILABLE_REASONS as readonly unknown[]).includes(value);
+}
+
 function knowledgeUploadExtension(fileName: string): string {
   const dot = fileName.lastIndexOf('.');
   return dot === -1 ? '' : fileName.slice(dot).toLowerCase();

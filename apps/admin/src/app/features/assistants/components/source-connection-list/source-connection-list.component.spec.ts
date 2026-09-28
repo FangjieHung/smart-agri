@@ -58,4 +58,18 @@ describe('SourceConnectionListComponent', () => {
 
     expect(page.querySelector('.source-summary')?.textContent).toContain('已連接 0 個知識庫、1 個資料庫');
   });
+
+  /** issue #115：沒有文件也沒有 FAQ 的知識庫顯示「尚無內容」，不是「可使用」。 */
+  it('shows 尚無內容 for a knowledge base with no documents or FAQs, and 可使用 when it has content', () => {
+    const empty: ConnectableSourceView = { ...GUIDE, id: 'knowledge-empty', summary: '0 份文件、0 則 FAQ', status: 'empty' };
+    const { fixture, page } = render();
+    fixture.componentRef.setInput('sources', [empty, GUIDE]);
+    fixture.componentRef.setInput('connected', []);
+    fixture.detectChanges();
+
+    const badges = Array.from(page.querySelectorAll<HTMLElement>('.status-badge'));
+    expect(badges.map((badge) => badge.textContent?.trim())).toEqual(['尚無內容', '可使用']);
+    expect(badges[0].getAttribute('data-tone')).toBe('neutral');
+    expect(badges[1].getAttribute('data-tone')).toBe('success');
+  });
 });

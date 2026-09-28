@@ -41,6 +41,8 @@ h2 { font-size: var(--font-size-heading); }
 .hint { color: var(--color-text-secondary); }
 
 .content-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); }
+.approval-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
+.filter-toggle { display: inline-flex; align-items: center; gap: var(--space-2); }
 .header-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); }
 .ui-button.danger { border-color: var(--color-error); background: var(--color-error); color: var(--color-on-accent); }
 .ui-button.secondary { background: var(--color-surface); color: var(--color-accent); }

@@ -41,7 +41,138 @@ export interface KnowledgeDocumentView {
    * 所以畫面要把它帶回 `retryKnowledgeDocument`；mock 沒有版本，固定是 `<文件 id>:v1`。
    */
   readonly latestVersionId: string;
+  /**
+   * 以下欄位是 M2 Slice 13（issue #47）新增的版本確認狀態；為 `undefined` 時畫面視為
+   * 「這份文件還沒有版本歷程的資料」（尚未載入或來源是還沒補上這批欄位的舊 fixture），
+   * 一律用 `effectiveKnowledgeDocumentState` 這類 helper 讀取，不要直接比對 `undefined`。
+   */
+  readonly latestVersionNumber?: number;
+  readonly latestVersionState?: KnowledgeVersionState;
+  /** 目前生效中的版本號；沒有任何版本生效（例如剛上傳、尚未確認）時為 `null`。 */
+  readonly effectiveVersionNumber?: number | null;
+  /** 是否已被緊急停用；停用中即使有生效版本也不會被引用。 */
+  readonly disabled?: boolean;
+  /** 這份文件目前是否真的會被助理引用（`effectiveVersionNumber !== null && !disabled`）。 */
+  readonly inEffect?: boolean;
 }
+
+/** 版本的確認狀態（後端 `KnowledgeVersionState`）：待確認／排程生效／生效中／已封存。 */
+export type KnowledgeVersionState = 'pending-review' | 'scheduled' | 'effective' | 'archived';
+
+export const KNOWLEDGE_VERSION_STATE_LABELS: Readonly<Record<KnowledgeVersionState, string>> = {
+  'pending-review': '待確認',
+  scheduled: '排程生效',
+  effective: '已生效',
+  archived: '已封存',
+};
+
+/** 畫面顯示「可使用」時，一律要同時顯示是否已生效，避免被誤讀成助理已經在用它。 */
+export function knowledgeDocumentInEffect(document: KnowledgeDocumentView): boolean {
+  return document.inEffect ?? (isUsableKnowledgeDocument(document.status) && document.disabled !== true);
+}
+
+export interface KnowledgeAccountRefView {
+  readonly id: string;
+  readonly displayName: string;
+}
+
+export interface KnowledgeVersionView {
+  readonly id: string;
+  readonly documentId: KnowledgeDocumentId;
+  readonly versionNumber: number;
+  readonly fileName: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly status: KnowledgeDocumentStatus;
+  readonly issue: string | null;
+  readonly state: KnowledgeVersionState;
+  readonly effectiveFrom: string | null;
+  readonly uploadedBy: KnowledgeAccountRefView;
+  readonly uploadedAt: string;
+  readonly approvedBy: KnowledgeAccountRefView | null;
+  readonly approvedAt: string | null;
+  readonly updatedAt: string;
+}
+
+export const KNOWLEDGE_ACTIVITY_ACTIONS = [
+  'document-uploaded',
+  'version-uploaded',
+  'version-retried',
+  'version-approved',
+  'chunk-excluded',
+  'chunk-included',
+  'document-disabled',
+  'document-enabled',
+  'document-deleted',
+] as const;
+
+export type KnowledgeActivityAction = (typeof KNOWLEDGE_ACTIVITY_ACTIONS)[number];
+
+export interface KnowledgeActivityView {
+  readonly id: string;
+  readonly action: KnowledgeActivityAction;
+  readonly actor: KnowledgeAccountRefView | null;
+  readonly at: string;
+  readonly versionId: string | null;
+  readonly versionNumber: number | null;
+  /** 只有 `document-disabled` 會帶原因；活動紀錄保留停用原因（M2 計畫第 4 節）。 */
+  readonly reason: string | null;
+}
+
+export interface KnowledgeDocumentDetailView {
+  readonly document: KnowledgeDocumentView;
+  readonly createdAt: string;
+  readonly disabledAt: string | null;
+  readonly disabledBy: KnowledgeAccountRefView | null;
+  readonly disabledReason: string | null;
+  /** 由新到舊。 */
+  readonly versions: readonly KnowledgeVersionView[];
+  /** 由新到舊。 */
+  readonly activities: readonly KnowledgeActivityView[];
+}
+
+export type KnowledgeUnitLocationKind = 'page' | 'section' | 'sheet' | 'faq';
+
+export type KnowledgeUnitIssue = 'too-little-text' | 'garbled-text' | 'rows-truncated' | null;
+
+export interface KnowledgeChunkView {
+  readonly id: string;
+  readonly locationLabel: string;
+  readonly text: string;
+  /** 排除後不納入檢索，但仍會顯示在預覽中。 */
+  readonly excluded: boolean;
+}
+
+export interface KnowledgeExtractedUnitView {
+  readonly ordinal: number;
+  readonly locationKind: KnowledgeUnitLocationKind;
+  readonly locationLabel: string;
+  readonly readable: boolean;
+  readonly issueCode: KnowledgeUnitIssue;
+  readonly text: string;
+  readonly chunks: readonly KnowledgeChunkView[];
+}
+
+export interface KnowledgeVersionPreviewView {
+  readonly documentId: KnowledgeDocumentId;
+  readonly versionId: string;
+  readonly versionNumber: number;
+  readonly fileName: string;
+  readonly status: KnowledgeDocumentStatus;
+  readonly issue: string | null;
+  readonly units: readonly KnowledgeExtractedUnitView[];
+}
+
+/** 待確認或排程生效：詳情頁「只看待確認」篩選、批次確認生效的候選判斷都用這個。 */
+export function isAwaitingApprovalKnowledgeDocument(document: KnowledgeDocumentView): boolean {
+  const state = document.latestVersionState;
+  return state === 'pending-review' || state === 'scheduled';
+}
+
+/** 與後端 `KnowledgeReviewRules.MaxDisableReasonLength` 相同。 */
+export const KNOWLEDGE_DISABLE_REASON_MAX_LENGTH = 500;
+
+export const KNOWLEDGE_DISABLE_REASON_REQUIRED_MESSAGE = '請說明緊急停用的原因。';
 
 export type KnowledgeSharingScope = 'private' | 'specific-accounts' | 'public';
 
@@ -83,6 +214,10 @@ export interface KnowledgeBaseSummaryView {
    * 不自己拿擁有者 id 與目前帳號比對——API 模式的帳號是 GUID，與 Demo 身分對不上。
    */
   readonly viewerCanManage: boolean;
+  /** M2 Slice 13：依生效狀態統計的文件數（`undefined` 時畫面以 0 顯示）。 */
+  readonly inEffectCount?: number;
+  readonly awaitingApprovalCount?: number;
+  readonly disabledCount?: number;
 }
 
 /** 建立知識庫的輸入；名稱必填（去頭尾空白後 1–100 字），用途可空白（最多 500 字）。 */

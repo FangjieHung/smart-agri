@@ -2,7 +2,7 @@
 
 .document-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
@@ -12,11 +12,32 @@
 }
 
 .document-row--attention { border-inline-start: var(--space-1) solid var(--color-warning); }
+.document-select { display: inline-flex; align-items: center; }
 .document-main { display: grid; gap: var(--space-1); min-inline-size: 0; }
 .document-kind { color: var(--color-text-secondary); font-size: var(--font-size-caption); font-weight: 700; }
 .document-name { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.document-name--link {
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: start;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
 .document-issue { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 .document-time { color: var(--color-text-secondary); font-size: var(--font-size-caption); white-space: nowrap; }
+
+.document-effect {
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  white-space: nowrap;
+
+  &[data-effect='in-effect'] { color: var(--color-success); }
+  &[data-effect='not-in-effect'] { color: var(--color-text-secondary); }
+  &[data-effect='disabled'] { color: var(--color-error); }
+}
 
 .document-status {
   display: inline-flex;
@@ -38,6 +59,7 @@
 
 .document-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
+.document-review,
 .document-retry,
 .document-remove {
   min-block-size: var(--target-size);

@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { firstValueFrom, Subject, throwError } from 'rxjs';
+import { firstValueFrom, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import type { RetryKnowledgeDocumentResult } from '../../../core/repositories/demo-repository';
 import {
@@ -21,9 +21,14 @@ const START = new Date('2026-09-22T02:00:00.000Z');
 @Component({ template: '' })
 class ListStubComponent {}
 
-async function openDetail(url: string, options: { readonly realClock?: boolean } = {}) {
+async function openDetail(
+  url: string,
+  options: { readonly realClock?: boolean; readonly testing?: ReturnType<typeof provideKnowledgeTesting> } = {},
+) {
   // 用 `Date.now()` 讓 mock 的處理進度跟著 `vi.advanceTimersByTime` 前進。
-  const testing = provideKnowledgeTesting('account-smb-admin', options.realClock ? () => new Date() : undefined);
+  const testing =
+    options.testing ??
+    provideKnowledgeTesting('account-smb-admin', options.realClock ? () => new Date() : undefined);
   TestBed.configureTestingModule({
     providers: [
       ...testing.providers,
@@ -405,5 +410,79 @@ describe('KnowledgeDetailPageComponent', () => {
     const { page } = await openDetail('/app/knowledge/knowledge-product-guide/unknown');
 
     expect(page().querySelector('nav.tabs [aria-current="page"]')?.textContent).toContain('內容');
+  });
+
+  describe('version confirmation (issue #47, M2 Slice 13)', () => {
+    async function openWithPendingDocument() {
+      const testing = provideKnowledgeTesting();
+      const file = new File([new Uint8Array(10)], '新版商品規格.pdf', { type: 'application/pdf' });
+      await firstValueFrom(testing.repository.uploadKnowledgeDocument('knowledge-product-guide', file));
+      return openDetail('/app/knowledge/knowledge-product-guide/content', { testing });
+    }
+
+    it('shows whether a document is in effect, not just its processing status', async () => {
+      const { page } = await openDetail('/app/knowledge/knowledge-product-guide/content');
+      const readyRow = rowFor(page(), '商品規格總表.pdf');
+
+      expect(readyRow?.querySelector('.document-effect')?.textContent).toContain('已生效');
+    });
+
+    it('only lets a pending or scheduled document be selected for batch confirmation', async () => {
+      const { page } = await openWithPendingDocument();
+      const pendingRow = rowFor(page(), '新版商品規格.pdf');
+      const readyRow = rowFor(page(), '商品規格總表.pdf');
+
+      expect(pendingRow?.querySelector('.document-effect')?.textContent).toContain('待確認');
+      expect(pendingRow?.querySelector<HTMLInputElement>('.document-select input')?.disabled).toBe(false);
+      expect(readyRow?.querySelector<HTMLInputElement>('.document-select input')?.disabled).toBe(true);
+    });
+
+    it('confirms the selected version effective, clearing the selection', async () => {
+      const { harness, page } = await openWithPendingDocument();
+      const pendingRow = rowFor(page(), '新版商品規格.pdf') as HTMLElement;
+      pendingRow.querySelector<HTMLInputElement>('.document-select input')?.click();
+      await settle(harness);
+
+      const approveButton = buttonIn(page(), '批次確認生效');
+      expect(approveButton?.textContent).toContain('1');
+      approveButton?.click();
+      await settle(harness);
+
+      expect(rowFor(page(), '新版商品規格.pdf')?.querySelector('.document-effect')?.textContent).toContain('已生效');
+      expect(buttonIn(page(), '批次確認生效')?.textContent).toContain('0');
+    });
+
+    it('shows the API’s message when a batch confirm is refused (422), without clearing the selection state silently', async () => {
+      const { harness, page, repository } = await openWithPendingDocument();
+      const pendingRow = rowFor(page(), '新版商品規格.pdf') as HTMLElement;
+      pendingRow.querySelector<HTMLInputElement>('.document-select input')?.click();
+      await settle(harness);
+
+      vi.spyOn(repository, 'approveKnowledgeVersions').mockReturnValue(
+        of({
+          status: 'validation-failed',
+          message: '這些版本剛剛有其他變更，或不是待確認的版本，請重新整理後再試一次。',
+        }),
+      );
+
+      buttonIn(page(), '批次確認生效')?.click();
+      await settle(harness);
+
+      expect(page().querySelector('.action-error[role="alert"]')?.textContent).toContain('這些版本剛剛有其他變更');
+    });
+
+    it('filters the list to only documents awaiting approval', async () => {
+      const { harness, page } = await openWithPendingDocument();
+
+      expect(rowFor(page(), '新版商品規格.pdf')).toBeDefined();
+      expect(rowFor(page(), '商品規格總表.pdf')).toBeDefined();
+
+      const filterCheckbox = page().querySelector<HTMLInputElement>('.filter-toggle input');
+      filterCheckbox?.click();
+      await settle(harness);
+
+      expect(rowFor(page(), '新版商品規格.pdf')).toBeDefined();
+      expect(rowFor(page(), '商品規格總表.pdf')).toBeUndefined();
+    });
   });
 });

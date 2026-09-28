@@ -1,8 +1,21 @@
 @let item = document();
 <div class="document-row" [class.document-row--attention]="needsAttention()">
+  @if (selectable()) {
+    <label class="document-select">
+      <input
+        type="checkbox"
+        [checked]="selected()"
+        [disabled]="!awaitingApproval()"
+        (change)="toggleSelect.emit(item)"
+      />
+      <span class="visually-hidden">選取「{{ item.name }}」以批次確認生效</span>
+    </label>
+  }
   <div class="document-main">
     <span class="document-kind">{{ kindLabel() }}</span>
-    <p class="document-name">{{ item.name }}</p>
+    <button type="button" class="document-name document-name--link" (click)="openReview.emit(item)">
+      {{ item.name }}
+    </button>
     @if (item.issue) {
       <p class="document-issue">{{ item.issue }}</p>
     }
@@ -11,9 +24,25 @@
     <span aria-hidden="true">{{ status().symbol }}</span>
     <span>{{ status().label }}</span>
   </span>
+  <span class="document-effect" [attr.data-effect]="disabled() ? 'disabled' : inEffect() ? 'in-effect' : 'not-in-effect'">
+    @if (disabled()) {
+      已停用
+    } @else if (inEffect() && awaitingApproval()) {
+      已生效・有新版本待確認
+    } @else if (inEffect()) {
+      已生效
+    } @else if (awaitingApproval()) {
+      待確認
+    } @else {
+      尚未生效
+    }
+  </span>
   <time class="document-time" [attr.datetime]="item.updatedAt">{{ updatedAt() }}</time>
-  @if (canManage()) {
-    <div class="document-actions">
+  <div class="document-actions">
+    <button type="button" class="document-review" (click)="openReview.emit(item)">
+      版本與預覽<span class="visually-hidden">{{ item.name }}</span>
+    </button>
+    @if (canManage()) {
       @if (canRetry()) {
         <button type="button" class="document-retry" [disabled]="busy()" (click)="retry.emit(item)">
           重新處理<span class="visually-hidden">{{ item.name }}</span>
@@ -22,6 +51,6 @@
       <button type="button" class="document-remove" [disabled]="busy()" (click)="remove.emit(item)">
         刪除<span class="visually-hidden">{{ item.name }}</span>
       </button>
-    </div>
-  }
+    }
+  </div>
 </div>

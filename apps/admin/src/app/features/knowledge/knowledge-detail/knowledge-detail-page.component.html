@@ -72,19 +72,49 @@
             <p class="action-error" role="alert">{{ actionError() }}</p>
           }
 
+          <div class="approval-toolbar">
+            <label class="filter-toggle">
+              <input type="checkbox" [checked]="showOnlyAwaitingApproval()" (change)="toggleOnlyAwaitingApproval()" />
+              只看待確認
+            </label>
+            @if (detail.summary.viewerCanManage) {
+              @if (batchApproveError()) {
+                <p class="action-error" role="alert">{{ batchApproveError() }}</p>
+              }
+              <button
+                type="button"
+                class="ui-button"
+                [disabled]="selectedForApproval().size === 0 || approvingBatch()"
+                (click)="approveSelected(detail)"
+              >
+                批次確認生效（{{ selectedForApproval().size }}）
+              </button>
+            }
+          </div>
+
           <ul class="document-list" aria-label="知識庫內容">
-            @for (item of detail.documents; track item.id) {
+            @for (item of visibleDocuments(detail); track item.id) {
               <li>
                 <app-document-row
                   [document]="item"
                   [canManage]="detail.summary.viewerCanManage"
                   [busy]="isBusy(item)"
+                  [selectable]="detail.summary.viewerCanManage"
+                  [selected]="isSelectedForApproval(item)"
                   (retry)="retryDocument(detail, $event)"
                   (remove)="confirmDeleteDocument($event)"
+                  (openReview)="openReview(detail, $event)"
+                  (toggleSelect)="toggleApprovalSelection($event)"
                 />
               </li>
             } @empty {
-              <li class="empty">這個知識庫還沒有文件或 FAQ。</li>
+              <li class="empty">
+                @if (showOnlyAwaitingApproval()) {
+                  沒有待確認的文件。
+                } @else {
+                  這個知識庫還沒有文件或 FAQ。
+                }
+              </li>
             }
           </ul>
           <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage() }}</p>

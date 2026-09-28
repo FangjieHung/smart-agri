@@ -191,4 +191,96 @@ describe('knowledge bases', () => {
       cy.get('.document-list > li').should('have.length', 10);
     });
   });
+
+  // issue #47（M2 Slice 13）：抽取預覽、排除段落與版本確認。
+  describe('version confirmation, preview and emergency disable', () => {
+    beforeEach(() => cy.visit('/app/knowledge/knowledge-refund-policy/content'));
+
+    it('shows the seeded document as already in effect, alongside its processing status', () => {
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf')
+        .find('.document-effect')
+        .should('contain', '已生效');
+    });
+
+    it('uploads a new version, previews it, excludes a paragraph, and confirms it effective', () => {
+      // 上傳新版本：既有列表點「版本與預覽」開啟對話框上傳，這裡先用重複名稱模擬情境，
+      // 改走既有的「改為上傳新版本」路徑，之後在對話框中操作確認生效與預覽排除。
+      cy.get('input[type="file"]').selectFile(
+        { contents: Cypress.Buffer.from('%PDF-1.4 v2'), fileName: '退換貨辦法 2026 版.pdf', mimeType: 'application/pdf' },
+        { force: true },
+      );
+      cy.contains('.upload-item', '退換貨辦法 2026 版.pdf').contains('button', '改為上傳新版本').click();
+      cy.get('.upload-summary').should('contain', '成功 1 檔');
+
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf')
+        .find('.document-effect')
+        .should('contain', '待確認');
+
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf').contains('button', '版本與預覽').click();
+      cy.get('.review-dialog').should('be.visible');
+      cy.get('.review-dialog').contains('待確認').should('be.visible');
+
+      // 排除封面段落。
+      cy.get('.review-dialog .chunk-row').first().find('input[type="checkbox"]').check();
+      cy.get('.review-dialog .chunk-row').first().find('input[type="checkbox"]').should('be.checked');
+
+      // 確認生效（立即生效，不填日期）。
+      cy.get('.review-dialog').contains('button', '確認生效').click();
+      cy.get('.review-dialog .version-list').should('contain', '已封存');
+      cy.get('.review-dialog [data-effect="in-effect"]').should('contain', '第 2 版');
+
+      cy.get('.review-dialog').contains('button', '關閉').click();
+      cy.get('.review-dialog').should('not.exist');
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf')
+        .find('.document-effect')
+        .should('contain', '已生效');
+    });
+
+    it('batch-confirms a pending version from the document list', () => {
+      cy.get('input[type="file"]').selectFile(
+        { contents: Cypress.Buffer.from('%PDF-1.4'), fileName: '新版退換貨辦法.pdf', mimeType: 'application/pdf' },
+        { force: true },
+      );
+      cy.get('.upload-summary').should('contain', '成功 1 檔');
+
+      cy.contains('.document-list > li', '新版退換貨辦法.pdf')
+        .find('.document-select input')
+        .should('not.be.disabled')
+        .check();
+      cy.contains('button', '批次確認生效（1）').click();
+
+      cy.contains('.document-list > li', '新版退換貨辦法.pdf').find('.document-effect').should('contain', '已生效');
+      cy.contains('button', '批次確認生效（0）').should('be.visible');
+    });
+
+    it('filters the list to documents awaiting approval only', () => {
+      cy.get('input[type="file"]').selectFile(
+        { contents: Cypress.Buffer.from('%PDF-1.4'), fileName: '待確認文件.pdf', mimeType: 'application/pdf' },
+        { force: true },
+      );
+      cy.get('.upload-summary').should('contain', '成功 1 檔');
+
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf').should('exist');
+      cy.contains('label.filter-toggle', '只看待確認').find('input').check();
+      cy.contains('.document-list > li', '待確認文件.pdf').should('exist');
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf').should('not.exist');
+    });
+
+    it('requires a reason before an emergency disable, then disables and re-enables the document', () => {
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf').contains('button', '版本與預覽').click();
+      cy.get('.review-dialog').should('be.visible');
+      cy.get('.review-dialog').contains('button', '緊急停用').click();
+      cy.get('.review-dialog .action-error').should('contain', '請說明緊急停用的原因。');
+
+      cy.get('#knowledge-disable-reason').type('疑似內容有誤，暫停使用');
+      cy.get('.review-dialog').contains('button', '緊急停用').click();
+      cy.get('.review-dialog').should('contain', '已停用').and('contain', '疑似內容有誤，暫停使用');
+
+      cy.get('.review-dialog').contains('button', '恢復使用').click();
+      cy.get('.review-dialog').should('contain', '已生效（第 1 版）');
+
+      cy.get('.review-dialog').contains('button', '關閉').click();
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf').find('.document-effect').should('contain', '已生效');
+    });
+  });
 });

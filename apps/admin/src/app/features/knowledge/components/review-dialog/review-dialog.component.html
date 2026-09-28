@@ -1,0 +1,158 @@
+@let detail = detailView();
+<section class="review-dialog">
+  <header class="review-header">
+    <h2 id="knowledge-review-title">{{ data.document.name }}</h2>
+    <button type="button" class="ui-button secondary" (click)="close()">關閉</button>
+  </header>
+
+  @if (detail.status === 'loading') {
+    <p class="hint" role="status">正在載入版本資料…</p>
+  } @else if (detail.status === 'error') {
+    <p class="action-error" role="alert">目前無法載入這份文件的版本資料，請稍後再試。</p>
+    <button type="button" class="ui-button secondary" (click)="retryLoad()">重新載入</button>
+  } @else if (detail.status === 'permission-denied') {
+    <p class="action-error" role="alert">{{ detail.message }}</p>
+  } @else {
+    @let info = detail.data;
+
+    <section class="review-section" aria-labelledby="knowledge-review-status-title">
+      <h3 id="knowledge-review-status-title">目前狀態</h3>
+      <p class="hint">
+        {{ kindLabels[info.document.kind] }}・
+        @if (info.document.disabled) {
+          <span data-effect="disabled">已停用</span>
+        } @else if (info.document.inEffect) {
+          <span data-effect="in-effect">已生效（第 {{ info.document.effectiveVersionNumber }} 版）</span>
+        } @else {
+          <span data-effect="not-in-effect">尚未生效，助理目前不會使用這份內容</span>
+        }
+      </p>
+
+      @if (data.canManage) {
+        @if (info.document.disabled) {
+          @if (disableError()) {
+            <p class="action-error" role="alert">{{ disableError() }}</p>
+          }
+          <button type="button" class="ui-button" [disabled]="enabling()" (click)="enable(info.document)">
+            恢復使用
+          </button>
+          @if (info.disabledReason) {
+            <p class="hint">停用原因：{{ info.disabledReason }}</p>
+          }
+        } @else {
+          <div class="disable-form">
+            <label for="knowledge-disable-reason">緊急停用原因</label>
+            <input
+              id="knowledge-disable-reason"
+              type="text"
+              [value]="disableReason()"
+              (input)="disableReason.set($any($event.target).value)"
+              maxlength="500"
+            />
+            @if (disableError()) {
+              <p class="action-error" role="alert">{{ disableError() }}</p>
+            }
+            <button type="button" class="ui-button danger" [disabled]="disabling()" (click)="disable(info.document)">
+              緊急停用
+            </button>
+          </div>
+        }
+      }
+    </section>
+
+    <section class="review-section" aria-labelledby="knowledge-review-versions-title">
+      <h3 id="knowledge-review-versions-title">版本歷程</h3>
+      <ul class="version-list">
+        @for (version of info.versions; track version.id) {
+          <li>
+            <span class="version-number">第 {{ version.versionNumber }} 版</span>
+            <span class="version-state" [attr.data-state]="version.state">{{ versionStateLabels[version.state] }}</span>
+            <span class="version-uploaded">
+              {{ version.uploadedBy.displayName }} 於 {{ fmtDateTime(version.uploadedAt) }} 上傳
+            </span>
+            @if (version.approvedBy) {
+              <span class="version-approved">
+                {{ version.approvedBy.displayName }} 於 {{ fmtDateTime(version.approvedAt!) }} 確認生效
+              </span>
+            }
+          </li>
+        }
+      </ul>
+
+      @if (data.canManage && isAwaitingApproval(info.document)) {
+        <div class="approve-form">
+          <label for="knowledge-effective-date">生效日期（留空立即生效）</label>
+          <input
+            id="knowledge-effective-date"
+            type="date"
+            [value]="effectiveDate()"
+            (input)="effectiveDate.set($any($event.target).value)"
+          />
+          @if (approveError()) {
+            <p class="action-error" role="alert">{{ approveError() }}</p>
+          }
+          <button type="button" class="ui-button" [disabled]="approving()" (click)="approve(info.document)">
+            確認生效
+          </button>
+        </div>
+      }
+    </section>
+
+    <section class="review-section" aria-labelledby="knowledge-review-preview-title">
+      <h3 id="knowledge-review-preview-title">抽取預覽（第 {{ info.document.latestVersionNumber }} 版）</h3>
+      @let preview = previewView();
+      @if (preview.status === 'loading') {
+        <p class="hint" role="status">正在載入預覽…</p>
+      } @else if (preview.status === 'error' || preview.status === 'permission-denied') {
+        <p class="action-error" role="alert">目前無法載入抽取預覽。</p>
+      } @else {
+        @if (chunkError()) {
+          <p class="action-error" role="alert">{{ chunkError() }}</p>
+        }
+        <ul class="unit-list">
+          @for (unit of preview.data.units; track unit.ordinal) {
+            <li [class.unit--unreadable]="!unit.readable">
+              <p class="unit-location">{{ unit.locationLabel }}</p>
+              @if (!unit.readable) {
+                <p class="unit-issue" role="alert">這個單位無法讀取：{{ unit.issueCode }}</p>
+              } @else {
+                @for (chunk of unit.chunks; track chunk.id) {
+                  <div class="chunk-row">
+                    <label>
+                      <input
+                        type="checkbox"
+                        [checked]="chunk.excluded"
+                        [disabled]="!data.canManage || busyChunkId() !== null"
+                        (change)="toggleChunk(info.document, chunk)"
+                      />
+                      不納入檢索
+                    </label>
+                    <p class="chunk-text">{{ chunk.text }}</p>
+                  </div>
+                }
+              }
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="review-section" aria-labelledby="knowledge-review-activity-title">
+      <h3 id="knowledge-review-activity-title">活動紀錄</h3>
+      <ul class="activity-list">
+        @for (activity of info.activities; track activity.id) {
+          <li>
+            <span>{{ activityLabels[activity.action] ?? activity.action }}</span>
+            <span>{{ activity.actor?.displayName ?? '系統' }}</span>
+            <time [attr.datetime]="activity.at">{{ fmtDateTime(activity.at) }}</time>
+            @if (activity.reason) {
+              <p class="hint">原因：{{ activity.reason }}</p>
+            }
+          </li>
+        } @empty {
+          <li class="empty">還沒有任何活動紀錄。</li>
+        }
+      </ul>
+    </section>
+  }
+</section>

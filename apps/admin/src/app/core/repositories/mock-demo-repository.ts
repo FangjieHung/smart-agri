@@ -69,19 +69,32 @@ import {
   precheckKnowledgeUpload,
   KNOWLEDGE_BASE_NAME_MAX_LENGTH,
   KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH,
+  KNOWLEDGE_DISABLE_REASON_MAX_LENGTH,
+  KNOWLEDGE_DISABLE_REASON_REQUIRED_MESSAGE,
   KNOWLEDGE_DOCUMENT_STATUSES,
   type CreateKnowledgeBaseInput,
+  type KnowledgeAccountRefView,
+  type KnowledgeActivityAction,
+  type KnowledgeActivityView,
   type KnowledgeBaseDetailView,
   type KnowledgeBaseId,
   type KnowledgeBaseSummaryView,
   type KnowledgeBaseView,
+  type KnowledgeChunkView,
   type KnowledgeConnectedAssistantView,
+  type KnowledgeDocumentDetailView,
   type KnowledgeDocumentId,
   type KnowledgeDocumentStatus,
   type KnowledgeDocumentStatusCounts,
   type KnowledgeDocumentView,
+  type KnowledgeExtractedUnitView,
   type KnowledgeSharingScope,
   type KnowledgeSharingView,
+  type KnowledgeUnitIssue,
+  type KnowledgeUnitLocationKind,
+  type KnowledgeVersionPreviewView,
+  type KnowledgeVersionState,
+  type KnowledgeVersionView,
 } from '../domain/knowledge-base.model';
 import {
   PUBLISHING_CHANNEL_TYPES,
@@ -161,6 +174,7 @@ import {
 } from './publishing-channels';
 import type {
   ActivateLineChannelResult,
+  ApproveKnowledgeVersionsResult,
   CreateAssistantResult,
   CreateDatabaseResult,
   DeleteAssistantResult,
@@ -171,6 +185,8 @@ import type {
   DemoKeyValueStorage,
   DemoRepository,
   DemoScenario,
+  DisableKnowledgeDocumentResult,
+  EnableKnowledgeDocumentResult,
   PermissionDeniedRepositoryView,
   RepositoryPermissionDeniedReason,
   RepositoryView,
@@ -184,6 +200,7 @@ import type {
   UpdateDatabaseFieldsResult,
   UpdateAssistantSettingsResult,
   UpdateDatabaseAccessResult,
+  UpdateKnowledgeChunkExclusionResult,
   UpdateKnowledgeSharingResult,
   UpdateMemberPermissionsResult,
   UpdatePlatformSharingResult,
@@ -522,6 +539,125 @@ interface StoredKnowledgeRecord {
    * seed 內建的文件沒有記錄大小，不會被拿來比對。
    */
   readonly uploadedSizes?: Readonly<Record<string, number>>;
+  /**
+   * 版本確認狀態（issue #47，M2 Slice 13），以文件 id 為鍵；沒有紀錄的文件視為
+   * `defaultKnowledgeReview()`（seed 文件與尚未被這個功能碰過的文件都是這樣，
+   * 維持「已經生效」的示範資料相容行為）。
+   */
+  readonly reviews?: Readonly<Record<string, StoredKnowledgeReview>>;
+}
+
+/** 已封存的版本：`versions`／版本歷程只用來顯示，不影響任何判斷。 */
+interface StoredKnowledgePriorVersion {
+  readonly versionNumber: number;
+  readonly fileName: string;
+  readonly uploadedByAccountId?: string;
+  readonly uploadedAt: string;
+  readonly approvedByAccountId?: string;
+  readonly approvedAt?: string;
+  readonly effectiveFrom?: string;
+}
+
+interface StoredKnowledgeActivity {
+  readonly id: string;
+  readonly action: KnowledgeActivityAction;
+  readonly actorAccountId?: string;
+  readonly at: string;
+  readonly versionId?: string;
+  readonly versionNumber?: number;
+  readonly reason?: string;
+}
+
+/**
+ * 一份文件的版本確認狀態：目前版本（待確認或已確認生效）、封存的歷史版本、
+ * 停用狀態與活動紀錄、段落排除設定。與 `StoredKnowledgeDocument` 分開存放，
+ * 讓既有的處理狀態時間模型（`processingStartedAt`）維持不變，兩者互不影響。
+ */
+interface StoredKnowledgeReview {
+  readonly versionNumber: number;
+  readonly fileName: string;
+  readonly reviewState: 'pending-review' | 'approved';
+  readonly uploadedByAccountId?: string;
+  readonly uploadedAt: string;
+  readonly effectiveFrom?: string;
+  readonly approvedByAccountId?: string;
+  readonly approvedAt?: string;
+  readonly priorVersions: readonly StoredKnowledgePriorVersion[];
+  readonly disabledAt?: string;
+  readonly disabledByAccountId?: string;
+  readonly disabledReason?: string;
+  /** chunk id（含版本前綴，不會跨版本碰撞）→ 是否排除。 */
+  readonly chunkExclusions: Readonly<Record<string, boolean>>;
+  /** 由舊到新；讀取時反轉成新到舊。 */
+  readonly activities: readonly StoredKnowledgeActivity[];
+  /**
+   * 最近一次「已生效」的版本（M2 計畫：上傳新版本不會立刻取代目前生效的版本）。
+   * 上傳新版本時原封不動帶過來，只有這個版本自己被確認生效時才更新——這樣
+   * `versionNumber`／`reviewState` 已經是最新上傳的版本，但畫面上「是否生效」看的是
+   * 這兩個欄位，兩者不會互相干擾。
+   */
+  readonly lastEffectiveVersionNumber?: number;
+  readonly lastEffectiveFrom?: string;
+}
+
+/** 沒有被這個功能碰過的文件（seed 或舊資料）：視為第 1 版、已在建立當下確認生效。 */
+function defaultKnowledgeReview(document: { readonly name: string; readonly updatedAt: string }): StoredKnowledgeReview {
+  return {
+    versionNumber: 1,
+    fileName: document.name,
+    reviewState: 'approved',
+    uploadedAt: document.updatedAt,
+    effectiveFrom: document.updatedAt,
+    priorVersions: [],
+    chunkExclusions: {},
+    activities: [],
+    lastEffectiveVersionNumber: 1,
+    lastEffectiveFrom: document.updatedAt,
+  };
+}
+
+interface KnowledgeReviewDerivedFields {
+  readonly latestVersionNumber: number;
+  readonly latestVersionState: KnowledgeVersionState;
+  readonly effectiveVersionNumber: number | null;
+  readonly disabled: boolean;
+  readonly inEffect: boolean;
+}
+
+/**
+ * 把版本確認狀態換算成畫面要顯示的欄位。`latestVersionState` 只描述「最新上傳的那個版本」
+ * 自己的確認狀態；`effectiveVersionNumber`／`inEffect` 看的是「最近一次已經生效、且生效
+ * 日期已到」的版本——上傳新版本、甚至還在待確認，都不影響原本已生效的版本繼續被引用
+ * （M2 計畫第 3 節「每個版本都要人工確認生效」）。mock 沒有替每個版本各自保存處理狀態，
+ * 所以這裡不看文件目前的處理狀態（那是「最新版本」的狀態，不是「生效版本」的狀態）。
+ */
+function deriveKnowledgeReviewFields(review: StoredKnowledgeReview, now: Date): KnowledgeReviewDerivedFields {
+  const disabled = review.disabledAt !== undefined;
+  const approvedAndDue =
+    review.reviewState === 'approved' &&
+    review.effectiveFrom !== undefined &&
+    Date.parse(review.effectiveFrom) <= now.getTime();
+  const scheduled =
+    review.reviewState === 'approved' &&
+    review.effectiveFrom !== undefined &&
+    Date.parse(review.effectiveFrom) > now.getTime();
+  const latestVersionState: KnowledgeVersionState = scheduled
+    ? 'scheduled'
+    : approvedAndDue
+      ? 'effective'
+      : 'pending-review';
+  const lastEffectiveDue =
+    review.lastEffectiveVersionNumber !== undefined &&
+    review.lastEffectiveFrom !== undefined &&
+    Date.parse(review.lastEffectiveFrom) <= now.getTime();
+  const effectiveVersionNumber = lastEffectiveDue ? (review.lastEffectiveVersionNumber as number) : null;
+  return {
+    latestVersionNumber: review.versionNumber,
+    latestVersionState,
+    effectiveVersionNumber,
+    disabled,
+    inEffect: effectiveVersionNumber !== null && !disabled,
+  };
 }
 
 /** mock：開始處理後，前 2 秒是「等待處理」。 */
@@ -557,6 +693,14 @@ const KNOWLEDGE_NAME_TOO_LONG_MESSAGE = `知識庫名稱最多 ${KNOWLEDGE_BASE_
 const KNOWLEDGE_PURPOSE_TOO_LONG_MESSAGE = `用途說明最多 ${KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH} 個字。`;
 export const KNOWLEDGE_CREATE_PERMISSION_DENIED_MESSAGE = '只有可管理資料來源的帳號可以建立知識庫。';
 export const KNOWLEDGE_PERMISSION_DENIED_MESSAGE = '你沒有這個知識庫的存取權限，或它已不存在。';
+
+/** 與後端 `KnowledgeReviewRules`（issue #47，M2 Slice 13）相同的訊息。 */
+export const KNOWLEDGE_VERSION_NOT_APPROVABLE_MESSAGE =
+  '這些版本剛剛有其他變更，或不是待確認的版本，請重新整理後再試一次。';
+export const KNOWLEDGE_DOCUMENT_ALREADY_DISABLED_MESSAGE = '這份文件已經停用了。';
+export const KNOWLEDGE_DOCUMENT_NOT_DISABLED_MESSAGE = '這份文件目前沒有停用，不需要恢復。';
+const KNOWLEDGE_DISABLE_REASON_TOO_LONG_MESSAGE = `停用原因最多 ${KNOWLEDGE_DISABLE_REASON_MAX_LENGTH} 個字。`;
+const KNOWLEDGE_EFFECTIVE_DATE_INVALID_MESSAGE = '生效日期格式不正確。';
 
 /** 與後端 `KnowledgeUploadRules.CheckDuplicates`／`CheckNewVersionDuplicate` 訊息格式相同。 */
 function duplicateContentMessage(existingDocumentName: string): string {
@@ -1871,6 +2015,56 @@ export class MockDemoRepository implements DemoRepository {
     return defer(() => of(this.writeUploadedKnowledgeDocumentVersion(this.viewer(), knowledgeBaseId, documentId, file)));
   }
 
+  getKnowledgeDocumentDetail(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+  ): Observable<RepositoryView<KnowledgeDocumentDetailView>> {
+    return defer(() => of(this.readKnowledgeDocumentDetail(this.viewer(), knowledgeBaseId, documentId)));
+  }
+
+  previewKnowledgeVersion(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    versionId: string,
+  ): Observable<RepositoryView<KnowledgeVersionPreviewView>> {
+    return defer(() => of(this.readKnowledgeVersionPreview(this.viewer(), knowledgeBaseId, documentId, versionId)));
+  }
+
+  updateKnowledgeChunkExclusion(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    versionId: string,
+    chunkId: string,
+    excluded: boolean,
+  ): Observable<UpdateKnowledgeChunkExclusionResult> {
+    return defer(() =>
+      of(this.writeKnowledgeChunkExclusion(this.viewer(), knowledgeBaseId, documentId, versionId, chunkId, excluded)),
+    );
+  }
+
+  approveKnowledgeVersions(
+    knowledgeBaseId: KnowledgeBaseId,
+    versionIds: readonly string[],
+    effectiveFrom?: string,
+  ): Observable<ApproveKnowledgeVersionsResult> {
+    return defer(() => of(this.writeApprovedKnowledgeVersions(this.viewer(), knowledgeBaseId, versionIds, effectiveFrom)));
+  }
+
+  disableKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+    reason: string,
+  ): Observable<DisableKnowledgeDocumentResult> {
+    return defer(() => of(this.writeDisabledKnowledgeDocument(this.viewer(), knowledgeBaseId, documentId, reason)));
+  }
+
+  enableKnowledgeDocument(
+    knowledgeBaseId: KnowledgeBaseId,
+    documentId: KnowledgeDocumentId,
+  ): Observable<EnableKnowledgeDocumentResult> {
+    return defer(() => of(this.writeEnabledKnowledgeDocument(this.viewer(), knowledgeBaseId, documentId)));
+  }
+
   private readKnowledgeSummaries(
     viewerAccountId: AccountId | null,
   ): RepositoryView<readonly KnowledgeBaseSummaryView[]> {
@@ -2107,10 +2301,21 @@ export class MockDemoRepository implements DemoRepository {
       updatedAt: startedAt,
       processingStartedAt: startedAt,
     };
+    const review: StoredKnowledgeReview = {
+      versionNumber: 1,
+      fileName: file.name,
+      reviewState: 'pending-review',
+      uploadedByAccountId: viewerAccountId ?? undefined,
+      uploadedAt: startedAt,
+      priorVersions: [],
+      chunkExclusions: {},
+      activities: [this.knowledgeActivity('version-uploaded', viewerAccountId, startedAt, { versionNumber: 1 })],
+    };
     this.saveKnowledgeRecord(knowledgeBase.id, {
       ...record,
       documents: [...record.documents, created],
       uploadedSizes: { ...sizes, [id]: file.size },
+      reviews: { ...record.reviews, [id]: review },
     });
 
     const uploaded = this.knowledgeDocuments(knowledgeBase.id).find((document) => document.id === id);
@@ -2157,6 +2362,33 @@ export class MockDemoRepository implements DemoRepository {
     }
 
     const startedAt = this.now().toISOString();
+    const previousReview = record.reviews?.[documentId] ?? defaultKnowledgeReview(target);
+    const nextVersionNumber = previousReview.versionNumber + 1;
+    const archivedPrior: StoredKnowledgePriorVersion = {
+      versionNumber: previousReview.versionNumber,
+      fileName: previousReview.fileName,
+      uploadedByAccountId: previousReview.uploadedByAccountId,
+      uploadedAt: previousReview.uploadedAt,
+      approvedByAccountId: previousReview.approvedByAccountId,
+      approvedAt: previousReview.approvedAt,
+      effectiveFrom: previousReview.effectiveFrom,
+    };
+    const review: StoredKnowledgeReview = {
+      versionNumber: nextVersionNumber,
+      fileName: file.name,
+      reviewState: 'pending-review',
+      uploadedByAccountId: viewerAccountId ?? undefined,
+      uploadedAt: startedAt,
+      priorVersions: [...previousReview.priorVersions, archivedPrior],
+      chunkExclusions: {},
+      activities: [
+        ...previousReview.activities,
+        this.knowledgeActivity('version-uploaded', viewerAccountId, startedAt, { versionNumber: nextVersionNumber }),
+      ],
+      // 目前生效中的版本（如果有）不因為上傳新版本而改變，直到新版本自己被確認生效為止。
+      lastEffectiveVersionNumber: previousReview.lastEffectiveVersionNumber,
+      lastEffectiveFrom: previousReview.lastEffectiveFrom,
+    };
     this.saveKnowledgeRecord(knowledgeBase.id, {
       ...record,
       documents: record.documents.map((document): StoredKnowledgeDocument =>
@@ -2165,9 +2397,393 @@ export class MockDemoRepository implements DemoRepository {
           : document,
       ),
       uploadedSizes: { ...sizes, [documentId]: file.size },
+      reviews: { ...record.reviews, [documentId]: review },
     });
 
     const updated = this.knowledgeDocuments(knowledgeBase.id).find((document) => document.id === documentId);
+    return updated === undefined ? this.knowledgePermissionDenied() : this.applyScenario(updated);
+  }
+
+  // ---------- 版本確認、抽取預覽與緊急停用（issue #47，M2 Slice 13） ----------
+
+  private knowledgeActivity(
+    action: KnowledgeActivityAction,
+    actorAccountId: string | null,
+    at: string,
+    extra: { readonly versionId?: string; readonly versionNumber?: number; readonly reason?: string } = {},
+  ): StoredKnowledgeActivity {
+    return {
+      id: `activity-${at}-${Math.random().toString(36).slice(2, 8)}`,
+      action,
+      actorAccountId: actorAccountId ?? undefined,
+      at,
+      ...extra,
+    };
+  }
+
+  private knowledgeAccountRef(accountId: string | undefined): KnowledgeAccountRefView | null {
+    if (accountId === undefined) return null;
+    const account = this.accounts().find((candidate) => candidate.id === accountId);
+    return { id: accountId, displayName: account?.displayName ?? accountId };
+  }
+
+  private knowledgeReview(knowledgeBaseId: KnowledgeBaseId, documentId: KnowledgeDocumentId): StoredKnowledgeReview {
+    const record = this.knowledgeRecord(knowledgeBaseId);
+    const stored = record.reviews?.[documentId];
+    if (stored !== undefined) return stored;
+    const document = record.documents.find((candidate) => candidate.id === documentId);
+    return defaultKnowledgeReview(document ?? { name: documentId, updatedAt: this.now().toISOString() });
+  }
+
+  private readKnowledgeDocumentDetail(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    documentId: KnowledgeDocumentId,
+  ): RepositoryView<KnowledgeDocumentDetailView> {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+    const document = this.knowledgeDocuments(knowledgeBase.id).find((candidate) => candidate.id === documentId);
+    if (document === undefined) return this.knowledgePermissionDenied();
+
+    const review = this.knowledgeReview(knowledgeBase.id, documentId);
+    const now = this.now();
+    const versions: KnowledgeVersionView[] = [
+      {
+        id: `${documentId}:v${review.versionNumber}`,
+        documentId,
+        versionNumber: review.versionNumber,
+        fileName: review.fileName,
+        contentType: 'application/octet-stream',
+        sizeBytes: this.knowledgeRecord(knowledgeBase.id).uploadedSizes?.[documentId] ?? 0,
+        status: document.status,
+        issue: document.issue,
+        state: deriveKnowledgeReviewFields(review, now).latestVersionState,
+        effectiveFrom: review.effectiveFrom ?? null,
+        uploadedBy: this.knowledgeAccountRef(review.uploadedByAccountId) ?? { id: documentId, displayName: '不明帳號' },
+        uploadedAt: review.uploadedAt,
+        approvedBy: this.knowledgeAccountRef(review.approvedByAccountId),
+        approvedAt: review.approvedAt ?? null,
+        updatedAt: document.updatedAt,
+      },
+      ...review.priorVersions
+        .slice()
+        .reverse()
+        .map(
+          (prior): KnowledgeVersionView => ({
+            id: `${documentId}:v${prior.versionNumber}`,
+            documentId,
+            versionNumber: prior.versionNumber,
+            fileName: prior.fileName,
+            contentType: 'application/octet-stream',
+            sizeBytes: 0,
+            status: 'ready',
+            issue: null,
+            state: 'archived',
+            effectiveFrom: prior.effectiveFrom ?? null,
+            uploadedBy: this.knowledgeAccountRef(prior.uploadedByAccountId) ?? { id: documentId, displayName: '不明帳號' },
+            uploadedAt: prior.uploadedAt,
+            approvedBy: this.knowledgeAccountRef(prior.approvedByAccountId),
+            approvedAt: prior.approvedAt ?? null,
+            updatedAt: prior.approvedAt ?? prior.uploadedAt,
+          }),
+        ),
+    ];
+
+    const activities: KnowledgeActivityView[] = review.activities
+      .slice()
+      .reverse()
+      .map((activity) => ({
+        id: activity.id,
+        action: activity.action,
+        actor: this.knowledgeAccountRef(activity.actorAccountId),
+        at: activity.at,
+        versionId: activity.versionId ?? null,
+        versionNumber: activity.versionNumber ?? null,
+        reason: activity.reason ?? null,
+      }));
+
+    const detail: KnowledgeDocumentDetailView = {
+      document,
+      createdAt: review.priorVersions[0]?.uploadedAt ?? review.uploadedAt,
+      disabledAt: review.disabledAt ?? null,
+      disabledBy: this.knowledgeAccountRef(review.disabledByAccountId),
+      disabledReason: review.disabledReason ?? null,
+      versions,
+      activities,
+    };
+    return this.applyScenario(detail);
+  }
+
+  private readKnowledgeVersionPreview(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    documentId: KnowledgeDocumentId,
+    versionId: string,
+  ): RepositoryView<KnowledgeVersionPreviewView> {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+    const document = this.knowledgeDocuments(knowledgeBase.id).find((candidate) => candidate.id === documentId);
+    if (document === undefined) return this.knowledgePermissionDenied();
+
+    const review = this.knowledgeReview(knowledgeBase.id, documentId);
+    const versionNumber =
+      versionId === `${documentId}:v${review.versionNumber}`
+        ? review.versionNumber
+        : (review.priorVersions.find((prior) => `${documentId}:v${prior.versionNumber}` === versionId)
+            ?.versionNumber ?? review.versionNumber);
+    const fileName =
+      versionNumber === review.versionNumber
+        ? review.fileName
+        : (review.priorVersions.find((prior) => prior.versionNumber === versionNumber)?.fileName ?? review.fileName);
+
+    const preview: KnowledgeVersionPreviewView = {
+      documentId,
+      versionId,
+      versionNumber,
+      fileName,
+      status: document.status,
+      issue: document.issue,
+      units: this.knowledgeExtractedUnits(document, versionId, review),
+    };
+    return this.applyScenario(preview);
+  }
+
+  /**
+   * mock 沒有真的抽取內容：依文件名稱與版本產生固定的示範單位與段落，讓預覽畫面
+   * 有東西可以顯示與切換排除；`issue` 存在時最後一個單位標記為不可讀，示範「部分內容
+   * 無法讀取」的畫面（與文件本身的 `partially-readable`/`failed` 呼應）。
+   */
+  private knowledgeExtractedUnits(
+    document: KnowledgeDocumentView,
+    versionId: string,
+    review: StoredKnowledgeReview,
+  ): readonly KnowledgeExtractedUnitView[] {
+    const locationKind: KnowledgeUnitLocationKind = document.kind === 'faq' ? 'faq' : 'page';
+    const unitCount = document.kind === 'faq' ? 1 : 2;
+    return Array.from({ length: unitCount }, (_, index) => {
+      const ordinal = index + 1;
+      const isLastUnreadable = document.issue !== null && ordinal === unitCount;
+      const locationLabel =
+        locationKind === 'faq' ? 'FAQ 內容' : locationKind === 'page' ? `第 ${ordinal} 頁` : `第 ${ordinal} 節`;
+      const chunkId = `${versionId}:u${ordinal}:c1`;
+      const issueCode: KnowledgeUnitIssue = isLastUnreadable ? 'too-little-text' : null;
+      const chunk: KnowledgeChunkView = {
+        id: chunkId,
+        locationLabel,
+        text: isLastUnreadable
+          ? '（這個單位找不到足夠的可讀文字）'
+          : `這是「${document.name}」第 ${ordinal} 個抽取單位的示範內容，用於預覽與排除段落的展示。`,
+        excluded: review.chunkExclusions[chunkId] ?? false,
+      };
+      const unit: KnowledgeExtractedUnitView = {
+        ordinal,
+        locationKind,
+        locationLabel,
+        readable: !isLastUnreadable,
+        issueCode,
+        text: chunk.text,
+        chunks: isLastUnreadable ? [] : [chunk],
+      };
+      return unit;
+    });
+  }
+
+  private writeKnowledgeChunkExclusion(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    documentId: KnowledgeDocumentId,
+    versionId: string,
+    chunkId: string,
+    excluded: boolean,
+  ): UpdateKnowledgeChunkExclusionResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+    const document = this.knowledgeDocuments(knowledgeBase.id).find((candidate) => candidate.id === documentId);
+    if (document === undefined) return this.knowledgePermissionDenied();
+
+    const record = this.knowledgeRecord(knowledgeBase.id);
+    const review = this.knowledgeReview(knowledgeBase.id, documentId);
+    const wasExcluded = review.chunkExclusions[chunkId] ?? false;
+    const now = this.now().toISOString();
+    const changed = wasExcluded !== excluded;
+    const updatedReview: StoredKnowledgeReview = {
+      ...review,
+      chunkExclusions: { ...review.chunkExclusions, [chunkId]: excluded },
+      activities: changed
+        ? [
+            ...review.activities,
+            this.knowledgeActivity(excluded ? 'chunk-excluded' : 'chunk-included', viewerAccountId, now, {
+              versionId,
+            }),
+          ]
+        : review.activities,
+    };
+    this.saveKnowledgeRecord(knowledgeBase.id, { ...record, reviews: { ...record.reviews, [documentId]: updatedReview } });
+
+    const [unit] = this.knowledgeExtractedUnits(document, versionId, updatedReview).filter((candidate) =>
+      candidate.chunks.some((chunk) => chunk.id === chunkId),
+    );
+    const chunk = unit?.chunks.find((candidate) => candidate.id === chunkId);
+    return chunk === undefined ? this.knowledgePermissionDenied() : this.applyScenario(chunk);
+  }
+
+  private writeApprovedKnowledgeVersions(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    versionIds: readonly string[],
+    effectiveFrom: string | undefined,
+  ): ApproveKnowledgeVersionsResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+
+    let effectiveFromIso = this.now().toISOString();
+    if (effectiveFrom !== undefined) {
+      const parsed = Date.parse(effectiveFrom);
+      if (Number.isNaN(parsed)) {
+        return immutableCopy({ status: 'validation-failed', message: KNOWLEDGE_EFFECTIVE_DATE_INVALID_MESSAGE });
+      }
+      effectiveFromIso = new Date(parsed).toISOString();
+    }
+
+    const record = this.knowledgeRecord(knowledgeBase.id);
+    const documents = this.knowledgeDocuments(knowledgeBase.id);
+    // 每個 versionId 都必須指向這個知識庫裡「目前待確認」的版本；任何一個不符合就整批不寫入。
+    const targets = versionIds.map((versionId) => {
+      const documentId = versionId.includes(':v') ? versionId.slice(0, versionId.lastIndexOf(':v')) : versionId;
+      const document = documents.find((candidate) => candidate.id === documentId);
+      const review = document === undefined ? undefined : this.knowledgeReview(knowledgeBase.id, documentId);
+      const approvable =
+        document !== undefined &&
+        review !== undefined &&
+        review.reviewState === 'pending-review' &&
+        `${documentId}:v${review.versionNumber}` === versionId;
+      return { versionId, documentId, review, approvable };
+    });
+    if (targets.some((target) => !target.approvable)) {
+      return immutableCopy({ status: 'validation-failed', message: KNOWLEDGE_VERSION_NOT_APPROVABLE_MESSAGE });
+    }
+
+    const approvedAt = this.now().toISOString();
+    let updatedReviews = { ...record.reviews };
+    for (const target of targets) {
+      const review = target.review as StoredKnowledgeReview;
+      updatedReviews = {
+        ...updatedReviews,
+        [target.documentId]: {
+          ...review,
+          reviewState: 'approved',
+          effectiveFrom: effectiveFromIso,
+          approvedByAccountId: viewerAccountId ?? undefined,
+          approvedAt,
+          lastEffectiveVersionNumber: review.versionNumber,
+          lastEffectiveFrom: effectiveFromIso,
+          activities: [
+            ...review.activities,
+            this.knowledgeActivity('version-approved', viewerAccountId, approvedAt, {
+              versionId: target.versionId,
+              versionNumber: review.versionNumber,
+            }),
+          ],
+        },
+      };
+    }
+    this.saveKnowledgeRecord(knowledgeBase.id, { ...record, reviews: updatedReviews });
+
+    const refreshedDocuments = this.knowledgeDocuments(knowledgeBase.id);
+    const results: KnowledgeVersionView[] = targets.map((target) => {
+      const review = updatedReviews[target.documentId] as StoredKnowledgeReview;
+      const document = refreshedDocuments.find((candidate) => candidate.id === target.documentId);
+      const status = document?.status ?? 'ready';
+      return {
+        id: target.versionId,
+        documentId: target.documentId,
+        versionNumber: review.versionNumber,
+        fileName: review.fileName,
+        contentType: 'application/octet-stream',
+        sizeBytes: record.uploadedSizes?.[target.documentId] ?? 0,
+        status,
+        issue: document?.issue ?? null,
+        state: deriveKnowledgeReviewFields(review, this.now()).latestVersionState,
+        effectiveFrom: review.effectiveFrom ?? null,
+        uploadedBy: this.knowledgeAccountRef(review.uploadedByAccountId) ?? { id: target.documentId, displayName: '不明帳號' },
+        uploadedAt: review.uploadedAt,
+        approvedBy: this.knowledgeAccountRef(review.approvedByAccountId),
+        approvedAt: review.approvedAt ?? null,
+        updatedAt: approvedAt,
+      };
+    });
+    return this.applyScenario(results);
+  }
+
+  private writeDisabledKnowledgeDocument(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    documentId: KnowledgeDocumentId,
+    reason: string,
+  ): DisableKnowledgeDocumentResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+    const document = this.knowledgeDocuments(knowledgeBase.id).find((candidate) => candidate.id === documentId);
+    if (document === undefined) return this.knowledgePermissionDenied();
+
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length === 0) {
+      return immutableCopy({ status: 'validation-failed', message: KNOWLEDGE_DISABLE_REASON_REQUIRED_MESSAGE });
+    }
+    if (trimmedReason.length > KNOWLEDGE_DISABLE_REASON_MAX_LENGTH) {
+      return immutableCopy({ status: 'validation-failed', message: KNOWLEDGE_DISABLE_REASON_TOO_LONG_MESSAGE });
+    }
+
+    const record = this.knowledgeRecord(knowledgeBase.id);
+    const review = this.knowledgeReview(knowledgeBase.id, documentId);
+    if (review.disabledAt !== undefined) {
+      return immutableCopy({ status: 'validation-failed', message: KNOWLEDGE_DOCUMENT_ALREADY_DISABLED_MESSAGE });
+    }
+
+    const now = this.now().toISOString();
+    const updatedReview: StoredKnowledgeReview = {
+      ...review,
+      disabledAt: now,
+      disabledByAccountId: viewerAccountId ?? undefined,
+      disabledReason: trimmedReason,
+      activities: [
+        ...review.activities,
+        this.knowledgeActivity('document-disabled', viewerAccountId, now, { reason: trimmedReason }),
+      ],
+    };
+    this.saveKnowledgeRecord(knowledgeBase.id, { ...record, reviews: { ...record.reviews, [documentId]: updatedReview } });
+
+    const updated = this.knowledgeDocuments(knowledgeBase.id).find((candidate) => candidate.id === documentId);
+    return updated === undefined ? this.knowledgePermissionDenied() : this.applyScenario(updated);
+  }
+
+  private writeEnabledKnowledgeDocument(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    documentId: KnowledgeDocumentId,
+  ): EnableKnowledgeDocumentResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+    const document = this.knowledgeDocuments(knowledgeBase.id).find((candidate) => candidate.id === documentId);
+    if (document === undefined) return this.knowledgePermissionDenied();
+
+    const record = this.knowledgeRecord(knowledgeBase.id);
+    const review = this.knowledgeReview(knowledgeBase.id, documentId);
+    if (review.disabledAt === undefined) {
+      return immutableCopy({ status: 'validation-failed', message: KNOWLEDGE_DOCUMENT_NOT_DISABLED_MESSAGE });
+    }
+
+    const now = this.now().toISOString();
+    const updatedReview: StoredKnowledgeReview = {
+      ...review,
+      disabledAt: undefined,
+      disabledByAccountId: undefined,
+      disabledReason: undefined,
+      activities: [...review.activities, this.knowledgeActivity('document-enabled', viewerAccountId, now)],
+    };
+    this.saveKnowledgeRecord(knowledgeBase.id, { ...record, reviews: { ...record.reviews, [documentId]: updatedReview } });
+
+    const updated = this.knowledgeDocuments(knowledgeBase.id).find((candidate) => candidate.id === documentId);
     return updated === undefined ? this.knowledgePermissionDenied() : this.applyScenario(updated);
   }
 
@@ -3428,17 +4044,30 @@ export class MockDemoRepository implements DemoRepository {
     };
   }
 
-  /** 畫面看到的文件：補上版本 id，並依經過時間算出重新處理中文件的狀態。 */
+  /**
+   * 畫面看到的文件：補上版本 id，依經過時間算出重新處理中文件的狀態，並疊上版本確認狀態
+   * （issue #47，M2 Slice 13：`latestVersionNumber`／`latestVersionState`／
+   * `effectiveVersionNumber`／`disabled`／`inEffect`）。
+   */
   private knowledgeDocuments(knowledgeBaseId: KnowledgeBaseId): readonly KnowledgeDocumentView[] {
     const now = this.now();
-    return this.knowledgeRecord(knowledgeBaseId).documents.map(
-      ({ processingStartedAt, latestVersionId, ...document }): KnowledgeDocumentView => ({
-        ...document,
-        ...(processingStartedAt === undefined
-          ? {}
-          : mockKnowledgeProcessingState(processingStartedAt, now)),
-        latestVersionId: latestVersionId ?? `${document.id}:v1`,
-      }),
+    const record = this.knowledgeRecord(knowledgeBaseId);
+    return record.documents.map(
+      ({ processingStartedAt, latestVersionId, ...document }): KnowledgeDocumentView => {
+        const withStatus = {
+          ...document,
+          ...(processingStartedAt === undefined
+            ? {}
+            : mockKnowledgeProcessingState(processingStartedAt, now)),
+        };
+        const review = record.reviews?.[document.id] ?? defaultKnowledgeReview(document);
+        const reviewFields = deriveKnowledgeReviewFields(review, now);
+        return {
+          ...withStatus,
+          latestVersionId: latestVersionId ?? `${document.id}:v${review.versionNumber}`,
+          ...reviewFields,
+        };
+      },
     );
   }
 
@@ -3490,6 +4119,11 @@ export class MockDemoRepository implements DemoRepository {
       ),
       updatedAt,
       viewerCanManage: knowledgeBase.ownerAccountId === viewerAccountId,
+      inEffectCount: documents.filter((document) => document.inEffect === true).length,
+      awaitingApprovalCount: documents.filter(
+        (document) => document.latestVersionState === 'pending-review' || document.latestVersionState === 'scheduled',
+      ).length,
+      disabledCount: documents.filter((document) => document.disabled === true).length,
     };
   }
 

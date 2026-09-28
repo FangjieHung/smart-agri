@@ -50,6 +50,7 @@ import {
   type TeamView,
 } from '../domain/team.model';
 import {
+  isKnowledgeRetrievalUnavailableReason,
   isKnowledgeUploadRejectionReason,
   type CreateKnowledgeBaseInput,
   type KnowledgeAccountRefView,
@@ -61,6 +62,9 @@ import {
   type KnowledgeDocumentDetailView,
   type KnowledgeDocumentView,
   type KnowledgeExtractedUnitView,
+  type KnowledgeRetrievalPassageView,
+  type KnowledgeRetrievalPreviewView,
+  type KnowledgeRetrievalUnavailableReason,
   type KnowledgeSharingView,
   type KnowledgeUploadRejectionReason,
   type KnowledgeVersionPreviewView,
@@ -85,9 +89,11 @@ import {
   type DeleteKnowledgeResult,
   type DisableKnowledgeDocumentResult,
   type EnableKnowledgeDocumentResult,
+  type KnowledgeRetrievalUnavailableView,
   type KnowledgeUploadRejectedView,
   type KnowledgeValidationFailedView,
   type PermissionDeniedRepositoryView,
+  type PreviewKnowledgeRetrievalResult,
   type RenameChatThreadResult,
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
@@ -134,6 +140,9 @@ type ApiKnowledgeChunk = components['schemas']['KnowledgeChunkView'];
 type ApproveKnowledgeVersionsRequest = components['schemas']['ApproveKnowledgeVersionsRequest'];
 type DisableKnowledgeDocumentRequest = components['schemas']['DisableKnowledgeDocumentRequest'];
 type UpdateKnowledgeChunkExclusionRequest = components['schemas']['UpdateKnowledgeChunkExclusionRequest'];
+type PreviewKnowledgeRetrievalRequest = components['schemas']['PreviewKnowledgeRetrievalRequest'];
+type ApiKnowledgeRetrievalPreview = components['schemas']['KnowledgeRetrievalPreviewView'];
+type ApiKnowledgeRetrievalPassage = components['schemas']['KnowledgeRetrievalPassageView'];
 type ApiChatThreadListView = components['schemas']['ChatThreadListView'];
 type ApiChatThreadSummaryView = components['schemas']['ChatThreadSummaryView'];
 type ApiAssistantChatView = components['schemas']['AssistantChatView'];
@@ -218,6 +227,11 @@ export function apiKnowledgeDisablePath(knowledgeBaseId: string, documentId: str
 
 export function apiKnowledgeEnablePath(knowledgeBaseId: string, documentId: string): string {
   return `${apiKnowledgeDocumentPath(knowledgeBaseId, documentId)}/enable`;
+}
+
+/** 檢索試查（issue #48，M2 Slice 14）。 */
+export function apiKnowledgeRetrievalPreviewPath(knowledgeBaseId: string): string {
+  return `${apiKnowledgeBasePath(knowledgeBaseId)}/retrieval-preview`;
 }
 
 export function apiAssistantChatConversationsPath(assistantId: string): string {
@@ -1008,6 +1022,27 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  override previewKnowledgeRetrieval(
+    knowledgeBaseId: string,
+    question: string,
+    includePending: boolean,
+  ): Observable<PreviewKnowledgeRetrievalResult> {
+    const body: PreviewKnowledgeRetrievalRequest = { question, includePending };
+    return this.http
+      .post<ApiKnowledgeRetrievalPreview>(apiKnowledgeRetrievalPreviewPath(knowledgeBaseId), body)
+      .pipe(
+        map((response): PreviewKnowledgeRetrievalResult => ({
+          status: 'ready',
+          data: toKnowledgeRetrievalPreview(response),
+        })),
+        catchError((error: unknown) => {
+          if (isHttpError(error, 422)) return of(knowledgeValidationFailed(error));
+          if (isHttpError(error, 503)) return of(retrievalUnavailable(error));
+          return this.knowledgeDeniedOrThrow(error);
+        }),
+      );
+  }
+
   // ---------- 對話（issue #79：讀取與對話串管理走 API；送出訊息走 AG-UI 串流，見 core/chat 與 #80） ----------
 
   override listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>> {
@@ -1217,6 +1252,24 @@ function knowledgeValidationFailed(error: HttpErrorResponse): KnowledgeValidatio
     status: 'validation-failed',
     message: bodyMessage(error) ?? '這次變更沒有儲存，請再試一次。',
   };
+}
+
+interface ReasonBody {
+  readonly reason?: unknown;
+  readonly message?: unknown;
+}
+
+/**
+ * 檢索試查的 `503`（issue #48）：`reason` 是 `embedding-unavailable` 或
+ * `embedding-not-configured`，不認得的值保底當成前者（暫時性問題，可重試）。
+ */
+function retrievalUnavailable(error: HttpErrorResponse): KnowledgeRetrievalUnavailableView {
+  const body = (error.error ?? {}) as ReasonBody;
+  const reason: KnowledgeRetrievalUnavailableReason = isKnowledgeRetrievalUnavailableReason(body.reason)
+    ? body.reason
+    : 'embedding-unavailable';
+  const message = typeof body.message === 'string' ? body.message : '嵌入模型暫時無法使用，請稍後重試。';
+  return { status: 'unavailable', reason, message };
 }
 
 /** 413／415 沒有 `reason`（只有 422 的 body 有）時的保底原因。 */
@@ -1549,6 +1602,28 @@ function toKnowledgeExtractedUnit(unit: ApiKnowledgeExtractedUnit): KnowledgeExt
     issueCode: unit.issueCode,
     text: unit.text,
     chunks: unit.chunks.map(toKnowledgeChunk),
+  };
+}
+
+function toKnowledgeRetrievalPassage(passage: ApiKnowledgeRetrievalPassage): KnowledgeRetrievalPassageView {
+  return {
+    documentId: passage.documentId,
+    documentName: passage.documentName,
+    versionNumber: passage.versionNumber,
+    versionState: passage.versionState,
+    locationLabel: passage.locationLabel,
+    excerpt: passage.excerpt,
+    score: passage.score,
+    versionId: passage.versionId,
+    chunkId: passage.chunkId,
+  };
+}
+
+function toKnowledgeRetrievalPreview(preview: ApiKnowledgeRetrievalPreview): KnowledgeRetrievalPreviewView {
+  return {
+    passages: preview.passages.map(toKnowledgeRetrievalPassage),
+    threshold: preview.threshold,
+    belowThreshold: preview.belowThreshold,
   };
 }
 

@@ -23,7 +23,8 @@ public sealed class ChatMessage : IOrganizationScoped
         ChatReplyKind? replyKind,
         string? notice,
         IReadOnlyList<string> nextSteps,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? clientMessageId = null)
     {
         ArgumentNullException.ThrowIfNull(thread);
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
@@ -36,13 +37,19 @@ public sealed class ChatMessage : IOrganizationScoped
         Notice = notice;
         NextSteps = [.. nextSteps];
         CreatedAt = now;
+        ClientMessageId = clientMessageId;
         thread.RegisterMessage(now);
         Sequence = thread.MessageCount;
     }
 
-    /// <summary>The account's own question.</summary>
-    public static ChatMessage Account(ChatThread thread, string text, DateTimeOffset now) =>
-        new(thread, ChatMessageAuthor.Account, text, null, null, [], now);
+    /// <summary>The account's own question. <paramref name="clientMessageId"/> is the id the
+    /// client gave the <c>RunAgentInput</c> user message that produced it (ticket #105), already
+    /// validated (<c>ChatRunRules.ValidateClientMessageId</c>) — <see langword="null"/> when the
+    /// client sent none or it was not a valid id. It lets a retried run after a mid-stream
+    /// failure (same id, same thread, sent again by the client) recognize the question it
+    /// already saved instead of saving it again.</summary>
+    public static ChatMessage Account(ChatThread thread, string text, DateTimeOffset now, string? clientMessageId = null) =>
+        new(thread, ChatMessageAuthor.Account, text, null, null, [], now, clientMessageId);
 
     /// <summary>The assistant's validated reply. <paramref name="notice"/> only makes sense for
     /// <see cref="ChatReplyKind.GeneralKnowledge"/>; <paramref name="nextSteps"/> only for
@@ -61,6 +68,12 @@ public sealed class ChatMessage : IOrganizationScoped
     public ChatMessageAuthor Author { get; private set; }
 
     public string Text { get; private set; } = string.Empty;
+
+    /// <summary>Only ever set for an <see cref="ChatMessageAuthor.Account"/> turn (ticket #105):
+    /// the id the client gave this question's user message, when it sent a valid one. Internal
+    /// bookkeeping only — never returned by any API view — used to recognize a retried run's
+    /// question as the one already saved instead of saving it a second time.</summary>
+    public string? ClientMessageId { get; private set; }
 
     /// <summary><see langword="null"/> for an <see cref="ChatMessageAuthor.Account"/> turn.</summary>
     public ChatReplyKind? ReplyKind { get; private set; }

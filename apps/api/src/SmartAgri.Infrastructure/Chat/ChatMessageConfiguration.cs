@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using SmartAgri.Application.Chat;
 using SmartAgri.Domain.Chat;
 
 namespace SmartAgri.Infrastructure.Chat;
@@ -27,6 +28,8 @@ internal sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMe
         builder.HasKey(message => message.Id);
         builder.Property(message => message.Id).ValueGeneratedNever();
         builder.Property(message => message.Text).IsRequired();
+        // Only ever set for an Account turn (ticket #105); not returned by any API view.
+        builder.Property(message => message.ClientMessageId).HasMaxLength(ChatRunRules.ClientMessageIdMaxLength);
         builder.Property(message => message.NextSteps)
             .HasConversion(
                 new ValueConverter<IReadOnlyList<string>, string>(

@@ -26,6 +26,9 @@ module.exports = defineConfig({
   e2e: {
     ...preset,
     baseUrl: 'http://localhost:4301',
+    // 只跑 mock 模式的 spec：src/e2e-api/ 是 API 模式（需要真實後端），由
+    // cypress.api.config.ts 與 CI 的 e2e-api job 負責，preset 預設的 `src/**` 會把它們一起抓進來。
+    specPattern: 'src/e2e/**/*.cy.{js,jsx,ts,tsx}',
     async setupNodeEvents(on: Cypress.PluginEvents, config: Cypress.PluginConfigOptions) {
       // 保留 Nx preset 的 dev server 啟動邏輯，再加上自己的 task。
       const updated = await preset.setupNodeEvents?.(on, config);

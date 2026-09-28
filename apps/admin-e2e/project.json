@@ -8,6 +8,14 @@
   "targets": {
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "e2e-api": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "options": {
+        "cwd": "apps/admin-e2e",
+        "command": "cypress run --config-file cypress.api.config.ts"
+      }
     }
   }
 }

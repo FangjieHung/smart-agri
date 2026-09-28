@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Options;
 using Shouldly;
 using SmartAgri.Api.Tests.Infrastructure;
 
@@ -30,9 +31,10 @@ public sealed class EmbeddingStartupTests : IDisposable
             .UseSetting("Ai:Embedding:Provider", "Fake")
             .UseSetting("Ai:Embedding:Model", "fake-a"));
 
-        var exception = Should.Throw<Exception>(() => factory.CreateClient());
+        // ValidateOnStart fails inside app.Run(), so read the reason from the host (see StartupFailure).
+        var exception = StartupFailure.Of(factory);
 
-        exception.ToString().ShouldContain("Ai:Embedding:Provider=Fake is only allowed in the Development and Testing environments, not in 'Production'");
+        exception.ShouldBeOfType<OptionsValidationException>().Message.ShouldContain("Ai:Embedding:Provider=Fake is only allowed in the Development and Testing environments, not in 'Production'");
     }
 
     [Fact]

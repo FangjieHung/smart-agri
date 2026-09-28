@@ -154,6 +154,10 @@ export class AgUiChatRunner implements ChatRunner {
 /**
  * 保存對話時只送這一則問題（前文由後端讀取）；不保存對話時，把本頁的前文放在前面，
  * 後端只把它當成前文、引用永遠來自本次檢索。
+ *
+ * 最後一則 user 訊息（問題）的 id 用 `request.clientMessageId`（issue #105）：重試時沿用
+ * 失敗那次的 id，後端才能把它識別成同一則問題、不重複保存。沒帶時退回舊的位置編號
+ * （理論上 `ChatConversationComponent` 一定會帶；只是不讓這裡在缺漏時整個壞掉）。
  */
 function runMessages(request: ChatRunRequest): Message[] {
   const history: Message[] = (request.history ?? []).map((entry, index) => ({
@@ -161,7 +165,8 @@ function runMessages(request: ChatRunRequest): Message[] {
     role: entry.role,
     content: entry.content,
   }));
-  return [...history, { id: `question-${history.length + 1}`, role: 'user', content: request.question }];
+  const questionId = request.clientMessageId ?? `question-${history.length + 1}`;
+  return [...history, { id: questionId, role: 'user', content: request.question }];
 }
 
 function readReply(value: unknown) {

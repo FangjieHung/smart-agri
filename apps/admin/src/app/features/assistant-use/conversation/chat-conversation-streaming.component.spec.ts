@@ -193,6 +193,26 @@ describe('ChatConversationComponent streaming', () => {
     expect(runner.requests).toHaveLength(2);
     expect(runner.requests[1].question).toBe(QUESTION);
     expect(accountBubbles(host).filter((text) => text?.includes(QUESTION))).toHaveLength(1);
+    // #105: the retry carries the failed attempt's own client message id, unchanged, so the
+    // backend can recognize it as the same question instead of saving a second one.
+    expect(runner.requests[0].clientMessageId).toEqual(expect.any(String));
+    expect(runner.requests[1].clientMessageId).toBe(runner.requests[0].clientMessageId);
+  });
+
+  it('a new question (not a retry) gets a different client message id each time', () => {
+    const { ask, push, finish, runner } = setup();
+    ask();
+    push({ type: 'reply', message: companyReply }, { type: 'thread', threadId: 'thread-7', title: '退貨' });
+    finish();
+
+    ask('另一個問題');
+    push({ type: 'reply', message: noResultReply });
+    finish();
+
+    expect(runner.requests).toHaveLength(2);
+    expect(runner.requests[0].clientMessageId).toEqual(expect.any(String));
+    expect(runner.requests[1].clientMessageId).toEqual(expect.any(String));
+    expect(runner.requests[1].clientMessageId).not.toBe(runner.requests[0].clientMessageId);
   });
 
   it('error: puts an invalid question back in the composer', () => {

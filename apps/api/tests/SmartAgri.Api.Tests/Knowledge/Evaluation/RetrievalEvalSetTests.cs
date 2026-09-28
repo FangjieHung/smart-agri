@@ -254,6 +254,7 @@ public sealed partial class RetrievalEvalSetTests
     [GeneratedRegex(@"id:\s*'(?<id>knowledge-[^']+)',[^}]*?name:\s*'(?<name>[^']+)'")]
     private static partial Regex KnowledgeBaseObject();
 
-    [GeneratedRegex(@"text:\s*'(?<text>[^']+)',\s*companyAnswer:\s*(?:null|\{\s*sourceId:\s*'(?<source>[^']+)')")]
+    // `keyword` sits between `text` and `companyAnswer` since the free-form trial questions (#82).
+    [GeneratedRegex(@"text:\s*'(?<text>[^']+)',\s*(?:keyword:\s*(?:null|'[^']*'),\s*)?companyAnswer:\s*(?:null|\{\s*sourceId:\s*'(?<source>[^']+)')")]
     private static partial Regex TrialQuestion();
 }

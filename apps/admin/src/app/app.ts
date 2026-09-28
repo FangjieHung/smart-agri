@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, inject, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, inject, OnInit, ViewChild } from '@angular/core';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { ConnectedPosition } from '@angular/cdk/overlay';
 import { MatSidenavContainer, MatSidenavModule } from '@angular/material/sidenav';
@@ -53,6 +53,15 @@ export class App implements OnInit {
   ];
 
   @ViewChild(MatSidenavContainer) private sidenavContainer?: MatSidenavContainer;
+  /**
+   * `mat-sidenav-content` 是換頁時實際捲動的容器；Angular Router 的
+   * scroll restoration 只作用在 window，管不到這個自訂捲動容器，所以要自己在
+   * 每次導覽完成時把它捲回頂端（見 issue #66）。這裡不用瀏覽器原生的捲動還原，
+   * 換頁一律回頂端，代價是放棄「上一頁」還原捲動位置，但目前這個容器本來就沒有
+   * 任何還原機制，不算是 regression。
+   */
+  @ViewChild('contentArea', { read: ElementRef })
+  private contentArea?: ElementRef<HTMLElement>;
 
   private readonly document = inject(DOCUMENT);
   private readonly breakpointObserver = inject(BreakpointObserver);
@@ -92,7 +101,21 @@ export class App implements OnInit {
         if (activeGroup) {
           this.openGroupLabel = activeGroup.label;
         }
+
+        this.resetContentScroll();
       });
+  }
+
+  /**
+   * 把主內容捲動容器捲回頂端。瀏覽器只會把舊的 `scrollTop` 夾在新內容的可捲動
+   * 範圍內（新內容仍夠高就整段沿用舊位置），不會自動歸零，換頁後新頁面的標題
+   * 因此可能被捲出可視範圍（issue #66）。
+   */
+  private resetContentScroll(): void {
+    const content = this.contentArea?.nativeElement;
+    if (content) {
+      content.scrollTop = 0;
+    }
   }
 
   /** 跳過導覽：直接把焦點移到主要內容，不依賴 fragment 連結的預設行為。 */

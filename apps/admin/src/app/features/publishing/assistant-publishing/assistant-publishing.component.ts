@@ -1,10 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { SettingRowComponent } from '@smart-agri/ui';
 import {
+  isUnavailableChannel,
   PUBLISHING_CHANNEL_TYPES,
+  type LineSetupView,
   type PublishingChannelType,
+  type UnavailablePublishingChannelView,
+  type WebsiteEmbedView,
 } from '../../../core/domain/publishing.model';
+import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
@@ -32,25 +38,32 @@ import { WebsiteEmbedComponent } from '../website-embed/website-embed.component'
 export class AssistantPublishingComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly session = inject(DemoSessionService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly assistantId = input.required<string>();
   /** 來自網址的管道參數，未經驗證；無效時顯示平台內分享。 */
   readonly channel = input<string | null>(null);
 
-  private readonly revision = signal(0);
   protected readonly pauseStatus = signal('');
+  /** 暫停／恢復送出中：擋重複送出。 */
+  protected readonly pausing = signal(false);
   protected readonly selectedType = computed<PublishingChannelType>(() => {
     const requested = this.channel();
     return PUBLISHING_CHANNEL_TYPES.find((type) => type === requested) ?? 'platform';
   });
-  protected readonly result = computed(() => {
-    this.revision();
-    const accountId = this.session.activeAccountId();
-    return accountId ? this.repository.getAssistantPublishing(accountId, this.assistantId()) : null;
+
+  /** 非同步契約（issue #81）：寫入成功後 `reload()`，重新讀取期間保留上一份資料。 */
+  private readonly publishing = repositoryResource({
+    params: () => {
+      const accountId = this.session.activeAccountId();
+      return accountId === null ? undefined : { accountId, assistantId: this.assistantId() };
+    },
+    stream: ({ assistantId }) => this.repository.getAssistantPublishing(assistantId),
   });
+  protected readonly result = this.publishing.view;
   protected readonly view = computed(() => {
     const result = this.result();
-    return result?.status === 'ready' || result?.status === 'partial-failure' ? result.data : null;
+    return result.status === 'ready' || result.status === 'partial-failure' ? result.data : null;
   });
   protected readonly channels = computed(() => {
     const view = this.view();
@@ -58,25 +71,52 @@ export class AssistantPublishingComponent {
   });
   protected readonly deniedMessage = computed(() => {
     const result = this.result();
-    return result?.status === 'permission-denied' ? result.message : '';
+    return result.status === 'permission-denied' ? result.message : '';
   });
   protected readonly selectedChannel = computed(() => this.view()?.[this.selectedType()].channel ?? null);
 
+  /** 官網與 LINE 在 API 模式尚未開放時是 null，畫面改顯示說明。 */
+  protected configurableWebsite(view: WebsiteEmbedView | UnavailablePublishingChannelView): WebsiteEmbedView | null {
+    return isUnavailableChannel(view) ? null : view;
+  }
+
+  protected configurableLine(view: LineSetupView | UnavailablePublishingChannelView): LineSetupView | null {
+    return isUnavailableChannel(view) ? null : view;
+  }
+
+  protected unavailableMessage(view: WebsiteEmbedView | LineSetupView | UnavailablePublishingChannelView): string {
+    return isUnavailableChannel(view) ? view.message : '';
+  }
+
   protected refresh(): void {
-    this.revision.update((value) => value + 1);
+    this.publishing.reload();
   }
 
   protected togglePause(): void {
-    const accountId = this.session.activeAccountId();
     const channel = this.selectedChannel();
-    if (!accountId || channel === null) return;
+    if (channel === null || this.pausing()) return;
     const pause = channel.status !== 'paused';
-    const result = this.repository.setPublishingChannelPaused(accountId, this.assistantId(), channel.type, pause);
-    if (result.status === 'ready' || result.status === 'partial-failure') {
-      this.pauseStatus.set(
-        pause ? `已暫停${channel.name}，其他管道照常運作。` : `已恢復${channel.name}。`,
-      );
-      this.refresh();
-    }
+    this.pausing.set(true);
+    this.repository
+      .setPublishingChannelPaused(this.assistantId(), channel.type, pause)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          this.pausing.set(false);
+          if (result.status === 'ready' || result.status === 'partial-failure') {
+            this.pauseStatus.set(
+              pause ? `已暫停${channel.name}，其他管道照常運作。` : `已恢復${channel.name}。`,
+            );
+            this.refresh();
+          } else if (result.status === 'permission-denied') {
+            this.pauseStatus.set(result.message);
+          }
+        },
+        error: () => {
+          this.pausing.set(false);
+          this.pauseStatus.set('目前無法變更管道狀態，請稍後再試。');
+          this.refresh();
+        },
+      });
   }
 }

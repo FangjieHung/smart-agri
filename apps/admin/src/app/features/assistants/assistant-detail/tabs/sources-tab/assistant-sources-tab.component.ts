@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { SourceConnectionListComponent } from '../../../components/source-connection-list/source-connection-list.component';
+import { ApiSessionService } from '../../../../../core/session/api-session.service';
 import { AssistantSettingsStore } from '../../assistant-settings.store';
 
 /**
@@ -15,4 +16,6 @@ import { AssistantSettingsStore } from '../../assistant-settings.store';
 })
 export class AssistantSourcesTabComponent {
   protected readonly store = inject(AssistantSettingsStore);
+  /** API 模式只列出知識庫（資料庫屬於 M4）。 */
+  protected readonly apiMode = inject(ApiSessionService).apiMode;
 }

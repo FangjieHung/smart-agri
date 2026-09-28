@@ -1,5 +1,6 @@
 import { firstValueFrom } from 'rxjs';
 import { createEmptyAssistantDraft, type AssistantDraft } from '../domain/assistant-draft.model';
+import { isUnavailableChannel } from '../domain/publishing.model';
 import type { DemoKeyValueStorage } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
@@ -61,12 +62,26 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
       viewer: () => ADMIN,
     });
 
-    // 草稿：先存成單一草稿（legacy key），再建立命名草稿觸發遷移。
-    repository.saveAssistantDraft(ADMIN, { ...createEmptyAssistantDraft(), name: '草稿' });
-    repository.createNamedAssistantDraft(ADMIN);
+    // 草稿：先直接寫入舊版單一草稿的 legacy key（`saveAssistantDraft` 已移除，改由 mock
+    // 讀取時遷移進命名草稿清單），再建立命名草稿觸發遷移。
+    storage.setItem(
+      `sme-demo:assistant-draft:${ADMIN}`,
+      JSON.stringify({
+        version: 1,
+        draft: { ...createEmptyAssistantDraft(), name: '草稿' },
+        savedAt: '2026-09-26T00:00:00.000Z',
+      }),
+    );
+    const namedDraft = await firstValueFrom(repository.createNamedAssistantDraft());
+    if (namedDraft.status !== 'ready') throw new Error(`expected draft to be created, got ${namedDraft.status}`);
 
     // 建立助理：寫入 created-assistants、assistant-settings，並清掉草稿（removeItem）。
-    const created = repository.createAssistantFromDraft(ADMIN, completeDraft());
+    const draftId = namedDraft.data.id;
+    const saved = await firstValueFrom(
+      repository.saveNamedAssistantDraft(draftId, completeDraft(), namedDraft.data.revision),
+    );
+    if (saved.status !== 'ready') throw new Error(`expected draft to save, got ${saved.status}`);
+    const created = await firstValueFrom(repository.createAssistantFromDraft(draftId, completeDraft()));
     if (created.status !== 'ready') throw new Error(`expected assistant to be created, got ${created.status}`);
 
     // 團隊權限（mock 模式仍走 storage；API 模式由 HybridDemoRepository 整個覆寫掉）。
@@ -114,8 +129,9 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
     });
 
     // 官網嵌入設定（publishing）。
-    const publishing = repository.getAssistantPublishing(ADMIN, CUSTOMER_SERVICE);
+    const publishing = await firstValueFrom(repository.getAssistantPublishing(CUSTOMER_SERVICE));
     if (publishing.status !== 'ready') throw new Error(`expected publishing view, got ${publishing.status}`);
+    if (isUnavailableChannel(publishing.data.website)) throw new Error('expected website channel to be available');
     repository.updateWebsiteEmbed(ADMIN, CUSTOMER_SERVICE, publishing.data.website);
 
     expect(Array.from(keys).sort()).toEqual(

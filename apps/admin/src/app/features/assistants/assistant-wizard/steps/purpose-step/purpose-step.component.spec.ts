@@ -3,19 +3,22 @@ import { AssistantDraftStore } from '../../assistant-draft.store';
 import { provideWizardTesting } from '../../assistant-wizard.testing';
 import { PurposeStepComponent } from './purpose-step.component';
 
-function render() {
+async function render() {
   TestBed.configureTestingModule({
     imports: [PurposeStepComponent],
     providers: [AssistantDraftStore, ...provideWizardTesting().providers],
   });
   const fixture = TestBed.createComponent(PurposeStepComponent);
   fixture.detectChanges();
+  // 草稿是非同步讀取的（issue #81）：讀到之後再操作，否則編輯會被讀取結果蓋掉。
+  await fixture.whenStable();
+  fixture.detectChanges();
   return { fixture, page: fixture.nativeElement as HTMLElement, store: TestBed.inject(AssistantDraftStore) };
 }
 
 describe('PurposeStepComponent', () => {
-  it('prefills the form from the 回答客戶問題 template', () => {
-    const { fixture, page } = render();
+  it('prefills the form from the 回答客戶問題 template', async () => {
+    const { fixture, page } = await render();
 
     const template = Array.from(page.querySelectorAll<HTMLInputElement>('input[name="assistant-template"]'))
       .find((input) => input.closest('label')?.textContent?.includes('回答客戶問題'));
@@ -26,8 +29,8 @@ describe('PurposeStepComponent', () => {
     expect((page.querySelector('#assistant-purpose') as HTMLTextAreaElement).value).not.toBe('');
   });
 
-  it('maps the internal and external checkboxes to one audience value', () => {
-    const { fixture, page, store } = render();
+  it('maps the internal and external checkboxes to one audience value', async () => {
+    const { fixture, page, store } = await render();
 
     (page.querySelector('#audience-internal') as HTMLInputElement).click();
     (page.querySelector('#audience-external') as HTMLInputElement).click();
@@ -36,8 +39,8 @@ describe('PurposeStepComponent', () => {
     expect(store.draft().audience).toBe('members-and-external-customers');
   });
 
-  it('keeps advanced role instructions collapsed by default', () => {
-    const { page } = render();
+  it('keeps advanced role instructions collapsed by default', async () => {
+    const { page } = await render();
 
     const details = page.querySelector('details.advanced') as HTMLDetailsElement;
     expect(details.open).toBe(false);

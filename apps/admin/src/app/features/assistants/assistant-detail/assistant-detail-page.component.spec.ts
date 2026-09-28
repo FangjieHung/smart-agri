@@ -1,14 +1,23 @@
-import { signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
-import { BehaviorSubject } from 'rxjs';
+import { ActivatedRoute, provideRouter, Router } from '@angular/router';
+import { BehaviorSubject, firstValueFrom, map, NEVER, throwError, type Observable } from 'rxjs';
 import type { AccountId } from '../../../core/domain/account.model';
+import type {
+  AssistantPublishingView,
+  UnavailablePublishingChannelView,
+} from '../../../core/domain/publishing.model';
+import type { RepositoryView } from '../../../core/repositories/demo-repository';
 import { DEMO_SEED } from '../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../core/repositories/memory-storage';
 import { MockDemoRepository } from '../../../core/repositories/mock-demo-repository';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { AssistantDetailPageComponent } from './assistant-detail-page.component';
+
+@Component({ template: 'list' })
+class ListStubComponent {}
 
 describe('AssistantDetailPageComponent', () => {
   it('provides the six detail tabs and opens the overview editor', async () => {
@@ -128,43 +137,137 @@ describe('AssistantDetailPageComponent', () => {
     options: {
       readonly accountId?: AccountId;
       readonly storage?: ReturnType<typeof createMemoryStorage>;
+      readonly repository?: MockDemoRepository;
+      readonly apiMode?: boolean;
+      readonly channel?: string;
+      /** false：不等資料落地（讀取永遠不會完成時，`whenStable()` 也不會完成）。 */
+      readonly waitForData?: boolean;
     } = {},
-  ): Promise<{ readonly page: HTMLElement; readonly flush: () => void }> {
+  ): Promise<{
+    readonly page: HTMLElement;
+    readonly flush: () => void;
+    readonly settle: () => Promise<void>;
+    readonly repository: MockDemoRepository;
+  }> {
     TestBed.resetTestingModule();
     const params = new BehaviorSubject(new Map([['id', 'assistant-customer-service'], ['tab', tab]]));
+    const query = new BehaviorSubject(new Map(options.channel === undefined ? [] : [['channel', options.channel]]));
     const accountId = options.accountId ?? 'account-smb-admin';
-    const repository = new MockDemoRepository(DEMO_SEED, {
-      storage: options.storage ?? createMemoryStorage(),
-      now: () => new Date('2026-09-23T02:00:00.000Z'),
-      // `listConnectableSources()` 是非同步契約，viewer 由 repository 的 `viewer` 選項
-      // 推導，要與下面 `DemoSessionService` 的假身分一致（issue #49）。
-      viewer: () => accountId,
-    });
+    const repository =
+      options.repository ??
+      new MockDemoRepository(DEMO_SEED, {
+        storage: options.storage ?? createMemoryStorage(),
+        now: () => new Date('2026-09-23T02:00:00.000Z'),
+        // 助理的非同步契約（issue #49、#81）由 repository 的 `viewer` 選項推導目前帳號，
+        // 要與下面 `DemoSessionService` 的假身分一致。
+        viewer: () => accountId,
+      });
     await TestBed.configureTestingModule({
       imports: [AssistantDetailPageComponent],
       providers: [
-        provideRouter([]),
+        provideRouter([{ path: 'app/assistants', component: ListStubComponent }]),
         { provide: DEMO_REPOSITORY, useValue: repository },
-        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: params.value }, paramMap: params.asObservable() } },
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: { paramMap: params.value, queryParamMap: query.value },
+            paramMap: params.asObservable(),
+            queryParamMap: query.asObservable(),
+          },
+        },
         {
           provide: DemoSessionService,
           useValue: {
             activeAccountId: signal<AccountId | null>(accountId),
           },
         },
+        ...(options.apiMode ? [{ provide: ApiSessionService, useValue: { apiMode: true } }] : []),
       ],
     }).compileComponents();
     const fixture = TestBed.createComponent(AssistantDetailPageComponent);
-    fixture.detectChanges();
-    // `connectableSources` 依賴 `listConnectableSources()`；即使 mock 是同步 Observable，
+    const settle = async () => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    };
+    // 設定與 `listConnectableSources()` 都是非同步契約；即使 mock 是同步 Observable，
     // 仍要等一輪穩定才能讀到 `ready` 的結果。
-    await fixture.whenStable();
-    fixture.detectChanges();
+    if (options.waitForData === false) fixture.detectChanges();
+    else await settle();
     return {
       page: fixture.nativeElement as HTMLElement,
       flush: () => fixture.detectChanges(),
+      settle,
+      repository,
     };
   }
+
+  it('shows a loading state while the settings are being read, and an error state when they cannot be', async () => {
+    const pending = new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage(), viewer: () => 'account-smb-admin' });
+    pending.getAssistantSettings = () => NEVER;
+    const loading = await renderTab('overview', { repository: pending, waitForData: false });
+    expect(loading.page.textContent).toContain('正在載入助理設定');
+    expect(loading.page.textContent).not.toContain('你沒有這個助理的設定權限');
+
+    const failing = new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage(), viewer: () => 'account-smb-admin' });
+    failing.getAssistantSettings = () => throwError(() => new Error('offline'));
+    const failed = await renderTab('overview', { repository: failing });
+    expect(failed.page.textContent).toContain('目前無法載入這個助理');
+    expect(failed.page.textContent).not.toContain('你沒有這個助理的設定權限');
+  });
+
+  it('asks for confirmation, saying everyone’s conversations go too, before deleting the assistant', async () => {
+    const { page, settle, repository } = await renderTab('overview');
+    const router = TestBed.inject(Router);
+
+    (Array.from(page.querySelectorAll('button')).find((button) => button.textContent?.includes('刪除助理')) as HTMLButtonElement).click();
+    await settle();
+
+    const dialog = document.querySelector('.delete-panel') as HTMLElement;
+    expect(dialog.textContent).toContain('所有成員與這個助理的對話紀錄也會一併刪除');
+    expect(dialog.textContent).toContain('無法復原');
+
+    (Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent?.includes('刪除助理與所有對話')) as HTMLButtonElement).click();
+    await settle();
+
+    expect(router.url).toBe('/app/assistants');
+    const settings = await firstValueFrom(repository.getAssistantSettings('assistant-customer-service'));
+    expect(settings.status).toBe('permission-denied');
+  });
+
+  it('shows 對外發布將於後續版本開放 for website and LINE in API mode, without their setup forms', async () => {
+    class ApiLikeRepository extends MockDemoRepository {
+      override getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>> {
+        return super.getAssistantPublishing(assistantId).pipe(
+          map((result) => {
+            if (result.status !== 'ready') return result;
+            const unavailable = (type: 'website' | 'line'): UnavailablePublishingChannelView => ({
+              availability: 'not-available',
+              message: '官網嵌入與 LINE 對外發布將於後續版本開放。',
+              channel: { ...result.data[type].channel, status: 'not-configured', statusDetail: '官網嵌入與 LINE 對外發布將於後續版本開放。' },
+            });
+            return { status: 'ready', data: { ...result.data, website: unavailable('website'), line: unavailable('line') } };
+          }),
+        );
+      }
+    }
+    const repository = new ApiLikeRepository(DEMO_SEED, { storage: createMemoryStorage(), viewer: () => 'account-smb-admin' });
+    const { page } = await renderTab('publishing', { repository, apiMode: true, channel: 'website' });
+
+    expect(page.querySelector('app-website-embed')).toBeNull();
+    expect(page.querySelector('.channel-unavailable')?.textContent).toContain('對外發布將於後續版本開放');
+    expect(page.querySelectorAll('app-assistant-publishing app-channel-card')).toHaveLength(3);
+  });
+
+  it('links the test tab to the in-platform chat and hides the mock usage counts in API mode', async () => {
+    const test = await renderTab('test', { apiMode: true });
+    const link = Array.from(test.page.querySelectorAll('a')).find((anchor) => anchor.textContent?.includes('開啟使用者對話畫面'));
+    expect(link?.getAttribute('href')).toBe('/app/chat/assistant-customer-service');
+
+    const activity = await renderTab('activity', { apiMode: true });
+    expect(activity.page.querySelector('.usage-summary')).toBeNull();
+    expect(activity.page.textContent).toContain('匿名使用統計將於後續版本提供');
+  });
 
   it('edits the audience from the overview tab and keeps it after the page is rebuilt', async () => {
     const storage = createMemoryStorage();

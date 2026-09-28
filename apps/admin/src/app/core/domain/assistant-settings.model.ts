@@ -38,6 +38,9 @@ export type AssistantSettingsField =
   | 'name'
   | 'purpose'
   | 'audience'
+  | 'tone'
+  | 'roleInstructions'
+  | 'knowledgeScope'
   | 'refusalMessage'
   | 'dataWritePurpose'
   | 'sources';

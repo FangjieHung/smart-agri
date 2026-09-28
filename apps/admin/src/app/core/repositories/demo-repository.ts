@@ -17,7 +17,6 @@ import type {
   AssistantTemplateView,
   ConnectableSourceView,
   NamedAssistantDraftView,
-  SavedAssistantDraftView,
   TrialAnswerRequest,
   TrialAnswerView,
   TrialQuestionView,
@@ -158,6 +157,20 @@ export interface ValidationFailedRepositoryView {
 export type CreateAssistantResult =
   | RepositoryView<AssistantConfigurationView>
   | ValidationFailedRepositoryView;
+
+/**
+ * 精靈草稿保存時的 `revision` 已經不是最新（另一個分頁先存過）：API 的
+ * `409 draft-revision-conflict`。這次保存完全沒有寫入，畫面要請使用者重新載入。
+ */
+export interface DraftConflictView {
+  readonly status: 'conflict';
+  readonly message: string;
+}
+
+export type SaveAssistantDraftResult = RepositoryView<NamedAssistantDraftView> | DraftConflictView;
+
+/** 刪除成功時 `data` 是 null（API 回 `204`）。 */
+export type DeleteAssistantResult = RepositoryView<null>;
 
 export interface AssistantSettingsValidationFailedView {
   readonly status: 'validation-failed';
@@ -374,44 +387,49 @@ export interface DemoRepository extends DemoScenarioController {
    * 這次結果中出現一次。
    */
   createMember(input: CreateMemberInput): Observable<CreateMemberResult>;
-  listAssistantConfigurations(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly AssistantConfigurationView[]>;
-  listUsableAssistants(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly AssistantSummaryView[]>;
+  /*
+   * 助理（M3 Slice 11，issue #81）：沿用 `getTeam`／知識庫的非同步契約——viewer 由工作階段
+   * 推導，不由呼叫端傳入；回傳 cold Observable，訂閱時才讀取或寫入。API 模式
+   * （`HybridDemoRepository`）走 `/api/v1/assistants`，mock 以 `defer(() => of(...))` 實作。
+   * 以 id 指定的方法：id 來自網址、未經驗證；不存在或不是自己的一律回傳相同的
+   * permission-denied，訊息不含助理名稱。讀取以外的錯誤以 Observable 的 error 傳出。
+   */
+  /** 目前帳號擁有的助理（管理清單）；沒有 `manage-assistants` 時是空清單。 */
+  listAssistantConfigurations(): Observable<RepositoryView<readonly AssistantConfigurationView[]>>;
+  /** 目前帳號可以開啟對話的助理：自己的，加上分享給自己的（API：`?usable=true`）。 */
+  listUsableAssistants(): Observable<RepositoryView<readonly AssistantSummaryView[]>>;
   getAssistantSources(
     viewerAccountId: AccountId,
     assistantId: AssistantId,
   ): RepositoryView<readonly AssistantSourceReference[]>;
   /**
    * 建立後可編輯的助理設定（概覽／資料來源／回答與記錄三個頁籤共用同一份）。
-   * id 來自網址、未經驗證；不存在或非擁有者一律回傳相同的 permission-denied，
-   * 訊息不包含助理名稱。
+   * 不存在或非擁有者一律回傳相同的 `assistant-configuration` permission-denied。
    */
-  getAssistantSettings(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): RepositoryView<AssistantSettingsView>;
+  getAssistantSettings(assistantId: string): Observable<RepositoryView<AssistantSettingsView>>;
   /**
    * 自動保存單次變更，立即套用到這個已存在的助理上，沒有「儲存」按鈕。
-   * 驗證不通過時完全不寫入，並回傳逐欄錯誤；已上線的助理不接受把必要欄位清空。
+   * 驗證不通過時完全不寫入（全有或全無），並回傳逐欄錯誤。
    */
   updateAssistantSettings(
-    viewerAccountId: AccountId,
     assistantId: string,
     patch: AssistantSettingsPatch,
-  ): UpdateAssistantSettingsResult;
+  ): Observable<UpdateAssistantSettingsResult>;
   /**
    * 連接或解除連接單一資料來源；只保存 id 與類型，不複製來源內容。
-   * 只接受這個帳號自己看得到的來源，也不接受解除最後一個來源。
+   * 只接受這個帳號可以連接的來源，也不接受解除最後一個來源（validation-failed）。
+   * API 模式的資料庫來源一律回傳 validation-failed（資料庫將於後續版本開放）。
    */
   setAssistantSourceConnection(
-    viewerAccountId: AccountId,
     assistantId: string,
     source: AssistantSourceReference,
     connected: boolean,
-  ): UpdateAssistantSettingsResult;
+  ): Observable<UpdateAssistantSettingsResult>;
+  /**
+   * 刪除助理，連同**所有成員**與它的對話紀錄（M3 計畫決定 G）；無法復原。
+   * 不存在或非擁有者回傳 `assistant-configuration` permission-denied。
+   */
+  deleteAssistant(assistantId: string): Observable<DeleteAssistantResult>;
   listKnowledgeBases(
     viewerAccountId: AccountId,
   ): RepositoryView<readonly KnowledgeBaseView[]>;
@@ -439,28 +457,21 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     assistantId: AssistantId,
   ): RepositoryView<AssistantAnalyticsView>;
-  /** 目前帳號擁有的助理的所有管道（每個助理固定三個）。 */
-  listPublishingChannels(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly PublishingChannelView[]>;
+  /** 目前帳號可以設定發布的助理的所有管道（每個助理固定三個）。 */
+  listPublishingChannels(): Observable<RepositoryView<readonly PublishingChannelView[]>>;
   /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */
-  listChannelOverview(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly AssistantChannelsView[]>;
+  listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**
    * 單一助理的三個管道設定。id 來自網址、未經驗證；不存在或非擁有者時一律回傳
-   * 相同的 permission-denied，訊息不包含資源名稱。
+   * 相同的 `publishing` permission-denied，訊息不包含資源名稱。API 模式的官網與 LINE
+   * 是 `UnavailablePublishingChannelView`（對外發布將於後續版本開放）。
    */
-  getAssistantPublishing(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): RepositoryView<AssistantPublishingView>;
-  /** 指定可在平台內使用助理的帳號；空清單代表尚未設定。 */
+  getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>>;
+  /** 指定可在平台內使用助理的帳號（整份取代）；空清單代表只有擁有者自己可以使用。 */
   updatePlatformSharing(
-    viewerAccountId: AccountId,
     assistantId: string,
     accountIds: readonly AccountId[],
-  ): UpdatePlatformSharingResult;
+  ): Observable<UpdatePlatformSharingResult>;
   /** 儲存官網外觀與允許網域；網域變更後需重新檢查安裝狀態。 */
   updateWebsiteEmbed(
     viewerAccountId: AccountId,
@@ -490,11 +501,10 @@ export interface DemoRepository extends DemoScenarioController {
   ): ActivateLineChannelResult;
   /** 暫停或恢復單一管道；不影響同一助理的其他管道。 */
   setPublishingChannelPaused(
-    viewerAccountId: AccountId,
     assistantId: string,
     channelType: PublishingChannelType,
     paused: boolean,
-  ): RepositoryView<PublishingChannelView>;
+  ): Observable<RepositoryView<PublishingChannelView>>;
   listAssistantTemplates(): RepositoryView<readonly AssistantTemplateView[]>;
   /**
    * 知識庫與資料庫混合的可連接來源清單；沿用 `listKnowledgeBaseSummaries` 的非同步契約
@@ -508,26 +518,32 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     request: TrialAnswerRequest,
   ): RepositoryView<TrialAnswerView>;
-  /** 草稿依帳號隔離保存；沒有草稿時 data 為 null。 */
-  getAssistantDraft(
-    viewerAccountId: AccountId,
-  ): RepositoryView<SavedAssistantDraftView | null>;
-  saveAssistantDraft(
-    viewerAccountId: AccountId,
+  /*
+   * 精靈草稿（M3 Slice 11）：每個帳號可以有多份具名草稿，只有擁有者看得到。需要
+   * `manage-assistants`，否則回傳 `assistant-draft` permission-denied；以 id 指定的方法
+   * 遇到不存在或別人的草稿也回傳同一個 permission-denied。
+   */
+  /** 目前帳號的具名草稿，最近保存的在前。 */
+  listNamedAssistantDrafts(): Observable<RepositoryView<readonly NamedAssistantDraftView[]>>;
+  /** 新增一份空白草稿。 */
+  createNamedAssistantDraft(): Observable<RepositoryView<NamedAssistantDraftView>>;
+  getNamedAssistantDraft(draftId: string): Observable<RepositoryView<NamedAssistantDraftView>>;
+  /**
+   * 保存整份草稿。`revision` 是最近一次讀到或存到的版本；已經不是最新（另一個分頁先存過）
+   * 時回傳 `conflict`，完全不寫入。成功時回傳的 `revision` 是下一次保存要帶的值。
+   */
+  saveNamedAssistantDraft(
+    draftId: string,
     draft: AssistantDraft,
-  ): RepositoryView<SavedAssistantDraftView>;
-  discardAssistantDraft(viewerAccountId: AccountId): void;
-  listNamedAssistantDrafts(viewerAccountId: AccountId): RepositoryView<readonly NamedAssistantDraftView[]>;
-  createNamedAssistantDraft(viewerAccountId: AccountId): RepositoryView<NamedAssistantDraftView>;
-  getNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): RepositoryView<NamedAssistantDraftView | null>;
-  saveNamedAssistantDraft(viewerAccountId: AccountId, draftId: string, draft: AssistantDraft): RepositoryView<NamedAssistantDraftView | null>;
-  discardNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): void;
-  /** 驗證完整草稿後建立助理，成功後清除該帳號的草稿。 */
-  createAssistantFromDraft(
-    viewerAccountId: AccountId,
-    draft: AssistantDraft,
-    draftId?: string,
-  ): CreateAssistantResult;
+    revision: number,
+  ): Observable<SaveAssistantDraftResult>;
+  discardNamedAssistantDraft(draftId: string): Observable<RepositoryView<null>>;
+  /**
+   * 由已保存的草稿建立助理（API：`POST /api/v1/assistants { draftId }`），成功後刪除該草稿。
+   * 呼叫前要先把 `draft` 保存到 `draftId`——API 以伺服器上的草稿為準，mock 驗證 `draft`。
+   * 逐欄驗證失敗回傳 validation-failed，草稿保留、不建立任何助理。
+   */
+  createAssistantFromDraft(draftId: string, draft: AssistantDraft): Observable<CreateAssistantResult>;
   /*
    * 知識庫（M2 Slice 11）：沿用 `getTeam` 的非同步契約——viewer 由工作階段推導，不由
    * 呼叫端傳入；回傳 cold Observable，訂閱時才讀取或寫入。mock 以 `defer(() => of(...))`

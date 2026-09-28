@@ -10,6 +10,7 @@
       [value]="current"
       [errors]="errors()"
       [audienceRequired]="true"
+      [externalAudienceAvailable]="!apiMode"
       (changed)="store.updateProfile($event)"
       (refused)="store.note($event)"
     />

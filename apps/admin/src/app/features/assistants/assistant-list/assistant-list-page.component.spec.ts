@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { throwError, type Observable } from 'rxjs';
 import type { AccountId } from '../../../core/domain/account.model';
 import { DEMO_SEED, type DemoSeed } from '../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../core/repositories/memory-storage';
@@ -8,18 +9,23 @@ import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { AssistantListPageComponent } from './assistant-list-page.component';
 
-/** 「我建立的」讀取助理設定時一律拋出例外，用來驗證 `error` 狀態不需要真的有 API 才能觸發。 */
+/** 「我建立的」讀取助理設定時一律失敗（5xx、連線中斷），用來驗證 `error` 狀態不需要真的有 API 才能觸發。 */
 class ThrowingAssistantConfigurationsRepository extends MockDemoRepository {
-  override listAssistantConfigurations(): never {
-    throw new Error('boom: simulated unexpected failure');
+  override listAssistantConfigurations(): Observable<never> {
+    return throwError(() => new Error('boom: simulated unexpected failure'));
   }
+}
+
+/** mock 的非同步契約由 `viewer` 推導目前帳號，要與假工作階段一致。 */
+function mockRepository(accountId: AccountId, seed: DemoSeed = DEMO_SEED): MockDemoRepository {
+  return new MockDemoRepository(seed, { storage: createMemoryStorage(), viewer: () => accountId });
 }
 
 async function render(
   accountId: AccountId,
   options: { readonly repository?: MockDemoRepository; readonly seed?: DemoSeed } = {},
 ): Promise<{ readonly page: HTMLElement; readonly repository: MockDemoRepository }> {
-  const repository = options.repository ?? new MockDemoRepository(options.seed ?? DEMO_SEED, { storage: createMemoryStorage() });
+  const repository = options.repository ?? mockRepository(accountId, options.seed);
 
   await TestBed.configureTestingModule({
     imports: [AssistantListPageComponent],
@@ -31,6 +37,9 @@ async function render(
   }).compileComponents();
 
   const fixture = TestBed.createComponent(AssistantListPageComponent);
+  fixture.detectChanges();
+  // 四份清單都以 `repositoryResource` 非同步讀取：等它們落地再檢查畫面。
+  await fixture.whenStable();
   fixture.detectChanges();
   return { page: fixture.nativeElement as HTMLElement, repository };
 }
@@ -84,7 +93,7 @@ describe('AssistantListPageComponent', () => {
   });
 
   it('shows a loading state instead of claiming the account has no assistants', async () => {
-    const repository = new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage() });
+    const repository = mockRepository('account-smb-admin');
     repository.setScenario('loading');
     const { page } = await render('account-smb-admin', { repository });
 
@@ -94,7 +103,7 @@ describe('AssistantListPageComponent', () => {
   });
 
   it('shows a permission-denied state instead of claiming the account has no assistants', async () => {
-    const repository = new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage() });
+    const repository = mockRepository('account-smb-admin');
     repository.setScenario('permission-denied');
     const { page } = await render('account-smb-admin', { repository });
 
@@ -112,7 +121,10 @@ describe('AssistantListPageComponent', () => {
   });
 
   it('shows an error state (not the empty message) when reading assistants throws unexpectedly', async () => {
-    const repository = new ThrowingAssistantConfigurationsRepository(DEMO_SEED, { storage: createMemoryStorage() });
+    const repository = new ThrowingAssistantConfigurationsRepository(DEMO_SEED, {
+      storage: createMemoryStorage(),
+      viewer: () => 'account-smb-admin',
+    });
     const { page } = await render('account-smb-admin', { repository });
 
     expect(page.querySelector('[role="alert"]')?.textContent).toContain('目前無法載入你建立的助理');
@@ -120,7 +132,7 @@ describe('AssistantListPageComponent', () => {
   });
 
   it('keeps the assistants and drafts that did load when the repository reports a partial failure', async () => {
-    const repository = new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage() });
+    const repository = mockRepository('account-smb-admin');
     repository.setScenario('partial-failure');
     const { page } = await render('account-smb-admin', { repository });
 

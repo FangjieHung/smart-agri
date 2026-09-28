@@ -61,6 +61,7 @@
   }
 </fieldset>
 
+@if (databaseFeaturesAvailable()) {
 <div class="field">
   <label for="data-write-database">要把收集到的資訊寫入哪個資料庫？</label>
   <select id="data-write-database" (change)="selectWriteTarget($event)">
@@ -115,3 +116,6 @@
     </p>
   }
 </div>
+} @else {
+  <p class="hint">把對話中收集到的資訊寫入資料庫、請使用者定期回報，將於後續版本開放。</p>
+}

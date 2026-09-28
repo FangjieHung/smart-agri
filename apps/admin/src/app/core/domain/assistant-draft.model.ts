@@ -73,6 +73,11 @@ export interface SavedAssistantDraftView {
 
 export interface NamedAssistantDraftView extends SavedAssistantDraftView {
   readonly id: string;
+  /**
+   * 樂觀鎖版本：下一次保存要帶回去的值（API 的 `revision`）。兩個分頁以同一個值先後保存，
+   * 第二個會得到 `conflict`，避免默默蓋掉另一個分頁的修改。
+   */
+  readonly revision: number;
 }
 
 export interface AssistantTemplateView {
@@ -173,10 +178,27 @@ export type AssistantDraftField =
   | 'name'
   | 'purpose'
   | 'audience'
+  | 'tone'
+  | 'roleInstructions'
   | 'sources'
+  | 'knowledgeScope'
   | 'refusalMessage'
   | 'dataWritePurpose'
   | 'trial';
+
+/** 每個欄位屬於精靈的哪一步：伺服器回傳的逐欄錯誤要顯示在對應的步驟上。 */
+export const ASSISTANT_DRAFT_FIELD_STEPS: Readonly<Record<AssistantDraftField, AssistantWizardStep>> = {
+  name: 'purpose',
+  purpose: 'purpose',
+  audience: 'purpose',
+  tone: 'purpose',
+  roleInstructions: 'purpose',
+  sources: 'sources',
+  knowledgeScope: 'rules',
+  refusalMessage: 'rules',
+  dataWritePurpose: 'rules',
+  trial: 'test',
+};
 
 export interface AssistantDraftFieldError {
   readonly field: AssistantDraftField;

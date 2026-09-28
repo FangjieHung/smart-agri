@@ -23,16 +23,24 @@
     <div class="panel">
       @if (selectedChannel(); as channel) {
         @if (channel.status !== 'not-configured') {
-          <lib-setting-row [title]="channel.name" [description]="channel.statusDetail" [controlId]="'channel-enabled-' + channel.type" [toggleable]="true" [checked]="channel.status !== 'paused'" (toggled)="togglePause()" />
+          <lib-setting-row [title]="channel.name" [description]="channel.statusDetail" [controlId]="'channel-enabled-' + channel.type" [toggleable]="true" [checked]="channel.status !== 'paused'" [disabled]="pausing()" (toggled)="togglePause()" />
           <p class="pause-status" aria-live="polite">{{ pauseStatus() }}</p>
         }
       }
       @switch (selectedType()) {
         @case ('website') {
-          <app-website-embed [assistantId]="current.assistantId" [view]="current.website" (changed)="refresh()" />
+          @if (configurableWebsite(current.website); as website) {
+            <app-website-embed [assistantId]="current.assistantId" [view]="website" (changed)="refresh()" />
+          } @else {
+            <p class="channel-unavailable" role="status">{{ unavailableMessage(current.website) }}</p>
+          }
         }
         @case ('line') {
-          <app-line-setup [assistantId]="current.assistantId" [view]="current.line" (changed)="refresh()" />
+          @if (configurableLine(current.line); as line) {
+            <app-line-setup [assistantId]="current.assistantId" [view]="line" (changed)="refresh()" />
+          } @else {
+            <p class="channel-unavailable" role="status">{{ unavailableMessage(current.line) }}</p>
+          }
         }
         @default {
           <app-platform-sharing [assistantId]="current.assistantId" [view]="current.platform" (changed)="refresh()" />
@@ -41,6 +49,8 @@
     </div>
   } @else if (deniedMessage(); as message) {
     <app-state-panel state="permission-denied" title="無法檢視發布設定" [description]="message" />
+  } @else if (result().status === 'error') {
+    <app-state-panel state="error" title="目前無法載入發布設定" description="請稍後重新整理頁面再試一次。" />
   } @else {
     <app-state-panel state="loading" title="正在載入發布設定" />
   }

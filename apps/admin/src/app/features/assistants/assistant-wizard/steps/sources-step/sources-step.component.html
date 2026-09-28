@@ -1,7 +1,11 @@
 @let view = store.sourcesView();
 @let sourcesError = store.fieldError('sources', 'sources');
 <div class="step">
-  <p class="hint">知識庫提供可引用的內容，資料庫負責收集與比較紀錄。加入只會建立連接，不會複製或修改原始資料。</p>
+  @if (apiMode) {
+    <p class="hint">知識庫提供可引用的內容；清單包含你自己的、組織公開的與分享給你的知識庫。加入只會建立連接，不會複製或修改原始資料。資料庫來源將於後續版本開放。</p>
+  } @else {
+    <p class="hint">知識庫提供可引用的內容，資料庫負責收集與比較紀錄。加入只會建立連接，不會複製或修改原始資料。</p>
+  }
 
   @if (view.status === 'loading') {
     <app-state-panel state="loading" title="正在載入資料來源" />

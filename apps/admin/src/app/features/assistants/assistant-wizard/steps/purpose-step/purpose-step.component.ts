@@ -3,6 +3,7 @@ import {
   AssistantProfileFormComponent,
   type AssistantProfileChange,
 } from '../../../components/assistant-profile-form/assistant-profile-form.component';
+import { ApiSessionService } from '../../../../../core/session/api-session.service';
 import { AssistantDraftStore } from '../../assistant-draft.store';
 
 @Component({
@@ -14,6 +15,8 @@ import { AssistantDraftStore } from '../../assistant-draft.store';
 })
 export class PurposeStepComponent {
   protected readonly store = inject(AssistantDraftStore);
+  /** API 模式（M3）只開放組織內部使用。 */
+  protected readonly apiMode = inject(ApiSessionService).apiMode;
 
   protected readonly profile = computed(() => {
     const draft = this.store.draft();

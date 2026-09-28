@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { AnswerRulesFormComponent } from '../../../components/answer-rules-form/answer-rules-form.component';
+import { ApiSessionService } from '../../../../../core/session/api-session.service';
 import { AssistantDraftStore } from '../../assistant-draft.store';
 
 @Component({
@@ -11,6 +12,8 @@ import { AssistantDraftStore } from '../../assistant-draft.store';
 })
 export class RulesStepComponent {
   protected readonly store = inject(AssistantDraftStore);
+  /** 資料庫屬於 M4：API 模式不提供資料庫寫入與定期回報。 */
+  protected readonly apiMode = inject(ApiSessionService).apiMode;
 
   /** 只能寫入已連接到這個助理的資料庫。 */
   protected readonly writableDatabases = computed(() =>

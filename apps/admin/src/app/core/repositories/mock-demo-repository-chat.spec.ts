@@ -245,18 +245,23 @@ describe('MockDemoRepository assistant chat', () => {
     ).toMatchObject({ status: 'permission-denied' });
   });
 
-  it('answers 查無資料 with the assistant’s own saved refusal message, not a fixed string', () => {
+  it('answers 查無資料 with the assistant’s own saved refusal message, not a fixed string', async () => {
     const repository = createRepository();
-    const settings = repository.getAssistantSettings('account-smb-admin', ASSISTANT);
+    const box = viewerBoxes.get(repository);
+    if (box === undefined) throw new Error('unknown repository: use createRepository()');
+    box.current = 'account-smb-admin';
+    const settings = await firstValueFrom(repository.getAssistantSettings(ASSISTANT));
     if (settings.status !== 'ready') throw new Error('expected settings');
 
     // 未編輯過的助理：規則裡顯示的就是對話真的會說的那一句。
     expect(ask(repository, '可以幫我訂下週的機票嗎？').kind).toBe('no-result');
     expect(settings.data.rules.refusalMessage).toContain('查無資料');
 
-    repository.updateAssistantSettings('account-smb-admin', ASSISTANT, {
-      rules: { ...settings.data.rules, refusalMessage: '這題我查不到，請打 02-1234-5678。' },
-    });
+    await firstValueFrom(
+      repository.updateAssistantSettings(ASSISTANT, {
+        rules: { ...settings.data.rules, refusalMessage: '這題我查不到，請打 02-1234-5678。' },
+      }),
+    );
     const reply = ask(repository, '可以幫我訂下週的機票嗎？');
 
     expect(reply.kind).toBe('no-result');
@@ -270,11 +275,16 @@ describe('MockDemoRepository assistant chat', () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
     ask(repository, '可以幫我訂下週的機票嗎？');
-    const settings = repository.getAssistantSettings('account-smb-admin', ASSISTANT);
+    const box = viewerBoxes.get(repository);
+    if (box === undefined) throw new Error('unknown repository: use createRepository()');
+    box.current = 'account-smb-admin';
+    const settings = await firstValueFrom(repository.getAssistantSettings(ASSISTANT));
     if (settings.status !== 'ready') throw new Error('expected settings');
-    repository.updateAssistantSettings('account-smb-admin', ASSISTANT, {
-      rules: { ...settings.data.rules, refusalMessage: '改過的拒答文案。' },
-    });
+    await firstValueFrom(
+      repository.updateAssistantSettings(ASSISTANT, {
+        rules: { ...settings.data.rules, refusalMessage: '改過的拒答文案。' },
+      }),
+    );
 
     const reloaded = createRepository(storage);
     const chat = chatOf(await chatAs(reloaded, 'account-external-customer', ASSISTANT));

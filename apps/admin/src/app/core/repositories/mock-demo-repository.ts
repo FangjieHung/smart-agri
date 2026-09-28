@@ -87,7 +87,9 @@ import {
   PUBLISHING_CHANNEL_TYPES,
   type AssistantChannelsView,
   type AssistantPublishingView,
+  type ConfigurableAssistantPublishingView,
   type LineSettingsInput,
+  type PublishingChannelView,
   type PublishingChannelType,
   type WebsiteEmbedSettings,
 } from '../domain/publishing.model';
@@ -161,6 +163,7 @@ import type {
   ActivateLineChannelResult,
   CreateAssistantResult,
   CreateDatabaseResult,
+  DeleteAssistantResult,
   CreateKnowledgeBaseResult,
   CreateMemberInput,
   CreateMemberResult,
@@ -173,6 +176,7 @@ import type {
   RepositoryView,
   PreviewDatabaseEntryResult,
   RenameChatThreadResult,
+  SaveAssistantDraftResult,
   RetryKnowledgeDocumentResult,
   ReviewChatFormResult,
   SendChatMessageResult,
@@ -263,11 +267,16 @@ export type AccountPermissionOverrides = Readonly<
 const DRAFT_KEY_PREFIX = 'sme-demo:assistant-draft:';
 const NAMED_DRAFTS_KEY_PREFIX = 'sme-demo:assistant-drafts:';
 const CREATED_ASSISTANTS_KEY = 'sme-demo:created-assistants';
+/** 被刪除的種子助理（種子是唯讀 fixture，只能記下「已刪除」）。 */
+const DELETED_ASSISTANTS_KEY = 'sme-demo:deleted-assistants';
 
-interface StoredDraftRecord {
-  readonly version: 1;
-  readonly savedAt: string;
-  readonly draft: AssistantDraft;
+/** 與 API 的 `409 draft-revision-conflict` 訊息逐字相同。 */
+export const DRAFT_REVISION_CONFLICT_MESSAGE = '這份草稿已在其他分頁被更新過，請重新載入後再修改。';
+
+/** 舊資料沒有 `revision`：視為第一版。 */
+function storedRevision(item: Record<string, unknown>): number {
+  const revision = item['revision'];
+  return typeof revision === 'number' && Number.isInteger(revision) && revision > 0 ? revision : 1;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -283,18 +292,13 @@ function parseJson(raw: string | null): unknown {
   }
 }
 
-/** 只接受結構正確的草稿；欄位缺漏時以預設值補齊，毀損時視為沒有草稿。 */
-function normalizeStoredDraft(value: unknown): SavedAssistantDraftView | null {
-  if (
-    !isRecord(value) ||
-    value['version'] !== 1 ||
-    typeof value['savedAt'] !== 'string' ||
-    !isRecord(value['draft'])
-  ) {
-    return null;
-  }
+/**
+ * 只接受結構正確的草稿內容；欄位缺漏時以預設值補齊，毀損時回傳 null。API 模式的
+ * 草稿 `payload`（jsonb，形狀完全由前端決定）也用這個函式還原。
+ */
+export function normalizeDraftPayload(stored: unknown): AssistantDraft | null {
+  if (!isRecord(stored)) return null;
 
-  const stored = value['draft'];
   const empty = createEmptyAssistantDraft();
   const step = ASSISTANT_WIZARD_STEPS.find((candidate) => candidate === stored['currentStep']);
 
@@ -309,14 +313,26 @@ function normalizeStoredDraft(value: unknown): SavedAssistantDraftView | null {
     return null;
   }
 
-  const draft = {
+  return {
     ...empty,
     ...stored,
     rules: { ...empty.rules, ...stored['rules'] },
     currentStep: step,
   } as AssistantDraft;
+}
 
-  return { draft, savedAt: value['savedAt'] };
+/** 只接受結構正確的草稿；欄位缺漏時以預設值補齊，毀損時視為沒有草稿。 */
+function normalizeStoredDraft(value: unknown): SavedAssistantDraftView | null {
+  if (
+    !isRecord(value) ||
+    value['version'] !== 1 ||
+    typeof value['savedAt'] !== 'string'
+  ) {
+    return null;
+  }
+
+  const draft = normalizeDraftPayload(value['draft']);
+  return draft === null ? null : { draft, savedAt: value['savedAt'] };
 }
 
 const ASSISTANT_SETTINGS_KEY_PREFIX = 'sme-demo:assistant-settings:';
@@ -950,9 +966,93 @@ export class MockDemoRepository implements DemoRepository {
     return normalizeStoredCreatedMembers(parseJson(this.storage.getItem(CREATED_MEMBERS_KEY)));
   }
 
-  listAssistantConfigurations(
+  listAssistantConfigurations(): Observable<RepositoryView<readonly AssistantConfigurationView[]>> {
+    return this.signedIn(
+      (viewer) => this.listAssistantConfigurationsSync(viewer),
+      () => this.applyScenario([]),
+    );
+  }
+
+  listUsableAssistants(): Observable<RepositoryView<readonly AssistantSummaryView[]>> {
+    return this.signedIn(
+      (viewer) => this.listUsableAssistantsSync(viewer),
+      () => this.applyScenario([]),
+    );
+  }
+
+  getAssistantSettings(assistantId: string): Observable<RepositoryView<AssistantSettingsView>> {
+    return this.signedIn(
+      (viewer) => this.getAssistantSettingsSync(viewer, assistantId),
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  updateAssistantSettings(
+    assistantId: string,
+    patch: AssistantSettingsPatch,
+  ): Observable<UpdateAssistantSettingsResult> {
+    return this.signedIn(
+      (viewer) => this.updateAssistantSettingsSync(viewer, assistantId, patch),
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  setAssistantSourceConnection(
+    assistantId: string,
+    source: AssistantSourceReference,
+    connected: boolean,
+  ): Observable<UpdateAssistantSettingsResult> {
+    return this.signedIn(
+      (viewer) => this.setAssistantSourceConnectionSync(viewer, assistantId, source, connected),
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  /**
+   * 刪除自己的助理：建立精靈建立的從清單移除，種子助理記在 `deleted-assistants`（種子是
+   * 唯讀 fixture）；一併清掉它的設定與發布紀錄。對話紀錄以帳號為鍵分散在 storage 中，
+   * 助理不存在後就再也開不到（`assistant-use`），效果與 API 連帶刪除相同。
+   */
+  deleteAssistant(assistantId: string): Observable<DeleteAssistantResult> {
+    return this.signedIn(
+      (viewer): DeleteAssistantResult => {
+        const assistant = this.settingsTarget(viewer, assistantId);
+        if (assistant === undefined) return this.assistantSettingsPermissionDenied();
+
+        const created = this.createdAssistants();
+        if (created.some((candidate) => candidate.id === assistant.id)) {
+          this.storage.setItem(
+            CREATED_ASSISTANTS_KEY,
+            JSON.stringify(created.filter((candidate) => candidate.id !== assistant.id)),
+          );
+        } else {
+          this.storage.setItem(
+            DELETED_ASSISTANTS_KEY,
+            JSON.stringify([...this.deletedAssistantIds(), assistant.id]),
+          );
+        }
+        this.storage.removeItem(ASSISTANT_SETTINGS_KEY_PREFIX + assistant.id);
+        this.storage.removeItem(PUBLISHING_KEY_PREFIX + assistant.id);
+        return this.applyScenario(null);
+      },
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  /**
+   * 以目前 Demo 身分執行一次讀寫，包成 cold Observable（訂閱時才執行）；尚未選擇身分時
+   * 回傳 `signedOut()` 的結果。
+   */
+  private signedIn<T>(run: (viewer: AccountId) => T, signedOut: () => T): Observable<T> {
+    return defer(() => {
+      const viewer = this.viewer();
+      return of(viewer === null ? signedOut() : run(viewer));
+    });
+  }
+
+  private listAssistantConfigurationsSync(
     viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listAssistantConfigurations']> {
+  ): RepositoryView<readonly AssistantConfigurationView[]> {
     const configurations = this.assistants().filter(
       (assistant) => assistant.ownerAccountId === viewerAccountId,
     );
@@ -960,9 +1060,9 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(configurations);
   }
 
-  listUsableAssistants(
+  private listUsableAssistantsSync(
     viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listUsableAssistants']> {
+  ): RepositoryView<readonly AssistantSummaryView[]> {
     const assistants = this.assistants()
       .filter((assistant) => this.canUseAssistant(assistant, viewerAccountId))
       .map((assistant) => this.toAssistantSummary(assistant, viewerAccountId));
@@ -999,17 +1099,17 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(sources);
   }
 
-  getAssistantSettings(
+  private getAssistantSettingsSync(
     viewerAccountId: AccountId,
     assistantId: string,
-  ): ReturnType<DemoRepository['getAssistantSettings']> {
+  ): RepositoryView<AssistantSettingsView> {
     const assistant = this.settingsTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.assistantSettingsPermissionDenied();
 
     return this.applyScenario(this.assistantSettings(assistant));
   }
 
-  updateAssistantSettings(
+  private updateAssistantSettingsSync(
     viewerAccountId: AccountId,
     assistantId: string,
     patch: AssistantSettingsPatch,
@@ -1032,7 +1132,7 @@ export class MockDemoRepository implements DemoRepository {
     });
   }
 
-  setAssistantSourceConnection(
+  private setAssistantSourceConnectionSync(
     viewerAccountId: AccountId,
     assistantId: string,
     source: AssistantSourceReference,
@@ -1232,31 +1332,73 @@ export class MockDemoRepository implements DemoRepository {
     });
   }
 
-  listPublishingChannels(
+  listPublishingChannels(): Observable<RepositoryView<readonly PublishingChannelView[]>> {
+    return this.signedIn(
+      (viewer) => this.listPublishingChannelsSync(viewer),
+      () => this.applyScenario([]),
+    );
+  }
+
+  listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>> {
+    return this.signedIn(
+      (viewer) => this.listChannelOverviewSync(viewer),
+      () => this.applyScenario([]),
+    );
+  }
+
+  getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>> {
+    return this.signedIn(
+      (viewer) => this.getAssistantPublishingSync(viewer, assistantId),
+      () => this.publishingPermissionDenied(),
+    );
+  }
+
+  updatePlatformSharing(
+    assistantId: string,
+    accountIds: readonly AccountId[],
+  ): Observable<UpdatePlatformSharingResult> {
+    return this.signedIn(
+      (viewer) => this.updatePlatformSharingSync(viewer, assistantId, accountIds),
+      () => this.publishingPermissionDenied(),
+    );
+  }
+
+  setPublishingChannelPaused(
+    assistantId: string,
+    channelType: PublishingChannelType,
+    paused: boolean,
+  ): Observable<RepositoryView<PublishingChannelView>> {
+    return this.signedIn(
+      (viewer) => this.setPublishingChannelPausedSync(viewer, assistantId, channelType, paused),
+      () => this.publishingPermissionDenied(),
+    );
+  }
+
+  private listPublishingChannelsSync(
     viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listPublishingChannels']> {
+  ): RepositoryView<readonly PublishingChannelView[]> {
     return this.applyScenario(
       this.channelOverview(viewerAccountId).flatMap((entry) => entry.channels),
     );
   }
 
-  listChannelOverview(
+  private listChannelOverviewSync(
     viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listChannelOverview']> {
+  ): RepositoryView<readonly AssistantChannelsView[]> {
     return this.applyScenario(this.channelOverview(viewerAccountId));
   }
 
-  getAssistantPublishing(
+  private getAssistantPublishingSync(
     viewerAccountId: AccountId,
     assistantId: string,
-  ): ReturnType<DemoRepository['getAssistantPublishing']> {
+  ): RepositoryView<AssistantPublishingView> {
     const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
     return this.applyScenario(this.toPublishingView(assistant));
   }
 
-  updatePlatformSharing(
+  private updatePlatformSharingSync(
     viewerAccountId: AccountId,
     assistantId: string,
     accountIds: readonly AccountId[],
@@ -1395,12 +1537,12 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(this.toPublishingView(assistant).line);
   }
 
-  setPublishingChannelPaused(
+  private setPublishingChannelPausedSync(
     viewerAccountId: AccountId,
     assistantId: string,
     channelType: PublishingChannelType,
     paused: boolean,
-  ): ReturnType<DemoRepository['setPublishingChannelPaused']> {
+  ): RepositoryView<PublishingChannelView> {
     const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined || !PUBLISHING_CHANNEL_TYPES.includes(channelType)) {
       return this.publishingPermissionDenied();
@@ -1492,58 +1634,19 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(answer);
   }
 
-  getAssistantDraft(
-    viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['getAssistantDraft']> {
-    if (!this.canManageAssistants(viewerAccountId)) {
-      return this.draftPermissionDenied();
-    }
-
-    const stored = normalizeStoredDraft(
-      parseJson(this.storage.getItem(DRAFT_KEY_PREFIX + viewerAccountId)),
-    );
-
-    return this.applyScenario(stored);
-  }
-
-  saveAssistantDraft(
-    viewerAccountId: AccountId,
-    draft: AssistantDraft,
-  ): ReturnType<DemoRepository['saveAssistantDraft']> {
-    if (!this.canManageAssistants(viewerAccountId)) {
-      return this.draftPermissionDenied();
-    }
-
-    const record: StoredDraftRecord = {
-      version: 1,
-      savedAt: this.now().toISOString(),
-      draft,
-    };
-    this.storage.setItem(
-      DRAFT_KEY_PREFIX + viewerAccountId,
-      JSON.stringify(record),
-    );
-
-    return this.applyScenario({ draft: record.draft, savedAt: record.savedAt });
-  }
-
-  discardAssistantDraft(viewerAccountId: AccountId): void {
-    this.storage.removeItem(DRAFT_KEY_PREFIX + viewerAccountId);
-  }
-
   private namedDrafts(viewerAccountId: AccountId): NamedAssistantDraftView[] {
     const raw = parseJson(this.storage.getItem(NAMED_DRAFTS_KEY_PREFIX + viewerAccountId));
     const records: NamedAssistantDraftView[] = Array.isArray(raw)
       ? raw.flatMap((item) => {
           if (!isRecord(item) || typeof item['id'] !== 'string') return [];
           const saved = normalizeStoredDraft(item);
-          return saved === null ? [] : [{ ...saved, id: item['id'] }];
+          return saved === null ? [] : [{ ...saved, id: item['id'], revision: storedRevision(item) }];
         })
       : [];
     const legacy = normalizeStoredDraft(parseJson(this.storage.getItem(DRAFT_KEY_PREFIX + viewerAccountId)));
     if (legacy !== null) {
-      const migrated = [{ id: 'draft-legacy', ...legacy }, ...records];
-      this.storage.setItem(NAMED_DRAFTS_KEY_PREFIX + viewerAccountId, JSON.stringify(migrated.map((item) => ({ ...item, version: 1 }))));
+      const migrated = [{ id: 'draft-legacy', ...legacy, revision: 1 }, ...records];
+      this.writeNamedDrafts(viewerAccountId, migrated);
       this.storage.removeItem(DRAFT_KEY_PREFIX + viewerAccountId);
       return migrated;
     }
@@ -1554,55 +1657,107 @@ export class MockDemoRepository implements DemoRepository {
     this.storage.setItem(NAMED_DRAFTS_KEY_PREFIX + viewerAccountId, JSON.stringify(drafts.map((item) => ({ ...item, version: 1 }))));
   }
 
-  listNamedAssistantDrafts(viewerAccountId: AccountId): ReturnType<DemoRepository['listNamedAssistantDrafts']> {
-    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
-    return this.applyScenario(this.namedDrafts(viewerAccountId));
+  /** 不存在、別人的草稿與沒有 `manage-assistants` 都回傳同一個結果（API 的 `403 assistant-draft`）。 */
+  private ownedNamedDraft(viewerAccountId: AccountId, draftId: string): NamedAssistantDraftView | undefined {
+    if (!this.canManageAssistants(viewerAccountId)) return undefined;
+    return this.namedDrafts(viewerAccountId).find((item) => item.id === draftId);
   }
 
-  createNamedAssistantDraft(viewerAccountId: AccountId): ReturnType<DemoRepository['createNamedAssistantDraft']> {
-    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
-    const drafts = this.namedDrafts(viewerAccountId);
-    const used = new Set(drafts.map((item) => item.id));
-    let number = 1;
-    while (used.has(`draft-${number}`)) number++;
-    const created: NamedAssistantDraftView = {
-      id: `draft-${number}`,
-      draft: createEmptyAssistantDraft(),
-      savedAt: this.now().toISOString(),
-    };
-    this.writeNamedDrafts(viewerAccountId, [...drafts, created]);
-    return this.applyScenario(created);
+  listNamedAssistantDrafts(): Observable<RepositoryView<readonly NamedAssistantDraftView[]>> {
+    return this.signedIn(
+      (viewer): RepositoryView<readonly NamedAssistantDraftView[]> => {
+        if (!this.canManageAssistants(viewer)) return this.draftPermissionDenied();
+        const drafts = [...this.namedDrafts(viewer)].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+        return this.applyScenario(drafts);
+      },
+      () => this.draftPermissionDenied(),
+    );
   }
 
-  getNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): ReturnType<DemoRepository['getNamedAssistantDraft']> {
-    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
-    return this.applyScenario(this.namedDrafts(viewerAccountId).find((item) => item.id === draftId) ?? null);
+  createNamedAssistantDraft(): Observable<RepositoryView<NamedAssistantDraftView>> {
+    return this.signedIn(
+      (viewer): RepositoryView<NamedAssistantDraftView> => {
+        if (!this.canManageAssistants(viewer)) return this.draftPermissionDenied();
+        const drafts = this.namedDrafts(viewer);
+        const used = new Set(drafts.map((item) => item.id));
+        let number = 1;
+        while (used.has(`draft-${number}`)) number++;
+        const created: NamedAssistantDraftView = {
+          id: `draft-${number}`,
+          draft: createEmptyAssistantDraft(),
+          savedAt: this.now().toISOString(),
+          revision: 1,
+        };
+        this.writeNamedDrafts(viewer, [...drafts, created]);
+        return this.applyScenario(created);
+      },
+      () => this.draftPermissionDenied(),
+    );
   }
 
-  saveNamedAssistantDraft(viewerAccountId: AccountId, draftId: string, draft: AssistantDraft): ReturnType<DemoRepository['saveNamedAssistantDraft']> {
-    if (!this.canManageAssistants(viewerAccountId)) return this.draftPermissionDenied();
-    const drafts = this.namedDrafts(viewerAccountId);
-    const current = drafts.find((item) => item.id === draftId);
-    if (!current) return this.applyScenario(null);
-    const saved: NamedAssistantDraftView = { id: draftId, draft, savedAt: this.now().toISOString() };
-    this.writeNamedDrafts(viewerAccountId, drafts.map((item) => item.id === draftId ? saved : item));
-    return this.applyScenario(saved);
+  getNamedAssistantDraft(draftId: string): Observable<RepositoryView<NamedAssistantDraftView>> {
+    return this.signedIn(
+      (viewer): RepositoryView<NamedAssistantDraftView> => {
+        const draft = this.ownedNamedDraft(viewer, draftId);
+        return draft === undefined ? this.draftPermissionDenied() : this.applyScenario(draft);
+      },
+      () => this.draftPermissionDenied(),
+    );
   }
 
-  discardNamedAssistantDraft(viewerAccountId: AccountId, draftId: string): void {
-    if (!this.canManageAssistants(viewerAccountId)) return;
+  saveNamedAssistantDraft(
+    draftId: string,
+    draft: AssistantDraft,
+    revision: number,
+  ): Observable<SaveAssistantDraftResult> {
+    return this.signedIn(
+      (viewer): SaveAssistantDraftResult => {
+        const current = this.ownedNamedDraft(viewer, draftId);
+        if (current === undefined) return this.draftPermissionDenied();
+        if (current.revision !== revision) {
+          return immutableCopy({ status: 'conflict', message: DRAFT_REVISION_CONFLICT_MESSAGE });
+        }
+        const saved: NamedAssistantDraftView = {
+          id: draftId,
+          draft,
+          savedAt: this.now().toISOString(),
+          revision: current.revision + 1,
+        };
+        this.writeNamedDrafts(viewer, this.namedDrafts(viewer).map((item) => (item.id === draftId ? saved : item)));
+        return this.applyScenario(saved);
+      },
+      () => this.draftPermissionDenied(),
+    );
+  }
+
+  discardNamedAssistantDraft(draftId: string): Observable<RepositoryView<null>> {
+    return this.signedIn(
+      (viewer): RepositoryView<null> => {
+        if (this.ownedNamedDraft(viewer, draftId) === undefined) return this.draftPermissionDenied();
+        this.removeNamedDraft(viewer, draftId);
+        return this.applyScenario(null);
+      },
+      () => this.draftPermissionDenied(),
+    );
+  }
+
+  private removeNamedDraft(viewerAccountId: AccountId, draftId: string): void {
     this.writeNamedDrafts(viewerAccountId, this.namedDrafts(viewerAccountId).filter((item) => item.id !== draftId));
   }
 
-  createAssistantFromDraft(
+  createAssistantFromDraft(draftId: string, draft: AssistantDraft): Observable<CreateAssistantResult> {
+    return this.signedIn(
+      (viewer) => this.createAssistantFromDraftSync(viewer, draftId, draft),
+      () => this.draftPermissionDenied(),
+    );
+  }
+
+  private createAssistantFromDraftSync(
     viewerAccountId: AccountId,
+    draftId: string,
     draft: AssistantDraft,
-    draftId?: string,
   ): CreateAssistantResult {
-    if (!this.canManageAssistants(viewerAccountId)) {
-      return this.draftPermissionDenied();
-    }
-    if (draftId && !this.namedDrafts(viewerAccountId).some((item) => item.id === draftId)) {
+    if (this.ownedNamedDraft(viewerAccountId, draftId) === undefined) {
       return this.draftPermissionDenied();
     }
 
@@ -1654,8 +1809,7 @@ export class MockDemoRepository implements DemoRepository {
       rules: draft.rules,
       savedAt: null,
     });
-    if (draftId) this.discardNamedAssistantDraft(viewerAccountId, draftId);
-    else this.discardAssistantDraft(viewerAccountId);
+    this.removeNamedDraft(viewerAccountId, draftId);
 
     return this.applyScenario(configuration);
   }
@@ -2357,7 +2511,7 @@ export class MockDemoRepository implements DemoRepository {
       const viewerAccountId = this.viewer();
       if (viewerAccountId === null) return of(this.applyScenario([]));
 
-      const usable = this.listUsableAssistants(viewerAccountId);
+      const usable = this.listUsableAssistantsSync(viewerAccountId);
       const assistants =
         usable.status === 'ready' || usable.status === 'partial-failure' ? usable.data : [];
       const recent = assistants
@@ -3515,9 +3669,15 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private assistants(): readonly AssistantConfigurationView[] {
-    return [...this.seed.assistants, ...this.createdAssistants()].map((assistant) =>
-      this.withSavedSettings(assistant),
-    );
+    const deleted = new Set<string>(this.deletedAssistantIds());
+    return [...this.seed.assistants, ...this.createdAssistants()]
+      .filter((assistant) => !deleted.has(assistant.id))
+      .map((assistant) => this.withSavedSettings(assistant));
+  }
+
+  private deletedAssistantIds(): readonly string[] {
+    const stored = parseJson(this.storage.getItem(DELETED_ASSISTANTS_KEY));
+    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [];
   }
 
   private createdAssistants(): readonly AssistantConfigurationView[] {
@@ -3802,7 +3962,7 @@ export class MockDemoRepository implements DemoRepository {
     this.storage.setItem(PUBLISHING_KEY_PREFIX + assistantId, JSON.stringify(record));
   }
 
-  private toPublishingView(assistant: AssistantConfigurationView): AssistantPublishingView {
+  private toPublishingView(assistant: AssistantConfigurationView): ConfigurableAssistantPublishingView {
     return toAssistantPublishingView(
       assistant,
       this.publishingRecord(assistant),

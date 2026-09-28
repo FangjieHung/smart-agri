@@ -5,7 +5,17 @@
       title="和助理對話"
       description="選一個助理開始對話。對話只屬於你的帳號，助理建立者看不到你的提問與回答。"
     />
-    @if (pickable().length > 0) {
+    @if (pickableView().status === 'loading') {
+      <app-state-panel state="loading" title="正在載入可以使用的助理" />
+    } @else if (pickableView().status === 'error') {
+      <app-state-panel
+        state="error"
+        title="目前無法載入可以使用的助理"
+        description="請稍後重新整理頁面再試一次。"
+        recoveryLabel="返回首頁"
+        (recover)="returnHome()"
+      />
+    } @else if (pickable().length > 0) {
       <ul class="assistant-picker">
         @for (item of pickable(); track item.id) {
           <li>

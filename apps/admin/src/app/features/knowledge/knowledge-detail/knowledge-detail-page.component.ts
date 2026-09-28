@@ -44,6 +44,7 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status-badge/status-badge.component';
 import { DocumentRowComponent } from '../components/document-row/document-row.component';
 import { DOCUMENT_STATUS_LABELS, SHARING_SCOPE_LABELS } from '../components/knowledge-labels';
+import { RetrievalPreviewPanelComponent } from '../components/retrieval-preview-panel/retrieval-preview-panel.component';
 import { ReviewDialogComponent, type ReviewDialogData } from '../components/review-dialog/review-dialog.component';
 import { SharingPanelComponent } from '../components/sharing-panel/sharing-panel.component';
 import { UploadPanelComponent } from '../components/upload-panel/upload-panel.component';
@@ -51,7 +52,7 @@ import { UploadPanelComponent } from '../components/upload-panel/upload-panel.co
 /** 有等待中或處理中的項目時，每隔這麼久重新讀取一次詳情（分頁隱藏時暫停）。 */
 export const KNOWLEDGE_DETAIL_POLL_MS = 3000;
 
-type KnowledgeTabId = 'content' | 'assistants' | 'sharing';
+type KnowledgeTabId = 'content' | 'assistants' | 'retrieval' | 'sharing';
 
 interface KnowledgeTab {
   readonly id: KnowledgeTabId;
@@ -61,6 +62,7 @@ interface KnowledgeTab {
 const TABS: readonly KnowledgeTab[] = [
   { id: 'content', label: '內容' },
   { id: 'assistants', label: '已連接助理' },
+  { id: 'retrieval', label: '試查' },
   { id: 'sharing', label: '分享權限' },
 ];
 
@@ -93,6 +95,7 @@ function hasPendingDocuments(view: RepositoryView<KnowledgeBaseDetailView>): boo
     StatePanelComponent,
     StatusBadgeComponent,
     DocumentRowComponent,
+    RetrievalPreviewPanelComponent,
     SharingPanelComponent,
     UploadPanelComponent,
   ],

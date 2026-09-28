@@ -67,12 +67,18 @@ import type {
 } from '../domain/database.model';
 import {
   isRetryableKnowledgeDocument,
+  isUsableKnowledgeDocument,
   precheckKnowledgeUpload,
   KNOWLEDGE_BASE_NAME_MAX_LENGTH,
   KNOWLEDGE_BASE_PURPOSE_MAX_LENGTH,
   KNOWLEDGE_DISABLE_REASON_MAX_LENGTH,
   KNOWLEDGE_DISABLE_REASON_REQUIRED_MESSAGE,
   KNOWLEDGE_DOCUMENT_STATUSES,
+  KNOWLEDGE_RETRIEVAL_DEFAULT_THRESHOLD,
+  KNOWLEDGE_RETRIEVAL_DEFAULT_TOP,
+  KNOWLEDGE_RETRIEVAL_QUESTION_MAX_LENGTH,
+  KNOWLEDGE_RETRIEVAL_QUESTION_REQUIRED_MESSAGE,
+  KNOWLEDGE_RETRIEVAL_QUESTION_TOO_LONG_MESSAGE,
   type CreateKnowledgeBaseInput,
   type KnowledgeAccountRefView,
   type KnowledgeActivityAction,
@@ -89,6 +95,8 @@ import {
   type KnowledgeDocumentStatusCounts,
   type KnowledgeDocumentView,
   type KnowledgeExtractedUnitView,
+  type KnowledgeRetrievalPassageView,
+  type KnowledgeRetrievalPreviewView,
   type KnowledgeSharingScope,
   type KnowledgeSharingView,
   type KnowledgeUnitIssue,
@@ -189,6 +197,7 @@ import type {
   DisableKnowledgeDocumentResult,
   EnableKnowledgeDocumentResult,
   PermissionDeniedRepositoryView,
+  PreviewKnowledgeRetrievalResult,
   PreviewTrialAnswerResult,
   RepositoryPermissionDeniedReason,
   RepositoryView,
@@ -778,6 +787,32 @@ export function connectableKnowledgeStatus(
   if (counts.queued + counts.processing > 0) return 'processing';
   if (counts['partially-readable'] + counts.failed > 0) return 'needs-attention';
   return 'ready';
+}
+
+/**
+ * mock 檢索試查的分數（issue #48）：問題與段落文字的字元二連字（bigram）重疊比例，
+ * 0–1。不是真的語意相似度，只是讓「問題明顯對應到段落」與「完全不相關」分得開，
+ * 足以示範「有結果」與「低於門檻」兩種畫面。
+ */
+function mockKeywordScore(question: string, text: string): number {
+  const questionGrams = mockCharBigrams(question);
+  const textGrams = mockCharBigrams(text);
+  if (questionGrams.size === 0 || textGrams.size === 0) return 0;
+  let hits = 0;
+  for (const gram of questionGrams) {
+    if (textGrams.has(gram)) hits += 1;
+  }
+  return Math.min(1, hits / questionGrams.size);
+}
+
+function mockCharBigrams(value: string): ReadonlySet<string> {
+  const normalized = value.replace(/\s+/gu, '');
+  const grams = new Set<string>();
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    grams.add(normalized.slice(index, index + 2));
+  }
+  if (grams.size === 0 && normalized.length > 0) grams.add(normalized);
+  return grams;
 }
 
 const CREATED_DATABASES_KEY = 'sme-demo:created-databases';
@@ -2116,6 +2151,16 @@ export class MockDemoRepository implements DemoRepository {
     return defer(() => of(this.writeEnabledKnowledgeDocument(this.viewer(), knowledgeBaseId, documentId)));
   }
 
+  previewKnowledgeRetrieval(
+    knowledgeBaseId: KnowledgeBaseId,
+    question: string,
+    includePending: boolean,
+  ): Observable<PreviewKnowledgeRetrievalResult> {
+    return defer(() =>
+      of(this.readKnowledgeRetrievalPreview(this.viewer(), knowledgeBaseId, question, includePending)),
+    );
+  }
+
   private readKnowledgeSummaries(
     viewerAccountId: AccountId | null,
   ): RepositoryView<readonly KnowledgeBaseSummaryView[]> {
@@ -2637,6 +2682,93 @@ export class MockDemoRepository implements DemoRepository {
       };
       return unit;
     });
+  }
+
+  /**
+   * 檢索試查（issue #48，M2 Slice 14）：mock 沒有真的嵌入模型，改以「問題與段落文字的
+   * 字元二連字重疊比例」模擬分數——document 命名與示範段落都嵌著文件名稱，FAQ 的名稱
+   * 本身就是問句，用同樣或相近的問題試查即可示範「有結果」；問一個完全不相關的問題
+   * 分數會接近 0，示範「低於門檻」。只搜尋可用（`ready`／`partially-readable`）的文件。
+   */
+  private readKnowledgeRetrievalPreview(
+    viewerAccountId: AccountId | null,
+    knowledgeBaseId: string,
+    question: string,
+    includePending: boolean,
+  ): PreviewKnowledgeRetrievalResult {
+    const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
+    if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
+
+    const trimmed = question.trim();
+    if (trimmed.length === 0) {
+      return { status: 'validation-failed', message: KNOWLEDGE_RETRIEVAL_QUESTION_REQUIRED_MESSAGE };
+    }
+    if (trimmed.length > KNOWLEDGE_RETRIEVAL_QUESTION_MAX_LENGTH) {
+      return { status: 'validation-failed', message: KNOWLEDGE_RETRIEVAL_QUESTION_TOO_LONG_MESSAGE };
+    }
+
+    const passages: KnowledgeRetrievalPassageView[] = [];
+    for (const document of this.knowledgeDocuments(knowledgeBase.id)) {
+      if (!isUsableKnowledgeDocument(document.status)) continue;
+      const review = this.knowledgeReview(knowledgeBase.id, document.id);
+      const effectiveVersionNumber = document.effectiveVersionNumber ?? null;
+      const latestVersionState = document.latestVersionState ?? 'effective';
+
+      if (effectiveVersionNumber !== null) {
+        passages.push(
+          ...this.mockRetrievalPassages(document, review, effectiveVersionNumber, 'effective', trimmed),
+        );
+      }
+      if (
+        includePending &&
+        (latestVersionState === 'pending-review' || latestVersionState === 'scheduled') &&
+        review.versionNumber !== effectiveVersionNumber
+      ) {
+        passages.push(
+          ...this.mockRetrievalPassages(document, review, review.versionNumber, latestVersionState, trimmed),
+        );
+      }
+    }
+
+    const top = passages.sort((left, right) => right.score - left.score).slice(0, KNOWLEDGE_RETRIEVAL_DEFAULT_TOP);
+    const threshold = KNOWLEDGE_RETRIEVAL_DEFAULT_THRESHOLD;
+    const preview: KnowledgeRetrievalPreviewView = {
+      passages: top,
+      threshold,
+      belowThreshold: !top.some((passage) => passage.score >= threshold),
+    };
+    return this.applyScenario(preview);
+  }
+
+  /** 一份文件、一個版本命中的段落：略過已排除的段落與不可讀的抽取單位。 */
+  private mockRetrievalPassages(
+    document: KnowledgeDocumentView,
+    review: StoredKnowledgeReview,
+    versionNumber: number,
+    versionState: KnowledgeVersionState,
+    question: string,
+  ): readonly KnowledgeRetrievalPassageView[] {
+    const versionId = `${document.id}:v${versionNumber}`;
+    const passages: KnowledgeRetrievalPassageView[] = [];
+    for (const unit of this.knowledgeExtractedUnits(document, versionId, review)) {
+      if (!unit.readable) continue;
+      for (const chunk of unit.chunks) {
+        if (chunk.excluded) continue;
+        const score = mockKeywordScore(question, `${document.name} ${chunk.locationLabel} ${chunk.text}`);
+        passages.push({
+          documentId: document.id,
+          documentName: document.name,
+          versionNumber,
+          versionState,
+          locationLabel: chunk.locationLabel,
+          excerpt: chunk.text,
+          score,
+          versionId,
+          chunkId: chunk.id,
+        });
+      }
+    }
+    return passages;
   }
 
   private writeKnowledgeChunkExclusion(

@@ -65,6 +65,8 @@ import type {
   KnowledgeDocumentDetailView,
   KnowledgeDocumentId,
   KnowledgeDocumentView,
+  KnowledgeRetrievalPreviewView,
+  KnowledgeRetrievalUnavailableReason,
   KnowledgeSharingView,
   KnowledgeUploadRejectionReason,
   KnowledgeVersionPreviewView,
@@ -250,6 +252,25 @@ export type DisableKnowledgeDocumentResult =
 export type EnableKnowledgeDocumentResult =
   | RepositoryView<KnowledgeDocumentView>
   | KnowledgeValidationFailedView;
+
+/**
+ * 檢索試查（issue #48，M2 Slice 14）：嵌入模型暫時無法使用，或部署尚未設定嵌入模型
+ * （API 的 `503`）。`reason` 是機器可讀的原因，`message` 是可直接顯示的訊息。
+ */
+export interface KnowledgeRetrievalUnavailableView {
+  readonly status: 'unavailable';
+  readonly reason: KnowledgeRetrievalUnavailableReason;
+  readonly message: string;
+}
+
+/**
+ * 問題空白或超過 500 字回傳 validation-failed；嵌入模型的問題回傳 `unavailable`；
+ * 其餘讀取以外的錯誤（5xx、連線中斷）以 Observable 的 error 傳出。
+ */
+export type PreviewKnowledgeRetrievalResult =
+  | RepositoryView<KnowledgeRetrievalPreviewView>
+  | KnowledgeValidationFailedView
+  | KnowledgeRetrievalUnavailableView;
 
 /**
  * 一個檔案被拒絕上傳（issue #46，M2 Slice 12）：`reason` 是機器可讀的原因（與後端
@@ -707,6 +728,17 @@ export interface DemoRepository extends DemoScenarioController {
     knowledgeBaseId: KnowledgeBaseId,
     documentId: KnowledgeDocumentId,
   ): Observable<EnableKnowledgeDocumentResult>;
+  /**
+   * 檢索試查（issue #48，M2 Slice 14）：與正式對話同一套檢索邏輯（後端 `KnowledgeRetriever`）
+   * 試問這個知識庫，不生成任何回答——用來確認一份文件會不會被引用、引用到第幾頁。
+   * `includePending` 額外納入每份文件最新的待確認／排程生效版本（`versionState` 標成該狀態；
+   * 只給試查用，正式對話一律只看生效版本）。任何有權開啟這個知識庫的人都可以試查。
+   */
+  previewKnowledgeRetrieval(
+    knowledgeBaseId: KnowledgeBaseId,
+    question: string,
+    includePending: boolean,
+  ): Observable<PreviewKnowledgeRetrievalResult>;
   /** 資料庫入口先問「你要收集什麼」；只有可管理資料來源的帳號可以取得模板。 */
   listDatabaseTemplates(
     viewerAccountId: AccountId,

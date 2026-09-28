@@ -54,6 +54,7 @@ public sealed class AssistantDraftTrialAnswerEndpointTests : IClassFixture<AuthH
         var answered = await TrialAnswerAsync(owner, draftId, "收到商品後幾天內可以申請退貨？退貨運費由誰負擔？");
         answered.StatusCode.ShouldBe(HttpStatusCode.OK, await answered.Content.ReadAsStringAsync(CancellationToken));
         var answeredBody = await BodyJsonAsync(answered);
+        OpenApiContract.AssertKeysMatchSchema(answeredBody, "TrialAnswerResponse");
 
         answeredBody.GetProperty("reply").GetProperty("kind").GetString().ShouldBe("company-data");
         answeredBody.GetProperty("reply").GetProperty("text").GetString().ShouldNotBeNull().ShouldContain("[1]");

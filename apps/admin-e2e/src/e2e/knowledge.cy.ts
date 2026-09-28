@@ -283,4 +283,57 @@ describe('knowledge bases', () => {
       cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf').find('.document-effect').should('contain', '已生效');
     });
   });
+
+  // issue #48（M2 Slice 14）：檢索試查。
+  describe('retrieval preview', () => {
+    it('lists the matching passages for a question close to the seeded content (有結果)', () => {
+      cy.visit('/app/knowledge/knowledge-refund-policy/retrieval');
+      cy.get('nav.tabs [aria-current="page"]').should('contain', '試查');
+
+      cy.get('#knowledge-retrieval-question').type('收到商品幾天內可以退貨？');
+      cy.contains('button', '試查').click();
+
+      cy.get('[data-testid="below-threshold-notice"]').should('not.exist');
+      cy.get('.passage-row').should('have.length.at.least', 1);
+      cy.get('.passage-row').first().should('contain', '收到商品幾天內可以退貨？').and('contain', '分數');
+    });
+
+    it('shows the 查無結果 notice for a question unrelated to anything in the knowledge base (低於門檻)', () => {
+      cy.visit('/app/knowledge/knowledge-refund-policy/retrieval');
+
+      cy.get('#knowledge-retrieval-question').type('今天適合出門郊遊嗎？');
+      cy.contains('button', '試查').click();
+
+      cy.get('[data-testid="below-threshold-notice"]').should('contain', '助理設定為只用組織資料時，這題會回答查無結果。');
+    });
+
+    it('only includes a pending version’s passages once 包含待確認版本 is checked (含待確認版本)', () => {
+      cy.visit('/app/knowledge/knowledge-refund-policy/content');
+      cy.get('input[type="file"]').selectFile(
+        { contents: Cypress.Buffer.from('%PDF-1.4 v2'), fileName: '退換貨辦法 2026 版.pdf', mimeType: 'application/pdf' },
+        { force: true },
+      );
+      cy.contains('.upload-item', '退換貨辦法 2026 版.pdf').contains('button', '改為上傳新版本').click();
+      cy.get('.upload-summary').should('contain', '成功 1 檔');
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf').find('.document-effect').should('contain', '待確認');
+      // 這份文件的新版本要處理完成（可使用）後，才會被檢索到——不能只等「某一份」文件變成 ready，
+      // 同一個知識庫裡其他既有文件本來就是 ready，會讓這個等待條件提早（錯誤地）通過。
+      cy.contains('.document-list > li', '退換貨辦法 2026 版.pdf')
+        .find('.document-status[data-status="ready"]', { timeout: PROCESSING_TIMEOUT })
+        .should('exist');
+
+      cy.contains('nav.tabs a', '試查').click();
+      cy.get('#knowledge-retrieval-question').type('退換貨辦法');
+      cy.contains('button', '試查').click();
+
+      cy.get('.passage-row').should('have.length.at.least', 1);
+      cy.get('.passage-row .version-state[data-state="pending-review"]').should('not.exist');
+
+      cy.contains('label.filter-toggle', '包含待確認版本').find('input').check();
+      cy.contains('button', '試查').click();
+
+      cy.get('.passage-row .version-state[data-state="pending-review"]').should('have.length.at.least', 1);
+      cy.get('.passage-row').filter(':contains("待確認")').should('contain', '第 2 版');
+    });
+  });
 });

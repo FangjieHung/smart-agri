@@ -29,7 +29,7 @@ const REQUEST: ChatRunRequest = {
 interface Captured {
   url: string;
   init: RequestInit;
-  body: { threadId: string; messages: { role: string; content: string }[] };
+  body: { threadId: string; messages: { id: string; role: string; content: string }[] };
   headers: Record<string, string>;
 }
 
@@ -94,6 +94,26 @@ describe('AgUiChatRunner', () => {
       ['user', '上一題'],
       ['assistant', '上一題的回答'],
       ['user', REQUEST.question],
+    ]);
+  });
+
+  it('uses clientMessageId as the question message id, for a retry to reuse (issue #105)', async () => {
+    const { runner, calls } = setup(sse(fixture('fail-midway.sse')));
+
+    await collect(runner, { ...REQUEST, clientMessageId: 'retry-msg-1' });
+
+    expect(calls[0].body.messages).toEqual([
+      expect.objectContaining({ id: 'retry-msg-1', role: 'user', content: REQUEST.question }),
+    ]);
+  });
+
+  it('falls back to a positional id when no clientMessageId is given', async () => {
+    const { runner, calls } = setup(sse(fixture('fail-midway.sse')));
+
+    await collect(runner);
+
+    expect(calls[0].body.messages).toEqual([
+      expect.objectContaining({ id: 'question-1', role: 'user', content: REQUEST.question }),
     ]);
   });
 

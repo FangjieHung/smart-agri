@@ -29,6 +29,10 @@ public static partial class ChatRunRules
 
     public static readonly string QuestionTooLongMessage = $"問題請在 {QuestionMaxLength} 個字以內。";
 
+    /// <summary>The longest accepted <c>RunAgentInput</c> user-message id (ticket #105): well
+    /// over <c>crypto.randomUUID()</c>'s 36 characters, generous for any client id scheme.</summary>
+    public const int ClientMessageIdMaxLength = 200;
+
     /// <summary>A non-blank question of at most <see cref="QuestionMaxLength"/> characters
     /// (trimmed).</summary>
     public static ValidationResult<string> ValidateQuestion(string? question)
@@ -46,6 +50,28 @@ public static partial class ChatRunRules
 
         return ValidationResult<string>.Valid(trimmed);
     }
+
+    /// <summary>
+    /// A retry's question is recognized, not re-saved (ticket #105), by the id the client gave
+    /// the <c>RunAgentInput</c> user message: letters, digits, <c>-</c>, <c>_</c>, <c>.</c> or
+    /// <c>:</c> only, 1-<see cref="ClientMessageIdMaxLength"/> characters — covers
+    /// <c>crypto.randomUUID()</c> and similar client-generated ids. Anything else (missing,
+    /// blank, too long, or an unexpected character — a client could send arbitrary AG-UI
+    /// message ids) is treated the same as no id at all: <see langword="null"/>, so the
+    /// question is always saved as a new message.
+    /// </summary>
+    public static string? ValidateClientMessageId(string? id)
+    {
+        if (string.IsNullOrEmpty(id))
+        {
+            return null;
+        }
+
+        return ClientMessageIdPattern().IsMatch(id) ? id : null;
+    }
+
+    [GeneratedRegex(@"^[A-Za-z0-9_.:-]{1,200}$")]
+    private static partial Regex ClientMessageIdPattern();
 
     /// <summary>
     /// A thread's title derived from its first question, exactly like the mock's

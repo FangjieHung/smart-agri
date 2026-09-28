@@ -67,7 +67,11 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// before the stream starts; the reply and its citation snapshots are saved in one
 /// <c>SaveChanges</c> (one transaction) just before <c>smartagri.reply</c> is sent. If the client
 /// disconnects, the request's <see cref="CancellationToken"/> stops the model call and only the
-/// question stays. The earlier turns the model sees come from the saved thread; the client's
+/// question stays. A retry of that failed run (ticket #105) — same thread, same question, and
+/// the same id on the <c>RunAgentInput</c> user message — recognizes the already-saved question
+/// (<see cref="ChatRunRules.ValidateClientMessageId"/>) instead of saving a duplicate: only when
+/// it is still the thread's very last message, i.e. nothing answered it since. The earlier turns
+/// the model sees come from the saved thread; the client's
 /// <c>messages</c> other than the question are ignored. Without it, nothing is written to any
 /// conversation table: the client's earlier <c>user</c>/<c>assistant</c> messages are the only
 /// context (text only, capped by <see cref="GroundedAnswerPrompt.RecentHistory"/>, citation
@@ -170,12 +174,16 @@ public static class ChatRunEndpoints
             }
         }
 
-        var (questionText, earlierMessages) = SplitQuestion(input);
+        var (questionText, questionMessageId, earlierMessages) = SplitQuestion(input);
         var question = ChatRunRules.ValidateQuestion(questionText);
         if (!question.IsValid)
         {
             return ApiErrors.ValidationFailed(question.Failures);
         }
+
+        // #105: a retry after a mid-stream failure sends the same question with the same
+        // RunAgentInput user-message id; an invalid or absent one just means "always save".
+        var clientMessageId = ChatRunRules.ValidateClientMessageId(questionMessageId);
 
         if (!chatProvider.IsConfigured)
         {
@@ -222,8 +230,25 @@ public static class ChatRunEndpoints
                     thread.Rename(title, now);
                 }
 
-                dbContext.ChatMessages.Add(ChatMessage.Account(thread, question.Value, now));
-                await dbContext.SaveChangesAsync(cancellationToken);
+                // #105: a retry sends the same client message id as the failed attempt that
+                // only got the question saved (mid-stream RUN_ERROR); when the thread's last
+                // message is exactly that — the same id, an account turn, nothing after it —
+                // reuse it instead of saving a duplicate question. A brand-new thread has no
+                // rows yet, so this is always "no match" for it.
+                var lastMessage = clientMessageId is not null
+                    ? await dbContext.ChatMessages
+                        .Where(message => message.ThreadId == thread.Id)
+                        .OrderByDescending(message => message.Sequence)
+                        .FirstOrDefaultAsync(cancellationToken)
+                    : null;
+                var reusesLastQuestion = lastMessage is { Author: ChatMessageAuthor.Account } message
+                    && message.ClientMessageId == clientMessageId;
+
+                if (!reusesLastQuestion)
+                {
+                    dbContext.ChatMessages.Add(ChatMessage.Account(thread, question.Value, now, clientMessageId));
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
             }
 
             var connected = await knowledgeBases.ConnectedToAsync(assistant.Id, cancellationToken);
@@ -267,19 +292,20 @@ public static class ChatRunEndpoints
         }
     }
 
-    /// <summary>The last <c>user</c> message's text (the question) and the messages before it.</summary>
-    private static (string? Question, IReadOnlyList<AGUIMessage> Earlier) SplitQuestion(RunAgentInput? input)
+    /// <summary>The last <c>user</c> message's text (the question), its AG-UI message id
+    /// (ticket #105 — a retry's dedupe key, not yet validated), and the messages before it.</summary>
+    private static (string? Question, string? MessageId, IReadOnlyList<AGUIMessage> Earlier) SplitQuestion(RunAgentInput? input)
     {
         var messages = input?.Messages ?? [];
         for (var index = messages.Count - 1; index >= 0; index--)
         {
             if (messages[index] is AGUIUserMessage user)
             {
-                return (user.Content.ToString(), [.. messages.Take(index)]);
+                return (user.Content.ToString(), user.Id, [.. messages.Take(index)]);
             }
         }
 
-        return (null, []);
+        return (null, null, []);
     }
 
     /// <summary>An unsaved conversation's context: the client's earlier <c>user</c> and

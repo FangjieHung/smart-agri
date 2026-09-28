@@ -188,6 +188,154 @@ public sealed partial class ChatRunEndpointsTests : IClassFixture<AuthHostFixtur
         _host.Factory.Services.GetRequiredService<ChatRunLocks>().IsRunning(only.ThreadId).ShouldBeFalse();
     }
 
+    // --- Retry dedupe after a mid-stream failure (ticket #105) -----------------------------
+
+    [Fact]
+    public async Task Retrying_with_the_same_message_id_after_a_fail_midway_does_not_duplicate_the_question()
+    {
+        var org = await CreateOrganizationWithKnowledgeAsync();
+        var admin = await SignInAsync(org, "admin");
+        var assistantId = await CreateAssistantAsync(org, keepConversations: true);
+        var failedQuestion = $"{RelatedQuestion} {FakeChatDirectives.FailMidway}";
+
+        var failed = await RunAsync(admin, assistantId, RunInput(failedQuestion, messageId: "retry-msg-1"));
+        failed.Types[^1].ShouldBe("RUN_ERROR");
+        var threadId = (await FirstMessageAsync(org)).ThreadId;
+
+        // The retry succeeds this time (the network recovered); same client message id as the
+        // failed attempt, same RunAgentInput otherwise apart from that.
+        var retried = await RunAsync(
+            admin, assistantId, RunInput(RelatedQuestion, threadId: threadId.ToString(), messageId: "retry-msg-1"));
+
+        retried.Status.ShouldBe(HttpStatusCode.OK, retried.Body);
+        retried.Types[^1].ShouldBe("RUN_FINISHED");
+
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var saved = await dbContext.ChatMessages.AsNoTracking()
+            .Where(message => message.ThreadId == threadId)
+            .OrderBy(message => message.Sequence)
+            .ToListAsync(CancellationToken);
+        saved.Count.ShouldBe(2, "the retry reused the already-saved question instead of saving a second one");
+        saved[0].Author.ShouldBe(ChatMessageAuthor.Account);
+        saved[0].Text.ShouldBe(failedQuestion, "reusing the saved question keeps its original text");
+        saved[1].Author.ShouldBe(ChatMessageAuthor.Assistant);
+
+        var savedThread = await dbContext.ChatThreads.AsNoTracking().SingleAsync(t => t.Id == threadId, CancellationToken);
+        savedThread.MessageCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Retrying_with_a_different_message_id_saves_a_second_question()
+    {
+        var org = await CreateOrganizationWithKnowledgeAsync();
+        var admin = await SignInAsync(org, "admin");
+        var assistantId = await CreateAssistantAsync(org, keepConversations: true);
+        var failedQuestion = $"{RelatedQuestion} {FakeChatDirectives.FailMidway}";
+
+        var failed = await RunAsync(admin, assistantId, RunInput(failedQuestion, messageId: "first-attempt"));
+        failed.Types[^1].ShouldBe("RUN_ERROR");
+        var threadId = (await FirstMessageAsync(org)).ThreadId;
+
+        var again = await RunAsync(
+            admin, assistantId, RunInput(failedQuestion, threadId: threadId.ToString(), messageId: "second-attempt"));
+
+        again.Status.ShouldBe(HttpStatusCode.OK, again.Body);
+        again.Types[^1].ShouldBe("RUN_ERROR", "the same directive fails again");
+
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var saved = await dbContext.ChatMessages.AsNoTracking()
+            .Where(message => message.ThreadId == threadId)
+            .ToListAsync(CancellationToken);
+        saved.Count.ShouldBe(2, "a different message id is a new question, not a retry");
+        saved.ShouldAllBe(message => message.Author == ChatMessageAuthor.Account);
+    }
+
+    [Fact]
+    public async Task An_invalid_message_id_is_treated_as_absent_and_never_dedupes()
+    {
+        var org = await CreateOrganizationWithKnowledgeAsync();
+        var admin = await SignInAsync(org, "admin");
+        var assistantId = await CreateAssistantAsync(org, keepConversations: true);
+        var failedQuestion = $"{RelatedQuestion} {FakeChatDirectives.FailMidway}";
+        var tooLongId = new string('a', ChatRunRules.ClientMessageIdMaxLength + 1);
+
+        var failed = await RunAsync(admin, assistantId, RunInput(failedQuestion, messageId: tooLongId));
+        failed.Types[^1].ShouldBe("RUN_ERROR");
+        var threadId = (await FirstMessageAsync(org)).ThreadId;
+
+        // Same (invalid) id sent again — must not be recognized as a retry.
+        var again = await RunAsync(
+            admin, assistantId, RunInput(failedQuestion, threadId: threadId.ToString(), messageId: tooLongId));
+        again.Types[^1].ShouldBe("RUN_ERROR");
+
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var saved = await dbContext.ChatMessages.AsNoTracking()
+            .Where(message => message.ThreadId == threadId)
+            .ToListAsync(CancellationToken);
+        saved.Count.ShouldBe(2, "an over-length id is ignored, so each run still saves its own question");
+    }
+
+    [Fact]
+    public async Task Reusing_a_message_id_after_it_already_has_a_reply_saves_a_new_question()
+    {
+        var org = await CreateOrganizationWithKnowledgeAsync();
+        var admin = await SignInAsync(org, "admin");
+        var assistantId = await CreateAssistantAsync(org, keepConversations: true);
+
+        var first = await RunAsync(admin, assistantId, RunInput(RelatedQuestion, messageId: "same-id"));
+        first.Types[^1].ShouldBe("RUN_FINISHED");
+        var threadId = first.Custom(ChatRunEndpoints.ThreadEventName)!.Value.GetProperty("threadId").GetGuid();
+
+        // Same id, but the thread's last message now has a reply after it: not a retry.
+        var second = await RunAsync(
+            admin, assistantId, RunInput(UnrelatedQuestion, threadId: threadId.ToString(), messageId: "same-id"));
+        second.Types[^1].ShouldBe("RUN_FINISHED");
+
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var saved = await dbContext.ChatMessages.AsNoTracking()
+            .Where(message => message.ThreadId == threadId)
+            .OrderBy(message => message.Sequence)
+            .ToListAsync(CancellationToken);
+        saved.Count.ShouldBe(4);
+        saved.Select(message => message.Author).ShouldBe(
+        [
+            ChatMessageAuthor.Account, ChatMessageAuthor.Assistant, ChatMessageAuthor.Account, ChatMessageAuthor.Assistant,
+        ]);
+    }
+
+    [Fact]
+    public async Task Two_accounts_retrying_with_the_same_message_id_never_share_a_question()
+    {
+        var orgA = await CreateOrganizationWithKnowledgeAsync();
+        var adminA = await SignInAsync(orgA, "admin");
+        var assistantA = await CreateAssistantAsync(orgA, keepConversations: true);
+        var orgB = await CreateOrganizationWithKnowledgeAsync();
+        var adminB = await SignInAsync(orgB, "admin");
+        var assistantB = await CreateAssistantAsync(orgB, keepConversations: true);
+        var failedQuestion = $"{RelatedQuestion} {FakeChatDirectives.FailMidway}";
+        const string sharedMessageId = "shared-client-id";
+
+        var failedA = await RunAsync(adminA, assistantA, RunInput(failedQuestion, messageId: sharedMessageId));
+        var failedB = await RunAsync(adminB, assistantB, RunInput(failedQuestion, messageId: sharedMessageId));
+        failedA.Types[^1].ShouldBe("RUN_ERROR");
+        failedB.Types[^1].ShouldBe("RUN_ERROR");
+        var threadA = (await FirstMessageAsync(orgA)).ThreadId;
+        var threadB = (await FirstMessageAsync(orgB)).ThreadId;
+
+        var retriedA = await RunAsync(
+            adminA, assistantA, RunInput(RelatedQuestion, threadId: threadA.ToString(), messageId: sharedMessageId));
+        var retriedB = await RunAsync(
+            adminB, assistantB, RunInput(RelatedQuestion, threadId: threadB.ToString(), messageId: sharedMessageId));
+
+        retriedA.Types[^1].ShouldBe("RUN_FINISHED");
+        retriedB.Types[^1].ShouldBe("RUN_FINISHED");
+
+        await using var dbA = _host.Postgres.CreateDbContext(orgA.Organization.Id);
+        await using var dbB = _host.Postgres.CreateDbContext(orgB.Organization.Id);
+        (await dbA.ChatMessages.CountAsync(m => m.ThreadId == threadA, CancellationToken)).ShouldBe(2);
+        (await dbB.ChatMessages.CountAsync(m => m.ThreadId == threadB, CancellationToken)).ShouldBe(2);
+    }
+
     [Fact]
     public async Task A_client_disconnect_stops_the_model_call_and_keeps_only_the_question()
     {
@@ -544,16 +692,31 @@ public sealed partial class ChatRunEndpointsTests : IClassFixture<AuthHostFixtur
         (await dbContext.ChatMessages.CountAsync(CancellationToken)).ShouldBe(0);
     }
 
+    /// <summary>The organization's single saved message so far (a fail-midway run's question) —
+    /// used by the retry-dedupe tests (#105) to get the thread id to retry against.</summary>
+    private async Task<SmartAgri.Domain.Chat.ChatMessage> FirstMessageAsync(TestOrganization org)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        return await dbContext.ChatMessages.AsNoTracking().SingleAsync(CancellationToken);
+    }
+
     /// <summary>An AG-UI <c>RunAgentInput</c> as <c>@ag-ui/client</c>'s <c>HttpAgent</c> sends
-    /// it: the earlier messages, then the question as the last <c>user</c> message.</summary>
+    /// it: the earlier messages, then the question as the last <c>user</c> message.
+    /// <paramref name="messageId"/> is that message's id — a retry (ticket #105) reuses the
+    /// failed attempt's, to be recognized as the same question instead of saved again.</summary>
     private static object RunInput(
-        string question, string? threadId = null, string runId = "run-test", object[]? history = null, object? forwardedProps = null) =>
+        string question,
+        string? threadId = null,
+        string runId = "run-test",
+        object[]? history = null,
+        object? forwardedProps = null,
+        string messageId = "question") =>
         new
         {
             threadId = threadId ?? string.Empty,
             runId,
             state = new { },
-            messages = (history ?? []).Append(new { id = "question", role = "user", content = question }).ToArray(),
+            messages = (history ?? []).Append(new { id = messageId, role = "user", content = question }).ToArray(),
             tools = Array.Empty<object>(),
             context = Array.Empty<object>(),
             forwardedProps = forwardedProps ?? new { },

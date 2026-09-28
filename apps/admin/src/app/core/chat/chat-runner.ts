@@ -20,6 +20,13 @@ export interface ChatRunRequest {
   readonly threadId?: ChatThreadId;
   /** 只有不保存對話的助理才帶；保存對話時前文由後端自己讀。 */
   readonly history?: readonly ChatHistoryEntry[];
+  /**
+   * 這則問題的 client 端訊息 id（issue #105）：送給 API 模式當 `RunAgentInput` 最後一則
+   * user 訊息的 `id`。重試同一個問題時沿用原本的 id，讓後端把它視為同一則問題（串流
+   * 中途失敗只保存了問題），不重複保存；沒帶時後端一律當成新問題。Mock 模式不需要它
+   * （`sendChatMessage` 一次寫入問題與回覆，沒有「只保存問題」的中間狀態）。
+   */
+  readonly clientMessageId?: string;
 }
 
 /**

@@ -51,4 +51,31 @@ public class ChatRunRulesTests
         ChatRunRules.ValidateQuestion(new string('問', 2001)).Failures.ShouldHaveSingleItem().Message
             .ShouldBe(ChatRunRules.QuestionTooLongMessage);
     }
+
+    [Theory]
+    [InlineData("a1b2c3")]
+    [InlineData("11111111-2222-3333-4444-555555555555")] // crypto.randomUUID() shape
+    [InlineData("client_message-id.1")]
+    public void A_well_formed_client_message_id_is_kept(string id)
+    {
+        ChatRunRules.ValidateClientMessageId(id).ShouldBe(id);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("has space")]
+    [InlineData("<script>")]
+    [InlineData("問題")]
+    public void A_missing_or_ill_formed_client_message_id_is_treated_as_absent(string? id)
+    {
+        ChatRunRules.ValidateClientMessageId(id).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_client_message_id_over_the_length_cap_is_treated_as_absent()
+    {
+        ChatRunRules.ValidateClientMessageId(new string('a', ChatRunRules.ClientMessageIdMaxLength)).ShouldNotBeNull();
+        ChatRunRules.ValidateClientMessageId(new string('a', ChatRunRules.ClientMessageIdMaxLength + 1)).ShouldBeNull();
+    }
 }

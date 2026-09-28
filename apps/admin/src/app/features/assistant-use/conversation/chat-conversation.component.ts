@@ -80,8 +80,8 @@ interface LocalEntry {
  */
 type RunState =
   | { readonly phase: 'idle' }
-  | { readonly phase: 'streaming'; readonly question: string; readonly text: string }
-  | { readonly phase: 'failed'; readonly question: string; readonly error: ChatRunError };
+  | { readonly phase: 'streaming'; readonly question: string; readonly text: string; readonly clientMessageId: string }
+  | { readonly phase: 'failed'; readonly question: string; readonly error: ChatRunError; readonly clientMessageId: string };
 
 const IDLE: RunState = { phase: 'idle' };
 
@@ -226,7 +226,12 @@ export class ChatConversationComponent {
     this.ask(this.draft());
   }
 
-  protected ask(text: string): void {
+  /**
+   * `retryMessageId` 只在 {@link retry} 呼叫時給：沿用失敗那次的 id，讓後端把這次重試
+   * 的問題視為同一則，不重複保存（issue #105）。一般送出（新問題）沒有它，每次都是
+   * 新的 id。
+   */
+  protected ask(text: string, retryMessageId?: string): void {
     const viewerId = this.viewerId();
     if (viewerId === null || this.streaming()) return;
 
@@ -242,12 +247,13 @@ export class ChatConversationComponent {
 
     const chat = this.chat();
     const history = chat?.historyMode === 'not-saved' ? this.historyEntries() : undefined;
+    const clientMessageId = retryMessageId ?? crypto.randomUUID();
     this.draft.set('');
     this.composerError.set('');
     // 輸入框可能還沒經過變更偵測同步草稿，直接清空避免殘留已送出的文字。
     const input = this.composerInput()?.nativeElement;
     if (input) input.value = '';
-    this.run.set({ phase: 'streaming', question, text: '' });
+    this.run.set({ phase: 'streaming', question, text: '', clientMessageId });
     this.runStatus.set('助理正在回答…');
     this.reveal();
 
@@ -260,12 +266,13 @@ export class ChatConversationComponent {
         question: text,
         threadId: this.threadId() ?? undefined,
         history,
+        clientMessageId,
       })
       .subscribe({
         next: (event) => {
           if (event.type === 'thread') threadId = event.threadId;
           if (event.type === 'reply') answered = true;
-          this.onRunEvent(event, question, text);
+          this.onRunEvent(event, question, text, clientMessageId);
         },
         complete: () => {
           this.activeRun = null;
@@ -291,7 +298,7 @@ export class ChatConversationComponent {
     const current = this.run();
     if (current.phase !== 'failed') return;
     this.run.set(IDLE);
-    this.ask(current.question);
+    this.ask(current.question, current.clientMessageId);
   }
 
   /** 串流中的問題以使用者訊息的樣子顯示；id 只在這一頁使用。 */
@@ -299,7 +306,7 @@ export class ChatConversationComponent {
     return { id: 'pending-question', author: 'account', text, createdAt: '' };
   }
 
-  private onRunEvent(event: ChatRunEvent, question: string, rawText: string): void {
+  private onRunEvent(event: ChatRunEvent, question: string, rawText: string, clientMessageId: string): void {
     switch (event.type) {
       case 'text-delta':
         this.run.update((current) =>
@@ -329,7 +336,7 @@ export class ChatConversationComponent {
           input?.focus();
           return;
         }
-        this.run.set({ phase: 'failed', question, error: event.error });
+        this.run.set({ phase: 'failed', question, error: event.error, clientMessageId });
         this.finishRun();
         return;
     }

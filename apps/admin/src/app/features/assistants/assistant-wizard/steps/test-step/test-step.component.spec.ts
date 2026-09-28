@@ -31,7 +31,7 @@ async function ask(fixture: { whenStable(): Promise<unknown> }, page: HTMLElemen
 }
 
 async function askFreeText(
-  fixture: { whenStable(): Promise<unknown> },
+  fixture: { detectChanges(): void; whenStable(): Promise<unknown> },
   page: HTMLElement,
   text: string,
 ): Promise<void> {
@@ -39,6 +39,9 @@ async function askFreeText(
   if (input === null) throw new Error('expected the free-text input to exist');
   input.value = text;
   input.dispatchEvent(new Event('input'));
+  // 讓 Angular 先把 `[value]` 綁定的「上次渲染值」同步成剛剛打的字，否則之後若又清空輸入框，
+  // ivy 會拿「清空後的值」跟「還停在初始空字串的快取值」比較、誤判成沒變化而跳過 DOM 寫入。
+  fixture.detectChanges();
   page.querySelector<HTMLFormElement>('.ask-form')?.dispatchEvent(new Event('submit', { cancelable: true }));
   await fixture.whenStable();
 }
@@ -92,5 +95,40 @@ describe('TestStepComponent (issue #82: trial answers share ChatReplyView)', () 
     const answer = page.querySelector('.trial-answer') as HTMLElement;
     expect(answer.textContent).toContain('收到商品後幾天內可以申請退貨？');
     expect(answer.getAttribute('data-kind')).toBe('company-data');
+  });
+
+  describe('clearing the free-text input (issue #114)', () => {
+    it('keeps the typed question after a 422 (validation-failed) rejection', async () => {
+      const { fixture, page, store } = await render();
+      const tooLong = '超過上限的問題'.repeat(400); // 2800 字，超過 2000 字上限。
+
+      await askFreeText(fixture, page, tooLong);
+      fixture.detectChanges();
+
+      expect(store.trialError()).toContain('2000');
+      const input = page.querySelector<HTMLInputElement>('.ask-input');
+      expect(input?.value).toBe(tooLong);
+    });
+
+    it('keeps the typed question after a 503 (network/unavailable) failure', async () => {
+      const { fixture, page, store } = await render();
+      vi.spyOn(store, 'runTrial').mockResolvedValue(null);
+
+      await askFreeText(fixture, page, '對話模型暫時無法使用時的問題');
+      fixture.detectChanges();
+
+      const input = page.querySelector<HTMLInputElement>('.ask-input');
+      expect(input?.value).toBe('對話模型暫時無法使用時的問題');
+    });
+
+    it('clears the typed question once a reply is received', async () => {
+      const { fixture, page } = await render();
+
+      await askFreeText(fixture, page, '收到商品後幾天內可以申請退貨？');
+      fixture.detectChanges();
+
+      const input = page.querySelector<HTMLInputElement>('.ask-input');
+      expect(input?.value).toBe('');
+    });
   });
 });

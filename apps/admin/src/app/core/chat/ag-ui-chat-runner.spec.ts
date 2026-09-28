@@ -245,4 +245,63 @@ describe('AgUiChatRunner', () => {
     expect(calls[0].init.signal?.aborted).toBe(true);
     expect(completed).toBe(false);
   });
+
+  it('does not log an AGUIError after RUN_ERROR when the underlying stream is still open (issue #107)', async () => {
+    // 根因：`finishWith` 讓 Observable 完成後，RxJS 會觸發下面的 teardown。若 teardown
+    // 不分青紅皂白呼叫 `agent.abortRun()`，會中止一個其實已經自然結束（收到 RUN_ERROR）的
+    // fetch stream；`@ag-ui/client` 的 reader 被 abort 後補送一個 AbortError，撞上它自己
+    // 「run 已經 errored」的事件驗證器，印出
+    // `Cannot send event type 'RUN_ERROR': The run has already errored…` 到 console（上游行為，
+    // 見 `AgUiChatRunner.run` 內的註解；未見上游 issue，暫不回報）。用一個「送完事件後才慢慢關閉」
+    // 的串流＋真的會在 abort 時噴 AbortError 的 reader，重現真實瀏覽器的時序。
+    const consoleErrors: unknown[] = [];
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      consoleErrors.push(args);
+    });
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = ((event: PromiseRejectionEvent) =>
+      unhandledRejections.push(event.reason)) as unknown as EventListener;
+    window.addEventListener('unhandledrejection', onUnhandledRejection);
+
+    const encoder = new TextEncoder();
+    const frames = fixture('fail-midway.sse')
+      .split('\n\n')
+      .filter((frame) => frame.length > 0);
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      let aborted = false;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            init.signal?.addEventListener('abort', () => {
+              aborted = true;
+              controller.error(new DOMException('The operation was aborted.', 'AbortError'));
+            });
+            (async () => {
+              for (const frame of frames) {
+                if (aborted) return;
+                controller.enqueue(encoder.encode(`${frame}\n\n`));
+                await new Promise((resolve) => setTimeout(resolve, 5));
+              }
+              // 故意讓連線晚一點才關閉，模擬真實情況下瀏覽器還沒注意到伺服器已經關閉連線。
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              if (!aborted) controller.close();
+            })();
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      );
+    });
+    const runner = new AgUiChatRunner({ accessToken: () => 'token-1', onUnauthorized: vi.fn(), fetch });
+
+    const events: ChatRunEvent[] = [];
+    runner.run(REQUEST).subscribe({ next: (event) => events.push(event) });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    window.removeEventListener('unhandledrejection', onUnhandledRejection);
+    consoleSpy.mockRestore();
+
+    expect(events.map((event) => event.type)).toEqual(['text-delta', 'error']);
+    expect(consoleErrors).toEqual([]);
+    expect(unhandledRejections).toEqual([]);
+  });
 });

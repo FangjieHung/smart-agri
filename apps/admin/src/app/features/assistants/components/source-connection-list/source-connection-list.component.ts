@@ -34,12 +34,14 @@ const STATUS_LABELS: Record<ConnectableSourceStatus, string> = {
   ready: '可使用',
   processing: '處理中',
   'needs-attention': '需要處理',
+  empty: '尚無內容',
 };
 
 const STATUS_TONES: Record<ConnectableSourceStatus, StatusTone> = {
   ready: 'success',
   processing: 'info',
   'needs-attention': 'warning',
+  empty: 'neutral',
 };
 
 const PERMISSION_LABELS: Record<ConnectableSourcePermission, string> = {

@@ -51,12 +51,16 @@ export class AgUiChatRunner implements ChatRunner {
   run(request: ChatRunRequest): Observable<ChatRunEvent> {
     return new Observable<ChatRunEvent>((subscriber) => {
       let closed = false;
+      // 真的透過 `finishWith` 走到終點（收到 `RUN_ERROR`、拿到回覆、或串流開始前出錯），
+      // 而不是被下面的取消訂閱（使用者按「停止回答」）打斷。
+      let finishedNaturally = false;
       let agent: HttpAgent | null = null;
       let replied = false;
 
       const finishWith = (error: ChatRunError | null): void => {
         if (closed) return;
         closed = true;
+        finishedNaturally = true;
         if (error !== null) subscriber.next({ type: 'error', error });
         subscriber.complete();
       };
@@ -114,9 +118,15 @@ export class AgUiChatRunner implements ChatRunner {
         );
 
       // 取消訂閱就是「停止」：abort 進行中的請求。
+      //
+      // 但 `finishWith` 已經讓這個 run 走到終點（`RUN_ERROR` 或完成）時，`subscriber.complete()`
+      // 也會觸發這個 teardown——這時若還呼叫 `abortRun()`，`@ag-ui/client` 的 SSE reader 會被中止並
+      // 補送一個 `AbortError`，其內部的事件序列驗證器發現「run 已經 errored/finished」，就會印出
+      // `Cannot send event type 'RUN_ERROR': The run has already errored…` 到 console（見 issue #107；
+      // 上游行為，未回報）。只有在真正被使用者取消（run 還沒 finishWith）時才需要中止底層請求。
       return () => {
         closed = true;
-        agent?.abortRun();
+        if (!finishedNaturally) agent?.abortRun();
       };
     });
   }

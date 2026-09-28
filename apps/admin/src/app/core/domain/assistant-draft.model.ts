@@ -91,7 +91,11 @@ export interface AssistantTemplateView {
   >;
 }
 
-export type ConnectableSourceStatus = 'ready' | 'processing' | 'needs-attention';
+/**
+ * `empty`：沒有任何文件或 FAQ（issue #115）；與 `ready`（有內容且都可用）分開顯示，
+ * 避免讓人誤以為已經有可用內容。
+ */
+export type ConnectableSourceStatus = 'ready' | 'processing' | 'needs-attention' | 'empty';
 
 /** owner：自己建立、可管理；read-only：只能唯讀連接。 */
 export type ConnectableSourcePermission = 'owner' | 'read-only';

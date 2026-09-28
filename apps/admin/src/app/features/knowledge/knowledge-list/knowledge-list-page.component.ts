@@ -88,7 +88,7 @@ export class KnowledgeListPageComponent {
   protected readonly feedback = signal('');
 
   protected processing(item: KnowledgeBaseSummaryView): ProcessingSummary {
-    return summarizeProcessing(item.statusCounts);
+    return summarizeProcessing(item.statusCounts, item.documentCount + item.faqCount);
   }
 
   protected scopeLabel(scope: KnowledgeSharingScope): string {

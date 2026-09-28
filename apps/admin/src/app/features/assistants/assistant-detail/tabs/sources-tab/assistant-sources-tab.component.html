@@ -3,6 +3,9 @@
     <p class="hint">
       加入或解除只會建立／移除連接，不會複製或修改原始資料。變更會立刻套用到這個助理的下一則回答。
     </p>
+    @if (apiMode) {
+      <p class="hint">目前只能連接知識庫，資料庫來源將於後續版本開放。</p>
+    }
 
     <app-source-connection-list
       [sources]="store.connectableSources()"

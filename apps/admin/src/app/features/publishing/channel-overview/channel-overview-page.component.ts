@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { type PublishingChannelView } from '../../../core/domain/publishing.model';
+import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { EmptyStateComponent } from '../../../shared/ui/empty-state/empty-state.component';
@@ -20,10 +21,12 @@ export class ChannelOverviewPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
 
-  protected readonly view = computed(() => {
-    const accountId = this.session.activeAccountId();
-    return accountId ? this.repository.listChannelOverview(accountId) : null;
+  /** 非同步契約（issue #81）：API 模式依自己的助理逐一讀取發布設定。 */
+  private readonly overview = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listChannelOverview(),
   });
+  protected readonly view = this.overview.view;
 
   protected actionLabel(channel: PublishingChannelView): string {
     if (channel.status === 'needs-attention') return '前往處理';

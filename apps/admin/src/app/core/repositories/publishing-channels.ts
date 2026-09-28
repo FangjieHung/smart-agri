@@ -9,7 +9,7 @@ import {
   WEBSITE_LAUNCHER_POSITIONS,
   normalizeDomain,
   validateAllowedDomain,
-  type AssistantPublishingView,
+  type ConfigurableAssistantPublishingView,
   type LineField,
   type LineFieldCheckView,
   type LineSettingsInput,
@@ -310,7 +310,7 @@ export function toAssistantPublishingView(
   record: PublishingRecord,
   accounts: readonly AccountView[],
   websiteDisconnected: boolean,
-): AssistantPublishingView {
+): ConfigurableAssistantPublishingView {
   const platform: PlatformSharingView = {
     channel: channelView(assistant, 'platform', platformStatus(record), record.platform.updatedAt),
     usagePath: `/use/${assistant.id}`,

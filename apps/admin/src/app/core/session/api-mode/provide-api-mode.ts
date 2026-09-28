@@ -5,6 +5,8 @@ import {
   makeEnvironmentProviders,
   provideAppInitializer,
 } from '@angular/core';
+import { AgUiChatRunner } from '../../chat/ag-ui-chat-runner';
+import { CHAT_RUNNER } from '../../chat/chat-runner';
 import type { DemoSeed } from '../../repositories/demo-seed';
 import { HybridDemoRepository } from '../../repositories/hybrid-demo-repository';
 import type { MockDemoRepositoryOptions } from '../../repositories/mock-demo-repository';
@@ -37,6 +39,18 @@ export function provideApiMode(): EnvironmentProviders {
             http,
             viewerPermissions: () => backend.restore(),
           });
+      },
+    },
+    // 對話的串流回答走 AG-UI（issue #80）；`@ag-ui/client` 在第一次送出時才動態載入。
+    {
+      provide: CHAT_RUNNER,
+      useFactory: () => {
+        const backend = inject(HttpSessionBackend);
+        const apiSession = inject(ApiSessionService);
+        return new AgUiChatRunner({
+          accessToken: () => backend.accessToken(),
+          onUnauthorized: () => apiSession.endExpiredSession(),
+        });
       },
     },
     // 重新整理頁面時在背景重讀 `/me`，不擋住啟動。

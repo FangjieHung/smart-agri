@@ -70,6 +70,11 @@ export class AssistantProfileFormComponent {
    * 已存在的助理不行——沒有使用對象的助理沒有人能開啟。
    */
   readonly audienceRequired = input(false);
+  /**
+   * 外部客戶（官網、LINE、專屬連結）可以選嗎？API 模式（M3）只開放組織內部使用，
+   * 不提供這個選項，改成說明「後續開放」。
+   */
+  readonly externalAudienceAvailable = input(true);
   readonly changed = output<AssistantProfileChange>();
   /** 被擋下的變更；呼叫端負責把訊息顯示在 live region 裡。 */
   readonly refused = output<string>();
@@ -81,8 +86,7 @@ export class AssistantProfileFormComponent {
   // 連按兩個勾選框時會用到上一輪的舊值。
   private readonly internalBox =
     viewChild.required<ElementRef<HTMLInputElement>>('internalBox');
-  private readonly externalBox =
-    viewChild.required<ElementRef<HTMLInputElement>>('externalBox');
+  private readonly externalBox = viewChild<ElementRef<HTMLInputElement>>('externalBox');
 
   protected text(event: Event): string {
     return (event.target as HTMLInputElement | HTMLTextAreaElement).value;
@@ -99,7 +103,7 @@ export class AssistantProfileFormComponent {
     const checkbox = event.target as HTMLInputElement;
     const audience = toAudience({
       internal: this.internalBox().nativeElement.checked,
-      external: this.externalBox().nativeElement.checked,
+      external: this.externalBox()?.nativeElement.checked ?? false,
     });
     if (audience === null && this.audienceRequired()) {
       // 沒有使用對象的助理沒有人能開啟，所以把勾選還原並說明原因。

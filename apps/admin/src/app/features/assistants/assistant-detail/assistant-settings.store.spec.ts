@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { BehaviorSubject, firstValueFrom } from 'rxjs';
+import { BehaviorSubject, concatMap, firstValueFrom, map, Subject, take, throwError } from 'rxjs';
 import type { AccountId } from '../../../core/domain/account.model';
 import { DEMO_SEED } from '../../../core/repositories/demo-seed';
 import type { DemoKeyValueStorage } from '../../../core/repositories/demo-repository';
@@ -57,24 +57,27 @@ async function settleResource(): Promise<void> {
 }
 
 describe('AssistantSettingsStore', () => {
-  it('loads the assistant named in the route for its owner', () => {
+  it('loads the assistant named in the route for its owner', async () => {
     const { store } = setup();
+    await settleResource();
 
     expect(store.settings()?.configuration.name).toBe('客服助理');
     expect(store.canEdit()).toBe(true);
     expect(store.saveStatusLabel()).toContain('尚未編輯');
   });
 
-  it('refuses an account that does not own the assistant, without naming it', () => {
+  it('refuses an account that does not own the assistant, without naming it', async () => {
     const { store } = setup({ accountId: 'account-internal-employee' });
+    await settleResource();
 
     expect(store.canEdit()).toBe(false);
     expect(store.settings()).toBeNull();
     expect(store.deniedMessage()).not.toContain('客服助理');
   });
 
-  it('autosaves the audience and reports when it was saved', () => {
+  it('autosaves the audience and reports when it was saved', async () => {
     const { store, storage } = setup();
+    await settleResource();
 
     store.updateProfile({ audience: 'members-and-external-customers' });
 
@@ -85,17 +88,21 @@ describe('AssistantSettingsStore', () => {
     );
   });
 
-  it('keeps the last valid value and shows a field error when a required field is emptied', () => {
+  it('keeps the last valid value and shows a field error when a required field is emptied', async () => {
     const { store } = setup();
+    await settleResource();
 
     store.updateProfile({ name: '   ' });
 
     expect(store.fieldError('name')).toBe('請輸入助理名稱。');
-    expect(store.settings()?.configuration.name).toBe('客服助理');
+    // 全有或全無：伺服器沒有寫入，頁面標題仍是上一個有效的值；輸入框保留使用者剛輸入的內容。
+    expect(store.savedSettings()?.configuration.name).toBe('客服助理');
+    expect(store.settings()?.configuration.name).toBe('   ');
   });
 
-  it('clears an earlier field error once the value is valid again', () => {
+  it('clears an earlier field error once the value is valid again', async () => {
     const { store } = setup();
+    await settleResource();
     store.updateProfile({ name: '' });
     expect(store.fieldError('name')).not.toBeNull();
 
@@ -132,6 +139,7 @@ describe('AssistantSettingsStore', () => {
 
   it('turns 保存自己的對話 off and on again through the repository', async () => {
     const { store, repository } = setup();
+    await settleResource();
 
     store.updateRules({ keepOwnConversations: false });
     const off = await firstValueFrom(repository.listChatThreads('assistant-customer-service'));
@@ -142,11 +150,56 @@ describe('AssistantSettingsStore', () => {
     expect(on.status === 'ready' && on.data.historyMode).toBe('saved');
   });
 
-  it('shows a note when a change is refused rather than applying it silently', () => {
+  it('shows a note when a change is refused rather than applying it silently', async () => {
     const { store } = setup();
+    await settleResource();
 
     store.note('助理至少要保留一種使用對象，否則沒有人能開啟它。');
 
     expect(store.noticeMessage()).toContain('至少要保留一種使用對象');
+  });
+
+  it('sends one write at a time and never lets an earlier response overwrite what was typed since', async () => {
+    const { store, repository } = setup();
+    await settleResource();
+    const sent: string[] = [];
+    const release = new Subject<void>();
+    const update = repository.updateAssistantSettings.bind(repository);
+    repository.updateAssistantSettings = (assistantId, patch) => {
+      sent.push(patch.name ?? '');
+      // 第一次 PATCH 停在「送出中」，直到測試放行。
+      return sent.length === 1
+        ? update(assistantId, patch).pipe(concatMap((result) => release.pipe(take(1), map(() => result))))
+        : update(assistantId, patch);
+    };
+
+    store.updateProfile({ name: '客' });
+    store.updateProfile({ name: '客服' });
+    store.updateProfile({ name: '客服小幫手' });
+
+    // 第一次還在送出：後面兩次合併成下一次，畫面先顯示最新輸入的值。
+    expect(sent).toEqual(['客']);
+    expect(store.busy()).toBe(true);
+    expect(store.settings()?.configuration.name).toBe('客服小幫手');
+
+    release.next();
+
+    expect(sent).toEqual(['客', '客服小幫手']);
+    expect(store.busy()).toBe(false);
+    expect(store.settings()?.configuration.name).toBe('客服小幫手');
+    expect(store.savedSettings()?.configuration.name).toBe('客服小幫手');
+  });
+
+  it('keeps the typed value and reports a failure when a write fails outright', async () => {
+    const { store, repository } = setup();
+    await settleResource();
+    repository.updateAssistantSettings = () => throwError(() => new Error('offline'));
+
+    store.updateProfile({ name: '售後服務助理' });
+
+    expect(store.saveStatusLabel()).toBe('目前無法儲存這項變更，請稍後再試。');
+    expect(store.settings()?.configuration.name).toBe('售後服務助理');
+    expect(store.savedSettings()?.configuration.name).toBe('客服助理');
+    expect(store.busy()).toBe(false);
   });
 });

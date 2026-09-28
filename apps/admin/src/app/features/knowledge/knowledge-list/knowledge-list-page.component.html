@@ -47,7 +47,7 @@
         <ng-template dtCell="content" let-item>{{ item.documentCount }} 份文件・{{ item.faqCount }} 則 FAQ</ng-template>
         <ng-template dtCell="status" let-item>{{ processing(item).label }}</ng-template>
         <ng-template dtCell="scope" let-item>{{ scopeLabel(item.sharingScope) }}</ng-template>
-        <ng-template dtCell="assistants" let-item>{{ item.connectedAssistantNames.join('、') || '尚未連接' }}</ng-template>
+        <ng-template dtCell="assistants" let-item>{{ apiMode ? '請在助理設定查看' : (item.connectedAssistantNames.join('、') || '尚未連接') }}</ng-template>
         <ng-template dtCell="updatedAt" let-item><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></ng-template>
       </lib-data-table>
     } @else {

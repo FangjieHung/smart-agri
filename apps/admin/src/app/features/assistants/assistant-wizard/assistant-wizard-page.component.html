@@ -10,7 +10,16 @@
     }
   </app-page-header>
 
-  @if (store.canManage()) {
+  @if (store.loadStatus() === 'loading') {
+    <app-state-panel state="loading" title="正在載入草稿" />
+  } @else if (store.loadStatus() === 'error') {
+    <app-state-panel
+      state="error"
+      title="目前無法載入這份草稿"
+      description="請稍後重新整理頁面再試一次。"
+    />
+    <a class="wizard-return" routerLink="/app/assistants">返回我的助理</a>
+  } @else if (store.canManage()) {
     <nav aria-label="建立步驟">
       <ol class="wizard-steps">
         @for (step of steps; track step.id; let index = $index) {
@@ -57,7 +66,15 @@
           <button type="button" class="wizard-back" (click)="back()">上一步</button>
         }
         @if (currentStep() === 'test') {
-          <button type="button" class="ui-button wizard-create" (click)="create()">建立助理</button>
+          <button
+            type="button"
+            class="ui-button wizard-create"
+            [disabled]="store.creating()"
+            [attr.aria-busy]="store.creating() ? 'true' : null"
+            (click)="create()"
+          >
+            {{ store.creating() ? '建立中…' : '建立助理' }}
+          </button>
         } @else {
           <button type="button" class="ui-button wizard-next" (click)="next()">下一步</button>
         }

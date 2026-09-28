@@ -1,0 +1,16 @@
+<article class="bubble" data-author="assistant" data-state="streaming">
+  <p class="kind"><span class="visually-hidden">助理回覆，</span>正在回答…</p>
+  <p class="text">
+    @for (segment of segments(); track $index) {
+      @if (segment.citation) {
+        <span class="citation-pending" title="引用確認中">{{ segment.text }}</span>
+      } @else {
+        {{ segment.text }}
+      }
+    }
+    <span class="caret" aria-hidden="true"></span>
+  </p>
+  @if (hasCitations()) {
+    <p class="pending-note">引用確認中，回答完成後才能查看來源。</p>
+  }
+</article>

@@ -42,3 +42,12 @@ button.secondary {
   font-weight: 600;
   cursor: pointer;
 }
+
+.channel-unavailable {
+  padding: var(--space-3) var(--space-4);
+  border-inline-start: var(--space-1) solid var(--color-info, var(--color-accent));
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+  color: var(--color-text);
+  line-height: var(--line-height-body);
+}

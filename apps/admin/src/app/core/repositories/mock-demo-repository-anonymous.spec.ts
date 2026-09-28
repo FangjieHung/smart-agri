@@ -95,7 +95,8 @@ describe('MockDemoRepository anonymous visitors', () => {
 
   it('closes the anonymous door when the external channel is paused', async () => {
     const { repository, viewerRef } = createRepository();
-    repository.setPublishingChannelPaused('account-smb-admin', PUBLISHED, 'website', true);
+    viewerRef.current = 'account-smb-admin';
+    await firstValueFrom(repository.setPublishingChannelPaused(PUBLISHED, 'website', true));
 
     expect((await chatAs(viewerRef, repository, VISITOR, PUBLISHED)).status).toBe('permission-denied');
   });

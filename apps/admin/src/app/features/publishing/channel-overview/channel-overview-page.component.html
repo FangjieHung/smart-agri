@@ -6,8 +6,10 @@
   />
 
 
-  @if (result === null || result.status === 'loading') {
+  @if (result.status === 'loading') {
     <app-state-panel state="loading" title="正在載入發布管道" />
+  } @else if (result.status === 'error') {
+    <app-state-panel state="error" title="目前無法載入發布管道" description="請稍後重新整理頁面再試一次。" />
   } @else if (result.status === 'permission-denied') {
     <app-state-panel state="permission-denied" title="無法檢視發布管道" [description]="result.message" />
   } @else if (result.data.length === 0) {

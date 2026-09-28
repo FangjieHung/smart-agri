@@ -1,10 +1,22 @@
 import { Location } from '@angular/common';
 import { DetailLayoutComponent } from '@smart-agri/ui';
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+  viewChild,
+  type TemplateRef,
+} from '@angular/core';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map, of } from 'rxjs';
 import type { AssistantConfigurationView } from '../../../core/domain/assistant.model';
+import type { DeleteAssistantResult } from '../../../core/repositories/demo-repository';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
@@ -52,6 +64,7 @@ const TABS: readonly AssistantTab[] = [
   selector: 'app-assistant-detail-page',
   imports: [
     RouterLink,
+    MatDialogModule,
     DetailLayoutComponent,
     PageHeaderComponent,
     StatePanelComponent,
@@ -71,6 +84,13 @@ export class AssistantDetailPageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
   protected readonly settings = inject(AssistantSettingsStore);
+  private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly deleteDialog = viewChild<TemplateRef<unknown>>('deleteDialog');
+  /** API 模式（M3）還沒有匿名使用統計的端點。 */
+  protected readonly apiMode = inject(ApiSessionService).apiMode;
+  protected readonly deleting = signal(false);
+  protected readonly deleteError = signal('');
   private readonly routeParams = toSignal(this.route.paramMap, {
     initialValue: this.route.snapshot.paramMap,
   });
@@ -101,27 +121,72 @@ export class AssistantDetailPageComponent {
     const requestedTab = this.selectedTabId();
     return TABS.find((tab) => tab.id === requestedTab) ?? TABS[0];
   });
-  protected readonly configuration = computed<AssistantConfigurationView | null>(() => {
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return null;
+  /**
+   * 頁面標題與權限都以設定（`getAssistantSettings`，只有擁有者讀得到）為準：
+   * 載入中、讀取失敗、沒有權限（含不存在）分開顯示。
+   */
+  protected readonly loadStatus = computed(() => this.settings.view().status);
 
-    const result = this.repository.listAssistantConfigurations(accountId);
-    if (result.status !== 'ready') return null;
+  protected readonly configuration = computed<AssistantConfigurationView | null>(
+    () => this.settings.savedSettings()?.configuration ?? null,
+  );
 
-    return result.data.find((assistant) => assistant.id === this.assistantId()) ?? null;
-  });
-
-  /** 匿名使用摘要：只有次數與比例，不含任何對話文字。 */
+  /** 匿名使用摘要：只有次數與比例，不含任何對話文字。API 模式還沒有對應的端點。 */
   protected readonly analytics = computed(() => {
     const accountId = this.session.activeAccountId();
     const configuration = this.configuration();
-    if (!accountId || configuration === null) return null;
+    if (this.apiMode || !accountId || configuration === null) return null;
     const result = this.repository.getAssistantAnalytics(accountId, configuration.id);
     return result.status === 'ready' || result.status === 'partial-failure' ? result.data : null;
   });
 
   protected returnToList(): void {
     void this.router.navigateByUrl('/app/assistants');
+  }
+
+  /** 刪除前一定要確認：所有成員與這個助理的對話都會一併刪除（M3 計畫決定 G）。 */
+  protected confirmDelete(): void {
+    const content = this.deleteDialog();
+    if (!content) return;
+    this.deleteError.set('');
+    this.dialog.open(content, {
+      width: 'min(32rem, calc(100vw - 2rem))',
+      autoFocus: '#assistant-delete-cancel',
+      restoreFocus: true,
+      ariaLabelledBy: 'assistant-delete-title',
+      ariaDescribedBy: 'assistant-delete-detail',
+      role: 'alertdialog',
+    });
+  }
+
+  protected closeDeleteDialog(): void {
+    this.dialog.closeAll();
+  }
+
+  protected deleteConfirmed(): void {
+    if (this.deleting()) return;
+    this.deleting.set(true);
+    this.deleteError.set('');
+    this.repository
+      .deleteAssistant(this.assistantId())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => this.deleted(result),
+        error: () => {
+          this.deleting.set(false);
+          this.deleteError.set('目前無法刪除這個助理，請稍後再試。');
+        },
+      });
+  }
+
+  private deleted(result: DeleteAssistantResult): void {
+    this.deleting.set(false);
+    if (result.status === 'ready' || result.status === 'partial-failure') {
+      this.closeDeleteDialog();
+      void this.router.navigateByUrl('/app/assistants');
+      return;
+    }
+    if (result.status === 'permission-denied') this.deleteError.set(result.message);
   }
 
 }

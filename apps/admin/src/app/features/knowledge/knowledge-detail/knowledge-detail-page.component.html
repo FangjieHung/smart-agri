@@ -122,9 +122,8 @@
         @case ('assistants') {
           <p class="hint">同一個知識庫可以同時提供給多個助理引用。</p>
           @if (isApiMode) {
-            <p class="notice" role="status">助理設定仍為示範資料，這份清單由示範助理推算，不是真實紀錄。</p>
-          }
-          @if (detail.connectedAssistants.length > 0) {
+            <p class="notice" role="status">這裡暫時不列出已連接的助理；請到各助理設定的「資料來源」頁籤查看連接了哪些知識庫。</p>
+          } @else if (detail.connectedAssistants.length > 0) {
             <ul class="assistant-list">
               @for (assistant of detail.connectedAssistants; track assistant.id) {
                 @let status = assistantStatus(assistant.status);

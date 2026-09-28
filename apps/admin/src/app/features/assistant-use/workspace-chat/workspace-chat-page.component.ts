@@ -87,10 +87,15 @@ export class WorkspaceChatPageComponent {
     return thread === undefined ? '' : `已切換到對話：${thread.title}`;
   });
 
+  /** 沒有指定助理時的選單（issue #81：非同步契約；API 模式是真實的助理 GUID）。 */
+  private readonly usable = repositoryResource({
+    params: () => (this.assistantId() === null ? (this.session.activeAccountId() ?? undefined) : undefined),
+    stream: () => this.repository.listUsableAssistants(),
+  });
+  protected readonly pickableView = this.usable.view;
+
   protected readonly pickable = computed<readonly AssistantSummaryView[]>(() => {
-    const accountId = this.session.activeAccountId();
-    if (accountId === null) return [];
-    const result = this.repository.listUsableAssistants(accountId);
+    const result = this.usable.view();
     return result.status === 'ready' || result.status === 'partial-failure' ? result.data : [];
   });
 

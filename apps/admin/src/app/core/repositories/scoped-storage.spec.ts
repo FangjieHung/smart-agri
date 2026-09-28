@@ -1,4 +1,4 @@
-import { createEmptyAssistantDraft } from '../domain/assistant-draft.model';
+import { firstValueFrom } from 'rxjs';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
@@ -80,38 +80,45 @@ describe('MockDemoRepository storage isolation (via a scoped storage double, API
    * 自己拿到的 `options.storage` 是不是被包過；`HybridDemoRepository` 的走線在
    * hybrid-demo-repository.spec.ts 另外驗證。
    */
-  it('keeps one org/account’s draft invisible to another org and to a same-role account in the same org', () => {
+  it('keeps one org/account’s draft invisible to another org and to a same-role account in the same org', async () => {
     const raw = createMemoryStorage();
     let current: StorageIdentity | null = ORG_A_ADMIN;
     const storage = createScopedStorage(raw, () => current);
-    const repository = new MockDemoRepository(DEMO_SEED, { storage });
+    // 命名草稿的擁有者由 `viewer` 選項推導（不再由呼叫端傳入），所以這裡固定用同一個
+    // Demo 身分 id；不同組織／帳號的隔離改由 `storage` 的 scoping 驗證。
+    const repository = new MockDemoRepository(DEMO_SEED, { storage, viewer: () => 'account-smb-admin' });
 
-    const draft = { ...createEmptyAssistantDraft(), name: '組織 A 的草稿' };
-    expect(repository.saveAssistantDraft('account-smb-admin', draft)).toMatchObject({
-      status: 'ready',
-    });
-    expect(repository.getAssistantDraft('account-smb-admin')).toMatchObject({
+    const created = await firstValueFrom(repository.createNamedAssistantDraft());
+    if (created.status !== 'ready') throw new Error(`expected draft to be created, got ${created.status}`);
+    const draftId = created.data.id;
+    const saved = await firstValueFrom(
+      repository.saveNamedAssistantDraft(draftId, { ...created.data.draft, name: '組織 A 的草稿' }, created.data.revision),
+    );
+    if (saved.status !== 'ready') throw new Error(`expected draft to save, got ${saved.status}`);
+
+    expect(await firstValueFrom(repository.getNamedAssistantDraft(draftId))).toMatchObject({
       status: 'ready',
       data: { draft: { name: '組織 A 的草稿' } },
     });
 
-    // 組織 B 的 admin：同一個 Demo 身分 id（`account-smb-admin`），但真實身分不同。
+    // 組織 B 的 admin：同一個 Demo 身分 id（`account-smb-admin`），但真實身分不同，
+    // 底層 storage 看不到組織 A 寫入的草稿清單，所以這個 id 就像不存在一樣。
     current = ORG_B_ADMIN;
-    expect(repository.getAssistantDraft('account-smb-admin')).toEqual({
-      status: 'ready',
-      data: null,
+    expect(await firstValueFrom(repository.getNamedAssistantDraft(draftId))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'assistant-draft',
     });
 
     // 同組織中另一位同角色帳號：真實 accountId 不同，即使 organizationId 相同。
     current = ORG_A_ADMIN_2;
-    expect(repository.getAssistantDraft('account-smb-admin')).toEqual({
-      status: 'ready',
-      data: null,
+    expect(await firstValueFrom(repository.getNamedAssistantDraft(draftId))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'assistant-draft',
     });
 
     // 切回組織 A 的原帳號：草稿仍然看得到。
     current = ORG_A_ADMIN;
-    expect(repository.getAssistantDraft('account-smb-admin')).toMatchObject({
+    expect(await firstValueFrom(repository.getNamedAssistantDraft(draftId))).toMatchObject({
       status: 'ready',
       data: { draft: { name: '組織 A 的草稿' } },
     });

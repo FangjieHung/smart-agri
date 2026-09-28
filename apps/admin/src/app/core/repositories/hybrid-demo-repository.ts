@@ -5,10 +5,42 @@ import {
   type HttpProgressEvent,
   type HttpResponse,
 } from '@angular/common/http';
-import { catchError, filter, map, of, throwError, type Observable } from 'rxjs';
+import { catchError, filter, forkJoin, map, of, switchMap, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
-import type { AssistantId } from '../domain/assistant.model';
+import type {
+  AssistantConfigurationView,
+  AssistantId,
+  AssistantPermission,
+  AssistantSourceReference,
+  AssistantSummaryView,
+} from '../domain/assistant.model';
+import {
+  ASSISTANT_DRAFT_FIELD_STEPS,
+  createEmptyAssistantDraft,
+  type AssistantDraft,
+  type AssistantDraftField,
+  type AssistantDraftFieldError,
+  type ConnectableSourceView,
+  type NamedAssistantDraftView,
+} from '../domain/assistant-draft.model';
+import type {
+  AssistantSettingsField,
+  AssistantSettingsFieldError,
+  AssistantSettingsPatch,
+  AssistantSettingsView,
+} from '../domain/assistant-settings.model';
+import {
+  EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE,
+  PUBLISHING_CHANNEL_NAMES,
+  type AssistantChannelsView,
+  type AssistantPublishingView,
+  type PlatformSharingView,
+  type PublishingChannelStatus,
+  type PublishingChannelType,
+  type PublishingChannelView,
+  type UnavailablePublishingChannelView,
+} from '../domain/publishing.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -34,7 +66,6 @@ import {
   type KnowledgeVersionPreviewView,
   type KnowledgeVersionView,
 } from '../domain/knowledge-base.model';
-import type { ConnectableSourceView } from '../domain/assistant-draft.model';
 import type {
   AssistantChatView,
   ChatMessageView,
@@ -46,9 +77,11 @@ import type {
 import {
   isRepositoryPermissionDeniedReason,
   type ApproveKnowledgeVersionsResult,
+  type CreateAssistantResult,
   type CreateKnowledgeBaseResult,
   type CreateMemberInput,
   type CreateMemberResult,
+  type DeleteAssistantResult,
   type DeleteKnowledgeResult,
   type DisableKnowledgeDocumentResult,
   type EnableKnowledgeDocumentResult,
@@ -60,6 +93,9 @@ import {
   type RepositoryView,
   type RetryKnowledgeDocumentResult,
   type UpdateKnowledgeChunkExclusionResult,
+  type SaveAssistantDraftResult,
+  type UpdateAssistantSettingsResult,
+  type UpdatePlatformSharingResult,
   type UpdateKnowledgeSharingResult,
   type UpdateMemberPermissionsResult,
   type UploadKnowledgeDocumentEvent,
@@ -67,9 +103,10 @@ import {
 import type { DemoSeed } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import {
-  connectableKnowledgeStatus,
+  DRAFT_REVISION_CONFLICT_MESSAGE,
   KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
   MockDemoRepository,
+  normalizeDraftPayload,
   TEAM_PERMISSION_DENIED_MESSAGE,
   type AccountPermissionOverrides,
   type MockDemoRepositoryOptions,
@@ -104,6 +141,20 @@ type ApiChatMessageView = components['schemas']['ChatMessageView'];
 type ApiChatReplyView = components['schemas']['ChatReplyView'];
 type ApiRecentConversationView = components['schemas']['RecentConversationView'];
 type RenameChatThreadRequest = components['schemas']['RenameChatThreadRequest'];
+type ApiAssistantConfiguration = components['schemas']['AssistantConfigurationView'];
+type ApiAssistantSummary = components['schemas']['AssistantSummaryView'];
+type ApiAssistantSettings = components['schemas']['AssistantSettingsView'];
+type UpdateAssistantSettingsRequest = components['schemas']['UpdateAssistantSettingsRequest'];
+type ApiAssistantDraft = components['schemas']['AssistantDraftView'];
+type CreateAssistantDraftRequest = components['schemas']['CreateAssistantDraftRequest'];
+type SaveAssistantDraftRequest = components['schemas']['SaveAssistantDraftRequest'];
+type CreateAssistantFromDraftRequest = components['schemas']['CreateAssistantFromDraftRequest'];
+type ApiConnectableSource = components['schemas']['ConnectableSourceView'];
+type ApiAssistantPublishing = components['schemas']['AssistantPublishingView'];
+type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
+type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
+type UpdatePlatformSharingRequest = components['schemas']['UpdatePlatformSharingRequest'];
+type SetPlatformPausedRequest = components['schemas']['SetPlatformPausedRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -184,6 +235,48 @@ export function apiAssistantChatPath(assistantId: string, threadId?: string): st
 
 export const API_RECENT_CONVERSATIONS_PATH = '/api/v1/chat/recent-conversations';
 
+export const API_ASSISTANTS_PATH = '/api/v1/assistants';
+
+export const API_USABLE_ASSISTANTS_PATH = `${API_ASSISTANTS_PATH}?usable=true`;
+
+export function apiAssistantPath(assistantId: string): string {
+  return `${API_ASSISTANTS_PATH}/${encodeURIComponent(assistantId)}`;
+}
+
+export function apiAssistantSettingsPath(assistantId: string): string {
+  return `${apiAssistantPath(assistantId)}/settings`;
+}
+
+export function apiAssistantKnowledgeSourcePath(assistantId: string, knowledgeBaseId: string): string {
+  return `${apiAssistantPath(assistantId)}/sources/knowledge-base/${encodeURIComponent(knowledgeBaseId)}`;
+}
+
+export function apiAssistantPublishingPath(assistantId: string): string {
+  return `${apiAssistantPath(assistantId)}/publishing`;
+}
+
+export function apiAssistantPlatformSharingPath(assistantId: string): string {
+  return `${apiAssistantPublishingPath(assistantId)}/platform`;
+}
+
+export function apiAssistantPlatformPausedPath(assistantId: string): string {
+  return `${apiAssistantPlatformSharingPath(assistantId)}/paused`;
+}
+
+export const API_ASSISTANT_DRAFTS_PATH = '/api/v1/assistant-drafts';
+
+export function apiAssistantDraftPath(draftId: string): string {
+  return `${API_ASSISTANT_DRAFTS_PATH}/${encodeURIComponent(draftId)}`;
+}
+
+export const API_CONNECTABLE_SOURCES_PATH = '/api/v1/connectable-sources';
+
+/** 草稿 `payload` 的形狀版本（jsonb，形狀由前端決定）；形狀有不相容的變更時才遞增。 */
+export const ASSISTANT_DRAFT_SCHEMA_VERSION = 1;
+
+/** 與後端 `AssistantEndpoints.DatabaseSourcesNotYetAvailableMessage` 相同。 */
+const DATABASE_SOURCES_NOT_AVAILABLE_MESSAGE = '資料庫來源將於後續版本開放，目前只能連接知識庫。';
+
 /** 設定新密碼前 API 回的 403 訊息；與 API 的 `ForbiddenReason.PasswordChangeRequired` 相同。 */
 const PASSWORD_CHANGE_REQUIRED_MESSAGE = '請先設定新密碼，才能使用其他功能。';
 
@@ -213,11 +306,25 @@ const KNOWLEDGE_DENIED: PermissionDeniedFallback = {
   message: KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
 };
 
-/** 對話端點的 403 後端一定會帶 `assistant-use` 或 `chat-thread`；這是保底用的預設值。 */
-const CHAT_DENIED: PermissionDeniedFallback = {
+const ASSISTANT_CONFIGURATION_DENIED: PermissionDeniedFallback = {
+  reason: 'assistant-configuration',
+  message: '你沒有這個助理的設定權限，或它已不存在。',
+};
+const DRAFT_DENIED: PermissionDeniedFallback = {
+  reason: 'assistant-draft',
+  message: '只有可管理助理的帳號可以建立助理。',
+};
+const PUBLISHING_DENIED: PermissionDeniedFallback = {
+  reason: 'publishing',
+  message: '你沒有這個助理的發布設定權限，或它已不存在。',
+};
+const ASSISTANT_USE_DENIED: PermissionDeniedFallback = {
   reason: 'assistant-use',
   message: '你沒有使用這個助理的權限，或它已不存在。',
 };
+
+/** 對話端點的 403 後端一定會帶 `assistant-use` 或 `chat-thread`；這是保底用的預設值。 */
+const CHAT_DENIED: PermissionDeniedFallback = ASSISTANT_USE_DENIED;
 
 /**
  * `/me` 中 mock 需要的部分；API 模式由 `HttpSessionBackend.restore()` 提供。
@@ -281,8 +388,10 @@ interface OwnPermissionsFromTeam {
  *
  * 目前接上 API 的：`getTeam`、`updateMemberPermissions`（M1；M2 起改用真實帳號 GUID
  * 當列表的 key、編輯目標與更新目標，不再換回同角色的 Demo 身分——見 issue #36）；
- * 知識庫的清單、詳情、建立、刪除、重新處理與分享（M2 Slice 11，issue #45）；助理精靈與
- * 設定頁的可連接來源清單（M2 Slice 15，issue #49）。
+ * 知識庫的清單、詳情、建立、刪除、重新處理與分享（M2 Slice 11，issue #45）；對話串的讀取
+ * 與管理（M3 Slice 9，issue #79）；助理的清單、設定、來源連接、刪除、精靈草稿、由草稿建立、
+ * 可連接來源、平台內分享與暫停（M3 Slice 11，issue #81）。M2 期間存在瀏覽器裡的 mock 助理
+ * 與草稿不會遷移到 API（M3 計畫第 7 節已決定 4）。
  *
  * 每個方法的形狀都一樣（後續功能區照做）：`http.<verb>` → `map` 成前端 view →
  * `catchError` 把可恢復的狀態碼（403／404／409／422）轉成結果，其餘錯誤原樣拋出，
@@ -290,13 +399,6 @@ interface OwnPermissionsFromTeam {
  */
 export class HybridDemoRepository extends MockDemoRepository {
   private readonly http: HttpClient;
-  /**
-   * 最近一次從 API 讀到、這個帳號可連接的知識庫。助理仍是 mock（#81 才換 API），
-   * 同步的 `createAssistantFromDraft`／`setAssistantSourceConnection` 要用它驗證來源，
-   * 否則真實 GUID 會被 mock 的種子清單當成「不可連接」而默默濾掉。精靈與設定頁的 store
-   * 一建立就會呼叫 `listConnectableSources`，所以寫入前這份清單已經讀過。
-   */
-  private readonly apiConnectableKnowledge = new Map<AccountId, readonly ConnectableSourceView[]>();
   private readonly viewerPermissions: () => ApiViewerPermissions | null;
   private readonly ownFromTeam: OwnPermissionsFromTeam;
 
@@ -390,6 +492,336 @@ export class HybridDemoRepository extends MockDemoRepository {
     return viewerAccountId;
   }
 
+  // ---------- 助理（M3 Slice 11，issue #81） ----------
+
+  /**
+   * 管理清單：只列自己擁有的助理。沒有 `manage-assistants`（或尚未登入）時直接回傳空清單，
+   * 不打 API——後端這時回 `403`，但對畫面而言就是「還沒有建立助理」，與 mock 相同。
+   */
+  override listAssistantConfigurations(): Observable<RepositoryView<readonly AssistantConfigurationView[]>> {
+    const viewer = this.viewer();
+    if (viewer === null || !this.canManageAssistants(viewer)) return of({ status: 'ready', data: [] });
+
+    return this.http.get<ApiAssistantConfiguration[]>(API_ASSISTANTS_PATH).pipe(
+      map((response): RepositoryView<readonly AssistantConfigurationView[]> => ({
+        status: 'ready',
+        data: response.map((assistant) => toAssistantConfiguration(assistant)),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)),
+    );
+  }
+
+  /**
+   * 可以開啟對話的助理：自己的，加上分享給自己的（`?usable=true`）。後端只給 `viewerIsOwner`，
+   * 這裡換成前端的 `permission`：擁有者依帳號權限是 `configure`（可管理助理）或 `publish`
+   * （只能設定發布），分享對象一律是 `use`。
+   */
+  override listUsableAssistants(): Observable<RepositoryView<readonly AssistantSummaryView[]>> {
+    return this.http.get<ApiAssistantSummary[]>(API_USABLE_ASSISTANTS_PATH).pipe(
+      map((response): RepositoryView<readonly AssistantSummaryView[]> => ({
+        status: 'ready',
+        data: response.map((assistant) => ({
+          id: assistant.id as AssistantId,
+          name: assistant.name,
+          purpose: assistant.purpose,
+          status: assistant.status,
+          audience: 'account-members',
+          permission: assistant.viewerIsOwner ? this.ownerPermission() : 'use',
+        })),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ASSISTANT_USE_DENIED)),
+    );
+  }
+
+  override getAssistantSettings(assistantId: string): Observable<RepositoryView<AssistantSettingsView>> {
+    return this.http.get<ApiAssistantSettings>(apiAssistantSettingsPath(assistantId)).pipe(
+      map((response): RepositoryView<AssistantSettingsView> => ({ status: 'ready', data: toAssistantSettings(response) })),
+      catchError((error: unknown) => this.assistantConfigurationDeniedOrThrow(error)),
+    );
+  }
+
+  /**
+   * `PATCH` 只送後端認得的欄位；使用對象（M3 只有組織內）、資料庫寫入與定期回報屬於 M4，
+   * 畫面在 API 模式不提供這些選項，即使帶進來也不送出。後端全有或全無：`422` 時完全沒有寫入。
+   */
+  override updateAssistantSettings(
+    assistantId: string,
+    patch: AssistantSettingsPatch,
+  ): Observable<UpdateAssistantSettingsResult> {
+    const rules = patch.rules;
+    const body: UpdateAssistantSettingsRequest = {
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.purpose !== undefined ? { purpose: patch.purpose } : {}),
+      ...(patch.tone !== undefined ? { tone: patch.tone } : {}),
+      ...(patch.roleInstructions !== undefined ? { roleInstructions: patch.roleInstructions } : {}),
+      ...(rules !== undefined
+        ? {
+            rules: {
+              ...(rules.knowledgeScope !== undefined ? { knowledgeScope: rules.knowledgeScope } : {}),
+              ...(rules.refusalMessage !== undefined ? { refusalMessage: rules.refusalMessage } : {}),
+              ...(rules.showCitations !== undefined ? { showCitations: rules.showCitations } : {}),
+              ...(rules.keepOwnConversations !== undefined ? { keepConversations: rules.keepOwnConversations } : {}),
+            },
+          }
+        : {}),
+    };
+    return this.http.patch<ApiAssistantSettings>(apiAssistantSettingsPath(assistantId), body).pipe(
+      map((response): UpdateAssistantSettingsResult => ({ status: 'ready', data: toAssistantSettings(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) ? of(settingsValidationFailed(error)) : this.assistantConfigurationDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  /**
+   * 知識庫走 `PUT`／`DELETE .../sources/knowledge-base/{id}`；資料庫在 M3 還不存在，直接回傳
+   * 與後端 `422 database-not-available` 相同的訊息，不必打 API。`422`（不可連接、最後一個來源）
+   * 轉成 `sources` 欄位的錯誤。
+   */
+  override setAssistantSourceConnection(
+    assistantId: string,
+    source: AssistantSourceReference,
+    connected: boolean,
+  ): Observable<UpdateAssistantSettingsResult> {
+    if (source.type === 'database') {
+      return of({
+        status: 'validation-failed',
+        errors: [{ field: 'sources', message: DATABASE_SOURCES_NOT_AVAILABLE_MESSAGE }],
+        message: DATABASE_SOURCES_NOT_AVAILABLE_MESSAGE,
+      });
+    }
+
+    const path = apiAssistantKnowledgeSourcePath(assistantId, source.id);
+    const request = connected
+      ? this.http.put<ApiAssistantSettings>(path, null)
+      : this.http.delete<ApiAssistantSettings>(path);
+    return request.pipe(
+      map((response): UpdateAssistantSettingsResult => ({ status: 'ready', data: toAssistantSettings(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) ? of(settingsValidationFailed(error)) : this.assistantConfigurationDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  /** 後端在同一個交易內連帶刪除所有成員的對話串（M3 計畫決定 G）。 */
+  override deleteAssistant(assistantId: string): Observable<DeleteAssistantResult> {
+    return this.http.delete<void>(apiAssistantPath(assistantId)).pipe(
+      map((): DeleteAssistantResult => ({ status: 'ready', data: null })),
+      catchError((error: unknown) => this.assistantConfigurationDeniedOrThrow(error)),
+    );
+  }
+
+  // ---------- 精靈草稿 ----------
+
+  /** 沒有 `manage-assistants` 時不打 API，回傳與後端相同意義的 `assistant-draft`。 */
+  override listNamedAssistantDrafts(): Observable<RepositoryView<readonly NamedAssistantDraftView[]>> {
+    const viewer = this.viewer();
+    if (viewer === null || !this.canManageAssistants(viewer)) return of(permissionDenied(DRAFT_DENIED));
+
+    return this.http.get<ApiAssistantDraft[]>(API_ASSISTANT_DRAFTS_PATH).pipe(
+      map((response): RepositoryView<readonly NamedAssistantDraftView[]> => ({
+        status: 'ready',
+        data: response.map(toNamedDraft),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, DRAFT_DENIED)),
+    );
+  }
+
+  override createNamedAssistantDraft(): Observable<RepositoryView<NamedAssistantDraftView>> {
+    const body: CreateAssistantDraftRequest = {
+      payload: createEmptyAssistantDraft() as unknown as CreateAssistantDraftRequest['payload'],
+      schemaVersion: ASSISTANT_DRAFT_SCHEMA_VERSION,
+    };
+    return this.http.post<ApiAssistantDraft>(API_ASSISTANT_DRAFTS_PATH, body).pipe(
+      map((response): RepositoryView<NamedAssistantDraftView> => ({ status: 'ready', data: toNamedDraft(response) })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, DRAFT_DENIED)),
+    );
+  }
+
+  override getNamedAssistantDraft(draftId: string): Observable<RepositoryView<NamedAssistantDraftView>> {
+    return this.http.get<ApiAssistantDraft>(apiAssistantDraftPath(draftId)).pipe(
+      map((response): RepositoryView<NamedAssistantDraftView> => ({ status: 'ready', data: toNamedDraft(response) })),
+      catchError((error: unknown) => this.draftDeniedOrThrow(error)),
+    );
+  }
+
+  /**
+   * `PUT` 帶上次讀到的 `revision`；`409 draft-revision-conflict`（另一個分頁先存過）轉成
+   * `conflict`，訊息用後端的。`422`（內容不是物件或超過 64 KB）與其他錯誤一樣以 error 傳出，
+   * 畫面顯示「自動儲存失敗」。
+   */
+  override saveNamedAssistantDraft(
+    draftId: string,
+    draft: AssistantDraft,
+    revision: number,
+  ): Observable<SaveAssistantDraftResult> {
+    const body: SaveAssistantDraftRequest = {
+      payload: draft as unknown as SaveAssistantDraftRequest['payload'],
+      revision,
+      schemaVersion: ASSISTANT_DRAFT_SCHEMA_VERSION,
+    };
+    return this.http.put<ApiAssistantDraft>(apiAssistantDraftPath(draftId), body).pipe(
+      map((response): SaveAssistantDraftResult => ({ status: 'ready', data: toNamedDraft(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 409)
+          ? of<SaveAssistantDraftResult>({
+              status: 'conflict',
+              message: bodyMessage(error) ?? DRAFT_REVISION_CONFLICT_MESSAGE,
+            })
+          : this.draftDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  override discardNamedAssistantDraft(draftId: string): Observable<RepositoryView<null>> {
+    return this.http.delete<void>(apiAssistantDraftPath(draftId)).pipe(
+      map((): RepositoryView<null> => ({ status: 'ready', data: null })),
+      catchError((error: unknown) => this.draftDeniedOrThrow(error)),
+    );
+  }
+
+  /**
+   * `POST /api/v1/assistants { draftId }`：後端以伺服器上保存的草稿為準（呼叫端要先保存），
+   * 所以 `draft` 在這裡不送出。`422` 的 `errors` 是「欄位 → 訊息陣列」物件，轉成前端的
+   * 逐欄錯誤清單；`403` 的 reason 照 body（草稿不存在是 `assistant-draft`）。
+   */
+  override createAssistantFromDraft(draftId: string): Observable<CreateAssistantResult> {
+    const body: CreateAssistantFromDraftRequest = { draftId };
+    return this.http.post<ApiAssistantConfiguration>(API_ASSISTANTS_PATH, body).pipe(
+      map((response): CreateAssistantResult => ({ status: 'ready', data: toAssistantConfiguration(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) ? of(draftValidationFailed(error)) : this.draftDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  /**
+   * 可連接來源（`GET /api/v1/connectable-sources`）：自己的、公開的，以及分享給自己的知識庫
+   * （M3 計畫 Slice 2）。資料庫屬於 M4，API 模式不列出。沒有 `manage-assistants` 時
+   * （或尚未登入）直接回傳空清單，不必打 API，與 mock 相同。
+   */
+  override listConnectableSources(): Observable<RepositoryView<readonly ConnectableSourceView[]>> {
+    const viewer = this.viewer();
+    if (viewer === null || !this.canManageAssistants(viewer)) return of({ status: 'ready', data: [] });
+
+    return this.http.get<ApiConnectableSource[]>(API_CONNECTABLE_SOURCES_PATH).pipe(
+      map((response): RepositoryView<readonly ConnectableSourceView[]> => ({
+        status: 'ready',
+        data: response.map(toConnectableSource),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, DRAFT_DENIED)),
+    );
+  }
+
+  // ---------- 發布（只有組織內部分享；官網與 LINE 在後續版本開放） ----------
+
+  /**
+   * 發布管道總覽：後端沒有總覽端點，所以讀自己擁有的助理，再逐一讀它的發布設定。
+   * 某一個助理讀取被拒（例如沒有 `manage-publishing`）時略過它，與 mock 只列可設定者相同。
+   */
+  override listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>> {
+    const viewer = this.viewer();
+    if (viewer === null || !this.canManageAssistants(viewer)) return of({ status: 'ready', data: [] });
+
+    return this.http.get<ApiAssistantConfiguration[]>(API_ASSISTANTS_PATH).pipe(
+      switchMap((assistants) =>
+        assistants.length === 0
+          ? of([])
+          : forkJoin(
+              assistants.map((assistant) =>
+                this.http.get<ApiAssistantPublishing>(apiAssistantPublishingPath(assistant.id)).pipe(
+                  map((response): AssistantChannelsView | null => {
+                    const view = toAssistantPublishing(response);
+                    return {
+                      assistantId: view.assistantId,
+                      assistantName: view.assistantName,
+                      channels: [view.platform.channel, view.website.channel, view.line.channel],
+                    };
+                  }),
+                  catchError((error: unknown) => (isHttpError(error, 403) ? of(null) : throwError(() => error))),
+                ),
+              ),
+            ),
+      ),
+      map((entries): RepositoryView<readonly AssistantChannelsView[]> => ({
+        status: 'ready',
+        data: entries.filter((entry): entry is AssistantChannelsView => entry !== null),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, PUBLISHING_DENIED)),
+    );
+  }
+
+  override listPublishingChannels(): Observable<RepositoryView<readonly PublishingChannelView[]>> {
+    return this.listChannelOverview().pipe(
+      map((result): RepositoryView<readonly PublishingChannelView[]> =>
+        result.status === 'ready' || result.status === 'partial-failure'
+          ? { status: 'ready', data: result.data.flatMap((entry) => entry.channels) }
+          : result,
+      ),
+    );
+  }
+
+  override getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>> {
+    return this.http.get<ApiAssistantPublishing>(apiAssistantPublishingPath(assistantId)).pipe(
+      map((response): RepositoryView<AssistantPublishingView> => ({ status: 'ready', data: toAssistantPublishing(response) })),
+      catchError((error: unknown) => this.publishingDeniedOrThrow(error)),
+    );
+  }
+
+  /**
+   * 整份取代分享對象。後端會默默濾掉自己、未知與其他組織的帳號（與知識庫分享相同），
+   * 所以沒有 validation-failed；回傳的 `allowedAccountIds` 才是實際生效的清單。
+   */
+  override updatePlatformSharing(
+    assistantId: string,
+    accountIds: readonly AccountId[],
+  ): Observable<UpdatePlatformSharingResult> {
+    const body: UpdatePlatformSharingRequest = { accountIds: [...accountIds] };
+    return this.http.put<ApiPlatformSharing>(apiAssistantPlatformSharingPath(assistantId), body).pipe(
+      map((response): UpdatePlatformSharingResult => ({ status: 'ready', data: toPlatformSharing(response) })),
+      catchError((error: unknown) => this.publishingDeniedOrThrow(error)),
+    );
+  }
+
+  /** 只有平台內管道可以暫停（暫停的就是助理本身）；官網與 LINE 尚未開放，視同沒有權限。 */
+  override setPublishingChannelPaused(
+    assistantId: string,
+    channelType: PublishingChannelType,
+    paused: boolean,
+  ): Observable<RepositoryView<PublishingChannelView>> {
+    if (channelType !== 'platform') return of(permissionDenied(PUBLISHING_DENIED));
+
+    const body: SetPlatformPausedRequest = { paused };
+    return this.http.put<ApiPublishingChannel>(apiAssistantPlatformPausedPath(assistantId), body).pipe(
+      map((response): RepositoryView<PublishingChannelView> => ({ status: 'ready', data: toPublishingChannel(response) })),
+      catchError((error: unknown) => this.publishingDeniedOrThrow(error)),
+    );
+  }
+
+  /** 擁有者在前端的 `permission`：可管理助理 → `configure`，只能設定發布 → `publish`。 */
+  private ownerPermission(): AssistantPermission {
+    const viewer = this.viewer();
+    if (viewer !== null && this.canManageAssistants(viewer)) return 'configure';
+    const permissions = this.viewerPermissions()?.permissions ?? [];
+    return permissions.includes('manage-publishing') ? 'publish' : 'use';
+  }
+
+  /** `403`（不存在、別人的、別的組織的都一樣）與 `404`（id 不是 GUID，例如 mock 的助理 id）。 */
+  private assistantConfigurationDeniedOrThrow(error: unknown): Observable<PermissionDeniedRepositoryView> {
+    if (isHttpError(error, 404)) return of(permissionDenied(ASSISTANT_CONFIGURATION_DENIED));
+    return this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED);
+  }
+
+  private draftDeniedOrThrow(error: unknown): Observable<PermissionDeniedRepositoryView> {
+    if (isHttpError(error, 404)) return of(permissionDenied(DRAFT_DENIED));
+    return this.permissionDeniedOrThrow(error, DRAFT_DENIED);
+  }
+
+  private publishingDeniedOrThrow(error: unknown): Observable<PermissionDeniedRepositoryView> {
+    if (isHttpError(error, 404)) return of(permissionDenied(PUBLISHING_DENIED));
+    return this.permissionDeniedOrThrow(error, PUBLISHING_DENIED);
+  }
+
   // ---------- 知識庫 ----------
 
   override listKnowledgeBaseSummaries(): Observable<RepositoryView<readonly KnowledgeBaseSummaryView[]>> {
@@ -400,50 +832,6 @@ export class HybridDemoRepository extends MockDemoRepository {
       })),
       catchError((error: unknown) => this.permissionDeniedOrThrow(error, KNOWLEDGE_DENIED)),
     );
-  }
-
-  /**
-   * 助理精靈與設定頁的可連接來源清單（M2 Slice 15，issue #49）：知識庫走 API、只列出
-   * `viewerCanManage` 為真的（與 mock 只列自己擁有的一致），資料庫仍是 mock，
-   * 由繼承的 `connectableDatabaseSources` 補上。沒有 `manage-assistants` 權限時
-   * （或尚未登入）直接回傳空清單，不必打 API。
-   */
-  override listConnectableSources(): Observable<RepositoryView<readonly ConnectableSourceView[]>> {
-    const viewer = this.viewer();
-    if (viewer === null || !this.canManageAssistants(viewer)) {
-      return of({ status: 'ready', data: [] });
-    }
-
-    return this.http.get<ApiKnowledgeBaseSummary[]>(API_KNOWLEDGE_BASES_PATH).pipe(
-      map((response): RepositoryView<readonly ConnectableSourceView[]> => {
-        const knowledgeBases = response
-          .filter((summary) => summary.viewerCanManage)
-          .map((summary): ConnectableSourceView => ({
-            id: summary.id,
-            type: 'knowledge-base',
-            name: summary.name,
-            summary: `${summary.documentCount} 份文件、${summary.faqCount} 則 FAQ`,
-            permission: 'owner',
-            status: connectableKnowledgeStatus(summary.statusCounts),
-            updatedAt: summary.updatedAt,
-          }));
-
-        this.apiConnectableKnowledge.set(viewer, knowledgeBases);
-        return {
-          status: 'ready',
-          data: [...knowledgeBases, ...this.connectableDatabaseSources(viewer)],
-        };
-      }),
-      catchError((error: unknown) => this.permissionDeniedOrThrow(error, KNOWLEDGE_DENIED)),
-    );
-  }
-
-  protected override connectableSources(viewerAccountId: AccountId): readonly ConnectableSourceView[] {
-    if (!this.canManageAssistants(viewerAccountId)) return [];
-    return [
-      ...(this.apiConnectableKnowledge.get(viewerAccountId) ?? []),
-      ...this.connectableDatabaseSources(viewerAccountId),
-    ];
   }
 
   override getKnowledgeBaseDetail(knowledgeBaseId: string): Observable<RepositoryView<KnowledgeBaseDetailView>> {
@@ -620,7 +1008,7 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  // ---------- 對話（issue #79：讀取與對話串管理走 API，送出訊息仍是 mock，見 #80） ----------
+  // ---------- 對話（issue #79：讀取與對話串管理走 API；送出訊息走 AG-UI 串流，見 core/chat 與 #80） ----------
 
   override listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>> {
     return this.http.get<ApiChatThreadListView>(apiAssistantChatConversationsPath(assistantId)).pipe(
@@ -745,15 +1133,6 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  /**
-   * 後端沒有「已連接助理」（助理在 M3 之前仍是前端 mock 資料），由 mock 的助理補上：
-   * 連接到這個 id 的、目前 Demo 身分自己的助理。
-   */
-  private connectedAssistantsOf(knowledgeBaseId: string) {
-    const viewer = this.viewer();
-    return viewer === null ? [] : this.connectedKnowledgeAssistants(viewer, knowledgeBaseId);
-  }
-
   private fromApiSummary(summary: ApiKnowledgeBaseSummary): KnowledgeBaseSummaryView {
     return {
       id: summary.id,
@@ -763,7 +1142,9 @@ export class HybridDemoRepository extends MockDemoRepository {
       faqCount: summary.faqCount,
       statusCounts: { ...summary.statusCounts },
       sharingScope: summary.sharingScope,
-      connectedAssistantNames: this.connectedAssistantsOf(summary.id).map((assistant) => assistant.name),
+      // 後端的知識庫回應沒有「已連接助理」，mock 助理在 API 模式也已不存在（issue #81）：
+      // 畫面在 API 模式改成提示到助理的「資料來源」頁籤查看，這裡一律是空清單。
+      connectedAssistantNames: [],
       updatedAt: summary.updatedAt,
       viewerCanManage: summary.viewerCanManage,
       inEffectCount: summary.inEffectCount,
@@ -776,7 +1157,7 @@ export class HybridDemoRepository extends MockDemoRepository {
     return {
       summary: this.fromApiSummary(detail.summary),
       documents: detail.documents.map(toKnowledgeDocument),
-      connectedAssistants: this.connectedAssistantsOf(detail.summary.id),
+      connectedAssistants: [],
       sharing: toKnowledgeSharing(detail.sharing),
       shareTargets: detail.shareTargets.map(({ id, displayName }) => ({ id, displayName })),
     };
@@ -870,6 +1251,204 @@ function bodyMessage(error: HttpErrorResponse): string | null {
   if (typeof body.message === 'string') return body.message;
   const firstField = Object.values(body.errors ?? {})[0];
   return Array.isArray(firstField) && typeof firstField[0] === 'string' ? firstField[0] : null;
+}
+
+// ---------- 助理的轉換 ----------
+
+/**
+ * 後端的助理只有 M3 資料模型的欄位（計畫第 4 節）：沒有使用對象（M3 只開放組織內部）、
+ * 分享清單、資料庫與「保存對話」。清單不需要這些欄位，這裡填入 M3 的固定值；
+ * 已連接的知識庫與對話保存以設定（`toAssistantSettings`）為準。
+ */
+function toAssistantConfiguration(
+  assistant: ApiAssistantConfiguration,
+  knowledgeBaseIds: readonly string[] = [],
+  keepOwnConversations = true,
+): AssistantConfigurationView {
+  return {
+    id: assistant.id as AssistantId,
+    ownerAccountId: assistant.ownerAccountId as AccountId,
+    name: assistant.name,
+    purpose: assistant.purpose,
+    status: assistant.status,
+    audience: 'account-members',
+    sharedWithAccountIds: [],
+    knowledgeBaseIds: [...knowledgeBaseIds],
+    databaseIds: [],
+    keepOwnConversations,
+  };
+}
+
+/** `savedAt`：建立後從未修改過（`updatedAt === createdAt`）時是 null，與 mock 的「尚未編輯」相同。 */
+function toAssistantSettings(settings: ApiAssistantSettings): AssistantSettingsView {
+  const { configuration, rules } = settings;
+  return {
+    configuration: toAssistantConfiguration(configuration, settings.knowledgeBaseIds, rules.keepConversations),
+    sources: settings.knowledgeBaseIds.map((id): AssistantSourceReference => ({ id, type: 'knowledge-base' })),
+    tone: settings.tone,
+    roleInstructions: settings.roleInstructions,
+    rules: {
+      knowledgeScope: rules.knowledgeScope,
+      refusalMessage: rules.refusalMessage,
+      showCitations: rules.showCitations,
+      keepOwnConversations: rules.keepConversations,
+      // 資料庫寫入與定期回報屬於 M4，後端沒有這些欄位。
+      dataWriteDatabaseId: null,
+      dataWritePurpose: '',
+      periodicReport: 'off',
+    },
+    savedAt: configuration.updatedAt === configuration.createdAt ? null : configuration.updatedAt,
+  };
+}
+
+/** 草稿的 `payload` 是前端自己的 `AssistantDraft`；形狀不對（理論上不會）時當成空白草稿。 */
+function toNamedDraft(draft: ApiAssistantDraft): NamedAssistantDraftView {
+  return {
+    id: draft.id,
+    draft: normalizeDraftPayload(draft.payload) ?? createEmptyAssistantDraft(),
+    savedAt: draft.savedAt,
+    revision: draft.revision,
+  };
+}
+
+const CONNECTABLE_STATUSES: readonly ConnectableSourceView['status'][] = ['ready', 'processing', 'needs-attention'];
+
+function toConnectableSource(source: ApiConnectableSource): ConnectableSourceView {
+  return {
+    id: source.id,
+    type: 'knowledge-base',
+    name: source.name,
+    summary: source.summary,
+    permission: source.permission === 'owner' ? 'owner' : 'read-only',
+    status: CONNECTABLE_STATUSES.find((status) => status === source.status) ?? 'ready',
+    updatedAt: source.updatedAt,
+  };
+}
+
+const CHANNEL_STATUSES: readonly PublishingChannelStatus[] = [
+  'not-configured',
+  'testing',
+  'published',
+  'needs-attention',
+  'paused',
+];
+
+/**
+ * 後端的管道 `name` 是助理名稱；前端的卡片與清單用的是管道名稱（「組織內部分享」），
+ * 所以名稱依類型換成前端的固定文字。
+ */
+function toPublishingChannel(channel: ApiPublishingChannel): PublishingChannelView {
+  const type: PublishingChannelType = channel.type === 'website' || channel.type === 'line' ? channel.type : 'platform';
+  return {
+    id: `channel-${type}:${channel.assistantId as AssistantId}`,
+    assistantId: channel.assistantId as AssistantId,
+    ownerAccountId: channel.ownerAccountId as AccountId,
+    name: PUBLISHING_CHANNEL_NAMES[type],
+    type,
+    status: CHANNEL_STATUSES.find((status) => status === channel.status) ?? 'not-configured',
+    statusDetail: channel.statusDetail,
+    updatedAt: channel.updatedAt,
+  };
+}
+
+function toPlatformSharing(platform: ApiPlatformSharing): PlatformSharingView {
+  return {
+    channel: toPublishingChannel(platform.channel),
+    usagePath: platform.usagePath,
+    allowedAccountIds: platform.allowedAccountIds.map((id) => id as AccountId),
+    candidates: platform.candidates.map((candidate) => ({
+      id: candidate.id as AccountId,
+      displayName: candidate.displayName,
+      // M3 的分享只看帳號，不看角色（計畫第 3 節），所以不顯示使用對象。
+      audienceLabel: '組織成員',
+    })),
+  };
+}
+
+/** 官網與 LINE 在 M3 固定是 `not-available`：卡片顯示「尚未設定」加上後端的說明。 */
+function unavailableChannel(
+  type: Exclude<PublishingChannelType, 'platform'>,
+  platform: PublishingChannelView,
+  message: string,
+): UnavailablePublishingChannelView {
+  return {
+    availability: 'not-available',
+    message,
+    channel: {
+      id: `channel-${type}:${platform.assistantId}`,
+      assistantId: platform.assistantId,
+      ownerAccountId: platform.ownerAccountId,
+      name: PUBLISHING_CHANNEL_NAMES[type],
+      type,
+      status: 'not-configured',
+      statusDetail: message,
+      updatedAt: platform.updatedAt,
+    },
+  };
+}
+
+function toAssistantPublishing(response: ApiAssistantPublishing): AssistantPublishingView {
+  const platform = toPlatformSharing(response.platform);
+  return {
+    assistantId: response.assistantId as AssistantId,
+    assistantName: response.assistantName,
+    platform,
+    website: unavailableChannel('website', platform.channel, response.website.message || EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
+    line: unavailableChannel('line', platform.channel, response.line.message || EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
+  };
+}
+
+/**
+ * 後端 `422` 的 `errors` 是「欄位 → 訊息陣列」物件（`ApiErrors.ValidationFailed`），前端是
+ * `{ field, message }[]`。認得的欄位照原名，其餘併到 `fallback`，訊息一則都不丟。
+ */
+function fieldErrorsOf<F extends string>(
+  error: HttpErrorResponse,
+  known: readonly F[],
+  fallback: F,
+): { field: F; message: string }[] {
+  const body = (error.error ?? {}) as ValidationFailedBody;
+  const errors: { field: F; message: string }[] = [];
+  for (const [key, messages] of Object.entries(body.errors ?? {})) {
+    const field = known.find((candidate) => candidate === key) ?? fallback;
+    for (const message of Array.isArray(messages) ? messages : [messages]) {
+      if (typeof message === 'string') errors.push({ field, message });
+    }
+  }
+  return errors;
+}
+
+const SETTINGS_FIELDS: readonly AssistantSettingsField[] = [
+  'name',
+  'purpose',
+  'audience',
+  'tone',
+  'roleInstructions',
+  'knowledgeScope',
+  'refusalMessage',
+  'dataWritePurpose',
+  'sources',
+];
+
+function settingsValidationFailed(error: HttpErrorResponse): UpdateAssistantSettingsResult {
+  const errors: AssistantSettingsFieldError[] = fieldErrorsOf(error, SETTINGS_FIELDS, 'name');
+  const message = bodyMessage(error) ?? errors[0]?.message ?? '這次變更沒有儲存，請再試一次。';
+  return {
+    status: 'validation-failed',
+    errors: errors.length > 0 ? errors : [{ field: 'sources', message }],
+    message,
+  };
+}
+
+const DRAFT_FIELDS = Object.keys(ASSISTANT_DRAFT_FIELD_STEPS) as AssistantDraftField[];
+
+function draftValidationFailed(error: HttpErrorResponse): CreateAssistantResult {
+  const errors: AssistantDraftFieldError[] = fieldErrorsOf(error, DRAFT_FIELDS, 'name');
+  return {
+    status: 'validation-failed',
+    errors,
+    message: bodyMessage(error) ?? errors[0]?.message ?? '還有必要設定尚未完成。',
+  };
 }
 
 function toKnowledgeDocument(document: ApiKnowledgeDocument): KnowledgeDocumentView {
@@ -1053,8 +1632,11 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
   };
 }
 
-function toChatMessage(message: ApiChatMessageView): ChatMessageView {
-  if (message.reply !== null) {
+/** 也給 AG-UI 串流的 `smartagri.reply` 使用（`ag-ui-chat-runner.ts`；值與 `GET chat` 的訊息相同）。 */
+export function toChatMessage(message: ApiChatMessageView): ChatMessageView {
+  // 後端以 `JsonIgnore(WhenWritingNull)` 省略 null 欄位：使用者訊息根本沒有 `reply` 這個鍵
+  // （OpenAPI 產生的型別卻寫成必填的 `null | …`），所以 `undefined` 要與 `null` 一視同仁。
+  if (message.reply !== null && message.reply !== undefined) {
     return { id: message.id, author: 'assistant', reply: toChatReply(message.reply), createdAt: message.createdAt };
   }
   return { id: message.id, author: 'account', text: message.text ?? '', createdAt: message.createdAt };

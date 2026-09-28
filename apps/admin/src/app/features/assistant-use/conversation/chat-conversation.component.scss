@@ -138,6 +138,13 @@ h1 { font-size: var(--font-size-heading); line-height: var(--line-height-heading
   cursor: pointer;
 }
 
+.composer button:disabled, .suggested-prompt:disabled { opacity: 0.6; cursor: not-allowed; }
+.composer .stop { border: 1px solid var(--color-accent); background: var(--color-surface); color: var(--color-accent); }
+
+.run-note { margin: var(--space-1) 0 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); text-align: end; }
+.run-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.run-error p { margin: 0; }
+
 .composer-hint, .composer-error { font-size: var(--font-size-caption); }
 .composer-hint { color: var(--color-text-secondary); }
 .composer-error { color: var(--color-error); font-weight: 700; }
@@ -154,14 +161,14 @@ a:focus-visible, button:focus-visible, input:focus-visible {
   }
 }
 
-.withdraw-feedback, .withdraw-error {
+.withdraw-feedback, .withdraw-error, .run-error {
   margin: 0;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
   line-height: var(--line-height-body);
 }
 .withdraw-feedback { background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface)); }
-.withdraw-error { background: color-mix(in srgb, var(--color-error) 12%, var(--color-surface)); color: var(--color-error); font-weight: 700; }
+.withdraw-error, .run-error { background: color-mix(in srgb, var(--color-error) 12%, var(--color-surface)); color: var(--color-error); font-weight: 700; }
 
 .confirm-backdrop {
   position: fixed;
@@ -186,7 +193,7 @@ a:focus-visible, button:focus-visible, input:focus-visible {
 .confirm-title { margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
 .confirm-detail { margin: 0; color: var(--color-text-secondary); line-height: var(--line-height-body); }
 .confirm-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
-.confirm-actions button {
+.confirm-actions button, .retry {
   min-block-size: var(--target-size);
   padding: var(--space-2) var(--space-4);
   border: var(--border-default);
@@ -196,5 +203,6 @@ a:focus-visible, button:focus-visible, input:focus-visible {
   font-weight: 700;
   cursor: pointer;
 }
+.retry { border-color: var(--color-error); color: var(--color-error); }
 .confirm-withdraw { border-color: var(--color-error); background: var(--color-error); color: #fff; }
 .confirm-actions button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

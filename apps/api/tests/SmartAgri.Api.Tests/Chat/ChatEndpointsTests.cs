@@ -202,6 +202,10 @@ public class ChatEndpointsTests : IClassFixture<AuthHostFixture>
 
         // No ?conversation= given: opens the most recently active thread.
         var chat = await BodyJsonAsync(await admin.Spa.GetAsync($"/api/v1/assistants/{assistantId}/chat", admin.Token));
+        // Issue #106: the account message has no "reply" key's worth of content and the assistant
+        // message has no "text" key's worth of content, but the OpenAPI document marks both
+        // required on ChatMessageView — so both must still be present, as explicit `null`.
+        OpenApiContract.AssertKeysMatchSchema(chat, "AssistantChatView");
         chat.GetProperty("threadId").GetGuid().ShouldBe(newerThreadId);
         var messages = chat.GetProperty("messages").EnumerateArray().ToList();
         messages.Count.ShouldBe(2);

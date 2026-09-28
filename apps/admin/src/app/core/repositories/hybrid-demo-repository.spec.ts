@@ -1541,9 +1541,41 @@ describe('HybridDemoRepository chat (issue #79)', () => {
     });
   });
 
-  it('reads a conversation whose account message has no reply key at all, as the backend really sends it', async () => {
-    // 後端省略 null 欄位（`JsonIgnore(WhenWritingNull)`）：使用者訊息沒有 `reply`、助理訊息沒有 `text`／`notice`。
-    // 這是 `GET chat` 的實際 JSON；曾因 `reply !== null` 把 `undefined` 當成助理訊息而讓整頁顯示「目前無法開啟對話」。
+  it('reads a conversation as the backend really sends it now: every field present, inapplicable ones explicit null', async () => {
+    // issue #106：後端已改成一律輸出 `null`（不再用 `JsonIgnore(WhenWritingNull)` 省略），所以
+    // 使用者訊息一樣有 `reply: null`、助理訊息一樣有 `text: null`／`notice: null`。這是 `GET chat`
+    // 目前的實際 JSON；OpenAPI 文件本來就把這些欄位標成必填，這次改動讓兩者一致。
+    const wire = JSON.parse(`{
+      "assistantId": "${CHAT_ASSISTANT_ID}", "assistantName": "客服助理", "purpose": "回答退換貨問題",
+      "threadId": "${CHAT_THREAD_ID}", "title": "退貨", "historyMode": "saved", "welcome": "你好", "privacyNotice": "只有你看得到",
+      "suggestedPrompts": [],
+      "messages": [
+        { "id": "0199a000-0000-7000-8000-0000000000d1", "author": "account", "text": "收到商品後幾天內可以退貨？", "reply": null, "createdAt": "2026-09-27T01:00:00+00:00" },
+        { "id": "0199a000-0000-7000-8000-0000000000d2", "author": "assistant", "text": null, "createdAt": "2026-09-27T01:00:01+00:00",
+          "reply": { "kind": "company-data", "text": "7 天內可以退貨 [1]。", "notice": null, "nextSteps": [],
+            "citations": [ { "id": "citation-1", "knowledgeBaseName": "退換貨政策", "documentName": "退換貨辦法.pdf", "excerpt": "7 天內", "updatedLabel": "2026-09-27" } ] } }
+      ]
+    }`) as ApiAssistantChatView;
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID, CHAT_THREAD_ID));
+
+    controller.expectOne({ method: 'GET', url: apiAssistantChatPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID) }).flush(wire);
+
+    const view = await result;
+    if (view.status !== 'ready') throw new Error(`expected ready, got ${view.status}`);
+    expect(view.data.messages[0]).toEqual({
+      id: '0199a000-0000-7000-8000-0000000000d1',
+      author: 'account',
+      text: '收到商品後幾天內可以退貨？',
+      createdAt: '2026-09-27T01:00:00+00:00',
+    });
+    expect(view.data.messages[1]).toMatchObject({ author: 'assistant', reply: { kind: 'company-data', citationNotice: null } });
+  });
+
+  it('still tolerates the old omitted-key shape defensively (PR #103), even though the backend no longer sends it', async () => {
+    // 這條保留 PR #103 修的防禦：`toChatMessage` 把 `undefined` 與 `null` 一視同仁。issue #106
+    // 後端已改成一律輸出 `null`（上一條測試），所以這裡的省略鍵不再是實際會發生的情況，但保留這條
+    // 測試確保 adapter 的防禦邏輯不會被誤刪。
     const wire = JSON.parse(`{
       "assistantId": "${CHAT_ASSISTANT_ID}", "assistantName": "客服助理", "purpose": "回答退換貨問題",
       "threadId": "${CHAT_THREAD_ID}", "title": "退貨", "historyMode": "saved", "welcome": "你好", "privacyNotice": "只有你看得到",
@@ -2307,7 +2339,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     });
   });
 
-  it('maps a general-knowledge reply from the actual JSON the backend sends (nullable notice omitted, issue #103’s lesson)', async () => {
+  it('maps a general-knowledge reply from the actual JSON the backend sends (notice present as explicit null)', async () => {
     const { repository } = setUpAssistants();
     const draft = completeDraft([]);
     const result = pending(
@@ -2319,10 +2351,11 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     );
 
     const request = controller.expectOne({ method: 'POST', url: apiTrialAnswersPath(DRAFT_ID) });
-    // 用實際的 JSON 字串驗證：PR #103 發現後端會用 `JsonIgnore(WhenWritingNull)` 省略掉
-    // nullable 的欄位，而 OpenAPI 仍標成必填——這裡故意不送 `notice`，確認 adapter 不會炸掉。
+    // 用實際的 JSON 字串驗證：`TrialAnswerReplyView.Notice` 從來沒有用過 `JsonIgnore`（issue #106
+    // 掃過全 repo，只有 ChatReplyView／ChatMessageView 有這個問題），所以這裡的 `notice` 一直都是
+    // 明確的 `null`，不是省略；adapter 用 `notice ?? ''` 處理它。
     const body = JSON.parse(
-      '{"reply":{"kind":"general-knowledge","text":"一般建議避免長時間日曬與潮濕。","citations":[],"nextSteps":[]},"passages":[],"threshold":0.3}',
+      '{"reply":{"kind":"general-knowledge","text":"一般建議避免長時間日曬與潮濕。","citations":[],"notice":null,"nextSteps":[]},"passages":[],"threshold":0.3}',
     ) as unknown;
     request.flush(body as never);
 

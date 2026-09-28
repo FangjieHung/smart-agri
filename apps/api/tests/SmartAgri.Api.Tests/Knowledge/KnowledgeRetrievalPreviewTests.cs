@@ -339,6 +339,9 @@ public sealed class KnowledgeRetrievalPreviewTests : IClassFixture<KnowledgeRetr
         var response = await owner.Spa.PostAsync(PreviewPath(owner.KnowledgeBaseId), owner.Token, new { question, includePending, top });
         var body = await response.Content.ReadAsStringAsync(CancellationToken);
         response.StatusCode.ShouldBe(HttpStatusCode.OK, body);
+        // Issue #106: every call through here gets the OpenAPI contract check for free, since
+        // this is the one place all of this file's requests go through.
+        OpenApiContract.AssertKeysMatchSchema(JsonDocument.Parse(body).RootElement, "KnowledgeRetrievalPreviewView");
         return JsonSerializer.Deserialize<Preview>(body, JsonSerializerOptions.Web)!;
     }
 

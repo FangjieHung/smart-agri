@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
@@ -18,10 +17,14 @@ namespace SmartAgri.Api.Chat;
 // - ids are GUIDs, and ChatCitationView.id is a plain string ("citation-{messageId}-{ordinal}")
 //   rather than the frontend's branded `citation-${string}`;
 // - ChatMessageView / ChatReplyView are not true discriminated unions on the wire: both are one
-//   C# record with the inapplicable fields omitted (JsonIgnore on null), since Minimal API/System.Text.Json
-//   has no built-in support for an OpenAPI oneOf keyed by a sibling "kind"/"author" string the way the
-//   frontend's TS union is. A future ticket can special-case the OpenAPI document if the generated
-//   TS type needs to be a true union instead of an all-optional shape;
+//   C# record with the inapplicable fields always sent as `null` (not omitted — issue #106: an
+//   earlier version used JsonIgnore(WhenWritingNull) to omit them, but that made the actual JSON
+//   disagree with the generated OpenAPI document, which describes every property as required.
+//   PR #103 worked around the resulting frontend bug; this is the real fix), since Minimal
+//   API/System.Text.Json has no built-in support for an OpenAPI oneOf keyed by a sibling
+//   "kind"/"author" string the way the frontend's TS union is. A future ticket can special-case
+//   the OpenAPI document if the generated TS type needs to be a true union instead of an
+//   all-optional shape;
 // - AssistantChatView.welcome / .privacyNotice / .suggestedPrompts have no backing data model yet
 //   (M3 plan §4 does not add an Assistant field for them, and the wizard's suggested-prompt system,
 //   mapping §5.6 point 3, is explicitly fixture-only and out of scope): welcome and privacyNotice are
@@ -42,16 +45,18 @@ public sealed record ChatReplyView(
     string Kind,
     string Text,
     IReadOnlyList<ChatCitationView> Citations,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Notice,
+    string? Notice,
     IReadOnlyList<string> NextSteps);
 
 /// <summary>One turn. <see cref="Text"/> is set for <c>author: "account"</c>,
-/// <see cref="Reply"/> for <c>author: "assistant"</c> — never both.</summary>
+/// <see cref="Reply"/> for <c>author: "assistant"</c> — never both. Both are always present in
+/// the JSON as either a value or explicit <c>null</c> (issue #106), matching what the OpenAPI
+/// document already describes.</summary>
 public sealed record ChatMessageView(
     Guid Id,
     string Author,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Text,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ChatReplyView? Reply,
+    string? Text,
+    ChatReplyView? Reply,
     DateTimeOffset CreatedAt);
 
 /// <summary>A suggested opening prompt; always empty in this slice (see the class-level note).</summary>

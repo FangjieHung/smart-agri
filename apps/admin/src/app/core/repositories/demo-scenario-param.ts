@@ -3,7 +3,8 @@ import { DEMO_SCENARIOS, type DemoScenario } from './demo-repository';
 /**
  * Demo：用網址參數預覽狀態，例如
  * `/app/knowledge?demoScenario=loading`、`?demoScenario=partial-failure`、
- * `?demoScenario=permission-denied`、`?demoScenario=disconnected-channel`。
+ * `?demoScenario=permission-denied`、`?demoScenario=disconnected-channel`，
+ * 以及對話的 `/app/chat/...?demoScenario=answer-rejected`（串流完的回答被整則換成查無資料）。
  * 只影響這個 mock repository，不代表真實後端行為。
  */
 export const DEMO_SCENARIO_PARAM = 'demoScenario';

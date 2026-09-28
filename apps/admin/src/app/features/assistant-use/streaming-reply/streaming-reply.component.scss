@@ -1,0 +1,43 @@
+:host { display: flex; }
+
+p { margin: 0; }
+
+.bubble {
+  display: grid;
+  gap: var(--space-2);
+  max-inline-size: min(100%, 36rem);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-default);
+  border-inline-start: var(--space-1) solid var(--color-text-secondary);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+
+.kind, .pending-note { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.kind { font-weight: 700; }
+
+/* 還沒通過引用驗證：看起來像引用，但不是連結、也不能點。 */
+.citation-pending {
+  padding-inline: 0.15em;
+  border-block-end: 1px dashed currentColor;
+  color: var(--color-text-secondary);
+  cursor: default;
+}
+
+.caret {
+  display: inline-block;
+  inline-size: 0.5em;
+  block-size: 1em;
+  margin-inline-start: 0.1em;
+  vertical-align: text-bottom;
+  background: var(--color-text-secondary);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink { to { visibility: hidden; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .caret { animation: none; }
+}

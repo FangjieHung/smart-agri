@@ -55,7 +55,17 @@
       }
       <p class="welcome">{{ current.welcome }}</p>
 
-      <div class="message-log" role="log" aria-live="polite" aria-relevant="additions" aria-label="對話內容">
+      <!--
+        串流期間整個紀錄 aria-busy：螢幕報讀器不會逐字朗讀，完成時最終回覆以新增的項目朗讀一次。
+      -->
+      <div
+        class="message-log"
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-label="對話內容"
+        [attr.aria-busy]="streaming() ? 'true' : null"
+      >
         <ol #log class="messages">
           @for (message of current.messages; track message.id) {
             <li>
@@ -68,8 +78,46 @@
               />
             </li>
           }
+          @for (entry of local(); track entry.message.id) {
+            <li>
+              <app-chat-message
+                [message]="entry.message"
+                [formActive]="isFormRequest(entry.message) && flow().step !== 'closed'"
+                (openCitations)="openCitations($event)"
+                (startForm)="startForm($event)"
+                (withdrawSubmission)="askWithdraw($event)"
+              />
+              @switch (entry.note) {
+                @case ('stopped') {
+                  <p class="run-note">已停止回答，這則問題沒有回覆。</p>
+                }
+                @case ('unanswered') {
+                  <p class="run-note">這則問題沒有取得回答。</p>
+                }
+              }
+            </li>
+          }
+          @let active = run();
+          @if (active.phase !== 'idle') {
+            <li><app-chat-message [message]="pendingQuestion(active.question)" /></li>
+          }
+          @if (active.phase === 'streaming') {
+            <li class="streaming" aria-busy="true">
+              <app-streaming-reply [text]="active.text" />
+            </li>
+          } @else if (active.phase === 'failed') {
+            <li>
+              <div class="run-error" role="alert">
+                <p>{{ active.error.message }}</p>
+                @if (active.error.retryable) {
+                  <button type="button" class="retry" (click)="retry()">重試</button>
+                }
+              </div>
+            </li>
+          }
         </ol>
       </div>
+      <p class="visually-hidden" role="status">{{ runStatus() }}</p>
 
       @if (withdrawFeedback()) {
         <p class="withdraw-feedback" role="status">{{ withdrawFeedback() }}</p>
@@ -105,7 +153,9 @@
       @if (current.suggestedPrompts.length > 0) {
         <div class="suggestions" role="group" aria-label="建議問題">
           @for (prompt of current.suggestedPrompts; track prompt.id) {
-            <button type="button" class="suggested-prompt" (click)="ask(prompt.text)">{{ prompt.text }}</button>
+            <button type="button" class="suggested-prompt" [disabled]="streaming()" (click)="ask(prompt.text)">
+              {{ prompt.text }}
+            </button>
           }
         </div>
       }
@@ -119,17 +169,20 @@
           enterkeyhint="send"
           placeholder="輸入你的問題"
           [value]="draft()"
-          [disabled]="apiMode"
           [attr.aria-invalid]="composerError() ? 'true' : null"
           [attr.aria-describedby]="composerError() ? 'chat-input-error' : 'chat-input-hint'"
           (input)="updateDraft($event)"
         />
-        <button type="submit" [disabled]="apiMode">送出</button>
+        <!-- 回答完成前鎖住送出，避免同一段對話重複送出（後端也會回 409）。 -->
+        <button type="submit" [disabled]="streaming()">送出</button>
+        @if (streaming()) {
+          <button #stopButton type="button" class="stop" (click)="stop()">停止回答</button>
+        }
       </form>
-      @if (apiMode) {
-        <p id="chat-input-hint" class="composer-hint">對話功能即將開放，敬請期待。</p>
-      } @else if (composerError()) {
+      @if (composerError()) {
         <p id="chat-input-error" class="composer-error" role="alert">{{ composerError() }}</p>
+      } @else if (apiMode) {
+        <p id="chat-input-hint" class="composer-hint">回答由 AI 根據助理連接的資料產生，請以引用來源為準。</p>
       } @else {
         <p id="chat-input-hint" class="composer-hint">Demo 只會以預先準備的回答回覆，不連接真實 AI。</p>
       }

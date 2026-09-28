@@ -86,6 +86,8 @@ export const DEMO_SCENARIOS = [
   'partial-failure',
   'permission-denied',
   'disconnected-channel',
+  // 對話（issue #80）：串流完的回答沒有通過引用驗證，整則換成「查無資料」。
+  'answer-rejected',
 ] as const;
 
 export type DemoScenario = (typeof DEMO_SCENARIOS)[number];
@@ -708,6 +710,12 @@ export interface DemoRepository extends DemoScenarioController {
     text: string,
     threadId?: string,
   ): SendChatMessageResult;
+  /**
+   * Mock 串流被使用者停止時（issue #80）：移除 `sendChatMessage` 剛寫入的那一則助理回覆，
+   * 只保留使用者訊息，與 API 模式「中斷時只保存問題」的後端行為一致。
+   * 找不到這則助理訊息時什麼都不做。
+   */
+  discardChatReply(viewerId: ChatViewerId, assistantId: string, messageId: string, threadId?: string): void;
   /** 對話中表單的送出前確認：只驗證並整理填寫值，不會建立紀錄。 */
   reviewChatForm(
     viewerId: ChatViewerId,

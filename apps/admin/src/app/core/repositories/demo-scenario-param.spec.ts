@@ -6,6 +6,7 @@ describe('readDemoScenario', () => {
     expect(readDemoScenario('?tab=form&demoScenario=partial-failure')).toBe('partial-failure');
     expect(readDemoScenario('?demoScenario=permission-denied')).toBe('permission-denied');
     expect(readDemoScenario('?demoScenario=disconnected-channel')).toBe('disconnected-channel');
+    expect(readDemoScenario('?demoScenario=answer-rejected')).toBe('answer-rejected');
   });
 
   it('ignores a missing or unknown scenario so the demo stays on the ready state', () => {

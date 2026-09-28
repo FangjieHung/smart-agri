@@ -2,6 +2,7 @@ import { A11yModule } from '@angular/cdk/a11y';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
   Injector,
   afterNextRender,
@@ -11,9 +12,12 @@ import {
   input,
   linkedSignal,
   output,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import type { Subscription } from 'rxjs';
+import { CHAT_RUNNER, type ChatHistoryEntry, type ChatRunError, type ChatRunEvent } from '../../../core/chat/chat-runner';
 import { isVisitorId, type ChatViewerId } from '../../../core/domain/account.model';
 import type {
   ChatCitationView,
@@ -35,6 +39,7 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 import { CitationDrawerComponent } from '../citation-drawer/citation-drawer.component';
 import { ConsentConfirmationComponent } from '../consent-confirmation/consent-confirmation.component';
 import { InlineFormComponent } from '../inline-form/inline-form.component';
+import { StreamingReplyComponent } from '../streaming-reply/streaming-reply.component';
 import {
   ChatMessageComponent,
   type CitationRequest,
@@ -60,6 +65,27 @@ type FormFlow =
 const CLOSED: FormFlow = { step: 'closed' };
 
 /**
+ * 這一頁送出、但還不在讀回資料裡的訊息（串流完成或停止的那幾則）。
+ * `stopped`：使用者按了停止，只留下問題、不顯示半則回答。
+ */
+interface LocalEntry {
+  readonly message: ChatMessageView;
+  readonly note: 'stopped' | 'unanswered' | null;
+}
+
+/**
+ * 目前這一則問題的狀態（issue #80）：
+ * - `streaming`：已送出、正在串流；送出鍵鎖住，顯示「停止回答」；
+ * - `failed`：`RUN_ERROR`、503 等錯誤，問題留在畫面上並提供重試。
+ */
+type RunState =
+  | { readonly phase: 'idle' }
+  | { readonly phase: 'streaming'; readonly question: string; readonly text: string }
+  | { readonly phase: 'failed'; readonly question: string; readonly error: ChatRunError };
+
+const IDLE: RunState = { phase: 'idle' };
+
+/**
  * 助理對話的單一實作：`/use/:assistantId`（嵌入用）與工作區的 `/app/chat` 都用這個元件，
  * 只靠 `header` 決定要不要顯示頁面外框。回覆全部來自 fixtures。
  *
@@ -76,6 +102,7 @@ const CLOSED: FormFlow = { step: 'closed' };
     CitationDrawerComponent,
     InlineFormComponent,
     ConsentConfirmationComponent,
+    StreamingReplyComponent,
   ],
   templateUrl: './chat-conversation.component.html',
   styleUrl: './chat-conversation.component.scss',
@@ -87,6 +114,7 @@ export class ChatConversationComponent {
   private readonly visitor = inject(AnonymousVisitorService);
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly apiSession = inject(ApiSessionService);
+  private readonly runner = inject(CHAT_RUNNER);
   private readonly injector = inject(Injector);
 
   readonly assistantId = input.required<string>();
@@ -106,7 +134,7 @@ export class ChatConversationComponent {
   /** 訊息有變動時送出目前的對話 id，讓外層頁面同步網址與對話紀錄。 */
   readonly changed = output<ChatThreadId | null>();
 
-  /** API 模式暫時不能送出訊息（issue #79；串流由 #80 接上），送出前先擋在畫面上。 */
+  /** API 模式的回答來自真實模型，輸入框下方的說明不同。 */
   protected readonly apiMode = this.apiSession.apiMode;
 
   /** 目前的發起者：已選擇的 Demo 身分優先，其次才是這個分頁的匿名訪客。 */
@@ -157,13 +185,35 @@ export class ChatConversationComponent {
   protected readonly withdrawFeedback = linkedSignal({ source: this.scope, computation: () => '' });
   protected readonly withdrawError = linkedSignal({ source: this.scope, computation: () => '' });
 
+  /**
+   * 串流完成（或停止）後不重新讀取，直接接在讀回的訊息後面：不保存對話的助理在 API
+   * 模式讀不回來。換對話或重新讀取（例如撤回、換到新建的對話串）時清空，以讀回的為準。
+   */
+  protected readonly local = linkedSignal<unknown, readonly LocalEntry[]>({
+    source: () => ({ scope: this.scope(), chat: this.chat() }),
+    computation: () => [],
+  });
+  protected readonly run = linkedSignal<string, RunState>({ source: this.scope, computation: () => IDLE });
+  protected readonly streaming = computed(() => this.run().phase === 'streaming');
+  /** 給螢幕報讀器的狀態：開始回答與停止各說一次，串流文字本身不朗讀。 */
+  protected readonly runStatus = linkedSignal({ source: this.scope, computation: () => '' });
+  private activeRun: Subscription | null = null;
+  private localCounter = 0;
+
   private readonly log = viewChild<ElementRef<HTMLElement>>('log');
   private readonly composerInput = viewChild<ElementRef<HTMLInputElement>>('composerInput');
   private readonly withdrawCancelButton = viewChild<ElementRef<HTMLButtonElement>>('withdrawCancelButton');
+  private readonly stopButton = viewChild<ElementRef<HTMLButtonElement>>('stopButton');
 
   constructor() {
     // 確認對話框一出現就把焦點帶到「取消」，與對話紀錄側欄的刪除確認一致。
     effect(() => this.withdrawCancelButton()?.nativeElement.focus());
+    // 換帳號、助理或對話時，進行中的回答不再屬於畫面上的對話：直接取消。
+    effect(() => {
+      this.scope();
+      untracked(() => this.cancelActiveRun());
+    });
+    inject(DestroyRef).onDestroy(() => this.cancelActiveRun());
   }
 
   protected updateDraft(event: Event): void {
@@ -177,27 +227,146 @@ export class ChatConversationComponent {
   }
 
   protected ask(text: string): void {
-    // 送出訊息在 API 模式暫時不可用（issue #79；串流由 #80 接上）。
-    if (this.apiMode) return;
     const viewerId = this.viewerId();
-    if (viewerId === null) return;
+    if (viewerId === null || this.streaming()) return;
 
-    const result = this.repository.sendChatMessage(
-      viewerId,
-      this.assistantId(),
-      text,
-      this.threadId() ?? undefined,
-    );
-    if (result.status === 'validation-failed') {
-      this.composerError.set(result.message);
+    const question = text.trim();
+    if (question.length === 0) {
+      // 與 repository 相同的訊息；不必為了空白問題送出請求。
+      this.composerError.set('請先輸入問題。');
       return;
     }
+    const previous = this.run();
+    // 上一則失敗、使用者改問別的：失敗的問題留在紀錄裡，標示沒有取得回答。
+    if (previous.phase === 'failed') this.keepQuestion(previous.question, 'unanswered');
+
+    const chat = this.chat();
+    const history = chat?.historyMode === 'not-saved' ? this.historyEntries() : undefined;
     this.draft.set('');
     this.composerError.set('');
     // 輸入框可能還沒經過變更偵測同步草稿，直接清空避免殘留已送出的文字。
     const input = this.composerInput()?.nativeElement;
     if (input) input.value = '';
-    this.refreshAndReveal(result.status === 'ready' ? result.data.threadId : null);
+    this.run.set({ phase: 'streaming', question, text: '' });
+    this.runStatus.set('助理正在回答…');
+    this.reveal();
+
+    let threadId: string | null = null;
+    let answered = false;
+    this.activeRun = this.runner
+      .run({
+        viewerId,
+        assistantId: this.assistantId(),
+        question: text,
+        threadId: this.threadId() ?? undefined,
+        history,
+      })
+      .subscribe({
+        next: (event) => {
+          if (event.type === 'thread') threadId = event.threadId;
+          if (event.type === 'reply') answered = true;
+          this.onRunEvent(event, question, text);
+        },
+        complete: () => {
+          this.activeRun = null;
+          if (answered) this.changed.emit(threadId);
+        },
+      });
+  }
+
+  /** 停止：取消串流，只留下問題、不顯示半則回答（後端也只保存問題）。 */
+  protected stop(): void {
+    const current = this.run();
+    if (current.phase !== 'streaming') return;
+    this.cancelActiveRun();
+    this.keepQuestion(current.question, 'stopped');
+    this.run.set(IDLE);
+    this.runStatus.set('已停止回答。');
+    this.composerInput()?.nativeElement.focus();
+    // 保存對話時問題已經寫入，讓外層重新讀取對話清單。
+    this.changed.emit(null);
+  }
+
+  protected retry(): void {
+    const current = this.run();
+    if (current.phase !== 'failed') return;
+    this.run.set(IDLE);
+    this.ask(current.question);
+  }
+
+  /** 串流中的問題以使用者訊息的樣子顯示；id 只在這一頁使用。 */
+  protected pendingQuestion(text: string): ChatMessageView {
+    return { id: 'pending-question', author: 'account', text, createdAt: '' };
+  }
+
+  private onRunEvent(event: ChatRunEvent, question: string, rawText: string): void {
+    switch (event.type) {
+      case 'text-delta':
+        this.run.update((current) =>
+          current.phase === 'streaming' ? { ...current, text: current.text + event.delta } : current,
+        );
+        return;
+      case 'reply':
+        // 最終的回覆整則取代串流文字（驗證失敗時就是查無資料），id 以它為準。
+        this.local.update((entries) => [
+          ...entries,
+          { message: this.localQuestion(question), note: null },
+          { message: event.message, note: null },
+        ]);
+        this.finishRun();
+        return;
+      case 'thread':
+        return;
+      case 'error':
+        if (event.error.kind === 'validation-failed') {
+          // 問題本身不合規則：放回輸入框讓使用者修改，畫面上不留下這則問題。
+          this.run.set(IDLE);
+          this.runStatus.set('');
+          this.draft.set(rawText);
+          this.composerError.set(event.error.message);
+          const input = this.composerInput()?.nativeElement;
+          if (input) input.value = rawText;
+          input?.focus();
+          return;
+        }
+        this.run.set({ phase: 'failed', question, error: event.error });
+        this.finishRun();
+        return;
+    }
+  }
+
+  private finishRun(): void {
+    const stopFocused = document.activeElement === this.stopButton()?.nativeElement;
+    this.runStatus.set('');
+    if (this.run().phase === 'streaming') this.run.set(IDLE);
+    // 停止鍵隨串流結束消失；焦點在它上面時交回輸入框，不讓它掉回 body。
+    if (stopFocused) this.composerInput()?.nativeElement.focus();
+    this.reveal();
+  }
+
+  private keepQuestion(question: string, note: LocalEntry['note']): void {
+    this.local.update((entries) => [...entries, { message: this.localQuestion(question), note }]);
+  }
+
+  private localQuestion(text: string): ChatMessageView {
+    this.localCounter += 1;
+    return { id: `local-question-${this.localCounter}`, author: 'account', text, createdAt: new Date().toISOString() };
+  }
+
+  /** 不保存對話的助理：把畫面上的問答當成前文（表單與收據不送）。 */
+  private historyEntries(): ChatHistoryEntry[] {
+    const messages = [...(this.chat()?.messages ?? []), ...this.local().map((entry) => entry.message)];
+    return messages.flatMap((message): ChatHistoryEntry[] => {
+      if (message.author === 'account') return [{ role: 'user', content: message.text }];
+      const kind = message.reply.kind;
+      if (kind === 'form-request' || kind === 'submission-receipt') return [];
+      return [{ role: 'assistant', content: message.reply.text }];
+    });
+  }
+
+  private cancelActiveRun(): void {
+    this.activeRun?.unsubscribe();
+    this.activeRun = null;
   }
 
   protected openCitations(request: CitationRequest): void {
@@ -335,6 +504,10 @@ export class ChatConversationComponent {
   private refreshAndReveal(threadId: ChatThreadId | null): void {
     this.chatResource.reload();
     this.changed.emit(threadId);
+    this.reveal();
+  }
+
+  private reveal(): void {
     afterNextRender(
       () => {
         const last = this.log()?.nativeElement.lastElementChild;

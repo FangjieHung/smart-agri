@@ -854,7 +854,7 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  // ---------- 對話（issue #79：讀取與對話串管理走 API，送出訊息仍是 mock，見 #80） ----------
+  // ---------- 對話（issue #79：讀取與對話串管理走 API；送出訊息走 AG-UI 串流，見 core/chat 與 #80） ----------
 
   override listChatThreads(assistantId: string): Observable<RepositoryView<ChatThreadListView>> {
     return this.http.get<ApiChatThreadListView>(apiAssistantChatConversationsPath(assistantId)).pipe(
@@ -1374,7 +1374,8 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
   };
 }
 
-function toChatMessage(message: ApiChatMessageView): ChatMessageView {
+/** 也給 AG-UI 串流的 `smartagri.reply` 使用（`ag-ui-chat-runner.ts`；值與 `GET chat` 的訊息相同）。 */
+export function toChatMessage(message: ApiChatMessageView): ChatMessageView {
   // 後端以 `JsonIgnore(WhenWritingNull)` 省略 null 欄位：使用者訊息根本沒有 `reply` 這個鍵
   // （OpenAPI 產生的型別卻寫成必填的 `null | …`），所以 `undefined` 要與 `null` 一視同仁。
   if (message.reply !== null && message.reply !== undefined) {

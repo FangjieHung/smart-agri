@@ -25,6 +25,14 @@
     "tslib": "^2.3.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
+  "overrides": {
+    "@ag-ui/client": {
+      "zod": "4.4.3"
+    },
+    "@ag-ui/proto": {
+      "zod": "4.4.3"
+    }
+  },
   "devDependencies": {
     "@angular-devkit/build-angular": "^22.0.7",
     "@angular-devkit/core": "^22.0.6",

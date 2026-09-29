@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Application.Knowledge;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Knowledge;
@@ -258,6 +259,27 @@ public class AssistantDraftEndpointsTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
+    public async Task Connectable_sources_status_reflects_the_knowledge_bases_content()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+
+        var empty = await CreateKnowledgeBaseAsync(org, org.Admin.Id, "還沒有內容的知識庫");
+        var faqOnly = await CreateKnowledgeBaseAsync(org, org.Admin.Id, "只有 FAQ 的知識庫");
+        await AddReadyFaqAsync(org, faqOnly, org.Admin.Id, "問題？", "答案。");
+        var withProcessingDocument = await CreateKnowledgeBaseAsync(org, org.Admin.Id, "處理中的知識庫");
+        await AddQueuedDocumentAsync(org, withProcessingDocument, org.Admin.Id, "退貨政策.pdf");
+
+        var response = await BodyJsonAsync(await admin.Spa.GetAsync(ConnectableSourcesPath, admin.Token));
+        var statusById = response.EnumerateArray()
+            .ToDictionary(item => item.GetProperty("id").GetGuid(), item => item.GetProperty("status").GetString());
+
+        statusById[empty].ShouldBe("empty");
+        statusById[faqOnly].ShouldBe("ready");
+        statusById[withProcessingDocument].ShouldBe("processing");
+    }
+
+    [Fact]
     public async Task Unauthenticated_callers_get_401()
     {
         using var anonymous = _host.CreateSpaClient();
@@ -326,6 +348,42 @@ public class AssistantDraftEndpointsTests : IClassFixture<AuthHostFixture>
         var knowledgeBase = await dbContext.KnowledgeBases.SingleAsync(kb => kb.Id == knowledgeBaseId, CancellationToken);
         knowledgeBase.ChangeSharing(KnowledgeSharingScope.SpecificAccounts, allowOriginalDownload: false, DateTimeOffset.UtcNow);
         dbContext.KnowledgeBaseShares.Add(new KnowledgeBaseShare(knowledgeBase, accountId));
+        await dbContext.SaveChangesAsync(CancellationToken);
+    }
+
+    /// <summary>Writes an FAQ entry straight to the database, already processed
+    /// <see cref="KnowledgeDocumentStatus.Ready"/> (pending review, like a real FAQ's version 1),
+    /// so a knowledge base can be given FAQ-only content without going through the queue.</summary>
+    private async Task AddReadyFaqAsync(TestOrganization org, Guid knowledgeBaseId, Guid uploadedByAccountId, string question, string answer)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var knowledgeBase = await dbContext.KnowledgeBases.SingleAsync(kb => kb.Id == knowledgeBaseId, CancellationToken);
+        var document = KnowledgeDocument.CreateFaq(knowledgeBase, question, now);
+        dbContext.KnowledgeDocuments.Add(document);
+        var content = new KnowledgeFaqEntry(question, answer).ToContent();
+        var version = KnowledgeDocumentVersion.CreateFaq(
+            document, versionNumber: 1, question, content, KnowledgeUploadRules.Sha256(content), uploadedByAccountId, now);
+        version.StartProcessing(now);
+        version.CompleteProcessing(KnowledgeDocumentStatus.Ready, issue: null, now);
+        dbContext.KnowledgeDocumentVersions.Add(version);
+        await dbContext.SaveChangesAsync(CancellationToken);
+    }
+
+    /// <summary>Writes an uploaded document straight to the database with a
+    /// <see cref="KnowledgeDocumentStatus.Queued"/> version (no content, no queued job — nothing
+    /// processes it) so a knowledge base can be given "still processing" content.</summary>
+    private async Task AddQueuedDocumentAsync(TestOrganization org, Guid knowledgeBaseId, Guid uploadedByAccountId, string fileName)
+    {
+        var now = DateTimeOffset.UtcNow;
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var knowledgeBase = await dbContext.KnowledgeBases.SingleAsync(kb => kb.Id == knowledgeBaseId, CancellationToken);
+        var document = KnowledgeDocument.CreateUploaded(knowledgeBase, fileName, now);
+        dbContext.KnowledgeDocuments.Add(document);
+        var sha256 = KnowledgeUploadRules.Sha256("內容"u8.ToArray());
+        var version = KnowledgeDocumentVersion.Create(
+            document, versionNumber: 1, fileName, "application/pdf", sizeBytes: 6, sha256, uploadedByAccountId, uploadBatchId: null, now);
+        dbContext.KnowledgeDocumentVersions.Add(version);
         await dbContext.SaveChangesAsync(CancellationToken);
     }
 

@@ -2433,6 +2433,22 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     controller.expectNone(API_KNOWLEDGE_BASES_PATH);
   });
 
+  it('passes an empty knowledge base through as status "empty" (issue #118: no content is not "ready")', async () => {
+    const { repository } = setUpAssistants();
+    const result = pending(repository.listConnectableSources());
+
+    controller.expectOne({ method: 'GET', url: API_CONNECTABLE_SOURCES_PATH }).flush([
+      { id: KB_ID, type: 'knowledge-base', name: '還沒有內容的知識庫', summary: '0 份文件、0 則 FAQ', permission: 'owner', status: 'empty', updatedAt: '2026-09-27T01:00:00+00:00' },
+    ]);
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: [
+        { id: KB_ID, type: 'knowledge-base', name: '還沒有內容的知識庫', summary: '0 份文件、0 則 FAQ', permission: 'owner', status: 'empty', updatedAt: '2026-09-27T01:00:00+00:00' },
+      ],
+    });
+  });
+
   it('returns an empty ready list of sources without calling the API when the viewer cannot manage assistants or is signed out', async () => {
     const { repository } = setUpAssistants('account-internal-employee', employee);
     expect(await pending(repository.listConnectableSources())).toEqual({ status: 'ready', data: [] });

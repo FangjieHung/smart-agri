@@ -478,6 +478,11 @@ public static class AssistantDraftEndpoints
             return "needs-attention";
         }
 
+        if (tally.DocumentCount == 0 && tally.FaqCount == 0)
+        {
+            return "empty";
+        }
+
         return "ready";
     }
 

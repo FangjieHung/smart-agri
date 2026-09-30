@@ -91,6 +91,13 @@ export const ACCOUNT_PERMISSIONS: readonly AccountPermissionDescriptor[] = [
     enforcedNote:
       '尚未接到行為：自己的紀錄一律只依提交者本人判斷，不另外檢查權限；取消勾選不會讓任何人看不到自己的資料。',
   },
+  {
+    id: 'handle-assistant-issues',
+    label: '處理助理的處理事項',
+    description: '可以被指派助理的處理事項（未通過的測試題、成員轉給專人的問題），並更新處理狀態與紀錄。',
+    enforced: true,
+    enforcedNote: '已接到行為：指派處理事項時會檢查，被指派的人也要有這個權限才看得到指派給自己的事項。',
+  },
 ];
 
 export function permissionDescriptor(

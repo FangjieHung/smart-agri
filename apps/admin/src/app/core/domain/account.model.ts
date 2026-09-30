@@ -29,7 +29,8 @@ export type AccountPermission =
   | 'read-consented-submissions'
   | 'use-shared-assistants'
   | 'submit-authorized-forms'
-  | 'read-own-tracking';
+  | 'read-own-tracking'
+  | 'handle-assistant-issues';
 
 export interface AccountView {
   readonly id: AccountId;

@@ -31,4 +31,9 @@ public enum AccountPermission
 
     [JsonStringEnumMemberName("read-own-tracking")]
     ReadOwnTracking,
+
+    /// <summary>May be assigned 處理事項 (<c>AssistantIssue</c>) and handle the ones assigned to
+    /// it (M3.5 plan §7 decision C, issue #126).</summary>
+    [JsonStringEnumMemberName("handle-assistant-issues")]
+    HandleAssistantIssues,
 }

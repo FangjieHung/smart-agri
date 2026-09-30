@@ -6,7 +6,9 @@ using SmartAgri.Application.Answers;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Knowledge;
 using SmartAgri.Application.Knowledge.Retrieval;
+using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Knowledge;
+using SmartAgri.Domain.Organizations;
 
 namespace SmartAgri.Application.Tests.Answers;
 
@@ -113,6 +115,42 @@ internal sealed class InMemoryAnswerKnowledgeBases : IAnswerKnowledgeBases
 
     public Task<IReadOnlyList<Guid>> ConnectedToAsync(Guid assistantId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
+}
+
+/// <summary>Records every <see cref="AnswerOutcome"/> the answer pipeline writes, in memory
+/// (M3.5 Slice 6).</summary>
+internal sealed class InMemoryAnswerOutcomeRecorder : IAnswerOutcomeRecorder
+{
+    public sealed record Recorded(
+        Guid OrganizationId,
+        Guid? AssistantId,
+        AnswerOutcomeChannel Channel,
+        AnswerReplyKind ReplyKind,
+        AnswerRejectionReason? RejectionReason,
+        IReadOnlyCollection<Guid> CitedDocumentIds,
+        DateTimeOffset At);
+
+    public List<Recorded> Outcomes { get; } = [];
+
+    public Task RecordAsync(
+        Guid organizationId,
+        Guid? assistantId,
+        AnswerOutcomeChannel channel,
+        AnswerReplyKind replyKind,
+        AnswerRejectionReason? rejectionReason,
+        IReadOnlyCollection<Guid> citedDocumentIds,
+        DateTimeOffset at,
+        CancellationToken cancellationToken)
+    {
+        Outcomes.Add(new Recorded(organizationId, assistantId, channel, replyKind, rejectionReason, [.. citedDocumentIds], at));
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>A fixed organization for the scope, or none.</summary>
+internal sealed class FixedOrganizationContext(Guid? organizationId) : IOrganizationContext
+{
+    public Guid? OrganizationId { get; } = organizationId;
 }
 
 /// <summary>An <see cref="IMeterFactory"/> of its own plus a listener on exactly its meters, so

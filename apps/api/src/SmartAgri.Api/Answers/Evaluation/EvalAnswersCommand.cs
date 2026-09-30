@@ -18,6 +18,7 @@ using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Ai;
+using SmartAgri.Infrastructure.Answers;
 using SmartAgri.Infrastructure.Assistants;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Tenancy;
@@ -388,7 +389,8 @@ public sealed class EvalAnswersCommand
             _retrieval,
             _clock);
         var chatClient = ChatServiceCollectionExtensions.CreateClient(_services, organization, new EfModelInvocationRecorder(_dbContextOptions, organization));
-        return new GroundedAnswerService(new EfAnswerKnowledgeBases(dbContext), retriever, chatClient, _metrics);
+        var outcomes = ActivatorUtilities.CreateInstance<EfAnswerOutcomeRecorder>(_services, _dbContextOptions, organization);
+        return new GroundedAnswerService(new EfAnswerKnowledgeBases(dbContext), retriever, chatClient, _metrics, outcomes, organization, _clock);
     }
 
     /// <summary>The mean <c>InputTokens</c>/<c>OutputTokens</c> of every <c>generate-answer</c>

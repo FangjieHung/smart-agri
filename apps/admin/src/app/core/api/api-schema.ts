@@ -215,6 +215,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantAnalyticsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OperationsSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/recent-conversations": {
         parameters: {
             query?: never;
@@ -3360,9 +3480,24 @@ export interface components {
             parameters?: null | components["schemas"]["JsonElement"];
             metadata?: null | components["schemas"]["JsonElement"];
         };
+        /** @enum {unknown} */
+        AnswerRejectionReason: "below-threshold" | "citation-out-of-range" | "no-citation" | "cannot-answer" | "empty-answer";
+        /** @enum {unknown} */
+        AnswerReplyKind: "company-data" | "general-knowledge" | "no-result";
         ApproveKnowledgeVersionsRequest: {
             versionIds: null | string[];
             effectiveFrom?: null | string;
+        };
+        AssistantAnalyticsView: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** Format: int32 */
+            totalReplies: number;
+            replyKinds: components["schemas"]["ReplyKindCountView"][];
+            rejectionReasons: components["schemas"]["RejectionReasonCountView"][];
+            mostCitedDocuments: components["schemas"]["CitedDocumentCountView"][];
         };
         AssistantAnswerRulesPatch: {
             knowledgeScope?: null | string;
@@ -3417,6 +3552,17 @@ export interface components {
         };
         /** @enum {unknown} */
         AssistantKnowledgeScope: "company-data-only" | "allow-general-knowledge";
+        AssistantOperationsView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            /** Format: int32 */
+            totalReplies: number;
+            /** Format: double */
+            noResultRate: number;
+            /** Format: double */
+            rejectedCitationRate: number;
+        };
         AssistantPublishingView: {
             /** Format: uuid */
             assistantId: string;
@@ -3540,6 +3686,13 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        CitedDocumentCountView: {
+            /** Format: uuid */
+            documentId: string;
+            documentName: string;
+            /** Format: int32 */
+            count: number;
+        };
         ConnectableSourceView: {
             /** Format: uuid */
             id: string;
@@ -3597,6 +3750,12 @@ export interface components {
         IFormFile: string;
         ImportAssistantTestCasesRequest: {
             questions: null | components["schemas"]["AssistantTestCaseImportEntry"][];
+        };
+        IssuesSummaryView: {
+            /** Format: int32 */
+            openCount: number;
+            /** Format: double */
+            averageResolutionHours: null | number;
         };
         JsonElement: unknown;
         KnowledgeAccountView: {
@@ -3730,6 +3889,12 @@ export interface components {
         };
         /** @enum {unknown} */
         KnowledgeItemKind: "document" | "faq";
+        KnowledgeOperationsView: {
+            /** Format: int32 */
+            processingFailedCount: number;
+            /** Format: int32 */
+            overduePendingReviewCount: number;
+        };
         KnowledgeRetrievalPassageView: {
             /** Format: uuid */
             documentId: string;
@@ -3833,6 +3998,16 @@ export interface components {
             status: string;
             message: string;
         };
+        OperationsSummaryView: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            assistants: components["schemas"]["AssistantOperationsView"][];
+            mostCitedDocuments: components["schemas"]["CitedDocumentCountView"][];
+            knowledge: components["schemas"]["KnowledgeOperationsView"];
+            issues: components["schemas"]["IssuesSummaryView"];
+        };
         PlatformShareTargetView: {
             /** Format: uuid */
             id: string;
@@ -3875,8 +4050,18 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        RejectionReasonCountView: {
+            reason: components["schemas"]["AnswerRejectionReason"];
+            /** Format: int32 */
+            count: number;
+        };
         RenameChatThreadRequest: {
             title: null | string;
+        };
+        ReplyKindCountView: {
+            kind: components["schemas"]["AnswerReplyKind"];
+            /** Format: int32 */
+            count: number;
         };
         RunAgentInput: {
             threadId?: string;

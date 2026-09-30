@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Shouldly;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Jobs;
@@ -70,6 +71,7 @@ public class OrganizationModelTests
                 typeof(ChatThread), typeof(ChatMessage), typeof(ChatMessageCitation),
                 typeof(BackgroundJob),
                 typeof(ModelInvocation),
+                typeof(AnswerOutcome),
             ],
             ignoreOrder: true);
         dbContext.Model.FindEntityType(typeof(Organization)).ShouldNotBeNull();

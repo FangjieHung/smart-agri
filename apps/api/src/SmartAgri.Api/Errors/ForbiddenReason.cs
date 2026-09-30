@@ -104,6 +104,16 @@ public sealed class ForbiddenReason
         "請先設定新密碼，才能使用其他功能。");
 
     /// <summary>
+    /// The organization-level operational summary (<c>GET /api/v1/operations/summary</c>,
+    /// M3.5 plan §3, Slice 6) without <c>manage-assistants</c>. Not resource-specific — there is
+    /// nothing to hide the existence of — so this is a plain permission denial, not a byte-for-byte
+    /// "not found" like <see cref="AssistantConfiguration"/>.
+    /// </summary>
+    public static readonly ForbiddenReason OperationsSummary = new(
+        "operations-summary",
+        "只有可管理助理的帳號可以查看營運追蹤。");
+
+    /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason
     /// (see <c>PermissionPolicies.RequirePermission</c>, which always declares one). Not
     /// part of the frontend union on purpose, so it shows up in review and in the UI as a

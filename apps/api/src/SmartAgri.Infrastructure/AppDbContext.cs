@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Jobs;
@@ -13,6 +14,7 @@ using SmartAgri.Domain.Organizations;
 using Pgvector.EntityFrameworkCore;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Ai;
+using SmartAgri.Infrastructure.Answers;
 using SmartAgri.Infrastructure.Assistants;
 using SmartAgri.Infrastructure.Chat;
 using SmartAgri.Infrastructure.Jobs;
@@ -118,6 +120,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
+
+    /// <summary>The answer-pipeline result log (M3.5 plan §3, §4, Slice 6): no content, ever.</summary>
+    public DbSet<AnswerOutcome> AnswerOutcomes => Set<AnswerOutcome>();
 
     /// <summary>The background job queue (M2 plan, Slice 4). Enqueue by adding a
     /// <see cref="BackgroundJob"/> in the same save as the rows it is about.</summary>
@@ -235,6 +240,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());
+
+        // Answer-pipeline result log (M3.5 plan §3, §4, Slice 6).
+        modelBuilder.ApplyConfiguration(new AnswerOutcomeConfiguration());
 
         // Background jobs (M2 plan, Slice 4): organization scoped like everything else;
         // only Jobs/JobClaimer reads the table across organizations.

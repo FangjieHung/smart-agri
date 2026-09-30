@@ -12,6 +12,7 @@ using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Knowledge.Evaluation;
 using SmartAgri.Api.Observability;
+using SmartAgri.Api.Operations;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Seeding;
 using SmartAgri.Api.Team;
@@ -128,6 +129,8 @@ app.MapKnowledgeReviewEndpoints();
 app.MapKnowledgeRetrievalEndpoints();
 app.MapAssistantEndpoints();
 app.MapAssistantDraftEndpoints();
+app.MapAssistantAnalyticsEndpoints();
+app.MapOperationsSummaryEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 

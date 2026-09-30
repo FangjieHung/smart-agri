@@ -5,6 +5,7 @@ using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Knowledge.Retrieval;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Observability;
@@ -30,6 +31,7 @@ public sealed class GroundedAnswerServiceTests : IDisposable
     private readonly ScriptedChatClient _chat = new();
     private readonly ScriptedRetriever _retriever = new();
     private readonly InMemoryAnswerKnowledgeBases _knowledgeBases = new();
+    private readonly InMemoryAnswerOutcomeRecorder _outcomes = new();
     private readonly RecordedMeasurements _measurements = new();
     private readonly KnowledgeBase _policies;
 
@@ -269,7 +271,9 @@ public sealed class GroundedAnswerServiceTests : IDisposable
         _retriever.Add(stranger.Id, "機密.pdf", "第 1 頁", "機密內容。", 0.95);
         var leaky = new LeakyRetriever(_retriever);
 
-        var result = await new GroundedAnswerService(_knowledgeBases, leaky, _chat, new GroundedAnswerMetrics(_measurements))
+        var result = await new GroundedAnswerService(
+                _knowledgeBases, leaky, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+                new FixedOrganizationContext(Organization), TimeProvider.System)
             .AnswerAsync(Request(Profile() with { KnowledgeBaseIds = [_policies.Id, stranger.Id] }), CancellationToken);
 
         result.Reply.Kind.ShouldBe(GroundedReplyKind.NoResult);
@@ -399,6 +403,7 @@ public sealed class GroundedAnswerServiceTests : IDisposable
 
         streamed.ShouldAllBe(answerEvent => answerEvent is GroundedAnswerTextDelta, "no final event after a failure");
         Replies().ShouldBeEmpty();
+        _outcomes.Outcomes.ShouldBeEmpty("a mid-stream failure never confirms a reply, so nothing is recorded (issue #128)");
     }
 
     [Fact]
@@ -420,6 +425,77 @@ public sealed class GroundedAnswerServiceTests : IDisposable
             {
             }
         });
+        _outcomes.Outcomes.ShouldBeEmpty("a cancelled request never confirms a reply, so nothing is recorded (issue #128)");
+    }
+
+    // --- Answer outcomes (M3.5 plan §3, §4; issue #128) ---------------------------------------
+
+    [Fact]
+    public async Task A_completed_company_data_reply_records_one_chat_outcome_with_its_cited_documents()
+    {
+        var (first, second) = TwoRelevantPassages();
+        _chat.Pieces = ["根據資料，收到商品後七天內可以退貨 [1][2]。"];
+
+        var result = await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        result.Reply.Kind.ShouldBe(GroundedReplyKind.CompanyData);
+        var outcome = _outcomes.Outcomes.ShouldHaveSingleItem();
+        outcome.OrganizationId.ShouldBe(Organization);
+        outcome.AssistantId.ShouldBe(_assistant);
+        outcome.Channel.ShouldBe(AnswerOutcomeChannel.Chat);
+        outcome.ReplyKind.ShouldBe(AnswerReplyKind.CompanyData);
+        outcome.RejectionReason.ShouldBeNull();
+        outcome.CitedDocumentIds.ShouldBe([first.DocumentId, second.DocumentId], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task A_no_result_reply_records_its_rejection_reason_and_no_cited_documents()
+    {
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 1 頁", "營業時間為週一至週五。", 0.1);
+
+        await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        var outcome = _outcomes.Outcomes.ShouldHaveSingleItem();
+        outcome.ReplyKind.ShouldBe(AnswerReplyKind.NoResult);
+        outcome.RejectionReason.ShouldBe(AnswerRejectionReason.BelowThreshold);
+        outcome.CitedDocumentIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Streaming_records_the_same_outcome_as_answering_once()
+    {
+        TwoRelevantPassages();
+
+        await StreamAsync(Request(Profile()));
+
+        _outcomes.Outcomes.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task A_trial_answer_records_the_trial_channel_with_no_assistant()
+    {
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 1 頁", "營業時間為週一至週五。", 0.1);
+        var trial = Request(Profile()) with { AssistantId = null, Purpose = ModelInvocationPurpose.TrialAnswer };
+
+        await Service().AnswerAsync(trial, CancellationToken);
+
+        var outcome = _outcomes.Outcomes.ShouldHaveSingleItem();
+        outcome.Channel.ShouldBe(AnswerOutcomeChannel.Trial);
+        outcome.AssistantId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task No_organization_in_scope_records_nothing_instead_of_failing()
+    {
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 1 頁", "營業時間為週一至週五。", 0.1);
+        var noOrganization = new GroundedAnswerService(
+            _knowledgeBases, _retriever, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+            new FixedOrganizationContext(null), TimeProvider.System);
+
+        var result = await noOrganization.AnswerAsync(Request(Profile()), CancellationToken);
+
+        result.Reply.Kind.ShouldBe(GroundedReplyKind.NoResult);
+        _outcomes.Outcomes.ShouldBeEmpty();
     }
 
     // --- The prompt version on the span ---------------------------------------------------------
@@ -480,7 +556,8 @@ public sealed class GroundedAnswerServiceTests : IDisposable
     // --- Helpers --------------------------------------------------------------------------------
 
     private GroundedAnswerService Service() =>
-        new(_knowledgeBases, _retriever, _chat, new GroundedAnswerMetrics(_measurements));
+        new(_knowledgeBases, _retriever, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+            new FixedOrganizationContext(Organization), TimeProvider.System);
 
     private GroundedAnswerProfile Profile(AssistantKnowledgeScope scope = AssistantKnowledgeScope.CompanyDataOnly) => new(
         "退貨小幫手", "回答退換貨問題", AssistantTone.Friendly, string.Empty, scope, RefusalMessage, null, _owner, [_policies.Id]);

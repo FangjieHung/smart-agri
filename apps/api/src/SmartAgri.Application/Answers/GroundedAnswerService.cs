@@ -6,8 +6,10 @@ using SmartAgri.Application.Ai;
 using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Application.Knowledge.Retrieval;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Observability;
+using SmartAgri.Domain.Organizations;
 
 namespace SmartAgri.Application.Answers;
 
@@ -50,21 +52,33 @@ public sealed class GroundedAnswerService
     private readonly IKnowledgeRetriever _retriever;
     private readonly IChatClient _chat;
     private readonly GroundedAnswerMetrics _metrics;
+    private readonly IAnswerOutcomeRecorder _outcomes;
+    private readonly IOrganizationContext _organization;
+    private readonly TimeProvider _clock;
 
     public GroundedAnswerService(
         IAnswerKnowledgeBases knowledgeBases,
         IKnowledgeRetriever retriever,
         IChatClient chat,
-        GroundedAnswerMetrics metrics)
+        GroundedAnswerMetrics metrics,
+        IAnswerOutcomeRecorder outcomes,
+        IOrganizationContext organization,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(knowledgeBases);
         ArgumentNullException.ThrowIfNull(retriever);
         ArgumentNullException.ThrowIfNull(chat);
         ArgumentNullException.ThrowIfNull(metrics);
+        ArgumentNullException.ThrowIfNull(outcomes);
+        ArgumentNullException.ThrowIfNull(organization);
+        ArgumentNullException.ThrowIfNull(clock);
         _knowledgeBases = knowledgeBases;
         _retriever = retriever;
         _chat = chat;
         _metrics = metrics;
+        _outcomes = outcomes;
+        _organization = organization;
+        _clock = clock;
     }
 
     /// <summary>
@@ -83,7 +97,7 @@ public sealed class GroundedAnswerService
 
         if (plan.Refusal is { } refusal)
         {
-            yield return Finish(activity, refusal);
+            yield return await FinishAsync(activity, refusal, request, cancellationToken);
             yield break;
         }
 
@@ -114,7 +128,7 @@ public sealed class GroundedAnswerService
             yield return new GroundedAnswerTextDelta(delta);
         }
 
-        yield return Finish(activity, Judge(plan, answer.ToString(), request.Profile));
+        yield return await FinishAsync(activity, Judge(plan, answer.ToString(), request.Profile), request, cancellationToken);
     }
 
     /// <summary>Answers <paramref name="request"/> in one call (no streaming), with what retrieval
@@ -145,7 +159,7 @@ public sealed class GroundedAnswerService
             reply = Judge(plan, response.Text, request.Profile);
         }
 
-        Finish(activity, reply);
+        await FinishAsync(activity, reply, request, cancellationToken);
         return new GroundedAnswerResult(reply, plan.Retrieval);
     }
 
@@ -324,7 +338,12 @@ public sealed class GroundedAnswerService
         return activity;
     }
 
-    private GroundedAnswerEvent Finish(Activity? activity, GroundedReply reply)
+    /// <summary>Finalizes a confirmed reply: metrics, the span's tags, and (M3.5 plan §3,
+    /// Slice 6) one <see cref="AnswerOutcome"/> row. Only ever called with a reply that is
+    /// actually going to reach the caller — never on a mid-stream failure or cancellation, so an
+    /// outcome is written exactly when the answer it is about is (M3.5 issue #128).</summary>
+    private async Task<GroundedAnswerEvent> FinishAsync(
+        Activity? activity, GroundedReply reply, GroundedAnswerRequest request, CancellationToken cancellationToken)
     {
         _metrics.Record(reply);
         activity?.SetTag(GroundedAnswerTelemetry.ReplyKindTag, GroundedAnswerTelemetry.WireName(reply.Kind));
@@ -332,9 +351,60 @@ public sealed class GroundedAnswerService
         if (reply.RejectionReason is { } reason)
         {
             activity?.SetTag(GroundedAnswerTelemetry.RejectionReasonTag, GroundedAnswerTelemetry.WireName(reason));
+            await RecordOutcomeAsync(reply, request, cancellationToken);
             return new GroundedAnswerRejected(reason, reply);
         }
 
+        await RecordOutcomeAsync(reply, request, cancellationToken);
         return new GroundedAnswerCompleted(reply);
     }
+
+    /// <summary>Writes the outcome row. <see cref="IAnswerOutcomeRecorder"/> never throws for its
+    /// caller — a failure to write is its own concern (logged there), never the conversation's or
+    /// trial answer's.</summary>
+    private async Task RecordOutcomeAsync(GroundedReply reply, GroundedAnswerRequest request, CancellationToken cancellationToken)
+    {
+        if (_organization.OrganizationId is not { } organizationId)
+        {
+            // No organization in scope (anonymous / design-time / a background job that did not
+            // set one): there is nowhere to file the row. Not expected for a real answer.
+            return;
+        }
+
+        await _outcomes.RecordAsync(
+            organizationId,
+            request.AssistantId,
+            ChannelFor(request.Purpose),
+            ToReplyKind(reply.Kind),
+            reply.RejectionReason is { } reason ? ToRejectionReason(reason) : null,
+            [.. reply.Citations.Select(citation => citation.DocumentId).Distinct()],
+            _clock.GetUtcNow(),
+            cancellationToken);
+    }
+
+    private static AnswerOutcomeChannel ChannelFor(ModelInvocationPurpose purpose) => purpose switch
+    {
+        ModelInvocationPurpose.GenerateAnswer => AnswerOutcomeChannel.Chat,
+        ModelInvocationPurpose.TrialAnswer => AnswerOutcomeChannel.Trial,
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(purpose), purpose, "This purpose has no answer-outcome channel yet."),
+    };
+
+    private static AnswerReplyKind ToReplyKind(GroundedReplyKind kind) => kind switch
+    {
+        GroundedReplyKind.CompanyData => AnswerReplyKind.CompanyData,
+        GroundedReplyKind.GeneralKnowledge => AnswerReplyKind.GeneralKnowledge,
+        GroundedReplyKind.NoResult => AnswerReplyKind.NoResult,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown reply kind."),
+    };
+
+    private static AnswerRejectionReason ToRejectionReason(GroundedRejectionReason reason) => reason switch
+    {
+        GroundedRejectionReason.BelowThreshold => AnswerRejectionReason.BelowThreshold,
+        GroundedRejectionReason.CitationOutOfRange => AnswerRejectionReason.CitationOutOfRange,
+        GroundedRejectionReason.NoCitation => AnswerRejectionReason.NoCitation,
+        GroundedRejectionReason.CannotAnswer => AnswerRejectionReason.CannotAnswer,
+        GroundedRejectionReason.EmptyAnswer => AnswerRejectionReason.EmptyAnswer,
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Unknown rejection reason."),
+    };
 }

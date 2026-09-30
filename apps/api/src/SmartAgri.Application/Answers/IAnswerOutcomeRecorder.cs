@@ -1,0 +1,27 @@
+using SmartAgri.Domain.Answers;
+
+namespace SmartAgri.Application.Answers;
+
+/// <summary>
+/// Saves <see cref="AnswerOutcome"/> rows (M3.5 plan §3, §4, Slice 6): an interface so
+/// <see cref="GroundedAnswerService"/>'s rules are unit tested without a database, mirroring
+/// <c>SmartAgri.Infrastructure.Ai.IModelInvocationRecorder</c>.
+/// </summary>
+public interface IAnswerOutcomeRecorder
+{
+    /// <summary>
+    /// Saves one outcome now, in a context of its own (an operational-tracking row must not
+    /// depend on, or roll back with, the caller's own transaction). Never throws for the
+    /// caller: implementations only ever fail loudly through logging — a write failure here must
+    /// not fail the conversation or trial answer it is about (M3.5 issue #128).
+    /// </summary>
+    Task RecordAsync(
+        Guid organizationId,
+        Guid? assistantId,
+        AnswerOutcomeChannel channel,
+        AnswerReplyKind replyKind,
+        AnswerRejectionReason? rejectionReason,
+        IReadOnlyCollection<Guid> citedDocumentIds,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
+}

@@ -128,6 +128,7 @@ app.MapKnowledgeReviewEndpoints();
 app.MapKnowledgeRetrievalEndpoints();
 app.MapAssistantEndpoints();
 app.MapAssistantDraftEndpoints();
+app.MapAssistantTestCaseEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 

@@ -116,6 +116,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>A test run's per-question outcomes (M3.5 plan §4, issue #124).</summary>
     public DbSet<AssistantTestResult> AssistantTestResults => Set<AssistantTestResult>();
 
+    /// <summary>處理事項 about an assistant's answers (M3.5 plan §4, issue #126).</summary>
+    public DbSet<AssistantIssue> AssistantIssues => Set<AssistantIssue>();
+
+    /// <summary>Each <see cref="AssistantIssue"/>'s handling history.</summary>
+    public DbSet<AssistantIssueEvent> AssistantIssueEvents => Set<AssistantIssueEvent>();
+
     /// <summary>An account an assistant is shared with — "平台內分享" (M3 plan §4/§5 Slice 3).</summary>
     public DbSet<AssistantShare> AssistantShares => Set<AssistantShare>();
 
@@ -245,6 +251,8 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new AssistantTestCaseConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestRunConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestResultConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantIssueConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantIssueEventConfiguration());
 
         // Conversations (M3 plan §4; #76).
         modelBuilder.ApplyConfiguration(new ChatThreadConfiguration());

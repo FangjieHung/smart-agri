@@ -4,8 +4,7 @@ namespace SmartAgri.Domain.Answers;
 
 /// <summary>
 /// Where an <see cref="AnswerOutcome"/> came from (M3.5 plan §4 and §7 "營運追蹤只存「結果」，
-/// 不存內容"). <see cref="TestRun"/> is reserved for Slice 2 (#124, "全部重跑"); nothing writes
-/// it yet.
+/// 不存內容").
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<AnswerOutcomeChannel>))]
 public enum AnswerOutcomeChannel
@@ -19,8 +18,8 @@ public enum AnswerOutcomeChannel
     [JsonStringEnumMemberName("trial")]
     Trial,
 
-    /// <summary>One question of an assistant's test-set rerun (Slice 2, #124). Reserved: no
-    /// caller produces it yet.</summary>
+    /// <summary>One question of an assistant's test-set rerun (Slice 2, #124,
+    /// <c>ModelInvocationPurpose.AssistantTest</c>).</summary>
     [JsonStringEnumMemberName("test-run")]
     TestRun,
 }

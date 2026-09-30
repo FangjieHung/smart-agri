@@ -24,4 +24,10 @@ public enum ModelInvocationPurpose
     /// trial calls never mix into an assistant's own usage.</summary>
     [JsonStringEnumMemberName("trial-answer")]
     TrialAnswer,
+
+    /// <summary>Generating a grounded answer for one question of an assistant's test-set rerun
+    /// (M3.5 plan §3, Slice 2, #124): same pipeline as <see cref="TrialAnswer"/>, distinguished
+    /// so test-run usage can be counted on its own.</summary>
+    [JsonStringEnumMemberName("assistant-test")]
+    AssistantTest,
 }

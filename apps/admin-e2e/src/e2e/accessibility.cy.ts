@@ -184,7 +184,7 @@ describe('accessibility', () => {
       loginAs('SMB 管理者');
       cy.visit('/app/settings');
       cy.contains('button', '變更 安心商行客服同仁 的權限').click();
-      cy.get('.member__editor input[type="checkbox"]').should('have.length', 7);
+      cy.get('.member__editor input[type="checkbox"]').should('have.length', 8);
       auditA11y();
     });
   });

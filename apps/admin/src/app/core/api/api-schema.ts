@@ -3158,6 +3158,151 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/test-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantTestRunView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Accepted */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantTestRunView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/test-runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantTestRunDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/chat/conversations": {
         parameters: {
             query?: never;
@@ -3626,6 +3771,58 @@ export interface components {
         };
         /** @enum {unknown} */
         AssistantTestExpectedKind: "company-data" | "general-knowledge" | "no-result";
+        /** @enum {unknown} */
+        AssistantTestFailureReason: "kind-mismatch" | "missing-document" | null;
+        AssistantTestResultView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            testCaseId: string;
+            /** Format: int32 */
+            ordinal: number;
+            question: string;
+            expectedKind: components["schemas"]["AssistantTestExpectedKind"];
+            expectedDocumentIds: string[];
+            actualKind: components["schemas"]["AnswerReplyKind"];
+            answerText: string;
+            citedDocumentIds: string[];
+            rejectionReason: null | components["schemas"]["AnswerRejectionReason"];
+            /** Format: double */
+            topScore: null | number;
+            passed: boolean;
+            failureReason: null | components["schemas"]["AssistantTestFailureReason"];
+        };
+        AssistantTestRunDetailView: {
+            run: components["schemas"]["AssistantTestRunView"];
+            results: components["schemas"]["AssistantTestResultView"][];
+        };
+        /** @enum {unknown} */
+        AssistantTestRunStatus: "queued" | "running" | "completed" | "failed";
+        /** @enum {unknown} */
+        AssistantTestRunTrigger: "manual" | "knowledge-changed" | "assistant-changed";
+        AssistantTestRunView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assistantId: string;
+            trigger: components["schemas"]["AssistantTestRunTrigger"];
+            status: components["schemas"]["AssistantTestRunStatus"];
+            rerunRequested: boolean;
+            /** Format: date-time */
+            queuedAt: string;
+            /** Format: date-time */
+            startedAt: null | string;
+            /** Format: date-time */
+            completedAt: null | string;
+            /** Format: int32 */
+            passedCount: number;
+            /** Format: int32 */
+            failedCount: number;
+            promptVersion: null | string;
+            model: null | string;
+            /** Format: double */
+            minScore: null | number;
+        };
         /** @enum {unknown} */
         AssistantTone: "friendly" | "professional" | "concise";
         ChangePasswordRequest: {

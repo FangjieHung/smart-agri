@@ -2561,6 +2561,127 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/test-runs": {
+      "post": {
+        "tags": [
+          "AssistantTestRunEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTestRunView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "AssistantTestRunEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantTestRunView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/test-runs/{runId}": {
+      "get": {
+        "tags": [
+          "AssistantTestRunEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTestRunDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/assistants/{id}/chat/conversations": {
       "get": {
         "tags": [
@@ -3485,6 +3606,216 @@
           "general-knowledge",
           "no-result"
         ]
+      },
+      "AssistantTestFailureReason": {
+        "enum": [
+          "kind-mismatch",
+          "missing-document",
+          null
+        ]
+      },
+      "AssistantTestResultView": {
+        "required": [
+          "id",
+          "testCaseId",
+          "ordinal",
+          "question",
+          "expectedKind",
+          "expectedDocumentIds",
+          "actualKind",
+          "answerText",
+          "citedDocumentIds",
+          "rejectionReason",
+          "topScore",
+          "passed",
+          "failureReason"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "testCaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "question": {
+            "type": "string"
+          },
+          "expectedKind": {
+            "$ref": "#/components/schemas/AssistantTestExpectedKind"
+          },
+          "expectedDocumentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "actualKind": {
+            "$ref": "#/components/schemas/AnswerReplyKind"
+          },
+          "answerText": {
+            "type": "string"
+          },
+          "citedDocumentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "rejectionReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnswerRejectionReason"
+              }
+            ]
+          },
+          "topScore": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "failureReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantTestFailureReason"
+              }
+            ]
+          }
+        }
+      },
+      "AssistantTestRunDetailView": {
+        "required": [
+          "run",
+          "results"
+        ],
+        "type": "object",
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/AssistantTestRunView"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantTestResultView"
+            }
+          }
+        }
+      },
+      "AssistantTestRunStatus": {
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed"
+        ]
+      },
+      "AssistantTestRunTrigger": {
+        "enum": [
+          "manual",
+          "knowledge-changed",
+          "assistant-changed"
+        ]
+      },
+      "AssistantTestRunView": {
+        "required": [
+          "id",
+          "assistantId",
+          "trigger",
+          "status",
+          "rerunRequested",
+          "queuedAt",
+          "startedAt",
+          "completedAt",
+          "passedCount",
+          "failedCount",
+          "promptVersion",
+          "model",
+          "minScore"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/AssistantTestRunTrigger"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssistantTestRunStatus"
+          },
+          "rerunRequested": {
+            "type": "boolean"
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "passedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "promptVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "minScore": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
       },
       "AssistantTone": {
         "enum": [
@@ -5694,6 +6025,9 @@
     },
     {
       "name": "AssistantTestCaseEndpoints"
+    },
+    {
+      "name": "AssistantTestRunEndpoints"
     }
   ]
 }

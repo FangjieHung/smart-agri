@@ -373,7 +373,10 @@ public static class AssistantDraftEndpoints
         return Results.Ok(ToTrialAnswerResponse(result, knowledgeBaseNames));
     }
 
-    private static TrialAnswerResponse ToTrialAnswerResponse(
+    /// <summary>Shared with <see cref="AssistantEndpoints.TrialAnswerAsync"/> (M3.5 plan Slice 1,
+    /// issue #123): a real assistant's trial answer has the exact same response shape as a
+    /// draft's.</summary>
+    internal static TrialAnswerResponse ToTrialAnswerResponse(
         GroundedAnswerResult result, IReadOnlyDictionary<Guid, string> knowledgeBaseNames) =>
         new(
             new TrialAnswerReplyView(

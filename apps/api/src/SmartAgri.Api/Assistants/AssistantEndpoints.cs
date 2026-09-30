@@ -1,9 +1,15 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
+using SmartAgri.Api.Knowledge;
+using SmartAgri.Application.Ai;
+using SmartAgri.Application.Answers;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Infrastructure;
@@ -248,6 +254,17 @@ public static class AssistantEndpoints
             .Produces<PlatformSharingView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
+
+        // A built assistant's own trial answer (M3.5 plan Slice 1, issue #123): same response
+        // shape as the wizard draft's (AssistantDraftEndpoints.TrialAnswerAsync), but answered
+        // with the assistant's own rules and currently connected knowledge bases, and attributed
+        // to it (ModelInvocation.AssistantId) instead of null.
+        assistants.MapPost("/{id:guid}/trial-answers", TrialAnswerAsync)
+            .Produces<TrialAnswerResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity)
+            .Produces(StatusCodes.Status503ServiceUnavailable);
 
         assistants.MapPut("/{id:guid}/publishing/platform/paused", SetPlatformPausedAsync)
             .RequirePermission(AccountPermission.ManagePublishing, ForbiddenReason.Publishing)
@@ -749,6 +766,77 @@ public static class AssistantEndpoints
 
         var allowedAccountIds = await SharedAccountIdsAsync(dbContext, assistant.Id, cancellationToken);
         return Results.Ok(ToChannelView(assistant, allowedAccountIds));
+    }
+
+    /// <summary>
+    /// Answers <paramref name="request"/>'s question through the real answer pipeline
+    /// (<see cref="GroundedAnswerService"/>), using this assistant's own rules and currently
+    /// connected knowledge bases (M3.5 plan Slice 1, issue #123). Exactly the same validation,
+    /// response shape and failure handling as the wizard draft's trial answer
+    /// (<see cref="AssistantDraftEndpoints.TrialAnswerAsync"/>), except the call is attributed to
+    /// this assistant (<see cref="GroundedAnswerRequest.AssistantId"/>) rather than
+    /// <see langword="null"/>. Below the relevance threshold with
+    /// <see cref="AssistantKnowledgeScope.CompanyDataOnly"/>, the model is never called (grounded-
+    /// answers ADR) — the issue's acceptance criterion "試問低於門檻時不呼叫模型".
+    /// </summary>
+    internal static async Task<IResult> TrialAnswerAsync(
+        Guid id,
+        TrialAnswerRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        GroundedAnswerService answerService,
+        ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await FindManageableAsync(dbContext.Assistants.AsNoTracking(), id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantConfiguration);
+        }
+
+        var question = AssistantDraftTrialAnswerRules.ValidateQuestion(request.Question);
+        if (!question.IsValid)
+        {
+            return ApiErrors.ValidationFailed(question.Failures);
+        }
+
+        var knowledgeBaseIds = await ConnectedKnowledgeBaseIdsAsync(dbContext, assistant.Id, cancellationToken);
+        var profile = GroundedAnswerProfile.For(assistant, knowledgeBaseIds);
+        var answerRequest = new GroundedAnswerRequest(
+            profile, question.Value, [], callerId, assistant.Id, ModelInvocationPurpose.TrialAnswer);
+
+        GroundedAnswerResult result;
+        try
+        {
+            result = await answerService.AnswerAsync(answerRequest, cancellationToken);
+        }
+        catch (KnowledgeEmbeddingException exception)
+        {
+            loggerFactory.CreateLogger(typeof(AssistantEndpoints).FullName!)
+                .LogWarning(exception.InnerException, "A trial answer could not embed the question: {Issue}", exception.Message);
+            return ApiErrors.WithReason(
+                StatusCodes.Status503ServiceUnavailable,
+                exception.ProviderNotConfigured
+                    ? KnowledgeRetrievalEndpoints.EmbeddingNotConfiguredReason
+                    : KnowledgeRetrievalEndpoints.EmbeddingUnavailableReason,
+                exception.Message);
+        }
+        catch (ChatGenerationException exception)
+        {
+            return ChatErrors.ToApiResult(exception);
+        }
+
+        var citedKnowledgeBaseIds = result.Retrieval.Passages.Select(passage => passage.KnowledgeBaseId).Distinct().ToList();
+        var knowledgeBaseNames = await dbContext.KnowledgeBases.AsNoTracking()
+            .Where(knowledgeBase => citedKnowledgeBaseIds.Contains(knowledgeBase.Id))
+            .ToDictionaryAsync(knowledgeBase => knowledgeBase.Id, knowledgeBase => knowledgeBase.Name, cancellationToken);
+
+        return Results.Ok(AssistantDraftEndpoints.ToTrialAnswerResponse(result, knowledgeBaseNames));
     }
 
     private static readonly NotAvailablePublishingChannelView NotYetAvailable = new(

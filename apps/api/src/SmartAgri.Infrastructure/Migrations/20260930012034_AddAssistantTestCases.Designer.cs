@@ -13,8 +13,8 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260930012448_AnswerOutcomes")]
-    partial class AnswerOutcomes
+    [Migration("20260930012034_AddAssistantTestCases")]
+    partial class AddAssistantTestCases
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -289,48 +289,6 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("ModelInvocations", (string)null);
                 });
 
-            modelBuilder.Entity("SmartAgri.Domain.Answers.AnswerOutcome", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("AssistantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("At")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("CitedDocumentIds")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<Guid>("OrganizationId")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RejectionReason")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("ReplyKind")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId", "At");
-
-                    b.HasIndex("OrganizationId", "AssistantId", "At");
-
-                    b.ToTable("AnswerOutcomes", (string)null);
-                });
-
             modelBuilder.Entity("SmartAgri.Domain.Assistants.Assistant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -492,6 +450,60 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("AssistantId", "OrganizationId");
 
                     b.ToTable("AssistantShares", (string)null);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantTestCase", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssistantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExpectedDocumentIds")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("ExpectedKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("FollowUpOfId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Question")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AssistantId", "Ordinal");
+
+                    b.HasIndex("AssistantId", "OrganizationId");
+
+                    b.ToTable("AssistantTestCases", (string)null);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Chat.ChatMessage", b =>
@@ -1358,15 +1370,6 @@ namespace SmartAgri.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
-            modelBuilder.Entity("SmartAgri.Domain.Answers.AnswerOutcome", b =>
-                {
-                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("SmartAgri.Domain.Assistants.Assistant", b =>
                 {
                     b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
@@ -1435,6 +1438,22 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("AccountId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)
+                        .WithMany()
+                        .HasForeignKey("AssistantId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantTestCase", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)

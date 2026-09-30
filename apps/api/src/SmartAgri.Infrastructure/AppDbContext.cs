@@ -106,6 +106,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
     /// <summary>In-progress wizard drafts, one or more per account (M3 plan §3, §4; #72).</summary>
     public DbSet<AssistantDraft> AssistantDrafts => Set<AssistantDraft>();
+
+    /// <summary>An assistant's saved test set (M3.5 plan §4, issue #123).</summary>
+    public DbSet<AssistantTestCase> AssistantTestCases => Set<AssistantTestCase>();
     /// <summary>An account an assistant is shared with — "平台內分享" (M3 plan §4/§5 Slice 3).</summary>
     public DbSet<AssistantShare> AssistantShares => Set<AssistantShare>();
 
@@ -232,6 +235,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new AssistantKnowledgeBaseConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantDraftConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantShareConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantTestCaseConfiguration());
 
         // Conversations (M3 plan §4; #76).
         modelBuilder.ApplyConfiguration(new ChatThreadConfiguration());

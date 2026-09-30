@@ -50,6 +50,14 @@ public sealed class AssistantTestRun : IOrganizationScoped
     /// run is queued.</summary>
     public bool RerunRequested { get; private set; }
 
+    /// <summary>
+    /// Why the run asked for by <see cref="RerunRequested"/> is wanted (issue #125): the follow-up
+    /// run is queued with this trigger rather than inheriting <see cref="Trigger"/>. Set together
+    /// with <see cref="RerunRequested"/> and cleared with it when a queued run starts. When several
+    /// requests arrive, see <see cref="CombineTriggers"/>.
+    /// </summary>
+    public AssistantTestRunTrigger? RerunTrigger { get; private set; }
+
     public DateTimeOffset QueuedAt { get; private set; }
 
     public DateTimeOffset? StartedAt { get; private set; }
@@ -93,16 +101,34 @@ public sealed class AssistantTestRun : IOrganizationScoped
         };
     }
 
-    /// <summary>Asks for one more run after this active one.</summary>
-    public void RequestRerun()
+    /// <summary>Asks for one more run after this active one, because of <paramref name="trigger"/>.</summary>
+    public void RequestRerun(AssistantTestRunTrigger trigger)
     {
+        if (!Enum.IsDefined(trigger))
+        {
+            throw new ArgumentOutOfRangeException(nameof(trigger), trigger, "Not a declared trigger.");
+        }
+
         if (!IsActive)
         {
             throw new InvalidOperationException("Only a queued or running test run can be asked to run again.");
         }
 
         RerunRequested = true;
+        RerunTrigger = CombineTriggers(RerunTrigger, trigger);
     }
+
+    /// <summary>
+    /// The trigger recorded when <paramref name="requested"/> arrives after
+    /// <paramref name="earlier"/> (both asking for the same one follow-up run): the latest wins,
+    /// except that <see cref="AssistantTestRunTrigger.Manual"/> never replaces an automatic
+    /// trigger — the follow-up is then needed because the knowledge or the assistant changed, and
+    /// that is what the acceptance status must report (「已過期」), whoever also pressed 「全部重跑」.
+    /// </summary>
+    public static AssistantTestRunTrigger CombineTriggers(AssistantTestRunTrigger? earlier, AssistantTestRunTrigger requested) =>
+        requested == AssistantTestRunTrigger.Manual && earlier is { } previous && previous != AssistantTestRunTrigger.Manual
+            ? previous
+            : requested;
 
     /// <summary><see cref="AssistantTestRunStatus.Queued"/> → <see cref="AssistantTestRunStatus.Running"/>,
     /// recording what it runs with. Clears <see cref="RerunRequested"/>: a rerun asked for before
@@ -119,6 +145,7 @@ public sealed class AssistantTestRun : IOrganizationScoped
         Status = AssistantTestRunStatus.Running;
         StartedAt = now;
         RerunRequested = false;
+        RerunTrigger = null;
         PromptVersion = Truncate(promptVersion, PromptVersionMaxLength);
         Model = Truncate(model, ModelMaxLength);
         MinScore = minScore;

@@ -43,7 +43,7 @@ internal static class AssistantTestRunQueue
             {
                 if (active is not null)
                 {
-                    active.RequestRerun();
+                    active.RequestRerun(trigger);
                     await dbContext.SaveChangesAsync(cancellationToken);
                     return active;
                 }

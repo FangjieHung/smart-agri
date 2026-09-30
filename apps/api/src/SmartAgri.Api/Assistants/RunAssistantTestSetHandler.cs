@@ -214,7 +214,8 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
     }
 
     /// <summary>Queues (and saves) the fresh run a finished <paramref name="run"/> was asked for
-    /// while active. The follow-up keeps the finished run's <see cref="AssistantTestRun.Trigger"/>.
+    /// while active. The follow-up's trigger is the one it was asked for with
+    /// (<see cref="AssistantTestRun.RerunTrigger"/>; issue #125), not the finished run's.
     /// Saved separately from the finished run, so the one-active-run index never sees two.</summary>
     private async Task<bool> QueueRequestedRerunAsync(AssistantTestRun run, CancellationToken cancellationToken)
     {
@@ -223,7 +224,8 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
             return false;
         }
 
-        AssistantTestRunQueue.AddQueued(_dbContext, run.OrganizationId, run.AssistantId, run.Trigger, _clock.GetUtcNow());
+        AssistantTestRunQueue.AddQueued(
+            _dbContext, run.OrganizationId, run.AssistantId, run.RerunTrigger ?? run.Trigger, _clock.GetUtcNow());
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }

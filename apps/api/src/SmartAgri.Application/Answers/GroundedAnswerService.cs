@@ -375,8 +375,8 @@ public sealed class GroundedAnswerService
             organizationId,
             request.AssistantId,
             ChannelFor(request.Purpose),
-            ToReplyKind(reply.Kind),
-            reply.RejectionReason is { } reason ? ToRejectionReason(reason) : null,
+            AnswerKinds.ToReplyKind(reply.Kind),
+            reply.RejectionReason is { } reason ? AnswerKinds.ToRejectionReason(reason) : null,
             [.. reply.Citations.Select(citation => citation.DocumentId).Distinct()],
             _clock.GetUtcNow(),
             cancellationToken);
@@ -386,25 +386,8 @@ public sealed class GroundedAnswerService
     {
         ModelInvocationPurpose.GenerateAnswer => AnswerOutcomeChannel.Chat,
         ModelInvocationPurpose.TrialAnswer => AnswerOutcomeChannel.Trial,
+        ModelInvocationPurpose.AssistantTest => AnswerOutcomeChannel.TestRun,
         _ => throw new ArgumentOutOfRangeException(
             nameof(purpose), purpose, "This purpose has no answer-outcome channel yet."),
-    };
-
-    private static AnswerReplyKind ToReplyKind(GroundedReplyKind kind) => kind switch
-    {
-        GroundedReplyKind.CompanyData => AnswerReplyKind.CompanyData,
-        GroundedReplyKind.GeneralKnowledge => AnswerReplyKind.GeneralKnowledge,
-        GroundedReplyKind.NoResult => AnswerReplyKind.NoResult,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown reply kind."),
-    };
-
-    private static AnswerRejectionReason ToRejectionReason(GroundedRejectionReason reason) => reason switch
-    {
-        GroundedRejectionReason.BelowThreshold => AnswerRejectionReason.BelowThreshold,
-        GroundedRejectionReason.CitationOutOfRange => AnswerRejectionReason.CitationOutOfRange,
-        GroundedRejectionReason.NoCitation => AnswerRejectionReason.NoCitation,
-        GroundedRejectionReason.CannotAnswer => AnswerRejectionReason.CannotAnswer,
-        GroundedRejectionReason.EmptyAnswer => AnswerRejectionReason.EmptyAnswer,
-        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Unknown rejection reason."),
     };
 }

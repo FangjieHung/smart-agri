@@ -56,6 +56,7 @@ describe('MockDemoRepository team management', () => {
       'submit-authorized-forms',
       'use-shared-assistants',
       'read-own-tracking',
+      'handle-assistant-issues',
     ]);
     expect(team.permissions.filter((permission) => !permission.enforced).map((p) => p.id)).toEqual([
       'use-shared-assistants',

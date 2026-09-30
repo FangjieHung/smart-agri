@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Answers;
+using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
@@ -37,9 +38,12 @@ public sealed record AssistantOperationsView(
 /// uploaded.</param>
 public sealed record KnowledgeOperationsView(int ProcessingFailedCount, int OverduePendingReviewCount);
 
-/// <summary>Handling-issue counts for the operations summary. Placeholder until #126
-/// (<c>AssistantIssue</c>) exists: always zero/<see langword="null"/>, not omitted, so the
-/// frontend shape is already final and #126 only has to fill in real numbers.</summary>
+/// <summary>Handling-issue numbers for the operations summary (issue #126).</summary>
+/// <param name="OpenCount">Every unresolved issue (<c>open</c> or <c>in-progress</c>) in the
+/// organization right now — like <see cref="KnowledgeOperationsView"/>, the current backlog, not
+/// date-ranged.</param>
+/// <param name="AverageResolutionHours">Average hours from creation to resolution of the issues
+/// resolved within the range; <see langword="null"/> when none was.</param>
 public sealed record IssuesSummaryView(int OpenCount, double? AverageResolutionHours);
 
 /// <summary><c>GET /api/v1/operations/summary</c>'s response (M3.5 plan §3, Slice 6).</summary>
@@ -57,8 +61,7 @@ public sealed record OperationsSummaryView(
 /// <summary>
 /// <c>GET /api/v1/operations/summary?from=&amp;to=</c> (M3.5 plan §3, Slice 6; issue #128):
 /// the organization-level operational rollup — every assistant's reply and rejection rates,
-/// the organization's most-cited documents, knowledge-base processing health, and (placeholder
-/// until #126) issue counts. <c>manage-assistants</c> only, no ownership check: unlike an
+/// the organization's most-cited documents, knowledge-base processing health, and issue counts. <c>manage-assistants</c> only, no ownership check: unlike an
 /// assistant's own analytics, this is an organization-wide view, so any account that may manage
 /// assistants may see every assistant's numbers, not only its own. Never any conversation
 /// content — only what <see cref="AnswerOutcome"/> already discarded content to record.
@@ -131,8 +134,11 @@ public static class OperationsSummaryEndpoints
 
         var knowledge = await KnowledgeOperationsAsync(dbContext, now, cancellationToken);
 
+        var (openIssues, averageResolutionHours) = await AssistantIssueEndpoints.OperationsNumbersAsync(
+            dbContext, range.FromUtc, range.ToExclusiveUtc, cancellationToken);
+
         return Results.Ok(new OperationsSummaryView(
-            range.From, range.To, assistants, mostCited, knowledge, new IssuesSummaryView(0, null)));
+            range.From, range.To, assistants, mostCited, knowledge, new IssuesSummaryView(openIssues, averageResolutionHours)));
     }
 
     /// <summary>Each document's latest version only (highest <c>VersionNumber</c>), the same

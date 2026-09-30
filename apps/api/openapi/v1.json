@@ -141,6 +141,58 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/issues": {
+      "post": {
+        "tags": [
+          "AssistantIssueEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistantIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantIssueView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants/{id}/analytics": {
       "get": {
         "tags": [
@@ -2682,6 +2734,166 @@
         }
       }
     },
+    "/api/v1/issues": {
+      "get": {
+        "tags": [
+          "AssistantIssueEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assistantId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantIssueView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/issues/summary": {
+      "get": {
+        "tags": [
+          "AssistantIssueEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantIssueSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/issues/{issueId}": {
+      "get": {
+        "tags": [
+          "AssistantIssueEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantIssueDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "AssistantIssueEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssistantIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantIssueDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants/{id}/chat/conversations": {
       "get": {
         "tags": [
@@ -2965,7 +3177,8 @@
           "read-consented-submissions",
           "use-shared-assistants",
           "submit-authorized-forms",
-          "read-own-tracking"
+          "read-own-tracking",
+          "handle-assistant-issues"
         ]
       },
       "AccountRole": {
@@ -3311,6 +3524,289 @@
           "savedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "AssistantIssueDetailView": {
+        "required": [
+          "issue",
+          "events"
+        ],
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/AssistantIssueView"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantIssueEventView"
+            }
+          }
+        }
+      },
+      "AssistantIssueEventAction": {
+        "enum": [
+          "created",
+          "assigned",
+          "status-changed",
+          "commented",
+          "due-date-changed"
+        ]
+      },
+      "AssistantIssueEventView": {
+        "required": [
+          "id",
+          "action",
+          "actorAccountId",
+          "actorDisplayName",
+          "at",
+          "note",
+          "assigneeAccountId",
+          "assigneeDisplayName",
+          "status",
+          "dueAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "$ref": "#/components/schemas/AssistantIssueEventAction"
+          },
+          "actorAccountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actorDisplayName": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "assigneeAccountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "assigneeDisplayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantIssueStatus"
+              }
+            ]
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AssistantIssueSource": {
+        "enum": [
+          "test-failure",
+          "handoff"
+        ]
+      },
+      "AssistantIssueStatus": {
+        "enum": [
+          "open",
+          "in-progress",
+          "resolved"
+        ]
+      },
+      "AssistantIssueSummaryView": {
+        "required": [
+          "openCount",
+          "inProgressCount",
+          "assignedToMeCount",
+          "overdueCount"
+        ],
+        "type": "object",
+        "properties": {
+          "openCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "inProgressCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "assignedToMeCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "overdueCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AssistantIssueView": {
+        "required": [
+          "id",
+          "assistantId",
+          "assistantName",
+          "source",
+          "status",
+          "title",
+          "assigneeAccountId",
+          "assigneeDisplayName",
+          "reporterAccountId",
+          "reporterDisplayName",
+          "dueAt",
+          "testRunId",
+          "testResultId",
+          "testFailureReason",
+          "question",
+          "answer",
+          "resolutionNote",
+          "createdAt",
+          "updatedAt",
+          "resolvedAt",
+          "viewerIsAssistantOwner",
+          "viewerIsAssignee"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AssistantIssueSource"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssistantIssueStatus"
+          },
+          "title": {
+            "type": "string"
+          },
+          "assigneeAccountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "assigneeDisplayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "reporterAccountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "reporterDisplayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "testRunId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "testResultId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "testFailureReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantTestFailureReason"
+              }
+            ]
+          },
+          "question": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "answer": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resolutionNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolvedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "viewerIsAssistantOwner": {
+            "type": "boolean"
+          },
+          "viewerIsAssignee": {
+            "type": "boolean"
           }
         }
       },
@@ -4138,6 +4634,41 @@
           "draftId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "CreateAssistantIssueRequest": {
+        "required": [
+          "testResultId"
+        ],
+        "type": "object",
+        "properties": {
+          "testResultId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "assigneeAccountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -5800,6 +6331,49 @@
           }
         }
       },
+      "UpdateAssistantIssueRequest": {
+        "type": "object",
+        "properties": {
+          "assigneeAccountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "unassign": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "status": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "clearDueAt": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
       "UpdateAssistantSettingsRequest": {
         "type": "object",
         "properties": {
@@ -5989,6 +6563,9 @@
     },
     {
       "name": "AssistantDraftEndpoints"
+    },
+    {
+      "name": "AssistantIssueEndpoints"
     },
     {
       "name": "AssistantAnalyticsEndpoints"

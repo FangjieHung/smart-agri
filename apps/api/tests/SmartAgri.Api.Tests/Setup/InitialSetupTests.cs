@@ -103,7 +103,7 @@ public class InitialSetupTests : IClassFixture<AuthHostFixture>
         var me = await spa.GetMeJsonAsync(token.AccessToken);
         me.GetProperty("passwordChangeRequired").GetBoolean().ShouldBeTrue();
         me.GetProperty("role").GetString().ShouldBe("smb-admin");
-        me.GetProperty("permissions").GetArrayLength().ShouldBe(7);
+        me.GetProperty("permissions").GetArrayLength().ShouldBe(Enum.GetValues<SmartAgri.Domain.Accounts.AccountPermission>().Length);
 
         var probe = await spa.GetAsync(ProtectedProbeEndpoint.Path, token.AccessToken);
         probe.StatusCode.ShouldBe(HttpStatusCode.Forbidden);

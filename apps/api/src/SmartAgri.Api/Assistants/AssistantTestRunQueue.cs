@@ -11,9 +11,19 @@ namespace SmartAgri.Api.Assistants;
 /// Queues test-set runs (M3.5 plan §3, issue #124): the one place a run and its
 /// <see cref="RunAssistantTestSetJob"/> are created, so the "at most one active run per
 /// assistant; otherwise only <see cref="AssistantTestRun.RerunRequested"/>" rule and the
-/// retention of <see cref="AssistantTestRun.KeptPerAssistant"/> runs hold for every trigger
-/// (Slice 3, #125, is expected to call <see cref="RequestAsync"/> too).
+/// retention of <see cref="AssistantTestRun.KeptPerAssistant"/> runs hold for every trigger:
+/// 「全部重跑」 (#124) and the automatic reruns of #125 (<see cref="RequestForKnowledgeBaseAsync"/>,
+/// <see cref="RequestIfTestedAsync"/>, <see cref="ScheduleForKnowledgeBase"/>).
 /// </summary>
+/// <remarks>
+/// An automatic rerun is asked for in the same database transaction as the change that causes
+/// it, after that change's own save succeeded: the caller opens the transaction, saves, calls one
+/// of these, and commits — the pattern <see cref="RunAssistantTestSetHandler"/> uses to queue a
+/// follow-up run with a run's completion. The change and its rerun then commit (or roll back)
+/// together. <see cref="RequestAsync"/> cannot simply join the change's <c>SaveChanges</c>: it
+/// reads the active run and retries after a lost race (clearing the change tracker), which is safe
+/// inside the transaction because EF Core rolls a failed <c>SaveChanges</c> back to a savepoint.
+/// </remarks>
 internal static class AssistantTestRunQueue
 {
     private const int MaxSaveAttempts = 3;
@@ -64,6 +74,67 @@ internal static class AssistantTestRunQueue
                 dbContext.ChangeTracker.Clear();
             }
         }
+    }
+
+    /// <summary>
+    /// Asks for a rerun (<see cref="RequestAsync"/>) of every assistant connected to
+    /// <paramref name="knowledgeBaseId"/> that has at least one test case — the ones a change to
+    /// that knowledge base affects (plan §3: 「連接了這個知識庫、而且有題組的所有助理」). Returns
+    /// how many were asked for.
+    /// </summary>
+    public static async Task<int> RequestForKnowledgeBaseAsync(
+        AppDbContext dbContext,
+        Guid organizationId,
+        Guid knowledgeBaseId,
+        AssistantTestRunTrigger trigger,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var assistantIds = await dbContext.AssistantKnowledgeBases
+            .AsNoTracking()
+            .Where(link => link.KnowledgeBaseId == knowledgeBaseId)
+            .Select(link => link.AssistantId)
+            .Where(assistantId => dbContext.AssistantTestCases.Any(testCase => testCase.AssistantId == assistantId))
+            .Distinct()
+            .OrderBy(assistantId => assistantId)
+            .ToListAsync(cancellationToken);
+        foreach (var assistantId in assistantIds)
+        {
+            await RequestAsync(dbContext, organizationId, assistantId, trigger, now, cancellationToken);
+        }
+
+        return assistantIds.Count;
+    }
+
+    /// <summary>Asks for a rerun of <paramref name="assistantId"/> (<see cref="RequestAsync"/>)
+    /// only if it has at least one test case; returns whether it did.</summary>
+    public static async Task<bool> RequestIfTestedAsync(
+        AppDbContext dbContext,
+        Guid organizationId,
+        Guid assistantId,
+        AssistantTestRunTrigger trigger,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (!await dbContext.AssistantTestCases.AnyAsync(testCase => testCase.AssistantId == assistantId, cancellationToken))
+        {
+            return false;
+        }
+
+        await RequestAsync(dbContext, organizationId, assistantId, trigger, now, cancellationToken);
+        return true;
+    }
+
+    /// <summary>Adds (not saved) a <see cref="RequestAssistantTestRunsJob"/> that asks, at
+    /// <paramref name="runAfter"/>, for the reruns <see cref="RequestForKnowledgeBaseAsync"/> would
+    /// ask for now: a version approved to take effect in the future. Saved with the approval.</summary>
+    public static BackgroundJob ScheduleForKnowledgeBase(
+        AppDbContext dbContext, Guid organizationId, Guid knowledgeBaseId, DateTimeOffset now, DateTimeOffset runAfter)
+    {
+        var job = BackgroundJob.Create(
+            organizationId, RequestAssistantTestRunsJob.Kind, new RequestAssistantTestRunsJob(knowledgeBaseId), now, runAfter);
+        dbContext.BackgroundJobs.Add(job);
+        return job;
     }
 
     /// <summary>Adds a new queued run and its job to <paramref name="dbContext"/> (not saved):

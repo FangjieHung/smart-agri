@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Errors;
 using SmartAgri.Application.Knowledge;
+using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Infrastructure;
 
@@ -232,6 +234,10 @@ public static class KnowledgeReviewEndpoints
     /// <c>versionIds[i]</c>, and nothing is written. One save: every version, and one
     /// <see cref="KnowledgeActivityAction.VersionApproved"/> row per version naming the caller.
     /// Returns the approved versions (each once, in request order) as they now stand.
+    /// In the same transaction (issue #125), the affected assistants' <c>knowledge-changed</c>
+    /// reruns are asked for (<see cref="AssistantTestRunQueue.RequestForKnowledgeBaseAsync"/>) — or,
+    /// when <c>effectiveFrom</c> is in the future, a job that asks for them then is scheduled with
+    /// <c>RunAfter = effectiveFrom</c> (<see cref="AssistantTestRunQueue.ScheduleForKnowledgeBase"/>).
     /// </summary>
     internal static async Task<IResult> ApproveAsync(
         Guid id,
@@ -279,6 +285,14 @@ public static class KnowledgeReviewEndpoints
             dbContext.KnowledgeActivities.Add(KnowledgeActivity.VersionApproved(version, callerId, now));
         }
 
+        var takesEffectLater = approval.EffectiveFrom > now;
+        if (takesEffectLater)
+        {
+            AssistantTestRunQueue.ScheduleForKnowledgeBase(
+                dbContext, knowledgeBase.OrganizationId, knowledgeBase.Id, now, approval.EffectiveFrom);
+        }
+
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -296,6 +310,13 @@ public static class KnowledgeReviewEndpoints
                 ?? ApiErrors.WithReason(StatusCodes.Status409Conflict, ApprovalConflictReason, ApprovalConflictMessage);
         }
 
+        if (!takesEffectLater)
+        {
+            await AssistantTestRunQueue.RequestForKnowledgeBaseAsync(
+                dbContext, knowledgeBase.OrganizationId, knowledgeBase.Id, AssistantTestRunTrigger.KnowledgeChanged, now, cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
         return Results.Ok(await VersionViewsAsync(dbContext, ids, now, cancellationToken));
     }
 
@@ -399,7 +420,9 @@ public static class KnowledgeReviewEndpoints
 
     /// <summary>Saves a disable or enable. <c>DisabledAt</c> is a concurrency token, so when a
     /// concurrent request changed it first, nothing is written and the caller gets the same
-    /// <c>409</c> as if it had come second (or <c>403</c> if the document is gone).</summary>
+    /// <c>409</c> as if it had come second (or <c>403</c> if the document is gone). In the same
+    /// transaction, asks for the <c>knowledge-changed</c> reruns of the assistants connected to the
+    /// document's knowledge base (issue #125).</summary>
     private static async Task<IResult> SaveStateChangeAsync(
         AppDbContext dbContext,
         KnowledgeDocument document,
@@ -408,6 +431,7 @@ public static class KnowledgeReviewEndpoints
         string conflictMessage,
         CancellationToken cancellationToken)
     {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -420,6 +444,10 @@ public static class KnowledgeReviewEndpoints
                 ? ApiErrors.WithReason(StatusCodes.Status409Conflict, conflictReason, conflictMessage)
                 : ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
         }
+
+        await AssistantTestRunQueue.RequestForKnowledgeBaseAsync(
+            dbContext, document.OrganizationId, document.KnowledgeBaseId, AssistantTestRunTrigger.KnowledgeChanged, now, cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
 
         return Results.Ok(await KnowledgeDocumentEndpoints.DocumentViewAsync(dbContext, document.Id, now, cancellationToken));
     }

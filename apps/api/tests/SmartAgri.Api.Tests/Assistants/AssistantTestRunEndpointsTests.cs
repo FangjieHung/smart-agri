@@ -195,6 +195,40 @@ public sealed class AssistantTestRunEndpointsTests : IClassFixture<AuthHostFixtu
         runs[1].Trigger.ShouldBe(AssistantTestRunTrigger.Manual);
     }
 
+    [Fact]
+    public async Task The_follow_up_run_records_the_trigger_it_was_asked_for_not_the_finished_runs()
+    {
+        var owner = await CreateOwnerWithAssistantAsync();
+        var documentId = await UploadAndApproveAsync(owner, "退貨政策.md", ReturnClause);
+        await CreateTestCaseAsync(owner, UnrelatedQuestion, "no-result", []);
+        var runId = (await BodyJsonAsync(await RequestRunAsync(owner))).GetProperty("id").GetGuid();
+
+        // A manual run is running when a document of its knowledge base is disabled (#125).
+        await using (var dbContext = _host.Postgres.CreateDbContext(owner.Organization.Id))
+        {
+            var run = await dbContext.AssistantTestRuns.SingleAsync(candidate => candidate.Id == runId, CancellationToken);
+            run.Start("test", AuthHostFixture.ChatModel, 0.3, DateTimeOffset.UtcNow);
+            await dbContext.SaveChangesAsync(CancellationToken);
+        }
+
+        var disabled = await owner.Spa.PostAsync(
+            $"/api/v1/knowledge-bases/{owner.KnowledgeBaseId}/documents/{documentId}/disable", owner.Token, new { reason = "條款待確認" });
+        disabled.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        await RunJobsAsync();
+
+        await using var after = _host.Postgres.CreateDbContext(owner.Organization.Id);
+        var runs = await after.AssistantTestRuns.AsNoTracking()
+            .Where(run => run.AssistantId == owner.AssistantId)
+            .OrderBy(run => run.QueuedAt)
+            .ToListAsync(CancellationToken);
+        runs.Select(run => (run.Id == runId, run.Trigger, run.Status)).ShouldBe(
+        [
+            (true, AssistantTestRunTrigger.Manual, AssistantTestRunStatus.Completed),
+            (false, AssistantTestRunTrigger.KnowledgeChanged, AssistantTestRunStatus.Completed),
+        ]);
+    }
+
     // --- Acceptance: a failing job fails its run, and only its run ------------------------------
 
     [Fact]

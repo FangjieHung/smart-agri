@@ -1865,6 +1865,58 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/trial-answers": {
+      "post": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrialAnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrialAnswerResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/assistants/{id}/publishing/platform/paused": {
       "put": {
         "tags": [
@@ -2136,6 +2188,274 @@
           },
           "503": {
             "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/test-cases": {
+      "get": {
+        "tags": [
+          "AssistantTestCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantTestCaseView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "AssistantTestCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistantTestCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTestCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/test-cases/{caseId}": {
+      "patch": {
+        "tags": [
+          "AssistantTestCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssistantTestCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTestCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AssistantTestCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "caseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/test-cases/import": {
+      "post": {
+        "tags": [
+          "AssistantTestCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportAssistantTestCasesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AssistantTestCaseView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/test-cases/export": {
+      "get": {
+        "tags": [
+          "AssistantTestCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportAssistantTestCasesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -2812,6 +3132,169 @@
           }
         }
       },
+      "AssistantTestCaseCategory": {
+        "enum": [
+          "common",
+          "exception",
+          "should-refuse"
+        ]
+      },
+      "AssistantTestCaseExportEntry": {
+        "required": [
+          "id",
+          "question",
+          "category",
+          "expectedKind",
+          "expectedCitedDocuments",
+          "followUpOf"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "expectedKind": {
+            "type": "string"
+          },
+          "expectedCitedDocuments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "followUpOf": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AssistantTestCaseImportEntry": {
+        "required": [
+          "id",
+          "question",
+          "category",
+          "expectedKind",
+          "expectedCitedDocuments",
+          "followUpOf"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "question": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expectedKind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expectedCitedDocuments": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "followUpOf": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "AssistantTestCaseView": {
+        "required": [
+          "id",
+          "assistantId",
+          "question",
+          "category",
+          "expectedKind",
+          "expectedDocumentIds",
+          "followUpOfId",
+          "ordinal",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "question": {
+            "type": "string"
+          },
+          "category": {
+            "$ref": "#/components/schemas/AssistantTestCaseCategory"
+          },
+          "expectedKind": {
+            "$ref": "#/components/schemas/AssistantTestExpectedKind"
+          },
+          "expectedDocumentIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "followUpOfId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AssistantTestExpectedKind": {
+        "enum": [
+          "company-data",
+          "general-knowledge",
+          "no-result"
+        ]
+      },
       "AssistantTone": {
         "enum": [
           "friendly",
@@ -3115,6 +3598,53 @@
           }
         }
       },
+      "CreateAssistantTestCaseRequest": {
+        "required": [
+          "question",
+          "category",
+          "expectedKind",
+          "expectedDocumentIds",
+          "followUpOfId"
+        ],
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expectedKind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expectedDocumentIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "followUpOfId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "CreateKnowledgeBaseRequest": {
         "required": [
           "name"
@@ -3202,6 +3732,20 @@
           }
         }
       },
+      "ExportAssistantTestCasesResponse": {
+        "required": [
+          "questions"
+        ],
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssistantTestCaseExportEntry"
+            }
+          }
+        }
+      },
       "GroundedReplyKind": {
         "enum": [
           "company-data",
@@ -3212,6 +3756,23 @@
       "IFormFile": {
         "type": "string",
         "format": "binary"
+      },
+      "ImportAssistantTestCasesRequest": {
+        "required": [
+          "questions"
+        ],
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AssistantTestCaseImportEntry"
+            }
+          }
+        }
       },
       "JsonElement": { },
       "KnowledgeAccountView": {
@@ -4627,6 +5188,46 @@
           }
         }
       },
+      "UpdateAssistantTestCaseRequest": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "category": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expectedKind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "expectedDocumentIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "followUpOfId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "UpdateKnowledgeBaseRequest": {
         "type": "object",
         "properties": {
@@ -4764,6 +5365,9 @@
     },
     {
       "name": "AssistantEndpoints"
+    },
+    {
+      "name": "AssistantTestCaseEndpoints"
     }
   ]
 }

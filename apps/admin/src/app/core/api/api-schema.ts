@@ -2308,6 +2308,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/trial-answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TrialAnswerRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TrialAnswerResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/publishing/platform/paused": {
         parameters: {
             query?: never;
@@ -2656,6 +2725,313 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/test-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantTestCaseView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateAssistantTestCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantTestCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/test-cases/{caseId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    caseId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    caseId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateAssistantTestCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantTestCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/test-cases/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ImportAssistantTestCasesRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantTestCaseView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/test-cases/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExportAssistantTestCasesResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3067,6 +3443,44 @@ export interface components {
             viewerIsOwner: boolean;
         };
         /** @enum {unknown} */
+        AssistantTestCaseCategory: "common" | "exception" | "should-refuse";
+        AssistantTestCaseExportEntry: {
+            id: string;
+            question: string;
+            category: string;
+            expectedKind: string;
+            expectedCitedDocuments: string[];
+            followUpOf: null | string;
+        };
+        AssistantTestCaseImportEntry: {
+            id: null | string;
+            question: null | string;
+            category: null | string;
+            expectedKind: null | string;
+            expectedCitedDocuments: null | string[];
+            followUpOf: null | string;
+        };
+        AssistantTestCaseView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assistantId: string;
+            question: string;
+            category: components["schemas"]["AssistantTestCaseCategory"];
+            expectedKind: components["schemas"]["AssistantTestExpectedKind"];
+            expectedDocumentIds: string[];
+            /** Format: uuid */
+            followUpOfId: null | string;
+            /** Format: int32 */
+            ordinal: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @enum {unknown} */
+        AssistantTestExpectedKind: "company-data" | "general-knowledge" | "no-result";
+        /** @enum {unknown} */
         AssistantTone: "friendly" | "professional" | "concise";
         ChangePasswordRequest: {
             currentPassword: null | string;
@@ -3149,6 +3563,14 @@ export interface components {
             /** Format: uuid */
             draftId: string;
         };
+        CreateAssistantTestCaseRequest: {
+            question: null | string;
+            category: null | string;
+            expectedKind: null | string;
+            expectedDocumentIds: null | string[];
+            /** Format: uuid */
+            followUpOfId: null | string;
+        };
         CreateKnowledgeBaseRequest: {
             name: null | string;
             purpose?: null | string;
@@ -3166,10 +3588,16 @@ export interface components {
         DisableKnowledgeDocumentRequest: {
             reason: null | string;
         };
+        ExportAssistantTestCasesResponse: {
+            questions: components["schemas"]["AssistantTestCaseExportEntry"][];
+        };
         /** @enum {unknown} */
         GroundedReplyKind: "company-data" | "general-knowledge" | "no-result";
         /** Format: binary */
         IFormFile: string;
+        ImportAssistantTestCasesRequest: {
+            questions: null | components["schemas"]["AssistantTestCaseImportEntry"][];
+        };
         JsonElement: unknown;
         KnowledgeAccountView: {
             /** Format: uuid */
@@ -3538,6 +3966,14 @@ export interface components {
             tone?: null | string;
             roleInstructions?: null | string;
             rules?: null | components["schemas"]["AssistantAnswerRulesPatch"];
+        };
+        UpdateAssistantTestCaseRequest: {
+            question?: null | string;
+            category?: null | string;
+            expectedKind?: null | string;
+            expectedDocumentIds?: null | string[];
+            /** Format: uuid */
+            followUpOfId?: null | string;
         };
         UpdateKnowledgeBaseRequest: {
             name?: null | string;

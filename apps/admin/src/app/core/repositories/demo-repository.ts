@@ -116,6 +116,7 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'submission-withdrawal',
   'publishing',
   'team',
+  'assistant-issue',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
   'password-change-required',
 ] as const;

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink } from '@angular/router';
 import type { AssistantSummaryView } from '../../core/domain/assistant.model';
 import { repositoryResource } from '../../core/repositories/repository-resource';
+import { AssistantIssuesRepository } from '../../core/repositories/assistant-issues.repository';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { AssistantPermissionsService } from '../../core/session/assistant-permissions.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
@@ -17,6 +18,7 @@ import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.com
 export class HomePageComponent {
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly issues = inject(AssistantIssuesRepository);
   private readonly assistantPermissions = inject(AssistantPermissionsService);
 
   /** 與助理清單共用同一條判斷（`AssistantPermissionsService`）：沒有權限就不顯示建立入口。 */
@@ -32,6 +34,12 @@ export class HomePageComponent {
     params: () => this.session.activeAccountId() ?? undefined,
     stream: () => this.repository.listNamedAssistantDrafts(),
   });
+
+  private readonly issueSummary = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.issues.summary(),
+  });
+  protected readonly issueSummaryView = this.issueSummary.view;
 
   /** 目前帳號可以直接開啟對話的助理（自己的，以及團隊分享給自己的）。 */
   protected readonly usableAssistants = computed<readonly AssistantSummaryView[]>(() => {

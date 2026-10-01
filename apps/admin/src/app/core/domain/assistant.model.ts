@@ -1,5 +1,6 @@
 import type { AccountId, AccountRole } from './account.model';
 import type { DatabaseId } from './database.model';
+import type { AssistantAcceptanceStatus } from './assistant-acceptance.model';
 import type { KnowledgeBaseId } from './knowledge-base.model';
 
 export type SeededAssistantId =
@@ -54,6 +55,7 @@ export interface AssistantSummaryView {
   readonly status: AssistantStatus;
   readonly audience: AssistantAudience;
   readonly permission: AssistantPermission;
+  readonly acceptanceStatus?: AssistantAcceptanceStatus;
 }
 
 export interface AssistantConfigurationView {
@@ -71,4 +73,5 @@ export interface AssistantConfigurationView {
    * 也不會出現在對話紀錄側欄；離開頁面就消失。
    */
   readonly keepOwnConversations: boolean;
+  readonly acceptanceStatus?: AssistantAcceptanceStatus;
 }

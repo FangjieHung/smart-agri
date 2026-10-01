@@ -1,0 +1,210 @@
+<section class="acceptance" aria-labelledby="acceptance-title">
+  <header class="acceptance__summary">
+    <div>
+      <p class="eyebrow">驗收狀態</p>
+      <h3 id="acceptance-title">{{ statusLabel(shownAcceptanceStatus()) }}</h3>
+    </div>
+    <button class="ui-button" type="button" [disabled]="!canRun()" (click)="runAll()">
+      {{ busy() ? '處理中…' : hasActiveRun() ? '重跑進行中' : '全部重跑' }}
+    </button>
+  </header>
+  <p>驗收會依預期回覆類型與引用文件判斷；題組文字可保存為 JSON，供匯入或匯出。</p>
+  @if (message()) {
+    <p class="notice" role="alert">{{ message() }}</p>
+  }
+  @if (state() === 'loading') {
+    <p role="status">正在載入題組與重跑歷史…</p>
+  } @else if (state() === 'error') {
+    <section class="state">
+      <h4>目前無法載入驗收資料</h4>
+      <button type="button" class="ui-button ui-button--secondary" (click)="reload()">
+        重新載入
+      </button>
+    </section>
+  } @else if (state() === 'permission-denied') {
+    <section class="state">
+      <h4>你沒有管理這個助理驗收資料的權限</h4>
+      <p>{{ permissionMessage() }}</p>
+    </section>
+  } @else {
+    <section class="case-section" aria-labelledby="case-list-title">
+      <div class="section-heading">
+        <div>
+          <h4 id="case-list-title">
+            測試題組 <span>{{ cases().length }}/50</span>
+          </h4>
+          <p>分類為常見、例外或應拒答。公司資料題可填入預期文件 ID。</p>
+        </div>
+        <div class="file-actions">
+          <label class="ui-button ui-button--secondary"
+            >匯入 JSON<input
+              type="file"
+              accept="application/json,.json"
+              (change)="importFile($event)"
+              aria-label="匯入測試題組 JSON" /></label
+          ><button
+            type="button"
+            class="ui-button ui-button--secondary"
+            [disabled]="cases().length === 0"
+            (click)="exportCases()"
+          >
+            匯出 JSON
+          </button>
+        </div>
+      </div>
+      @if (cases().length === 0) {
+        <p class="empty">還沒有測試題。先新增題目，再執行全部重跑。</p>
+      }
+      <ul class="case-list">
+        @for (item of cases(); track item.id) {
+          <li class="case-card">
+            <div>
+              <div class="case-card__meta">
+                <span>{{
+                  item.category === 'common'
+                    ? '常見'
+                    : item.category === 'exception'
+                      ? '例外'
+                      : '應拒答'
+                }}</span
+                ><span>預期：{{ answerKindLabel(item.expectedKind) }}</span>
+              </div>
+              <p>{{ item.question }}</p>
+              @if (item.expectedDocumentIds.length) {
+                <small>預期引用：{{ item.expectedDocumentIds.join('、') }}</small>
+              }
+            </div>
+            <div class="case-card__actions">
+              <button
+                type="button"
+                class="text-button"
+                [disabled]="busy()"
+                (click)="editCase(item)"
+              >
+                編輯</button
+              ><button
+                type="button"
+                class="text-button danger"
+                [disabled]="busy()"
+                (click)="removeCase(item)"
+              >
+                刪除
+              </button>
+            </div>
+          </li>
+        }
+      </ul>
+      <form class="case-form" (submit)="$event.preventDefault(); saveCase()">
+        <h5>{{ editingId() ? '編輯測試題' : '新增測試題' }}</h5>
+        <label
+          >測試問題<textarea
+            required
+            maxlength="2000"
+            [value]="question()"
+            (input)="onQuestion($any($event.target).value)"
+          ></textarea>
+        </label>
+        <div class="form-row">
+          <label
+            >題目分類<select [value]="category()" (change)="onCategory($any($event.target).value)">
+              <option value="common">常見</option>
+              <option value="exception">例外</option>
+              <option value="should-refuse">應拒答</option>
+            </select></label
+          ><label
+            >預期回覆類型<select
+              [value]="expectedKind()"
+              (change)="onExpectedKind($any($event.target).value)"
+            >
+              <option value="company-data">公司資料</option>
+              <option value="general-knowledge">一般知識</option>
+              <option value="no-result">查無結果</option>
+            </select></label
+          >
+        </div>
+        @if (expectedKind() === 'company-data') {
+          <label
+            >預期引用文件 ID（以逗號分隔）<input
+              [value]="expectedDocumentIds()"
+              (input)="onDocumentIds($any($event.target).value)"
+          /></label>
+        }
+        <div class="form-actions">
+          <button class="ui-button" type="submit" [disabled]="busy() || !question().trim()">
+            {{ busy() ? '儲存中…' : editingId() ? '儲存修改' : '新增題目' }}
+          </button>
+          @if (editingId()) {
+            <button
+              type="button"
+              class="ui-button ui-button--secondary"
+              [disabled]="busy()"
+              (click)="cancelEdit()"
+            >
+              取消
+            </button>
+          }
+        </div>
+      </form>
+    </section>
+    <section class="history" aria-labelledby="history-title">
+      <h4 id="history-title">重跑歷史</h4>
+      @if (runs().length === 0) {
+        <p class="empty">尚無重跑紀錄。</p>
+      }
+      <ul class="run-list">
+        @for (run of runs(); track run.id) {
+          <li>
+            <button type="button" class="run-row" (click)="openRun(run)">
+              <span
+                >{{ run.queuedAt | date: 'yyyy/MM/dd HH:mm' }} ·
+                {{ run.trigger === 'manual' ? '手動重跑' : '自動重跑' }}</span
+              ><span>{{ runStatusLabel(run.status) }}</span
+              ><span>通過 {{ run.passedCount }} / 失敗 {{ run.failedCount }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+      @if (selectedRunError()) {
+        <p role="alert">目前無法載入逐題結果，請重試。</p>
+      }
+      @if (selectedRun(); as detail) {
+        <div class="results">
+          <h5>逐題結果</h5>
+          @if (detail.results.length === 0) {
+            <p>這次重跑沒有題目結果。</p>
+          }
+          @for (result of detail.results; track result.id) {
+            <article class="result-card" [class.result-card--failed]="!result.passed">
+              <div class="result-card__top">
+                <strong>{{ result.passed ? '通過' : '未通過' }}</strong
+                ><span
+                  >{{ answerKindLabel(result.expectedKind) }} →
+                  {{ answerKindLabel(result.actualKind) }}</span
+                >
+              </div>
+              <p>{{ result.question }}</p>
+              @if (!result.passed) {
+                <p class="failure">
+                  失敗原因：{{
+                    result.failureReason === 'missing-document'
+                      ? '缺少預期引用文件'
+                      : '回覆類型不符'
+                  }}
+                  · <a routerLink="/app/issues">前往處理事項</a>
+                </p>
+              }
+              <details>
+                <summary>查看回答與引用</summary>
+                <p>{{ result.answerText }}</p>
+                <small
+                  >引用文件：{{ result.citedDocumentIds.join('、') || '無' }} · 分數
+                  {{ result.topScore ?? '—' }}</small
+                >
+              </details>
+            </article>
+          }
+        </div>
+      }
+    </section>
+  }
+</section>

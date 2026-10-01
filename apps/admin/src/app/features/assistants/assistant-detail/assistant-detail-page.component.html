@@ -66,6 +66,13 @@
         @case ('rules') {
           <app-assistant-rules-tab />
         }
+        @case ('acceptance') {
+          <app-assistant-acceptance-tab
+            [assistantId]="assistantId()"
+            [acceptanceStatus]="assistant.acceptanceStatus ?? 'not-accepted'"
+            (runCompleted)="settings.refresh()"
+          />
+        }
         @case ('test') {
           <p>用使用者看到的對話畫面試問：組織資料、一般知識與查無資料一律分開標示。你在這裡的試問只屬於你自己的帳號。</p>
           @if (settings.settings(); as saved) {

@@ -26,6 +26,7 @@ import { AssistantSettingsStore } from './assistant-settings.store';
 import { AssistantOverviewTabComponent } from './tabs/overview-tab/assistant-overview-tab.component';
 import { AssistantRulesTabComponent } from './tabs/rules-tab/assistant-rules-tab.component';
 import { AssistantSourcesTabComponent } from './tabs/sources-tab/assistant-sources-tab.component';
+import { AssistantAcceptanceTabComponent } from './tabs/acceptance-tab/assistant-acceptance-tab.component';
 
 interface AssistantTab {
   readonly id: string;
@@ -56,6 +57,7 @@ const TABS: readonly AssistantTab[] = [
     edits: true,
   },
   { id: 'test', label: '測試', intro: '', edits: false },
+  { id: 'acceptance', label: '驗收', intro: '管理可保存的測試題組，重跑後查看逐題結果與歷史。', edits: false },
   { id: 'publishing', label: '發布', intro: '', edits: false },
   { id: 'activity', label: '使用紀錄', intro: '', edits: false },
 ];
@@ -72,6 +74,7 @@ const TABS: readonly AssistantTab[] = [
     AssistantOverviewTabComponent,
     AssistantSourcesTabComponent,
     AssistantRulesTabComponent,
+    AssistantAcceptanceTabComponent,
   ],
   providers: [AssistantSettingsStore],
   templateUrl: './assistant-detail-page.component.html',

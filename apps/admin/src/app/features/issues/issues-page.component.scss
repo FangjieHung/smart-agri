@@ -12,7 +12,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-container);
-  padding: var(--space-5);
+  padding: var(--space-6);
 }
 
 .issues-list__head, .issue-detail__head, .issue-item__top {
@@ -70,13 +70,13 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .issue-facts div { min-width: 0; }
 .issue-facts dt { color: var(--color-text-secondary); }
 .issue-facts dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
-.issue-snapshot, .issue-edit, .issue-history { margin-top: var(--space-6); border-top: 1px solid var(--color-border); padding-top: var(--space-5); }
+.issue-snapshot, .issue-edit, .issue-history { margin-top: var(--space-6); border-top: 1px solid var(--color-border); padding-top: var(--space-6); }
 .issue-snapshot p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .issue-status { white-space: nowrap; }
 .issue-edit__check { display: flex; align-items: center; font-weight: 400; }
 .issue-edit__check input { width: auto; min-height: 0; }
 .issue-edit__note { grid-column: 1 / -1; }
-.issue-history ol { padding-inline-start: var(--space-5); }
+.issue-history ol { padding-inline-start: var(--space-6); }
 .issue-history li { margin-block: var(--space-3); }
 .issue-history time { margin-inline: var(--space-2); color: var(--color-text-secondary); }
 

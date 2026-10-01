@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Infrastructure.Persistence;
@@ -30,6 +31,12 @@ internal sealed class AssistantTestRunConfiguration : IEntityTypeConfiguration<A
             .IsRequired()
             .IsConcurrencyToken();
         builder.Property(run => run.RerunRequested).IsConcurrencyToken();
+        builder.Property(run => run.RerunTrigger)
+            .HasConversion(
+                new ValueConverter<AssistantTestRunTrigger?, string?>(
+                    trigger => trigger.HasValue ? WireNames<AssistantTestRunTrigger>.ToWire(trigger.Value) : null,
+                    name => name == null ? (AssistantTestRunTrigger?)null : WireNames<AssistantTestRunTrigger>.Parse(name)))
+            .HasMaxLength(32);
         builder.Property(run => run.PromptVersion).HasMaxLength(AssistantTestRun.PromptVersionMaxLength);
         builder.Property(run => run.Model).HasMaxLength(AssistantTestRun.ModelMaxLength);
         builder.Ignore(run => run.IsActive);

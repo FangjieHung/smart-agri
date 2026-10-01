@@ -1795,6 +1795,7 @@ function apiConfiguration(overrides: Partial<ApiAssistantConfiguration> = {}): A
     viewerCanManage: true,
     createdAt: '2026-09-28T01:00:00+00:00',
     updatedAt: '2026-09-28T01:00:00+00:00',
+    acceptanceStatus: 'not-accepted',
     ...overrides,
   };
 }

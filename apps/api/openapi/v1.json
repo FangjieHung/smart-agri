@@ -3087,6 +3087,14 @@
           }
         }
       },
+      "AssistantAcceptanceStatus": {
+        "enum": [
+          "not-accepted",
+          "passed",
+          "failed",
+          "outdated"
+        ]
+      },
       "AssistantAnalyticsView": {
         "required": [
           "from",
@@ -3249,7 +3257,8 @@
           "status",
           "viewerCanManage",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "acceptanceStatus"
         ],
         "type": "object",
         "properties": {
@@ -3280,6 +3289,9 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "acceptanceStatus": {
+            "$ref": "#/components/schemas/AssistantAcceptanceStatus"
           }
         }
       },

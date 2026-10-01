@@ -27,15 +27,29 @@ public sealed class AssistantTestRunTests
     public void A_rerun_asked_for_while_queued_is_satisfied_by_starting_but_one_asked_for_while_running_is_kept()
     {
         var run = AssistantTestRun.Queue(Guid.NewGuid(), Guid.NewGuid(), AssistantTestRunTrigger.Manual, Now);
-        run.RequestRerun();
-        run.RerunRequested.ShouldBeTrue();
+        run.RequestRerun(AssistantTestRunTrigger.KnowledgeChanged);
+        (run.RerunRequested, run.RerunTrigger).ShouldBe((true, (AssistantTestRunTrigger?)AssistantTestRunTrigger.KnowledgeChanged));
 
         run.Start("prompt/1", "fake-chat", 0.3, Now);
-        run.RerunRequested.ShouldBeFalse();
+        (run.RerunRequested, run.RerunTrigger).ShouldBe((false, (AssistantTestRunTrigger?)null));
 
-        run.RequestRerun();
+        run.RequestRerun(AssistantTestRunTrigger.AssistantChanged);
         run.Complete(1, 0, Now);
-        run.RerunRequested.ShouldBeTrue();
+        (run.RerunRequested, run.RerunTrigger, run.Trigger)
+            .ShouldBe((true, (AssistantTestRunTrigger?)AssistantTestRunTrigger.AssistantChanged, AssistantTestRunTrigger.Manual));
+    }
+
+    [Theory]
+    [InlineData(null, AssistantTestRunTrigger.Manual, AssistantTestRunTrigger.Manual)]
+    [InlineData(null, AssistantTestRunTrigger.KnowledgeChanged, AssistantTestRunTrigger.KnowledgeChanged)]
+    [InlineData(AssistantTestRunTrigger.Manual, AssistantTestRunTrigger.AssistantChanged, AssistantTestRunTrigger.AssistantChanged)]
+    [InlineData(AssistantTestRunTrigger.KnowledgeChanged, AssistantTestRunTrigger.AssistantChanged, AssistantTestRunTrigger.AssistantChanged)]
+    [InlineData(AssistantTestRunTrigger.AssistantChanged, AssistantTestRunTrigger.KnowledgeChanged, AssistantTestRunTrigger.KnowledgeChanged)]
+    [InlineData(AssistantTestRunTrigger.KnowledgeChanged, AssistantTestRunTrigger.Manual, AssistantTestRunTrigger.KnowledgeChanged)]
+    public void The_latest_rerun_trigger_wins_but_manual_never_replaces_an_automatic_one(
+        AssistantTestRunTrigger? earlier, AssistantTestRunTrigger requested, AssistantTestRunTrigger expected)
+    {
+        AssistantTestRun.CombineTriggers(earlier, requested).ShouldBe(expected);
     }
 
     [Fact]
@@ -47,7 +61,7 @@ public sealed class AssistantTestRunTests
         run.Fail(Now);
         run.Status.ShouldBe(AssistantTestRunStatus.Failed);
         Should.Throw<InvalidOperationException>(() => run.Fail(Now));
-        Should.Throw<InvalidOperationException>(() => run.RequestRerun());
+        Should.Throw<InvalidOperationException>(() => run.RequestRerun(AssistantTestRunTrigger.Manual));
         Should.Throw<InvalidOperationException>(() => run.Start("prompt/1", "fake-chat", 0.3, Now));
     }
 

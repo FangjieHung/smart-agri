@@ -20,6 +20,7 @@ import {
   apiAssistantDraftPath,
   apiAssistantKnowledgeSourcePath,
   apiAssistantPath,
+  apiAssistantTestCasesPath,
   apiAssistantPlatformPausedPath,
   apiAssistantPlatformSharingPath,
   apiAssistantPublishingPath,
@@ -1907,6 +1908,18 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
 
   // ---------- 清單 ----------
 
+  it('reads a test case from the JSON returned by the API endpoint', async () => {
+    const { repository } = setUpAssistants();
+    // Captured from AssistantTestCaseEndpointsTests.A_document_not_in_the_assistants_connected_knowledge_bases_is_422.
+    // Keep the raw HTTP shape here so a DTO naming change breaks this contract test.
+    const rawApiResponse = '{"id":"01a0f9db-6093-7ff9-b5ef-9fd8232ceab4","assistantId":"01a0f9db-6009-7220-bdd3-4184e9f5c50f","question":"連接文件的題目？","category":"common","expectedKind":"company-data","expectedDocumentIds":["01a0f9db-6036-7428-a4fa-9aba0b693196"],"followUpOfId":null,"ordinal":1,"createdAt":"2026-10-01T23:44:59.027349+00:00","updatedAt":"2026-10-01T23:44:59.027349+00:00"}';
+    const actualCase = JSON.parse(rawApiResponse) as components['schemas']['AssistantTestCaseView'];
+    const result = pending(repository.listAssistantTestCases(actualCase.assistantId));
+    controller.expectOne({ method: 'GET', url: apiAssistantTestCasesPath(actualCase.assistantId) })
+      .flush([actualCase]);
+    expect(await result).toEqual({ status: 'ready', data: [actualCase] });
+  });
+
   it('lists the owner’s assistants over HTTP with their real GUIDs', async () => {
     const { repository } = setUpAssistants();
     const result = pending(repository.listAssistantConfigurations());
@@ -1927,6 +1940,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
           knowledgeBaseIds: [],
           databaseIds: [],
           keepOwnConversations: true,
+          acceptanceStatus: 'not-accepted',
         },
       ],
     });

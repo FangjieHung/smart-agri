@@ -8,6 +8,7 @@ import {
 import { catchError, filter, forkJoin, map, of, switchMap, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
+import type { AssistantTestCaseView, AssistantTestRunView, AssistantTestRunDetailView, AssistantTestCaseInput, AssistantTestCasePatch, AssistantTestCaseImportEntry, AssistantTestCaseExportEntry } from '../domain/assistant-acceptance.model';
 import type {
   AssistantConfigurationView,
   AssistantId,
@@ -267,6 +268,11 @@ export const API_USABLE_ASSISTANTS_PATH = `${API_ASSISTANTS_PATH}?usable=true`;
 export function apiAssistantPath(assistantId: string): string {
   return `${API_ASSISTANTS_PATH}/${encodeURIComponent(assistantId)}`;
 }
+
+export function apiAssistantTestCasesPath(assistantId: string): string { return `${apiAssistantPath(assistantId)}/test-cases`; }
+export function apiAssistantTestCasePath(assistantId: string, caseId: string): string { return `${apiAssistantTestCasesPath(assistantId)}/${encodeURIComponent(caseId)}`; }
+export function apiAssistantTestRunsPath(assistantId: string): string { return `${apiAssistantPath(assistantId)}/test-runs`; }
+export function apiAssistantTestRunPath(assistantId: string, runId: string): string { return `${apiAssistantTestRunsPath(assistantId)}/${encodeURIComponent(runId)}`; }
 
 export function apiAssistantSettingsPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/settings`;
@@ -560,6 +566,34 @@ export class HybridDemoRepository extends MockDemoRepository {
       })),
       catchError((error: unknown) => this.permissionDeniedOrThrow(error, ASSISTANT_USE_DENIED)),
     );
+  }
+
+  override listAssistantTestCases(assistantId: string): Observable<RepositoryView<readonly AssistantTestCaseView[]>> {
+    return this.http.get<AssistantTestCaseView[]>(apiAssistantTestCasesPath(assistantId)).pipe(map(data => ({ status: 'ready' as const, data })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override createAssistantTestCase(assistantId: string, input: AssistantTestCaseInput): Observable<RepositoryView<AssistantTestCaseView>> {
+    return this.http.post<AssistantTestCaseView>(apiAssistantTestCasesPath(assistantId), input).pipe(map(data => ({ status: 'ready' as const, data })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override updateAssistantTestCase(assistantId: string, caseId: string, patch: AssistantTestCasePatch): Observable<RepositoryView<AssistantTestCaseView>> {
+    return this.http.patch<AssistantTestCaseView>(apiAssistantTestCasePath(assistantId, caseId), patch).pipe(map(data => ({ status: 'ready' as const, data })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override deleteAssistantTestCase(assistantId: string, caseId: string): Observable<RepositoryView<null>> {
+    return this.http.delete<void>(apiAssistantTestCasePath(assistantId, caseId)).pipe(map(() => ({ status: 'ready' as const, data: null })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override importAssistantTestCases(assistantId: string, questions: readonly AssistantTestCaseImportEntry[]): Observable<RepositoryView<readonly AssistantTestCaseView[]>> {
+    return this.http.post<AssistantTestCaseView[]>(`${apiAssistantTestCasesPath(assistantId)}/import`, { questions }).pipe(map(data => ({ status: 'ready' as const, data })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override exportAssistantTestCases(assistantId: string): Observable<RepositoryView<readonly AssistantTestCaseExportEntry[]>> {
+    return this.http.get<{ questions: AssistantTestCaseExportEntry[] }>(`${apiAssistantTestCasesPath(assistantId)}/export`).pipe(map(({ questions }) => ({ status: 'ready' as const, data: questions })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override listAssistantTestRuns(assistantId: string): Observable<RepositoryView<readonly AssistantTestRunView[]>> {
+    return this.http.get<AssistantTestRunView[]>(apiAssistantTestRunsPath(assistantId)).pipe(map(data => ({ status: 'ready' as const, data })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override createAssistantTestRun(assistantId: string): Observable<RepositoryView<AssistantTestRunView>> {
+    return this.http.post<AssistantTestRunView>(apiAssistantTestRunsPath(assistantId), {}).pipe(map(data => ({ status: 'ready' as const, data })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
+  }
+  override getAssistantTestRun(assistantId: string, runId: string): Observable<RepositoryView<AssistantTestRunDetailView>> {
+    return this.http.get<AssistantTestRunDetailView>(apiAssistantTestRunPath(assistantId, runId)).pipe(map(data => ({ status: 'ready' as const, data })), catchError(error => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)));
   }
 
   override getAssistantSettings(assistantId: string): Observable<RepositoryView<AssistantSettingsView>> {
@@ -1379,6 +1413,7 @@ function toAssistantConfiguration(
     knowledgeBaseIds: [...knowledgeBaseIds],
     databaseIds: [],
     keepOwnConversations,
+    acceptanceStatus: assistant.acceptanceStatus,
   };
 }
 

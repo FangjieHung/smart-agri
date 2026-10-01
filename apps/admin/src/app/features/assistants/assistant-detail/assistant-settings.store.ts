@@ -91,6 +91,10 @@ export class AssistantSettingsStore {
   /** 讀取結果：載入中、錯誤、沒有權限（含不存在）或設定本身。 */
   readonly view: () => LoadedView<AssistantSettingsView> = this.resource.view;
 
+  refresh(): void {
+    this.resource.reload();
+  }
+
   /** 畫面上的設定：讀到的設定，加上尚未送完的變更（樂觀更新）。換助理或重新讀取時重設。 */
   private readonly local = linkedSignal<LoadedView<AssistantSettingsView>, AssistantSettingsView | null>({
     source: this.resource.view,

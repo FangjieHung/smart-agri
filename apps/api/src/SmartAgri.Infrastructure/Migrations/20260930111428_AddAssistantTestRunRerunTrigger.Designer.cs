@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -12,9 +13,11 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260930111428_AddAssistantTestRunRerunTrigger")]
+    partial class AddAssistantTestRunRerunTrigger
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -440,156 +443,6 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("OwnerAccountId", "SavedAt");
 
                     b.ToTable("AssistantDrafts", (string)null);
-                });
-
-            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantIssue", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AnswerSnapshot")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("AssigneeAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AssistantId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DueAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("EventCount")
-                        .IsConcurrencyToken()
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("OrganizationId")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("QuestionSnapshot")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<Guid?>("ReporterAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResolutionNote")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<DateTimeOffset?>("ResolvedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("TestFailureReason")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid?>("TestResultId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("TestRunId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId");
-
-                    b.HasIndex("TestResultId");
-
-                    b.HasIndex("AssigneeAccountId", "OrganizationId");
-
-                    b.HasIndex("AssigneeAccountId", "Status");
-
-                    b.HasIndex("AssistantId", "CreatedAt");
-
-                    b.HasIndex("AssistantId", "OrganizationId");
-
-                    b.HasIndex("ReporterAccountId", "OrganizationId");
-
-                    b.HasIndex("ReporterAccountId", "Source");
-
-                    b.ToTable("AssistantIssues", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_AssistantIssues_ResolvedAt", "(\"Status\" = 'resolved') = (\"ResolvedAt\" IS NOT NULL)");
-                        });
-                });
-
-            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantIssueEvent", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid>("ActorAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("AssigneeAccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("At")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DueAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("IssueId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
-
-                    b.Property<int>("Ordinal")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("OrganizationId")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrganizationId");
-
-                    b.HasIndex("ActorAccountId", "OrganizationId");
-
-                    b.HasIndex("AssigneeAccountId", "OrganizationId");
-
-                    b.HasIndex("IssueId", "Ordinal")
-                        .IsUnique();
-
-                    b.HasIndex("IssueId", "OrganizationId");
-
-                    b.ToTable("AssistantIssueEvents", (string)null);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantKnowledgeBase", b =>
@@ -1741,63 +1594,6 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
                         .WithMany()
                         .HasForeignKey("OwnerAccountId", "OrganizationId")
-                        .HasPrincipalKey("Id", "OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantIssue", b =>
-                {
-                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
-                        .WithMany()
-                        .HasForeignKey("AssigneeAccountId", "OrganizationId")
-                        .HasPrincipalKey("Id", "OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)
-                        .WithMany()
-                        .HasForeignKey("AssistantId", "OrganizationId")
-                        .HasPrincipalKey("Id", "OrganizationId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
-                        .WithMany()
-                        .HasForeignKey("ReporterAccountId", "OrganizationId")
-                        .HasPrincipalKey("Id", "OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-                });
-
-            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantIssueEvent", b =>
-                {
-                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
-                        .WithMany()
-                        .HasForeignKey("OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
-                        .WithMany()
-                        .HasForeignKey("ActorAccountId", "OrganizationId")
-                        .HasPrincipalKey("Id", "OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
-                        .WithMany()
-                        .HasForeignKey("AssigneeAccountId", "OrganizationId")
-                        .HasPrincipalKey("Id", "OrganizationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("SmartAgri.Domain.Assistants.AssistantIssue", null)
-                        .WithMany()
-                        .HasForeignKey("IssueId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

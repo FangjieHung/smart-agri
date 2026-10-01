@@ -38,6 +38,8 @@ namespace SmartAgri.Api.Assistants;
 /// (<see cref="AssistantAccess.CanManage"/>); always <see langword="true"/> here, since the
 /// list only ever contains the caller's own assistants, but included for the same reason
 /// <c>KnowledgeBaseSummaryView</c> includes it.</param>
+/// <param name="AcceptanceStatus">Derived from its test set and runs (M3.5 plan §3, issue #125;
+/// <see cref="AssistantAcceptanceRules"/>); shown only, it does not restrict use.</param>
 public sealed record AssistantConfigurationView(
     Guid Id,
     Guid OwnerAccountId,
@@ -46,7 +48,8 @@ public sealed record AssistantConfigurationView(
     AssistantStatus Status,
     bool ViewerCanManage,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    AssistantAcceptanceStatus AcceptanceStatus);
 
 /// <summary>One row of <c>GET /api/v1/assistants?usable=true</c>: enough to pick an assistant
 /// to chat with, nothing about its configuration.</summary>
@@ -319,7 +322,8 @@ public static class AssistantEndpoints
             .OrderBy(assistant => assistant.CreatedAt)
             .ThenBy(assistant => assistant.Id)
             .ToListAsync(cancellationToken);
-        return Results.Ok(owned.ConvertAll(assistant => ToConfiguration(assistant, viewerId)));
+        var acceptance = await AcceptanceStatusesAsync(dbContext, owned.ConvertAll(assistant => assistant.Id), cancellationToken);
+        return Results.Ok(owned.ConvertAll(assistant => ToConfiguration(assistant, viewerId, acceptance[assistant.Id])));
     }
 
     /// <summary>
@@ -394,7 +398,10 @@ public static class AssistantEndpoints
         dbContext.AssistantDrafts.Remove(draft);
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return Results.Created($"/api/v1/assistants/{assistant.Id}/settings", ToConfiguration(assistant, callerId));
+        // A new assistant has no test case yet.
+        return Results.Created(
+            $"/api/v1/assistants/{assistant.Id}/settings",
+            ToConfiguration(assistant, callerId, AssistantAcceptanceStatus.NotAccepted));
     }
 
     internal static async Task<IResult> GetSettingsAsync(
@@ -414,14 +421,15 @@ public static class AssistantEndpoints
             return ApiErrors.NotFound(ForbiddenReason.AssistantConfiguration);
         }
 
-        var knowledgeBaseIds = await ConnectedKnowledgeBaseIdsAsync(dbContext, assistant.Id, cancellationToken);
-        return Results.Ok(ToSettings(assistant, viewerId, knowledgeBaseIds));
+        return Results.Ok(await SettingsAsync(dbContext, assistant, viewerId, cancellationToken));
     }
 
     /// <summary>
     /// Order of checks: owner (else <c>403</c>), then
     /// <see cref="AssistantSettingsRules.ForUpdate"/> (else <c>422</c>, with nothing written).
-    /// An unchanged request writes nothing (<see cref="Assistant.ApplySettings"/>).
+    /// An unchanged request writes nothing (<see cref="Assistant.ApplySettings"/>). A change to a
+    /// field the answers are built from (<see cref="AnswerAffectingSettings"/>) asks, in the same
+    /// transaction, for an <c>assistant-changed</c> rerun if the assistant has test cases (issue #125).
     /// </summary>
     internal static async Task<IResult> UpdateSettingsAsync(
         Guid id,
@@ -481,11 +489,18 @@ public static class AssistantEndpoints
             now);
         if (changed.Count > 0)
         {
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (changed.Any(AnswerAffectingSettings.Contains))
+            {
+                await AssistantTestRunQueue.RequestIfTestedAsync(
+                    dbContext, assistant.OrganizationId, assistant.Id, AssistantTestRunTrigger.AssistantChanged, now, cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
         }
 
-        var knowledgeBaseIds = await ConnectedKnowledgeBaseIdsAsync(dbContext, assistant.Id, cancellationToken);
-        return Results.Ok(ToSettings(assistant, callerId, knowledgeBaseIds));
+        return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
     }
 
     /// <summary>
@@ -523,7 +538,8 @@ public static class AssistantEndpoints
     /// exist (in this organization) and one that exists but is not connectable get the same
     /// <c>422</c>, so this cannot be used to probe another account's private knowledge bases.
     /// Idempotent: connecting an already-connected knowledge base changes nothing and still
-    /// returns <c>200</c>.
+    /// returns <c>200</c>. A new connection asks, in the same transaction, for an
+    /// <c>assistant-changed</c> rerun if the assistant has test cases (issue #125).
     /// </summary>
     internal static async Task<IResult> ConnectKnowledgeBaseAsync(
         Guid id,
@@ -556,25 +572,31 @@ public static class AssistantEndpoints
             .AnyAsync(link => link.AssistantId == assistant.Id && link.KnowledgeBaseId == knowledgeBase.Id, cancellationToken);
         if (!alreadyConnected)
         {
-            dbContext.AssistantKnowledgeBases.Add(new AssistantKnowledgeBase(assistant, knowledgeBase, clock.GetUtcNow()));
+            var now = clock.GetUtcNow();
+            dbContext.AssistantKnowledgeBases.Add(new AssistantKnowledgeBase(assistant, knowledgeBase, now));
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
+            await AssistantTestRunQueue.RequestIfTestedAsync(
+                dbContext, assistant.OrganizationId, assistant.Id, AssistantTestRunTrigger.AssistantChanged, now, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
 
-        var knowledgeBaseIds = await ConnectedKnowledgeBaseIdsAsync(dbContext, assistant.Id, cancellationToken);
-        return Results.Ok(ToSettings(assistant, callerId, knowledgeBaseIds));
+        return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
     }
 
     /// <summary>
     /// Disconnects a knowledge base. Disconnecting the assistant's last remaining source is
     /// refused with <c>422</c> (an assistant must always have at least one source to answer
     /// from); disconnecting one that is not connected is a no-op, so the endpoint stays
-    /// idempotent.
+    /// idempotent. A removed connection asks, in the same transaction, for an
+    /// <c>assistant-changed</c> rerun if the assistant has test cases (issue #125).
     /// </summary>
     internal static async Task<IResult> DisconnectKnowledgeBaseAsync(
         Guid id,
         Guid knowledgeBaseId,
         HttpContext httpContext,
         AppDbContext dbContext,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
@@ -604,11 +626,14 @@ public static class AssistantEndpoints
             }
 
             dbContext.AssistantKnowledgeBases.Remove(target);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
+            await AssistantTestRunQueue.RequestIfTestedAsync(
+                dbContext, assistant.OrganizationId, assistant.Id, AssistantTestRunTrigger.AssistantChanged, clock.GetUtcNow(), cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
 
-        var knowledgeBaseIds = await ConnectedKnowledgeBaseIdsAsync(dbContext, assistant.Id, cancellationToken);
-        return Results.Ok(ToSettings(assistant, callerId, knowledgeBaseIds));
+        return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
     }
 
     /// <summary>Databases do not exist yet (M4): always <c>422</c>, after the same ownership
@@ -918,7 +943,61 @@ public static class AssistantEndpoints
             .Select(link => link.KnowledgeBaseId)
             .ToListAsync(cancellationToken);
 
-    private static AssistantConfigurationView ToConfiguration(Assistant assistant, Guid viewerId) =>
+    /// <summary>
+    /// The <see cref="Assistant.ApplySettings"/> field names that change what the assistant
+    /// answers — everything <see cref="GroundedAnswerProfile.For"/> builds the prompt and
+    /// retrieval from. <c>showCitations</c> and <c>keepConversations</c> only change how replies
+    /// are shown or kept, so they do not ask for a rerun.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> AnswerAffectingSettings = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "name", "purpose", "tone", "roleInstructions", "knowledgeScope", "refusalMessage",
+    };
+
+    /// <summary>
+    /// Every listed assistant's <see cref="AssistantAcceptanceStatus"/>, in two queries whatever
+    /// the number of assistants (which of them have test cases; their kept runs — at most
+    /// <see cref="AssistantTestRun.KeptPerAssistant"/> each), derived by
+    /// <see cref="AssistantAcceptanceRules.Derive"/>.
+    /// </summary>
+    internal static async Task<Dictionary<Guid, AssistantAcceptanceStatus>> AcceptanceStatusesAsync(
+        AppDbContext dbContext, IReadOnlyCollection<Guid> assistantIds, CancellationToken cancellationToken)
+    {
+        if (assistantIds.Count == 0)
+        {
+            return [];
+        }
+
+        var tested = (await dbContext.AssistantTestCases
+                .AsNoTracking()
+                .Where(testCase => assistantIds.Contains(testCase.AssistantId))
+                .Select(testCase => testCase.AssistantId)
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
+        var runs = (await dbContext.AssistantTestRuns
+                .AsNoTracking()
+                .Where(run => assistantIds.Contains(run.AssistantId))
+                .Select(run => new { run.AssistantId, run.Status, run.Trigger, run.RerunTrigger, run.QueuedAt, run.FailedCount })
+                .ToListAsync(cancellationToken))
+            .ToLookup(
+                run => run.AssistantId,
+                run => new AssistantTestRunSnapshot(run.Status, run.Trigger, run.RerunTrigger, run.QueuedAt, run.FailedCount));
+        return assistantIds.Distinct().ToDictionary(
+            assistantId => assistantId,
+            assistantId => AssistantAcceptanceRules.Derive(tested.Contains(assistantId), runs[assistantId]));
+    }
+
+    private static async Task<AssistantSettingsView> SettingsAsync(
+        AppDbContext dbContext, Assistant assistant, Guid viewerId, CancellationToken cancellationToken)
+    {
+        var knowledgeBaseIds = await ConnectedKnowledgeBaseIdsAsync(dbContext, assistant.Id, cancellationToken);
+        var acceptance = await AcceptanceStatusesAsync(dbContext, [assistant.Id], cancellationToken);
+        return ToSettings(assistant, viewerId, knowledgeBaseIds, acceptance[assistant.Id]);
+    }
+
+    private static AssistantConfigurationView ToConfiguration(
+        Assistant assistant, Guid viewerId, AssistantAcceptanceStatus acceptanceStatus) =>
         new(
             assistant.Id,
             assistant.OwnerAccountId,
@@ -927,14 +1006,16 @@ public static class AssistantEndpoints
             assistant.Status,
             AssistantAccess.CanManage(assistant, viewerId),
             assistant.CreatedAt,
-            assistant.UpdatedAt);
+            assistant.UpdatedAt,
+            acceptanceStatus);
 
     private static AssistantSummaryView ToSummary(Assistant assistant, Guid viewerId) =>
         new(assistant.Id, assistant.Name, assistant.Purpose, assistant.Status, assistant.OwnerAccountId == viewerId);
 
-    private static AssistantSettingsView ToSettings(Assistant assistant, Guid viewerId, IReadOnlyList<Guid> knowledgeBaseIds) =>
+    private static AssistantSettingsView ToSettings(
+        Assistant assistant, Guid viewerId, IReadOnlyList<Guid> knowledgeBaseIds, AssistantAcceptanceStatus acceptanceStatus) =>
         new(
-            ToConfiguration(assistant, viewerId),
+            ToConfiguration(assistant, viewerId, acceptanceStatus),
             knowledgeBaseIds,
             assistant.Tone,
             assistant.RoleInstructions,

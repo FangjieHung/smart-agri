@@ -3901,6 +3901,8 @@ export interface components {
             versionIds: null | string[];
             effectiveFrom?: null | string;
         };
+        /** @enum {unknown} */
+        AssistantAcceptanceStatus: "not-accepted" | "passed" | "failed" | "outdated";
         AssistantAnalyticsView: {
             /** Format: date */
             from: string;
@@ -3951,6 +3953,7 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            acceptanceStatus: components["schemas"]["AssistantAcceptanceStatus"];
         };
         AssistantDraftView: {
             /** Format: uuid */

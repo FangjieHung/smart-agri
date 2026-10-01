@@ -13,7 +13,7 @@ using SmartAgri.Infrastructure;
 namespace SmartAgri.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260930111243_AddAssistantIssues")]
+    [Migration("20261001014428_AddAssistantIssues")]
     partial class AddAssistantIssues
     {
         /// <inheritdoc />
@@ -809,6 +809,10 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<bool>("RerunRequested")
                         .IsConcurrencyToken()
                         .HasColumnType("boolean");
+
+                    b.Property<string>("RerunTrigger")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
 
                     b.Property<DateTimeOffset?>("StartedAt")
                         .HasColumnType("timestamp with time zone");

@@ -25,6 +25,7 @@ public partial class AccountWireNameTests
         "use-shared-assistants",
         "submit-authorized-forms",
         "read-own-tracking",
+        "handle-assistant-issues",
     ];
 
     [Fact]

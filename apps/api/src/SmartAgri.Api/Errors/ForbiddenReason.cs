@@ -94,6 +94,16 @@ public sealed class ForbiddenReason
         "你沒有這段對話的存取權限，或它已不存在。");
 
     /// <summary>
+    /// A 處理事項 (<c>/api/v1/issues/{id}</c>, M3.5 plan §3, issue #126) that does not exist,
+    /// belongs to another organization, or is not visible to the caller — visible means the
+    /// caller owns its assistant (and holds <c>manage-assistants</c>) or is its assignee (and
+    /// holds <c>handle-assistant-issues</c>). Same bytes in every case.
+    /// </summary>
+    public static readonly ForbiddenReason AssistantIssue = new(
+        "assistant-issue",
+        "你沒有這個處理事項的存取權限，或它已不存在。");
+
+    /// <summary>
     /// The account still has the one-time password from <c>setup</c>: until it sets its own
     /// (<c>POST /api/v1/auth/change-password</c>), every protected endpoint except
     /// <c>GET /api/v1/me</c> answers with this (see <c>PasswordChangeGate</c>). New in

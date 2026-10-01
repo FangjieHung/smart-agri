@@ -135,7 +135,7 @@ describe('TeamPanelComponent', () => {
     fixture.detectChanges();
 
     const boxes = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
-    expect(boxes).toHaveLength(7);
+    expect(boxes).toHaveLength(8);
     const editor = host.querySelector('.member__editor');
     expect(editor?.textContent).toContain('尚未接到行為');
     expect(editor?.textContent).toContain('canOpenInPlatform()');

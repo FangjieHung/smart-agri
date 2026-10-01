@@ -18,6 +18,7 @@ public static class AccountPermissionOrder
         AccountPermission.SubmitAuthorizedForms,
         AccountPermission.UseSharedAssistants,
         AccountPermission.ReadOwnTracking,
+        AccountPermission.HandleAssistantIssues,
     ];
 
     /// <summary>Distinct, in <see cref="All"/> order.</summary>

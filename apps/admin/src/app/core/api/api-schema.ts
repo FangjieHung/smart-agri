@@ -215,6 +215,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateAssistantIssueRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/analytics": {
         parameters: {
             query?: never;
@@ -3303,6 +3372,205 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    scope?: string;
+                    status?: string;
+                    assistantId?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/issues/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/issues/{issueId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    issueId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    issueId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateAssistantIssueRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/chat/conversations": {
         parameters: {
             query?: never;
@@ -3606,7 +3874,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @enum {unknown} */
-        AccountPermission: "manage-assistants" | "manage-data-sources" | "manage-publishing" | "read-consented-submissions" | "use-shared-assistants" | "submit-authorized-forms" | "read-own-tracking";
+        AccountPermission: "manage-assistants" | "manage-data-sources" | "manage-publishing" | "read-consented-submissions" | "use-shared-assistants" | "submit-authorized-forms" | "read-own-tracking" | "handle-assistant-issues";
         /** @enum {unknown} */
         AccountRole: "smb-admin" | "internal-employee" | "external-customer";
         AGUIContext: {
@@ -3697,6 +3965,77 @@ export interface components {
             revision: number;
             /** Format: date-time */
             savedAt: string;
+        };
+        AssistantIssueDetailView: {
+            issue: components["schemas"]["AssistantIssueView"];
+            events: components["schemas"]["AssistantIssueEventView"][];
+        };
+        /** @enum {unknown} */
+        AssistantIssueEventAction: "created" | "assigned" | "status-changed" | "commented" | "due-date-changed";
+        AssistantIssueEventView: {
+            /** Format: uuid */
+            id: string;
+            action: components["schemas"]["AssistantIssueEventAction"];
+            /** Format: uuid */
+            actorAccountId: string;
+            actorDisplayName: string;
+            /** Format: date-time */
+            at: string;
+            note: null | string;
+            /** Format: uuid */
+            assigneeAccountId: null | string;
+            assigneeDisplayName: null | string;
+            status: null | components["schemas"]["AssistantIssueStatus"];
+            /** Format: date-time */
+            dueAt: null | string;
+        };
+        /** @enum {unknown} */
+        AssistantIssueSource: "test-failure" | "handoff";
+        /** @enum {unknown} */
+        AssistantIssueStatus: "open" | "in-progress" | "resolved";
+        AssistantIssueSummaryView: {
+            /** Format: int32 */
+            openCount: number;
+            /** Format: int32 */
+            inProgressCount: number;
+            /** Format: int32 */
+            assignedToMeCount: number;
+            /** Format: int32 */
+            overdueCount: number;
+        };
+        AssistantIssueView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            source: components["schemas"]["AssistantIssueSource"];
+            status: components["schemas"]["AssistantIssueStatus"];
+            title: string;
+            /** Format: uuid */
+            assigneeAccountId: null | string;
+            assigneeDisplayName: null | string;
+            /** Format: uuid */
+            reporterAccountId: null | string;
+            reporterDisplayName: null | string;
+            /** Format: date-time */
+            dueAt: null | string;
+            /** Format: uuid */
+            testRunId: null | string;
+            /** Format: uuid */
+            testResultId: null | string;
+            testFailureReason: null | components["schemas"]["AssistantTestFailureReason"];
+            question: null | string;
+            answer: null | string;
+            resolutionNote: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            resolvedAt: null | string;
+            viewerIsAssistantOwner: boolean;
+            viewerIsAssignee: boolean;
         };
         /** @enum {unknown} */
         AssistantKnowledgeScope: "company-data-only" | "allow-general-knowledge";
@@ -3915,6 +4254,15 @@ export interface components {
         CreateAssistantFromDraftRequest: {
             /** Format: uuid */
             draftId: string;
+        };
+        CreateAssistantIssueRequest: {
+            /** Format: uuid */
+            testResultId: null | string;
+            title?: null | string;
+            /** Format: uuid */
+            assigneeAccountId?: null | string;
+            /** Format: date-time */
+            dueAt?: null | string;
         };
         CreateAssistantTestCaseRequest: {
             question: null | string;
@@ -4344,6 +4692,16 @@ export interface components {
             passages: components["schemas"]["TrialAnswerPassageView"][];
             /** Format: double */
             threshold: number;
+        };
+        UpdateAssistantIssueRequest: {
+            /** Format: uuid */
+            assigneeAccountId?: null | string;
+            unassign?: null | boolean;
+            status?: null | string;
+            note?: null | string;
+            /** Format: date-time */
+            dueAt?: null | string;
+            clearDueAt?: null | boolean;
         };
         UpdateAssistantSettingsRequest: {
             name?: null | string;

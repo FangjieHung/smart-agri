@@ -213,7 +213,7 @@ describe('HybridDemoRepository', () => {
       isViewer: false,
       permissions: ['read-consented-submissions', 'use-shared-assistants'],
     });
-    expect(team.permissions).toHaveLength(7);
+    expect(team.permissions).toHaveLength(8);
     expect(team.savedAt).toBe('2026-09-25T01:00:00Z');
   });
 

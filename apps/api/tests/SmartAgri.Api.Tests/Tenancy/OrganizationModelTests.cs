@@ -69,6 +69,7 @@ public class OrganizationModelTests
                 typeof(KnowledgeExtractedUnit), typeof(KnowledgeChunk),
                 typeof(Assistant), typeof(AssistantKnowledgeBase), typeof(AssistantDraft), typeof(AssistantShare),
                 typeof(AssistantTestCase), typeof(AssistantTestRun), typeof(AssistantTestResult),
+                typeof(AssistantIssue), typeof(AssistantIssueEvent),
                 typeof(ChatThread), typeof(ChatMessage), typeof(ChatMessageCitation),
                 typeof(BackgroundJob),
                 typeof(ModelInvocation),

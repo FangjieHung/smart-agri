@@ -230,7 +230,7 @@ public sealed class AnswerOutcomeAndAnalyticsEndpointsTests : IClassFixture<Auth
         knowledge.GetProperty("overduePendingReviewCount").GetInt32().ShouldBe(1);
 
         var issues = body.GetProperty("issues");
-        issues.GetProperty("openCount").GetInt32().ShouldBe(0, "placeholder until #126");
+        issues.GetProperty("openCount").GetInt32().ShouldBe(0, "this organization has no issue");
         issues.GetProperty("averageResolutionHours").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 

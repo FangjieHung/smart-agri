@@ -22,6 +22,7 @@ jobs:
       - run: tools/check-no-demo-secrets.sh
       - run: dotnet restore apps/api/SmartAgri.slnx --locked-mode
       - run: npx nx run-many -t lint test build
+      - run: npx tsc -p apps/admin/tsconfig.spec.json --noEmit
       # @ag-ui/client 解析後端 AG-UI 串流的錄製檔（#77）；錄製檔與端點實際輸出不一致時，
       # 上一步的 ChatRunEndpointsTests 就會失敗，所以兩步合起來確認前後端協定相容。
       - run: node tools/agui-contract/check-agui-stream.mjs

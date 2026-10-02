@@ -17,8 +17,8 @@ import { map, of } from 'rxjs';
 import type { AssistantConfigurationView } from '../../../core/domain/assistant.model';
 import type { DeleteAssistantResult } from '../../../core/repositories/demo-repository';
 import { ApiSessionService } from '../../../core/session/api-session.service';
-import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
+import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { AssistantPublishingComponent } from '../../publishing/assistant-publishing/assistant-publishing.component';
@@ -81,7 +81,6 @@ const TABS: readonly AssistantTab[] = [
 export class AssistantDetailPageComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
-  private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
   protected readonly settings = inject(AssistantSettingsStore);
   private readonly dialog = inject(MatDialog);
@@ -131,14 +130,21 @@ export class AssistantDetailPageComponent {
     () => this.settings.savedSettings()?.configuration ?? null,
   );
 
-  /** 匿名使用摘要：只有次數與比例，不含任何對話文字。API 模式還沒有對應的端點。 */
+  /** Outcome-only statistics from either the API or mock repository. */
+  private readonly analyticsResource = repositoryResource({
+    params: () => this.configuration()?.id ?? undefined,
+    stream: () => this.repository.getAssistantAnalyticsSummary(this.assistantId()),
+  });
   protected readonly analytics = computed(() => {
-    const accountId = this.session.activeAccountId();
-    const configuration = this.configuration();
-    if (this.apiMode || !accountId || configuration === null) return null;
-    const result = this.repository.getAssistantAnalytics(accountId, configuration.id);
+    const result = this.analyticsResource.view();
     return result.status === 'ready' || result.status === 'partial-failure' ? result.data : null;
   });
+  protected replyKindLabel(kind: string): string {
+    return ({ 'company-data': '組織資料', 'general-knowledge': '一般知識', 'no-result': '查無資料' } as Record<string, string>)[kind] ?? kind;
+  }
+  protected rejectionReasonLabel(reason: string): string {
+    return ({ 'below-threshold': '相關度不足', 'citation-out-of-range': '引用超出範圍', 'no-citation': '缺少引用', 'cannot-answer': '無法回答', 'empty-answer': '空白回答' } as Record<string, string>)[reason] ?? reason;
+  }
 
   protected returnToList(): void {
     void this.router.navigateByUrl('/app/assistants');

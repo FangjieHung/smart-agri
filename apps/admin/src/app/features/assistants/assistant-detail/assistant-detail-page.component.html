@@ -82,16 +82,19 @@
         @case ('activity') {
           @if (analytics(); as usage) {
             <dl class="usage-summary">
-              <div><dt>對話次數（近 7 天）</dt><dd>{{ usage.conversationCount }}</dd></div>
-              <div><dt>已解決</dt><dd>{{ usage.resolvedCount }}</dd></div>
-              <div><dt>回饋為有幫助</dt><dd>{{ usage.helpfulRatingPercent }}%</dd></div>
+              <div><dt>統計期間</dt><dd>{{ usage.from }} 至 {{ usage.to }}</dd></div>
+              <div><dt>回覆總數</dt><dd>{{ usage.totalReplies }}</dd></div>
             </dl>
-          } @else if (apiMode) {
-            <p>匿名使用統計將於後續版本提供。</p>
+            <h3>回覆種類</h3>
+            <dl class="usage-summary">@for (item of usage.replyKinds; track item.kind) { <div><dt>{{ replyKindLabel(item.kind) }}</dt><dd>{{ item.count }}</dd></div> }</dl>
+            <h3>拒答原因</h3>
+            <dl class="usage-summary">@for (item of usage.rejectionReasons; track item.reason) { <div><dt>{{ rejectionReasonLabel(item.reason) }}</dt><dd>{{ item.count }}</dd></div> }</dl>
+            <h3>常引用文件</h3>
+            @if (usage.mostCitedDocuments.length) { <ul>@for (item of usage.mostCitedDocuments; track item.documentId) { <li>{{ item.documentName }}：{{ item.count }} 次</li> }</ul> } @else { <p>這段期間沒有引用文件。</p> }
           } @else {
             <p>目前還沒有使用紀錄。</p>
           }
-          <p>這裡只顯示匿名統計。對話屬於發起的帳號，助理建立者看不到使用者的對話內容；使用者同意提交的資料請到資料庫的收集紀錄查看。</p>
+          <p>這裡只顯示彙總統計，不含問題、回答、帳號或對話內容。</p>
         }
         @case ('publishing') {
           <p>每個管道各自獨立：暫停或故障只影響該管道，其他管道照常運作。</p>

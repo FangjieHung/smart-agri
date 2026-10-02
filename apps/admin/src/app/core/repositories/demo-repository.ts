@@ -73,6 +73,7 @@ import type {
   KnowledgeVersionView,
 } from '../domain/knowledge-base.model';
 import type { Observable } from 'rxjs';
+import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type { TeamMemberView, TeamView } from '../domain/team.model';
 import type {
   AssistantChannelsView,
@@ -520,6 +521,8 @@ export interface DemoRepository extends DemoScenarioController {
     viewerAccountId: AccountId,
     assistantId: AssistantId,
   ): RepositoryView<AssistantAnalyticsView>;
+  getAssistantAnalyticsSummary(assistantId: string): Observable<RepositoryView<AssistantAnalyticsSummaryView>>;
+  getOperationsSummary(): Observable<RepositoryView<OperationsSummaryView>>;
   /** 目前帳號可以設定發布的助理的所有管道（每個助理固定三個）。 */
   listPublishingChannels(): Observable<RepositoryView<readonly PublishingChannelView[]>>;
   /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */

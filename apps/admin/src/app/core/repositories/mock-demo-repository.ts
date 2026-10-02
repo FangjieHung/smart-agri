@@ -51,6 +51,7 @@ import type {
   StructuredSubmissionView,
   SubmissionWithdrawalView,
 } from '../domain/conversation.model';
+import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type {
   CreatedDatabaseId,
   DatabaseAccessView,
@@ -1533,6 +1534,46 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario({
       ...analytics,
       conversationCount: analytics.conversationCount + this.countChatConversations(assistantId),
+    });
+  }
+
+
+  getAssistantAnalyticsSummary(assistantId: string): Observable<RepositoryView<AssistantAnalyticsSummaryView>> {
+    return defer(() => {
+      const viewer = this.viewer();
+      const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
+      if (viewer === null || assistant?.ownerAccountId !== viewer) {
+        return of(this.permissionDenied('assistant-configuration', '只有助理擁有者可查看使用統計。'));
+      }
+      const seeded = this.seed.analytics.find((candidate) => candidate.assistantId === assistantId);
+      const totalReplies = seeded?.conversationCount ?? 0;
+      const result: AssistantAnalyticsSummaryView = {
+        from: '2026-09-17', to: '2026-09-23', totalReplies,
+        replyKinds: [{ kind: 'company-data', count: Math.max(totalReplies - 4, 0) }, { kind: 'general-knowledge', count: 2 }, { kind: 'no-result', count: 2 }],
+        rejectionReasons: [{ reason: 'below-threshold', count: 2 }, { reason: 'citation-out-of-range', count: 0 }, { reason: 'no-citation', count: 0 }, { reason: 'cannot-answer', count: 0 }, { reason: 'empty-answer', count: 0 }],
+        mostCitedDocuments: [{ documentId: 'document-product-guide', documentName: '商品使用指南', count: Math.max(totalReplies - 3, 0) }],
+      };
+      return of(this.applyScenario(result));
+    });
+  }
+
+  getOperationsSummary(): Observable<RepositoryView<OperationsSummaryView>> {
+    return defer(() => {
+      const viewer = this.viewer();
+      if (viewer === null || !this.canManageAssistants(viewer)) {
+        return of(this.permissionDenied('assistant-configuration', '你沒有查看營運追蹤的權限。'));
+      }
+      const assistants = this.seed.analytics.flatMap((analytics) => {
+        const assistant = this.assistants().find((candidate) => candidate.id === analytics.assistantId);
+        return assistant === undefined ? [] : [{ assistantId: assistant.id, assistantName: assistant.name, totalReplies: analytics.conversationCount, noResultRate: analytics.conversationCount === 0 ? 0 : 2 / analytics.conversationCount, rejectedCitationRate: 0 }];
+      });
+      const result: OperationsSummaryView = {
+        from: '2026-09-17', to: '2026-09-23', assistants,
+        mostCitedDocuments: [{ documentId: 'document-product-guide', documentName: '商品使用指南', count: 15 }],
+        knowledge: { processingFailedCount: 0, overduePendingReviewCount: 0 },
+        issues: { openCount: 2, averageResolutionHours: 18 },
+      };
+      return of(this.applyScenario(result));
     });
   }
 

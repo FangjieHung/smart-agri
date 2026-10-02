@@ -117,6 +117,11 @@ export const routes: Routes = [
     loadComponent: workspacePlaceholder,
   },
   {
+    path: 'app/operations',
+    canActivate: [demoSessionGuard],
+    loadComponent: () => import('./features/operations/operations-summary/operations-summary-page.component').then((m) => m.OperationsSummaryPageComponent),
+  },
+  {
     path: 'app/channels',
     canActivate: [demoSessionGuard],
     loadComponent: () =>

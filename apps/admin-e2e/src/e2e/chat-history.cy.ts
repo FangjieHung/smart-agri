@@ -113,6 +113,22 @@ describe('chat history sidebar', () => {
     cy.get('[role="log"] app-chat-message').should('have.length', 0);
   });
 
+  it('shows one exchange before consent and lists a confirmed handoff in activity', () => {
+    loginAs('外部客戶');
+    cy.visit(`/app/chat/${ASSISTANT}`);
+    ask('收到商品後幾天內可以退貨？');
+    cy.contains('button.handoff-trigger', '轉給專人').click();
+    cy.get('[role="dialog"]').should('contain', '分享的問題').and('contain', '分享的回覆');
+    cy.get('[role="dialog"]').should('contain', '助理擁有者或被指派的處理人');
+    cy.get('[role="dialog"] button.confirm-cancel').click();
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.contains('button.handoff-trigger', '轉給專人').click();
+    cy.get('[role="dialog"] button.confirm-handoff').click();
+    cy.get('.handoff-feedback').should('contain', '已轉交');
+    cy.contains('.app-sidenav a', '對話與回報紀錄').click();
+    cy.contains('.forwarded__list li', '收到商品後幾天內可以退貨？').should('contain', '待處理');
+  });
+
   it('keeps /use single column and strips the page chrome when embedded', () => {
     loginAs('外部客戶');
     cy.visit(`/use/${ASSISTANT}`);

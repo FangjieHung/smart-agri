@@ -15,8 +15,9 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import type { Subscription } from 'rxjs';
+import { finalize, type Subscription } from 'rxjs';
 import { CHAT_RUNNER, type ChatHistoryEntry, type ChatRunError, type ChatRunEvent } from '../../../core/chat/chat-runner';
 import { isVisitorId, type ChatViewerId } from '../../../core/domain/account.model';
 import type {
@@ -31,6 +32,7 @@ import type {
   DatabaseTrialAnswers,
 } from '../../../core/domain/database.model';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
+import { AssistantIssuesRepository, type CreateAssistantHandoffRequest } from '../../../core/repositories/assistant-issues.repository';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { AnonymousVisitorService } from '../../../core/session/anonymous-visitor.service';
 import { ApiSessionService } from '../../../core/session/api-session.service';
@@ -85,6 +87,13 @@ type RunState =
 
 const IDLE: RunState = { phase: 'idle' };
 
+interface HandoffExchange {
+  readonly questionId: string;
+  readonly answerId: string;
+  readonly question: string;
+  readonly answer: string;
+}
+
 /**
  * 助理對話的單一實作：`/use/:assistantId`（嵌入用）與工作區的 `/app/chat` 都用這個元件，
  * 只靠 `header` 決定要不要顯示頁面外框。回覆全部來自 fixtures。
@@ -113,9 +122,11 @@ export class ChatConversationComponent {
   private readonly session = inject(DemoSessionService);
   private readonly visitor = inject(AnonymousVisitorService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly issues = inject(AssistantIssuesRepository);
   private readonly apiSession = inject(ApiSessionService);
   private readonly runner = inject(CHAT_RUNNER);
   private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly assistantId = input.required<string>();
   /** null 代表開啟最後一次使用的對話；沒有任何對話時是一段還沒建立的空白對話。 */
@@ -184,6 +195,10 @@ export class ChatConversationComponent {
   });
   protected readonly withdrawFeedback = linkedSignal({ source: this.scope, computation: () => '' });
   protected readonly withdrawError = linkedSignal({ source: this.scope, computation: () => '' });
+  protected readonly pendingHandoff = linkedSignal<string, HandoffExchange | null>({ source: this.scope, computation: () => null });
+  protected readonly handoffBusy = linkedSignal({ source: this.scope, computation: () => false });
+  protected readonly handoffError = linkedSignal({ source: this.scope, computation: () => '' });
+  protected readonly handoffIssueId = linkedSignal<string, string | null>({ source: this.scope, computation: () => null });
 
   /**
    * 串流完成（或停止）後不重新讀取，直接接在讀回的訊息後面：不保存對話的助理在 API
@@ -203,17 +218,19 @@ export class ChatConversationComponent {
   private readonly log = viewChild<ElementRef<HTMLElement>>('log');
   private readonly composerInput = viewChild<ElementRef<HTMLInputElement>>('composerInput');
   private readonly withdrawCancelButton = viewChild<ElementRef<HTMLButtonElement>>('withdrawCancelButton');
+  private readonly handoffCancelButton = viewChild<ElementRef<HTMLButtonElement>>('handoffCancelButton');
   private readonly stopButton = viewChild<ElementRef<HTMLButtonElement>>('stopButton');
 
   constructor() {
     // 確認對話框一出現就把焦點帶到「取消」，與對話紀錄側欄的刪除確認一致。
     effect(() => this.withdrawCancelButton()?.nativeElement.focus());
+    effect(() => this.handoffCancelButton()?.nativeElement.focus());
     // 換帳號、助理或對話時，進行中的回答不再屬於畫面上的對話：直接取消。
     effect(() => {
       this.scope();
       untracked(() => this.cancelActiveRun());
     });
-    inject(DestroyRef).onDestroy(() => this.cancelActiveRun());
+    this.destroyRef.onDestroy(() => this.cancelActiveRun());
   }
 
   protected updateDraft(event: Event): void {
@@ -491,6 +508,55 @@ export class ChatConversationComponent {
 
   protected isFormRequest(message: ChatMessageView): boolean {
     return message.author === 'assistant' && message.reply.kind === 'form-request';
+  }
+
+  protected handoffExchange(message: ChatMessageView): HandoffExchange | null {
+    const chat = this.chat();
+    if (this.anonymous() || !chat || message.author !== 'assistant'
+      || message.reply.kind === 'form-request' || message.reply.kind === 'submission-receipt') return null;
+    const messages = [...chat.messages, ...this.local().map((entry) => entry.message)];
+    const index = messages.findIndex((entry) => entry.id === message.id);
+    const question = messages[index - 1];
+    if (index < 1 || question?.author !== 'account') return null;
+    if (chat.historyMode === 'saved' && (question.id.startsWith('local-question-') || !chat.threadId)) return null;
+    return { questionId: question.id, answerId: message.id, question: question.text, answer: message.reply.text };
+  }
+
+  protected askHandoff(message: ChatMessageView): void {
+    const exchange = this.handoffExchange(message);
+    if (!exchange || this.handoffBusy()) return;
+    this.handoffError.set('');
+    this.pendingHandoff.set(exchange);
+  }
+
+  protected cancelHandoff(): void {
+    if (this.handoffBusy()) return;
+    this.pendingHandoff.set(null);
+  }
+
+  protected confirmHandoff(): void {
+    const exchange = this.pendingHandoff();
+    const chat = this.chat();
+    if (!exchange || !chat || this.handoffBusy()) return;
+    const request: CreateAssistantHandoffRequest = chat.historyMode === 'saved'
+      ? { threadId: chat.threadId ?? undefined, questionMessageId: exchange.questionId, answerMessageId: exchange.answerId, confirmed: true }
+      : { sharedQuestion: exchange.question, sharedAnswer: exchange.answer, confirmed: true };
+    this.handoffBusy.set(true);
+    this.handoffError.set('');
+    this.issues.createHandoff(this.assistantId(), request, {
+      assistantName: chat.assistantName, question: exchange.question, answer: exchange.answer,
+      historyMode: chat.historyMode,
+    }).pipe(finalize(() => this.handoffBusy.set(false)), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (result) => {
+        if (result.status === 'ready') {
+          this.pendingHandoff.set(null);
+          this.handoffIssueId.set(result.data.id);
+        } else {
+          this.handoffError.set(result.message);
+        }
+      },
+      error: () => this.handoffError.set('目前無法轉交，請稍後再試。'),
+    });
   }
 
   /** 拒絕畫面的標題：訪客與帳號的字不同，但兩邊都不揭露助理名稱或是否存在。 */

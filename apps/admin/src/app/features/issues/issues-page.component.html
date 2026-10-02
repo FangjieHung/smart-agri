@@ -80,7 +80,11 @@
               <span class="issue-status">{{ statusLabel(detail.data.issue.status) }}</span>
             </div>
             <dl class="issue-facts">
-              <div><dt>助理</dt><dd><a [routerLink]="['/app/assistants', detail.data.issue.assistantId, 'overview']">{{ detail.data.issue.assistantName }}</a></dd></div>
+              <div><dt>助理</dt><dd>
+                @if (detail.data.issue.viewerIsAssistantOwner) {
+                  <a [routerLink]="['/app/assistants', detail.data.issue.assistantId, 'overview']">{{ detail.data.issue.assistantName }}</a>
+                } @else { {{ detail.data.issue.assistantName }} }
+              </dd></div>
               <div><dt>來源</dt><dd>{{ sourceLabel(detail.data.issue.source) }}</dd></div>
               <div><dt>負責人</dt><dd>{{ detail.data.issue.assigneeDisplayName || '尚未指派' }}</dd></div>
               <div><dt>到期日</dt><dd>{{ detail.data.issue.dueAt ? (detail.data.issue.dueAt | date:'yyyy/MM/dd HH:mm') : '未設定' }}</dd></div>
@@ -100,6 +104,9 @@
                 <h4 id="issue-answer-title">回覆複本</h4>
                 <p>{{ detail.data.issue.answer }}</p>
               </section>
+            }
+            @if (isUnverifiedHandoff(detail.data.issue)) {
+              <p class="issue-note">這筆問答來自不保存對話的助理，複本無法與原對話核對。</p>
             }
             @if (detail.data.issue.testFailureReason) {
               <p class="issue-note">驗收失敗原因：{{ failureReasonLabel(detail.data.issue.testFailureReason) }}</p>

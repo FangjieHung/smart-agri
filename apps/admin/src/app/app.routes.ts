@@ -6,11 +6,6 @@ import { demoSessionGuard } from './core/session/demo-session.guard';
 import { embeddedChatGuard } from './core/session/embedded-chat.guard';
 import { existingAssistantDraftGuard, newAssistantDraftGuard } from './features/assistants/assistant-wizard/new-assistant-draft.guard';
 
-const workspacePlaceholder = () =>
-  import('./features/dashboard/pages/dashboard-page.component').then(
-    (m) => m.DashboardPageComponent,
-  );
-
 export const routes: Routes = [
   {
     path: '',
@@ -114,7 +109,8 @@ export const routes: Routes = [
   {
     path: 'app/activity',
     canActivate: [demoSessionGuard],
-    loadComponent: workspacePlaceholder,
+    loadComponent: () =>
+      import('./features/activity/activity-page.component').then((m) => m.ActivityPageComponent),
   },
   {
     path: 'app/issues',

@@ -1,0 +1,11 @@
+.workspace-page { display: grid; gap: var(--space-4); }
+.activity-chat-link { justify-self: start; color: var(--color-accent); font-weight: 700; }
+.forwarded { display: grid; gap: var(--space-3); }
+.forwarded__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.forwarded__head h2 { margin: 0; }
+.forwarded__head button { min-block-size: var(--target-size); padding: var(--space-2) var(--space-3); border: var(--border-default); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.forwarded__list { display: grid; gap: var(--space-2); padding: 0; margin: 0; list-style: none; }
+.forwarded__list a { display: grid; gap: var(--space-1); padding: var(--space-3); border: var(--border-default); border-radius: var(--radius-container); background: var(--color-surface); color: var(--color-text); text-decoration: none; }
+.forwarded__list a:hover { border-color: var(--color-accent); }
+.forwarded__list span, .forwarded__list time { color: var(--color-text-secondary); }
+.forwarded__list a:focus-visible, .forwarded__head button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

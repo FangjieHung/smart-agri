@@ -101,6 +101,16 @@ describe('IssuesPageComponent', () => {
     expect(text(fixture)).not.toContain('kind-mismatch');
   });
 
+  it('marks an unsaved handoff snapshot as not verifiable against a conversation', async () => {
+    const unverified = { ...issue, source: 'handoff' as const, handoffUnverified: true };
+    const { fixture } = await setup(of({ status: 'ready', data: [unverified] }), true, { issue: unverified, events: [] });
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.issue-item')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(text(fixture)).toContain('無法與原對話核對');
+  });
+
   it('prevents a second update while the first is pending', async () => {
     const { fixture, repo } = await setup();
     const pending = new Subject<{ status: 'ready'; data: AssistantIssueDetailView }>();

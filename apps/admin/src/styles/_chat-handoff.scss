@@ -1,0 +1,38 @@
+app-chat-conversation {
+  .handoff-trigger {
+    display: block;
+    margin: var(--space-1) 0 0 auto;
+    padding: var(--space-1) var(--space-2);
+    border: 0;
+    background: transparent;
+    color: var(--color-accent);
+    font: inherit;
+    font-size: var(--font-size-caption);
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .handoff-feedback {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  }
+
+  .confirm {
+    max-block-size: calc(100vh - var(--space-8));
+    overflow-y: auto;
+  }
+
+  .confirm-handoff {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+
+  .confirm-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .handoff-preview { display: grid; gap: var(--space-2); margin: 0; }
+  .handoff-preview div { display: grid; gap: var(--space-1); }
+  .handoff-preview dt { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+  .handoff-preview dd { margin: 0; overflow-wrap: anywhere; }
+}

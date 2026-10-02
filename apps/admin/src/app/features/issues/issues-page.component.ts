@@ -87,6 +87,10 @@ export class IssuesPageComponent {
     }
   }
 
+  protected isUnverifiedHandoff(issue: AssistantIssueView): boolean {
+    return issue.source === 'handoff' && 'handoffUnverified' in issue && issue.handoffUnverified === true;
+  }
+
   protected save(): void {
     const id = this.selectedId();
     if (!id || this.saving()) return;

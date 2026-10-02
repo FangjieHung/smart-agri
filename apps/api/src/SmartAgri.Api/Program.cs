@@ -133,6 +133,7 @@ app.MapAssistantDraftEndpoints();
 app.MapAssistantTestCaseEndpoints();
 app.MapAssistantTestRunEndpoints();
 app.MapAssistantIssueEndpoints();
+app.MapAssistantHandoffEndpoints();
 app.MapAssistantAnalyticsEndpoints();
 app.MapOperationsSummaryEndpoints();
 app.MapChatEndpoints();

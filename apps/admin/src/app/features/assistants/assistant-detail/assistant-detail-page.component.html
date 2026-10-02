@@ -69,6 +69,7 @@
         @case ('acceptance') {
           <app-assistant-acceptance-tab
             [assistantId]="assistantId()"
+            [assistantName]="assistant.name"
             [acceptanceStatus]="assistant.acceptanceStatus ?? 'not-accepted'"
             (runCompleted)="settings.refresh()"
           />

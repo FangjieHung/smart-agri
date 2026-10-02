@@ -190,7 +190,14 @@
                       ? '缺少預期引用文件'
                       : '回覆類型不符'
                   }}
-                  · <a routerLink="/app/issues">前往處理事項</a>
+                  · <button
+                    type="button"
+                    class="text-button"
+                    [disabled]="creatingIssueId() !== null"
+                    (click)="createIssue(result)"
+                  >
+                    {{ creatingIssueId() === result.id ? '建立中…' : '建立處理事項' }}
+                  </button>
                 </p>
               }
               <details>

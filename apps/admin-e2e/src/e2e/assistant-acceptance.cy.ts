@@ -32,5 +32,13 @@ describe('assistant acceptance in mock mode', () => {
 
     cy.reload();
     cy.contains('app-assistant-card', '客服助理').should('contain', '驗收未通過');
+
+    cy.contains('app-assistant-card', '客服助理').contains('查看設定').click();
+    cy.contains('a', '驗收').click();
+    cy.contains('.run-row', '已完成').click();
+    cy.contains('.result-card', '例外情況要怎麼處理？')
+      .contains('建立處理事項').click();
+    cy.location('pathname').should('eq', '/app/issues');
+    cy.contains('例外情況要怎麼處理？').should('be.visible');
   });
 });

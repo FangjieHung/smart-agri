@@ -10,12 +10,19 @@ import type {
   CreateAssistantIssueRequest,
   UpdateAssistantIssueRequest,
 } from '../domain/assistant-issue.model';
+import type { AssistantTestResultView } from '../domain/assistant-acceptance.model';
 import { DemoSessionService } from '../session/demo-session.service';
 import type { RepositoryView } from './demo-repository';
 import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
 
 export const API_ISSUES_PATH = '/api/v1/issues';
 export const API_ISSUES_SUMMARY_PATH = `${API_ISSUES_PATH}/summary`;
+
+export interface MockTestIssueContext {
+  readonly assistantName: string;
+  readonly runId: string;
+  readonly result: AssistantTestResultView;
+}
 
 export function apiIssuePath(issueId: string): string {
   return `${API_ISSUES_PATH}/${encodeURIComponent(issueId)}`;
@@ -106,7 +113,7 @@ export class AssistantIssuesRepository {
     });
   }
 
-  create(assistantId: string, request: CreateAssistantIssueRequest): Observable<AssistantIssueActionResult<AssistantIssueView>> {
+  create(assistantId: string, request: CreateAssistantIssueRequest, context?: MockTestIssueContext): Observable<AssistantIssueActionResult<AssistantIssueView>> {
     if (this.apiMode) {
       return this.client().post<AssistantIssueView>(apiAssistantIssuesPath(assistantId), request).pipe(
         map((data) => ({ status: 'ready' as const, data })),
@@ -118,12 +125,14 @@ export class AssistantIssuesRepository {
       const id = crypto.randomUUID();
       const accountId = this.session.activeAccountId();
       const issue: AssistantIssueView = {
-        id, assistantId, assistantName: '助理', source: 'test-failure', status: 'open',
-        title: request.title?.trim() || '需要處理的測試結果',
+        id, assistantId, assistantName: context?.assistantName ?? '助理', source: 'test-failure', status: 'open',
+        title: request.title?.trim() || context?.result.question || '需要處理的測試結果',
         assigneeAccountId: request.assigneeAccountId ?? null, assigneeDisplayName: null,
         reporterAccountId: null, reporterDisplayName: null, dueAt: request.dueAt ?? null,
-        testRunId: null, testResultId: request.testResultId,
-        testFailureReason: null, question: request.title ?? null, answer: null,
+        testRunId: context?.runId ?? null, testResultId: request.testResultId,
+        testFailureReason: context?.result.failureReason ?? null,
+        question: context?.result.question ?? request.title ?? null,
+        answer: context?.result.answerText ?? null,
         resolutionNote: null, createdAt: now, updatedAt: now, resolvedAt: null,
         viewerIsAssistantOwner: true, viewerIsAssignee: request.assigneeAccountId === accountId,
       };

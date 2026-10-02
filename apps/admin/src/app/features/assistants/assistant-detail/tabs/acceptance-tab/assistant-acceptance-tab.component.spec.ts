@@ -1,4 +1,5 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { Router } from '@angular/router';
 import { NEVER, Subject, of, throwError, type Observable } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -7,6 +8,7 @@ import type {
 } from '../../../../../core/domain/assistant-acceptance.model';
 import type { RepositoryView } from '../../../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../../../core/repositories/tokens';
+import { AssistantIssuesRepository } from '../../../../../core/repositories/assistant-issues.repository';
 import { AssistantAcceptanceTabComponent } from './assistant-acceptance-tab.component';
 
 const testCase: AssistantTestCaseView = {
@@ -46,7 +48,11 @@ async function render(
   const repository = testRepository(cases);
   await TestBed.configureTestingModule({
     imports: [AssistantAcceptanceTabComponent],
-    providers: [{ provide: DEMO_REPOSITORY, useValue: repository }],
+    providers: [
+      { provide: DEMO_REPOSITORY, useValue: repository },
+      { provide: AssistantIssuesRepository, useValue: { create: vi.fn() } },
+      { provide: Router, useValue: { navigate: vi.fn() } },
+    ],
   }).compileComponents();
   const fixture = TestBed.createComponent(AssistantAcceptanceTabComponent);
   fixture.componentRef.setInput('assistantId', 'assistant-1');

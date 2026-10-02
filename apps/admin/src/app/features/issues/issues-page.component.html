@@ -85,7 +85,7 @@
               <div><dt>負責人</dt><dd>{{ detail.data.issue.assigneeDisplayName || '尚未指派' }}</dd></div>
               <div><dt>到期日</dt><dd>{{ detail.data.issue.dueAt ? (detail.data.issue.dueAt | date:'yyyy/MM/dd HH:mm') : '未設定' }}</dd></div>
               @if (detail.data.issue.reporterDisplayName) {
-                <div><dt>轉交人</dt><dd>{{ detail.data.issue.reporterDisplayName }}</dd></div>
+                <div><dt>{{ detail.data.issue.source === 'handoff' ? '轉交人' : '建立人' }}</dt><dd>{{ detail.data.issue.reporterDisplayName }}</dd></div>
               }
             </dl>
 
@@ -102,7 +102,7 @@
               </section>
             }
             @if (detail.data.issue.testFailureReason) {
-              <p class="issue-note">驗收失敗原因：{{ detail.data.issue.testFailureReason }}</p>
+              <p class="issue-note">驗收失敗原因：{{ failureReasonLabel(detail.data.issue.testFailureReason) }}</p>
             }
 
             @if (detail.data.issue.viewerIsAssistantOwner || detail.data.issue.viewerIsAssignee) {
@@ -151,7 +151,7 @@
                     <li>
                       <strong>{{ event.actorDisplayName }}</strong>
                       <time [attr.datetime]="event.at">{{ event.at | date:'yyyy/MM/dd HH:mm' }}</time>
-                      <span>{{ event.note || event.action }}</span>
+                      <span>{{ eventActionLabel(event.action) }}@if (event.note) {：{{ event.note }}}</span>
                     </li>
                   }
                 </ol>

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
-import type { AssistantIssueScope, AssistantIssueStatus, AssistantIssueView, UpdateAssistantIssueRequest } from '../../core/domain/assistant-issue.model';
+import type { AssistantIssueEventView, AssistantIssueScope, AssistantIssueStatus, AssistantIssueView, UpdateAssistantIssueRequest } from '../../core/domain/assistant-issue.model';
 import { AssistantIssuesRepository } from '../../core/repositories/assistant-issues.repository';
 import { repositoryResource } from '../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
@@ -71,6 +71,20 @@ export class IssuesPageComponent {
 
   protected sourceLabel(source: AssistantIssueView['source']): string {
     return source === 'handoff' ? '成員轉交' : '測試未通過';
+  }
+
+  protected failureReasonLabel(reason: NonNullable<AssistantIssueView['testFailureReason']>): string {
+    return reason === 'kind-mismatch' ? '回答類型與預期不符' : '缺少預期引用文件';
+  }
+
+  protected eventActionLabel(action: AssistantIssueEventView['action']): string {
+    switch (action) {
+      case 'created': return '建立事項';
+      case 'assigned': return '變更負責人';
+      case 'status-changed': return '更新狀態';
+      case 'commented': return '新增處理紀錄';
+      case 'due-date-changed': return '變更到期日';
+    }
   }
 
   protected save(): void {

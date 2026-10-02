@@ -23,12 +23,13 @@ const issue: AssistantIssueView = {
 async function setup(
   list: Observable<RepositoryView<readonly AssistantIssueView[]>> = of({ status: 'ready', data: [issue] }),
   settle = true,
+  detail: AssistantIssueDetailView = { issue, events: [] },
 ) {
   TestBed.resetTestingModule();
   const update = vi.fn(() => of({ status: 'ready' as const, data: { issue, events: [] } as AssistantIssueDetailView }));
   const repo = {
     list: vi.fn(() => list),
-    get: vi.fn(() => of({ status: 'ready' as const, data: { issue, events: [] } as AssistantIssueDetailView })),
+    get: vi.fn(() => of({ status: 'ready' as const, data: detail })),
     update,
   };
   await TestBed.configureTestingModule({
@@ -79,6 +80,25 @@ describe('IssuesPageComponent', () => {
     expect(text(fixture)).toContain('如何退貨？');
     expect(text(fixture)).toContain('請聯絡客服。');
     expect(text(fixture)).toContain('處理紀錄');
+  });
+
+  it('shows readable labels for the reporter, failure reason and event action', async () => {
+    const reportedIssue = { ...issue, reporterDisplayName: '安心商行管理者', testFailureReason: 'kind-mismatch' as const };
+    const detail: AssistantIssueDetailView = {
+      issue: reportedIssue,
+      events: [{ id: 'event-1', action: 'created', actorAccountId: 'account-1',
+        actorDisplayName: '安心商行管理者', at: issue.createdAt, note: null, assigneeAccountId: null,
+        assigneeDisplayName: null, status: 'open', dueAt: null }],
+    };
+    const { fixture } = await setup(of({ status: 'ready', data: [reportedIssue] }), true, detail);
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.issue-item')?.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(text(fixture)).toContain('建立人');
+    expect(text(fixture)).toContain('回答類型與預期不符');
+    expect(text(fixture)).toContain('建立事項');
+    expect(text(fixture)).not.toContain('kind-mismatch');
   });
 
   it('prevents a second update while the first is pending', async () => {

@@ -174,6 +174,7 @@ export class AssistantIssuesRepository {
         answer: context?.result.answerText ?? null,
         resolutionNote: null, createdAt: now, updatedAt: now, resolvedAt: null,
         viewerIsAssistantOwner: true, viewerIsAssignee: request.assigneeAccountId === accountId,
+        handoffUnverified: false,
       };
       this.mockDetails.set(id, { issue, events: [] });
       this.mockOwners.set(id, accountId);
@@ -203,6 +204,7 @@ export class AssistantIssuesRepository {
         question: context.question, answer: context.answer, resolutionNote: null,
         createdAt: now, updatedAt: now, resolvedAt: null,
         viewerIsAssistantOwner: owner === accountId, viewerIsAssignee: false,
+        handoffUnverified: context.historyMode === 'not-saved',
       };
       this.mockDetails.set(id, { issue, events: [{
         id: crypto.randomUUID(), action: 'created', actorAccountId: accountId,
@@ -271,6 +273,7 @@ export class AssistantIssuesRepository {
       dueAt: null, testRunId: null, testResultId: null, testFailureReason: null,
       question: null, answer: null,
       viewerIsAssistantOwner: false, viewerIsAssignee: false,
+      handoffUnverified: false,
     };
   }
 

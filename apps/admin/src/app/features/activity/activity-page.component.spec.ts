@@ -15,7 +15,7 @@ const forwarded: AssistantIssueView = {
   testRunId: null, testResultId: null, testFailureReason: null,
   question: null, answer: null, resolutionNote: '已補上退貨說明',
   createdAt: '2026-09-30T08:00:00Z', updatedAt: '2026-09-30T09:00:00Z', resolvedAt: '2026-09-30T09:00:00Z',
-  viewerIsAssistantOwner: false, viewerIsAssignee: false,
+  viewerIsAssistantOwner: false, viewerIsAssignee: false, handoffUnverified: false,
 };
 
 async function render(response: Observable<RepositoryView<readonly AssistantIssueView[]>>, settle = true): Promise<string> {

@@ -43,10 +43,18 @@ describe('assistant acceptance against the real API', () => {
   it('prepares a cited assistant and an eligible handler', () => {
     loginToApi('anxin', 'admin');
     cy.visit('/app/settings');
-    cy.contains('.member', '安心商行管理者').contains('button', '變更 安心商行管理者 的權限').click();
-    cy.contains('.member', '安心商行管理者').find('input[id$="handle-assistant-issues"]').check({ force: true });
-    cy.contains('.member', '安心商行管理者').contains('button', '儲存 安心商行管理者 的權限').click();
-    cy.contains('.member', '安心商行管理者').should('contain', '處理助理的處理事項');
+    cy.contains('li.member', '安心商行管理者').contains('button', '變更 安心商行管理者 的權限').click();
+    cy.contains('li.member', '安心商行管理者').find('input[id$="handle-assistant-issues"]')
+      .check().should('be.checked');
+    cy.intercept('PUT', /\/api\/v1\/team\/members\/[^/]+\/permissions$/).as('saveHandler');
+    cy.contains('li.member', '安心商行管理者').contains('button', '儲存 安心商行管理者 的權限').click();
+    cy.wait('@saveHandler').then(({ request, response }) => {
+      expect(request.body.permissions).to.include('handle-assistant-issues');
+      expect(response?.statusCode).to.eq(200);
+    });
+    cy.reload();
+    cy.contains('li.member', '安心商行管理者').find('.member__permissions')
+      .should('contain', '處理助理的處理事項');
 
     cy.visit('/app/knowledge');
     cy.get('button[page-header-actions]').contains('建立知識庫').click();
@@ -134,7 +142,7 @@ describe('assistant acceptance against the real API', () => {
   });
 
   // Pending explicit approval to share the isolated test assistant with another account.
-  it.skip('lets a member hand off one answer while the owner sees only its issue snapshot', () => {
+  it('lets a member hand off one answer while the owner sees only its issue snapshot', () => {
     expect(assistantId).to.match(/^[0-9a-f-]{36}$/);
     loginToApi('anxin', 'admin');
     cy.visit(`/app/assistants/${assistantId}/publishing?channel=platform`);

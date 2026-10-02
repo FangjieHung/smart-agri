@@ -66,6 +66,8 @@ public sealed class AssistantIssue : IOrganizationScoped
 
     public AssistantTestFailureReason? TestFailureReason { get; private set; }
 
+    public bool HandoffUnverified { get; private set; }
+
     /// <summary>The question: the test case's text for a test failure; the member's consented
     /// question for a handoff.</summary>
     public string? QuestionSnapshot { get; private set; }
@@ -142,6 +144,38 @@ public sealed class AssistantIssue : IOrganizationScoped
         created.Status = issue.Status;
         created.AssigneeAccountId = assigneeAccountId;
         created.DueAt = dueAt;
+        return (issue, created);
+    }
+
+    /// <summary>Copies exactly one consented exchange; no conversation identifier is retained.</summary>
+    public static (AssistantIssue Issue, AssistantIssueEvent Created) OpenFromHandoff(
+        Assistant assistant, Guid reporterAccountId, string question, string answer,
+        bool unverified, Guid? assigneeAccountId, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(assistant);
+        RequireId(reporterAccountId, nameof(reporterAccountId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(question);
+        ArgumentException.ThrowIfNullOrWhiteSpace(answer);
+        if (assigneeAccountId is { } assignee) RequireId(assignee, nameof(assigneeAccountId));
+        var issue = new AssistantIssue
+        {
+            Id = Guid.CreateVersion7(),
+            OrganizationId = assistant.OrganizationId,
+            AssistantId = assistant.Id,
+            Source = AssistantIssueSource.Handoff,
+            Status = AssistantIssueStatus.Open,
+            Title = DefaultTitle(question),
+            AssigneeAccountId = assigneeAccountId,
+            ReporterAccountId = reporterAccountId,
+            QuestionSnapshot = question,
+            AnswerSnapshot = answer,
+            HandoffUnverified = unverified,
+            CreatedAt = now,
+            UpdatedAt = now,
+        };
+        var created = issue.Record(AssistantIssueEventAction.Created, reporterAccountId, now, null);
+        created.Status = issue.Status;
+        created.AssigneeAccountId = assigneeAccountId;
         return (issue, created);
     }
 

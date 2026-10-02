@@ -41,7 +41,13 @@ public sealed record AssistantIssueView(
     DateTimeOffset UpdatedAt,
     DateTimeOffset? ResolvedAt,
     bool ViewerIsAssistantOwner,
-    bool ViewerIsAssignee);
+    bool ViewerIsAssignee,
+    bool HandoffUnverified);
+
+/// <summary>Only the state and outcome of a member's own forwarded handoff.</summary>
+public sealed record ForwardedAssistantIssueView(
+    Guid Id, Guid AssistantId, string AssistantName, AssistantIssueStatus Status,
+    string? ResolutionNote, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? ResolvedAt);
 
 /// <summary>One entry of an issue's handling history, oldest first.</summary>
 /// <param name="AssigneeAccountId">For <c>assigned</c> (and <c>created</c>): the assignee
@@ -304,6 +310,8 @@ public static class AssistantIssueEndpoints
             .OrderByDescending(issue => issue.CreatedAt)
             .ThenByDescending(issue => issue.Id)
             .ToListAsync(cancellationToken);
+        if (resolvedScope == "forwarded")
+            return Results.Ok(await ToForwardedViewsAsync(dbContext, rows, cancellationToken));
         return Results.Ok(await ToViewsAsync(dbContext, rows, callerId, canManage, canHandle, cancellationToken));
     }
 
@@ -348,7 +356,13 @@ public static class AssistantIssueEndpoints
             .SingleOrDefaultAsync(candidate => candidate.Id == issueId, cancellationToken);
         if (issue is null)
         {
-            return ApiErrors.NotFound(ForbiddenReason.AssistantIssue);
+            var forwarded = await dbContext.AssistantIssues.AsNoTracking().SingleOrDefaultAsync(
+                candidate => candidate.Id == issueId && candidate.Source == AssistantIssueSource.Handoff
+                    && candidate.ReporterAccountId == callerId, cancellationToken);
+            if (forwarded is null)
+                return ApiErrors.NotFound(ForbiddenReason.AssistantIssue);
+            var limited = await ToForwardedViewsAsync(dbContext, [forwarded], cancellationToken);
+            return Results.Ok(new { Issue = limited[0], Events = Array.Empty<object>() });
         }
 
         return Results.Ok(await ToDetailAsync(dbContext, issue, callerId, canManage, canHandle, cancellationToken));
@@ -605,8 +619,21 @@ public static class AssistantIssueEndpoints
                 issue.UpdatedAt,
                 issue.ResolvedAt,
                 canManage && assistant is not null && assistant.OwnerAccountId == callerId,
-                canHandle && issue.AssigneeAccountId == callerId);
+                canHandle && issue.AssigneeAccountId == callerId,
+                issue.HandoffUnverified);
         })];
+    }
+
+    private static async Task<List<ForwardedAssistantIssueView>> ToForwardedViewsAsync(
+        AppDbContext dbContext, IReadOnlyList<AssistantIssue> issues, CancellationToken cancellationToken)
+    {
+        var assistantIds = issues.Select(issue => issue.AssistantId).Distinct().ToList();
+        var names = await dbContext.Assistants.AsNoTracking()
+            .Where(assistant => assistantIds.Contains(assistant.Id))
+            .ToDictionaryAsync(assistant => assistant.Id, assistant => assistant.Name, cancellationToken);
+        return [.. issues.Select(issue => new ForwardedAssistantIssueView(
+            issue.Id, issue.AssistantId, names.GetValueOrDefault(issue.AssistantId, string.Empty),
+            issue.Status, issue.ResolutionNote, issue.CreatedAt, issue.UpdatedAt, issue.ResolvedAt))];
     }
 
     private static async Task<Dictionary<Guid, string>> AccountNamesAsync(

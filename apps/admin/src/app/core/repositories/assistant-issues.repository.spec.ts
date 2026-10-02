@@ -110,6 +110,7 @@ describe('AssistantIssuesRepository', () => {
       sharedQuestion: '如何退貨？', sharedAnswer: '七天內可退貨。', confirmed: true,
     }, { assistantName: '客服助理', question: '如何退貨？', answer: '七天內可退貨。', historyMode: 'not-saved' }));
     expect(result.status).toBe('ready');
+    expect(result).toMatchObject({ status: 'ready', data: { handoffUnverified: true } });
     const list = await firstValueFrom(repository.list({ scope: 'forwarded' }));
     expect(list).toMatchObject({ status: 'ready', data: [{ source: 'handoff', question: '如何退貨？', answer: '七天內可退貨。' }] });
   });

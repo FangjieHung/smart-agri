@@ -17,7 +17,7 @@ const issue: AssistantIssueView = {
   testRunId: 'run-1', testResultId: 'result-1', testFailureReason: 'missing-document',
   question: '如何退貨？', answer: '請聯絡客服。', resolutionNote: null,
   createdAt: '2026-09-30T08:00:00Z', updatedAt: '2026-09-30T08:00:00Z', resolvedAt: null,
-  viewerIsAssistantOwner: true, viewerIsAssignee: false,
+  viewerIsAssistantOwner: true, viewerIsAssignee: false, handoffUnverified: false,
 };
 
 async function setup(

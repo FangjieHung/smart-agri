@@ -119,6 +119,11 @@ export const routes: Routes = [
       import('./features/issues/issues-page.component').then((m) => m.IssuesPageComponent),
   },
   {
+    path: 'app/operations',
+    canActivate: [demoSessionGuard],
+    loadComponent: () => import('./features/operations/operations-summary/operations-summary-page.component').then((m) => m.OperationsSummaryPageComponent),
+  },
+  {
     path: 'app/channels',
     canActivate: [demoSessionGuard],
     loadComponent: () =>

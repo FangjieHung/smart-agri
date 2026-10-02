@@ -259,14 +259,15 @@ describe('AssistantDetailPageComponent', () => {
     expect(page.querySelectorAll('app-assistant-publishing app-channel-card')).toHaveLength(3);
   });
 
-  it('links the test tab to the in-platform chat and hides the mock usage counts in API mode', async () => {
+  it('links the test tab to the in-platform chat and shows outcome-only usage statistics in API mode', async () => {
     const test = await renderTab('test', { apiMode: true });
     const link = Array.from(test.page.querySelectorAll('a')).find((anchor) => anchor.textContent?.includes('開啟使用者對話畫面'));
     expect(link?.getAttribute('href')).toBe('/app/chat/assistant-customer-service');
 
     const activity = await renderTab('activity', { apiMode: true });
-    expect(activity.page.querySelector('.usage-summary')).toBeNull();
-    expect(activity.page.textContent).toContain('匿名使用統計將於後續版本提供');
+    expect(activity.page.querySelector('.usage-summary')).not.toBeNull();
+    expect(activity.page.textContent).toContain('回覆總數');
+    expect(activity.page.textContent).toContain('不含問題、回答、帳號或對話內容');
   });
 
   it('edits the audience from the overview tab and keeps it after the page is rebuilt', async () => {
@@ -364,13 +365,13 @@ describe('AssistantDetailPageComponent', () => {
     expect(link?.getAttribute('href')).toBe('/use/assistant-customer-service');
   });
 
-  it('shows the owner anonymous usage counts without any conversation text', async () => {
+  it('shows the owner outcome-only usage counts without any conversation text', async () => {
     const { page } = await renderTab('activity');
     const usage = page.querySelector('.usage-summary');
 
-    expect(usage?.textContent).toContain('對話次數');
+    expect(usage?.textContent).toContain('回覆總數');
     expect(usage?.textContent).toContain('18');
-    expect(page.textContent).toContain('看不到使用者的對話內容');
+    expect(page.textContent).toContain('不含問題、回答、帳號或對話內容');
     expect(page.textContent).not.toContain('如何處理退貨申請');
   });
   it('shows the same publishing channel content in the publishing tab, opened at the requested channel', async () => {

@@ -76,6 +76,7 @@ import {
   type KnowledgeVersionPreviewView,
   type KnowledgeVersionView,
 } from '../domain/knowledge-base.model';
+import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type {
   AssistantChatView,
   ChatMessageView,
@@ -176,6 +177,8 @@ type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
 type UpdatePlatformSharingRequest = components['schemas']['UpdatePlatformSharingRequest'];
 type SetPlatformPausedRequest = components['schemas']['SetPlatformPausedRequest'];
+type ApiAssistantAnalytics = components['schemas']['AssistantAnalyticsView'];
+type ApiOperationsSummary = components['schemas']['OperationsSummaryView'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -273,6 +276,12 @@ export function apiAssistantTestCasesPath(assistantId: string): string { return 
 export function apiAssistantTestCasePath(assistantId: string, caseId: string): string { return `${apiAssistantTestCasesPath(assistantId)}/${encodeURIComponent(caseId)}`; }
 export function apiAssistantTestRunsPath(assistantId: string): string { return `${apiAssistantPath(assistantId)}/test-runs`; }
 export function apiAssistantTestRunPath(assistantId: string, runId: string): string { return `${apiAssistantTestRunsPath(assistantId)}/${encodeURIComponent(runId)}`; }
+
+export const API_OPERATIONS_SUMMARY_PATH = '/api/v1/operations/summary';
+
+export function apiAssistantAnalyticsPath(assistantId: string): string {
+  return `${apiAssistantPath(assistantId)}/analytics`;
+}
 
 export function apiAssistantSettingsPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/settings`;
@@ -600,6 +609,21 @@ export class HybridDemoRepository extends MockDemoRepository {
     return this.http.get<ApiAssistantSettings>(apiAssistantSettingsPath(assistantId)).pipe(
       map((response): RepositoryView<AssistantSettingsView> => ({ status: 'ready', data: toAssistantSettings(response) })),
       catchError((error: unknown) => this.assistantConfigurationDeniedOrThrow(error)),
+    );
+  }
+
+
+  override getAssistantAnalyticsSummary(assistantId: string): Observable<RepositoryView<AssistantAnalyticsSummaryView>> {
+    return this.http.get<ApiAssistantAnalytics>(apiAssistantAnalyticsPath(assistantId)).pipe(
+      map((response): RepositoryView<AssistantAnalyticsSummaryView> => ({ status: 'ready', data: response })),
+      catchError((error: unknown) => this.assistantConfigurationDeniedOrThrow(error)),
+    );
+  }
+
+  override getOperationsSummary(): Observable<RepositoryView<OperationsSummaryView>> {
+    return this.http.get<ApiOperationsSummary>(API_OPERATIONS_SUMMARY_PATH).pipe(
+      map((response): RepositoryView<OperationsSummaryView> => ({ status: 'ready', data: response })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)),
     );
   }
 

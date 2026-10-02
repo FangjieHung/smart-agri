@@ -142,6 +142,7 @@ export class AssistantDetailPageComponent {
     const result = this.analyticsResource.view();
     return result.status === 'ready' || result.status === 'partial-failure' ? result.data : null;
   });
+  protected readonly analyticsStatus = computed(() => this.analyticsResource.view().status);
   protected replyKindLabel(kind: string): string {
     return ({ 'company-data': '組織資料', 'general-knowledge': '一般知識', 'no-result': '查無資料' } as Record<string, string>)[kind] ?? kind;
   }

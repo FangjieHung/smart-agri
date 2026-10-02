@@ -99,6 +99,12 @@
             <dl class="usage-summary">@for (item of usage.rejectionReasons; track item.reason) { <div><dt>{{ rejectionReasonLabel(item.reason) }}</dt><dd>{{ item.count }}</dd></div> }</dl>
             <h3>常引用文件</h3>
             @if (usage.mostCitedDocuments.length) { <ul>@for (item of usage.mostCitedDocuments; track item.documentId) { <li>{{ item.documentName }}：{{ item.count }} 次</li> }</ul> } @else { <p>這段期間沒有引用文件。</p> }
+          } @else if (analyticsStatus() === 'loading') {
+            <app-state-panel state="loading" title="正在載入使用統計" />
+          } @else if (analyticsStatus() === 'permission-denied') {
+            <app-state-panel state="permission-denied" title="你沒有查看使用統計的權限" />
+          } @else if (analyticsStatus() === 'error') {
+            <app-state-panel state="error" title="目前無法載入使用統計" />
           } @else {
             <p>目前還沒有使用紀錄。</p>
           }

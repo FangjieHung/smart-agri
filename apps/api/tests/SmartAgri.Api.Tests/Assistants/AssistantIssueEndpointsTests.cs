@@ -8,6 +8,7 @@ using SmartAgri.Api.Tests.Infrastructure;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Organizations;
 
 namespace SmartAgri.Api.Tests.Assistants;
@@ -36,6 +37,100 @@ public sealed class AssistantIssueEndpointsTests : IClassFixture<AuthHostFixture
     private static string CreatePath(Guid assistantId) => $"/api/v1/assistants/{assistantId}/issues";
 
     private static string IssuePath(Guid issueId) => $"/api/v1/issues/{issueId}";
+
+    [Fact]
+    public async Task Handoff_requires_explicit_confirmation()
+    {
+        var org = await CreateOrganizationWithOwnerAsync();
+        var member = await CreateMemberAsync(org.Organization, "member", "成員", AccountPermission.UseSharedAssistants);
+        await using (var db = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            var assistant = await db.Assistants.SingleAsync(candidate => candidate.Id == org.AssistantId, CancellationToken);
+            db.AssistantShares.Add(new AssistantShare(assistant, member.AccountId));
+            await db.SaveChangesAsync(CancellationToken);
+        }
+        var response = await member.Spa.PostAsync($"/api/v1/assistants/{org.AssistantId}/chat/handoffs", member.Token,
+            new { sharedQuestion = "問題", sharedAnswer = "回答", confirmed = false });
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+    }
+
+    [Fact]
+    public async Task Saved_handoff_snapshots_the_callers_pair_and_rejects_another_members_thread()
+    {
+        var org = await CreateOrganizationWithOwnerAsync(ownerCanHandleIssues: true);
+        var reporter = await CreateMemberAsync(org.Organization, "reporter", "轉交人", AccountPermission.UseSharedAssistants);
+        var stranger = await CreateMemberAsync(org.Organization, "stranger", "其他成員", AccountPermission.UseSharedAssistants);
+        var own = await SeedPairAsync(org, reporter.AccountId, "可信問題", "可信回答");
+        var foreign = await SeedPairAsync(org, stranger.AccountId, "私人問題", "私人回答");
+        var path = $"/api/v1/assistants/{org.AssistantId}/chat/handoffs";
+        var response = await reporter.Spa.PostAsync(path, reporter.Token,
+            new { threadId = own.ThreadId, questionMessageId = own.QuestionId, answerMessageId = own.AnswerId,
+                sharedQuestion = "假問題", sharedAnswer = "假回答", confirmed = true });
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(CancellationToken));
+        var body = await BodyJsonAsync(response);
+        body.GetProperty("question").GetString().ShouldBe("可信問題");
+        body.GetProperty("answer").GetString().ShouldBe("可信回答");
+        body.GetProperty("assigneeAccountId").GetGuid().ShouldBe(org.Owner.AccountId);
+        var issueId = body.GetProperty("id").GetGuid();
+
+        var missing = await ResponseFingerprint.FromAsync(await reporter.Spa.PostAsync(path, reporter.Token,
+            new { threadId = Guid.NewGuid(), questionMessageId = own.QuestionId, answerMessageId = own.AnswerId, confirmed = true }));
+        await AssertIdenticalAsync(await reporter.Spa.PostAsync(path, reporter.Token,
+            new { threadId = foreign.ThreadId, questionMessageId = foreign.QuestionId, answerMessageId = foreign.AnswerId, confirmed = true }), missing);
+        await AssertIdenticalAsync(await reporter.Spa.PostAsync(path, reporter.Token,
+            new { threadId = own.ThreadId, questionMessageId = own.AnswerId, answerMessageId = own.QuestionId, confirmed = true }), missing);
+        var reporterDetail = await BodyJsonAsync(await reporter.Spa.GetAsync(IssuePath(issueId), reporter.Token));
+        reporterDetail.GetProperty("issue").GetProperty("status").GetString().ShouldBe("open");
+        reporterDetail.GetProperty("issue").TryGetProperty("answer", out _).ShouldBeFalse();
+        reporterDetail.GetProperty("events").GetArrayLength().ShouldBe(0);
+        var denied = await ResponseFingerprint.FromAsync(await stranger.Spa.GetAsync(IssuePath(Guid.NewGuid()), stranger.Token));
+        await AssertIdenticalAsync(await stranger.Spa.GetAsync(IssuePath(issueId), stranger.Token), denied);
+        await AssertIdenticalAsync(await reporter.Spa.PatchAsync(IssuePath(issueId), reporter.Token, new { status = "resolved" }), denied);
+        var ownerChat = await org.Owner.Spa.GetAsync($"/api/v1/assistants/{org.AssistantId}/chat?conversation={own.ThreadId}", org.Owner.Token);
+        ownerChat.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Unsaved_handoff_is_marked_unverified_and_unassigned_when_owner_cannot_handle()
+    {
+        var org = await CreateOrganizationWithOwnerAsync();
+        var reporter = await CreateMemberAsync(org.Organization, "reporter", "轉交人", AccountPermission.UseSharedAssistants);
+        await using (var db = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            var assistant = await db.Assistants.SingleAsync(candidate => candidate.Id == org.AssistantId, CancellationToken);
+            assistant.ApplySettings(assistant.Name, assistant.Purpose, assistant.Tone, assistant.RoleInstructions,
+                assistant.KnowledgeScope, assistant.RefusalMessage, assistant.ShowCitations, false, DateTimeOffset.UtcNow);
+            db.AssistantShares.Add(new AssistantShare(assistant, reporter.AccountId));
+            await db.SaveChangesAsync(CancellationToken);
+        }
+        var response = await reporter.Spa.PostAsync($"/api/v1/assistants/{org.AssistantId}/chat/handoffs", reporter.Token,
+            new { sharedQuestion = "本次問題", sharedAnswer = "本次回答", confirmed = true });
+        response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(CancellationToken));
+        var body = await BodyJsonAsync(response);
+        body.GetProperty("handoffUnverified").GetBoolean().ShouldBeTrue();
+        body.GetProperty("assigneeAccountId").ValueKind.ShouldBe(JsonValueKind.Null);
+        await using var verify = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var issue = await verify.AssistantIssues.SingleAsync(candidate => candidate.Id == body.GetProperty("id").GetGuid(), CancellationToken);
+        issue.QuestionSnapshot.ShouldBe("本次問題");
+        issue.AnswerSnapshot.ShouldBe("本次回答");
+        issue.HandoffUnverified.ShouldBeTrue();
+        (await verify.ChatThreads.CountAsync(CancellationToken)).ShouldBe(0);
+    }
+
+    private async Task<(Guid ThreadId, Guid QuestionId, Guid AnswerId)> SeedPairAsync(
+        OrganizationWithOwner org, Guid accountId, string question, string answer)
+    {
+        await using var db = _host.Postgres.CreateDbContext(org.Organization.Id);
+        var assistant = await db.Assistants.SingleAsync(candidate => candidate.Id == org.AssistantId, CancellationToken);
+        var thread = new ChatThread(assistant, accountId, "測試對話", DateTimeOffset.UtcNow);
+        var questionMessage = ChatMessage.Account(thread, question, DateTimeOffset.UtcNow);
+        var answerMessage = ChatMessage.Assistant(thread, answer, ChatReplyKind.NoResult, null, [], DateTimeOffset.UtcNow);
+        db.AssistantShares.Add(new AssistantShare(assistant, accountId));
+        db.ChatThreads.Add(thread);
+        db.ChatMessages.AddRange(questionMessage, answerMessage);
+        await db.SaveChangesAsync(CancellationToken);
+        return (thread.Id, questionMessage.Id, answerMessage.Id);
+    }
 
     // --- Create from a test result ---------------------------------------------------------------
 

@@ -466,6 +466,9 @@ namespace SmartAgri.Infrastructure.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("integer");
 
+                    b.Property<bool>("HandoffUnverified")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("OrganizationId")
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");

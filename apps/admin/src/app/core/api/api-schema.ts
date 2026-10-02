@@ -284,6 +284,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/chat/handoffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateAssistantHandoffRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/analytics": {
         parameters: {
             query?: never;
@@ -4036,6 +4098,7 @@ export interface components {
             resolvedAt: null | string;
             viewerIsAssistantOwner: boolean;
             viewerIsAssignee: boolean;
+            handoffUnverified: boolean;
         };
         /** @enum {unknown} */
         AssistantKnowledgeScope: "company-data-only" | "allow-general-knowledge";
@@ -4254,6 +4317,17 @@ export interface components {
         CreateAssistantFromDraftRequest: {
             /** Format: uuid */
             draftId: string;
+        };
+        CreateAssistantHandoffRequest: {
+            /** Format: uuid */
+            threadId: null | string;
+            /** Format: uuid */
+            questionMessageId: null | string;
+            /** Format: uuid */
+            answerMessageId: null | string;
+            sharedQuestion: null | string;
+            sharedAnswer: null | string;
+            confirmed: boolean;
         };
         CreateAssistantIssueRequest: {
             /** Format: uuid */

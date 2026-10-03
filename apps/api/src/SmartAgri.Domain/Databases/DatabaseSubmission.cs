@@ -94,8 +94,9 @@ public sealed class DatabaseSubmission : IOrganizationScoped
 
     public DatabaseConsentTerms ConsentTerms { get; private set; } = null!;
 
-    /// <summary>Set by withdrawal (#146), together with deleting the entries; always
-    /// <see langword="null"/> in #145.</summary>
+    /// <summary>Set by withdrawal (#146) in the same transaction that deletes the entries
+    /// (<c>DatabaseSubmissionService.WithdrawAsync</c>); <see langword="null"/> while the submission
+    /// is an active record. Never cleared: a withdrawal cannot be undone.</summary>
     public DateTimeOffset? WithdrawnAt { get; private set; }
 
     public static DatabaseSubmission Create(

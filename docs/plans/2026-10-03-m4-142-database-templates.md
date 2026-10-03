@@ -51,7 +51,7 @@
   - 建立資料庫時建立者自動成為唯一的資料管理者（mock 同）；既有資料庫在 migration 內補同一列。
   - 與 #142 文件第 2 節的差異：詳情 `{summary, form}` 多了 `access`；`GET /databases`、`GET /databases/{id}` 不再只回擁有者的資料庫。
 - **#145 提交與回執**：已實作，見下方第 8 節（資料模型、API 契約、給 #146／#147／#148 的接點）。
-- **#146 撤回**：刪除值與快照內容，只留提交／撤回時間與來源（撤回 ADR）。
+- **#146 查看紀錄與撤回**：已實作，見下方第 9 節（資料保留規則、撤回語意、API 契約、給 #147 的接點）。
 - **#148 連接助理**：目前 `AssistantEndpoints` 對資料庫來源回「將於後續版本開放」；連接表以複合外鍵指向 `Databases`。
 
 ## 6. 驗收紀錄
@@ -118,3 +118,66 @@
 - **#146**：提交者自己的清單可用 `DatabaseSubmissions.SubmittedByAccountId`；撤回刪 `DatabaseSubmissionEntries`、設 `WithdrawnAt`（軌跡表已預留）；資料管理者時間軸以 `ListRecordsAsync` 為起點（已排除 `WithdrawnAt` 非 null），追蹤對象＝提交者。
 - **#147**：型別化值在 `DatabaseSubmissionEntries`（`NumberValue`／`TextValue`／`ChoiceValues`），以穩定的 `FieldId` 跨版本比較；查詢前呼叫 `DatabaseRecordReaders`，只看 `WithdrawnAt IS NULL`。
 - **#148**：見 8.1；回執 `DatabaseSubmissionReceiptView` 可直接放進對話的 `submission-receipt` 訊息，`Source = assistant-conversation`。
+
+
+## 9. #146 查看紀錄與撤回（2026-10-03）
+
+依據：[撤回與保存 ADR](../adr/2026-09-25-withdrawal-and-retention.md)（撤回＝真正刪除；只留不含內容的軌跡；既有定期報表不追溯改寫）。
+
+### 9.1 資料保留規則（撤回後留下什麼）
+
+| 資料 | 撤回後 | 理由 |
+| --- | --- | --- |
+| `DatabaseSubmissionEntries`（每欄的顯示值、型別化值、欄位名稱／型別／單位快照） | **整列刪除** | 這就是填寫內容與數值 |
+| `DatabaseSubmissions`：提交者、數據庫、表單版本（id 與號碼）、來源、回執編號、`SubmittedAt`、冪等鍵 | 保留，設 `WithdrawnAt` | ADR 要求的「曾提交、何時撤回、來源」軌跡；回執編號讓提交者對得上自己的回執 |
+| `DatabaseSubmissions.ConsentTerms`（當時的數據庫名稱、目的、接收單位、可查看者名單、敏感資料提示） | **保留** | 不是提交者填的內容，而是組織當時告知並取得同意的條款，是「曾經同意過什麼」的證據；撤回後的回執仍需顯示交給了誰。名單是資料管理者的名稱，不是提交者的資料 |
+
+- 其他可能殘留內容的地方（已逐一檢查）：API 沒有記錄請求本文的中介軟體，EF Core 沒有開 `EnableSensitiveDataLogging`，OpenTelemetry 的 Npgsql span 只記 SQL 文字不記參數值；回執與清單每次都從資料表讀，伺服器沒有回執快取。mock 的回執快取（`sme-demo:database-submissions`）撤回時一併清空 `entries`，收集紀錄的 `values` 清空。
+- **對話訊息**：API 模式目前沒有對話中的表單（#148）。#148 實作 `submission-receipt` 訊息時，訊息本身**只存提交 id**、顯示時讀回執（撤回後自然沒有內容），不要把 `entries` 複製進對話訊息；否則撤回後對話裡仍留有內容。mock 的對話收據（既有行為）在撤回後會把撤回狀態疊上去，但訊息裡的 `entries` 仍在提交者本人的私人對話中，這是 mock 的已知差異，#148 時一併處理。
+- 資料表沒有「撤回不可復原」以外的狀態：`WithdrawnAt` 一旦設定不會清除，撤回後不能再提交同一份（見 9.3 同鍵重送）。
+
+### 9.2 撤回語意
+
+- **只有提交者本人**可以撤回，與帳號權限無關（`read-own-tracking` 刻意不接行為：管理者不應能關掉一個人看或撤回自己資料的能力，見 `tasks-6-10-backend-handoff.md` 第 8 節第 9 點）；資料管理者、擁有者都不能代為撤回。
+- 同一個交易：`UPDATE "DatabaseSubmissions" SET "WithdrawnAt" = now WHERE "Id" = @id AND "SubmittedByAccountId" = @me AND "WithdrawnAt" IS NULL`，影響 1 列才 `DELETE` 該筆的 entries，然後 commit（`DatabaseSubmissionService.WithdrawAsync`）。任何一步失敗就整個 rollback，內容與 `WithdrawnAt` 一起維持原狀，畫面可以再按一次。
+- **冪等（擇一：200）**：再撤回一次回 `200` 與第一次逐字相同的回執（同一個 `withdrawnAt`），不是錯誤碼——使用者要的狀態已經達成，重試（例如回應在路上遺失）不該看到失敗。
+- **並行**：多個撤回同時進來時，條件式 `UPDATE` 在同一列上排隊，只有一個符合 `WithdrawnAt IS NULL`；其餘在它 commit 後符合 0 列、不刪任何東西，全部讀回同一份軌跡（整合測試同時送 4 個：全部 200、內容相同、entries 0 列）。
+- `ExecuteUpdate` 不經過 `TimestampPrecisionInterceptor`，所以撤回時間先截到微秒再寫入，回傳值與之後讀到的一致。
+
+### 9.3 撤回後
+
+- **回執**（`GET /api/v1/submissions/{id}`）：`entries: []`、`withdrawnAt` 有值，其他欄位（回執編號、送出時間、接收單位、可查看者、表單版本、來源）不變。有效時 `withdrawnAt` 是 `null`（一律送出，不省略）。
+- **同鍵重送**（`POST .../submissions` 用已撤回那份填寫的 `submissionId`）：同數據庫、同表單版本、同來源 → `200` 已撤回的回執（不含內容、不寫入任何列）；內容已刪除無從比對，所以不論答案為何都一樣。不同數據庫／版本／來源 → 照舊 `409 submission-key-reused`。選擇回回執而不是 `409` 的理由：重送的是同一份填寫，它的最終狀態就是「已撤回」，告訴用戶端這個事實比「編號已用在別的內容」更正確，而且絕不會讓內容復活。
+- **紀錄清單、時間軸與任何計數都排除已撤回**：唯一的定義是 `DatabaseActiveRecords`（`apps/api/src/SmartAgri.Api/Databases/DatabaseActiveRecords.cs`）——`Of(db, databaseId)` = `WithdrawnAt IS NULL`；`EntriesOf(db, submissions)` 取型別化值；`ReadableAsync(db, permissions, accountId, databaseId)` 先問 `DatabaseRecordReaders.CanReadAsync`，不能讀回 `null`。`ListRecordsAsync`、時間軸都用它。
+
+### 9.4 追蹤對象（subject）的邊界
+
+- mock 的追蹤對象有兩種來源：示範種子裡手寫的人物（王小姐等，`demo-seed-databases.ts` 的 `trackedSubjects`），以及對話／表單連結提交時的 `subject-<提交帳號 id>`。工單與 ADR 都以「提交者」為撤回與查看的主體，所以 **API 模式的追蹤對象＝提交的帳號**（同一數據庫內以 `SubmittedByAccountId` 分組），不從表單欄位（例如「客戶姓名」）推導：欄位值是提交者填的內容，撤回後就刪了，不能拿來當身分；也無法驗證兩筆填同一個名字的是不是同一人。
+- 邊界：時間軸只包含提交到**這個**數據庫的帳號，所以資料管理者不可能經由 A 數據庫看到只在 B 提交過的人；組織以查詢過濾器與複合外鍵隔離；讀取一律先過 `DatabaseRecordReaders`（指定＋帳號權限，每次請求重查）。只剩撤回軌跡的對象仍列出（不能無聲消失，與 mock 相同）。
+- 前端 id：`subject-<帳號 GUID>`（與 mock 的寫法相同）、紀錄 id `record-<提交 GUID>`，只為對上樣板字面型別。
+
+### 9.5 API 契約
+
+| 端點 | 權限 | 成功 | 錯誤 |
+| --- | --- | --- | --- |
+| `GET /api/v1/submissions` | 登入（只依提交者本人） | `200 DatabaseOwnSubmissionListView`：`submissions[]`＝`id`、`receiptNumber`、`submittedAt`、`databaseId`、`databaseName`（同意當下的快照）、`formVersionNumber`、`source`、`withdrawnAt`（`null`＝有效）；新到舊，含已撤回，**不含內容** | `401` |
+| `GET /api/v1/submissions/{id}` | 登入＋提交者本人 | `200 DatabaseSubmissionReceiptView`（多了 `withdrawnAt`；已撤回時 `entries: []`） | `401`／`403 authorized-form`（不存在、別人的、別組織的同一則） |
+| `POST /api/v1/submissions/{id}/withdrawal` | 登入＋提交者本人 | `200 DatabaseSubmissionReceiptView`（已撤回；再撤回一次逐字相同） | `401`／`403 submission-withdrawal`「找不到這筆紀錄，或你沒有撤回它的權限。」（不存在、別人的——含資料管理者——別組織的逐位元組相同）／`404`（id 不是 GUID） |
+| `GET /api/v1/databases/{id}/tracking` | 登入＋`DatabaseRecordReaders.CanReadAsync` | `200 DatabaseTrackingView`：`subjects[]`＝`subject {id, displayName}`、`records`（有效紀錄，含內容，同 `/records` 的形狀）、`withdrawals`（`id`、`submittedAt`、`withdrawnAt`、`source`、`formVersionNumber`，**不含內容**）；對象依最近一次提交新到舊 | `401`／`403 database`（看不到數據庫，同不存在）／`403 database-records`（看得到但不能讀） |
+
+整合測試：`apps/api/tests/SmartAgri.Api.Tests/Databases/DatabaseRecordWithdrawalEndpointsTests.cs`（7 個：自己的清單、他人／他組織不可讀不可撤且不洩漏、撤回後直接查表確認無內容且軌跡保留、再撤回與並行撤回、同鍵重送、時間軸分開有效與撤回且清單與計數排除、資料管理者需指定＋權限且不跨數據庫／組織）。
+
+### 9.6 前端
+
+- 契約：`listOwnDatabaseSubmissions()`、`withdrawDatabaseSubmission(id)`（新增）；`getDatabaseTracking(databaseId)` 改為 `Observable`、不再傳 viewer。mock 原本的同步本體改名 `readDatabaseTracking(viewer, id)`，只給 mock 內部與單元測試，不在 `DemoRepository` 契約內。Hybrid 三個方法都走 API（測試以真實 API JSON 驗證，且 mock storage 不被寫入）。回執多 `withdrawnAt`。
+- 畫面：「對話與回報紀錄」（`/app/activity`）新增「我送出的資料」（`features/activity/own-submissions/`）：載入、錯誤可重試、無權限、空白分開顯示；撤回要先確認，送出中停用按鈕，失敗（5xx／連線中斷）保留確認區塊並說明「沒有任何變更」可再按一次；伺服器拒絕時顯示其訊息並重新讀取清單。回執頁顯示已撤回狀態且不顯示內容，並連到「我送出的資料」。數據庫詳情的「收集紀錄」頁籤在 API 模式開放（讀取失敗與「沒有紀錄」分開、可重試）。
+- `API_UPCOMING_DATABASE_FEATURES`：`records` 移除，改為 `trends`（#147）。`DatabaseUpcomingFeature` 從 `'records' | …` 改成 `'trends' | …`。API 模式的 `comparison` 是「趨勢比較將於後續版本開放」的佔位、`periodicReports` 為空陣列，畫面在趨勢頁籤顯示將於後續版本開放，不用顯示文字自己算差異。
+- 提交前的撤回說明（後端 `DatabaseSubmissionRules.WithdrawalNotice` 與 mock 逐字相同）改成說明到哪裡撤回、撤回的效果，以及既有定期報表不追溯修改。
+- mock 只列出表單連結的提交（回執存在 `sme-demo:database-submissions`）；對話中送出的資料在 mock 仍從對話收據撤回（既有行為）。API 模式的清單會包含所有來源，#148 加上對話來源後自然出現。
+
+### 9.7 給 #147 的接點
+
+- 有效紀錄＝`DatabaseActiveRecords.ReadableAsync(...)`（或已檢查 `CanReadAsync` 後的 `Of`），型別化值用 `EntriesOf`；**不要**自己寫 `WithdrawnAt` 條件或繞過 `DatabaseRecordReaders`。撤回後重新查詢即排除，已產生的定期報表不追溯改寫（ADR）。
+- 追蹤對象＝`SubmittedByAccountId`；欄位以穩定的 `FieldId` 跨版本比較；`NumberValue`（數字、量尺）是趨勢的來源。
+- 前端：`TrackedSubjectView.comparison` 與 `DatabaseTrackingView.periodicReports` 由 #147 從伺服器填入（可擴充 `GET .../tracking` 或另開固定查詢端點），完成後從 `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`。
+- 數據庫清單摘要的 `recordCount`／`subjectCount` 在 API 模式仍為 `null`：若 #147 要顯示，用 `DatabaseActiveRecords` 計數並只對可讀者回傳。

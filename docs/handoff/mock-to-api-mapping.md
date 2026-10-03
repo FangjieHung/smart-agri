@@ -106,7 +106,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `retryKnowledgeDocument(viewer, kbId, docId)` `:447-451` | `POST /api/v1/knowledge-bases/{id}/documents/{docId}/retry` | `S+OWN` | `200` `KnowledgeDocumentView` | `409`（文件已在處理中）／`429` | `401`／`403 knowledge-base`／`5xx` | `knowledge-detail-page.component.ts:128` |
 | `updateKnowledgeSharing(viewer, kbId, sharing)` `:452-456` | `PUT /api/v1/knowledge-bases/{id}/sharing` | `S+OWN` | `200` `KnowledgeSharingView` | `422`（只有 `message`，無逐欄 errors）／`409`／`429` | `401`／`403 knowledge-base`／`5xx` | `knowledge-detail-page.component.ts:139` |
 
-### 2.3 資料庫、表單與追蹤（12 個方法）
+### 2.3 資料庫、表單與追蹤（14 個方法）
 
 深度：`tasks-6-10-backend-handoff.md` 第 4 節。
 
@@ -123,7 +123,9 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `reviewDatabaseSubmission(id, formVersion, answers)` **API（#145）** | `POST /api/v1/databases/{id}/submission-form/review` `{ formVersionNumber, answers }` | `S+AF` | `200` `DatabaseTrialPreviewView`（**不建立紀錄**） | `422`（`answers.<欄位 id>`）／`409 form-version-changed`／`429` | `401`／`403 authorized-form`／`5xx`（保留答案可再試） | 同上 `review` |
 | `submitDatabaseEntry(id, { submissionId, formVersion, consent, answers })` **API（#145）** | `POST /api/v1/databases/{id}/submissions` | `S+AF`＋`consent === true` | `201` `DatabaseSubmissionReceiptView`＋`Location`；同一 `submissionId` 同內容重送 `200` 同一張回執 | `422`（欄位、缺編號或版本；**未同意也是 `422`**，`reason: consent-required`，在欄位錯誤之後才檢查）／`409 form-version-changed`／`409 submission-key-reused`／`429` | `401`／`403 authorized-form`／`5xx`（保留答案、以**同一個** `submissionId` 重試） | 同上 `submit` |
 | `getDatabaseSubmissionReceipt(submissionId)` **API（#145）** | `GET /api/v1/submissions/{id}` | `S`＋提交者本人 | `200` `DatabaseSubmissionReceiptView` | `429` | `401`／`403 authorized-form`（不存在或不是自己的，同一則）／`5xx` | 同上（`?receipt=<id>`） |
-| `getDatabaseTracking(viewer, id)` `:506-509` | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC` | `200` `DatabaseTrackingView`（差異與文案**由伺服端算好**） | `429` | `401`／`403 database-records`（非資料管理者）／`403 database`（不存在或非擁有者）／`5xx` | `database-detail-page.component.ts:91` |
+| `listOwnDatabaseSubmissions()` **API（#146）** | `GET /api/v1/submissions` | `S`（只依提交者本人，不看 `read-own-tracking`） | `200` `DatabaseOwnSubmissionListView`（自己的提交，新到舊，**含已撤回的軌跡**，不含內容；`withdrawnAt` 有效時為 `null`） | `429` | `401`／`5xx`（畫面可重試） | `features/activity/own-submissions/own-submissions.component.ts` |
+| `withdrawDatabaseSubmission(submissionId)` **API（#146）** | `POST /api/v1/submissions/{id}/withdrawal` | `S`＋提交者本人 | `200` `DatabaseSubmissionReceiptView`（`entries: []`、`withdrawnAt`；**再撤回一次也是 `200` 同一份**） | `429` | `401`／`403 submission-withdrawal`（不存在、別人的——含資料管理者——別組織的同一則）／`404`（id 不是 GUID）／`5xx`（同一交易，失敗即無變更，可再按一次） | 同上 |
+| `getDatabaseTracking(id)`（改為 `Observable`，不再傳 viewer；**API（#146）**） | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC`（`DatabaseRecordReaders`，每次請求重查） | `200` `DatabaseTrackingView`：依追蹤對象（＝提交帳號）分組，`records` 有效紀錄（含內容）、`withdrawals` 撤回軌跡（不含內容）；**比較與趨勢（`comparison`／`periodicReports`）是 #147** | `429` | `401`／`403 database-records`（看得到但不能讀）／`403 database`（看不到，同不存在）／`404`（id 不是 GUID）／`5xx`（畫面可重試，與「沒有紀錄」分開） | `database-detail-page.component.ts`（`trackingResource`） |
 
 **API 模式狀態（#142，2026-10-03）**：上表前四個方法已改成非同步契約（`Observable<…>`，不再傳 viewer），API 模式由 `hybrid-demo-repository.ts` 的同名覆寫走 HTTP，**讀取與建立（寫入）兩端都換了**，不會落到 mock 的資料庫。與 mock 的刻意差異：
 
@@ -142,8 +144,16 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 - 提交前顯示的接收單位是「組織名稱（數據庫名稱）」，可查看者是**目前實際可讀**的帳號（已指定且具備 `read-consented-submissions`）；回執保存送出當下的這些內容與欄位快照（名稱、型別、顯示值），表單之後改版不變。mock 的接收單位也改用「安心商行（數據庫名稱）」。
 - 冪等：前端每一份填寫產生一個 `submissionId`（`crypto.randomUUID()`），失敗重試沿用；伺服器以「提交者＋提交編號」唯一索引保證只有一筆，同編號不同內容 `409 submission-key-reused`。mock 同。
 - `§2.7` 的 `submitAuthorizedForm` 不再需要：表單連結的正式契約是 `submitDatabaseEntry`，同意不足統一為 `422`（解決 §2.7 的不一致）。
-- `getDatabaseTracking`（收集紀錄時間軸與趨勢）仍未提供，`API_UPCOMING_DATABASE_FEATURES` 保留 `records`；伺服器已有給資料管理者的 `GET /api/v1/databases/{id}/records`（`403 database` 看不到數據庫、`403 database-records` 看得到但不能讀），供 #146 接上時間軸與撤回。
+- `getDatabaseTracking`（收集紀錄時間軸與趨勢）當時仍未提供，`API_UPCOMING_DATABASE_FEATURES` 保留 `records`；伺服器已有給資料管理者的 `GET /api/v1/databases/{id}/records`（`403 database` 看不到數據庫、`403 database-records` 看得到但不能讀）。**#146 已接上時間軸與撤回（見上方 #146 段落）。**
 - 資料模型與接點：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 8 節。
+
+**API 模式狀態（#146，2026-10-03）**：查看紀錄與撤回走 API，**讀寫兩端都換了**（Hybrid 的 `listOwnDatabaseSubmissions`／`withdrawDatabaseSubmission`／`getDatabaseTracking` 走 HTTP，不讀寫 mock 的收集紀錄與回執）。重點：
+
+- 撤回＝同一個交易內刪除該筆的 entries（值與欄位快照）並設 `WithdrawnAt`；軌跡（提交者、數據庫、表單版本、來源、回執編號、送出／撤回時間）與 `ConsentTerms`（當時告知的條款，非填寫內容）保留。冪等：再撤回回 `200` 同一份；並行撤回只有一個生效，全部回同一份。
+- 回執多 `withdrawnAt`（有效時 `null`，一律送出）；已撤回的回執 `entries` 為空。用已撤回那份填寫的 `submissionId` 重送：同數據庫／版本／來源回 `200` 已撤回的回執、不寫入；否則 `409 submission-key-reused`。
+- 收集紀錄頁籤在 API 模式開放；`API_UPCOMING_DATABASE_FEATURES` 移除 `records`、改列 `trends`（#147：伺服器計算比較與趨勢，在那之前 Hybrid 的 `comparison` 是佔位、`periodicReports` 為空，趨勢頁籤顯示將於後續版本開放）。
+- mock 的同步本體改名 `readDatabaseTracking(viewer, id)`，只給 mock 內部與單元測試（例如 Hybrid 模式下仍是 mock 的對話提交）；畫面一律用非同步的 `getDatabaseTracking`。
+- 追蹤對象＝提交的帳號；有效紀錄的唯一定義 `DatabaseActiveRecords`（#147 共用）。完整語意與資料保留規則：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 9 節。
 
 **API 模式狀態（#143，2026-10-03）**：`updateDatabaseFields`、`previewDatabaseEntry` 已改成 `Observable` 契約（不再傳 viewer），Hybrid 覆寫走 HTTP，**讀寫兩端都換了**（寫入與試填都由伺服器驗證，mock 的欄位清單不參與）。契約變更與刻意差異：
 

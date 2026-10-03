@@ -91,6 +91,16 @@ public sealed class ForbiddenReason
         "找不到這張回執，或你沒有查看它的權限。");
 
     /// <summary>
+    /// Withdrawing a submission (M4 #146) that does not exist, belongs to another organization or
+    /// was submitted by someone else: only the submitter may withdraw, and a data manager cannot
+    /// withdraw on their behalf. Same bytes in every case. The mock's <c>submission-withdrawal</c>
+    /// reason and message.
+    /// </summary>
+    public static readonly ForbiddenReason SubmissionWithdrawal = new(
+        "submission-withdrawal",
+        "找不到這筆紀錄，或你沒有撤回它的權限。");
+
+    /// <summary>
     /// An assistant's configuration (list, settings, source connections, deletion) that does
     /// not exist, belongs to another organization, or is not the caller's own (only the owner
     /// may open or change one; listing and settings also need <c>manage-assistants</c>). Same

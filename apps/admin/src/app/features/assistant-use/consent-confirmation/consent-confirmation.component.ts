@@ -22,6 +22,8 @@ export class ConsentConfirmationComponent implements AfterViewInit {
   readonly consent = input.required<ChatConsentView>();
   readonly entries = input.required<readonly DatabaseRecordEntryView[]>();
   readonly error = input('');
+  /** 送出中：按鈕停用，避免重複送出（表單連結頁，issue #145）。 */
+  readonly busy = input(false);
 
   readonly confirmed = output<void>();
   readonly back = output<void>();
@@ -39,6 +41,6 @@ export class ConsentConfirmationComponent implements AfterViewInit {
 
   protected submit(event: Event): void {
     event.preventDefault();
-    if (this.agreed()) this.confirmed.emit();
+    if (this.agreed() && !this.busy()) this.confirmed.emit();
   }
 }

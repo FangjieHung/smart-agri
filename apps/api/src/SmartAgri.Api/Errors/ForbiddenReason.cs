@@ -61,6 +61,36 @@ public sealed class ForbiddenReason
         "只有可管理資料來源的帳號可以建立資料庫。");
 
     /// <summary>
+    /// Reading a database's consented records (M4 #145, then #146/#147) by someone who may see the
+    /// database but is not a designated data manager holding <c>read-consented-submissions</c>
+    /// (<c>DatabaseRecordReaders</c>) — typically its owner. Same wire name and message as the
+    /// mock's <c>DATABASE_RECORDS_DENIED_MESSAGE</c>; someone who may not even see the database
+    /// gets <see cref="Database"/> instead, so this reveals nothing new.
+    /// </summary>
+    public static readonly ForbiddenReason DatabaseRecords = new(
+        "database-records",
+        "只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號，可以查看收集紀錄與趨勢比較。");
+
+    /// <summary>
+    /// The standalone form of a database (表單連結, M4 #145) for someone who may not submit to it:
+    /// the database does not exist, belongs to another organization, or the caller lacks
+    /// <c>submit-authorized-forms</c>. Same bytes in every case, so the form's name, fields and
+    /// readers stay hidden. The mock's <c>authorized-form</c> reason.
+    /// </summary>
+    public static readonly ForbiddenReason AuthorizedForm = new(
+        "authorized-form",
+        "你沒有填寫這份表單的權限，或它已不存在。");
+
+    /// <summary>
+    /// A submission receipt (M4 #145) that does not exist, belongs to another organization or was
+    /// submitted by someone else: only the submitter sees their receipt. Same wire name as
+    /// <see cref="AuthorizedForm"/> (the frontend switches on the reason), its own message.
+    /// </summary>
+    public static readonly ForbiddenReason SubmissionReceipt = new(
+        "authorized-form",
+        "找不到這張回執，或你沒有查看它的權限。");
+
+    /// <summary>
     /// An assistant's configuration (list, settings, source connections, deletion) that does
     /// not exist, belongs to another organization, or is not the caller's own (only the owner
     /// may open or change one; listing and settings also need <c>manage-assistants</c>). Same

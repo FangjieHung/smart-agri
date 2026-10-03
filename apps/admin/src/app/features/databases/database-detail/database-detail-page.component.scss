@@ -1,8 +1,9 @@
 :host { display: block; }
 
 .workspace-page { display: grid; gap: var(--space-6); }
-.page-back { color: var(--color-accent); font-weight: 700; text-decoration: none; }
-.page-back:focus-visible, .tabs a:focus-visible, .assistant-list a:focus-visible, select:focus-visible {
+.page-back, .form-link { color: var(--color-accent); font-weight: 700; text-decoration: none; }
+.form-link { text-decoration: underline; }
+.page-back:focus-visible, .form-link:focus-visible, .tabs a:focus-visible, .assistant-list a:focus-visible, select:focus-visible {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
   border-radius: var(--radius-control);

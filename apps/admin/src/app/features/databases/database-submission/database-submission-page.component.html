@@ -1,0 +1,131 @@
+@let saved = receiptView();
+<section class="workspace-page">
+  @if (saved !== null) {
+    @if (saved.status === 'ready' || saved.status === 'partial-failure') {
+      @let receipt = saved.data;
+      <app-page-header [title]="receipt.databaseName" description="資料已送出，以下是這次的回執。" />
+      <article class="receipt" aria-labelledby="receipt-title" data-kind="submission-receipt">
+        <h2 id="receipt-title" tabindex="-1">送出回執</h2>
+        <p class="receipt-status" role="status">已送出。資料只會交給 {{ receipt.recipient }}。</p>
+        <dl class="terms">
+          <div><dt>回執編號</dt><dd class="receipt-number">{{ receipt.receiptNumber }}</dd></div>
+          <div><dt>送出時間</dt><dd><time [attr.datetime]="receipt.submittedAt">{{ submittedAt(receipt.submittedAt) }}</time></dd></div>
+          <div><dt>接收單位</dt><dd>{{ receipt.recipient }}</dd></div>
+          <div><dt>收集目的</dt><dd>{{ receipt.purpose }}</dd></div>
+          <div>
+            <dt>可查看者</dt>
+            <dd class="receipt-viewers">
+              @if (receipt.viewers.length > 0) {
+                {{ receipt.viewers.join('、') }}（送出當時的指定資料管理者）
+              } @else {
+                送出當時沒有任何人可以查看
+              }
+            </dd>
+          </div>
+          <div><dt>表單版本</dt><dd>第 {{ receipt.formVersion }} 版・{{ sourceLabel(receipt) }}</dd></div>
+        </dl>
+        <section class="summary" aria-labelledby="receipt-entries-title">
+          <h3 id="receipt-entries-title">你送出的內容</h3>
+          <dl class="entries">
+            @for (entry of receipt.entries; track entry.fieldId) {
+              <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
+            }
+          </dl>
+        </section>
+        <div class="actions">
+          <button type="button" class="secondary" (click)="fillAnother()">再填一份</button>
+        </div>
+      </article>
+    } @else if (saved.status === 'permission-denied') {
+      <app-page-header title="送出回執" />
+      <app-state-panel
+        state="permission-denied"
+        title="無法查看這張回執"
+        description="這張回執可能不存在，或不是你送出的。"
+        recoveryLabel="填寫新的一份"
+        (recover)="fillAnother()"
+      />
+    } @else if (saved.status === 'error') {
+      <app-page-header title="送出回執" />
+      <app-state-panel
+        state="error"
+        title="目前無法載入回執"
+        description="這不代表資料沒有送出。請稍後再試一次。"
+        recoveryLabel="填寫新的一份"
+        (recover)="fillAnother()"
+      />
+    } @else {
+      <app-page-header title="送出回執" />
+      <app-state-panel state="loading" title="正在載入回執" />
+    }
+  } @else {
+    @let result = view();
+    @if (result.status === 'loading') {
+      <app-page-header title="填寫表單" />
+      <app-state-panel state="loading" title="正在載入表單" />
+    } @else if (result.status === 'error') {
+      <app-page-header title="填寫表單" />
+      <app-state-panel
+        state="error"
+        title="目前無法載入這份表單"
+        description="這不代表表單不存在。請稍後再試一次。"
+        recoveryLabel="重新載入"
+        (recover)="reload()"
+      />
+    } @else if (result.status === 'permission-denied') {
+      <app-page-header title="填寫表單" />
+      <app-state-panel
+        state="permission-denied"
+        title="無法填寫這份表單"
+        description="這份表單可能不存在，或你的帳號沒有填寫授權表單的權限。"
+      />
+    } @else {
+      @let info = result.data;
+      <app-page-header [title]="info.databaseName" [description]="info.purpose" />
+
+      @if (conflictMessage()) {
+        <div class="notice conflict" role="alert">
+          <p>{{ conflictMessage() }}</p>
+          <button type="button" class="secondary" (click)="reload()">重新載入最新表單</button>
+        </div>
+      }
+
+      @if (step() === 'confirm') {
+        <app-consent-confirmation
+          [consent]="chatForm()!.consent"
+          [entries]="reviewEntries()"
+          [error]="consentError()"
+          [busy]="busy()"
+          (confirmed)="submit()"
+          (back)="backToForm()"
+        />
+      } @else {
+        <dl class="terms intro" aria-label="這份表單的收集資訊">
+          <div><dt>接收單位</dt><dd>{{ info.recipient }}</dd></div>
+          <div><dt>收集目的</dt><dd>{{ info.purpose }}</dd></div>
+          <div>
+            <dt>可查看者</dt>
+            <dd>
+              @if (info.viewers.length > 0) {
+                {{ info.viewers.join('、') }}（僅限指定資料管理者）
+              } @else {
+                目前沒有任何人可以查看（僅限指定資料管理者）
+              }
+            </dd>
+          </div>
+        </dl>
+        <p class="sensitive-notice"><strong>敏感資料提示：</strong>{{ info.sensitiveNotice }}</p>
+        @if (fillNotice()) {
+          <p class="notice" role="alert">{{ fillNotice() }}</p>
+        }
+        <app-inline-form
+          [form]="chatForm()!"
+          [answers]="answers()"
+          [errors]="fieldErrors()"
+          (review)="review($event)"
+          (cancelled)="cancel()"
+        />
+      }
+    }
+  }
+</section>

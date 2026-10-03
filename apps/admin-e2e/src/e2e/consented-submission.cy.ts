@@ -122,6 +122,54 @@ describe('consented structured submission', () => {
     cy.get('.trend-conclusion').should('not.exist');
   });
 
+  it('submits through the standalone form link only after explicit consent, once, with a receipt (issue #145)', () => {
+    loginAs('外部客戶');
+    cy.visit('/app/forms/database-orders');
+    cy.contains('h1', '訂單資料庫').should('be.visible');
+    cy.get('.intro').should('contain', '安心商行（訂單資料庫）').and('contain', '安心商行管理者');
+    cy.get('.sensitive-notice').should('contain', '敏感');
+
+    // 拒絕路徑：必填沒填不會進到同意步驟，也不會送出。
+    cy.contains('button', '下一步：確認同意').click();
+    cy.get('app-inline-form [role="alert"]').should('contain', '「訂單編號」為必填。');
+    cy.get('app-consent-confirmation').should('not.exist');
+
+    cy.get('#chat-field-field-order-number').type('DEMO-4501');
+    cy.contains('app-inline-form label', '商品瑕疵').click();
+    cy.get('#chat-field-field-reported-on').type('2026-09-22');
+    cy.contains('button', '下一步：確認同意').click();
+
+    cy.get('app-consent-confirmation').within(() => {
+      cy.contains('dt', '接收單位').next('dd').should('contain', '安心商行（訂單資料庫）');
+      cy.contains('dt', '可查看者').next('dd').should('contain', '安心商行管理者');
+      cy.root().should('contain', 'DEMO-4501');
+      cy.contains('button', '同意並送出').should('be.disabled');
+      cy.get('#consent-agree').check();
+      cy.contains('button', '同意並送出').click();
+    });
+
+    cy.get('[data-kind="submission-receipt"]')
+      .should('contain', '已送出')
+      .and('contain', 'DEMO-4501')
+      .and('contain', '表單連結');
+    cy.get('.receipt-number').invoke('text').should('match', /^R-\d{8}-\d{10}$/);
+    cy.location('search').should('match', /^\?receipt=/);
+    // 重新整理仍是同一張回執。
+    cy.reload();
+    cy.get('[data-kind="submission-receipt"]').should('contain', 'DEMO-4501');
+
+    // 指定資料管理者在收集紀錄看得到，來源是表單連結。
+    loginAs('SMB 管理者');
+    cy.visit('/app/databases/database-orders/records');
+    cy.get('ol.timeline > li').should('have.length', 1).first().should('contain', 'DEMO-4501').and('contain', '表單連結');
+
+    // 沒有填寫授權表單權限的帳號打不開表單，也看不到名稱。
+    loginAs('內部使用者');
+    cy.visit('/app/forms/database-orders');
+    cy.contains('無法填寫這份表單').should('be.visible');
+    cy.contains('訂單資料庫').should('not.exist');
+  });
+
   it('gives the data manager no way to withdraw someone else’s record', () => {
     loginAs('外部客戶');
     cy.visit('/use/assistant-customer-service');

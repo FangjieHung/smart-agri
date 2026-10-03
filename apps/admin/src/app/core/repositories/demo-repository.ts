@@ -39,6 +39,9 @@ import type {
   DatabaseFieldView,
   DatabaseFormSavedView,
   DatabaseId,
+  DatabaseSubmissionFormView,
+  DatabaseSubmissionInput,
+  DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
   DatabaseTemplateView,
   DatabaseTrackingView,
@@ -343,6 +346,31 @@ export type UpdateDatabaseFieldsResult =
 export type PreviewDatabaseEntryResult =
   | RepositoryView<DatabaseTrialPreviewView>
   | DatabaseFieldsValidationFailedView;
+
+/**
+ * 同意提交（issue #145）被拒、沒有寫入：`form-version-changed` 是表單在載入後改版（重新載入再填），
+ * `submission-key-reused` 是同一個提交編號已用在另一份內容上（換一個編號重新送出）。
+ */
+export interface DatabaseSubmissionConflictView {
+  readonly status: 'conflict';
+  readonly reason: 'form-version-changed' | 'submission-key-reused';
+  readonly message: string;
+}
+
+/** 確認同意前的預覽：只驗證、不建立紀錄。 */
+export type ReviewDatabaseSubmissionResult =
+  | RepositoryView<DatabaseTrialPreviewView>
+  | DatabaseFieldsValidationFailedView
+  | DatabaseSubmissionConflictView;
+
+/**
+ * 送出結果。未勾選同意也是 `validation-failed`（`fieldId: null` 的錯誤），而且在欄位錯誤之後才檢查；
+ * 任何非 `ready` 的結果都沒有建立紀錄。
+ */
+export type SubmitDatabaseEntryResult =
+  | RepositoryView<DatabaseSubmissionReceiptView>
+  | DatabaseFieldsValidationFailedView
+  | DatabaseSubmissionConflictView;
 
 export interface ChatValidationFailedView {
   readonly status: 'validation-failed';
@@ -819,6 +847,34 @@ export interface DemoRepository extends DemoScenarioController {
     databaseId: DatabaseId,
     answers: DatabaseTrialAnswers,
   ): Observable<PreviewDatabaseEntryResult>;
+  /**
+   * 表單連結的填寫頁（issue #145）：送出前要顯示的收集目的、接收單位、目前實際可查看者、敏感資料
+   * 提示與目前表單。需要帳號權限 `submit-authorized-forms`；資料庫不存在、別的組織的、沒有權限
+   * 一律回 `authorized-form` permission-denied（同一句話）。
+   * API 模式：`GET /api/v1/databases/{id}/submission-form`。
+   */
+  getDatabaseSubmissionForm(databaseId: string): Observable<RepositoryView<DatabaseSubmissionFormView>>;
+  /**
+   * 確認同意前的預覽：用正式提交同一套規則驗證答案，不建立任何紀錄。表單已改版回 `conflict`。
+   * API 模式：`POST /api/v1/databases/{id}/submission-form/review`。
+   */
+  reviewDatabaseSubmission(
+    databaseId: string,
+    formVersion: number,
+    answers: DatabaseTrialAnswers,
+  ): Observable<ReviewDatabaseSubmissionResult>;
+  /**
+   * 明確同意後送出（issue #145）。伺服器重新檢查權限、表單版本、欄位與同意；任何一項失敗都不寫入。
+   * 同一個 `submissionId` 重送（含同時送出兩次）回同一張回執、不重複建立；同一個編號配上不同內容
+   * 是 `conflict`（`submission-key-reused`）。5xx 與連線中斷以 Observable 的 error 傳出，畫面保留
+   * 答案並以同一個編號重試。API 模式：`POST /api/v1/databases/{id}/submissions`。
+   */
+  submitDatabaseEntry(databaseId: string, input: DatabaseSubmissionInput): Observable<SubmitDatabaseEntryResult>;
+  /**
+   * 重新開啟自己的回執；不是自己送出的（或不存在）一律 `authorized-form` permission-denied。
+   * API 模式：`GET /api/v1/submissions/{id}`。
+   */
+  getDatabaseSubmissionReceipt(submissionId: string): Observable<RepositoryView<DatabaseSubmissionReceiptView>>;
   /**
    * 收集紀錄與比較。只有指定資料管理者可查看，且只包含使用者明確同意提交的紀錄；
    * 本次／上次／首次差異與文字摘要皆在此預先算好。

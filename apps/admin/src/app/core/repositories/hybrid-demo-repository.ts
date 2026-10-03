@@ -85,6 +85,9 @@ import type {
   DatabaseFieldError,
   DatabaseFieldView,
   DatabaseId,
+  DatabaseSubmissionFormView,
+  DatabaseSubmissionInput,
+  DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
   DatabaseTemplateView,
   DatabaseTrialAnswers,
@@ -104,7 +107,10 @@ import {
   type CreateAssistantResult,
   type CreateDatabaseResult,
   type DatabaseFieldsValidationFailedView,
+  type DatabaseSubmissionConflictView,
   type PreviewDatabaseEntryResult,
+  type ReviewDatabaseSubmissionResult,
+  type SubmitDatabaseEntryResult,
   type UpdateDatabaseFieldsResult,
   type CreateDatabaseValidationFailedView,
   type CreateKnowledgeBaseResult,
@@ -210,6 +216,10 @@ type ApiDatabaseFieldDraft = components['schemas']['DatabaseFieldDraft'];
 type ApiDatabaseTrialPreview = components['schemas']['DatabaseTrialPreviewView'];
 type SaveDatabaseFormRequest = components['schemas']['SaveDatabaseFormRequest'];
 type PreviewDatabaseEntryRequest = components['schemas']['PreviewDatabaseEntryRequest'];
+type ApiDatabaseSubmissionForm = components['schemas']['DatabaseSubmissionFormView'];
+type ApiDatabaseSubmissionReceipt = components['schemas']['DatabaseSubmissionReceiptView'];
+type ReviewDatabaseSubmissionRequest = components['schemas']['ReviewDatabaseSubmissionRequest'];
+type SubmitDatabaseEntryRequest = components['schemas']['SubmitDatabaseEntryRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -355,6 +365,9 @@ export function apiDatabasePath(databaseId: string): string {
   return `${API_DATABASES_PATH}/${encodeURIComponent(databaseId)}`;
 }
 
+/** 同意提交（issue #145）：填寫者的回執。 */
+export const API_SUBMISSIONS_PATH = '/api/v1/submissions';
+
 /** 指定資料管理者（issue #144）：`PUT`，請求是指定後的完整清單。 */
 export function apiDatabaseAccessPath(databaseId: string): string {
   return `${apiDatabasePath(databaseId)}/access`;
@@ -363,6 +376,10 @@ export function apiDatabaseAccessPath(databaseId: string): string {
 /**
  * API 模式還沒有的資料庫功能（#143–#148 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」，
  * 不呼叫對應的同步 mock 方法。
+ *
+ * `records` 仍保留（#145 之後）：同意提交、回執與表單連結頁已走 API，伺服器也有給資料管理者的
+ * `GET /api/v1/databases/{id}/records`，但收集紀錄頁籤的時間軸、撤回軌跡與趨勢（`getDatabaseTracking`）
+ * 是 #146／#147，在那之前這兩個頁籤照舊顯示「將於後續版本開放」，不拿半套資料假裝成時間軸。
  */
 export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
   'records',
@@ -411,6 +428,15 @@ const DATABASE_FORM_CHANGED_MESSAGE = '這份表單已被更新過，請重新�
 const DATABASE_DENIED: PermissionDeniedFallback = {
   reason: 'database',
   message: '你沒有這個資料庫的存取權限，或它已不存在。',
+};
+/** 與後端 `ForbiddenReason.AuthorizedForm`／`SubmissionReceipt`、mock 的訊息逐字相同。 */
+const AUTHORIZED_FORM_DENIED: PermissionDeniedFallback = {
+  reason: 'authorized-form',
+  message: '你沒有填寫這份表單的權限，或它已不存在。',
+};
+const SUBMISSION_RECEIPT_DENIED: PermissionDeniedFallback = {
+  reason: 'authorized-form',
+  message: '找不到這張回執，或你沒有查看它的權限。',
 };
 const DATABASE_CREATE_DENIED: PermissionDeniedFallback = {
   reason: 'database',
@@ -1153,6 +1179,114 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  /**
+   * 表單連結的填寫頁（issue #145）：`GET /api/v1/databases/{id}/submission-form`。`403`（不存在、
+   * 別的組織、沒有 `submit-authorized-forms` 都一樣）與 id 不是 GUID 的 `404` 都轉成 `authorized-form`。
+   */
+  override getDatabaseSubmissionForm(databaseId: string): Observable<RepositoryView<DatabaseSubmissionFormView>> {
+    return this.http.get<ApiDatabaseSubmissionForm>(`${apiDatabasePath(databaseId)}/submission-form`).pipe(
+      map((response): RepositoryView<DatabaseSubmissionFormView> => ({
+        status: 'ready',
+        data: {
+          databaseId: response.databaseId,
+          databaseName: response.databaseName,
+          purpose: response.purpose,
+          recipient: response.recipient,
+          viewers: response.viewers,
+          sensitiveNotice: response.sensitiveNotice,
+          withdrawalNotice: response.withdrawalNotice,
+          formVersion: response.form.versionNumber,
+          fields: response.form.fields.map(toDatabaseField),
+        },
+      })),
+      catchError((error: unknown) =>
+        isHttpError(error, 404)
+          ? of(permissionDenied(AUTHORIZED_FORM_DENIED))
+          : this.permissionDeniedOrThrow(error, AUTHORIZED_FORM_DENIED),
+      ),
+    );
+  }
+
+  /** 確認同意前的預覽：`POST .../submission-form/review`，不寫入。`409` 是表單已改版。 */
+  override reviewDatabaseSubmission(
+    databaseId: string,
+    formVersion: number,
+    answers: DatabaseTrialAnswers,
+  ): Observable<ReviewDatabaseSubmissionResult> {
+    const body: ReviewDatabaseSubmissionRequest = {
+      formVersionNumber: formVersion,
+      answers: answers as unknown as Record<string, never>,
+    };
+    return this.http.post<ApiDatabaseTrialPreview>(`${apiDatabasePath(databaseId)}/submission-form/review`, body).pipe(
+      map((response): ReviewDatabaseSubmissionResult => ({
+        status: 'ready',
+        data: {
+          saved: false,
+          formVersion: response.formVersion,
+          entries: response.entries.map((entry) => ({
+            fieldId: toDatabaseFieldId(entry.fieldId),
+            label: entry.label,
+            display: entry.display,
+          })),
+        },
+      })),
+      catchError((error: unknown) => this.submissionRefusedOrThrow(error)),
+    );
+  }
+
+  /**
+   * `POST /api/v1/databases/{id}/submissions`：讀寫兩端都走 API（mock 的收集紀錄不參與）。`201`
+   * 新回執、`200` 同一個提交編號重送得到的同一張回執，畫面不必分辨；`422`（欄位錯誤、未同意）、
+   * `409`（表單已改版、編號已用在別的內容）、`403` 轉成對應結果；5xx 與連線中斷原樣拋出，
+   * 畫面保留答案並用同一個 `submissionId` 重試。
+   */
+  override submitDatabaseEntry(databaseId: string, input: DatabaseSubmissionInput): Observable<SubmitDatabaseEntryResult> {
+    const body: SubmitDatabaseEntryRequest = {
+      submissionId: input.submissionId,
+      formVersionNumber: input.formVersion,
+      consent: input.consent,
+      answers: input.answers as unknown as Record<string, never>,
+    };
+    return this.http.post<ApiDatabaseSubmissionReceipt>(`${apiDatabasePath(databaseId)}/submissions`, body).pipe(
+      map((response): SubmitDatabaseEntryResult => ({ status: 'ready', data: toSubmissionReceipt(response) })),
+      catchError((error: unknown) => this.submissionRefusedOrThrow(error)),
+    );
+  }
+
+  /** `GET /api/v1/submissions/{id}`：只有提交者本人拿得到。 */
+  override getDatabaseSubmissionReceipt(
+    submissionId: string,
+  ): Observable<RepositoryView<DatabaseSubmissionReceiptView>> {
+    return this.http.get<ApiDatabaseSubmissionReceipt>(`${API_SUBMISSIONS_PATH}/${encodeURIComponent(submissionId)}`).pipe(
+      map((response): RepositoryView<DatabaseSubmissionReceiptView> => ({
+        status: 'ready',
+        data: toSubmissionReceipt(response),
+      })),
+      catchError((error: unknown) =>
+        isHttpError(error, 404)
+          ? of(permissionDenied(SUBMISSION_RECEIPT_DENIED))
+          : this.permissionDeniedOrThrow(error, SUBMISSION_RECEIPT_DENIED),
+      ),
+    );
+  }
+
+  private submissionRefusedOrThrow(
+    error: unknown,
+  ): Observable<DatabaseFieldsValidationFailedView | DatabaseSubmissionConflictView | PermissionDeniedRepositoryView> {
+    if (isHttpError(error, 409)) {
+      const reason = (error.error as ForbiddenBody | null)?.reason;
+      return of({
+        status: 'conflict',
+        reason: reason === 'submission-key-reused' ? 'submission-key-reused' : 'form-version-changed',
+        message: bodyMessage(error) ?? '這份表單已更新，請重新載入後再填寫。',
+      });
+    }
+    if (isHttpError(error, 422)) return of(databaseFieldsValidationFailed(error, 'answers', []));
+    return isHttpError(error, 404)
+      ? of(permissionDenied(AUTHORIZED_FORM_DENIED))
+      : this.permissionDeniedOrThrow(error, AUTHORIZED_FORM_DENIED);
+  }
+
   // 收集紀錄（getDatabaseTracking）仍是同步 mock 契約，API 模式尚未提供（API_UPCOMING_DATABASE_FEATURES）。
   // 詳情頁依 `upcomingFeatures` 不呼叫它；就算被呼叫，mock 也找不到 API 的 GUID，回傳 `database`
   // permission-denied，不會寫入任何資料。
@@ -1622,6 +1756,27 @@ function toDatabaseFieldDraft(field: DatabaseFieldView): ApiDatabaseFieldDraft {
 function toDatabaseFieldId(id: string): DatabaseFieldId {
   // 後端的欄位 id 一律是 `field-…`（`DatabaseFormVersion.EnsureValid`）；這裡只是讓型別對上。
   return (id.startsWith('field-') ? id : `field-${id}`) as DatabaseFieldId;
+}
+
+/** 回執：欄位快照照原樣保留；`source` 是後端的 wire name，與前端的 `DatabaseRecordSource` 相同。 */
+function toSubmissionReceipt(receipt: ApiDatabaseSubmissionReceipt): DatabaseSubmissionReceiptView {
+  return {
+    id: receipt.id,
+    receiptNumber: receipt.receiptNumber,
+    submittedAt: receipt.submittedAt,
+    databaseId: receipt.databaseId,
+    databaseName: receipt.databaseName,
+    purpose: receipt.purpose,
+    recipient: receipt.recipient,
+    viewers: receipt.viewers,
+    formVersion: receipt.formVersionNumber,
+    source: receipt.source,
+    entries: receipt.entries.map((entry) => ({
+      fieldId: toDatabaseFieldId(entry.fieldId),
+      label: entry.label,
+      display: entry.display,
+    })),
+  };
 }
 
 function toDatabaseField(field: ApiDatabaseField): DatabaseFieldView {

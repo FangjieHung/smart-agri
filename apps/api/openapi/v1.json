@@ -141,6 +141,42 @@
         }
       }
     },
+    "/api/v1/submissions/{id}": {
+      "get": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseSubmissionReceiptView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/connectable-sources": {
       "get": {
         "tags": [
@@ -1908,6 +1944,192 @@
           },
           "422": {
             "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/submission-form": {
+      "get": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseSubmissionFormView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/submission-form/review": {
+      "post": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewDatabaseSubmissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseTrialPreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/submissions": {
+      "post": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitDatabaseEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseSubmissionReceiptView"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseSubmissionReceiptView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/records": {
+      "get": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseRecordListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -5509,6 +5731,25 @@
           }
         }
       },
+      "DatabaseRecordListView": {
+        "required": [
+          "databaseId",
+          "records"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseSubmittedRecordView"
+            }
+          }
+        }
+      },
       "DatabaseScaleDraft": {
         "required": [
           "min",
@@ -5568,6 +5809,185 @@
           },
           "maxLabel": {
             "type": "string"
+          }
+        }
+      },
+      "DatabaseSubmissionEntryView": {
+        "required": [
+          "fieldId",
+          "label",
+          "type",
+          "display"
+        ],
+        "type": "object",
+        "properties": {
+          "fieldId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DatabaseFieldType"
+          },
+          "display": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseSubmissionFormView": {
+        "required": [
+          "databaseId",
+          "databaseName",
+          "purpose",
+          "recipient",
+          "viewers",
+          "sensitiveNotice",
+          "withdrawalNotice",
+          "form"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "databaseName": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "viewers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sensitiveNotice": {
+            "type": "string"
+          },
+          "withdrawalNotice": {
+            "type": "string"
+          },
+          "form": {
+            "$ref": "#/components/schemas/DatabaseFormView"
+          }
+        }
+      },
+      "DatabaseSubmissionReceiptView": {
+        "required": [
+          "id",
+          "receiptNumber",
+          "submittedAt",
+          "databaseId",
+          "databaseName",
+          "purpose",
+          "recipient",
+          "viewers",
+          "formVersionId",
+          "formVersionNumber",
+          "source",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receiptNumber": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "databaseName": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "viewers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "formVersionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "formVersionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DatabaseSubmissionSource"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseSubmissionEntryView"
+            }
+          }
+        }
+      },
+      "DatabaseSubmissionSource": {
+        "enum": [
+          "form-link",
+          "assistant-conversation"
+        ]
+      },
+      "DatabaseSubmittedRecordView": {
+        "required": [
+          "id",
+          "receiptNumber",
+          "submittedAt",
+          "source",
+          "submitter",
+          "formVersionNumber",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receiptNumber": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DatabaseSubmissionSource"
+          },
+          "submitter": {
+            "$ref": "#/components/schemas/DatabaseAccountView"
+          },
+          "formVersionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseSubmissionEntryView"
+            }
           }
         }
       },
@@ -6938,6 +7358,28 @@
           }
         }
       },
+      "ReviewDatabaseSubmissionRequest": {
+        "required": [
+          "formVersionNumber",
+          "answers"
+        ],
+        "type": "object",
+        "properties": {
+          "formVersionNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "answers": {
+            "type": [
+              "null",
+              "object"
+            ]
+          }
+        }
+      },
       "RunAgentInput": {
         "type": "object",
         "properties": {
@@ -7071,6 +7513,43 @@
       "Stream": {
         "type": "string",
         "format": "binary"
+      },
+      "SubmitDatabaseEntryRequest": {
+        "required": [
+          "submissionId",
+          "formVersionNumber",
+          "consent",
+          "answers"
+        ],
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "formVersionNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "consent": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "answers": {
+            "type": [
+              "null",
+              "object"
+            ]
+          }
+        }
       },
       "TeamMemberResponse": {
         "required": [
@@ -7532,6 +8011,9 @@
     },
     {
       "name": "DatabaseEndpoints"
+    },
+    {
+      "name": "DatabaseSubmissionEndpoints"
     },
     {
       "name": "AssistantDraftEndpoints"

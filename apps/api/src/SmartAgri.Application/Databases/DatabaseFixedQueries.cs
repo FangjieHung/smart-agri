@@ -54,15 +54,16 @@ public enum DatabaseQueryPeriodName
     Last30Days,
 }
 
-/// <summary>A closed range of UTC calendar days, both ends included.</summary>
+/// <summary>A closed range of calendar days of the statistics time zone, both ends included.</summary>
 /// <param name="Name">The named period it came from; <see langword="null"/> for a custom range.</param>
 public sealed record DatabaseQueryPeriod(DatabaseQueryPeriodName? Name, DateOnly From, DateOnly To)
 {
-    /// <summary>The first instant of <see cref="From"/> (UTC).</summary>
-    public DateTimeOffset Start => new(From.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+    /// <summary>The first instant of <see cref="From"/> in <paramref name="timeZone"/>, as UTC.</summary>
+    public DateTimeOffset Start(TimeZoneInfo timeZone) => DatabaseFixedQueries.StartOfDay(From, timeZone);
 
-    /// <summary>The first instant after <see cref="To"/> (UTC), exclusive.</summary>
-    public DateTimeOffset EndExclusive => new(To.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+    /// <summary>The first instant after <see cref="To"/> in <paramref name="timeZone"/>, as UTC (the
+    /// exclusive end of the half-open range <c>[Start, EndExclusive)</c>).</summary>
+    public DateTimeOffset EndExclusive(TimeZoneInfo timeZone) => DatabaseFixedQueries.StartOfDay(To.AddDays(1), timeZone);
 
     public int Days => To.DayNumber - From.DayNumber + 1;
 
@@ -115,9 +116,9 @@ public sealed record DatabaseQueryDefinition(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Dates are UTC calendar days</b>, the same day the records' date labels show (the frontend
-/// slices the ISO instant). A record belongs to the day its <c>SubmittedAt</c> falls on in UTC;
-/// weeks run Monday to Sunday. A period always spans its whole range (<c>this-week</c> ends on
+/// <b>Dates are calendar days of the statistics time zone</b> (<c>Statistics:TimeZone</c>, IANA id,
+/// default <c>Asia/Taipei</c>), the day the frontend's receipts and timeline show. A record belongs to
+/// the day its <c>SubmittedAt</c> falls on in that zone; weeks run Monday to Sunday. A period always spans its whole range (<c>this-week</c> ends on
 /// Sunday, <c>this-month</c> on the last day), and the <b>previous period</b> a result compares with
 /// is the full period before it: last week, last month, or the same number of days right before a
 /// rolling or custom range.
@@ -203,7 +204,7 @@ public static class DatabaseFixedQueries
     /// </summary>
     /// <param name="parameters">The caller's parameters by name; a key whose value is blank is an
     /// invalid value, not an absent one.</param>
-    /// <param name="today">The current UTC day, for the named periods.</param>
+    /// <param name="today">The current day in the statistics time zone, for the named periods.</param>
     public static ValidationResult<DatabaseQuerySpec> Validate(
         DatabaseQueryKind kind,
         IReadOnlyDictionary<string, string?> parameters,
@@ -359,6 +360,27 @@ public static class DatabaseFixedQueries
         }
 
         return text;
+    }
+
+    /// <summary>The UTC instant at which <paramref name="day"/> starts in <paramref name="timeZone"/>
+    /// (a day whose midnight does not exist, because of a DST gap, starts one hour later).</summary>
+    public static DateTimeOffset StartOfDay(DateOnly day, TimeZoneInfo timeZone)
+    {
+        ArgumentNullException.ThrowIfNull(timeZone);
+        var local = DateTime.SpecifyKind(day.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
+        if (timeZone.IsInvalidTime(local))
+        {
+            local = local.AddHours(1);
+        }
+
+        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, timeZone), TimeSpan.Zero);
+    }
+
+    /// <summary>The calendar day of <paramref name="instant"/> in <paramref name="timeZone"/>.</summary>
+    public static DateOnly DayOf(DateTimeOffset instant, TimeZoneInfo timeZone)
+    {
+        ArgumentNullException.ThrowIfNull(timeZone);
+        return DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, timeZone).DateTime);
     }
 
     /// <summary>The range a named period covers on <paramref name="today"/>.</summary>

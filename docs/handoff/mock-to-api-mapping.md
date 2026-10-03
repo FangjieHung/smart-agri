@@ -160,7 +160,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 - **固定查詢**（`DatabaseFixedQueries`／`DatabaseFixedQueryService`，Application／Api）：`record-count`、`field-sum`、`period-summary`、`subject-comparison`，各自只接受自己定義的參數（`period`／`from`＋`to`／`fieldId`／`subjectId`），不接受運算式或 SQL；端點只是入口，#149（對話工具）與 #150（排程）直接呼叫同一個應用服務。每次呼叫重新套用組織、指定與帳號權限、只算有效紀錄（撤回即排除）。
 - **紀錄不足**：`comparison.status = 'insufficient-records'`（少於 2 筆，或有 2 筆以上但沒有任何數字／量尺欄位累積 2 個值）時沒有 `metrics`，畫面不畫趨勢。mock 的後一種情況也改成 `insufficient-records`（原本回 `available` 但沒有指標，畫面是空的趨勢）。
-- **與 mock 的刻意差異**：同一個欄位 id 若型別或單位改過，只比較／加總「目前這組型別與單位」的值，不混；mock 的比較同步這樣算（`compareRecords`）。日期一律 UTC 曆日，週從週一；前一期是完整的前一期。
+- **與 mock 的刻意差異**：同一個欄位 id 若型別或單位改過，只比較／加總「目前這組型別與單位」的值，不混；mock 的比較同步這樣算（`compareRecords`）。日期一律是統計時區（`Statistics:TimeZone`，預設 `Asia/Taipei`）的曆日，週從週一；前一期是完整的前一期；前端時間軸日期標籤同樣以台北曆日顯示（`statisticsDay`）。
 - `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`、新增 `periodic-reports`（#150：定期回報與 AI 摘要；`periodicReports` 在 API 模式是空陣列，趨勢頁籤顯示將於後續版本開放）。
 - 完整契約、參數規則與給 #149／#150 的接點：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 10 節。
 

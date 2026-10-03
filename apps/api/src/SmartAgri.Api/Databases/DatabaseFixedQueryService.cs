@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Application.Databases;
 using SmartAgri.Application.Validation;
@@ -74,12 +75,16 @@ public sealed class DatabaseFixedQueryService
     private readonly AppDbContext _dbContext;
     private readonly RequestAccountPermissions _permissions;
     private readonly TimeProvider _clock;
+    private readonly TimeZoneInfo _timeZone;
 
-    public DatabaseFixedQueryService(AppDbContext dbContext, RequestAccountPermissions permissions, TimeProvider clock)
+    public DatabaseFixedQueryService(
+        AppDbContext dbContext, RequestAccountPermissions permissions, TimeProvider clock, IOptions<StatisticsOptions> options)
     {
         _dbContext = dbContext;
         _permissions = permissions;
         _clock = clock;
+        _timeZone = options.Value.TryResolve()
+            ?? throw new InvalidOperationException("Statistics:TimeZone was validated at startup.");
     }
 
     /// <summary>Runs <paramref name="kind"/>; the result is the kind's result record
@@ -184,7 +189,7 @@ public sealed class DatabaseFixedQueryService
         var subjectId = spec.SubjectId!.Value;
         var records = await LoadRecordsAsync(readable.Where(submission => submission.SubmittedByAccountId == subjectId), cancellationToken);
         var comparison = DatabaseQueryResults.Compare(
-            records.GetValueOrDefault(subjectId) ?? [], opened.Fields!, spec.FieldId);
+            records.GetValueOrDefault(subjectId) ?? [], opened.Fields!, _timeZone, spec.FieldId);
         return DatabaseQueryOutcome<DatabaseSubjectComparisonResult>.Ok(new DatabaseSubjectComparisonResult(subjectId, comparison));
     }
 
@@ -207,7 +212,7 @@ public sealed class DatabaseFixedQueryService
         var records = await LoadRecordsAsync(readable, cancellationToken);
         return records.ToDictionary(
             pair => pair.Key,
-            pair => DatabaseQueryResults.Compare(pair.Value, fields.References));
+            pair => DatabaseQueryResults.Compare(pair.Value, fields.References, _timeZone));
     }
 
     private sealed record Opened(
@@ -233,7 +238,7 @@ public sealed class DatabaseFixedQueryService
         }
 
         var (references, currentVersion) = await FieldsAsync(databaseId, cancellationToken);
-        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(_clock.GetUtcNow(), _timeZone).DateTime);
         var validated = DatabaseFixedQueries.Validate(kind, parameters, today, references);
         if (!validated.IsValid)
         {
@@ -265,11 +270,11 @@ public sealed class DatabaseFixedQueryService
             versions.Count == 0 ? 0 : versions.Max(version => version.VersionNumber));
     }
 
-    private static IQueryable<DatabaseSubmission> InPeriod(
+    private IQueryable<DatabaseSubmission> InPeriod(
         IQueryable<DatabaseSubmission> readable, DatabaseQueryPeriod period, Guid? subjectId)
     {
-        var start = period.Start;
-        var end = period.EndExclusive;
+        var start = period.Start(_timeZone);
+        var end = period.EndExclusive(_timeZone);
         var inPeriod = readable.Where(submission => submission.SubmittedAt >= start && submission.SubmittedAt < end);
         return subjectId is { } subject
             ? inPeriod.Where(submission => submission.SubmittedByAccountId == subject)

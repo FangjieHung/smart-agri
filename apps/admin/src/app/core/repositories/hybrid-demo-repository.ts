@@ -5,6 +5,7 @@ import {
   type HttpProgressEvent,
   type HttpResponse,
 } from '@angular/common/http';
+import { statisticsDay } from './database-tracking';
 import { catchError, filter, forkJoin, map, of, switchMap, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
@@ -1919,14 +1920,14 @@ function toSubmissionReceipt(receipt: ApiDatabaseSubmissionReceipt): DatabaseSub
 
 /**
  * 時間軸的一位追蹤對象。id 沿用 mock 的 `subject-<帳號 id>`、紀錄 id 加上 `record-` 前綴，只為了對上
- * 前端的樣板字面型別；日期標籤取 ISO 的日期部分（UTC），與 mock 相同。
+ * 前端的樣板字面型別；日期標籤是統計時區（台北）的曆日（`statisticsDay`），與 mock、後端的統計日期一致。
  */
 function toTrackedSubject(subject: ApiDatabaseTrackedSubject): TrackedSubjectView {
   const records = subject.records.map(
     (record): DatabaseRecordView => ({
       id: `record-${record.id}`,
       recordedAt: record.submittedAt,
-      dateLabel: record.submittedAt.slice(0, 10),
+      dateLabel: statisticsDay(record.submittedAt),
       source: record.source,
       entries: record.entries.map((entry) => ({
         fieldId: toDatabaseFieldId(entry.fieldId),
@@ -1943,8 +1944,8 @@ function toTrackedSubject(subject: ApiDatabaseTrackedSubject): TrackedSubjectVie
       (trail): WithdrawnRecordView => ({
         id: `record-${trail.id}`,
         submittedAt: trail.submittedAt,
-        submittedDateLabel: trail.submittedAt.slice(0, 10),
-        withdrawnDateLabel: trail.withdrawnAt.slice(0, 10),
+        submittedDateLabel: statisticsDay(trail.submittedAt),
+        withdrawnDateLabel: statisticsDay(trail.withdrawnAt),
         source: trail.source,
       }),
     ),

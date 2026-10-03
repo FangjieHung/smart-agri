@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { DatabaseFieldView, TrackedSubjectId } from '../domain/database.model';
-import { previousPeriod, resolvePeriod, summarizePeriod } from './database-tracking';
+import { previousPeriod, resolvePeriod, statisticsDay, summarizePeriod } from './database-tracking';
 import type { DatabaseRecordFixture } from './demo-seed-databases';
 
 /*
  * 期間與統計的算法要與後端 `DatabaseFixedQueries`／`DatabaseQueryResults` 一致：這裡的案例刻意與
- * `DatabaseFixedQueriesTests`、`DatabaseQueryResultsTests` 相同（週從週一、UTC 曆日、前一期是完整的前一期）。
+ * `DatabaseFixedQueriesTests`、`DatabaseQueryResultsTests` 相同（週從週一、統計時區（台北）曆日、前一期是完整的前一期）。
  */
 
 // 2026-10-03 是星期六。
@@ -41,8 +41,18 @@ function record(id: string, subject: TrackedSubjectId, at: string, value: number
   };
 }
 
+describe('statisticsDay', () => {
+  it('is the Taipei calendar day, as the receipts show it, not the UTC day', () => {
+    expect(statisticsDay('2026-10-02T23:30:00Z')).toBe('2026-10-03');
+    expect(statisticsDay('2026-10-03T15:59:59Z')).toBe('2026-10-03');
+    expect(statisticsDay('2026-10-03T16:00:00Z')).toBe('2026-10-04');
+    expect(statisticsDay('2026-10-03T16:30:00Z')).toBe('2026-10-04');
+    expect(statisticsDay('2026-10-04T00:30:00+08:00')).toBe('2026-10-04');
+  });
+});
+
 describe('periods', () => {
-  it('are whole UTC days with Monday-based weeks', () => {
+  it('are whole Taipei days with Monday-based weeks', () => {
     expect(range('this-week')).toEqual(['2026-09-28', '2026-10-04']);
     expect(range('last-week')).toEqual(['2026-09-21', '2026-09-27']);
     expect(range('this-month')).toEqual(['2026-10-01', '2026-10-31']);
@@ -76,16 +86,16 @@ describe('periods', () => {
 
 describe('summarizePeriod', () => {
   const records = [
-    record('a', 'subject-wang', '2026-08-31T23:59:59.000Z', 1000),
-    record('b', 'subject-wang', '2026-09-01T00:00:00.000Z', 2000),
-    record('c', 'subject-wang', '2026-09-30T23:59:59.999Z', 3500),
-    record('d', 'subject-wang', '2026-10-01T00:00:00.000Z', 4000),
+    record('a', 'subject-wang', '2026-08-31T23:59:59+08:00', 1000),
+    record('b', 'subject-wang', '2026-09-01T00:00:00+08:00', 2000),
+    record('c', 'subject-wang', '2026-09-30T23:59:59.999+08:00', 3500),
+    record('d', 'subject-wang', '2026-10-01T00:00:00+08:00', 4000),
     record('e', 'subject-lin', '2026-09-10T10:00:00.000Z', 10),
     record('f', 'subject-lin', '2026-09-11T10:00:00.000Z', null),
   ];
   const input = { records, fields: [spend], subjectId: null, period: 'last-month' as const, today: TODAY };
 
-  it('counts and sums what is inside the period, with the day boundaries in UTC', () => {
+  it('counts and sums what is inside the period, with the day boundaries in Taipei', () => {
     const summary = summarizePeriod(input);
 
     expect(summary.recordCount).toBe(4);

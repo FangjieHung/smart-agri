@@ -36,6 +36,10 @@ builder.Services.AddGroundedAnswers();
 builder.Services.AddAssistantTestRuns();
 builder.Services.AddSingleton<ChatRunLocks>();
 builder.Services.AddScoped<DatabaseSubmissionService>();
+builder.Services.AddOptions<StatisticsOptions>()
+    .Bind(builder.Configuration.GetSection(StatisticsOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<StatisticsOptions>, StatisticsOptions.Validator>();
 builder.Services.AddScoped<DatabaseFixedQueryService>();
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();

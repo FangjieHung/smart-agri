@@ -6,7 +6,7 @@ import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
 import { syncValue } from './sync-value.testing';
 
-/** 「今天」固定為 2026-09-22（星期二，UTC）。 */
+/** 「今天」固定為 2026-09-22（星期二；10:00 台北）。 */
 function createRepository(viewer: AccountId | null = 'account-smb-admin') {
   return new MockDemoRepository(DEMO_SEED, {
     storage: createMemoryStorage(),

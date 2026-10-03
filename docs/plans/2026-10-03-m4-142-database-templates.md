@@ -208,11 +208,15 @@
 - **對象**：`subjectId` 是提交帳號的 id，且必須**提交過這個數據庫**（含已全部撤回的，與時間軸列出的一致）。不是 GUID、不存在、別的數據庫的對象、別組織的帳號、從未提交過的管理者，**一律同一則** `422 subjectId`「找不到這位追蹤對象。」（整合測試比對逐位元組相同）。
 - **順序**：先判斷能不能讀這個數據庫的紀錄（`DatabaseActiveRecords.ReadableAsync`，每次呼叫重查指定與帳號權限），再驗參數。所以無權者不論參數對錯都得到同一個 `403`（`database` 或 `database-records`，與時間軸相同），看不到任何欄位或對象的資訊。
 
-### 10.3 日期與時區邊界
+### 10.3 時區規則
 
-- **一律 UTC 曆日**，與時間軸、紀錄的 `dateLabel`（ISO 時間的日期部分）同一天；紀錄屬於 `SubmittedAt` 落在的 UTC 日。期間含起訖兩日（`[from 00:00Z, to+1日 00:00Z)`），所以 `23:59:59.999Z` 屬當天、`00:00:00Z` 屬隔天。台灣使用者在 08:00 前送出的資料，統計上算前一天；組織時區是之後的課題（要加組織設定，兩邊一起換）。
-- 週從週一到週日；`this-week`／`this-month` 涵蓋整週／整月（含尚未發生的日子），`last-7-days`／`last-30-days` 到今天為止。
-- **前一期**是完整的前一期：上週、上月（月份天數不同照曆月）；滾動與自訂期間則是緊接在前、同樣天數。單元測試 `DatabaseFixedQueriesTests`（後端）與 `database-tracking.spec.ts`（前端）用同一組案例。
+- **設定**：`Statistics:TimeZone`（`StatisticsOptions`，IANA id，預設 `Asia/Taipei`；環境變數 `Statistics__TimeZone`）。啟動時以 `ValidateOnStart` 驗證，id 不存在就拒絕啟動並指名這個設定（容器需有 tzdata）。
+- **曆日以這個時區為準**：具名期間、`from`／`to`（解讀為該時區的曆日，`to` 含當天）、週首（週一）、「前一期」、`today` 都以該時區的曆日計算；紀錄屬於 `SubmittedAt` 落在的**該時區**曆日。所以台北 10/03 07:30（UTC 10/02 23:30）算 10/03，台北 10/04 00:30（UTC 10/03 16:30）算 10/04；週日 23:59:59（+08）仍在該週，週一 00:00（+08）是下一週；11/01 00:30（+08，UTC 仍是 10/31）屬於 11 月。
+- **SQL**：每個期間換算成 UTC 的半開區間 `[該時區 from 00:00, to+1 日 00:00)`（`DatabaseQueryPeriod.Start/EndExclusive(timeZone)`；遇到夏令時間造成當日午夜不存在的時區，該日從 01:00 起算）。
+- **顯示**：回應裡的日期（`period.label`、`period.from/to`、首次／上次／本次與 `points` 的 `date`、比較摘要的起訖日）同一時區，與前端回執、時間軸顯示的日期一致。前端以常數 `STATISTICS_TIME_ZONE = 'Asia/Taipei'`（`database-tracking.ts`）的 `statisticsDay()` 產生時間軸日期標籤與 mock 的期間統計，Hybrid 的時間軸標籤也用它，不再切 ISO 字串（原本是 UTC 日，會與統計差一天）；後端設定若改了，前端常數要一起改（之後可由伺服器告知）。回執編號中的日期仍是 UTC 日（`R-yyyyMMdd-…`，不是統計日期）。
+- 週首固定週一；`this-week`／`this-month` 涵蓋整週／整月（含尚未發生的日子），`last-7-days`／`last-30-days` 到今天為止。**前一期**是完整的前一期：上週、上月（月份天數不同照曆月）；滾動與自訂期間則是緊接在前、同樣天數。
+- **#150 排程必須讀同一個設定**：注入 `IOptions<StatisticsOptions>` 解析時區，或直接呼叫 `DatabaseFixedQueryService`（已內建）；排程以「現在」在該時區的曆日解析具名期間，報表記錄的資料期間是該時區的曆日。
+- 測試：`DatabaseFixedQueriesTests`（半開區間、日界、DST）、`DatabaseFixedQueryEndpointsTests.Days_weeks_and_months_are_Taipei_calendar_days_not_UTC_days`（UTC 23:30Z／16:30Z 邊界、週界、月界、前一期、比較日期）、`StatisticsOptionsStartupTests`（無效 id 拒絕啟動）、前端 `database-tracking.spec.ts`。
 
 ### 10.4 計算與資料不足
 
@@ -223,7 +227,7 @@
 
 ### 10.5 前端
 
-- `TrackedSubjectView.comparison` 由伺服器填入（Hybrid 只轉換型別）；新增 `getDatabasePeriodSummary(databaseId, {period, subjectId})`（`Observable` 契約；mock 以 `now()` 的 UTC 日為今天計算，`summarizePeriod`／`resolvePeriod`／`previousPeriod` 在 `database-tracking.ts`，與後端同一套規則）。
+- `TrackedSubjectView.comparison` 由伺服器填入（Hybrid 只轉換型別）；新增 `getDatabasePeriodSummary(databaseId, {period, subjectId})`（`Observable` 契約；mock 以 `now()` 在統計時區（台北）的曆日為今天計算，`summarizePeriod`／`resolvePeriod`／`previousPeriod` 在 `database-tracking.ts`，與後端同一套規則）。
 - 趨勢頁籤：變化摘要＋比較表＋趨勢圖（紀錄不足時只顯示說明，不畫圖）；新增「期間統計」（`features/databases/period-summary/`，預設近 30 天，可切換期間；讀取失敗與「沒有紀錄」分開、可重試）；每位追蹤對象底下有「查看…的原始紀錄」連到收集紀錄頁籤（`?subject=`）。
 - `DatabaseUpcomingFeature`：`'trends'` 移除，改為 `'periodic-reports'`（#150）；API 模式的趨勢頁籤只在有追蹤對象時顯示「定期回報摘要：這項功能將於後續版本開放」，`periodicReports` 仍是空陣列。
 - 摘要清單的 `recordCount`／`subjectCount` 仍為 `null`（本票沒有需要顯示它的畫面；要顯示時用 `DatabaseActiveRecords` 計數且只對可讀者回傳）。
@@ -231,12 +235,12 @@
 ### 10.6 測試
 
 - 後端單元：`DatabaseFixedQueriesTests`（期間解析、前一期、參數規則）、`DatabaseQueryResultsTests`（比較、不足、單位不混、加總、標籤）。
-- 後端整合（`DatabaseFixedQueryEndpointsTests`，真實 PostgreSQL，10 個）：無權限／未指定／他組織／權限撤銷／指定移除皆拒絕且不洩漏（錯誤參數同一個 403）；對象不在這個數據庫一律同一則 422；不在定義內的參數與值 422、無「任意查詢」路由；空資料與單筆＝紀錄不足；跨期邊界與跨對象計數、加總；具名期間；撤回後各查詢與時間軸同步排除；表單改版（改名、新增、移除欄位）仍以 `FieldId` 比較；量尺的軸與單位。
+- 後端整合（`DatabaseFixedQueryEndpointsTests`，真實 PostgreSQL，11 個）：無權限／未指定／他組織／權限撤銷／指定移除皆拒絕且不洩漏（錯誤參數同一個 403）；對象不在這個數據庫一律同一則 422；不在定義內的參數與值 422、無「任意查詢」路由；空資料與單筆＝紀錄不足；跨期邊界與跨對象計數、加總；具名期間；撤回後各查詢與時間軸同步排除；表單改版（改名、新增、移除欄位）仍以 `FieldId` 比較；量尺的軸與單位。
 - 前端：`database-tracking.spec.ts`、`mock-demo-repository-trends.spec.ts`、`period-summary.component.spec.ts`、`hybrid-demo-repository-trends.spec.ts`（**真實 API JSON**）、詳情頁與趨勢元件既有 spec 更新。
 - Cypress（未在本機執行，由 CI 跑）：`tracking.cy.ts`、`consented-submission.cy.ts`（mock）、`e2e-api/database-api.cy.ts`（API）。
 
 ### 10.7 給 #149／#150 的接點
 
 - **#149（對話工具）**：模型只選 `DatabaseFixedQueries.Definitions` 之一與參數（字串字典），服務端呼叫 `DatabaseFixedQueryService.RunAsync(kind, accountId, databaseId, parameters, ct)`：`Readable = false`＝無權限（不洩漏）、`Failures`＝參數不被接受（可轉成給模型的錯誤）、`Value`＝上列結果記錄。呼叫前要先確認助理已連接該數據庫且帳號當下有權使用（#148）；本服務只管「這個帳號能不能讀這個數據庫的紀錄」。結果的 `period.label`、`display`、`changeLabel` 可直接當作回答的統計期間與可核對的數字；結果沒有任何自由文字來自使用者填寫的內容，除了欄位名稱（`label`）。
-- **#150（排程）**：排程以擁有者帳號呼叫同一個服務（擁有者仍須是被指定且具權限的資料管理者，否則 `Readable = false`＝本期不產生報表）；每期存 `period`（`from`／`to`）與結果 JSON，AI 摘要只拿已算好的數字；`this-week`／`last-month` 等具名期間以排程當下的 UTC 日解析（服務用注入的 `TimeProvider`）。紀錄不足時沿用 `insufficient-records`，不產生假趨勢。
+- **#150（排程）**：排程以擁有者帳號呼叫同一個服務（擁有者仍須是被指定且具權限的資料管理者，否則 `Readable = false`＝本期不產生報表）；每期存 `period`（`from`／`to`）與結果 JSON，AI 摘要只拿已算好的數字；`this-week`／`last-month` 等具名期間以排程當下在統計時區（`Statistics:TimeZone`）的曆日解析（服務用注入的 `TimeProvider`）。紀錄不足時沿用 `insufficient-records`，不產生假趨勢。
 

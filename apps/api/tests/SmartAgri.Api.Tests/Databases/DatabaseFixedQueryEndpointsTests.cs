@@ -44,7 +44,9 @@ public class DatabaseFixedQueryEndpointsTests : IClassFixture<AuthHostFixture>
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
-    private static DateTimeOffset At(string instant) => DateTimeOffset.Parse(instant, null, System.Globalization.DateTimeStyles.AssumeUniversal);
+    private static readonly TimeZoneInfo Taipei = TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+
+    private static DateTimeOffset At(string instant) => DateTimeOffset.Parse(instant, null, System.Globalization.DateTimeStyles.AssumeUniversal).ToUniversalTime();
 
     // --- Access and isolation ----------------------------------------------------------------
 
@@ -273,12 +275,12 @@ public class DatabaseFixedQueryEndpointsTests : IClassFixture<AuthHostFixture>
         var other = await CreateSecondCustomerAsync(org);
         var databaseId = await CreateDatabaseAsync(admin);
 
-        // Customer: 5 records around February 2026 (UTC); the other member: one inside it.
-        await SeedAsync(org, databaseId, customer.AccountId, At("2026-01-31T23:59:59Z"), 1);
-        await SeedAsync(org, databaseId, customer.AccountId, At("2026-02-01T00:00:00Z"), 2);
-        await SeedAsync(org, databaseId, customer.AccountId, At("2026-02-14T12:00:00Z"), 3.5);
-        await SeedAsync(org, databaseId, customer.AccountId, At("2026-02-28T23:59:59.999Z"), 4);
-        await SeedAsync(org, databaseId, customer.AccountId, At("2026-03-01T00:00:00Z"), 5);
+        // Customer: 5 records around February 2026 (Taipei calendar days); the other member: one inside it.
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-01-31T23:59:59+08:00"), 1);
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-02-01T00:00:00+08:00"), 2);
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-02-14T12:00:00+08:00"), 3.5);
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-02-28T23:59:59.999+08:00"), 4);
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-03-01T00:00:00+08:00"), 5);
         await SeedAsync(org, databaseId, other.AccountId, At("2026-02-10T10:00:00Z"), 10);
         await SeedAsync(org, databaseId, other.AccountId, At("2026-02-11T10:00:00Z"), null);
         const string February = "from=2026-02-01&to=2026-02-28";
@@ -290,8 +292,8 @@ public class DatabaseFixedQueryEndpointsTests : IClassFixture<AuthHostFixture>
         count.GetProperty("period").GetProperty("label").GetString().ShouldBe("2026-02-01 至 2026-02-28");
         count.GetProperty("previousPeriod").GetProperty("from").GetString().ShouldBe("2026-01-04", "the 28 days right before");
         count.GetProperty("previousPeriod").GetProperty("to").GetString().ShouldBe("2026-01-31");
-        count.GetProperty("count").GetInt32().ShouldBe(5, "the 1st 00:00:00Z and the 28th 23:59:59.999Z are inside; Jan 31 and Mar 1 are not");
-        count.GetProperty("previousCount").GetInt32().ShouldBe(1, "Jan 31 23:59:59Z");
+        count.GetProperty("count").GetInt32().ShouldBe(5, "the 1st 00:00:00+08 and the 28th 23:59:59.999+08 are inside; Jan 31 and Mar 1 are not");
+        count.GetProperty("previousCount").GetInt32().ShouldBe(1, "Jan 31 23:59:59+08");
         count.GetProperty("change").GetInt32().ShouldBe(4);
         count.GetProperty("changeLabel").GetString().ShouldBe("+4 筆");
 
@@ -326,7 +328,7 @@ public class DatabaseFixedQueryEndpointsTests : IClassFixture<AuthHostFixture>
         // A single day, and the day with nothing.
         var march1 = await BodyJsonAsync(await admin.Spa.GetAsync(QueryPath(databaseId, "record-count", "from=2026-03-01&to=2026-03-01"), admin.Token));
         march1.GetProperty("count").GetInt32().ShouldBe(1);
-        march1.GetProperty("previousCount").GetInt32().ShouldBe(1, "the day before: Feb 28 23:59:59.999Z");
+        march1.GetProperty("previousCount").GetInt32().ShouldBe(1, "the day before: Feb 28 23:59:59.999+08");
         var empty = await BodyJsonAsync(await admin.Spa.GetAsync(QueryPath(databaseId, "record-count", "from=2025-05-01&to=2025-05-31"), admin.Token));
         empty.GetProperty("count").GetInt32().ShouldBe(0);
 
@@ -364,7 +366,8 @@ public class DatabaseFixedQueryEndpointsTests : IClassFixture<AuthHostFixture>
         var week = await BodyJsonAsync(await admin.Spa.GetAsync(QueryPath(databaseId, "record-count", "period=last-7-days"), admin.Token));
         OpenApiContract.AssertKeysMatchSchema(week, "DatabaseRecordCountResult");
         week.GetProperty("period").GetProperty("period").GetString().ShouldBe("last-7-days");
-        week.GetProperty("period").GetProperty("to").GetString().ShouldBe(DateOnly.FromDateTime(now.UtcDateTime).ToString("yyyy-MM-dd"));
+        week.GetProperty("period").GetProperty("to").GetString().ShouldBe(
+            DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, Taipei).DateTime).ToString("yyyy-MM-dd"), "today in Taipei");
         week.GetProperty("period").GetProperty("label").GetString()!.ShouldStartWith("近 7 天（");
         week.GetProperty("count").GetInt32().ShouldBe(1);
         week.GetProperty("previousCount").GetInt32().ShouldBe(1, "ten days ago is in the seven days before");
@@ -380,6 +383,58 @@ public class DatabaseFixedQueryEndpointsTests : IClassFixture<AuthHostFixture>
             period.GetProperty("period").GetString().ShouldBe(name);
             DateOnly.Parse(period.GetProperty("from").GetString()!).ShouldBeLessThanOrEqualTo(DateOnly.Parse(period.GetProperty("to").GetString()!));
         }
+    }
+
+    // --- Time zone boundaries (Statistics:TimeZone, default Asia/Taipei) --------------------------
+
+    [Fact]
+    public async Task Days_weeks_and_months_are_Taipei_calendar_days_not_UTC_days()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var customer = await SignInAsync(org, "customer");
+        var databaseId = await CreateDatabaseAsync(admin);
+        // 07:30 in Taipei on Oct 3 is still Oct 2 in UTC; 00:30 on Oct 4 in Taipei is Oct 3 in UTC.
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-10-02T23:30:00Z"), 1);
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-10-03T16:30:00Z"), 2);
+        // Week boundary: Sunday Oct 4 23:59:59 +08 is the last second of the week of Sep 28; Monday 00:00 +08 starts the next.
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-10-04T15:59:59Z"), 4);
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-10-04T16:00:00Z"), 8);
+        // Month boundary: Oct 31 23:30 +08 is October; Nov 1 00:30 +08 is already November (still Oct 31 in UTC).
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-10-31T15:30:00Z"), 16);
+        await SeedAsync(org, databaseId, customer.AccountId, At("2026-10-31T16:30:00Z"), 32);
+
+        async Task<(int Count, double Sum)> Day(string query)
+        {
+            var count = await BodyJsonAsync(await admin.Spa.GetAsync(QueryPath(databaseId, "record-count", query), admin.Token));
+            var sum = await BodyJsonAsync(await admin.Spa.GetAsync(QueryPath(databaseId, "field-sum", $"{query}&fieldId={CountField}"), admin.Token));
+            return (count.GetProperty("count").GetInt32(), sum.GetProperty("field").GetProperty("sum").GetDouble());
+        }
+
+        (await Day("from=2026-10-03&to=2026-10-03")).ShouldBe((1, 1), "UTC 2026-10-02T23:30Z is Taipei Oct 3 07:30");
+        (await Day("from=2026-10-04&to=2026-10-04")).ShouldBe((2, 6), "UTC 2026-10-03T16:30Z is Taipei Oct 4 00:30, with the Sunday 15:59:59Z one");
+        (await Day("from=2026-10-02&to=2026-10-02")).ShouldBe((0, 0), "nothing belongs to Taipei Oct 2");
+        (await Day("from=2026-10-05&to=2026-10-05")).ShouldBe((1, 8), "Monday 00:00 +08 is the start of the next week");
+
+        // Whole week Mon Sep 28 .. Sun Oct 4 vs the next week.
+        (await Day("from=2026-09-28&to=2026-10-04")).ShouldBe((3, 7), "the Sunday 23:59:59 +08 record is in the week, the Monday 00:00 +08 one is not");
+        (await Day("from=2026-10-05&to=2026-10-11")).ShouldBe((1, 8));
+
+        // Whole October vs November.
+        (await Day("from=2026-10-01&to=2026-10-31")).ShouldBe((5, 31), "Oct 31 23:30 +08 is in October; Nov 1 00:30 +08 is not, though it is Oct 31 in UTC");
+        (await Day("from=2026-11-01&to=2026-11-30")).ShouldBe((1, 32));
+
+        // The previous period of one day is the day before, in Taipei too.
+        var previous = await BodyJsonAsync(await admin.Spa.GetAsync(QueryPath(databaseId, "record-count", "from=2026-10-04&to=2026-10-04"), admin.Token));
+        previous.GetProperty("previousPeriod").GetProperty("from").GetString().ShouldBe("2026-10-03");
+        previous.GetProperty("previousCount").GetInt32().ShouldBe(1);
+
+        // The dates a comparison shows are Taipei days, as the receipts show them.
+        var points = (await BodyJsonAsync(await admin.Spa.GetAsync(
+                QueryPath(databaseId, "subject-comparison", $"subjectId={customer.AccountId}"), admin.Token)))
+            .GetProperty("comparison").GetProperty("metrics")[0].GetProperty("points").EnumerateArray()
+            .Select(point => point.GetProperty("date").GetString()).ToList();
+        points.ShouldBe(["2026-10-03", "2026-10-04", "2026-10-04", "2026-10-05", "2026-10-31", "2026-11-01"]);
     }
 
     // --- Withdrawal --------------------------------------------------------------------------

@@ -35,6 +35,25 @@ import type { DatabaseRecordFixture } from './demo-seed-databases';
 
 const numberFormat = new Intl.NumberFormat('en-US');
 
+/**
+ * 統計與日期標籤使用的時區（IANA）。與後端 `Statistics:TimeZone` 的預設相同（`Asia/Taipei`）：紀錄屬於
+ * 它在這個時區落在的曆日，所以台灣 08:00 前送出的資料算當天，不是 UTC 的前一天。後端的設定若改了，
+ * 這個常數要一起改（兩邊的規則見 M4 設計文件 §10.3）。
+ */
+export const STATISTICS_TIME_ZONE = 'Asia/Taipei';
+
+const dayFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone: STATISTICS_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+/** 一個時間點在統計時區的曆日（`YYYY-MM-DD`）；與回執、時間軸顯示的日期同一天。 */
+export function statisticsDay(iso: string): string {
+  return dayFormat.format(new Date(iso));
+}
+
 function formatNumber(value: number, unit: string): string {
   const text = numberFormat.format(value);
   return unit ? `${text} ${unit}` : text;
@@ -63,7 +82,7 @@ export function toRecordView(record: DatabaseRecordFixture): DatabaseRecordView 
   return {
     id: record.id,
     recordedAt: record.recordedAt,
-    dateLabel: record.recordedAt.slice(0, 10),
+    dateLabel: statisticsDay(record.recordedAt),
     source: record.source,
     entries: record.values.map((value) => ({
       fieldId: value.fieldId,
@@ -81,8 +100,8 @@ export function toWithdrawnRecordView(record: DatabaseRecordFixture): WithdrawnR
   return {
     id: record.id,
     submittedAt: record.recordedAt,
-    submittedDateLabel: record.recordedAt.slice(0, 10),
-    withdrawnDateLabel: (record.withdrawnAt ?? '').slice(0, 10),
+    submittedDateLabel: statisticsDay(record.recordedAt),
+    withdrawnDateLabel: record.withdrawnAt === undefined ? '' : statisticsDay(record.withdrawnAt),
     source: record.source,
   };
 }
@@ -112,7 +131,7 @@ export function compareRecords(chronological: readonly DatabaseRecordFixture[]):
       return [
         {
           recordId: record.id,
-          dateLabel: record.recordedAt.slice(0, 10),
+          dateLabel: statisticsDay(record.recordedAt),
           value: match.value,
           display: displayRecordValue(match),
         },
@@ -163,7 +182,7 @@ export function compareRecords(chronological: readonly DatabaseRecordFixture[]):
   return {
     status: 'available',
     recordCount,
-    summary: `比較 ${recordCount} 筆已同意提交的紀錄（${chronological[0].recordedAt.slice(0, 10)} 至 ${latest.recordedAt.slice(0, 10)}）。`,
+    summary: `比較 ${recordCount} 筆已同意提交的紀錄（${statisticsDay(chronological[0].recordedAt)} 至 ${statisticsDay(latest.recordedAt)}）。`,
     metrics,
   };
 }
@@ -199,8 +218,8 @@ function rangeOf(name: DatabasePeriodName | null, from: number, to: number): Dat
 }
 
 /**
- * 具名期間涵蓋的 UTC 曆日（起訖都含）：週從週一到週日、月從 1 日到月底，`last-7-days`／`last-30-days`
- * 到今天為止。與後端 `DatabaseFixedQueries.Resolve` 相同；`today` 是 `YYYY-MM-DD`（UTC）。
+ * 具名期間涵蓋的 統計時區（`STATISTICS_TIME_ZONE`）的曆日（起訖都含）：週從週一到週日、月從 1 日到月底，`last-7-days`／`last-30-days`
+ * 到今天為止。與後端 `DatabaseFixedQueries.Resolve` 相同；`today` 是 `YYYY-MM-DD`（統計時區）。
  */
 export function resolvePeriod(name: DatabasePeriodName, today: string): DatabasePeriodRangeView {
   const todayNumber = dayNumber(today);
@@ -244,7 +263,7 @@ function rowsOf(
   const sums = new Map<DatabaseFieldId, { sum: number; count: number }>();
   let count = 0;
   for (const record of records) {
-    const day = new Date(Date.parse(record.recordedAt)).toISOString().slice(0, 10);
+    const day = statisticsDay(record.recordedAt);
     if (day < period.from || day > period.to) continue;
     count += 1;
     for (const value of record.values) {

@@ -54,13 +54,34 @@ public class DatabaseFixedQueriesTests
         DatabaseFixedQueries.Resolve(DatabaseQueryPeriodName.ThisWeek, new DateOnly(2026, 10, 5)).From.ShouldBe(new DateOnly(2026, 10, 5));
     }
 
+    private static readonly TimeZoneInfo Taipei = TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+
     [Fact]
-    public void The_period_bounds_are_UTC_midnights_so_the_last_day_is_included_and_the_next_is_not()
+    public void The_period_bounds_are_the_zones_midnights_as_a_half_open_UTC_range()
     {
         var period = new DatabaseQueryPeriod(null, new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 30));
 
-        period.Start.ShouldBe(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
-        period.EndExclusive.ShouldBe(new DateTimeOffset(2026, 10, 1, 0, 0, 0, TimeSpan.Zero));
+        period.Start(Taipei).ShouldBe(new DateTimeOffset(2026, 8, 31, 16, 0, 0, TimeSpan.Zero), "Taipei is UTC+8");
+        period.EndExclusive(Taipei).ShouldBe(new DateTimeOffset(2026, 9, 30, 16, 0, 0, TimeSpan.Zero));
+        period.Start(TimeZoneInfo.Utc).ShouldBe(new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero));
+    }
+
+    [Theory]
+    [InlineData("2026-10-02T23:30:00Z", "2026-10-03")]
+    [InlineData("2026-10-03T15:59:59Z", "2026-10-03")]
+    [InlineData("2026-10-03T16:00:00Z", "2026-10-04")]
+    [InlineData("2026-10-03T16:30:00Z", "2026-10-04")]
+    public void A_moment_belongs_to_its_day_in_the_zone(string instant, string day) =>
+        DatabaseFixedQueries.DayOf(DateTimeOffset.Parse(instant), Taipei).ShouldBe(DateOnly.Parse(day));
+
+    [Fact]
+    public void A_day_whose_midnight_falls_in_a_DST_gap_starts_one_hour_later()
+    {
+        // America/Sao_Paulo skipped 00:00 on 2018-11-04 (UTC-3 -> UTC-2).
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
+
+        DatabaseFixedQueries.StartOfDay(new DateOnly(2018, 11, 4), zone)
+            .ShouldBe(new DateTimeOffset(2018, 11, 4, 3, 0, 0, TimeSpan.Zero));
     }
 
     [Fact]

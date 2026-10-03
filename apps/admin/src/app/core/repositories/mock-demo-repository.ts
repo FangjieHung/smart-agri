@@ -144,6 +144,7 @@ import {
 } from './database-access';
 import {
   buildPeriodicReport,
+  statisticsDay,
   summarizePeriod,
   compareRecords,
   evaluateTrial,
@@ -3805,7 +3806,7 @@ export class MockDemoRepository implements DemoRepository {
         fields: this.databaseCollection(database.id).fields,
         subjectId: query.subjectId,
         period: query.period,
-        today: this.now().toISOString().slice(0, 10),
+        today: statisticsDay(this.now().toISOString()),
       }),
     );
   }
@@ -4605,7 +4606,7 @@ export class MockDemoRepository implements DemoRepository {
     if (record.consentStatus === 'withdrawn') {
       return {
         status: 'withdrawn',
-        withdrawnDateLabel: (record.withdrawnAt ?? '').slice(0, 10),
+        withdrawnDateLabel: record.withdrawnAt === undefined ? '' : statisticsDay(record.withdrawnAt),
         notice: CHAT_WITHDRAWN_NOTICE,
       };
     }
@@ -5192,7 +5193,7 @@ export class MockDemoRepository implements DemoRepository {
     subjects: readonly TrackedSubjectView[],
   ): readonly PeriodicReportView[] {
     const latest = chronological.at(-1);
-    const anchorLabel = (latest?.recordedAt ?? this.now().toISOString()).slice(0, 10);
+    const anchorLabel = statisticsDay(latest?.recordedAt ?? this.now().toISOString());
 
     return this.assistants().flatMap((assistant) => {
       const rules = this.assistantRules(assistant);

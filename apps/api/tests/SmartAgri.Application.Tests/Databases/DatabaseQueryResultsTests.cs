@@ -23,6 +23,8 @@ public class DatabaseQueryResultsTests
     private static DatabaseFormField Scale(string id, string label) =>
         new(id, label, DatabaseFieldType.Scale, false, [], new DatabaseScaleRange(1, 5, "低", "高"), string.Empty);
 
+    private static readonly TimeZoneInfo Taipei = TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+
     private static DatabaseQueryEntry Spend(double value, string label = "消費金額", string unit = "元") =>
         new("field-spend", label, DatabaseFieldType.Number, unit, DatabaseAnswerRules.FormatNumber(value, unit), value);
 
@@ -35,8 +37,8 @@ public class DatabaseQueryResultsTests
     [Fact]
     public void No_records_and_one_record_are_not_enough_and_draw_no_trend()
     {
-        var none = DatabaseQueryResults.Compare([], Fields);
-        var one = DatabaseQueryResults.Compare([Record("2026-09-01T02:00:00Z", Spend(100))], Fields);
+        var none = DatabaseQueryResults.Compare([], Fields, Taipei);
+        var one = DatabaseQueryResults.Compare([Record("2026-09-01T02:00:00Z", Spend(100))], Fields, Taipei);
 
         none.Status.ShouldBe(DatabaseComparisonStatus.InsufficientRecords);
         none.RecordCount.ShouldBe(0);
@@ -58,16 +60,16 @@ public class DatabaseQueryResultsTests
             Record("2026-09-01T23:30:00Z", Spend(1200), Mood(4)),
         };
 
-        var comparison = DatabaseQueryResults.Compare(records, Fields);
+        var comparison = DatabaseQueryResults.Compare(records, Fields, Taipei);
 
         comparison.Status.ShouldBe(DatabaseComparisonStatus.Available);
         comparison.RecordCount.ShouldBe(3);
-        comparison.Summary.ShouldBe("比較 3 筆已同意提交的紀錄（2026-08-01 至 2026-09-01）。");
+        comparison.Summary.ShouldBe("比較 3 筆已同意提交的紀錄（2026-08-01 至 2026-09-02）。");
         var spend = comparison.Metrics.Single(metric => metric.FieldId == "field-spend");
         spend.First.Display.ShouldBe("1,000 元");
         spend.Previous.Display.ShouldBe("1,500 元");
         spend.Current.Display.ShouldBe("1,200 元");
-        spend.Current.Date.ShouldBe("2026-09-01", "the UTC day of 23:30Z");
+        spend.Current.Date.ShouldBe("2026-09-02", "23:30Z is 07:30 the next day in Taipei");
         spend.ChangeFromPrevious.ShouldBe(-300);
         spend.ChangeFromFirst.ShouldBe(200);
         spend.ChangeFromPreviousLabel.ShouldBe("-300 元");
@@ -95,7 +97,7 @@ public class DatabaseQueryResultsTests
             Record("2026-09-01T02:00:00Z", Spend(150, label: "每次消費")),
         };
 
-        var metric = DatabaseQueryResults.Compare(records, Fields).Metrics.Single();
+        var metric = DatabaseQueryResults.Compare(records, Fields, Taipei).Metrics.Single();
 
         metric.Label.ShouldBe("每次消費", "the latest record's label");
         metric.Points.Count.ShouldBe(2);
@@ -112,7 +114,7 @@ public class DatabaseQueryResultsTests
             Record("2026-09-02T02:00:00Z", Spend(130), new DatabaseQueryEntry("field-count", "件數", DatabaseFieldType.Number, "件", "3 件", 3)),
         };
 
-        var comparison = DatabaseQueryResults.Compare(records, Fields);
+        var comparison = DatabaseQueryResults.Compare(records, Fields, Taipei);
 
         comparison.Metrics.Select(metric => metric.FieldId).ShouldBe(["field-spend"]);
     }
@@ -127,7 +129,7 @@ public class DatabaseQueryResultsTests
             Record("2026-09-02T02:00:00Z", Spend(260, unit: "元")),
         };
 
-        var metric = DatabaseQueryResults.Compare(records, Fields).Metrics.Single();
+        var metric = DatabaseQueryResults.Compare(records, Fields, Taipei).Metrics.Single();
 
         metric.Points.Count.ShouldBe(2);
         metric.First.Value.ShouldBe(200);
@@ -137,7 +139,7 @@ public class DatabaseQueryResultsTests
     public void Two_records_without_any_comparable_number_say_so_instead_of_an_empty_trend()
     {
         var comparison = DatabaseQueryResults.Compare(
-            [Record("2026-08-01T02:00:00Z"), Record("2026-09-01T02:00:00Z")], Fields);
+            [Record("2026-08-01T02:00:00Z"), Record("2026-09-01T02:00:00Z")], Fields, Taipei);
 
         comparison.Status.ShouldBe(DatabaseComparisonStatus.InsufficientRecords);
         comparison.RecordCount.ShouldBe(2);
@@ -154,7 +156,7 @@ public class DatabaseQueryResultsTests
             Record("2026-09-01T02:00:00Z", Spend(120), Mood(3)),
         };
 
-        DatabaseQueryResults.Compare(records, Fields, "field-mood").Metrics.Select(metric => metric.FieldId).ShouldBe(["field-mood"]);
+        DatabaseQueryResults.Compare(records, Fields, Taipei, "field-mood").Metrics.Select(metric => metric.FieldId).ShouldBe(["field-mood"]);
     }
 
     [Fact]

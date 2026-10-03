@@ -3,7 +3,7 @@ using SmartAgri.Domain.Databases;
 
 namespace SmartAgri.Application.Databases;
 
-/// <summary>A queried period as the wire shows it: UTC calendar days, <c>yyyy-MM-dd</c>, both ends
+/// <summary>A queried period as the wire shows it: calendar days of the statistics time zone, <c>yyyy-MM-dd</c>, both ends
 /// included. <see cref="Period"/> is the named period's wire name, or <see langword="null"/> for a
 /// custom range (and for the "previous period" a result compares with).</summary>
 public sealed record DatabaseQueryPeriodView(string? Period, string From, string To, string Label)
@@ -160,6 +160,8 @@ public static class DatabaseQueryResults
     /// <param name="chronological">The subject's active records, oldest first.</param>
     /// <param name="fields">Resolves a field id to its definition (<see cref="DatabaseFixedQueries.FieldReferences"/>);
     /// a scale field's chart axis starts from its range.</param>
+    /// <param name="timeZone">The statistics time zone: the dates of the points and of the summary
+    /// are its calendar days.</param>
     /// <param name="onlyFieldId">When given, only this field is compared.</param>
     /// <remarks>
     /// Fields are matched by their stable id across form versions. The metrics are those of the
@@ -170,10 +172,12 @@ public static class DatabaseQueryResults
     public static DatabaseSubjectComparison Compare(
         IReadOnlyList<DatabaseQueryRecord> chronological,
         IReadOnlyDictionary<string, DatabaseFieldReference> fields,
+        TimeZoneInfo timeZone,
         string? onlyFieldId = null)
     {
         ArgumentNullException.ThrowIfNull(chronological);
         ArgumentNullException.ThrowIfNull(fields);
+        ArgumentNullException.ThrowIfNull(timeZone);
         var recordCount = chronological.Count;
         if (recordCount < 2)
         {
@@ -197,7 +201,7 @@ public static class DatabaseQueryResults
 
             if (points.Count >= 2)
             {
-                metrics.Add(Metric(anchor, points, fields));
+                metrics.Add(Metric(anchor, points, fields, timeZone));
             }
         }
 
@@ -211,7 +215,7 @@ public static class DatabaseQueryResults
             DatabaseComparisonStatus.Available,
             recordCount,
             null,
-            $"比較 {recordCount} 筆已同意提交的紀錄（{DatabaseQueryPeriod.Format(DateOnly.FromDateTime(chronological[0].SubmittedAt.UtcDateTime))} 至 {DatabaseQueryPeriod.Format(DateOnly.FromDateTime(latest.SubmittedAt.UtcDateTime))}）。",
+            $"比較 {recordCount} 筆已同意提交的紀錄（{DatabaseQueryPeriod.Format(DatabaseFixedQueries.DayOf(chronological[0].SubmittedAt, timeZone))} 至 {DatabaseQueryPeriod.Format(DatabaseFixedQueries.DayOf(latest.SubmittedAt, timeZone))}）。",
             metrics);
     }
 
@@ -300,11 +304,12 @@ public static class DatabaseQueryResults
     private static DatabaseMetricComparison Metric(
         DatabaseQueryEntry anchor,
         List<(DatabaseQueryRecord Record, DatabaseQueryEntry Entry)> points,
-        IReadOnlyDictionary<string, DatabaseFieldReference> fields)
+        IReadOnlyDictionary<string, DatabaseFieldReference> fields,
+        TimeZoneInfo timeZone)
     {
-        static DatabaseComparisonPoint Point((DatabaseQueryRecord Record, DatabaseQueryEntry Entry) point) => new(
+        DatabaseComparisonPoint Point((DatabaseQueryRecord Record, DatabaseQueryEntry Entry) point) => new(
             point.Record.Id,
-            DatabaseQueryPeriod.Format(DateOnly.FromDateTime(point.Record.SubmittedAt.UtcDateTime)),
+            DatabaseQueryPeriod.Format(DatabaseFixedQueries.DayOf(point.Record.SubmittedAt, timeZone)),
             point.Entry.Value,
             point.Entry.Display);
 

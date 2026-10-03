@@ -8,7 +8,9 @@ namespace SmartAgri.Domain.Chat;
 /// Application). #77 maps between the two when it saves an assistant's turn. M4 #148 adds the two
 /// form replies, which never come from the answer pipeline: <see cref="FormRequest"/> (an
 /// assistant asking the member to fill in a connected database's form) and
-/// <see cref="SubmissionReceipt"/> (the receipt of a consented submission). Stored as integers,
+/// <see cref="SubmissionReceipt"/> (the receipt of a consented submission). M4 #149 adds
+/// <see cref="DatabaseQuery"/>: the answer of a fixed statistics query the model chose, composed by
+/// the server from the query's result (never the answer pipeline's). Stored as integers,
 /// so new members only ever go at the end.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ChatReplyKind>))]
@@ -28,4 +30,7 @@ public enum ChatReplyKind
 
     [JsonStringEnumMemberName("submission-receipt")]
     SubmissionReceipt,
+
+    [JsonStringEnumMemberName("database-query")]
+    DatabaseQuery,
 }

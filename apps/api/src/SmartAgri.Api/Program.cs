@@ -42,6 +42,8 @@ builder.Services.AddOptions<StatisticsOptions>()
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<StatisticsOptions>, StatisticsOptions.Validator>();
 builder.Services.AddScoped<DatabaseFixedQueryService>();
 builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.IChatDatabaseQueryRunner, SmartAgri.Api.Chat.FixedQueryChatRunner>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.ChatDatabaseQueries>();
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);

@@ -39,6 +39,9 @@ internal sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMe
             .HasColumnType("jsonb")
             .IsRequired();
 
+        // M4 #149: a database query reply's structured view, read back whole.
+        builder.Property(message => message.DatabaseQueryJson).HasColumnName("DatabaseQuery").HasColumnType("jsonb");
+
         builder.HasOne<ChatThread>()
             .WithMany()
             .HasForeignKey(message => new { message.ThreadId, message.OrganizationId })

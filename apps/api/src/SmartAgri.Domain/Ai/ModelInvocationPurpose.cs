@@ -30,4 +30,9 @@ public enum ModelInvocationPurpose
     /// so test-run usage can be counted on its own.</summary>
     [JsonStringEnumMemberName("assistant-test")]
     AssistantTest,
+
+    /// <summary>Choosing a fixed statistics query and its parameters for a conversation question
+    /// (M4 #149): the model only selects a tool; it never sees the result.</summary>
+    [JsonStringEnumMemberName("database-query")]
+    DatabaseQuery,
 }

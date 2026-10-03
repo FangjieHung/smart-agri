@@ -393,13 +393,16 @@ export class ChatConversationComponent {
     return { id: `local-question-${this.localCounter}`, author: 'account', text, createdAt: new Date().toISOString() };
   }
 
-  /** 不保存對話的助理：把畫面上的問答當成前文（表單與收據不送）。 */
+  /**
+   * 不保存對話的助理：把畫面上的問答當成前文（表單與收據不送；數據庫查詢的結果也不送，
+   * 查詢結果不提供給模型，issue #149）。
+   */
   private historyEntries(): ChatHistoryEntry[] {
     const messages = [...(this.chat()?.messages ?? []), ...this.local().map((entry) => entry.message)];
     return messages.flatMap((message): ChatHistoryEntry[] => {
       if (message.author === 'account') return [{ role: 'user', content: message.text }];
       const kind = message.reply.kind;
-      if (kind === 'form-request' || kind === 'submission-receipt') return [];
+      if (kind === 'form-request' || kind === 'submission-receipt' || kind === 'database-query') return [];
       return [{ role: 'assistant', content: message.reply.text }];
     });
   }
@@ -618,7 +621,9 @@ export class ChatConversationComponent {
   protected handoffExchange(message: ChatMessageView): HandoffExchange | null {
     const chat = this.chat();
     if (this.anonymous() || !chat || message.author !== 'assistant'
-      || message.reply.kind === 'form-request' || message.reply.kind === 'submission-receipt') return null;
+      || message.reply.kind === 'form-request' || message.reply.kind === 'submission-receipt'
+      // 查詢回答的數字來自只有提問者能讀的紀錄，不轉給處理人（issue #149，伺服器同樣拒絕）。
+      || message.reply.kind === 'database-query') return null;
     const messages = [...chat.messages, ...this.local().map((entry) => entry.message)];
     const index = messages.findIndex((entry) => entry.id === message.id);
     const question = messages[index - 1];

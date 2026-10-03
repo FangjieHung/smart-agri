@@ -1422,15 +1422,18 @@ function apiAccountMessage(overrides: Partial<ApiChatMessageView> = {}): ApiChat
 
 type ApiReply = NonNullable<ApiChatMessageView['reply']>;
 
-/** `form`／`receipt`（#148）只有表單訊息才有值，其餘一律是 null（後端照樣送出這兩個鍵）。 */
+/**
+ * `form`／`receipt`（#148）只有表單訊息才有值、`databaseQuery`（#149）只有查詢回答才有值，
+ * 其餘一律是 null（後端照樣送出這些鍵）。
+ */
 function apiAssistantMessage(
-  reply: Omit<ApiReply, 'form' | 'receipt'> & Partial<Pick<ApiReply, 'form' | 'receipt'>>,
+  reply: Omit<ApiReply, 'form' | 'receipt' | 'databaseQuery'> & Partial<Pick<ApiReply, 'form' | 'receipt' | 'databaseQuery'>>,
 ): ApiChatMessageView {
   return {
     id: '0199a000-0000-7000-8000-0000000000d2',
     author: 'assistant',
     text: null,
-    reply: { form: null, receipt: null, ...reply },
+    reply: { form: null, receipt: null, databaseQuery: null, ...reply },
     createdAt: '2026-09-27T01:00:01+00:00',
   };
 }
@@ -1790,9 +1793,54 @@ describe('HybridDemoRepository chat (issue #79)', () => {
   // ---------- 對話中的表單（issue #148） ----------
 
   /** 後端實際送出的 JSON（每個鍵都在，不適用的是 null）：由整合測試的回應整理而來。 */
-  const FORM_REQUEST_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f1","author":"assistant","text":null,"reply":{"kind":"form-request","text":"可以的，請在下方表單填寫資料。送出前會先讓你確認資料會交給誰、做什麼用途。","citations":[],"notice":null,"nextSteps":[],"form":{"id":"0199d000-0000-7000-8000-0000000000d1","title":"客戶資料庫","formVersion":2,"fields":[{"id":"field-customer-name","label":"客戶姓名","type":"text","required":true,"options":[],"scale":null,"unit":""}],"consent":{"recipient":"表單商行（客戶資料庫）","purpose":"記錄客戶聯絡方式，方便客服回電。","viewers":["表單商行管理者"],"sensitiveNotice":"請勿填寫敏感個資。","withdrawalNotice":"送出後可以撤回。"}},"receipt":null},"createdAt":"2026-10-03T06:00:00.123456+00:00"}`;
+  const FORM_REQUEST_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f1","author":"assistant","text":null,"reply":{"kind":"form-request","text":"可以的，請在下方表單填寫資料。送出前會先讓你確認資料會交給誰、做什麼用途。","citations":[],"notice":null,"nextSteps":[],"form":{"id":"0199d000-0000-7000-8000-0000000000d1","title":"客戶資料庫","formVersion":2,"fields":[{"id":"field-customer-name","label":"客戶姓名","type":"text","required":true,"options":[],"scale":null,"unit":""}],"consent":{"recipient":"表單商行（客戶資料庫）","purpose":"記錄客戶聯絡方式，方便客服回電。","viewers":["表單商行管理者"],"sensitiveNotice":"請勿填寫敏感個資。","withdrawalNotice":"送出後可以撤回。"}},"receipt":null,"databaseQuery":null},"createdAt":"2026-10-03T06:00:00.123456+00:00"}`;
 
-  const RECEIPT_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f2","author":"assistant","text":null,"reply":{"kind":"submission-receipt","text":"已送出。資料只會交給 表單商行（客戶資料庫），回執編號 R-20261003-0000000001。","citations":[],"notice":null,"nextSteps":[],"form":null,"receipt":{"id":"0199e000-0000-7000-8000-000000000001","receiptNumber":"R-20261003-0000000001","submittedAt":"2026-10-03T06:01:00+00:00","databaseId":"0199d000-0000-7000-8000-0000000000d1","databaseName":"客戶資料庫","purpose":"記錄客戶聯絡方式，方便客服回電。","recipient":"表單商行（客戶資料庫）","viewers":["表單商行管理者"],"formVersionId":"0199d000-0000-7000-8000-0000000000e2","formVersionNumber":2,"source":"assistant-conversation","entries":[{"fieldId":"field-customer-name","label":"客戶姓名","type":"text","display":"王小明"}],"withdrawnAt":null}},"createdAt":"2026-10-03T06:01:00.123456+00:00"}`;
+  const RECEIPT_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f2","author":"assistant","text":null,"reply":{"kind":"submission-receipt","text":"已送出。資料只會交給 表單商行（客戶資料庫），回執編號 R-20261003-0000000001。","citations":[],"notice":null,"nextSteps":[],"form":null,"receipt":{"id":"0199e000-0000-7000-8000-000000000001","receiptNumber":"R-20261003-0000000001","submittedAt":"2026-10-03T06:01:00+00:00","databaseId":"0199d000-0000-7000-8000-0000000000d1","databaseName":"客戶資料庫","purpose":"記錄客戶聯絡方式，方便客服回電。","recipient":"表單商行（客戶資料庫）","viewers":["表單商行管理者"],"formVersionId":"0199d000-0000-7000-8000-0000000000e2","formVersionNumber":2,"source":"assistant-conversation","entries":[{"fieldId":"field-customer-name","label":"客戶姓名","type":"text","display":"王小明"}],"withdrawnAt":null},"databaseQuery":null},"createdAt":"2026-10-03T06:01:00.123456+00:00"}`;
+
+  // ---------- 對話中的數據庫查詢（issue #149） ----------
+
+  /** 後端實際送出的 JSON：`ChatDatabaseQueryEndpointsTests` 的回應原樣擷取（授權成員的筆數查詢、不能讀的成員）。 */
+  const QUERY_ANSWERED_JSON = `{"id":"01a100e3-e10a-7cdf-aa49-44985a037dd2","author":"assistant","text":null,"reply":{"kind":"database-query","text":"根據「回報資料庫」的紀錄筆數查詢：2026-02-01 至 2026-02-28共有 3 筆有效紀錄；前一期（2026-01-04 至 2026-01-31）為 1 筆，變化 +2 筆。","citations":[],"notice":null,"nextSteps":[],"form":null,"receipt":null,"databaseQuery":{"status":"answered","databaseId":"01a100e3-de68-7349-91dc-9963a99cf1ac","databaseName":"回報資料庫","query":"record-count","queryLabel":"紀錄筆數","period":{"period":null,"from":"2026-02-01","to":"2026-02-28","label":"2026-02-01 至 2026-02-28"},"previousPeriod":{"period":null,"from":"2026-01-04","to":"2026-01-31","label":"2026-01-04 至 2026-01-31"},"subjectOnly":false,"figures":[{"metric":"有效紀錄筆數","value":3,"display":"3 筆","previousDisplay":"1 筆","changeLabel":"+2 筆"}],"message":null}},"createdAt":"2026-10-03T08:31:36.714482+00:00"}`;
+
+  const QUERY_REFUSED_JSON = `{"id":"01a100e3-e133-7559-8367-ada1ff4e76a5","author":"assistant","text":null,"reply":{"kind":"database-query","text":"目前無法查詢：這個助理沒有連接你可以查看的數據庫，或你的查詢權限已被收回。如需這些數字，請洽數據庫的資料管理者。","citations":[],"notice":null,"nextSteps":[],"form":null,"receipt":null,"databaseQuery":{"status":"not-available","databaseId":null,"databaseName":null,"query":null,"queryLabel":null,"period":null,"previousPeriod":null,"subjectOnly":false,"figures":[],"message":null}},"createdAt":"2026-10-03T08:31:36.755016+00:00"}`;
+
+  it('maps a database query answer and a refusal from the actual JSON the backend sends, numbers untouched', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID, CHAT_THREAD_ID));
+    controller.expectOne(apiAssistantChatPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID)).flush(
+      apiAssistantChat({
+        messages: [JSON.parse(QUERY_ANSWERED_JSON) as ApiChatMessageView, JSON.parse(QUERY_REFUSED_JSON) as ApiChatMessageView],
+      }),
+    );
+
+    const view = await result;
+    if (view.status !== 'ready') throw new Error('expected ready');
+    const [answered, refused] = view.data.messages;
+    expect(answered).toMatchObject({
+      author: 'assistant',
+      reply: {
+        kind: 'database-query',
+        text: '根據「回報資料庫」的紀錄筆數查詢：2026-02-01 至 2026-02-28共有 3 筆有效紀錄；前一期（2026-01-04 至 2026-01-31）為 1 筆，變化 +2 筆。',
+        query: {
+          status: 'answered',
+          databaseName: '回報資料庫',
+          query: 'record-count',
+          queryLabel: '紀錄筆數',
+          period: { name: null, from: '2026-02-01', to: '2026-02-28', label: '2026-02-01 至 2026-02-28' },
+          previousPeriod: { name: null, from: '2026-01-04', to: '2026-01-31' },
+          subjectOnly: false,
+          figures: [{ metric: '有效紀錄筆數', value: 3, display: '3 筆', previousDisplay: '1 筆', changeLabel: '+2 筆' }],
+          message: null,
+        },
+      },
+    });
+    expect(refused).toMatchObject({
+      reply: {
+        kind: 'database-query',
+        query: { status: 'not-available', databaseId: null, databaseName: null, period: null, figures: [] },
+      },
+    });
+  });
 
   it('maps a form request and a receipt from the actual JSON the backend sends, and an unavailable form as null', async () => {
     const { repository } = setUpChat();

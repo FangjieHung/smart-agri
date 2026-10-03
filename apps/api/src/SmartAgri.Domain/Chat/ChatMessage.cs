@@ -58,9 +58,9 @@ public sealed class ChatMessage : IOrganizationScoped
     public static ChatMessage Assistant(
         ChatThread thread, string text, ChatReplyKind replyKind, string? notice, IReadOnlyList<string> nextSteps, DateTimeOffset now)
     {
-        if (replyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt)
+        if (replyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt or ChatReplyKind.DatabaseQuery)
         {
-            throw new ArgumentException("Form replies have their own factories.", nameof(replyKind));
+            throw new ArgumentException("Form and database query replies have their own factories.", nameof(replyKind));
         }
 
         return new(thread, ChatMessageAuthor.Assistant, text, replyKind, notice, nextSteps, now);
@@ -91,6 +91,20 @@ public sealed class ChatMessage : IOrganizationScoped
         {
             FormDatabaseId = databaseId,
             SubmissionId = submissionId,
+        };
+    }
+
+    /// <summary>The answer of a fixed statistics query (M4 #149): <paramref name="text"/> is composed
+    /// by the server from the query's result, and <paramref name="databaseQuery"/> is that result's
+    /// structured view as JSON (period, metric, source, figures) — a snapshot of the numbers as they
+    /// were answered. It is shown again only while the asker may still query that database through
+    /// this assistant, never handed off and never sent to a model as history.</summary>
+    public static ChatMessage DatabaseQuery(ChatThread thread, string text, string databaseQuery, DateTimeOffset now)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databaseQuery);
+        return new ChatMessage(thread, ChatMessageAuthor.Assistant, text, ChatReplyKind.DatabaseQuery, null, [], now)
+        {
+            DatabaseQueryJson = databaseQuery,
         };
     }
 
@@ -129,6 +143,10 @@ public sealed class ChatMessage : IOrganizationScoped
     /// <summary>The submission of a <see cref="ChatReplyKind.SubmissionReceipt"/>;
     /// <see langword="null"/> otherwise. No foreign key, for the same reason.</summary>
     public Guid? SubmissionId { get; private set; }
+
+    /// <summary>The structured view (JSON) of a <see cref="ChatReplyKind.DatabaseQuery"/> reply;
+    /// <see langword="null"/> otherwise.</summary>
+    public string? DatabaseQueryJson { get; private set; }
 
     /// <summary>Set only for <see cref="ChatReplyKind.GeneralKnowledge"/>.</summary>
     public string? Notice { get; private set; }

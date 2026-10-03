@@ -71,6 +71,60 @@ describe('ChatMessageComponent', () => {
     expect(bubble?.querySelectorAll('ul.next-steps li').length).toBeGreaterThan(0);
   });
 
+  it('shows a database query answer with its source, period and the server’s figures', () => {
+    const { host } = render(
+      assistant({
+        kind: 'database-query',
+        text: '根據「訂單問題」的紀錄筆數查詢：近 30 天共有 3 筆有效紀錄。',
+        query: {
+          status: 'answered',
+          databaseId: 'database-orders',
+          databaseName: '訂單問題',
+          query: 'record-count',
+          queryLabel: '紀錄筆數',
+          period: { name: 'last-30-days', from: '2026-08-24', to: '2026-09-22', label: '近 30 天（2026-08-24 至 2026-09-22）' },
+          previousPeriod: { name: null, from: '2026-07-25', to: '2026-08-23', label: '2026-07-25 至 2026-08-23' },
+          subjectOnly: false,
+          figures: [{ metric: '有效紀錄筆數', value: 3, display: '3 筆', previousDisplay: '1 筆', changeLabel: '+2 筆' }],
+          message: null,
+        },
+      }),
+    );
+
+    const bubble = host.querySelector('[data-kind="database-query"]');
+    expect(bubble?.textContent).toContain('數據庫查詢');
+    expect(host.querySelector('.query-source')?.textContent).toContain('訂單問題（紀錄筆數）');
+    expect(host.querySelector('.query-source')?.textContent).toContain('近 30 天（2026-08-24 至 2026-09-22）');
+    const cells = [...host.querySelectorAll('.query-figures tbody th, .query-figures tbody td')].map((cell) => cell.textContent?.trim());
+    expect(cells).toEqual(['有效紀錄筆數', '3 筆', '1 筆', '+2 筆']);
+    expect(host.querySelector('button')).toBeNull();
+  });
+
+  it('shows a refused query without any source, period or figure', () => {
+    const { host } = render(
+      assistant({
+        kind: 'database-query',
+        text: '目前無法查詢。',
+        query: {
+          status: 'not-available',
+          databaseId: null,
+          databaseName: null,
+          query: null,
+          queryLabel: null,
+          period: null,
+          previousPeriod: null,
+          subjectOnly: false,
+          figures: [],
+          message: null,
+        },
+      }),
+    );
+
+    expect(host.querySelector('[data-kind="database-query"]')?.textContent).toContain('目前無法查詢。');
+    expect(host.querySelector('.query-source')).toBeNull();
+    expect(host.querySelector('.query-figures')).toBeNull();
+  });
+
   it('lets the user start the inline form from a form request', () => {
     const { fixture, host } = render(assistant(replyFor('我要回報訂單問題')));
     const started: unknown[] = [];

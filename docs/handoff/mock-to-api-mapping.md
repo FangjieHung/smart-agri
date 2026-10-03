@@ -173,7 +173,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 - **報表**：每一期一份快照（`DatabaseReportView`）：`statistics` 是固定查詢 `period-summary` 的結果原樣保存、之後不再重算（撤回只影響之後產生的報表）；`aiSummary` 另外保存並固定標示「AI 摘要」，狀態 `not-requested`／`pending`／`ready`／`failed`／`discarded`，只有 `ready` 才有 `text`。這一期或前一期沒有紀錄時 `dataState = insufficient-records`（紀錄不足）：統計照存，不顯示變化、圖表趨勢與 AI 摘要。期間到了但擁有者已不能讀取、或助理已不再連接：`status = skipped` 與 `skipReason`，不含統計。
 - **查看**：與時間軸相同的權限（指定資料管理者 **且** 具備 `read-consented-submissions`），每次請求重查；擁有者沒有額外權利。看不到資料庫是 `403 database`、看得到但不能讀是 `403 database-records`（對真的與假的報表 id 逐位元組相同）；能讀但 id 不是這個資料庫的報表是 `403 database-report`（`RepositoryPermissionDeniedReason` 多 `database-report`）。
 - **畫面**：資料庫詳情多「定期報表」頁籤（排程、報表清單、選中的一份：統計表、長條圖、AI 摘要區）；趨勢比較不再放報表。`DatabaseTrackingView.periodicReports`、`PeriodicReportView`、`buildPeriodicReport` 移除；`DatabaseUpcomingFeature` 成為 `never`、`API_UPCOMING_DATABASE_FEATURES` 為空。
-- 資料模型、排程、摘要保護與保留規則：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 12 節。
+- 資料模型、排程、摘要保護與保留規則：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 13 節。
 
 **API 模式狀態（#143，2026-10-03）**：`updateDatabaseFields`、`previewDatabaseEntry` 已改成 `Observable` 契約（不再傳 viewer），Hybrid 覆寫走 HTTP，**讀寫兩端都換了**（寫入與試填都由伺服器驗證，mock 的欄位清單不參與）。契約變更與刻意差異：
 
@@ -220,6 +220,15 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 - `submitChatForm` 的結果改成 `{ message, threadId }`（不再是整段對話）；`reviewChatForm` 多 `formVersion`、結果多 `conflict`；`ChatFormView` 多 `formVersion`；`form-request` 的 `form` 可為 `null`；`RepositoryPermissionDeniedReason` 多 `assistant-form`。mock 同步：同一個 `submissionId` 重送回同一張收據、版本不符回 `conflict`、表單已不可用回 `assistant-form`。
 - 設定：`AssistantSettingsView` 多 `databaseIds`；`rules` 多 `dataWriteDatabaseId`（`null`＝不寫入）與 `dataWritePurpose`；`PATCH .../settings` 的 `rules.dataWriteDatabaseId` 送 `""` 清除、省略不變；`setAssistantSourceConnection` 的資料庫走 `PUT`／`DELETE .../sources/database/{id}`；`GET /api/v1/connectable-sources` 也列出資料庫（自己擁有，或被指定為資料管理者且具備 `read-consented-submissions`）。建立精靈在 API 模式仍只列知識庫（由草稿建立時後端仍拒絕資料庫來源）。定期回報（`rules.periodicReport`）自 #150 起走 API（見下方 #150 段落）。
 - 詳細設計：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 9 節。
+
+**API 模式狀態（#149，2026-10-03）**：對話中查詢已連接數據庫的紀錄走 API（`POST .../chat/runs` 的 `smartagri.reply` 可能是 `kind: "database-query"`），Hybrid 只轉型別，數字不重算。
+
+- **何時是查詢**：問題含統計詞（幾筆、幾次、筆數、次數、總共、加總、合計、統計、趨勢…）且助理有連接、擁有者仍可使用的數據庫。編排層把固定查詢（#147 的四個）當成工具交給模型，模型只選工具與參數（數據庫與欄位都是伺服器列出的 enum）；伺服器驗證參數、以**提問者本人**的權限執行（被指定為資料管理者＋`read-consented-submissions`），回答的文字與數字由伺服器依結果組成，模型看不到結果。優先序：查詢 → 表單請求（#148）→ 一般回答。
+- **`reply.databaseQuery`**（`ChatDatabaseQueryView`，其他種類為 `null`）：`status`（`answered`／`no-data`／`insufficient-data`／`not-available`／`rejected`／`failed`）、`databaseId`／`databaseName`（資料來源）、`query`／`queryLabel`、`period`／`previousPeriod`（`DatabaseQueryPeriodView`，前端轉成 `DatabasePeriodRangeView`）、`subjectOnly`、`figures[]`（`metric`、`value`、`display`、`previousDisplay`、`changeLabel`）、`message`。前端型別是 `{ kind: 'database-query', text, query: ChatDatabaseQueryView }`。
+- **拒絕不洩漏**：沒有可查的數據庫、模型指定了不在清單的數據庫（不存在、他組織、未連接）、執行時已撤銷指定或權限，一律 `not-available`、同一句 `目前無法查詢：…`、`databaseId`／`databaseName` 為 `null`。定義外參數或未知工具是 `rejected`（不執行）；查詢失敗是 `failed`；選工具的模型呼叫失敗是串流的 `RUN_ERROR chat-unavailable`。
+- **保存與重新讀取**：保存對話時存回答文字與結構化快照；`GET chat` 每次重新檢查該數據庫仍可用且提問者仍可讀，否則讀回 `not-available`。查詢回答**不能轉人工**（`POST .../chat/handoffs` 回 `403 chat-thread`，畫面不顯示按鈕），不保存對話時也不當成前文送回。
+- **mock**：固定回覆 `chat-order-count`（「近 30 天有幾筆訂單問題回報？」，排在 `chat-order-issue` 前）以 `summarizePeriod` 計算 `database-orders` 的近 30 天筆數，文字與後端相同；只有能讀這個資料庫紀錄的帳號（mock 是 `account-smb-admin`）得到數字並看到這個建議問題，其他人得到同一個 `not-available`。
+- 詳細設計：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 12 節。
 
 ### 2.5 發布管道（10 個方法）
 

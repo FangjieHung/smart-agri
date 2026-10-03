@@ -50,7 +50,7 @@ export function statisticsDay(iso: string): string {
   return dayFormat.format(new Date(iso));
 }
 
-function formatNumber(value: number, unit: string): string {
+export function formatNumber(value: number, unit: string): string {
   const text = numberFormat.format(value);
   return unit ? `${text} ${unit}` : text;
 }

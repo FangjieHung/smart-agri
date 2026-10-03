@@ -5543,6 +5543,130 @@
           }
         }
       },
+      "ChatDatabaseQueryFigure": {
+        "required": [
+          "metric",
+          "value",
+          "display",
+          "previousDisplay",
+          "changeLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "display": {
+            "type": "string"
+          },
+          "previousDisplay": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "changeLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ChatDatabaseQueryStatus": {
+        "enum": [
+          "answered",
+          "no-data",
+          "insufficient-data",
+          "not-available",
+          "rejected",
+          "failed"
+        ]
+      },
+      "ChatDatabaseQueryView": {
+        "required": [
+          "status",
+          "databaseId",
+          "databaseName",
+          "query",
+          "queryLabel",
+          "period",
+          "previousPeriod",
+          "subjectOnly",
+          "figures",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ChatDatabaseQueryStatus"
+          },
+          "databaseId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "databaseName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "query": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "queryLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "period": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+              }
+            ]
+          },
+          "previousPeriod": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+              }
+            ]
+          },
+          "subjectOnly": {
+            "type": "boolean"
+          },
+          "figures": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatDatabaseQueryFigure"
+            }
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ChatFormConsentView": {
         "required": [
           "recipient",
@@ -5667,7 +5791,8 @@
           "notice",
           "nextSteps",
           "form",
-          "receipt"
+          "receipt",
+          "databaseQuery"
         ],
         "type": "object",
         "properties": {
@@ -5712,6 +5837,16 @@
               },
               {
                 "$ref": "#/components/schemas/DatabaseSubmissionReceiptView"
+              }
+            ]
+          },
+          "databaseQuery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatDatabaseQueryView"
               }
             ]
           }

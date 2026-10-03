@@ -54,7 +54,8 @@
 - **#146 查看紀錄與撤回**：已實作，見下方第 9 節（資料保留規則、撤回語意、API 契約、給 #147 的接點）。
 - **#147 趨勢與固定統計查詢**：已實作，見下方第 11 節（固定查詢清單、參數與時區規則、給 #149／#150 的接點）。
 - **#148 連接助理**：已實作，見下方第 10 節。
-- **#150 站內定期報表**：已實作，見下方第 12 節（資料模型、排程、摘要保護、保留規則）。
+- **#149 對話中查詢授權紀錄**：已實作，見下方第 12 節（工具定義、授權順序、回答格式、失敗分類）。
+- **#150 站內定期報表**：已實作，見下方第 13 節（資料模型、排程、摘要保護、保留規則）。
 
 ## 6. 驗收紀錄
 
@@ -295,7 +296,7 @@
 
 - `TrackedSubjectView.comparison` 由伺服器填入（Hybrid 只轉換型別）；新增 `getDatabasePeriodSummary(databaseId, {period, subjectId})`（`Observable` 契約；mock 以 `now()` 在統計時區（台北）的曆日為今天計算，`summarizePeriod`／`resolvePeriod`／`previousPeriod` 在 `database-tracking.ts`，與後端同一套規則）。
 - 趨勢頁籤：變化摘要＋比較表＋趨勢圖（紀錄不足時只顯示說明，不畫圖）；新增「期間統計」（`features/databases/period-summary/`，預設近 30 天，可切換期間；讀取失敗與「沒有紀錄」分開、可重試）；每位追蹤對象底下有「查看…的原始紀錄」連到收集紀錄頁籤（`?subject=`）。
-- `DatabaseUpcomingFeature`：`'trends'` 移除，改為 `'periodic-reports'`（#150；**#150 已移除它，清單與型別成為空，見第 12 節**）；與 #148 合併後（#148 移除了 `assistant-connections`）清單與 `DatabaseUpcomingFeature` 都只剩 `periodic-reports`。API 模式的趨勢頁籤只在有追蹤對象時顯示「定期回報摘要：這項功能將於後續版本開放」，`periodicReports` 仍是空陣列。
+- `DatabaseUpcomingFeature`：`'trends'` 移除，改為 `'periodic-reports'`（#150；**#150 已移除它，清單與型別成為空，見第 13 節**）；與 #148 合併後（#148 移除了 `assistant-connections`）清單與 `DatabaseUpcomingFeature` 都只剩 `periodic-reports`。API 模式的趨勢頁籤只在有追蹤對象時顯示「定期回報摘要：這項功能將於後續版本開放」，`periodicReports` 仍是空陣列。
 - 摘要清單的 `recordCount`／`subjectCount` 仍為 `null`（本票沒有需要顯示它的畫面；要顯示時用 `DatabaseActiveRecords` 計數且只對可讀者回傳）。
 
 ### 11.6 測試
@@ -310,18 +311,73 @@
 - **#149（對話工具）**：模型只選 `DatabaseFixedQueries.Definitions` 之一與參數（字串字典），服務端呼叫 `DatabaseFixedQueryService.RunAsync(kind, accountId, databaseId, parameters, ct)`：`Readable = false`＝無權限（不洩漏）、`Failures`＝參數不被接受（可轉成給模型的錯誤）、`Value`＝上列結果記錄。呼叫前要先確認助理已連接該數據庫且帳號當下有權使用（#148）；本服務只管「這個帳號能不能讀這個數據庫的紀錄」。結果的 `period.label`、`display`、`changeLabel` 可直接當作回答的統計期間與可核對的數字；結果沒有任何自由文字來自使用者填寫的內容，除了欄位名稱（`label`）。
 - **#150（排程）**：排程以擁有者帳號呼叫同一個服務（擁有者仍須是被指定且具權限的資料管理者，否則 `Readable = false`＝本期不產生報表）；每期存 `period`（`from`／`to`）與結果 JSON，AI 摘要只拿已算好的數字；`this-week`／`last-month` 等具名期間以排程當下在統計時區（`Statistics:TimeZone`）的曆日解析（服務用注入的 `TimeProvider`）。紀錄不足時沿用 `insufficient-records`，不產生假趨勢。
 
-## 12. #150 站內定期報表（2026-10-03）
+## 12. #149 對話中查詢授權紀錄（2026-10-03）
+
+依據：[助理存取知識庫與數據庫 ADR](../adr/2026-09-25-assistant-access-to-knowledge-and-databases.md)（模型只選固定查詢與參數，不產生／執行 SQL）、[後端技術棧 ADR](../adr/2026-09-25-backend-stack.md)、[可觀測性 ADR](../adr/2026-09-25-observability.md)、M3.5 收尾交接 §3。
+
+### 12.1 工具定義（`DatabaseQueryTools`，Application，純函式）
+
+- 每個固定查詢（§11.1）一個工具：`database_record_count`、`database_field_sum`、`database_period_summary`、`database_subject_comparison`（`ToolName(kind)`），沒有其他工具。
+- 參數 schema（JSON Schema，`additionalProperties: false`）＝`databaseId`（**enum**：這次提問者經這個助理可查的數據庫 id）＋該查詢定義的參數，且只有這些：`period`（enum：六個具名期間）、`from`／`to`（`yyyy-MM-dd`）、`fieldId`（**enum**：`field-sum` 只列數字欄位，`subject-comparison` 列數字與量尺欄位；來源是各數據庫目前表單；沒有可選欄位時 `field-sum` 不提供）、`subjectId`（字串；追蹤對象的姓名屬個資，不列給模型，只有對話中已提供 id 時才用得到）。工具說明列出數據庫 id 與名稱、欄位 id 與標籤（不含任何紀錄內容）。
+- 以 `Microsoft.Extensions.AI` 的 `AIFunctionFactory.CreateDeclaration` 宣告、`ChatOptions.Tools` 交給模型（`ToolMode = Auto`、`AllowMultipleToolCalls = false`）；**不**掛 `FunctionInvokingChatClient`，模型的 `FunctionCallContent` 由編排層自己比對與執行。**沒有引入 Agent Framework 或任何新 NuGet 套件**：本票只有「一次選擇呼叫 → 伺服器執行一個固定查詢 → 伺服器組回答」，沒有多步驟代理迴圈；`IChatClient` 的 function calling 已足夠，且沿用既有的錄製中介層（用量）與 Fake 模型。日後真的需要多步驟工具編排時再依後端技術棧 ADR 引入，同樣只放在編排層。
+- Fake 模型（`FakeChatClient`）在呼叫帶工具時改為選工具：`#query:{"name":…,"arguments":{…}}` 原樣呼叫（測試可送定義外的名稱與參數）、`#query-none` 不呼叫，否則依問題確定性地選（含「加總／合計」且有數字欄位 → `field-sum` 第一個欄位，否則 `record-count`；第一個數據庫；問題中的「本週／上週／本月／上個月／近 7 天／近 30 天」，否則 `last-30-days`）；`#fail-midway` 照舊讓呼叫失敗。
+
+### 12.2 編排流程與授權順序（`ChatDatabaseQueries`，`ChatRunEndpoints` 呼叫）
+
+1. 既有的 chat run 檢查（登入 → `403 assistant-use` → `403 chat-thread` → `422` → `503` → `409`），問題照保存規則先存。
+2. **觸發**：問題含統計詞（`AsksForStatistics`：幾筆、幾次、多少筆、筆數、次數、總共、一共、共有、加總、合計、總計、總和、統計、趨勢…）**且** `AssistantFormRequests.UsableDatabaseIdsAsync`（連接列 ∩ 擁有者此刻可使用）非空。助理沒有可用數據庫時完全不走查詢（照常回答，行為與 #148 前相同）。
+3. **提問者可讀**：上一步的數據庫 ∩ `DatabaseRecordReaders.ReadableDatabaseIdsAsync(提問者)`（被指定為資料管理者＋此刻有 `read-consented-submissions`，每次請求重查）。交集為空 → 直接回 `not-available`，**不呼叫模型**。
+4. **模型選擇**：一次 `GetResponseAsync`（用途 `database-query`），只提供第 3 步的數據庫與其欄位。模型沒有呼叫工具 → 回到 #148 的表單請求（若問題也有填寫意圖且有寫入對象）或一般回答流程。
+5. **比對**：工具名稱不是固定查詢 → `rejected`（不提任何數據庫）；`databaseId` 缺漏、不是 GUID、不在提供清單 → `not-available`（與無權限相同）。
+6. **執行**：`DatabaseFixedQueryService.RunAsync(kind, 提問者帳號, databaseId, 參數)`——服務內再查一次提問者能否讀（`Readable = false` → `not-available`），再以 `DatabaseFixedQueries.Validate` 驗參數（定義外的鍵、值、欄位、對象 → `rejected`，不執行）。查詢丟例外 → `failed`（記 log）。
+7. **回答**：`DatabaseQueryTools.Compose` 由結果記錄組文字與結構化欄位。
+
+優先序（與 #148 共存）：**查詢 → 表單請求 → 一般回答**。「本月回報了幾筆？」（同時含「回報」與「幾筆」）是查詢；「我要回報這週的完成數量」只有填寫意圖，是表單；模型決定不查詢時，有填寫意圖仍得到表單。mock 的固定回覆順序相同（`chat-order-count` 排在 `chat-order-issue` 前）。
+
+### 12.3 回答格式與數字防改寫
+
+- 新的回覆種類 `ChatReplyKind.DatabaseQuery`（wire `database-query`，整數接在尾端）。`ChatReplyView.databaseQuery`（`ChatDatabaseQueryView`，其他種類為 `null`）：`status`、`databaseId`／`databaseName`（資料來源）、`query`／`queryLabel`（查詢種類）、`period`／`previousPeriod`（統計期間，§11 的 `DatabaseQueryPeriodView`）、`subjectOnly`、`figures[]`（`metric`、`value`、`display`、`previousDisplay`、`changeLabel`）、`message`（比較摘要或資料不足說明）。
+- **模型只負責選擇，看不到結果**；回答文字由伺服器範本組成，例如「根據「回報資料庫」的紀錄筆數查詢：2026-02-01 至 2026-02-28共有 3 筆有效紀錄；前一期（2026-01-04 至 2026-01-31）為 1 筆，變化 +2 筆。」。文字中的每個數字都是結果的 `display`／`changeLabel`／`period.label` 原字串，`figures` 也是同一批字串，所以畫面上的數字與固定查詢端點逐字相同（整合測試直接比對 `GET .../queries/*`）。沒有第二次模型呼叫，也就沒有模型改寫數值的機會。
+- 前端：`ChatReplyView` 多 `{ kind: 'database-query', text, query }`；訊息顯示「數據庫查詢」標籤、資料來源（數據庫名稱＋查詢種類）、統計期間、數字表（指標／數值／前一期或上次／變化）與「數字由系統依你目前的查詢權限計算，不由 AI 產生」。不顯示轉人工按鈕；不保存對話時也不把查詢回答當成前文送回。
+
+### 12.4 失敗分類
+
+| `status` | 何時 | 文字 | 透露什麼 |
+| --- | --- | --- | --- |
+| `answered` | 查詢成功且期間內有紀錄 | 範本＋數字 | 數據庫名稱、查詢、期間、數字 |
+| `no-data` | 期間內沒有紀錄（`record-count`／`period-summary` 筆數 0、`field-sum` 該欄位無值） | 「…沒有任何有效紀錄，共 0 筆…」 | 同上（0 也是可核對的數字） |
+| `insufficient-data` | `subject-comparison` 紀錄不足（§11.4） | 「資料不足，無法比較。」＋伺服器的說明 | 數據庫名稱、查詢；無數字 |
+| `not-available` | 提問者沒有可查的數據庫、模型給的數據庫不在清單（不存在、他組織、未連接）、執行時已不可讀（撤銷指定或權限） | `DatabaseQueryTools.NotAvailableText`（逐位元組相同） | 無（`databaseId`／名稱皆 `null`） |
+| `rejected` | 工具名稱不是固定查詢，或參數不在定義內 | `RejectedText` | 只有提問者可讀的數據庫名稱與查詢種類（未知工具連這些都沒有）；不執行 |
+| `failed` | 固定查詢執行時丟例外 | `FailedText` | 無 |
+| （`RUN_ERROR chat-unavailable`） | 選擇工具的模型呼叫失敗 | 與一般回答相同的串流錯誤 | 只保存問題（保存對話時） |
+
+### 12.5 保存、轉人工與用量
+
+- **保存**：保存對話時，回答存成 `ChatMessages`（`ReplyKind = DatabaseQuery`、`Text`、新的 `jsonb` 欄位 `DatabaseQuery`＝結構化快照；migration `AddChatDatabaseQueries`）。快照只在**提問者本人的私人對話**裡，且每次 `GET chat` 重新檢查：該數據庫仍是助理可用的、提問者仍可讀（`ChatDatabaseQueries.VisibleDatabaseIdsAsync`），否則文字與結構都換成 `not-available`（不透露名稱與數字）。快照是回答當時的數字，與定期報表相同不追溯改寫；新的提問一律重新查詢。不保存對話時不寫任何對話表。
+- **模型看不到結果**：保存的查詢回答在之後的模型呼叫前文中換成 `DatabaseQueryTools.HistoryPlaceholder`；前端不保存對話時也不把查詢回答送回當前文。
+- **轉人工**：查詢回答不能轉人工（`AssistantHandoffEndpoints` 回 `403 chat-thread`，前端不顯示按鈕）——數字來自只有提問者能讀的紀錄，處理人不因轉人工看到他人紀錄。
+- **用量**：選擇工具的呼叫經既有錄製中介層寫一筆 `ModelInvocations`（新用途 `ModelInvocationPurpose.DatabaseQuery`，wire `database-query`，歸屬提問者與助理，不含內容；失敗也記 `Succeeded = false`）；`not-available`（第 3 步）不呼叫模型、不記。工具執行本身是一個 `smartagri.chat.database_query` span（`smartagri.database_query.query`／`.status`，不含參數與結果）。查詢回答不寫 `AnswerOutcomes`（那是知識庫回答品質的分析：組織資料／一般知識／查無資料）。
+
+### 12.6 測試
+
+- 單元：`DatabaseQueryToolsTests`（只有四個工具、每個 schema 只有定義內參數與 enum、沒有 SQL；比對未知工具／未提供的數據庫；定義外參數交給 `Validate` 拒絕；回答文字與數字來自結果字串；無資料、資料不足；拒絕不含名稱）、`FakeChatClientTests`（指令、確定性選擇、不呼叫）、`ModelInvocationTests`（用途清單）。
+- 整合（`ChatDatabaseQueryEndpointsTests`，真實 PostgreSQL，7 個）：授權成員的筆數與加總等於固定查詢端點、標明期間／指標／來源、保存後讀回相同、用量正確、不能轉人工；不能讀的成員（不呼叫模型）、他組織與不存在的數據庫、撤銷指定（含讀回舊回答）、撤銷帳號權限皆為同一個 `not-available`，解除連接則照常回答；定義外參數與未知工具 `rejected`；資料不足；模型失敗 `RUN_ERROR`（只存問題、記失敗用量）與工具失敗 `failed`；不保存對話不寫對話表；與表單請求的優先序。
+- 前端：`hybrid-demo-repository.spec.ts`（**真實 API JSON**，答覆與拒絕）、`chat-message.component.spec.ts`、`mock-demo-repository-chat.spec.ts`（mock 以 `summarizePeriod` 算出與期間統計相同的筆數；無權者同一個拒絕、不被建議這個問題；填寫意圖仍得到表單）。
+- Cypress（未在本機執行）：`e2e-api/chat-database-query-api.cy.ts`（授權成功、資料不足、撤銷指定後拒絕並讀回拒絕）。AG-UI 錄製檔因 `smartagri.reply` 多了 `databaseQuery: null` 重錄。
+
+## 13. #150 站內定期報表（2026-10-03）
 
 依據：[定期報表 ADR](../adr/2026-09-25-periodic-reports.md)（統計為主、AI 摘要為輔並標示，第一版只在站內查看）、[PostgreSQL 背景工作 ADR](../adr/2026-09-25-background-jobs-on-postgresql.md)（不引入排程套件）、[撤回與保存 ADR](../adr/2026-09-25-withdrawal-and-retention.md)（已產生的報表不追溯修改）、[LLM 與資料落地 ADR](../adr/2026-09-25-llm-providers-and-data-residency.md)、[可觀測性 ADR](../adr/2026-09-25-observability.md)。
 
-### 12.1 資料模型
+### 13.1 資料模型
 
 - **`AssistantReportSchedules`**（`ReportSchedule`）：一位助理最多一列（`AssistantId` 唯一索引）。`Id`、`DatabaseId`、`Frequency`（`weekly`／`monthly`）、`NextPeriodFrom`（`date`，下一個要報告的期間的第一天，統計時區的曆日）、`CreatedAt`。外鍵都含 `OrganizationId`、都 `Cascade`（刪助理或資料庫，排程跟著結束）；**刻意沒有指向 `AssistantDatabases`**，所以解除連接後排程還在，下一期才能記錄「為什麼沒產生」。
 - **`DatabaseReports`**（`DatabaseReport`）：每一期一份**快照**。`DatabaseId`（外鍵＋`Cascade`）、`AssistantId`（無外鍵，報表比助理活得久）＋`AssistantName`（複本）、`Frequency`、`PeriodFrom`／`PeriodTo`（`date`）、`Status`（`generated`／`skipped`）、`SkipReason`（`not-connected`／`owner-cannot-read`）、`DataState`（`sufficient`／`insufficient-records`）、`StatisticsJson`（`jsonb`，固定查詢 `period-summary` 的結果原樣）、`GeneratedAt`；**摘要與統計分開保存**：`SummaryStatus`（`not-requested`／`pending`／`ready`／`failed`／`discarded`）、`SummaryText`（只有 `ready`）、`SummaryNote`、`SummaryModel`、`SummaryUpdatedAt`。唯一索引 `IX_DatabaseReports_OnePerPeriod (AssistantId, DatabaseId, Frequency, PeriodFrom)`：同一設定同一期間只有一份。check constraint：`generated` 一定有統計與資料狀態、沒有略過原因，`skipped` 相反；只有 `ready` 的摘要有文字與模型名稱。
 - 列舉值全部用 wire name 儲存，`ModelInvocationPurpose` 多 `generate-report-summary`。
 - 兩張表都是 `IOrganizationScoped`（查詢過濾與寫入守衛照常；`OrganizationModelTests` 白名單加入）。migration：`AddPeriodicReports`。
 
-### 12.2 設定
+### 13.2 設定
 
 `rules.periodicReport`（`off`／`weekly`／`monthly`，`PATCH .../settings`，見 `ReportScheduleRules`）：
 
@@ -329,7 +385,7 @@
 - 週期或資料庫變了，就**換掉**排程（新的 `Id`，舊的已排入佇列的工作找不到排程，什麼都不做）；寫入對象改了，排程跟著移；清掉寫入對象，報表關閉；`off` 刪除排程（已產生的報表保留）。沒有帶 `periodicReport`、也沒動寫入對象的 `PATCH` 不會碰排程（它可能正在等著記錄略過的期間）。
 - 設定回應的 `rules.periodicReport` 讀回目前排程的週期（沒有就是 `off`）。
 
-### 12.3 排程（PostgreSQL 背景工作，沒有新的排程套件）
+### 13.3 排程（PostgreSQL 背景工作，沒有新的排程套件）
 
 - 排程是一串**自我接續的工作**，不是時鐘：設定時排入「包含今天的那一期」的工作（`reports.generate-period`，`RunAfter` ＝ 該期結束後隔天 00:00，統計時區換成 UTC）；工作做完，在同一個交易內把 `NextPeriodFrom` 以 compare-and-set（`ExecuteUpdate … WHERE NextPeriodFrom = 這一期`）推到下一期，**只有推成功才排下一個工作**。工作被送兩次、或 worker 停機後補跑，每一期仍只產生一次、依序補齊；補跑的工作報告的是它名下的那一期，不是「現在」所在的那一期（`DatabaseFixedQueryService.PeriodSummaryForAsync` 接收明確的期間與前一期）。
 - 期間：統計時區（`Statistics:TimeZone`，預設 `Asia/Taipei`）的曆日週（週一到週日）或曆月；前一期是完整的前一個曆週／曆月（`ReportPeriods`，單元測試涵蓋大小月與閏年）。
@@ -337,7 +393,7 @@
 - **資料不足**：`DataState = insufficient-records` ＝ 這一期或前一期有效紀錄為 0（`ReportDataRules`）。統計照存（0 就是 0），但畫面不顯示變化、圖表趨勢，也**不排摘要工作**、不呼叫模型。
 - 狀態表：只有 `Sufficient` 的報表同一個交易內排一個 `reports.summarize`（`MaxAttempts = 3`）。
 
-### 12.4 AI 摘要與保護
+### 13.4 AI 摘要與保護
 
 - 模型**只拿已算好的數字**（`ReportSummaryPrompt.Facts`：期間、筆數、各數字欄位的加總與變化文字，欄位名稱壓成一行）；沒有紀錄、答案、提交者、資料庫或助理名稱。用量照既有規則：`ModelInvocations` 一筆，purpose `generate-report-summary`，帶組織、擁有者、助理、模型、token、成功與否，沒有內容。
 - **數字保護（`ReportSummaryGuard`）**：摘要文字裡寫出的每一個數字（任何文字的阿拉伯數字，千分位與小數正規化，`1,200` ＝ `1200`、全形數字視為同一個數字）都必須也出現在給模型的那份數字裡；日期以整個 `yyyy-MM-dd` 比對（不讓日期的 `09`、`01` 讓筆數 `1`、`9` 看起來有驗證過）。不符（改過的加總、自己算的百分比或倍數、編出來的筆數）→ 整段**捨棄**：不存文字，狀態 `discarded`、說明「含有統計結果裡沒有的數字」，統計欄位不動；中文數字緊接單位（`三筆`、`五成`、`百分之十`）無法比對，同樣捨棄。過長（> 2000 字）也捨棄。這個檢查不判斷文字描述得好不好（上升或下降、哪個欄位）——所以摘要永遠標示「AI 摘要」、放在統計下面，並附「一切數字以統計為準」。
@@ -345,26 +401,26 @@
 - **重試**：`POST .../reports/{reportId}/summary`；只有 `failed`／`discarded` 變成 `pending` 並在同一次儲存排一個摘要工作，其他狀態原樣回傳（連按兩次只一次模型呼叫）。處理工作只處理 `pending` 的報表，所以重複送達不會再呼叫模型。
 - 測試用的 Fake 聊天模型對報表摘要回「整體來看，」加上數字檔的第一行，所以只含統計裡有的數字；整合測試以 `ChatClientProvider` 替身驗證竄改與失敗。
 
-### 12.5 查看與權限
+### 13.5 查看與權限
 
 - `GET /api/v1/databases/{id}/reports`（排程與清單，最多 60 份）、`GET .../reports/{reportId}`、`POST .../reports/{reportId}/summary`。只有**目前能讀這個資料庫紀錄的帳號**（指定的資料管理者 **且** 具備 `read-consented-submissions`，`DatabaseRecordReaders.CanReadAsync`，每次請求重查，帳號權限不在 token 內）；助理擁有者沒有額外權利。
 - 其他人：看不到資料庫是 `403 database`（與不存在逐位元組相同），看得到但不能讀是 `403 database-records`，**對真的與假的報表 id 一樣**，所以報表是否存在、助理名稱都不洩漏；能讀但 id 不是這個資料庫的報表是 `403 database-report`。別的組織與不存在的資料庫相同。
 - 回應的 `statistics` 是 `StatisticsJson` 反序列化成 `DatabasePeriodSummaryResult`，欄位與固定查詢的 `period-summary` 逐位元組相同。
 
-### 12.6 保留規則
+### 13.6 保留規則
 
 - **已產生的報表不追溯修改**：統計是快照，沒有任何重算的程式路徑；撤回只影響之後產生的報表（新報表走 `DatabaseActiveRecords`，已排除撤回；下一期的「前一期」數字也不含已撤回的紀錄）。整合測試：產生 → 撤回 → 舊報表 `StatisticsJson` 逐位元組相同、下一期的前一期數字少了那一筆。
 - 報表只含彙總數字（筆數、加總），沒有紀錄內容或提交者。刪除資料庫連帶刪除它的報表（`Cascade`）；刪除助理不刪報表（名稱是複本）。報表本身沒有到期刪除（沿用撤回與保存 ADR 的規則，之後若要加保存期限，在這裡處理）。
 - 摘要的文字是模型輸出、存在報表列上，不進 `ModelInvocations`；失敗與捨棄的摘要不留文字。
 
-### 12.7 前端
+### 13.7 前端
 
 - 助理設定「回答與記錄」的 `#periodic-report`（標籤「是否定期產生報表？」）API 模式啟用；`periodicReport` 欄位的 `422` 顯示在它下面。
 - 資料庫詳情新增「定期報表」頁籤（`features/databases/database-reports/`）：排程（下一份在哪天產生）、報表清單（紀錄不足／未產生／含 AI 摘要等標示）、選中的一份——統計表、依比例畫的長條圖（只有兩期都有紀錄才畫，數字以表為準）與獨立的「AI 摘要」區（失敗或捨棄時說明並可重試；產生中可重新整理）。讀取失敗與「沒有報表」分開、可重試；無權限只顯示拒絕訊息。
 - mock 同形：最近三個完成的月份（週報是四週）依 mock 的紀錄產生快照並存起來（所以撤回後舊報表不變），摘要是「整體來看，」加上筆數那一行。
 - 移除：`PeriodicReportView`、`DatabaseTrackingView.periodicReports`、`buildPeriodicReport`、`features/databases/periodic-report/`；`DatabaseUpcomingFeature` 為 `never`、`API_UPCOMING_DATABASE_FEATURES` 為空。
 
-### 12.8 測試
+### 13.8 測試
 
 - 後端單元：`ReportRulesTests`（期間、資料是否足夠、設定規則、給模型的內容、數字保護，含全形數字與中文數字）、`DatabaseReportTests`（狀態轉移）、`ModelInvocationTests`（purpose wire name）。
 - 後端整合（`PeriodicReportEndpointsTests`，真實 PostgreSQL，10 個）：只能為已連接且可使用的資料庫設定／換掉或移除排程；排程產生正確期間與數字（含 +08 日界：週日 23:30 屬上週、週一 00:30 屬本週）、只排一個接續工作；同期不重複（重複送達、重試）；資料不足不產生趨勢與摘要、不呼叫模型；AI 摘要標示、竄改數字被捨棄且統計不動、重試與連按；模型失敗統計仍可查看、重試恢復；撤回後舊報表不變、下一期排除；擁有者失權或解除連接記錄略過原因；無權限者看不到且不洩漏（含權限撤銷、別組織、擁有者未指定）。

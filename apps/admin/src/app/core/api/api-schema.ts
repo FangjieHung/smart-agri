@@ -5475,6 +5475,29 @@ export interface components {
             excerpt: string;
             updatedLabel: string;
         };
+        ChatDatabaseQueryFigure: {
+            metric: string;
+            /** Format: double */
+            value: number;
+            display: string;
+            previousDisplay: null | string;
+            changeLabel: null | string;
+        };
+        /** @enum {unknown} */
+        ChatDatabaseQueryStatus: "answered" | "no-data" | "insufficient-data" | "not-available" | "rejected" | "failed";
+        ChatDatabaseQueryView: {
+            status: components["schemas"]["ChatDatabaseQueryStatus"];
+            /** Format: uuid */
+            databaseId: null | string;
+            databaseName: null | string;
+            query: null | string;
+            queryLabel: null | string;
+            period: null | components["schemas"]["DatabaseQueryPeriodView"];
+            previousPeriod: null | components["schemas"]["DatabaseQueryPeriodView"];
+            subjectOnly: boolean;
+            figures: components["schemas"]["ChatDatabaseQueryFigure"][];
+            message: null | string;
+        };
         ChatFormConsentView: {
             recipient: string;
             purpose: string;
@@ -5512,6 +5535,7 @@ export interface components {
             nextSteps: string[];
             form: null | components["schemas"]["ChatFormRequestView"];
             receipt: null | components["schemas"]["DatabaseSubmissionReceiptView"];
+            databaseQuery: null | components["schemas"]["ChatDatabaseQueryView"];
         };
         ChatSuggestedPromptView: {
             id: string;

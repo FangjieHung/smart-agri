@@ -28,4 +28,13 @@ public static class FakeChatDirectives
     /// recorded as a <see cref="ModelInvocationAttribution"/>-attributed
     /// <c>ModelInvocations</c> row.</summary>
     public const string FailMidway = "#fail-midway";
+
+    /// <summary>When the call offers tools (M4 #149): call the tool and arguments given by the JSON
+    /// object that follows, e.g. <c>#query:{"name":"database_record_count","arguments":{"databaseId":"…","period":"this-month"}}</c>
+    /// — names and values are sent exactly as written, so tests can send undefined ones.</summary>
+    public const string Query = "#query:";
+
+    /// <summary>When the call offers tools: call none and answer with text (the model decided the
+    /// question is not about the databases).</summary>
+    public const string NoQuery = "#query-none";
 }

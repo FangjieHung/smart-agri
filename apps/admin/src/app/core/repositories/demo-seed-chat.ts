@@ -1,6 +1,6 @@
 import type { AssistantId } from '../domain/assistant.model';
 import type { ChatResponseId } from '../domain/conversation.model';
-import type { DatabaseId } from '../domain/database.model';
+import type { DatabaseId, DatabasePeriodName } from '../domain/database.model';
 import type { KnowledgeBaseId } from '../domain/knowledge-base.model';
 
 /*
@@ -22,7 +22,12 @@ export type ChatAnswerFixture =
       readonly citations: readonly ChatCitationFixture[];
     }
   | { readonly kind: 'general-knowledge'; readonly text: string }
-  | { readonly kind: 'form-request'; readonly text: string; readonly databaseId: DatabaseId };
+  | { readonly kind: 'form-request'; readonly text: string; readonly databaseId: DatabaseId }
+  /**
+   * 對話中的數據庫查詢（issue #149）：mock 固定用「紀錄筆數」查詢這個資料庫、這個期間；
+   * 數字由 mock 的收集紀錄算出，只有能讀這個資料庫紀錄的帳號會得到數字。
+   */
+  | { readonly kind: 'database-query'; readonly databaseId: DatabaseId; readonly period: DatabasePeriodName };
 
 export interface ChatResponseFixture {
   readonly id: ChatResponseId;
@@ -104,6 +109,13 @@ export const CHAT_RESPONSES: readonly ChatResponseFixture[] = [
       kind: 'general-knowledge',
       text: '一般建議避免長時間日曬與潮濕，並每 1 到 3 個月使用皮革保養油。',
     },
+  },
+  {
+    // 與後端相同，統計問題優先於表單請求：「近 30 天回報了幾筆」是查詢，「我要回報」是表單。
+    id: 'chat-order-count',
+    prompt: '近 30 天有幾筆訂單問題回報？',
+    matchers: [['幾筆'], ['幾次'], ['多少筆'], ['筆數'], ['次數'], ['統計'], ['總共'], ['一共']],
+    answer: { kind: 'database-query', databaseId: 'database-orders', period: 'last-30-days' },
   },
   {
     id: 'chat-order-issue',

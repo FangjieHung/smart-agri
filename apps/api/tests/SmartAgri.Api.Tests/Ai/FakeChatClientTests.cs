@@ -137,6 +137,32 @@ public sealed class FakeChatClientTests
         (metadata.ProviderName, metadata.DefaultModelId).ShouldBe(("fake", "fake-chat"));
     }
 
+    [Fact]
+    public async Task With_tools_it_calls_the_directed_tool_or_chooses_deterministically_or_none()
+    {
+        using var client = new FakeChatClient("fake-chat");
+        var databaseId = Guid.NewGuid();
+        var source = new SmartAgri.Application.Databases.DatabaseQueryToolSource(
+            databaseId, "回報資料庫", [new("field-count", "數量", SmartAgri.Domain.Databases.DatabaseFieldType.Number, "件")]);
+        var options = new ChatOptions { Tools = [.. SmartAgri.Application.Databases.DatabaseQueryTools.Declarations([source])] };
+
+        var directed = await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, $"幾筆？ {FakeChatDirectives.Query}{{\"name\":\"run_sql\",\"arguments\":{{\"sql\":\"SELECT 1\"}}}}")],
+            options, CancellationToken);
+        var call = directed.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().ShouldHaveSingleItem();
+        call.Name.ShouldBe("run_sql");
+        ((System.Text.Json.JsonElement)call.Arguments!["sql"]!).GetString().ShouldBe("SELECT 1");
+
+        var chosen = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "上個月的數量加總？")], options, CancellationToken);
+        var sum = chosen.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().ShouldHaveSingleItem();
+        sum.Name.ShouldBe("database_field_sum");
+        sum.Arguments!.ShouldBe(new Dictionary<string, object?> { ["databaseId"] = databaseId.ToString(), ["period"] = "last-month", ["fieldId"] = "field-count" }, ignoreOrder: true);
+
+        var none = await client.GetResponseAsync([new ChatMessage(ChatRole.User, $"幾筆？ {FakeChatDirectives.NoQuery}")], options, CancellationToken);
+        none.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().ShouldBeEmpty();
+        none.Usage.ShouldNotBeNull();
+    }
+
     private static List<ChatMessage> WithPassages(int count, string question)
     {
         var passages = string.Join('\n', Enumerable.Range(1, count).Select(index => $"[{index}] 段落內容 {index}"));

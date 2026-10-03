@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using SmartAgri.Application.Ai;
@@ -18,6 +19,14 @@ namespace SmartAgri.Infrastructure.Ai;
 /// last user message's text. If that text contains one of <see cref="FakeChatDirectives"/>, it
 /// answers exactly as that directive says (see each constant's doc); otherwise it answers with a
 /// generic sentence citing the first passage, <c>[1]</c>, if any passage was supplied.
+/// </para>
+/// <para>
+/// <b>Tools</b> (M4 #149, non-streaming only). When the options offer tools, the answer is a tool
+/// choice instead (<see cref="FakeToolChoice"/>): <see cref="FakeChatDirectives.Query"/> calls exactly
+/// the tool and arguments that follow it, <see cref="FakeChatDirectives.NoQuery"/> calls none, and
+/// otherwise it picks deterministically from the offered definitions (field sum when the question
+/// asks for a total and a number field is offered, else the record count; the first offered
+/// database; the period named in the question, else <c>last-30-days</c>).
 /// </para>
 /// <para>
 /// Streaming always splits the answer into at least two chunks, and — whenever the answer
@@ -60,7 +69,10 @@ public sealed class FakeChatClient : IChatClient
             return Task.FromException<ChatResponse>(FailMidwayException());
         }
 
-        var message = new ChatMessage(ChatRole.Assistant, script.Answer);
+        var tools = options?.Tools?.OfType<AIFunctionDeclaration>().ToList() ?? [];
+        var message = tools.Count > 0
+            ? FakeToolChoice.Choose(messages, tools)
+            : new ChatMessage(ChatRole.Assistant, script.Answer);
         var response = new ChatResponse(message)
         {
             ModelId = _model,
@@ -180,4 +192,71 @@ public sealed class FakeChatClient : IChatClient
                 : [answer[..splitAt], answer[splitAt..]];
         }
     }
+}
+
+/// <summary>The fake's tool choice (see <see cref="FakeChatClient"/>'s remarks).</summary>
+internal static class FakeToolChoice
+{
+    private static readonly (string Word, string Period)[] PeriodWords =
+    [
+        ("上週", "last-week"), ("上周", "last-week"), ("本週", "this-week"), ("這週", "this-week"), ("本周", "this-week"),
+        ("上個月", "last-month"), ("上月", "last-month"), ("本月", "this-month"), ("這個月", "this-month"),
+        ("近7天", "last-7-days"), ("最近7天", "last-7-days"), ("近30天", "last-30-days"), ("最近30天", "last-30-days"),
+    ];
+
+    private static readonly string[] SumWords = ["加總", "合計", "總計", "總和"];
+
+    public static ChatMessage Choose(IEnumerable<ChatMessage> messages, IReadOnlyList<AIFunctionDeclaration> tools)
+    {
+        var question = messages.LastOrDefault(message => message.Role == ChatRole.User)?.Text ?? string.Empty;
+        var callId = "call-" + Guid.NewGuid().ToString("N")[..12];
+
+        var directive = question.IndexOf(FakeChatDirectives.Query, StringComparison.Ordinal);
+        if (directive >= 0)
+        {
+            var json = question[(directive + FakeChatDirectives.Query.Length)..].Trim();
+            using var document = JsonDocument.Parse(json[..(json.LastIndexOf('}') + 1)]);
+            var name = document.RootElement.GetProperty("name").GetString() ?? string.Empty;
+            var arguments = new Dictionary<string, object?>(StringComparer.Ordinal);
+            if (document.RootElement.TryGetProperty("arguments", out var given))
+            {
+                foreach (var property in given.EnumerateObject())
+                {
+                    arguments[property.Name] = property.Value.Clone();
+                }
+            }
+
+            return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, name, arguments)]);
+        }
+
+        if (question.Contains(FakeChatDirectives.NoQuery, StringComparison.Ordinal))
+        {
+            return new ChatMessage(ChatRole.Assistant, "不需要查詢。");
+        }
+
+        var normalized = string.Concat(question.Where(character => !char.IsWhiteSpace(character)));
+        var sum = SumWords.Any(normalized.Contains) ? tools.FirstOrDefault(tool => tool.Name == "database_field_sum") : null;
+        var tool = sum ?? tools.FirstOrDefault(tool => tool.Name == "database_record_count") ?? tools[0];
+        var schema = tool.JsonSchema.GetProperty("properties");
+        var chosen = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["databaseId"] = FirstEnum(schema, "databaseId"),
+        };
+        if (schema.TryGetProperty("period", out _))
+        {
+            chosen["period"] = PeriodWords.FirstOrDefault(pair => normalized.Contains(pair.Word, StringComparison.Ordinal)).Period ?? "last-30-days";
+        }
+
+        if (sum is not null)
+        {
+            chosen["fieldId"] = FirstEnum(schema, "fieldId");
+        }
+
+        return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, tool.Name, chosen)]);
+    }
+
+    private static string? FirstEnum(JsonElement properties, string name) =>
+        properties.TryGetProperty(name, out var property) && property.TryGetProperty("enum", out var values) && values.GetArrayLength() > 0
+            ? values[0].GetString()
+            : null;
 }

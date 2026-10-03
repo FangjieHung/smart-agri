@@ -31,6 +31,10 @@ public enum ModelInvocationPurpose
     [JsonStringEnumMemberName("assistant-test")]
     AssistantTest,
 
+    /// <summary>Choosing a fixed statistics query and its parameters for a conversation question
+    /// (M4 #149): the model only selects a tool; it never sees the result.</summary>
+    [JsonStringEnumMemberName("database-query")]
+    DatabaseQuery,
     /// <summary>Writing the AI summary of a periodic report from its already-computed statistics
     /// (M4 #150): the model is given numbers, never records, and its text is checked against them.</summary>
     [JsonStringEnumMemberName("generate-report-summary")]

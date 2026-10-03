@@ -73,6 +73,7 @@ public class OrganizationModelTests
                 typeof(ChatThread), typeof(ChatMessage), typeof(ChatMessageCitation),
                 typeof(SmartAgri.Domain.Databases.Database), typeof(SmartAgri.Domain.Databases.DatabaseFormVersion),
                 typeof(SmartAgri.Domain.Databases.DatabaseDataManager), typeof(SmartAgri.Domain.Databases.DatabaseDataManagerChange),
+                typeof(SmartAgri.Domain.Databases.DatabaseSubmission), typeof(SmartAgri.Domain.Databases.DatabaseSubmissionEntry),
                 typeof(BackgroundJob),
                 typeof(ModelInvocation),
                 typeof(AnswerOutcome),

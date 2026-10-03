@@ -149,6 +149,13 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Append-only history of data-manager designations and removals (M4, #144).</summary>
     public DbSet<DatabaseDataManagerChange> DatabaseDataManagerChanges => Set<DatabaseDataManagerChange>();
 
+    /// <summary>The content-free trail of consented submissions (M4, #145): who, when, which
+    /// form version, the consent terms and the receipt number.</summary>
+    public DbSet<DatabaseSubmission> DatabaseSubmissions => Set<DatabaseSubmission>();
+
+    /// <summary>The content of each submission, one row per field (deleted on withdrawal, #146).</summary>
+    public DbSet<DatabaseSubmissionEntry> DatabaseSubmissionEntries => Set<DatabaseSubmissionEntry>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -279,6 +286,8 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new DatabaseFormVersionConfiguration());
         modelBuilder.ApplyConfiguration(new DatabaseDataManagerConfiguration());
         modelBuilder.ApplyConfiguration(new DatabaseDataManagerChangeConfiguration());
+        modelBuilder.ApplyConfiguration(new DatabaseSubmissionConfiguration());
+        modelBuilder.ApplyConfiguration(new DatabaseSubmissionEntryConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

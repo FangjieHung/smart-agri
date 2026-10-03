@@ -308,3 +308,58 @@
 
 - **#149（對話工具）**：模型只選 `DatabaseFixedQueries.Definitions` 之一與參數（字串字典），服務端呼叫 `DatabaseFixedQueryService.RunAsync(kind, accountId, databaseId, parameters, ct)`：`Readable = false`＝無權限（不洩漏）、`Failures`＝參數不被接受（可轉成給模型的錯誤）、`Value`＝上列結果記錄。呼叫前要先確認助理已連接該數據庫且帳號當下有權使用（#148）；本服務只管「這個帳號能不能讀這個數據庫的紀錄」。結果的 `period.label`、`display`、`changeLabel` 可直接當作回答的統計期間與可核對的數字；結果沒有任何自由文字來自使用者填寫的內容，除了欄位名稱（`label`）。
 - **#150（排程）**：排程以擁有者帳號呼叫同一個服務（擁有者仍須是被指定且具權限的資料管理者，否則 `Readable = false`＝本期不產生報表）；每期存 `period`（`from`／`to`）與結果 JSON，AI 摘要只拿已算好的數字；`this-week`／`last-month` 等具名期間以排程當下在統計時區（`Statistics:TimeZone`）的曆日解析（服務用注入的 `TimeProvider`）。紀錄不足時沿用 `insufficient-records`，不產生假趨勢。
+
+## 12. #149 對話中查詢授權紀錄（2026-10-03）
+
+依據：[助理存取知識庫與數據庫 ADR](../adr/2026-09-25-assistant-access-to-knowledge-and-databases.md)（模型只選固定查詢與參數，不產生／執行 SQL）、[後端技術棧 ADR](../adr/2026-09-25-backend-stack.md)、[可觀測性 ADR](../adr/2026-09-25-observability.md)、M3.5 收尾交接 §3。
+
+### 12.1 工具定義（`DatabaseQueryTools`，Application，純函式）
+
+- 每個固定查詢（§11.1）一個工具：`database_record_count`、`database_field_sum`、`database_period_summary`、`database_subject_comparison`（`ToolName(kind)`），沒有其他工具。
+- 參數 schema（JSON Schema，`additionalProperties: false`）＝`databaseId`（**enum**：這次提問者經這個助理可查的數據庫 id）＋該查詢定義的參數，且只有這些：`period`（enum：六個具名期間）、`from`／`to`（`yyyy-MM-dd`）、`fieldId`（**enum**：`field-sum` 只列數字欄位，`subject-comparison` 列數字與量尺欄位；來源是各數據庫目前表單；沒有可選欄位時 `field-sum` 不提供）、`subjectId`（字串；追蹤對象的姓名屬個資，不列給模型，只有對話中已提供 id 時才用得到）。工具說明列出數據庫 id 與名稱、欄位 id 與標籤（不含任何紀錄內容）。
+- 以 `Microsoft.Extensions.AI` 的 `AIFunctionFactory.CreateDeclaration` 宣告、`ChatOptions.Tools` 交給模型（`ToolMode = Auto`、`AllowMultipleToolCalls = false`）；**不**掛 `FunctionInvokingChatClient`，模型的 `FunctionCallContent` 由編排層自己比對與執行。**沒有引入 Agent Framework 或任何新 NuGet 套件**：本票只有「一次選擇呼叫 → 伺服器執行一個固定查詢 → 伺服器組回答」，沒有多步驟代理迴圈；`IChatClient` 的 function calling 已足夠，且沿用既有的錄製中介層（用量）與 Fake 模型。日後真的需要多步驟工具編排時再依後端技術棧 ADR 引入，同樣只放在編排層。
+- Fake 模型（`FakeChatClient`）在呼叫帶工具時改為選工具：`#query:{"name":…,"arguments":{…}}` 原樣呼叫（測試可送定義外的名稱與參數）、`#query-none` 不呼叫，否則依問題確定性地選（含「加總／合計」且有數字欄位 → `field-sum` 第一個欄位，否則 `record-count`；第一個數據庫；問題中的「本週／上週／本月／上個月／近 7 天／近 30 天」，否則 `last-30-days`）；`#fail-midway` 照舊讓呼叫失敗。
+
+### 12.2 編排流程與授權順序（`ChatDatabaseQueries`，`ChatRunEndpoints` 呼叫）
+
+1. 既有的 chat run 檢查（登入 → `403 assistant-use` → `403 chat-thread` → `422` → `503` → `409`），問題照保存規則先存。
+2. **觸發**：問題含統計詞（`AsksForStatistics`：幾筆、幾次、多少筆、筆數、次數、總共、一共、共有、加總、合計、總計、總和、統計、趨勢…）**且** `AssistantFormRequests.UsableDatabaseIdsAsync`（連接列 ∩ 擁有者此刻可使用）非空。助理沒有可用數據庫時完全不走查詢（照常回答，行為與 #148 前相同）。
+3. **提問者可讀**：上一步的數據庫 ∩ `DatabaseRecordReaders.ReadableDatabaseIdsAsync(提問者)`（被指定為資料管理者＋此刻有 `read-consented-submissions`，每次請求重查）。交集為空 → 直接回 `not-available`，**不呼叫模型**。
+4. **模型選擇**：一次 `GetResponseAsync`（用途 `database-query`），只提供第 3 步的數據庫與其欄位。模型沒有呼叫工具 → 回到 #148 的表單請求（若問題也有填寫意圖且有寫入對象）或一般回答流程。
+5. **比對**：工具名稱不是固定查詢 → `rejected`（不提任何數據庫）；`databaseId` 缺漏、不是 GUID、不在提供清單 → `not-available`（與無權限相同）。
+6. **執行**：`DatabaseFixedQueryService.RunAsync(kind, 提問者帳號, databaseId, 參數)`——服務內再查一次提問者能否讀（`Readable = false` → `not-available`），再以 `DatabaseFixedQueries.Validate` 驗參數（定義外的鍵、值、欄位、對象 → `rejected`，不執行）。查詢丟例外 → `failed`（記 log）。
+7. **回答**：`DatabaseQueryTools.Compose` 由結果記錄組文字與結構化欄位。
+
+優先序（與 #148 共存）：**查詢 → 表單請求 → 一般回答**。「本月回報了幾筆？」（同時含「回報」與「幾筆」）是查詢；「我要回報這週的完成數量」只有填寫意圖，是表單；模型決定不查詢時，有填寫意圖仍得到表單。mock 的固定回覆順序相同（`chat-order-count` 排在 `chat-order-issue` 前）。
+
+### 12.3 回答格式與數字防改寫
+
+- 新的回覆種類 `ChatReplyKind.DatabaseQuery`（wire `database-query`，整數接在尾端）。`ChatReplyView.databaseQuery`（`ChatDatabaseQueryView`，其他種類為 `null`）：`status`、`databaseId`／`databaseName`（資料來源）、`query`／`queryLabel`（查詢種類）、`period`／`previousPeriod`（統計期間，§11 的 `DatabaseQueryPeriodView`）、`subjectOnly`、`figures[]`（`metric`、`value`、`display`、`previousDisplay`、`changeLabel`）、`message`（比較摘要或資料不足說明）。
+- **模型只負責選擇，看不到結果**；回答文字由伺服器範本組成，例如「根據「回報資料庫」的紀錄筆數查詢：2026-02-01 至 2026-02-28共有 3 筆有效紀錄；前一期（2026-01-04 至 2026-01-31）為 1 筆，變化 +2 筆。」。文字中的每個數字都是結果的 `display`／`changeLabel`／`period.label` 原字串，`figures` 也是同一批字串，所以畫面上的數字與固定查詢端點逐字相同（整合測試直接比對 `GET .../queries/*`）。沒有第二次模型呼叫，也就沒有模型改寫數值的機會。
+- 前端：`ChatReplyView` 多 `{ kind: 'database-query', text, query }`；訊息顯示「數據庫查詢」標籤、資料來源（數據庫名稱＋查詢種類）、統計期間、數字表（指標／數值／前一期或上次／變化）與「數字由系統依你目前的查詢權限計算，不由 AI 產生」。不顯示轉人工按鈕；不保存對話時也不把查詢回答當成前文送回。
+
+### 12.4 失敗分類
+
+| `status` | 何時 | 文字 | 透露什麼 |
+| --- | --- | --- | --- |
+| `answered` | 查詢成功且期間內有紀錄 | 範本＋數字 | 數據庫名稱、查詢、期間、數字 |
+| `no-data` | 期間內沒有紀錄（`record-count`／`period-summary` 筆數 0、`field-sum` 該欄位無值） | 「…沒有任何有效紀錄，共 0 筆…」 | 同上（0 也是可核對的數字） |
+| `insufficient-data` | `subject-comparison` 紀錄不足（§11.4） | 「資料不足，無法比較。」＋伺服器的說明 | 數據庫名稱、查詢；無數字 |
+| `not-available` | 提問者沒有可查的數據庫、模型給的數據庫不在清單（不存在、他組織、未連接）、執行時已不可讀（撤銷指定或權限） | `DatabaseQueryTools.NotAvailableText`（逐位元組相同） | 無（`databaseId`／名稱皆 `null`） |
+| `rejected` | 工具名稱不是固定查詢，或參數不在定義內 | `RejectedText` | 只有提問者可讀的數據庫名稱與查詢種類（未知工具連這些都沒有）；不執行 |
+| `failed` | 固定查詢執行時丟例外 | `FailedText` | 無 |
+| （`RUN_ERROR chat-unavailable`） | 選擇工具的模型呼叫失敗 | 與一般回答相同的串流錯誤 | 只保存問題（保存對話時） |
+
+### 12.5 保存、轉人工與用量
+
+- **保存**：保存對話時，回答存成 `ChatMessages`（`ReplyKind = DatabaseQuery`、`Text`、新的 `jsonb` 欄位 `DatabaseQuery`＝結構化快照；migration `AddChatDatabaseQueries`）。快照只在**提問者本人的私人對話**裡，且每次 `GET chat` 重新檢查：該數據庫仍是助理可用的、提問者仍可讀（`ChatDatabaseQueries.VisibleDatabaseIdsAsync`），否則文字與結構都換成 `not-available`（不透露名稱與數字）。快照是回答當時的數字，與定期報表相同不追溯改寫；新的提問一律重新查詢。不保存對話時不寫任何對話表。
+- **模型看不到結果**：保存的查詢回答在之後的模型呼叫前文中換成 `DatabaseQueryTools.HistoryPlaceholder`；前端不保存對話時也不把查詢回答送回當前文。
+- **轉人工**：查詢回答不能轉人工（`AssistantHandoffEndpoints` 回 `403 chat-thread`，前端不顯示按鈕）——數字來自只有提問者能讀的紀錄，處理人不因轉人工看到他人紀錄。
+- **用量**：選擇工具的呼叫經既有錄製中介層寫一筆 `ModelInvocations`（新用途 `ModelInvocationPurpose.DatabaseQuery`，wire `database-query`，歸屬提問者與助理，不含內容；失敗也記 `Succeeded = false`）；`not-available`（第 3 步）不呼叫模型、不記。工具執行本身是一個 `smartagri.chat.database_query` span（`smartagri.database_query.query`／`.status`，不含參數與結果）。查詢回答不寫 `AnswerOutcomes`（那是知識庫回答品質的分析：組織資料／一般知識／查無資料）。
+
+### 12.6 測試
+
+- 單元：`DatabaseQueryToolsTests`（只有四個工具、每個 schema 只有定義內參數與 enum、沒有 SQL；比對未知工具／未提供的數據庫；定義外參數交給 `Validate` 拒絕；回答文字與數字來自結果字串；無資料、資料不足；拒絕不含名稱）、`FakeChatClientTests`（指令、確定性選擇、不呼叫）、`ModelInvocationTests`（用途清單）。
+- 整合（`ChatDatabaseQueryEndpointsTests`，真實 PostgreSQL，7 個）：授權成員的筆數與加總等於固定查詢端點、標明期間／指標／來源、保存後讀回相同、用量正確、不能轉人工；不能讀的成員（不呼叫模型）、他組織與不存在的數據庫、撤銷指定（含讀回舊回答）、撤銷帳號權限皆為同一個 `not-available`，解除連接則照常回答；定義外參數與未知工具 `rejected`；資料不足；模型失敗 `RUN_ERROR`（只存問題、記失敗用量）與工具失敗 `failed`；不保存對話不寫對話表；與表單請求的優先序。
+- 前端：`hybrid-demo-repository.spec.ts`（**真實 API JSON**，答覆與拒絕）、`chat-message.component.spec.ts`、`mock-demo-repository-chat.spec.ts`（mock 以 `summarizePeriod` 算出與期間統計相同的筆數；無權者同一個拒絕、不被建議這個問題；填寫意圖仍得到表單）。
+- Cypress（未在本機執行）：`e2e-api/chat-database-query-api.cy.ts`（授權成功、資料不足、撤銷指定後拒絕並讀回拒絕）。AG-UI 錄製檔因 `smartagri.reply` 多了 `databaseQuery: null` 重錄。

@@ -32,3 +32,7 @@ Agent Framework 發布後仍約每週一個小版本，且 .NET 端尚無自動�
 ## 補充（2026-09-27）
 
 M3（平台內對話）的回答流程是固定管線：檢索 → 門檻 → 生成 → 引用驗證。流程裡沒有工具呼叫，也沒有多步驟工作流程，所以 **M3 不引入 Agent Framework**：直接使用 `IChatClient`，AG-UI 串流改用官方 `AGUI.*` SDK（見 [前後端整合 ADR](2026-09-25-frontend-backend-integration.md) 的修訂）。Agent Framework 在需要工具呼叫的數據庫里程碑（固定查詢工具、表單流程）才引入，並依上方決策只放在編排層。
+
+## 補充（2026-10-03，M4 #149）
+
+M4 的對話查詢工具（#149）仍**不引入 Agent Framework**：流程是「一次模型呼叫選擇固定查詢與參數 → 伺服器驗證並以提問者權限執行 → 伺服器依結果組回答」，沒有多步驟代理迴圈或工作流程。`Microsoft.Extensions.AI` 的 function calling（`ChatOptions.Tools`、`FunctionCallContent`）已足夠，並沿用既有的用量錄製中介層與 Fake 模型；工具比對與執行在編排層（`ChatDatabaseQueries`），包在應用服務後面。需要多步驟工具編排時再依上方決策引入（見 [M4 設計文件](../plans/2026-10-03-m4-142-database-templates.md) 第 12 節）。

@@ -45,27 +45,22 @@
 
       @switch (activeTab().id) {
         @case ('form') {
-          @if (upcoming().has('form-editing')) {
-            <p class="notice upcoming-notice" role="note">表單編輯與試填：{{ upcomingMessage }}</p>
-            <ol class="field-summary" aria-label="初始表單欄位">
-              @for (field of detail.fields; track field.id) {
-                <li [attr.data-field-id]="field.id">
-                  <strong>{{ field.label }}</strong>
-                  <span class="field-type">{{ fieldTypeLabel(field) }}</span>
-                  @if (field.required) { <span class="field-required">必填</span> }
-                  @if (fieldDetail(field); as detailText) { <span class="field-detail">{{ detailText }}</span> }
-                </li>
-              }
-            </ol>
-          } @else {
           <app-form-designer
             [fields]="detail.fields"
             [errors]="fieldErrors()"
             [feedback]="designerFeedback()"
+            [failure]="designerFailure()"
+            [saving]="saving()"
             (save)="saveFields(detail, $event)"
+            (reload)="reload()"
           />
-          <app-form-trial [fields]="detail.fields" [result]="trialResult()" (trial)="runTrial(detail, $event)" />
-          }
+          <app-form-trial
+            [fields]="detail.fields"
+            [result]="trialResult()"
+            [failure]="trialFailure()"
+            [busy]="trialRunning()"
+            (trial)="runTrial(detail, $event)"
+          />
         }
         @case ('assistants') {
           @if (upcoming().has('assistant-connections')) {

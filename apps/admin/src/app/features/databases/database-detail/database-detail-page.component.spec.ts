@@ -1,8 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { map, throwError } from 'rxjs';
+import { map, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
+import type { UpdateDatabaseFieldsResult } from '../../../core/repositories/demo-repository';
 import { API_UPCOMING_DATABASE_FEATURES } from '../../../core/repositories/hybrid-demo-repository';
 import type { MockDemoRepository } from '../../../core/repositories/mock-demo-repository';
 import { syncValue } from '../../../core/repositories/sync-value.testing';
@@ -100,6 +101,114 @@ describe('DatabaseDetailPageComponent', () => {
     harness.detectChanges();
 
     expect(page().querySelector('.trial-preview')?.textContent).toContain('A-1024');
+  });
+
+  describe('when saving the form does not go through', () => {
+    function editLabel(page: HTMLElement, value: string): void {
+      const label = page.querySelector<HTMLInputElement>('#field-label-field-order-number');
+      if (!label) throw new Error('missing label input');
+      label.value = value;
+      label.dispatchEvent(new Event('input'));
+    }
+
+    it('keeps the draft and lets the owner try again when the request fails', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form');
+      const original = repository.updateDatabaseFields.bind(repository);
+      vi.spyOn(repository, 'updateDatabaseFields').mockReturnValueOnce(throwError(() => new Error('500')));
+
+      editLabel(page(), '訂單號碼');
+      button(page(), '儲存表單').click();
+      harness.detectChanges();
+
+      expect(page().querySelector('app-form-designer [role="alert"]')?.textContent).toContain('目前無法儲存表單');
+      expect(page().querySelector<HTMLInputElement>('#field-label-field-order-number')?.value).toBe('訂單號碼');
+      expect(button(page(), '儲存表單').disabled).toBe(false);
+
+      vi.mocked(repository.updateDatabaseFields).mockImplementation(original);
+      button(page(), '儲存表單').click();
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+      harness.detectChanges();
+
+      expect(page().querySelector('.designer-feedback')?.textContent).toContain('表單已儲存');
+      expect(page().querySelector('app-form-designer [role="alert"]')).toBeNull();
+    });
+
+    it('sends one save at a time and disables the button while it is pending', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form');
+      const pending = new Subject<UpdateDatabaseFieldsResult>();
+      const save = vi.spyOn(repository, 'updateDatabaseFields').mockReturnValue(pending);
+
+      editLabel(page(), '訂單號碼');
+      button(page(), '儲存表單').click();
+      harness.detectChanges();
+      expect(button(page(), '儲存中').disabled).toBe(true);
+      page().querySelector('form.designer')?.dispatchEvent(new Event('submit'));
+      harness.detectChanges();
+
+      expect(save).toHaveBeenCalledTimes(1);
+      pending.next({ status: 'validation-failed', errors: [{ fieldId: null, message: '表單至少需要一個欄位。' }], message: 'x' });
+      pending.complete();
+      harness.detectChanges();
+      expect(button(page(), '儲存表單').disabled).toBe(false);
+    });
+
+    it('tells the owner the form changed elsewhere and reloads the latest form on request', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form');
+      const conflict: UpdateDatabaseFieldsResult = { status: 'conflict', message: '這份表單已被更新過，請重新載入後再修改。你這次的修改尚未儲存。' };
+      vi.spyOn(repository, 'updateDatabaseFields').mockReturnValueOnce(of(conflict));
+      const detail = vi.spyOn(repository, 'getDatabaseDetail');
+
+      editLabel(page(), '訂單號碼');
+      button(page(), '儲存表單').click();
+      harness.detectChanges();
+
+      expect(page().querySelector('app-form-designer [role="alert"]')?.textContent).toContain('已被更新過');
+      expect(detail).not.toHaveBeenCalled();
+
+      button(page(), '重新載入最新表單').click();
+      await harness.fixture.whenStable();
+      harness.detectChanges();
+
+      expect(detail).toHaveBeenCalledTimes(1);
+      expect(page().querySelector('app-form-designer [role="alert"]')).toBeNull();
+      expect(page().querySelector<HTMLInputElement>('#field-label-field-order-number')?.value).toBe('訂單編號');
+    });
+
+    it('marks the field the server rejected and keeps the other edits', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form');
+      const rejected: UpdateDatabaseFieldsResult = {
+        status: 'validation-failed',
+        errors: [{ fieldId: 'field-issue-type', message: '單選或多選至少需要 2 個選項。' }],
+        message: '單選或多選至少需要 2 個選項。',
+      };
+      vi.spyOn(repository, 'updateDatabaseFields').mockReturnValueOnce(of(rejected));
+
+      editLabel(page(), '訂單號碼');
+      button(page(), '儲存表單').click();
+      harness.detectChanges();
+
+      expect(page().querySelector('#field-error-field-issue-type')?.textContent).toContain('至少需要 2 個選項');
+      expect(page().querySelector('#field-error-field-order-number')).toBeNull();
+      expect(page().querySelector<HTMLInputElement>('#field-label-field-order-number')?.value).toBe('訂單號碼');
+    });
+
+    it('shows a recoverable message when the trial request fails and keeps the answers', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form');
+      vi.spyOn(repository, 'previewDatabaseEntry').mockReturnValueOnce(throwError(() => new Error('500')));
+      const order = page().querySelector<HTMLInputElement>('#trial-field-order-number');
+      if (order) {
+        order.value = 'A-1024';
+        order.dispatchEvent(new Event('input'));
+      }
+
+      button(page(), '送出試填').click();
+      harness.detectChanges();
+
+      expect(page().querySelector('app-form-trial [role="alert"]')?.textContent).toContain('目前無法試填');
+      expect(page().querySelector<HTMLInputElement>('#trial-field-order-number')?.value).toBe('A-1024');
+      expect(button(page(), '送出試填').disabled).toBe(false);
+    });
   });
 
   it('shows a subject’s timeline on the 收集紀錄 tab and switches subjects through the URL', async () => {
@@ -231,7 +340,7 @@ describe('DatabaseDetailPageComponent', () => {
     expect(page().querySelector('h1')?.textContent).toContain('訂單資料庫');
   });
 
-  describe('features the API does not have yet (API mode, #143–#148)', () => {
+  describe('features the API does not have yet (API mode, #144–#148)', () => {
     /** 與 Hybrid repository 在 API 模式回傳的一樣：每一項都還沒開放。 */
     function asApiMode(repository: MockDemoRepository): void {
       const original = repository.getDatabaseDetail.bind(repository);
@@ -245,19 +354,12 @@ describe('DatabaseDetailPageComponent', () => {
       vi.spyOn(repository, 'getDatabaseTracking');
     }
 
-    it('shows the initial form read-only instead of the designer and trial', async () => {
+    it('still offers the form designer and the trial: form editing is available through the API', async () => {
       const { page } = await openDetail('/app/databases/database-customer-records/form', asApiMode);
 
-      expect(page().querySelector('app-form-designer')).toBeNull();
-      expect(page().querySelector('app-form-trial')).toBeNull();
-      expect(page().querySelector('.upcoming-notice')?.textContent).toContain('將於後續版本開放');
-      const fields = Array.from(page().querySelectorAll('ol.field-summary > li'));
-      expect(fields).toHaveLength(6);
-      expect(fields[1].textContent).toContain('整體滿意度');
-      expect(fields[1].textContent).toContain('量尺');
-      expect(fields[1].textContent).toContain('必填');
-      expect(fields[1].textContent).toContain('1（很不滿意）到 5（非常滿意）');
-      expect(fields[2].textContent).toContain('單位：元');
+      expect(page().querySelector('app-form-designer')).not.toBeNull();
+      expect(page().querySelector('app-form-trial')).not.toBeNull();
+      expect(page().querySelector('.upcoming-notice')).toBeNull();
     });
 
     it('does not read mock records, data managers or assistants', async () => {

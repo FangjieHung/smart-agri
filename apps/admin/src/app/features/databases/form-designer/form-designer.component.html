@@ -1,6 +1,15 @@
 <form class="designer" (submit)="submit($event)" novalidate>
   <p class="hint">支援文字、數字、日期、單選、多選與量尺欄位；可調整順序、選項與必填設定。</p>
 
+  @if (failure(); as problem) {
+    <div class="error-summary" role="alert">
+      <p>{{ problem.message }}</p>
+      @if (problem.kind === 'conflict') {
+        <button type="button" class="ui-button secondary" (click)="reload.emit()">重新載入最新表單</button>
+      }
+    </div>
+  }
+
   @if (errors().length > 0) {
     <div class="error-summary" role="alert">
       <p>還有欄位需要修正，表單尚未儲存。</p>
@@ -98,7 +107,7 @@
 
   <div class="designer-actions">
     <button type="button" class="ui-button secondary" (click)="add()">新增欄位</button>
-    <button type="submit" class="ui-button">儲存表單</button>
+    <button type="submit" class="ui-button" [disabled]="saving()">{{ saving() ? '儲存中…' : '儲存表單' }}</button>
   </div>
   <p class="designer-feedback" role="status">{{ feedback() }}</p>
   <p class="visually-hidden" role="status" aria-live="polite">{{ liveMessage() }}</p>

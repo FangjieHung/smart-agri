@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
@@ -6,6 +7,7 @@ using SmartAgri.Application.Databases;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Databases;
 using SmartAgri.Infrastructure;
+using SmartAgri.Infrastructure.Persistence;
 
 namespace SmartAgri.Api.Databases;
 
@@ -106,6 +108,27 @@ public sealed record DatabaseDetailView(DatabaseSummaryView Summary, DatabaseFor
 public sealed record CreateDatabaseRequest(string? TemplateId, string? Name, string? Purpose = null);
 
 /// <summary>
+/// <c>PUT /api/v1/databases/{id}/form</c> request: the form as the next version. All members are
+/// lenient on purpose (see <see cref="DatabaseFieldDraft"/>): a missing
+/// <see cref="BaseVersionNumber"/> or <see cref="Fields"/> is a <c>422</c> with a message, not a
+/// binding failure.
+/// </summary>
+/// <param name="BaseVersionNumber">The version the editor started from. Anything but the
+/// current version is a <c>409</c> and nothing is written.</param>
+public sealed record SaveDatabaseFormRequest(int? BaseVersionNumber, IReadOnlyList<DatabaseFieldDraft?>? Fields);
+
+/// <summary><c>POST /api/v1/databases/{id}/form/preview</c> request: answers by field id, each a
+/// string or (multiple choice) an array of strings.</summary>
+public sealed record PreviewDatabaseEntryRequest(IReadOnlyDictionary<string, JsonElement>? Answers);
+
+/// <summary>What a trial fill would record, field by field. <see cref="Saved"/> is always
+/// <see langword="false"/>: a trial creates no record and no receipt.</summary>
+/// <param name="FormVersion">The form version the answers were checked against (the current one).</param>
+public sealed record DatabaseTrialPreviewView(bool Saved, int FormVersion, IReadOnlyList<DatabaseTrialEntryView> Entries);
+
+public sealed record DatabaseTrialEntryView(string FieldId, string Label, string Display);
+
+/// <summary>
 /// Databases created from templates (M4 #142), replacing the frontend mock's
 /// <c>listDatabaseTemplates</c>, <c>listDatabaseSummaries</c>, <c>createDatabaseFromTemplate</c>
 /// and <c>getDatabaseDetail</c> with the same rules (<c>docs/handoff/mock-to-api-mapping.md</c>
@@ -151,6 +174,19 @@ public static class DatabaseEndpoints
             .Produces<DatabaseDetailView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
+
+        databases.MapPut("/{id:guid}/form", SaveFormAsync)
+            .Produces<DatabaseFormView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status409Conflict)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        databases.MapPost("/{id:guid}/form/preview", PreviewAsync)
+            .Produces<DatabaseTrialPreviewView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
 
         return endpoints;
     }
@@ -248,14 +284,155 @@ public static class DatabaseEndpoints
             return ApiErrors.NotFound(ForbiddenReason.Database);
         }
 
-        return Results.Ok(new DatabaseDetailView(
-            ToSummary(row, viewerId),
-            new DatabaseFormView(
-                row.Form.Id,
-                row.Form.VersionNumber,
-                row.Form.CreatedAt,
-                [.. row.Form.Fields.Select(DatabaseFieldView.From)])));
+        return Results.Ok(new DatabaseDetailView(ToSummary(row, viewerId), ToFormView(row.Form)));
     }
+
+    /// <summary>The <c>reason</c> of the <c>409</c> when the form was saved by someone else (or
+    /// another tab) after the editor loaded it.</summary>
+    public const string FormChangedReason = "form-version-changed";
+
+    public const string FormChangedMessage = "這份表單已被更新過，請重新載入後再修改。你這次的修改尚未儲存。";
+
+    /// <summary>
+    /// Saves <c>fields</c> as form version <c>current + 1</c> (versions are never edited, so
+    /// earlier ones, and the field ids they use, stay as they were). Order: owner (else the
+    /// same <c>403 database</c> as a missing id), stale <c>baseVersionNumber</c> (<c>409</c>),
+    /// then validation (<c>422</c>, <c>fields[i].…</c> keys); nothing is written on any of them.
+    /// Two saves from the same base race on the unique index of <c>(DatabaseId, VersionNumber)</c>:
+    /// the loser is the same <c>409</c>. Saving a form identical to the current one returns the
+    /// current version and adds none.
+    /// </summary>
+    internal static async Task<IResult> SaveFormAsync(
+        Guid id,
+        SaveDatabaseFormRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var database = await dbContext.Databases.AsNoTracking()
+            .Where(DatabaseAccess.ManageableBy(callerId))
+            .SingleOrDefaultAsync(candidate => candidate.Id == id, cancellationToken);
+        if (database is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Database);
+        }
+
+        var versions = await dbContext.DatabaseFormVersions.AsNoTracking()
+            .Where(version => version.DatabaseId == id)
+            .OrderBy(version => version.VersionNumber)
+            .ToListAsync(cancellationToken);
+        var current = versions[^1];
+
+        if (request.BaseVersionNumber is not { } baseVersion)
+        {
+            return ApiErrors.ValidationFailed(
+                BaseVersionRequiredMessage,
+                new Dictionary<string, string[]> { ["baseVersionNumber"] = [BaseVersionRequiredMessage] });
+        }
+
+        if (baseVersion != current.VersionNumber)
+        {
+            return FormChanged();
+        }
+
+        var currentIds = current.Fields.Select(field => field.Id).ToHashSet(StringComparer.Ordinal);
+        var retired = versions.SelectMany(version => version.Fields).Select(field => field.Id)
+            .Where(fieldId => !currentIds.Contains(fieldId)).ToHashSet(StringComparer.Ordinal);
+        var validation = DatabaseFormRules.Validate(request.Fields, retired);
+        if (!validation.IsValid)
+        {
+            return ApiErrors.ValidationFailed(validation.Failures);
+        }
+
+        if (DatabaseFormRules.AreSame(current.Fields, validation.Value))
+        {
+            return Results.Ok(ToFormView(current));
+        }
+
+        var form = DatabaseFormVersion.Create(database, current.VersionNumber + 1, validation.Value, callerId, clock.GetUtcNow());
+        dbContext.DatabaseFormVersions.Add(form);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (DatabaseErrors.IsUniqueViolation(exception))
+        {
+            return FormChanged();
+        }
+
+        return Results.Ok(ToFormView(form));
+    }
+
+    /// <summary>
+    /// Checks <c>answers</c> against the <b>current</b> form with
+    /// <see cref="DatabaseAnswerRules.Validate"/> — the rule a real submission uses (#145) — and
+    /// returns what would be recorded. Writes nothing: no record, no receipt, no version.
+    /// </summary>
+    internal static async Task<IResult> PreviewAsync(
+        Guid id,
+        PreviewDatabaseEntryRequest request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var row = await WithOwnerAndCurrentForm(
+                dbContext,
+                dbContext.Databases.Where(DatabaseAccess.ManageableBy(callerId)).Where(database => database.Id == id))
+            .SingleOrDefaultAsync(cancellationToken);
+        if (row is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Database);
+        }
+
+        var validation = DatabaseAnswerRules.Validate(row.Form.Fields, ToAnswerInputs(request.Answers));
+        if (!validation.IsValid)
+        {
+            return ApiErrors.ValidationFailed(validation.Failures);
+        }
+
+        return Results.Ok(new DatabaseTrialPreviewView(
+            false,
+            row.Form.VersionNumber,
+            [.. validation.Value.Select(entry => new DatabaseTrialEntryView(entry.Field.Id, entry.Field.Label, entry.Display))]));
+    }
+
+    private const string BaseVersionRequiredMessage = "請帶上你編輯時的表單版本（baseVersionNumber）。";
+
+    private static IResult FormChanged() =>
+        ApiErrors.WithReason(StatusCodes.Status409Conflict, FormChangedReason, FormChangedMessage);
+
+    /// <summary>A string is a text answer, an array of strings a list of choices; anything else
+    /// (number, object, null) is an empty answer, like the mock.</summary>
+    internal static IReadOnlyDictionary<string, DatabaseAnswerInput> ToAnswerInputs(IReadOnlyDictionary<string, JsonElement>? answers)
+    {
+        var inputs = new Dictionary<string, DatabaseAnswerInput>(StringComparer.Ordinal);
+        foreach (var (fieldId, value) in answers ?? new Dictionary<string, JsonElement>())
+        {
+            inputs[fieldId] = value.ValueKind switch
+            {
+                JsonValueKind.String => DatabaseAnswerInput.FromText(value.GetString()),
+                JsonValueKind.Array => DatabaseAnswerInput.FromChoices(
+                    [.. value.EnumerateArray().Where(item => item.ValueKind == JsonValueKind.String).Select(item => item.GetString()!)]),
+                _ => DatabaseAnswerInput.FromText(null),
+            };
+        }
+
+        return inputs;
+    }
+
+    private static DatabaseFormView ToFormView(DatabaseFormVersion form) =>
+        new(form.Id, form.VersionNumber, form.CreatedAt, [.. form.Fields.Select(DatabaseFieldView.From)]);
 
     /// <summary>A database with its owner's display name and current (highest) form version.</summary>
     internal sealed record DatabaseRow(Database Database, string OwnerName, DatabaseFormVersion Form);

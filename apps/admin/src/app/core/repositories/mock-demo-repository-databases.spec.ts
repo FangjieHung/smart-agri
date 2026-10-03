@@ -3,6 +3,7 @@ import type { AccountId } from '../domain/account.model';
 import {
   DATABASE_FIELD_TYPES,
   createDatabaseField,
+  type DatabaseDetailView,
   type DatabaseFieldView,
   type DatabaseTrackingView,
 } from '../domain/database.model';
@@ -29,10 +30,14 @@ function trackingOf(repository: MockDemoRepository, id = 'database-customer-reco
   return result.data;
 }
 
-function fieldsOf(repository: MockDemoRepository, id: string): readonly DatabaseFieldView[] {
+function detailOf(repository: MockDemoRepository, id: string): DatabaseDetailView {
   const result = syncValue(repository.getDatabaseDetail(id));
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
-  return result.data.fields;
+  return result.data;
+}
+
+function fieldsOf(repository: MockDemoRepository, id: string): readonly DatabaseFieldView[] {
+  return detailOf(repository, id).fields;
 }
 
 describe('MockDemoRepository databases', () => {
@@ -155,28 +160,76 @@ describe('MockDemoRepository databases', () => {
     const [first, ...rest] = fieldsOf(repository, 'database-orders');
     const added = { ...createDatabaseField('field-custom-1', 'scale', { label: ' 處理滿意度 ' }), options: ['殘留'] };
 
-    const result = repository.updateDatabaseFields('account-smb-admin', 'database-orders', [
-      { ...first, label: '訂單號碼', required: false },
-      added,
-      ...rest,
-    ]);
+    const result = syncValue(
+      repository.updateDatabaseFields('database-orders', [{ ...first, label: '訂單號碼', required: false }, added, ...rest], 1),
+    );
 
-    expect(result.status).toBe('ready');
-    const saved = fieldsOf(createRepository(DEMO_SEED, storage), 'database-orders');
+    expect(result).toMatchObject({ status: 'ready', data: { formVersion: 2 } });
+    const reopened = createRepository(DEMO_SEED, storage);
+    const saved = fieldsOf(reopened, 'database-orders');
     expect(saved.map((field) => field.label)).toEqual(['訂單號碼', '處理滿意度', '問題類型', '回報日期']);
     expect(saved[0].required).toBe(false);
     expect(saved[1]).toMatchObject({ type: 'scale', options: [], scale: { min: 1, max: 5 } });
+    expect(detailOf(reopened, 'database-orders').formVersion).toBe(2);
+  });
+
+  it('keeps field ids when fields are renamed and reordered', () => {
+    const repository = createRepository();
+    const [first, second, ...rest] = fieldsOf(repository, 'database-orders');
+
+    syncValue(
+      repository.updateDatabaseFields('database-orders', [{ ...second, label: '類型（改名）' }, first, ...rest], 1),
+    );
+
+    const saved = fieldsOf(repository, 'database-orders');
+    expect(saved.map((field) => field.id)).toEqual([second.id, first.id, ...rest.map((field) => field.id)]);
+  });
+
+  it('refuses a save from a stale form version without writing, and adds no version for an unchanged form', () => {
+    const repository = createRepository();
+    const fields = fieldsOf(repository, 'database-orders');
+    const renamed = [{ ...fields[0], label: '訂單編號 v2' }, ...fields.slice(1)];
+
+    expect(syncValue(repository.updateDatabaseFields('database-orders', renamed, 1)).status).toBe('ready');
+    const stale = syncValue(
+      repository.updateDatabaseFields('database-orders', [{ ...fields[0], label: '過期的修改' }, ...fields.slice(1)], 1),
+    );
+
+    expect(stale).toMatchObject({ status: 'conflict', message: expect.stringContaining('重新載入') });
+    expect(fieldsOf(repository, 'database-orders')[0].label).toBe('訂單編號 v2');
+    // 內容與目前版本相同：版本號不變。
+    expect(syncValue(repository.updateDatabaseFields('database-orders', renamed, 2))).toMatchObject({
+      status: 'ready',
+      data: { formVersion: 2 },
+    });
+    expect(detailOf(repository, 'database-orders').formVersion).toBe(2);
+  });
+
+  it('does not let a non-owner save or try a form, with the same denial as a missing database', () => {
+    const repository = createRepository(DEMO_SEED, createMemoryStorage(), 'account-internal-employee');
+    const field = createDatabaseField('field-x', 'text', { label: '名' });
+    const unknown = syncValue(repository.updateDatabaseFields('database-missing', [field], 1));
+
+    expect(syncValue(repository.updateDatabaseFields('database-orders', [field], 1))).toEqual(unknown);
+    expect(unknown).toMatchObject({ status: 'permission-denied', reason: 'database' });
+    expect(syncValue(repository.previewDatabaseEntry('database-orders', {}))).toEqual(unknown);
   });
 
   it('rejects empty labels, choice fields with fewer than two options, bad scales and unknown types', () => {
     const repository = createRepository();
     const fields = fieldsOf(repository, 'database-orders');
-    const result = repository.updateDatabaseFields('account-smb-admin', 'database-orders', [
-      { ...fields[0], label: ' ' },
-      { ...fields[1], options: ['配送延遲', ' '] },
-      { ...createDatabaseField('field-bad-scale', 'scale', { label: '分數' }), scale: { min: 5, max: 5, minLabel: '', maxLabel: '' } },
-      { ...fields[2], type: 'formula' as never },
-    ]);
+    const result = syncValue(
+      repository.updateDatabaseFields(
+        'database-orders',
+        [
+          { ...fields[0], label: ' ' },
+          { ...fields[1], options: ['配送延遲', ' '] },
+          { ...createDatabaseField('field-bad-scale', 'scale', { label: '分數' }), scale: { min: 5, max: 5, minLabel: '', maxLabel: '' } },
+          { ...fields[2], type: 'formula' as never },
+        ],
+        1,
+      ),
+    );
 
     expect(result.status).toBe('validation-failed');
     if (result.status !== 'validation-failed') return;
@@ -186,17 +239,47 @@ describe('MockDemoRepository databases', () => {
       { fieldId: 'field-bad-scale', message: '量尺的最小值必須小於最大值。' },
       { fieldId: 'field-reported-on', message: '不支援的欄位類型。' },
     ]);
-    expect(
-      repository.updateDatabaseFields('account-smb-admin', 'database-orders', []),
-    ).toMatchObject({ status: 'validation-failed', errors: [{ fieldId: null, message: '表單至少需要一個欄位。' }] });
+    expect(result.message).toBe('請填寫欄位名稱。');
+    expect(syncValue(repository.updateDatabaseFields('database-orders', [], 1))).toMatchObject({
+      status: 'validation-failed',
+      errors: [{ fieldId: null, message: '表單至少需要一個欄位。' }],
+    });
+    expect(detailOf(repository, 'database-orders').formVersion).toBe(1);
+  });
+
+  it('applies the same limits as the API: repeated options, over-long names, units and scale labels', () => {
+    const repository = createRepository();
+    const choice = createDatabaseField('field-a', 'single-choice', { label: '選' });
+    const result = syncValue(
+      repository.updateDatabaseFields(
+        'database-orders',
+        [
+          { ...choice, options: ['甲', '甲'] },
+          createDatabaseField('field-b', 'text', { label: '長'.repeat(101) }),
+          { ...createDatabaseField('field-c', 'number', { label: '金額' }), unit: '元'.repeat(21) },
+        ],
+        1,
+      ),
+    );
+
+    expect(result).toMatchObject({
+      status: 'validation-failed',
+      errors: [
+        { fieldId: 'field-a', message: '選項不可重複。' },
+        { fieldId: 'field-b', message: '欄位名稱請在 100 個字以內。' },
+        { fieldId: 'field-c', message: '單位請在 20 個字以內。' },
+      ],
+    });
   });
 
   it('validates a trial entry against the saved form and previews it without storing a record', () => {
     const repository = createRepository();
-    const missing = repository.previewDatabaseEntry('account-smb-admin', 'database-customer-records', {
-      'field-monthly-spend': 'abc',
-      'field-satisfaction': '9',
-    });
+    const missing = syncValue(
+      repository.previewDatabaseEntry('database-customer-records', {
+        'field-monthly-spend': 'abc',
+        'field-satisfaction': '9',
+      }),
+    );
 
     expect(missing.status).toBe('validation-failed');
     if (missing.status === 'validation-failed') {
@@ -206,19 +289,23 @@ describe('MockDemoRepository databases', () => {
         { fieldId: 'field-monthly-spend', message: '「本月消費金額」請輸入數字。' },
         { fieldId: 'field-membership', message: '「會員等級」為必填。' },
       ]);
+      expect(missing.message).toBe('「回訪日期」為必填。');
     }
 
-    const preview = repository.previewDatabaseEntry('account-smb-admin', 'database-customer-records', {
-      'field-visit-date': '2026-09-22',
-      'field-satisfaction': '4',
-      'field-monthly-spend': '1200',
-      'field-membership': '銀卡',
-      'field-interests': ['保養品', '配件'],
-    });
+    const preview = syncValue(
+      repository.previewDatabaseEntry('database-customer-records', {
+        'field-visit-date': '2026-09-22',
+        'field-satisfaction': '4',
+        'field-monthly-spend': '1200',
+        'field-membership': '銀卡',
+        'field-interests': ['保養品', '配件'],
+      }),
+    );
     expect(preview).toMatchObject({
       status: 'ready',
       data: {
         saved: false,
+        formVersion: 1,
         entries: [
           { fieldId: 'field-visit-date', display: '2026-09-22' },
           { fieldId: 'field-satisfaction', display: '4 / 5' },
@@ -230,6 +317,17 @@ describe('MockDemoRepository databases', () => {
       },
     });
     expect(trackingOf(repository).subjects[0].records).toHaveLength(4);
+  });
+
+  it('rejects a date that does not exist, like the API', () => {
+    const result = syncValue(
+      createRepository().previewDatabaseEntry('database-customer-records', { 'field-visit-date': '2026-13-45' }),
+    );
+
+    expect(result).toMatchObject({
+      status: 'validation-failed',
+      errors: expect.arrayContaining([{ fieldId: 'field-visit-date', message: '「回訪日期」請輸入日期。' }]),
+    });
   });
 
   it('builds a newest-first timeline per tracked subject from consented records only', () => {

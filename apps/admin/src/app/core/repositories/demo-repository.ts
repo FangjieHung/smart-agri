@@ -37,6 +37,7 @@ import type {
   DatabaseDetailView,
   DatabaseFieldError,
   DatabaseFieldView,
+  DatabaseFormSavedView,
   DatabaseId,
   DatabaseSummaryView,
   DatabaseTemplateView,
@@ -325,9 +326,19 @@ export interface DatabaseFieldsValidationFailedView {
   readonly message: string;
 }
 
+/**
+ * 儲存表單時 `baseFormVersion` 已經不是最新（另一個人或另一個分頁先存過）：API 的
+ * `409 form-version-changed`。這次完全沒有寫入，畫面要請使用者重新載入再改。
+ */
+export interface DatabaseFieldsConflictView {
+  readonly status: 'conflict';
+  readonly message: string;
+}
+
 export type UpdateDatabaseFieldsResult =
-  | RepositoryView<readonly DatabaseFieldView[]>
-  | DatabaseFieldsValidationFailedView;
+  | RepositoryView<DatabaseFormSavedView>
+  | DatabaseFieldsValidationFailedView
+  | DatabaseFieldsConflictView;
 
 export type PreviewDatabaseEntryResult =
   | RepositoryView<DatabaseTrialPreviewView>
@@ -776,12 +787,16 @@ export interface DemoRepository extends DemoScenarioController {
    * permission-denied，訊息不包含資源名稱。API 模式：`GET /api/v1/databases/{id}`。
    */
   getDatabaseDetail(databaseId: string): Observable<RepositoryView<DatabaseDetailView>>;
-  /** 儲存表單欄位；只接受六種欄位類型，不支援條件跳題或公式。 */
+  /**
+   * 把欄位存成下一個表單版本（舊版本不變）；只接受六種欄位類型，不支援條件跳題或公式。
+   * `baseFormVersion` 是編輯時讀到的 `DatabaseDetailView.formVersion`，不是最新就回 `conflict`、
+   * 不寫入。欄位錯誤（422）逐欄回報；欄位與 `fields` 順序一一對應。
+   */
   updateDatabaseFields(
-    viewerAccountId: AccountId,
     databaseId: DatabaseId,
     fields: readonly DatabaseFieldView[],
-  ): UpdateDatabaseFieldsResult;
+    baseFormVersion: number,
+  ): Observable<UpdateDatabaseFieldsResult>;
   /**
    * 指定誰是這個資料庫的資料管理者，也就是誰可以查看收集紀錄與趨勢比較。
    * 只有資料庫擁有者可以變更；不存在與無權限回傳相同的 `database` permission-denied。
@@ -795,12 +810,14 @@ export interface DemoRepository extends DemoScenarioController {
     databaseId: DatabaseId,
     dataManagerAccountIds: readonly AccountId[],
   ): UpdateDatabaseAccessResult;
-  /** 試填：以目前已儲存的表單驗證答案並回傳預覽，不會建立紀錄。 */
+  /**
+   * 試填：以目前已儲存的表單驗證答案並回傳預覽，不會建立紀錄。API 模式由伺服器驗證，用的是
+   * 日後正式提交（#145）同一套規則。
+   */
   previewDatabaseEntry(
-    viewerAccountId: AccountId,
     databaseId: DatabaseId,
     answers: DatabaseTrialAnswers,
-  ): PreviewDatabaseEntryResult;
+  ): Observable<PreviewDatabaseEntryResult>;
   /**
    * 收集紀錄與比較。只有指定資料管理者可查看，且只包含使用者明確同意提交的紀錄；
    * 本次／上次／首次差異與文字摘要皆在此預先算好。

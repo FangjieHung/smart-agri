@@ -81,9 +81,11 @@ import type {
   CreateDatabaseInput,
   DatabaseDetailView,
   DatabaseFieldId,
+  DatabaseFieldError,
   DatabaseFieldView,
   DatabaseSummaryView,
   DatabaseTemplateView,
+  DatabaseTrialAnswers,
   DatabaseUpcomingFeature,
 } from '../domain/database.model';
 import type {
@@ -99,6 +101,9 @@ import {
   type ApproveKnowledgeVersionsResult,
   type CreateAssistantResult,
   type CreateDatabaseResult,
+  type DatabaseFieldsValidationFailedView,
+  type PreviewDatabaseEntryResult,
+  type UpdateDatabaseFieldsResult,
   type CreateDatabaseValidationFailedView,
   type CreateKnowledgeBaseResult,
   type CreateMemberInput,
@@ -195,6 +200,11 @@ type ApiDatabaseSummary = components['schemas']['DatabaseSummaryView'];
 type ApiDatabaseDetail = components['schemas']['DatabaseDetailView'];
 type ApiDatabaseField = components['schemas']['DatabaseFieldView'];
 type CreateDatabaseRequest = components['schemas']['CreateDatabaseRequest'];
+type ApiDatabaseForm = components['schemas']['DatabaseFormView'];
+type ApiDatabaseFieldDraft = components['schemas']['DatabaseFieldDraft'];
+type ApiDatabaseTrialPreview = components['schemas']['DatabaseTrialPreviewView'];
+type SaveDatabaseFormRequest = components['schemas']['SaveDatabaseFormRequest'];
+type PreviewDatabaseEntryRequest = components['schemas']['PreviewDatabaseEntryRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -345,7 +355,6 @@ export function apiDatabasePath(databaseId: string): string {
  * 不呼叫對應的同步 mock 方法。
  */
 export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
-  'form-editing',
   'data-managers',
   'records',
   'assistant-connections',
@@ -385,6 +394,9 @@ const KNOWLEDGE_DENIED: PermissionDeniedFallback = {
   reason: 'knowledge-base',
   message: KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
 };
+
+/** 與後端 `DatabaseEndpoints.FormChangedMessage`、mock 的訊息逐字相同（後端的訊息優先）。 */
+const DATABASE_FORM_CHANGED_MESSAGE = '這份表單已被更新過，請重新載入後再修改。你這次的修改尚未儲存。';
 
 /** 與後端 `ForbiddenReason.Database`／`DatabaseCreate`、mock 的訊息逐字相同。 */
 const DATABASE_DENIED: PermissionDeniedFallback = {
@@ -1043,9 +1055,71 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  // 表單編輯、試填、資料管理者與收集紀錄（updateDatabaseFields／previewDatabaseEntry／
-  // updateDatabaseAccess／getDatabaseTracking）仍是同步 mock 契約，API 模式尚未提供
-  // （API_UPCOMING_DATABASE_FEATURES）。詳情頁依 `upcomingFeatures` 不呼叫它們；就算被呼叫，
+  /**
+   * `PUT /api/v1/databases/{id}/form`（issue #143）：把欄位存成下一個版本，帶編輯時讀到的版本號。
+   * `409`（有人先存過）轉成 `conflict`、`422` 轉成逐欄錯誤（`fields[i]…` 的 i 對回 `fields[i].id`）、
+   * `403`／`404` 轉成 `database`；其他錯誤（5xx、連線中斷）原樣拋出，由畫面保留草稿讓使用者重試。
+   */
+  override updateDatabaseFields(
+    databaseId: string,
+    fields: readonly DatabaseFieldView[],
+    baseFormVersion: number,
+  ): Observable<UpdateDatabaseFieldsResult> {
+    const body: SaveDatabaseFormRequest = {
+      baseVersionNumber: baseFormVersion,
+      fields: fields.map(toDatabaseFieldDraft),
+    };
+    return this.http.put<ApiDatabaseForm>(`${apiDatabasePath(databaseId)}/form`, body).pipe(
+      map((response): UpdateDatabaseFieldsResult => ({
+        status: 'ready',
+        data: { formVersion: response.versionNumber, fields: response.fields.map(toDatabaseField) },
+      })),
+      catchError((error: unknown): Observable<UpdateDatabaseFieldsResult> => {
+        if (isHttpError(error, 409)) {
+          return of({ status: 'conflict', message: bodyMessage(error) ?? DATABASE_FORM_CHANGED_MESSAGE });
+        }
+        if (isHttpError(error, 422)) return of(databaseFieldsValidationFailed(error, 'fields', fields));
+        return isHttpError(error, 404)
+          ? of(permissionDenied(DATABASE_DENIED))
+          : this.permissionDeniedOrThrow(error, DATABASE_DENIED);
+      }),
+    );
+  }
+
+  /**
+   * `POST /api/v1/databases/{id}/form/preview`：伺服器用正式提交同一套規則驗證答案，不寫入任何資料。
+   * `422` 的鍵是 `answers.<欄位 id>`。
+   */
+  override previewDatabaseEntry(
+    databaseId: string,
+    answers: DatabaseTrialAnswers,
+  ): Observable<PreviewDatabaseEntryResult> {
+    // OpenAPI 把「字串或字串陣列」的自由形狀寫成 Record<string, never>；實際上就是答案本身。
+    const body: PreviewDatabaseEntryRequest = { answers: answers as unknown as Record<string, never> };
+    return this.http.post<ApiDatabaseTrialPreview>(`${apiDatabasePath(databaseId)}/form/preview`, body).pipe(
+      map((response): PreviewDatabaseEntryResult => ({
+        status: 'ready',
+        data: {
+          saved: false,
+          formVersion: response.formVersion,
+          entries: response.entries.map((entry) => ({
+            fieldId: toDatabaseFieldId(entry.fieldId),
+            label: entry.label,
+            display: entry.display,
+          })),
+        },
+      })),
+      catchError((error: unknown): Observable<PreviewDatabaseEntryResult> => {
+        if (isHttpError(error, 422)) return of(databaseFieldsValidationFailed(error, 'answers', []));
+        return isHttpError(error, 404)
+          ? of(permissionDenied(DATABASE_DENIED))
+          : this.permissionDeniedOrThrow(error, DATABASE_DENIED);
+      }),
+    );
+  }
+
+  // 資料管理者與收集紀錄（updateDatabaseAccess／getDatabaseTracking）仍是同步 mock 契約，API 模式
+  // 尚未提供（API_UPCOMING_DATABASE_FEATURES）。詳情頁依 `upcomingFeatures` 不呼叫它們；就算被呼叫，
   // mock 也找不到 API 的 GUID，回傳 `database` permission-denied，不會寫入任何資料。
 
   // ---------- 知識庫 ----------
@@ -1464,6 +1538,52 @@ function databaseValidationFailed(error: HttpErrorResponse): CreateDatabaseValid
   return { status: 'validation-failed', message: bodyMessage(error) ?? '請確認模板與資料庫名稱後再試一次。' };
 }
 
+/**
+ * 後端 `422` 的 `errors` 是「鍵 → 訊息陣列」。儲存表單的鍵是 `fields`（整份表單）、
+ * `fields[2]`、`fields[2].options`…，第 i 個對回送出的 `fields[i].id`；試填的鍵是
+ * `answers.<欄位 id>`。不認得的鍵（例如 `baseVersionNumber`）算整份表單層級的錯誤。
+ * 每個鍵可能有多則訊息，各自成為一筆。
+ */
+function databaseFieldsValidationFailed(
+  error: HttpErrorResponse,
+  scope: 'fields' | 'answers',
+  sent: readonly DatabaseFieldView[],
+): DatabaseFieldsValidationFailedView {
+  const body = (error.error ?? {}) as ValidationFailedBody;
+  const errors: DatabaseFieldError[] = Object.entries(body.errors ?? {}).flatMap(([key, value]) => {
+    const messages = Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+    const fieldId = errorKeyToFieldId(key, scope, sent);
+    return messages.map((message) => ({ fieldId, message }));
+  });
+  const message = bodyMessage(error) ?? '還有需要修正的地方，這次沒有儲存。';
+  return { status: 'validation-failed', errors: errors.length > 0 ? errors : [{ fieldId: null, message }], message };
+}
+
+function errorKeyToFieldId(
+  key: string,
+  scope: 'fields' | 'answers',
+  sent: readonly DatabaseFieldView[],
+): DatabaseFieldId | null {
+  if (scope === 'answers') {
+    return key.startsWith('answers.') ? toDatabaseFieldId(key.slice('answers.'.length)) : null;
+  }
+  const index = /^fields\[(\d+)\]/.exec(key)?.[1];
+  return index === undefined ? null : (sent[Number(index)]?.id ?? null);
+}
+
+/** 送給伺服器的欄位：與 `DatabaseFieldView` 同形，量尺與單位照送，伺服器會依類型整理。 */
+function toDatabaseFieldDraft(field: DatabaseFieldView): ApiDatabaseFieldDraft {
+  return {
+    id: field.id,
+    label: field.label,
+    type: field.type,
+    required: field.required,
+    options: [...field.options],
+    scale: field.scale === null ? null : { ...field.scale },
+    unit: field.unit,
+  };
+}
+
 function toDatabaseFieldId(id: string): DatabaseFieldId {
   // 後端的欄位 id 一律是 `field-…`（`DatabaseFormVersion.EnsureValid`）；這裡只是讓型別對上。
   return (id.startsWith('field-') ? id : `field-${id}`) as DatabaseFieldId;
@@ -1505,6 +1625,7 @@ function toDatabaseDetail(detail: ApiDatabaseDetail): DatabaseDetailView {
   const summary = toDatabaseSummary(detail.summary);
   return {
     summary,
+    formVersion: detail.form.versionNumber,
     fields: detail.form.fields.map(toDatabaseField),
     connectedAssistants: [],
     // 資料管理者是 #144；在那之前沒有人被指定，也沒有人能從這裡讀到紀錄。

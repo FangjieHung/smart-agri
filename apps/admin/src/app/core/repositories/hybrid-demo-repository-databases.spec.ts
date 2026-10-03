@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createDatabaseField, type DatabaseFieldView } from '../domain/database.model';
 import type { components } from '../api/api-schema';
 import type { DemoKeyValueStorage } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
@@ -26,6 +27,16 @@ const DATABASE_ID = '0199a3c0-0000-7000-8000-0000000000d1';
  * 原樣保留成字串再 `JSON.parse`，而不是依產生的型別手寫：確保 adapter 吃得下真實的鍵與 null。
  */
 const REAL_DETAIL_JSON = `{"summary":{"id":"01a0ff7d-50ef-7b51-962e-c901576e7842","name":"門市滿意度","purpose":"收集客戶對服務的評分與建議。","templateId":"template-satisfaction","templateName":"滿意度調查","fieldCount":3,"formVersion":1,"owner":{"id":"01a0ff7d-4c9e-71cb-9d7d-43df59ad9710","displayName":"安心商行管理者"},"createdAt":"2026-10-03T01:59:57.935113+00:00","updatedAt":"2026-10-03T01:59:57.935113+00:00","viewerCanManage":true},"form":{"id":"01a0ff7d-50f0-787e-91aa-0943f162f1c3","versionNumber":1,"createdAt":"2026-10-03T01:59:57.935113+00:00","fields":[{"id":"field-overall-satisfaction","label":"整體滿意度","type":"scale","required":true,"options":[],"scale":{"min":1,"max":5,"minLabel":"很不滿意","maxLabel":"非常滿意"},"unit":""},{"id":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","required":false,"options":["商品品質","客服回應","配送速度"],"scale":null,"unit":""},{"id":"field-suggestion","label":"其他建議","type":"text","required":false,"options":[],"scale":null,"unit":""}]}}`;
+
+/**
+ * 實際從 API 取得的表單編輯與試填回應（API 整合測試主機以「滿意度調查」模板建立後呼叫，2026-10-03），
+ * 原樣保留成字串再 `JSON.parse`：確保 adapter 吃得下真實的鍵（`scale: null`、`errors` 的鍵格式）。
+ */
+const REAL_SAVE_200_JSON = `{"id":"01a0ffca-135f-77c8-aa65-4aea75938186","versionNumber":2,"createdAt":"2026-10-03T03:23:48.44787+00:00","fields":[{"id":"field-overall-satisfaction","label":"整體滿意度","type":"scale","required":true,"options":[],"scale":{"min":1,"max":5,"minLabel":"很不滿意","maxLabel":"非常滿意"},"unit":""},{"id":"field-suggestion","label":"其他建議（改）","type":"text","required":false,"options":[],"scale":null,"unit":""},{"id":"field-amount","label":"金額","type":"number","required":false,"options":[],"scale":null,"unit":"元"}]}`;
+const REAL_SAVE_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"請填寫欄位名稱。","errors":{"fields[0].label":["請填寫欄位名稱。"],"fields[1].options":["單選或多選至少需要 2 個選項。"]}}`;
+const REAL_SAVE_409_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"form-version-changed","message":"這份表單已被更新過，請重新載入後再修改。你這次的修改尚未儲存。"}`;
+const REAL_PREVIEW_200_JSON = `{"saved":false,"formVersion":2,"entries":[{"fieldId":"field-overall-satisfaction","label":"整體滿意度","display":"4 / 5"},{"fieldId":"field-suggestion","label":"其他建議（改）","display":"未填寫"},{"fieldId":"field-amount","label":"金額","display":"1,200 元"}]}`;
+const REAL_PREVIEW_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"「整體滿意度」為必填。","errors":{"answers.field-amount":["「金額」請輸入數字。"],"answers.field-overall-satisfaction":["「整體滿意度」為必填。"]}}`;
 
 function setUp() {
   TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
@@ -249,5 +260,168 @@ describe('HybridDemoRepository databases (issue #142)', () => {
       message: '你沒有這個資料庫的存取權限，或它已不存在。',
     });
     expect(await notGuid).toEqual(await forbidden);
+  });
+});
+
+describe('HybridDemoRepository form editing and trial fill (issue #143)', () => {
+  afterEach(() => TestBed.inject(HttpTestingController).verify());
+
+  const formPath = `${apiDatabasePath(DATABASE_ID)}/form`;
+  const previewPath = `${formPath}/preview`;
+  const field = (id: `field-${string}`, label: string, type: DatabaseFieldView['type'] = 'text'): DatabaseFieldView =>
+    createDatabaseField(id, type, { label });
+
+  it('PUTs the form with the base version and maps the saved version back, writing nothing to mock storage', async () => {
+    const { repository, controller, written } = setUp();
+    const fields: DatabaseFieldView[] = [
+      { ...field('field-overall-satisfaction', '整體滿意度', 'scale'), required: true, scale: { min: 1, max: 5, minLabel: '很不滿意', maxLabel: '非常滿意' } },
+      field('field-suggestion', '其他建議（改）'),
+      { ...field('field-amount', '金額', 'number'), unit: '元' },
+    ];
+    const result = firstValueFrom(repository.updateDatabaseFields(DATABASE_ID, fields, 1));
+
+    const request = controller.expectOne({ method: 'PUT', url: formPath });
+    expect(request.request.body).toEqual({
+      baseVersionNumber: 1,
+      fields: [
+        { id: 'field-overall-satisfaction', label: '整體滿意度', type: 'scale', required: true, options: [], scale: { min: 1, max: 5, minLabel: '很不滿意', maxLabel: '非常滿意' }, unit: '' },
+        { id: 'field-suggestion', label: '其他建議（改）', type: 'text', required: false, options: [], scale: null, unit: '' },
+        { id: 'field-amount', label: '金額', type: 'number', required: false, options: [], scale: null, unit: '元' },
+      ],
+    });
+    request.flush(JSON.parse(REAL_SAVE_200_JSON));
+
+    const saved = await result;
+    expect(saved.status).toBe('ready');
+    if (saved.status !== 'ready') return;
+    expect(saved.data.formVersion).toBe(2);
+    expect(saved.data.fields.map((item) => [item.id, item.type, item.scale, item.unit])).toEqual([
+      ['field-overall-satisfaction', 'scale', { min: 1, max: 5, minLabel: '很不滿意', maxLabel: '非常滿意' }, ''],
+      ['field-suggestion', 'text', null, ''],
+      ['field-amount', 'number', null, '元'],
+    ]);
+    expect(written).toEqual([]);
+  });
+
+  it('maps a 422 key like fields[1].options back to the field sent at that position', async () => {
+    const { repository, controller } = setUp();
+    const fields = [field('field-overall-satisfaction', ' ', 'scale'), field('field-liked-services', '喜歡的服務', 'multiple-choice')];
+    const result = firstValueFrom(repository.updateDatabaseFields(DATABASE_ID, fields, 1));
+    controller.expectOne({ method: 'PUT', url: formPath }).flush(JSON.parse(REAL_SAVE_422_JSON), { status: 422, statusText: 'Unprocessable Content' });
+
+    expect(await result).toEqual({
+      status: 'validation-failed',
+      message: '請填寫欄位名稱。',
+      errors: [
+        { fieldId: 'field-overall-satisfaction', message: '請填寫欄位名稱。' },
+        { fieldId: 'field-liked-services', message: '單選或多選至少需要 2 個選項。' },
+      ],
+    });
+  });
+
+  it('treats a form-level 422 (fields, baseVersionNumber) as an error without a field', async () => {
+    const { repository, controller } = setUp();
+    const result = firstValueFrom(repository.updateDatabaseFields(DATABASE_ID, [], 1));
+    controller.expectOne({ method: 'PUT', url: formPath }).flush(
+      { message: '表單至少需要一個欄位。', errors: { fields: ['表單至少需要一個欄位。'] } },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+
+    expect(await result).toEqual({
+      status: 'validation-failed',
+      message: '表單至少需要一個欄位。',
+      errors: [{ fieldId: null, message: '表單至少需要一個欄位。' }],
+    });
+  });
+
+  it('turns 409 form-version-changed into conflict with the server message, and 403 into database denied', async () => {
+    const { repository, controller } = setUp();
+    const conflict = firstValueFrom(repository.updateDatabaseFields(DATABASE_ID, [field('field-a', '名')], 1));
+    controller.expectOne({ method: 'PUT', url: formPath }).flush(JSON.parse(REAL_SAVE_409_JSON), { status: 409, statusText: 'Conflict' });
+    const denied = firstValueFrom(repository.updateDatabaseFields(DATABASE_ID, [field('field-a', '名')], 1));
+    controller.expectOne({ method: 'PUT', url: formPath }).flush(FORBIDDEN_DATABASE, { status: 403, statusText: 'Forbidden' });
+
+    expect(await conflict).toEqual({
+      status: 'conflict',
+      message: '這份表單已被更新過，請重新載入後再修改。你這次的修改尚未儲存。',
+    });
+    expect(await denied).toEqual({
+      status: 'permission-denied',
+      reason: 'database',
+      message: '你沒有這個資料庫的存取權限，或它已不存在。',
+    });
+  });
+
+  it('lets a server failure through as an error so the screen keeps the draft', async () => {
+    const { repository, controller } = setUp();
+    const result = firstValueFrom(repository.updateDatabaseFields(DATABASE_ID, [field('field-a', '名')], 1));
+    controller.expectOne({ method: 'PUT', url: formPath }).flush(null, { status: 500, statusText: 'Server Error' });
+
+    await expect(result).rejects.toMatchObject({ status: 500 });
+  });
+
+  it('POSTs the answers as sent and maps the preview, saying nothing was saved', async () => {
+    const { repository, controller, written } = setUp();
+    const result = firstValueFrom(
+      repository.previewDatabaseEntry(DATABASE_ID, { 'field-overall-satisfaction': '4', 'field-amount': '1200', 'field-tags': ['甲', '乙'] }),
+    );
+
+    const request = controller.expectOne({ method: 'POST', url: previewPath });
+    expect(request.request.body).toEqual({
+      answers: { 'field-overall-satisfaction': '4', 'field-amount': '1200', 'field-tags': ['甲', '乙'] },
+    });
+    request.flush(JSON.parse(REAL_PREVIEW_200_JSON));
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: {
+        saved: false,
+        formVersion: 2,
+        entries: [
+          { fieldId: 'field-overall-satisfaction', label: '整體滿意度', display: '4 / 5' },
+          { fieldId: 'field-suggestion', label: '其他建議（改）', display: '未填寫' },
+          { fieldId: 'field-amount', label: '金額', display: '1,200 元' },
+        ],
+      },
+    });
+    expect(written).toEqual([]);
+  });
+
+  it('maps answers.<field id> keys of a preview 422 to the fields', async () => {
+    const { repository, controller } = setUp();
+    const result = firstValueFrom(repository.previewDatabaseEntry(DATABASE_ID, { 'field-amount': 'abc' }));
+    controller.expectOne({ method: 'POST', url: previewPath }).flush(JSON.parse(REAL_PREVIEW_422_JSON), { status: 422, statusText: 'Unprocessable Content' });
+
+    const outcome = await result;
+    expect(outcome.status).toBe('validation-failed');
+    if (outcome.status !== 'validation-failed') return;
+    expect(outcome.message).toBe('「整體滿意度」為必填。');
+    expect([...outcome.errors].sort((a, b) => String(a.fieldId).localeCompare(String(b.fieldId)))).toEqual([
+      { fieldId: 'field-amount', message: '「金額」請輸入數字。' },
+      { fieldId: 'field-overall-satisfaction', message: '「整體滿意度」為必填。' },
+    ]);
+  });
+
+  it('turns a 403 and a non-GUID 404 on the preview into database denied', async () => {
+    const { repository, controller } = setUp();
+    const forbidden = firstValueFrom(repository.previewDatabaseEntry(DATABASE_ID, {}));
+    controller.expectOne({ method: 'POST', url: previewPath }).flush(FORBIDDEN_DATABASE, { status: 403, statusText: 'Forbidden' });
+    const notGuid = firstValueFrom(repository.previewDatabaseEntry('database-orders', {}));
+    controller.expectOne({ method: 'POST', url: `${apiDatabasePath('database-orders')}/form/preview` }).flush(null, { status: 404, statusText: 'Not Found' });
+
+    expect(await forbidden).toMatchObject({ status: 'permission-denied', reason: 'database' });
+    expect(await notGuid).toEqual(await forbidden);
+  });
+
+  it('reads the form version from the detail so a save can carry it', async () => {
+    const { repository, controller } = setUp();
+    const detail = firstValueFrom(repository.getDatabaseDetail(DATABASE_ID));
+    const parsed = JSON.parse(REAL_DETAIL_JSON);
+    parsed.form.versionNumber = 3;
+    controller.expectOne(apiDatabasePath(DATABASE_ID)).flush(parsed);
+
+    const result = await detail;
+    expect(result.status === 'ready' && result.data.formVersion).toBe(3);
+    expect(API_UPCOMING_DATABASE_FEATURES).not.toContain('form-editing');
   });
 });

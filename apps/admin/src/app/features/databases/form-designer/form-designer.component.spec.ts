@@ -114,4 +114,42 @@ describe('FormDesignerComponent', () => {
     expect(host.querySelector(`#${errorId}`)?.textContent).toContain('請填寫欄位名稱');
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('表單至少需要一個欄位');
   });
+
+  it('gives every new field its own valid id, never one derived from the field count', () => {
+    const { fixture, host } = render();
+
+    button(host, '新增欄位').click();
+    button(host, '新增欄位').click();
+    fixture.detectChanges();
+
+    const ids = Array.from(host.querySelectorAll('.field-editor')).map((editor) => editor.getAttribute('data-field-id'));
+    expect(new Set(ids).size).toBe(4);
+    expect(ids.slice(2)).toEqual([expect.stringMatching(/^field-[a-z0-9]+$/), expect.stringMatching(/^field-[a-z0-9]+$/)]);
+  });
+
+  it('shows a save failure that is not a field error, and offers a reload only for a version conflict', () => {
+    const { fixture, host } = render();
+    const reloads: true[] = [];
+    fixture.componentInstance.reload.subscribe(() => reloads.push(true));
+
+    fixture.componentRef.setInput('failure', { kind: 'failed', message: '目前無法儲存表單。' });
+    fixture.detectChanges();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('目前無法儲存表單。');
+    expect(host.querySelector('[role="alert"]')?.textContent).not.toContain('還有欄位需要修正');
+    expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent?.includes('重新載入'))).toBe(false);
+
+    fixture.componentRef.setInput('failure', { kind: 'conflict', message: '這份表單已被更新過。' });
+    fixture.detectChanges();
+    button(host, '重新載入最新表單').click();
+    expect(reloads).toHaveLength(1);
+  });
+
+  it('disables the save button while saving', () => {
+    const { fixture, host } = render();
+
+    fixture.componentRef.setInput('saving', true);
+    fixture.detectChanges();
+
+    expect(button(host, '儲存中').disabled).toBe(true);
+  });
 });

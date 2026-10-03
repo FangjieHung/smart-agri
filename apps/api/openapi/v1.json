@@ -1759,6 +1759,107 @@
         }
       }
     },
+    "/api/v1/databases/{id}/form": {
+      "put": {
+        "tags": [
+          "DatabaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDatabaseFormRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFormView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/form/preview": {
+      "post": {
+        "tags": [
+          "DatabaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewDatabaseEntryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseTrialPreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants": {
       "get": {
         "tags": [
@@ -5089,6 +5190,66 @@
           }
         }
       },
+      "DatabaseFieldDraft": {
+        "required": [
+          "id",
+          "label",
+          "type",
+          "required",
+          "options",
+          "scale",
+          "unit"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "scale": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseScaleDraft"
+              }
+            ]
+          },
+          "unit": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "DatabaseFieldType": {
         "enum": [
           "text",
@@ -5170,6 +5331,43 @@
             "items": {
               "$ref": "#/components/schemas/DatabaseFieldView"
             }
+          }
+        }
+      },
+      "DatabaseScaleDraft": {
+        "required": [
+          "min",
+          "max",
+          "minLabel",
+          "maxLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "max": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          },
+          "minLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "maxLabel": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5285,6 +5483,48 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DatabaseFieldView"
+            }
+          }
+        }
+      },
+      "DatabaseTrialEntryView": {
+        "required": [
+          "fieldId",
+          "label",
+          "display"
+        ],
+        "type": "object",
+        "properties": {
+          "fieldId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "display": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseTrialPreviewView": {
+        "required": [
+          "saved",
+          "formVersion",
+          "entries"
+        ],
+        "type": "object",
+        "properties": {
+          "saved": {
+            "type": "boolean"
+          },
+          "formVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseTrialEntryView"
             }
           }
         }
@@ -6359,6 +6599,20 @@
           }
         }
       },
+      "PreviewDatabaseEntryRequest": {
+        "required": [
+          "answers"
+        ],
+        "type": "object",
+        "properties": {
+          "answers": {
+            "type": [
+              "null",
+              "object"
+            ]
+          }
+        }
+      },
       "PreviewKnowledgeRetrievalRequest": {
         "required": [
           "question"
@@ -6600,6 +6854,31 @@
             "type": "integer",
             "format": "int32",
             "default": 1
+          }
+        }
+      },
+      "SaveDatabaseFormRequest": {
+        "required": [
+          "baseVersionNumber",
+          "fields"
+        ],
+        "type": "object",
+        "properties": {
+          "baseVersionNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "fields": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/DatabaseFieldDraft"
+            }
           }
         }
       },

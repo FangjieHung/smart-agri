@@ -284,6 +284,95 @@ public class AssistantDatabaseFormEndpointsTests : IClassFixture<AuthHostFixture
         (await after.DatabaseSubmissions.CountAsync(CancellationToken)).ShouldBe(1);
     }
 
+    // --- Withdrawal (#146 with #148) ---------------------------------------------------------
+
+    [Fact]
+    public async Task The_submitter_withdraws_an_in_chat_submission_and_the_conversation_reads_it_back_withdrawn()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var member = await SignInAsync(org, "member");
+        var (assistantId, databaseId) = await CreateFormAssistantAsync(org, admin, keepConversations: true);
+        var threadId = (await RunAsync(member, assistantId, FormQuestion)).ThreadId!.Value;
+        var key = Guid.NewGuid();
+        var created = await SubmitAsync(member, assistantId, databaseId, key, true, threadId);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created, await created.Content.ReadAsStringAsync(CancellationToken));
+        var submitted = await BodyJsonAsync(created);
+        var submissionId = submitted.GetProperty("receipt").GetProperty("id").GetGuid();
+        var messageId = submitted.GetProperty("message").GetProperty("id").GetGuid();
+        var withdrawalPath = $"/api/v1/submissions/{submissionId}/withdrawal";
+
+        // The data manager (the admin here) cannot withdraw it for the member.
+        var byManager = await admin.Spa.PostAsync(withdrawalPath, admin.Token, new { });
+        byManager.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        (await BodyJsonAsync(byManager)).GetProperty("reason").GetString().ShouldBe("submission-withdrawal");
+
+        var withdrawn = await member.Spa.PostAsync(withdrawalPath, member.Token, new { });
+        withdrawn.StatusCode.ShouldBe(HttpStatusCode.OK, await withdrawn.Content.ReadAsStringAsync(CancellationToken));
+        var receipt = await BodyJsonAsync(withdrawn);
+        receipt.GetProperty("source").GetString().ShouldBe("assistant-conversation");
+        receipt.GetProperty("entries").GetArrayLength().ShouldBe(0);
+        receipt.GetProperty("withdrawnAt").ValueKind.ShouldBe(JsonValueKind.String);
+
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            (await dbContext.DatabaseSubmissionEntries.CountAsync(entry => entry.SubmissionId == submissionId, CancellationToken)).ShouldBe(0);
+            var submission = await dbContext.DatabaseSubmissions.AsNoTracking().SingleAsync(CancellationToken);
+            submission.WithdrawnAt.ShouldNotBeNull();
+
+            // The conversation keeps its receipt message (it only ever held the submission id) and
+            // still holds no answer anywhere.
+            (await dbContext.ChatMessages.CountAsync(row => row.SubmissionId == submissionId, CancellationToken)).ShouldBe(1);
+            foreach (var row in await dbContext.ChatMessages.AsNoTracking().ToListAsync(CancellationToken))
+            {
+                var stored = $"{row.Text}|{row.Notice}|{string.Join('|', row.NextSteps)}";
+                foreach (var value in new[] { "王小明", "0912-345-678", "2026-09-21", "企業" })
+                {
+                    stored.ShouldNotContain(value);
+                }
+            }
+        }
+
+        // Read back, the conversation's receipt is the withdrawn one: no content, the withdrawal time.
+        var chatResponse = await member.Spa.GetAsync($"{AssistantsPath}/{assistantId}/chat?conversation={threadId}", member.Token);
+        var chatText = await chatResponse.Content.ReadAsStringAsync(CancellationToken);
+        var chat = JsonDocument.Parse(chatText).RootElement;
+        var readBack = chat.GetProperty("messages")[2];
+        readBack.GetProperty("id").GetGuid().ShouldBe(messageId);
+        var readReceipt = readBack.GetProperty("reply").GetProperty("receipt");
+        readReceipt.GetProperty("id").GetGuid().ShouldBe(submissionId);
+        readReceipt.GetProperty("entries").GetArrayLength().ShouldBe(0);
+        readReceipt.GetProperty("withdrawnAt").GetString().ShouldBe(receipt.GetProperty("withdrawnAt").GetString());
+        // (Only the free-text answers: "企業" is also one of the form's options, shown on the form request.)
+        foreach (var value in new[] { "王小明", "0912-345-678" })
+        {
+            chatText.ShouldNotContain(value);
+        }
+
+        // A retry of the original fill learns the withdrawn state; nothing is recorded again.
+        var retried = await SubmitAsync(member, assistantId, databaseId, key, true, threadId);
+        retried.StatusCode.ShouldBe(HttpStatusCode.OK, await retried.Content.ReadAsStringAsync(CancellationToken));
+        var replay = await BodyJsonAsync(retried);
+        replay.GetProperty("receipt").GetProperty("withdrawnAt").ValueKind.ShouldBe(JsonValueKind.String);
+        replay.GetProperty("receipt").GetProperty("entries").GetArrayLength().ShouldBe(0);
+        replay.GetProperty("message").GetProperty("id").GetGuid().ShouldBe(messageId);
+
+        // The member's own list shows it with its source; the data manager sees only the trail.
+        var own = await BodyJsonAsync(await member.Spa.GetAsync("/api/v1/submissions", member.Token));
+        var listed = own.GetProperty("submissions").EnumerateArray().Single();
+        listed.GetProperty("source").GetString().ShouldBe("assistant-conversation");
+        listed.GetProperty("withdrawnAt").ValueKind.ShouldBe(JsonValueKind.String);
+        var tracking = await BodyJsonAsync(await admin.Spa.GetAsync($"{DatabasesPath}/{databaseId}/tracking", admin.Token));
+        var subject = tracking.GetProperty("subjects").EnumerateArray().Single();
+        subject.GetProperty("records").GetArrayLength().ShouldBe(0);
+        subject.GetProperty("withdrawals")[0].GetProperty("source").GetString().ShouldBe("assistant-conversation");
+
+        await using var after = _host.Postgres.CreateDbContext(org.Organization.Id);
+        (await after.DatabaseSubmissions.CountAsync(CancellationToken)).ShouldBe(1);
+        (await after.DatabaseSubmissionEntries.CountAsync(CancellationToken)).ShouldBe(0);
+        (await after.ChatMessages.CountAsync(row => row.ReplyKind == ChatReplyKind.SubmissionReceipt, CancellationToken)).ShouldBe(1);
+    }
+
     // --- Revocation --------------------------------------------------------------------------
 
     [Fact]

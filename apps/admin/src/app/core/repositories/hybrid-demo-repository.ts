@@ -108,6 +108,7 @@ import type {
   ChatThreadListView,
   ChatThreadSummaryView,
   RecentConversationView,
+  SubmissionWithdrawalView,
 } from '../domain/conversation.model';
 import {
   isRepositoryPermissionDeniedReason,
@@ -138,6 +139,7 @@ import {
   type RenameChatThreadResult,
   type ReviewChatFormResult,
   type SubmitChatFormResult,
+  type WithdrawChatSubmissionResult,
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
   type RetryKnowledgeDocumentResult,
@@ -150,6 +152,7 @@ import {
   type UploadKnowledgeDocumentEvent,
 } from './demo-repository';
 import type { DemoSeed } from './demo-seed';
+import { CHAT_WITHDRAWAL_NOTICE, CHAT_WITHDRAWN_NOTICE } from './demo-seed-chat';
 import { createMemoryStorage } from './memory-storage';
 import {
   DRAFT_REVISION_CONFLICT_MESSAGE,
@@ -1741,6 +1744,27 @@ export class HybridDemoRepository extends MockDemoRepository {
       );
   }
 
+  /**
+   * 對話收據的撤回（#146 接上 #148）：收據的 `recordId` 是 `record-<提交 id>`，走與表單連結相同的
+   * `POST /api/v1/submissions/{id}/withdrawal`（只有提交者本人；別人的、不存在的一律
+   * `submission-withdrawal`）。伺服器的撤回是冪等的，已撤回過也回 `ready`；對話表不需要改，重新讀取時
+   * 收據依提交 id 即時讀回執，就會是已撤回、不含內容。
+   */
+  override withdrawChatSubmission(
+    _viewerId: ChatViewerId,
+    _assistantId: string,
+    recordId: string,
+  ): Observable<WithdrawChatSubmissionResult> {
+    const submissionId = recordId.startsWith(RECORD_ID_PREFIX) ? recordId.slice(RECORD_ID_PREFIX.length) : recordId;
+    return this.withdrawDatabaseSubmission(submissionId).pipe(
+      map((result): WithdrawChatSubmissionResult =>
+        result.status === 'ready' || result.status === 'partial-failure'
+          ? { status: 'ready', data: toChatWithdrawal(result.data) }
+          : result,
+      ),
+    );
+  }
+
   private chatFormRefusedOrThrow(
     error: unknown,
   ): Observable<DatabaseFieldsValidationFailedView | DatabaseSubmissionConflictView | PermissionDeniedRepositoryView> {
@@ -2588,6 +2612,20 @@ function toChatThreadListView(response: ApiChatThreadListView): ChatThreadListVi
   };
 }
 
+/** API 的提交 id 對上前端紀錄 id 樣板型別（`record-${string}`）用的前綴；時間軸與對話收據相同。 */
+const RECORD_ID_PREFIX = 'record-';
+
+/**
+ * 對話收據上的撤回狀態，依伺服器即時讀到的回執決定（#146）：已撤回顯示撤回日期（ISO 日期部分，UTC），
+ * 否則提交者本人可以撤回。API 模式沒有匿名訪客，所以不用訪客版的說明。
+ */
+function toChatWithdrawal(receipt: DatabaseSubmissionReceiptView): SubmissionWithdrawalView {
+  if (receipt.withdrawnAt !== null) {
+    return { status: 'withdrawn', withdrawnDateLabel: receipt.withdrawnAt.slice(0, 10), notice: CHAT_WITHDRAWN_NOTICE };
+  }
+  return { status: 'available', withdrawnDateLabel: '', notice: `回執編號 ${receipt.receiptNumber}。${CHAT_WITHDRAWAL_NOTICE}` };
+}
+
 /**
  * 後端的 `ChatReplyView` 是同一個扁平形狀（不適用的欄位為 null），不是前端的
  * discriminated union（`docs/plans/2026-09-27-backend-milestone-3-in-platform-chat.md`
@@ -2605,16 +2643,12 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
       kind: 'submission-receipt',
       text: reply.text,
       recipient: receipt?.recipient ?? '',
-      recordId: null,
+      // 收據以提交 id 指認紀錄（與時間軸相同的 `record-` 前綴）；讀不到回執就不提供撤回。
+      recordId: receipt === null ? null : `${RECORD_ID_PREFIX}${receipt.id}`,
       entries: receipt === null ? [] : toSubmissionReceipt(receipt).entries,
-      // 對話中撤回屬於 #146；在那之前 API 模式的收據不提供撤回。
-      withdrawal: {
-        status: 'unavailable',
-        withdrawnDateLabel: '',
-        notice: receipt === null
-          ? '目前無法讀取這張收據。'
-          : `回執編號 ${receipt.receiptNumber}。撤回功能將於後續版本開放。`,
-      },
+      withdrawal: receipt === null
+        ? { status: 'unavailable', withdrawnDateLabel: '', notice: '目前無法讀取這張收據。' }
+        : toChatWithdrawal(toSubmissionReceipt(receipt)),
     };
   }
   if (reply.kind === 'general-knowledge') {

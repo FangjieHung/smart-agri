@@ -251,7 +251,7 @@ describe('MockDemoRepository assistant chat', () => {
     const again = receiptOf(syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, submission)));
 
     expect(again).toEqual(first);
-    const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+    const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
     if (tracking.status !== 'ready') throw new Error('expected tracking');
     expect(tracking.data.subjects[0].records).toHaveLength(1);
   });
@@ -264,7 +264,7 @@ describe('MockDemoRepository assistant chat', () => {
     expect(syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, {
       formId: 'database-orders', formVersion: 2, submissionId: 'stale', answers: ORDER_ANSWERS, consent: true,
     }))).toMatchObject({ status: 'conflict', reason: 'form-version-changed' });
-    expect(repository.getDatabaseTracking('account-smb-admin', 'database-orders')).toMatchObject({
+    expect(repository.readDatabaseTracking('account-smb-admin', 'database-orders')).toMatchObject({
       status: 'ready',
       data: { subjects: [] },
     });

@@ -63,6 +63,7 @@ import type {
   PrivateConversationView,
   RecentConversationView,
   StructuredSubmissionView,
+  SubmissionWithdrawalView,
 } from '../domain/conversation.model';
 import type {
   CreateKnowledgeBaseInput,
@@ -401,8 +402,12 @@ export type SubmitChatFormResult =
   | DatabaseFieldsValidationFailedView
   | DatabaseSubmissionConflictView;
 
+/**
+ * 對話收據的撤回結果：`ready` 帶回這張收據撤回後的撤回狀態（`withdrawn`），畫面據此更新只存在本頁的
+ * 收據（不保存對話時），保存的對話則重新讀取。
+ */
 export type WithdrawChatSubmissionResult =
-  | RepositoryView<AssistantChatView>
+  | RepositoryView<SubmissionWithdrawalView>
   | ChatValidationFailedView;
 
 export type RenameChatThreadResult =
@@ -996,6 +1001,11 @@ export interface DemoRepository extends DemoScenarioController {
    * `submission-withdrawal` permission-denied，訊息不包含任何填寫內容。
    * 已撤回過的紀錄回傳 validation-failed，不會再寫入一次。
    *
+   * API 模式（issue #146 接上 #148）：收據的 `recordId` 是 `record-<提交 id>`，撤回走
+   * `POST /api/v1/submissions/{id}/withdrawal`（提交者本人，與表單連結的提交同一條路徑）。伺服器的撤回
+   * 是冪等的，已撤回過也回 `ready`（同一個撤回時間），不是 validation-failed。5xx 與連線中斷以
+   * Observable 的 error 傳出，什麼都沒變，可以再按一次。
+   *
    * 發起者可以是 Demo 帳號，也可以是未登入訪客（紀錄記在 `subject-<visitorId>`）。
    * 訪客的 id 只存在該瀏覽器分頁：分頁結束後就再也指認不到自己的紀錄，同意畫面與
    * 收據的說明會直接告訴訪客這件事，而不是假裝之後還撤得回來。
@@ -1005,7 +1015,7 @@ export interface DemoRepository extends DemoScenarioController {
     assistantId: string,
     recordId: string,
     threadId?: string,
-  ): WithdrawChatSubmissionResult;
+  ): Observable<WithdrawChatSubmissionResult>;
 }
 
 export const DEMO_SECURITY_NOTICE =

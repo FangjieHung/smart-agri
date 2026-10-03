@@ -4260,6 +4260,15 @@ export class MockDemoRepository implements DemoRepository {
     assistantId: string,
     recordId: string,
     threadId?: string,
+  ): Observable<WithdrawChatSubmissionResult> {
+    return defer(() => of(this.withdrawChatSubmissionNow(viewerId, assistantId, recordId, threadId)));
+  }
+
+  private withdrawChatSubmissionNow(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    recordId: string,
+    threadId?: string,
   ): WithdrawChatSubmissionResult {
     const assistant = this.chatAssistant(viewerId, assistantId);
     if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
@@ -4296,15 +4305,7 @@ export class MockDemoRepository implements DemoRepository {
       JSON.stringify(records.map((candidate) => (candidate.id === record.id ? withdrawn : candidate))),
     );
 
-    return this.applyScenario(
-      this.toChatView(
-        viewerId,
-        assistant,
-        this.targetMessages(viewerId, assistant, target),
-        target?.id ?? null,
-        target?.title ?? CHAT_DEFAULT_THREAD_TITLE,
-      ),
-    );
+    return this.applyScenario(this.withdrawalView(viewerId, withdrawn));
   }
 
   /** 可使用的助理；不存在與無權限都回傳 undefined，呼叫端回覆相同訊息。 */

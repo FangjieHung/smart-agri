@@ -4,7 +4,7 @@ import { provideRouter } from '@angular/router';
 import type { ChatViewerId } from '../../../core/domain/account.model';
 import { provideAssistantUseTesting } from '../assistant-use.testing';
 import { AssistantIssuesRepository } from '../../../core/repositories/assistant-issues.repository';
-import { firstValueFrom, of, Subject, throwError } from 'rxjs';
+import { firstValueFrom, map, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { ChatConversationComponent } from './chat-conversation.component';
 
@@ -123,6 +123,102 @@ describe('ChatConversationComponent withdrawal', () => {
 
     expect(host.querySelector('button.withdraw')).toBeNull();
     expect(trackingOf(repository, `subject-${viewerId}`)?.withdrawals).toHaveLength(1);
+  });
+});
+
+describe('ChatConversationComponent withdrawal through the repository (#146 with #148)', () => {
+  afterEach(() =>
+    document.body.querySelectorAll('app-chat-conversation').forEach((node) => node.remove()),
+  );
+
+  it('keeps the receipt and offers to try again when the withdrawal fails (5xx, offline)', async () => {
+    const { fixture, host, repository } = setup();
+    vi.spyOn(repository, 'withdrawChatSubmission').mockReturnValue(throwError(() => new Error('503')));
+
+    click(host, 'button.withdraw');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    click(host, 'button.confirm-withdraw');
+    fixture.detectChanges();
+
+    expect(host.querySelector('.withdraw-error')?.textContent).toContain('目前無法撤回');
+    expect(host.querySelector('.withdraw-feedback')).toBeNull();
+    expect(host.querySelector('[data-kind="submission-receipt"] button.withdraw')).not.toBeNull();
+    expect(trackingOf(repository, 'subject-account-external-customer')?.records).toHaveLength(1);
+  });
+
+  it('marks a receipt that only lives on this page (history not saved) as withdrawn, without re-reading', async () => {
+    const testing = provideAssistantUseTesting('account-external-customer');
+    const asked = testing.repository.sendChatMessage('account-external-customer', ASSISTANT, '我要回報訂單問題');
+    if (asked.status !== 'ready') throw new Error('expected a form request');
+    const original = testing.repository.getAssistantChat.bind(testing.repository);
+    // 不保存對話（API 模式讀不回本頁送出的收據）。
+    const read = vi.spyOn(testing.repository, 'getAssistantChat').mockImplementation((assistantId, threadId) =>
+      original(assistantId, threadId).pipe(
+        map((view) => (view.status === 'ready' ? { ...view, data: { ...view.data, historyMode: 'not-saved' as const } } : view)),
+      ),
+    );
+    vi.spyOn(testing.repository, 'reviewChatForm').mockReturnValue(
+      of({ status: 'ready', data: { formId: 'database-orders', saved: false, entries: [] } }),
+    );
+    vi.spyOn(testing.repository, 'submitChatForm').mockReturnValue(of({
+      status: 'ready',
+      data: {
+        threadId: null,
+        message: {
+          id: 'local-receipt',
+          author: 'assistant',
+          createdAt: '2026-10-03T06:00:00.000Z',
+          reply: {
+            kind: 'submission-receipt',
+            text: '已送出。',
+            recipient: '示範商行（訂單）',
+            recordId: 'record-0199e000-0000-7000-8000-000000000001',
+            entries: [{ fieldId: 'field-order-number', label: '訂單編號', display: 'DEMO-7777' }],
+            withdrawal: { status: 'available', withdrawnDateLabel: '', notice: '可以在這裡撤回。' },
+          },
+        },
+      },
+    }));
+    const withdraw = vi.spyOn(testing.repository, 'withdrawChatSubmission').mockReturnValue(of({
+      status: 'ready',
+      data: { status: 'withdrawn', withdrawnDateLabel: '2026-10-03', notice: '你已撤回這筆資料。' },
+    }));
+    TestBed.configureTestingModule({
+      imports: [ChatConversationComponent],
+      providers: [provideRouter([]), ...testing.providers],
+    });
+    const fixture = TestBed.createComponent(ChatConversationComponent);
+    fixture.componentRef.setInput('assistantId', ASSISTANT);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(host);
+    click(host, 'button.form-start');
+    fixture.detectChanges();
+    click(host, 'app-inline-form button[type="submit"]');
+    fixture.detectChanges();
+    click(host, '#consent-agree');
+    fixture.detectChanges();
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+    expect(host.querySelector('[data-kind="submission-receipt"]')?.textContent).toContain('DEMO-7777');
+    const reads = read.mock.calls.length;
+
+    click(host, '[data-kind="submission-receipt"] button.withdraw');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    click(host, 'button.confirm-withdraw');
+    fixture.detectChanges();
+
+    expect(withdraw).toHaveBeenCalledWith(
+      'account-external-customer', ASSISTANT, 'record-0199e000-0000-7000-8000-000000000001', undefined,
+    );
+    const receipt = host.querySelector('[data-kind="submission-receipt"]');
+    expect(receipt).not.toBeNull();
+    expect(receipt?.textContent).not.toContain('DEMO-7777');
+    expect(receipt?.querySelector('button.withdraw')).toBeNull();
+    expect(receipt?.querySelector('.withdrawal-notice')?.textContent).toContain('你已撤回');
+    expect(read.mock.calls.length).toBe(reads);
   });
 });
 

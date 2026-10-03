@@ -171,9 +171,9 @@
 
 - 契約：`listOwnDatabaseSubmissions()`、`withdrawDatabaseSubmission(id)`（新增）；`getDatabaseTracking(databaseId)` 改為 `Observable`、不再傳 viewer。mock 原本的同步本體改名 `readDatabaseTracking(viewer, id)`，只給 mock 內部與單元測試，不在 `DemoRepository` 契約內。Hybrid 三個方法都走 API（測試以真實 API JSON 驗證，且 mock storage 不被寫入）。回執多 `withdrawnAt`。
 - 畫面：「對話與回報紀錄」（`/app/activity`）新增「我送出的資料」（`features/activity/own-submissions/`）：載入、錯誤可重試、無權限、空白分開顯示；撤回要先確認，送出中停用按鈕，失敗（5xx／連線中斷）保留確認區塊並說明「沒有任何變更」可再按一次；伺服器拒絕時顯示其訊息並重新讀取清單。回執頁顯示已撤回狀態且不顯示內容，並連到「我送出的資料」。數據庫詳情的「收集紀錄」頁籤在 API 模式開放（讀取失敗與「沒有紀錄」分開、可重試）。
-- `API_UPCOMING_DATABASE_FEATURES`：`records` 移除，改為 `trends`（#147）。`DatabaseUpcomingFeature` 從 `'records' | …` 改成 `'trends' | …`。API 模式的 `comparison` 是「趨勢比較將於後續版本開放」的佔位、`periodicReports` 為空陣列，畫面在趨勢頁籤顯示將於後續版本開放，不用顯示文字自己算差異。
+- `API_UPCOMING_DATABASE_FEATURES`：`records` 移除，改為 `trends`（#147）。與 #148 合併後（#148 移除了 `assistant-connections`）清單與 `DatabaseUpcomingFeature` 都只剩 `trends`。API 模式的 `comparison` 是「趨勢比較將於後續版本開放」的佔位、`periodicReports` 為空陣列，畫面在趨勢頁籤顯示將於後續版本開放，不用顯示文字自己算差異。
 - 提交前的撤回說明（後端 `DatabaseSubmissionRules.WithdrawalNotice` 與 mock 逐字相同）改成說明到哪裡撤回、撤回的效果，以及既有定期報表不追溯修改。
-- mock 只列出表單連結的提交（回執存在 `sme-demo:database-submissions`）；對話中送出的資料在 mock 仍從對話收據撤回（既有行為）。API 模式的清單會包含所有來源，#148 加上對話來源後自然出現。
+- mock 只列出表單連結的提交（回執存在 `sme-demo:database-submissions`）；對話中送出的資料在 mock 仍從對話收據撤回（既有行為）。API 模式的清單包含所有來源（含 #148 的對話來源），每列以「來源：助理對話／表單連結」標示。
 
 ### 9.7 給 #147 的接點
 
@@ -235,5 +235,14 @@
 
 ### 10.6 給 #146／#149 的接點
 
-- **#146**：對話中的收據以 `ChatMessages.SubmissionId` 指向提交，顯示時呼叫 `DatabaseSubmissionService.GetReceiptAsync`（提交者本人）；撤回後回執 API 的變化會直接反映在對話中，不必改對話表。前端 `submission-receipt` 的 `withdrawal` 目前固定 `unavailable`，#146 接上撤回時改成依回執狀態決定。
+- **#146（已接上，合併 #146 時完成）**：對話中的收據以 `ChatMessages.SubmissionId` 指向提交，顯示時呼叫 `DatabaseSubmissionService.GetReceiptAsync`（提交者本人），所以撤回後對話讀回的收據就是已撤回、不含內容，對話表不需要改。提交者本人在對話收據上撤回走 #146 的 `POST /api/v1/submissions/{id}/withdrawal`（與「我送出的資料」同一條，資料管理者一律 `403 submission-withdrawal`）；同一個 `submissionId` 在撤回後重送，回已撤回的回執與原本的收據訊息，不會再寫入。
+  - 前端：Hybrid 的收據 `recordId` 是 `record-<提交 id>`（與時間軸相同的前綴），`withdrawal` 依回執狀態決定（`available`／`withdrawn`；讀不到回執才是 `unavailable`）。`withdrawChatSubmission` 改為 `Observable`，結果是收據撤回後的 `SubmissionWithdrawalView`；Hybrid 去掉前綴後呼叫 `withdrawDatabaseSubmission`。畫面在保存的對話重新讀取；不保存對話時就地更新本頁的收據（API 模式讀不回來）；5xx／連線中斷顯示「目前無法撤回，這筆資料沒有任何變更」並保留撤回鍵。mock 行為不變（再撤回一次是 `validation-failed`；API 是冪等的 `200`）。
+  - 測試：`AssistantDatabaseFormEndpointsTests.The_submitter_withdraws_an_in_chat_submission_and_the_conversation_reads_it_back_withdrawn`（資料管理者代撤回被拒 → 本人撤回 → `DatabaseSubmissionEntries` 無該筆、`ChatMessages` 不含填寫值、對話讀回已撤回、同鍵重送不再寫入、「我送出的資料」與時間軸標示對話來源）；Hybrid（`hybrid-demo-repository-records.spec.ts`、`hybrid-demo-repository.spec.ts`）與元件（`chat-conversation.component.spec.ts`、`own-submissions.component.spec.ts`）。
 - **#149**：可用的數據庫集合是 `AssistantFormRequests.UsableDatabaseIdsAsync(assistant)`（連接列 ∩ 擁有者此刻可使用），每次請求重算；固定查詢工具應比照 `request_database_form` 只接受伺服器列出的參數，並在執行時再套用 `DatabaseRecordReaders`（查詢者本人的讀取權）。若改由模型選擇工具，`AssistantFormRequestRules.ToolName/ToolDescription` 可直接成為工具定義，授權與執行不變。
+
+### 10.7 已確認的決策
+
+負責人於 2026-10-03 同意：
+
+1. **數據庫「分享」的定義**：數據庫「分享」給某個帳號＝該帳號被指定為這個數據庫的資料管理者（#144），**且**帳號具備 `read-consented-submissions` 權限。助理擁有者要連接數據庫、讓助理在對話中請求它的表單，兩個條件都要成立；撤銷其中任何一個（移除指定，或收回權限），下一個請求起就無法再連接，已連接的助理也不再提供這份表單（`form` 讀回為 `null`、送出回 `403 assistant-form`）。
+2. **對話中表單請求的觸發方式**：目前由伺服器的編排層依填寫意圖關鍵字（`AsksForForm`）觸發，不經模型。工具定義 `request_database_form`（`AssistantFormRequestRules.ToolName`／`ToolDescription`）保留給日後改由模型選擇工具；真實模型就緒後再評估，見 #164（對話表單請求改由模型選擇工具）。

@@ -25,6 +25,7 @@ import type {
   ChatFormView,
   ChatMessageView,
   ChatThreadId,
+  SubmissionWithdrawalView,
 } from '../../../core/domain/conversation.model';
 import type {
   DatabaseFieldError,
@@ -74,6 +75,7 @@ type FormFlow =
     };
 
 const FORM_REVIEW_FAILED_MESSAGE = '目前無法檢查填寫內容，請稍後再試；資料還沒有送出。';
+const WITHDRAW_FAILED_MESSAGE = '目前無法撤回，這筆資料沒有任何變更。請稍後再試一次。';
 const FORM_SUBMIT_FAILED_MESSAGE = '送出失敗，資料可能還沒有送達。請再按一次「同意並送出」，不會重複建立紀錄。';
 
 const CLOSED: FormFlow = { step: 'closed' };
@@ -565,26 +567,48 @@ export class ChatConversationComponent {
     this.pendingWithdrawal.set(null);
     if (pending === null || viewerId === null) return;
 
-    const result = this.repository.withdrawChatSubmission(
-      viewerId,
-      this.assistantId(),
-      pending.recordId,
-      this.threadId() ?? undefined,
-    );
-    if (result.status === 'validation-failed' || result.status === 'permission-denied') {
-      this.withdrawError.set(result.message);
-      pending.trigger.focus();
-      return;
-    }
-    if (result.status === 'loading') return;
+    this.repository
+      .withdrawChatSubmission(viewerId, this.assistantId(), pending.recordId, this.threadId() ?? undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          if (result.status === 'validation-failed' || result.status === 'permission-denied') {
+            this.withdrawError.set(result.message);
+            pending.trigger.focus();
+            return;
+          }
+          if (result.status === 'loading') return;
 
-    this.withdrawError.set('');
-    this.withdrawFeedback.set(
-      '已撤回這筆資料：接收單位的收集紀錄已移除內容，只留下一筆「曾提交、已撤回」的軌跡。',
-    );
-    this.chatResource.reload();
-    // 撤回鍵已經消失，把焦點交回輸入框，不讓它掉回 body。
-    this.composerInput()?.nativeElement.focus();
+          this.withdrawError.set('');
+          this.withdrawFeedback.set(
+            '已撤回這筆資料：接收單位的收集紀錄已移除內容，只留下一筆「曾提交、已撤回」的軌跡。',
+          );
+          // 不保存對話時收據只存在這一頁（API 模式讀不回來）：就地換成撤回後的狀態；其餘重新讀取。
+          if (!this.markLocalReceiptWithdrawn(pending.recordId, result.data)) this.chatResource.reload();
+          // 撤回鍵已經消失，把焦點交回輸入框，不讓它掉回 body。
+          this.composerInput()?.nativeElement.focus();
+        },
+        // 5xx 或連線中斷：伺服器什麼都沒變，可以再按一次。
+        error: () => {
+          this.withdrawError.set(WITHDRAW_FAILED_MESSAGE);
+          pending.trigger.focus();
+        },
+      });
+  }
+
+  /** 把本頁暫存的收據換成撤回後的狀態（內容一併清空）；找不到這張收據時回傳 false。 */
+  private markLocalReceiptWithdrawn(recordId: string, withdrawal: SubmissionWithdrawalView): boolean {
+    let found = false;
+    const entries = this.local().map((entry): LocalEntry => {
+      const message = entry.message;
+      if (message.author !== 'assistant' || message.reply.kind !== 'submission-receipt' || message.reply.recordId !== recordId) {
+        return entry;
+      }
+      found = true;
+      return { ...entry, message: { ...message, reply: { ...message.reply, entries: [], withdrawal } } };
+    });
+    if (found) this.local.set(entries);
+    return found;
   }
 
   protected isFormRequest(message: ChatMessageView): boolean {

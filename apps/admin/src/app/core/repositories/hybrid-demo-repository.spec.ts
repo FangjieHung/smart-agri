@@ -1792,7 +1792,7 @@ describe('HybridDemoRepository chat (issue #79)', () => {
   /** 後端實際送出的 JSON（每個鍵都在，不適用的是 null）：由整合測試的回應整理而來。 */
   const FORM_REQUEST_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f1","author":"assistant","text":null,"reply":{"kind":"form-request","text":"可以的，請在下方表單填寫資料。送出前會先讓你確認資料會交給誰、做什麼用途。","citations":[],"notice":null,"nextSteps":[],"form":{"id":"0199d000-0000-7000-8000-0000000000d1","title":"客戶資料庫","formVersion":2,"fields":[{"id":"field-customer-name","label":"客戶姓名","type":"text","required":true,"options":[],"scale":null,"unit":""}],"consent":{"recipient":"表單商行（客戶資料庫）","purpose":"記錄客戶聯絡方式，方便客服回電。","viewers":["表單商行管理者"],"sensitiveNotice":"請勿填寫敏感個資。","withdrawalNotice":"送出後可以撤回。"}},"receipt":null},"createdAt":"2026-10-03T06:00:00.123456+00:00"}`;
 
-  const RECEIPT_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f2","author":"assistant","text":null,"reply":{"kind":"submission-receipt","text":"已送出。資料只會交給 表單商行（客戶資料庫），回執編號 R-20261003-0000000001。","citations":[],"notice":null,"nextSteps":[],"form":null,"receipt":{"id":"0199e000-0000-7000-8000-000000000001","receiptNumber":"R-20261003-0000000001","submittedAt":"2026-10-03T06:01:00+00:00","databaseId":"0199d000-0000-7000-8000-0000000000d1","databaseName":"客戶資料庫","purpose":"記錄客戶聯絡方式，方便客服回電。","recipient":"表單商行（客戶資料庫）","viewers":["表單商行管理者"],"formVersionId":"0199d000-0000-7000-8000-0000000000e2","formVersionNumber":2,"source":"assistant-conversation","entries":[{"fieldId":"field-customer-name","label":"客戶姓名","type":"text","display":"王小明"}]}},"createdAt":"2026-10-03T06:01:00.123456+00:00"}`;
+  const RECEIPT_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f2","author":"assistant","text":null,"reply":{"kind":"submission-receipt","text":"已送出。資料只會交給 表單商行（客戶資料庫），回執編號 R-20261003-0000000001。","citations":[],"notice":null,"nextSteps":[],"form":null,"receipt":{"id":"0199e000-0000-7000-8000-000000000001","receiptNumber":"R-20261003-0000000001","submittedAt":"2026-10-03T06:01:00+00:00","databaseId":"0199d000-0000-7000-8000-0000000000d1","databaseName":"客戶資料庫","purpose":"記錄客戶聯絡方式，方便客服回電。","recipient":"表單商行（客戶資料庫）","viewers":["表單商行管理者"],"formVersionId":"0199d000-0000-7000-8000-0000000000e2","formVersionNumber":2,"source":"assistant-conversation","entries":[{"fieldId":"field-customer-name","label":"客戶姓名","type":"text","display":"王小明"}],"withdrawnAt":null}},"createdAt":"2026-10-03T06:01:00.123456+00:00"}`;
 
   it('maps a form request and a receipt from the actual JSON the backend sends, and an unavailable form as null', async () => {
     const { repository } = setUpChat();
@@ -1828,17 +1828,42 @@ describe('HybridDemoRepository chat (issue #79)', () => {
         kind: 'submission-receipt',
         recipient: '表單商行（客戶資料庫）',
         entries: [{ fieldId: 'field-customer-name', label: '客戶姓名', display: '王小明' }],
-        withdrawal: { status: 'unavailable', notice: expect.stringContaining('R-20261003-0000000001') },
+        // 收據以提交 id 指認紀錄，提交者本人可以在對話中撤回（#146）。
+        recordId: 'record-0199e000-0000-7000-8000-000000000001',
+        withdrawal: { status: 'available', notice: expect.stringContaining('R-20261003-0000000001') },
       },
     });
     expect(gone).toMatchObject({ reply: { kind: 'form-request', form: null } });
+  });
+
+  it('shows a withdrawn in-chat receipt as withdrawn, with no content, as the server reads it now (#146)', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID, CHAT_THREAD_ID));
+    // 撤回後伺服器以提交 id 讀回執：`entries` 為空、`withdrawnAt` 有值；對話表本身沒有變。
+    const withdrawn = RECEIPT_JSON
+      .replace(/"entries":\[[^\]]*\]/, '"entries":[]')
+      .replace('"withdrawnAt":null', '"withdrawnAt":"2026-10-04T01:02:03.456789+00:00"');
+    controller.expectOne(apiAssistantChatPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID)).flush(
+      apiAssistantChat({ messages: [JSON.parse(withdrawn) as ApiChatMessageView] }),
+    );
+
+    const view = await result;
+    if (view.status !== 'ready') throw new Error('expected ready');
+    expect(view.data.messages[0]).toMatchObject({
+      reply: {
+        kind: 'submission-receipt',
+        entries: [],
+        withdrawal: { status: 'withdrawn', withdrawnDateLabel: '2026-10-04' },
+      },
+    });
+    expect(JSON.stringify(view.data)).not.toContain('王小明');
   });
 
   it('reviews and submits a form with the GUID read from the API, through the API only', async () => {
     const { repository } = setUpChat();
     const databaseId = '0199d000-0000-7000-8000-0000000000d1';
     const mockRecords = () => {
-      const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+      const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
       return tracking.status === 'ready' ? JSON.stringify(tracking.data) : tracking.status;
     };
     const before = mockRecords();

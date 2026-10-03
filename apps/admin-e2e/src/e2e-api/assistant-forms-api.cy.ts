@@ -7,7 +7,9 @@ import { loginToApi } from '../support/api-mode';
  *    在「回答與記錄」設定寫入對象與收集目的，再分享給內部同仁。
  * 2. 同仁在對話中要求填寫 → 表單請求顯示接收單位、目的與實際可查看者 → 取消：不送出任何資料。
  * 3. 再次填寫、明確同意後送出 → 真實回執出現在對話中（201，來源為對話）；重新整理仍在。
- * 4. 權限撤回：擁有者解除連接後，重新讀取的舊表單請求顯示「目前無法使用」（每次讀取都重新授權），
+ * 4. 提交者本人在對話收據上撤回（#146）→ 收據顯示已撤回、不含內容，重新整理仍是已撤回；「我送出的資料」
+ *    標示來源為助理對話。
+ * 5. 權限撤回：擁有者解除連接後，重新讀取的舊表單請求顯示「目前無法使用」（每次讀取都重新授權），
  *    新的要求不再出現表單。送出端點在撤回後回 403 assistant-form 由後端整合測試涵蓋
  *    （`AssistantDatabaseFormEndpointsTests`，含分享／權限撤回）。
  *
@@ -155,6 +157,41 @@ describe('assistant forms against the real API', () => {
 
     cy.reload();
     cy.get('[role="log"] [data-kind="submission-receipt"]', { timeout: STREAM_TIMEOUT }).last().should('contain', '王小明');
+  });
+
+  it('lets the submitter withdraw from the in-chat receipt; the conversation reads it back withdrawn (#146)', () => {
+    expect(assistantId).to.match(new RegExp(`^${GUID}$`));
+    loginToApi('anxin', 'internal');
+    cy.intercept('POST', /\/api\/v1\/submissions\/[^/]+\/withdrawal$/).as('withdraw');
+    cy.visit(`/app/chat/${assistantId}`);
+
+    cy.get('[role="log"] [data-kind="submission-receipt"]', { timeout: STREAM_TIMEOUT }).last().within(() => {
+      cy.get('.withdrawal-notice').should('have.attr', 'data-status', 'available').and('contain', '回執編號');
+      cy.get('button.withdraw').click();
+    });
+    cy.get('button.confirm-withdraw').click();
+    cy.wait('@withdraw').its('response.statusCode').should('eq', 200);
+    cy.get('.withdraw-feedback').should('contain', '已撤回這筆資料');
+    cy.get('[role="log"] [data-kind="submission-receipt"]').last()
+      .should('not.contain', '王小明')
+      .find('.withdrawal-notice')
+      .should('have.attr', 'data-status', 'withdrawn')
+      .and('contain', '你已撤回這筆資料');
+
+    // 重新讀取：對話表沒變，收據依提交 id 讀到已撤回的回執，不含內容、沒有撤回鍵。
+    cy.reload();
+    cy.get('[role="log"] [data-kind="submission-receipt"]', { timeout: STREAM_TIMEOUT }).last()
+      .should('not.contain', '王小明')
+      .within(() => {
+        cy.get('.withdrawal-notice').should('have.attr', 'data-status', 'withdrawn');
+        cy.get('button.withdraw').should('not.exist');
+      });
+
+    // 「我送出的資料」列出對話來源的提交，標示來源與已撤回。
+    cy.visit('/app/activity');
+    cy.contains('app-own-submissions li', databaseName, { timeout: STREAM_TIMEOUT })
+      .should('have.attr', 'data-withdrawn', 'true')
+      .and('contain', '來源：助理對話');
   });
 
   it('stops offering the form as soon as the database is disconnected', () => {

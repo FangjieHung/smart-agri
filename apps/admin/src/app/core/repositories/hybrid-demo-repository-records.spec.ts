@@ -196,3 +196,55 @@ describe('HybridDemoRepository records and withdrawal (issue #146)', () => {
     expect(await notGuid).toMatchObject({ status: 'permission-denied', reason: 'database' });
   });
 });
+
+describe('HybridDemoRepository withdrawal from an in-chat receipt (issues #146 and #148)', () => {
+  /** 對話來源的回執：與表單連結的撤回回應同形，只差 `source`。 */
+  const CHAT_WITHDRAW_200_JSON = REAL_WITHDRAW_200_JSON.replace('"source":"form-link"', '"source":"assistant-conversation"');
+
+  it('withdraws the receipt’s submission through the same withdrawal endpoint and returns the withdrawn state', async () => {
+    const { repository, controller, written } = setUp();
+    const result = firstValueFrom(
+      repository.withdrawChatSubmission('account-external-customer', 'assistant-any', `record-${WITHDRAWN_ID}`),
+    );
+    controller
+      .expectOne({ method: 'POST', url: apiSubmissionWithdrawalPath(WITHDRAWN_ID) })
+      .flush(JSON.parse(CHAT_WITHDRAW_200_JSON));
+
+    expect(await result).toEqual({
+      status: 'ready',
+      data: {
+        status: 'withdrawn',
+        withdrawnDateLabel: '2026-10-03',
+        notice: expect.stringContaining('你已撤回這筆資料'),
+      },
+    });
+    // 撤回不寫進 mock 的收集紀錄。
+    expect(written).toEqual([]);
+  });
+
+  it('gives someone else’s receipt the same refusal as the withdrawal page', async () => {
+    const { repository, controller } = setUp();
+    const result = firstValueFrom(
+      repository.withdrawChatSubmission('account-external-customer', 'assistant-any', `record-${ACTIVE_ID}`),
+    );
+    flushError(controller, 'POST', apiSubmissionWithdrawalPath(ACTIVE_ID), REAL_WITHDRAW_403_JSON, 403);
+
+    expect(await result).toEqual({
+      status: 'permission-denied',
+      reason: 'submission-withdrawal',
+      message: '找不到這筆紀錄，或你沒有撤回它的權限。',
+    });
+  });
+
+  it('lets a server failure surface as an error: nothing changed, the receipt can be withdrawn again', async () => {
+    const { repository, controller } = setUp();
+    const result = firstValueFrom(
+      repository.withdrawChatSubmission('account-external-customer', 'assistant-any', `record-${ACTIVE_ID}`),
+    );
+    controller
+      .expectOne({ method: 'POST', url: apiSubmissionWithdrawalPath(ACTIVE_ID) })
+      .flush(null, { status: 503, statusText: 'Service Unavailable' });
+
+    await expect(result).rejects.toBeDefined();
+  });
+});

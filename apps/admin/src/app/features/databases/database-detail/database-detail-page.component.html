@@ -32,6 +32,7 @@
       <div><dt>模板</dt><dd>{{ detail.summary.templateName }}</dd></div>
       <div><dt>欄位</dt><dd>{{ detail.summary.fieldCount }} 個</dd></div>
       <div><dt>最近更新</dt><dd><time [attr.datetime]="detail.summary.updatedAt">{{ updatedAt(detail.summary.updatedAt) }}</time></dd></div>
+      <div><dt>表單連結</dt><dd><a class="form-link" [routerLink]="['/app/forms', databaseId()]">開啟填寫頁</a></dd></div>
     </dl>
 
     @if (result.status === 'partial-failure') {

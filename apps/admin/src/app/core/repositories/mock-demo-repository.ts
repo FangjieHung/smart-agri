@@ -59,6 +59,11 @@ import type {
   DatabaseDetailView,
   DatabaseFieldView,
   DatabaseId,
+  DatabaseRecordId,
+  DatabaseRecordValue,
+  DatabaseSubmissionFormView,
+  DatabaseSubmissionInput,
+  DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
   DatabaseTrackingView,
   DatabaseTrialAnswers,
@@ -210,6 +215,7 @@ import type {
   ReviewChatFormResult,
   SendChatMessageResult,
   SubmitChatFormResult,
+  SubmitDatabaseEntryResult,
   UpdateDatabaseFieldsResult,
   UpdateAssistantSettingsResult,
   UpdateDatabaseAccessResult,
@@ -874,6 +880,52 @@ function isStoredDatabaseFields(value: unknown): value is StoredDatabaseFields {
 const CHAT_KEY_PREFIX = 'sme-demo:chat:';
 const PUBLISHING_KEY_PREFIX = 'sme-demo:publishing:';
 const CHAT_RECORDS_KEY = 'sme-demo:chat-records';
+/** 表單連結的回執（issue #145）：每筆對應一個（提交者, 提交編號）。 */
+const DATABASE_SUBMISSIONS_KEY = 'sme-demo:database-submissions';
+/** Demo 只有一個組織；與 API 的接收單位「組織名稱（資料庫名稱）」同一個寫法。 */
+const DEMO_ORGANIZATION_NAME = '安心商行';
+/** 與後端 `ForbiddenReason.AuthorizedForm`／`SubmissionReceipt` 逐字相同。 */
+const AUTHORIZED_FORM_DENIED_MESSAGE = '你沒有填寫這份表單的權限，或它已不存在。';
+const SUBMISSION_RECEIPT_DENIED_MESSAGE = '找不到這張回執，或你沒有查看它的權限。';
+/** 與後端 `DatabaseSubmissionRules.WithdrawalNotice` 逐字相同。 */
+const DATABASE_SUBMISSION_WITHDRAWAL_NOTICE =
+  '送出後會取得一張回執。撤回功能將於後續版本開放：撤回後接收單位會移除這筆資料的內容，只保留「曾提交、已撤回」的軌跡；在那之前如需撤回，請聯絡接收單位。';
+/** 與後端 `DatabaseSubmissionEndpoints` 的訊息逐字相同。 */
+const DATABASE_SUBMISSION_FORM_CHANGED_MESSAGE =
+  '這份表單已更新，請重新載入最新的表單後再填寫。你這次填寫的內容尚未送出。';
+const DATABASE_SUBMISSION_KEY_REUSED_MESSAGE =
+  '這個提交編號已經用在另一份內容上，資料沒有送出。請重新載入表單後再填寫。';
+
+interface StoredDatabaseSubmission {
+  readonly version: 1;
+  readonly submitterId: AccountId;
+  /** 前端產生的冪等鍵。 */
+  readonly submissionKey: string;
+  readonly recordId: DatabaseRecordId;
+  readonly receipt: DatabaseSubmissionReceiptView;
+}
+
+/** 重送的答案整理後是否與已存的紀錄值完全相同（同一個提交編號只能對應同一份內容）。 */
+function evaluatesTo(
+  stored: readonly DatabaseRecordValue[],
+  fields: readonly DatabaseFieldView[],
+  answers: DatabaseTrialAnswers,
+): boolean {
+  const outcome = evaluateTrial(fields, answers);
+  if ('errors' in outcome) return false;
+  return JSON.stringify(toRecordValues(fields, answers)) === JSON.stringify(stored);
+}
+
+function isStoredDatabaseSubmission(value: unknown): value is StoredDatabaseSubmission {
+  return (
+    isRecord(value) &&
+    value['version'] === 1 &&
+    typeof value['submitterId'] === 'string' &&
+    typeof value['submissionKey'] === 'string' &&
+    typeof value['recordId'] === 'string' &&
+    isRecord(value['receipt'])
+  );
+}
 const MAX_QUESTION_LENGTH = 500;
 
 /** 與後端 `POST .../trial-answers` 的 422 限制相同（M3 計畫 Slice 8，PR #92）。 */
@@ -1009,7 +1061,7 @@ function isStoredChatDatabaseRecord(value: unknown): value is DatabaseRecordFixt
   return (
     isRecord(value) &&
     typeof value['id'] === 'string' &&
-    value['id'].startsWith('record-chat-') &&
+    (value['id'].startsWith('record-chat-') || value['id'].startsWith('record-form-')) &&
     typeof value['databaseId'] === 'string' &&
     typeof value['subjectId'] === 'string' &&
     typeof value['recordedAt'] === 'string' &&
@@ -3401,6 +3453,204 @@ export class MockDemoRepository implements DemoRepository {
       formVersion: this.databaseFormVersion(database.id),
       entries: outcome.entries,
     });
+  }
+
+  getDatabaseSubmissionForm(databaseId: string): ReturnType<DemoRepository['getDatabaseSubmissionForm']> {
+    return defer(() => {
+      const database = this.submittableDatabase(this.viewer(), databaseId);
+      if (database === undefined) return of(this.authorizedFormDenied());
+      const collection = this.databaseCollection(database.id);
+      const view: DatabaseSubmissionFormView = {
+        databaseId: database.id,
+        databaseName: database.name,
+        purpose: collection.purpose,
+        recipient: `${DEMO_ORGANIZATION_NAME}（${database.name}）`,
+        viewers: this.effectiveReaderNames(database.id),
+        sensitiveNotice: CHAT_SENSITIVE_NOTICE,
+        withdrawalNotice: DATABASE_SUBMISSION_WITHDRAWAL_NOTICE,
+        formVersion: this.databaseFormVersion(database.id),
+        fields: collection.fields,
+      };
+      return of(this.applyScenario(view));
+    });
+  }
+
+  reviewDatabaseSubmission(
+    databaseId: string,
+    formVersion: number,
+    answers: DatabaseTrialAnswers,
+  ): ReturnType<DemoRepository['reviewDatabaseSubmission']> {
+    return defer(() => {
+      const database = this.submittableDatabase(this.viewer(), databaseId);
+      if (database === undefined) return of(this.authorizedFormDenied());
+      const current = this.databaseFormVersion(database.id);
+      if (formVersion !== current) {
+        return of(immutableCopy({
+          status: 'conflict' as const,
+          reason: 'form-version-changed' as const,
+          message: DATABASE_SUBMISSION_FORM_CHANGED_MESSAGE,
+        }));
+      }
+      const outcome = evaluateTrial(this.databaseCollection(database.id).fields, answers);
+      if ('errors' in outcome) {
+        return of(immutableCopy({
+          status: 'validation-failed' as const,
+          errors: outcome.errors,
+          message: outcome.errors[0].message,
+        }));
+      }
+      return of(this.applyScenario({ saved: false as const, formVersion: current, entries: outcome.entries }));
+    });
+  }
+
+  /**
+   * 與 API 相同的檢查順序：權限與資料庫、提交編號與版本、同一編號重送、表單是否改版、欄位、
+   * 同意；任何一項失敗都不寫入。紀錄寫進收集紀錄（來源「表單連結」），資料管理者在時間軸看得到。
+   */
+  submitDatabaseEntry(
+    databaseId: string,
+    input: DatabaseSubmissionInput,
+  ): ReturnType<DemoRepository['submitDatabaseEntry']> {
+    return defer(() => of(this.writeDatabaseSubmission(this.viewer(), databaseId, input)));
+  }
+
+  getDatabaseSubmissionReceipt(submissionId: string): ReturnType<DemoRepository['getDatabaseSubmissionReceipt']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      const stored = this.storedDatabaseSubmissions().find(
+        (entry) => entry.receipt.id === submissionId && entry.submitterId === viewerAccountId,
+      );
+      return of(
+        stored === undefined
+          ? this.permissionDenied('authorized-form', SUBMISSION_RECEIPT_DENIED_MESSAGE)
+          : this.applyScenario(stored.receipt),
+      );
+    });
+  }
+
+  private writeDatabaseSubmission(
+    viewerAccountId: AccountId | null,
+    databaseId: string,
+    input: DatabaseSubmissionInput,
+  ): SubmitDatabaseEntryResult {
+    const database = this.submittableDatabase(viewerAccountId, databaseId);
+    if (database === undefined || viewerAccountId === null) return this.authorizedFormDenied();
+
+    if (input.submissionId.trim() === '' || !Number.isInteger(input.formVersion) || input.formVersion < 1) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: [{ fieldId: null, message: '缺少這次填寫的提交編號，請重新載入表單後再送出。' }],
+        message: '缺少這次填寫的提交編號，請重新載入表單後再送出。',
+      });
+    }
+
+    const submissions = this.storedDatabaseSubmissions();
+    const existing = submissions.find(
+      (entry) => entry.submitterId === viewerAccountId && entry.submissionKey === input.submissionId,
+    );
+    if (existing !== undefined) {
+      const record = this.chatRecords().find((candidate) => candidate.id === existing.recordId);
+      const sameContent =
+        input.consent === true &&
+        existing.receipt.databaseId === database.id &&
+        existing.receipt.formVersion === input.formVersion &&
+        record !== undefined &&
+        record.consentStatus === 'consented' &&
+        evaluatesTo(record.values, this.databaseCollection(database.id).fields, input.answers);
+      return sameContent
+        ? this.applyScenario(existing.receipt)
+        : immutableCopy({
+            status: 'conflict',
+            reason: 'submission-key-reused',
+            message: DATABASE_SUBMISSION_KEY_REUSED_MESSAGE,
+          });
+    }
+
+    const currentVersion = this.databaseFormVersion(database.id);
+    if (input.formVersion !== currentVersion) {
+      return immutableCopy({
+        status: 'conflict',
+        reason: 'form-version-changed',
+        message: DATABASE_SUBMISSION_FORM_CHANGED_MESSAGE,
+      });
+    }
+
+    const collection = this.databaseCollection(database.id);
+    const outcome = evaluateTrial(collection.fields, input.answers);
+    if ('errors' in outcome) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: outcome.errors,
+        message: outcome.errors[0].message,
+      });
+    }
+    if (input.consent !== true) {
+      return immutableCopy({
+        status: 'validation-failed',
+        errors: [{ fieldId: null, message: '請先勾選同意，才能送出資料。' }],
+        message: '尚未同意，資料沒有送出。',
+      });
+    }
+
+    const submittedAt = this.now().toISOString();
+    const records = this.chatRecords();
+    const ordinal = submissions.length + 1;
+    const record: DatabaseRecordFixture = {
+      id: `record-form-${ordinal}`,
+      databaseId: database.id,
+      subjectId: this.subjectIdOf(viewerAccountId),
+      recordedAt: submittedAt,
+      source: 'form-link',
+      consentStatus: 'consented',
+      values: toRecordValues(collection.fields, input.answers),
+    };
+    const receipt: DatabaseSubmissionReceiptView = {
+      id: `submission-form-${ordinal}`,
+      receiptNumber: `R-${submittedAt.slice(0, 10).replaceAll('-', '')}-${String(ordinal).padStart(10, '0')}`,
+      submittedAt,
+      databaseId: database.id,
+      databaseName: database.name,
+      purpose: collection.purpose,
+      recipient: `${DEMO_ORGANIZATION_NAME}（${database.name}）`,
+      viewers: this.effectiveReaderNames(database.id),
+      formVersion: currentVersion,
+      source: 'form-link',
+      entries: outcome.entries,
+    };
+    this.storage.setItem(CHAT_RECORDS_KEY, JSON.stringify([...records, record]));
+    this.storage.setItem(
+      DATABASE_SUBMISSIONS_KEY,
+      JSON.stringify([
+        ...submissions,
+        { version: 1, submitterId: viewerAccountId, submissionKey: input.submissionId, recordId: record.id, receipt },
+      ]),
+    );
+
+    return this.applyScenario(receipt);
+  }
+
+  /** 表單連結可以填寫的資料庫：帳號有 `submit-authorized-forms`，資料庫存在（Demo 只有一個組織）。 */
+  private submittableDatabase(viewerAccountId: AccountId | null, databaseId: string): DatabaseView | undefined {
+    if (viewerAccountId === null || !this.hasPermission(viewerAccountId, 'submit-authorized-forms')) return undefined;
+    return this.databases().find((database) => database.id === databaseId);
+  }
+
+  private authorizedFormDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied('authorized-form', AUTHORIZED_FORM_DENIED_MESSAGE);
+  }
+
+  /** 目前實際可讀紀錄的人（已指定且具備帳號權限），與 API 的 `viewers` 同義。 */
+  private effectiveReaderNames(databaseId: DatabaseId): readonly string[] {
+    const accounts = this.accounts();
+    const managers = this.databaseCollection(databaseId).dataManagerAccountIds;
+    return managers
+      .filter((id) => canReadConsentedRecords(accounts.find((account) => account.id === id), managers))
+      .map((id) => this.databaseAccountRef(id).displayName);
+  }
+
+  private storedDatabaseSubmissions(): readonly StoredDatabaseSubmission[] {
+    const stored = parseJson(this.storage.getItem(DATABASE_SUBMISSIONS_KEY));
+    return Array.isArray(stored) ? stored.filter(isStoredDatabaseSubmission) : [];
   }
 
   getDatabaseTracking(

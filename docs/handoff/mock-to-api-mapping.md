@@ -106,7 +106,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `retryKnowledgeDocument(viewer, kbId, docId)` `:447-451` | `POST /api/v1/knowledge-bases/{id}/documents/{docId}/retry` | `S+OWN` | `200` `KnowledgeDocumentView` | `409`（文件已在處理中）／`429` | `401`／`403 knowledge-base`／`5xx` | `knowledge-detail-page.component.ts:128` |
 | `updateKnowledgeSharing(viewer, kbId, sharing)` `:452-456` | `PUT /api/v1/knowledge-bases/{id}/sharing` | `S+OWN` | `200` `KnowledgeSharingView` | `422`（只有 `message`，無逐欄 errors）／`409`／`429` | `401`／`403 knowledge-base`／`5xx` | `knowledge-detail-page.component.ts:139` |
 
-### 2.3 資料庫、表單與追蹤（8 個方法）
+### 2.3 資料庫、表單與追蹤（12 個方法）
 
 深度：`tasks-6-10-backend-handoff.md` 第 4 節。
 
@@ -119,6 +119,10 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `updateDatabaseFields(id, fields, baseFormVersion)` **已換成 API（#143）** | `PUT /api/v1/databases/{id}/form` `{ baseVersionNumber, fields }` | `S+OWN` | `200` `DatabaseFormView`（新版本；內容與目前版本相同時回目前版本、不新增） | `422`（`message`＋`errors` 鍵 `fields`／`fields[i]`／`fields[i].label`／`.options`／`.scale`／`.unit`／`.type`／`.id`／`baseVersionNumber`）／`409 form-version-changed`／`429` | `401`／`403 database`／`5xx`（畫面保留草稿可重試） | `database-detail-page.component.ts` `saveFields` |
 | `updateDatabaseAccess(id, dataManagerAccountIds)`（改為 `Observable`，不再傳 viewer；issue #144） | `PUT /api/v1/databases/{id}/access` `{ dataManagerAccountIds }`（完整清單） | `S+OWN` | `200` `DatabaseAccessView` | `422`（`message`＋`errors.dataManagerAccountIds`：不認得或別組織的帳號）／`409 database-access-conflict`（同時有人也在改） | `401`／`403 database`（不存在、別組織、非擁有者——含資料管理者——同一則）／`5xx` | `features/databases/database-access/database-access.component.ts` |
 | `previewDatabaseEntry(id, answers)` **已換成 API（#143）** | `POST /api/v1/databases/{id}/form/preview` `{ answers }`（欄位 id → 字串或字串陣列） | `S+OWN` | `200` `DatabaseTrialPreviewView`（`saved: false`、`formVersion`、`entries`；**不建立紀錄**） | `422`（`errors` 鍵 `answers.<欄位 id>`）／`429` | `401`／`403 database`／`5xx` | `database-detail-page.component.ts` `runTrial` |
+| `getDatabaseSubmissionForm(id)` **API（#145）** | `GET /api/v1/databases/{id}/submission-form` | `S+AF` | `200` `DatabaseSubmissionFormView`（目的、接收單位、目前實際可查看者、敏感資料提示、目前表單與版本） | `429` | `401`／`403 authorized-form`（不存在、別組織、無權限逐位元組相同）／`404`（id 不是 GUID）／`5xx` | `features/databases/database-submission/database-submission-page.component.ts` |
+| `reviewDatabaseSubmission(id, formVersion, answers)` **API（#145）** | `POST /api/v1/databases/{id}/submission-form/review` `{ formVersionNumber, answers }` | `S+AF` | `200` `DatabaseTrialPreviewView`（**不建立紀錄**） | `422`（`answers.<欄位 id>`）／`409 form-version-changed`／`429` | `401`／`403 authorized-form`／`5xx`（保留答案可再試） | 同上 `review` |
+| `submitDatabaseEntry(id, { submissionId, formVersion, consent, answers })` **API（#145）** | `POST /api/v1/databases/{id}/submissions` | `S+AF`＋`consent === true` | `201` `DatabaseSubmissionReceiptView`＋`Location`；同一 `submissionId` 同內容重送 `200` 同一張回執 | `422`（欄位、缺編號或版本；**未同意也是 `422`**，`reason: consent-required`，在欄位錯誤之後才檢查）／`409 form-version-changed`／`409 submission-key-reused`／`429` | `401`／`403 authorized-form`／`5xx`（保留答案、以**同一個** `submissionId` 重試） | 同上 `submit` |
+| `getDatabaseSubmissionReceipt(submissionId)` **API（#145）** | `GET /api/v1/submissions/{id}` | `S`＋提交者本人 | `200` `DatabaseSubmissionReceiptView` | `429` | `401`／`403 authorized-form`（不存在或不是自己的，同一則）／`5xx` | 同上（`?receipt=<id>`） |
 | `getDatabaseTracking(viewer, id)` `:506-509` | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC` | `200` `DatabaseTrackingView`（差異與文案**由伺服端算好**） | `429` | `401`／`403 database-records`（非資料管理者）／`403 database`（不存在或非擁有者）／`5xx` | `database-detail-page.component.ts:91` |
 
 **API 模式狀態（#142，2026-10-03）**：上表前四個方法已改成非同步契約（`Observable<…>`，不再傳 viewer），API 模式由 `hybrid-demo-repository.ts` 的同名覆寫走 HTTP，**讀取與建立（寫入）兩端都換了**，不會落到 mock 的資料庫。與 mock 的刻意差異：
@@ -132,6 +136,14 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
   - 帳號權限每次請求從資料庫讀（`RequestAccountPermissions`，不在 token 內），指定也每次查表：撤銷任一邊，同一個 token 的下一個請求就失效。「誰可讀紀錄」只有一個判斷點：`DatabaseRecordAccess`（Application，表達式）與 `DatabaseRecordReaders`（Api，`CanReadAsync`／`ReadableDatabaseIdsAsync`／`EffectiveReaderIdsAsync`），**#146／#147 回傳任何紀錄、數量或趨勢前必須走它**。
   - 建立資料庫時，建立者預設是唯一的資料管理者（與 mock 相同；擁有者沒有帳號權限仍讀不到，也可以把自己取消勾選）。`PUT` 以完整清單取代，重複 id 去重，什麼都沒變就不寫入；移除只刪指定、不動任何紀錄。
   - 稽核：`DatabaseDataManagers` 每列有 `AssignedByAccountId`／`AssignedAt`；每次新增或移除另 append 一列 `DatabaseDataManagerChanges`（帳號、指定或移除、操作人、時間，無外鍵所以帳號刪除後仍在）。
+
+**API 模式狀態（#145，2026-10-03）**：同意提交與回執走 API，**讀寫兩端都換了**（Hybrid 覆寫走 HTTP，不寫 mock 的收集紀錄）。入口是表單連結 `/app/forms/{id}`（`submit-authorized-forms`，來源 `form-link`）；助理對話中的表單（`reviewChatForm`／`submitChatForm`，§2.4）是 #148，屆時重用伺服器的 `DatabaseSubmissionService`。重點：
+
+- 提交前顯示的接收單位是「組織名稱（數據庫名稱）」，可查看者是**目前實際可讀**的帳號（已指定且具備 `read-consented-submissions`）；回執保存送出當下的這些內容與欄位快照（名稱、型別、顯示值），表單之後改版不變。mock 的接收單位也改用「安心商行（數據庫名稱）」。
+- 冪等：前端每一份填寫產生一個 `submissionId`（`crypto.randomUUID()`），失敗重試沿用；伺服器以「提交者＋提交編號」唯一索引保證只有一筆，同編號不同內容 `409 submission-key-reused`。mock 同。
+- `§2.7` 的 `submitAuthorizedForm` 不再需要：表單連結的正式契約是 `submitDatabaseEntry`，同意不足統一為 `422`（解決 §2.7 的不一致）。
+- `getDatabaseTracking`（收集紀錄時間軸與趨勢）仍未提供，`API_UPCOMING_DATABASE_FEATURES` 保留 `records`；伺服器已有給資料管理者的 `GET /api/v1/databases/{id}/records`（`403 database` 看不到數據庫、`403 database-records` 看得到但不能讀），供 #146 接上時間軸與撤回。
+- 資料模型與接點：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 8 節。
 
 **API 模式狀態（#143，2026-10-03）**：`updateDatabaseFields`、`previewDatabaseEntry` 已改成 `Observable` 契約（不再傳 viewer），Hybrid 覆寫走 HTTP，**讀寫兩端都換了**（寫入與試填都由伺服器驗證，mock 的欄位清單不參與）。契約變更與刻意差異：
 
@@ -222,7 +234,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `listOwnSubmissions(viewer)` `:331-333` | `GET /api/v1/submissions?role=self` | `S` | `200` `StructuredSubmissionView[]` | `429` | `401`／`5xx` | **未被呼叫** |
 | `submitAuthorizedForm(viewer, input)` `:334-337` | `POST /api/v1/submissions` | `S+AF`＋`consent === true` | `201` `StructuredSubmissionView` | `422`（應改成這樣，見下方註） | `401`／`403 authorized-form`／`5xx` | **未被呼叫**（同意流程改走 `submitChatForm`） |
 
-**必須修正的不一致**：`submitAuthorizedForm` 把「沒有勾選同意」當成 `permission-denied`，而 `submitChatForm` 把同一件事當成 `validation-failed`。正式版要挑一種，建議統一為 `422`。詳見 `tasks-6-10-backend-handoff.md` 第 7 節第 2 點。
+**（#145 已解決：表單連結改用 `submitDatabaseEntry`，未同意一律 `422`，見 §2.3。）** 原先的不一致：`submitAuthorizedForm` 把「沒有勾選同意」當成 `permission-denied`，而 `submitChatForm` 把同一件事當成 `validation-failed`。正式版要挑一種，建議統一為 `422`。詳見 `tasks-6-10-backend-handoff.md` 第 7 節第 2 點。
 
 ### 2.8 Demo 情境切換器（3 個方法，正式 API 不得提供）
 

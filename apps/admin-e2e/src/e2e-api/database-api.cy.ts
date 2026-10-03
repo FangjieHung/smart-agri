@@ -10,8 +10,12 @@ import { loginToApi } from '../support/api-mode';
  * 第四個 `it`（M4 issue #144）：擁有者指定資料管理者 → 被指定且具備權限的同仁看得到（唯讀）→
  * 撤銷指定後立刻看不到，不必重新登入。
  *
+ * 第五個 `it`（M4 issue #145）：外部客戶從表單連結填寫 → 欄位錯誤不送出 → 確認同意前表單被改版，
+ * 送出得到 409、重新載入 → 伺服器已寫入但回應在路上失敗，以同一個提交編號重送只得到同一張回執
+ * （第二次是 200 不是 201）→ 回執可重新開啟；沒有填寫授權的帳號打不開表單；資料管理者讀到剛好一筆。
+ *
  * 數據庫目前沒有刪除功能，每次執行以不同名稱建立一個新的，可以對同一個資料庫重跑。
- * 四個 `it` 依序共用第一個建立的數據庫網址。
+ * 五個 `it` 依序共用第一個建立的數據庫網址。
  */
 
 const DATABASE_PATH = /^\/app\/databases\/[0-9a-f-]{36}\/form$/;
@@ -161,7 +165,8 @@ describe('databases against the real API', () => {
     cy.contains('tr', databaseName).should('be.visible');
     cy.visit(accessPath);
     cy.contains('.access-list > div', '你的權限').should('contain', '可查看收集紀錄與趨勢比較');
-    cy.contains('只有這個資料庫的擁有者可以變更資料管理者').should('be.visible');
+    // 詳情摘要多了「表單連結」（#145），提示可能在捲動容器的可視範圍外。
+    cy.contains('只有這個資料庫的擁有者可以變更資料管理者').scrollIntoView().should('be.visible');
     cy.get('.choice input[type="checkbox"]').should('not.exist');
     cy.visit(databasePath);
     cy.get('ol.field-summary > li').should('have.length', 4);
@@ -178,4 +183,101 @@ describe('databases against the real API', () => {
     cy.contains('無法查看這個資料庫').should('be.visible');
     cy.contains(databaseName).should('not.exist');
   });
+
+  it('lets a member submit through the form link only with consent, once, with a receipt, and refuses stale forms (#145)', () => {
+    expect(databasePath, 'the database created by the first test').to.match(DATABASE_PATH);
+    const databaseId = databasePath.split('/')[3];
+    const formPath = `/app/forms/${databaseId}`;
+    const apiPath = `/api/v1/databases/${databaseId}`;
+    let adminAuth = '';
+
+    const fillAnswers = () => {
+      cy.contains('app-inline-form fieldset', '這次整體滿意度').within(() => cy.contains('label', '4').click());
+      cy.contains('app-inline-form label', '消費金額').click();
+      cy.focused().clear().type('1200');
+      cy.contains('button', '下一步：確認同意').click();
+      cy.get('app-consent-confirmation').should('be.visible');
+    };
+
+    // 擁有者沒有「填寫授權表單」權限：看得到表單連結，但打不開表單。順便取得擁有者的 token 來改表單。
+    loginToApi('anxin', 'admin');
+    cy.intercept('GET', apiPath).as('detail');
+    cy.visit(databasePath);
+    cy.wait('@detail').then((interception) => {
+      adminAuth = String(interception.request.headers['authorization']);
+    });
+    cy.get('.database-meta a.form-link').should('have.attr', 'href', formPath);
+    cy.visit(formPath);
+    cy.contains('無法填寫這份表單').should('be.visible');
+    cy.contains(databaseName).should('not.exist');
+
+    loginToApi('anxin', 'customer');
+    cy.visit(formPath);
+    cy.contains('h1', databaseName).should('be.visible');
+    cy.get('.intro').should('contain', `安心商行（${databaseName}）`).and('contain', '安心商行管理者');
+    cy.get('.sensitive-notice').should('contain', '敏感');
+
+    // 拒絕：必填沒填，伺服器的錯誤標在欄位上，不會進到同意步驟。
+    cy.contains('button', '下一步：確認同意').click();
+    cy.get('app-inline-form [role="alert"]').should('contain', '「這次整體滿意度」為必填。').and('contain', '「消費金額」為必填。');
+    cy.get('app-consent-confirmation').should('not.exist');
+
+    fillAnswers();
+    cy.get('app-consent-confirmation').should('contain', '4 / 5').and('contain', '1,200 元');
+    cy.contains('button', '同意並送出').should('be.disabled');
+    cy.get('#consent-agree').check();
+
+    // 成員還在考慮時，擁有者改了表單：送出得到 409，什麼都沒寫入，重新載入後是新版。
+    cy.then(() =>
+      cy.request({ url: apiPath, headers: { authorization: adminAuth } }).then((response) => {
+        const form = response.body.form as { versionNumber: number; fields: { id: string; label: string }[] };
+        const fields = form.fields.map((field) => (field.id === 'field-suggestion' ? { ...field, label: '其他建議（新版）' } : field));
+        cy.request({
+          method: 'PUT',
+          url: `${apiPath}/form`,
+          headers: { authorization: adminAuth },
+          body: { baseVersionNumber: form.versionNumber, fields },
+        });
+      }),
+    );
+    cy.contains('button', '同意並送出').click();
+    cy.get('.conflict[role="alert"]').should('contain', '這份表單已更新');
+    cy.contains('button', '重新載入最新表單').click();
+    cy.contains('app-inline-form label', '其他建議（新版）').scrollIntoView().should('be.visible');
+
+    // 伺服器已經寫入、回應卻在路上失敗：同一個提交編號重送，只得到同一張回執（201 之後是 200）。
+    const statuses: number[] = [];
+    cy.intercept('POST', `${apiPath}/submissions`, (req) => {
+      req.continue((res) => {
+        statuses.push(res.statusCode);
+        if (statuses.length === 1) res.send(503, {});
+      });
+    }).as('submit');
+    fillAnswers();
+    cy.get('#consent-agree').check();
+    cy.contains('button', '同意並送出').click();
+    cy.wait('@submit');
+    cy.get('app-consent-confirmation [role="alert"]').should('contain', '不會重複建立紀錄');
+    cy.contains('button', '同意並送出').click();
+    cy.wait('@submit');
+    cy.get('[data-kind="submission-receipt"]')
+      .should('contain', '已送出')
+      .and('contain', '4 / 5')
+      .and('contain', '1,200 元')
+      .and('contain', '表單連結')
+      .and('contain', '安心商行管理者');
+    cy.then(() => expect(statuses).to.deep.equal([201, 200]));
+    cy.get('.receipt-number').invoke('text').should('match', /^R-\d{8}-[0-9A-F]{10}$/);
+    cy.reload();
+    cy.get('[data-kind="submission-receipt"]').should('contain', '1,200 元');
+
+    // 指定且有權限的資料管理者（擁有者本人）讀到剛好一筆。
+    cy.then(() =>
+      cy
+        .request({ url: `${apiPath}/records`, headers: { authorization: adminAuth } })
+        .its('body.records')
+        .should('have.length', 1),
+    );
+  });
 });
+

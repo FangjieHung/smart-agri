@@ -5,7 +5,16 @@
   <dl class="terms">
     <div><dt>接收單位</dt><dd>{{ info.recipient }}</dd></div>
     <div><dt>收集目的</dt><dd>{{ info.purpose }}</dd></div>
-    <div><dt>可查看者</dt><dd>{{ info.viewers.join('、') }}（僅限指定資料管理者）</dd></div>
+    <div>
+      <dt>可查看者</dt>
+      <dd>
+        @if (info.viewers.length > 0) {
+          {{ info.viewers.join('、') }}（僅限指定資料管理者）
+        } @else {
+          目前沒有任何人可以查看（僅限指定資料管理者）
+        }
+      </dd>
+    </div>
   </dl>
 
   <p class="sensitive-notice"><strong>敏感資料提示：</strong>{{ info.sensitiveNotice }}</p>
@@ -32,7 +41,7 @@
   <p id="consent-hint" class="hint">{{ agreed() ? '可以送出了。' : '勾選同意後才能送出。' }}</p>
 
   <div class="actions">
-    <button type="submit" class="consent-submit" [disabled]="!agreed()">同意並送出</button>
+    <button type="submit" class="consent-submit" [disabled]="!agreed() || busy()">{{ busy() ? '送出中…' : '同意並送出' }}</button>
     <button type="button" class="secondary" (click)="back.emit()">返回修改</button>
   </div>
 </form>

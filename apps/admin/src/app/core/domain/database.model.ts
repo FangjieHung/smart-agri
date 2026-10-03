@@ -374,3 +374,52 @@ export interface DatabaseTrialPreviewView {
   readonly formVersion: number;
   readonly entries: readonly DatabaseRecordEntryView[];
 }
+
+/* ------------------------------------------------------------------ */
+/* 同意提交與回執（issue #145）：表單連結的獨立填寫頁                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 送出前必須讓填寫者看到的提交資訊：收集目的、接收單位、**目前實際**可查看者（已指定且具備
+ * 帳號權限的資料管理者）、敏感資料提示，以及填寫所依據的表單版本。
+ */
+export interface DatabaseSubmissionFormView {
+  readonly databaseId: DatabaseId;
+  readonly databaseName: string;
+  readonly purpose: string;
+  /** 接收單位，例如「安心商行（客戶資料庫）」。 */
+  readonly recipient: string;
+  readonly viewers: readonly string[];
+  readonly sensitiveNotice: string;
+  readonly withdrawalNotice: string;
+  /** 送出時要帶回去；伺服器發現表單已改版就回 `conflict`，不寫入。 */
+  readonly formVersion: number;
+  readonly fields: readonly DatabaseFieldView[];
+}
+
+/** 一次送出：`submissionId` 是這一次填寫的冪等鍵，由前端產生，重試時沿用同一個。 */
+export interface DatabaseSubmissionInput {
+  readonly submissionId: string;
+  readonly formVersion: number;
+  /** 只有明確的 true 才算同意。 */
+  readonly consent: boolean;
+  readonly answers: DatabaseTrialAnswers;
+}
+
+/** 送出成功的回執：內容都是送出當下的快照，表單之後改版也不會改變。 */
+export interface DatabaseSubmissionReceiptView {
+  /** 提交 id（重新開啟回執用），不是回執編號。 */
+  readonly id: string;
+  /** 給填寫者看的回執編號，例如 `R-20261003-1A2B3C4D5E`。 */
+  readonly receiptNumber: string;
+  readonly submittedAt: string;
+  readonly databaseId: DatabaseId;
+  readonly databaseName: string;
+  readonly purpose: string;
+  readonly recipient: string;
+  /** 送出當下的實際可查看者。 */
+  readonly viewers: readonly string[];
+  readonly formVersion: number;
+  readonly source: DatabaseRecordSource;
+  readonly entries: readonly DatabaseRecordEntryView[];
+}

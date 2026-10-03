@@ -215,6 +215,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseSubmissionReceiptView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connectable-sources": {
         parameters: {
             query?: never;
@@ -2406,6 +2457,255 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/submission-form": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseSubmissionFormView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/submission-form/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReviewDatabaseSubmissionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseTrialPreviewView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SubmitDatabaseEntryRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseSubmissionReceiptView"];
+                    };
+                };
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseSubmissionReceiptView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseRecordListView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4819,6 +5119,11 @@ export interface components {
             createdAt: string;
             fields: components["schemas"]["DatabaseFieldView"][];
         };
+        DatabaseRecordListView: {
+            /** Format: uuid */
+            databaseId: string;
+            records: components["schemas"]["DatabaseSubmittedRecordView"][];
+        };
         DatabaseScaleDraft: {
             /** Format: double */
             min: null | number;
@@ -4834,6 +5139,56 @@ export interface components {
             max: number;
             minLabel: string;
             maxLabel: string;
+        };
+        DatabaseSubmissionEntryView: {
+            fieldId: string;
+            label: string;
+            type: components["schemas"]["DatabaseFieldType"];
+            display: string;
+        };
+        DatabaseSubmissionFormView: {
+            /** Format: uuid */
+            databaseId: string;
+            databaseName: string;
+            purpose: string;
+            recipient: string;
+            viewers: string[];
+            sensitiveNotice: string;
+            withdrawalNotice: string;
+            form: components["schemas"]["DatabaseFormView"];
+        };
+        DatabaseSubmissionReceiptView: {
+            /** Format: uuid */
+            id: string;
+            receiptNumber: string;
+            /** Format: date-time */
+            submittedAt: string;
+            /** Format: uuid */
+            databaseId: string;
+            databaseName: string;
+            purpose: string;
+            recipient: string;
+            viewers: string[];
+            /** Format: uuid */
+            formVersionId: string;
+            /** Format: int32 */
+            formVersionNumber: number;
+            source: components["schemas"]["DatabaseSubmissionSource"];
+            entries: components["schemas"]["DatabaseSubmissionEntryView"][];
+        };
+        /** @enum {unknown} */
+        DatabaseSubmissionSource: "form-link" | "assistant-conversation";
+        DatabaseSubmittedRecordView: {
+            /** Format: uuid */
+            id: string;
+            receiptNumber: string;
+            /** Format: date-time */
+            submittedAt: string;
+            source: components["schemas"]["DatabaseSubmissionSource"];
+            submitter: components["schemas"]["DatabaseAccountView"];
+            /** Format: int32 */
+            formVersionNumber: number;
+            entries: components["schemas"]["DatabaseSubmissionEntryView"][];
         };
         DatabaseSummaryView: {
             /** Format: uuid */
@@ -5200,6 +5555,11 @@ export interface components {
             /** Format: int32 */
             count: number;
         };
+        ReviewDatabaseSubmissionRequest: {
+            /** Format: int32 */
+            formVersionNumber: null | number;
+            answers: null | Record<string, never>;
+        };
         RunAgentInput: {
             threadId?: string;
             runId?: string;
@@ -5232,6 +5592,14 @@ export interface components {
         };
         /** Format: binary */
         Stream: string;
+        SubmitDatabaseEntryRequest: {
+            /** Format: uuid */
+            submissionId: null | string;
+            /** Format: int32 */
+            formVersionNumber: null | number;
+            consent: null | boolean;
+            answers: null | Record<string, never>;
+        };
         TeamMemberResponse: {
             /** Format: uuid */
             id: string;

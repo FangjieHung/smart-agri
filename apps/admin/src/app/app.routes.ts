@@ -106,6 +106,15 @@ export const routes: Routes = [
         (m) => m.DatabaseDetailPageComponent,
       ),
   },
+  // 表單連結（issue #145）：有 `submit-authorized-forms` 的帳號填寫、明確同意後送出並取得回執。
+  {
+    path: 'app/forms/:databaseId',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/databases/database-submission/database-submission-page.component').then(
+        (m) => m.DatabaseSubmissionPageComponent,
+      ),
+  },
   {
     path: 'app/activity',
     canActivate: [demoSessionGuard],

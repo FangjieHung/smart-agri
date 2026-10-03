@@ -50,7 +50,7 @@
   - **「誰可讀紀錄」的判斷點**：`DatabaseRecordAccess`（`CanRead`、`ReadableBy`，可在記憶體測試）與 Api 的 `DatabaseRecordReaders`（`CanReadAsync`、`ReadableDatabaseIdsAsync`、`EffectiveReaderIdsAsync`）；帳號權限來自每次請求重讀的 `RequestAccountPermissions`，所以撤銷指定或權限在下一個請求立即失效。#146／#147 在回傳任何紀錄、數量、趨勢前呼叫它（紀錄表本票尚未建立）。
   - 建立資料庫時建立者自動成為唯一的資料管理者（mock 同）；既有資料庫在 migration 內補同一列。
   - 與 #142 文件第 2 節的差異：詳情 `{summary, form}` 多了 `access`；`GET /databases`、`GET /databases/{id}` 不再只回擁有者的資料庫。
-- **#145 提交與回執**：提交列指向 `(DatabaseFormVersionId, OrganizationId)`，另存欄位快照（名稱、型別、單位）與值；版本不是目前版本時拒絕。
+- **#145 提交與回執**：已實作，見下方第 8 節（資料模型、API 契約、給 #146／#147／#148 的接點）。
 - **#146 撤回**：刪除值與快照內容，只留提交／撤回時間與來源（撤回 ADR）。
 - **#148 連接助理**：目前 `AssistantEndpoints` 對資料庫來源回「將於後續版本開放」；連接表以複合外鍵指向 `Databases`。
 
@@ -72,3 +72,49 @@
 - **試填**：`DatabaseAnswerRules.Validate(fields, answers)` 回傳每個欄位的 `DatabaseAnswerEntry`（顯示文字，加上 #145 要存的型別化值：文字／數字／選項清單）；這就是日後正式提交要呼叫的同一個函式，所以「試填通過 = 提交通過」。永遠對目前最新版本驗證；測試以前後資料列數證明不寫入任何資料。答案中不在表單裡的欄位 id 忽略；非字串或字串陣列的值視為未填。
 - **前端**：`updateDatabaseFields(id, fields, baseFormVersion)`、`previewDatabaseEntry(id, answers)` 改為 `Observable`；結果多了 `conflict`；`DatabaseDetailView.formVersion`、`DatabaseTrialPreviewView.formVersion` 新增。畫面儲存中停用按鈕避免重複送出；欄位錯誤標在對應欄位；`409` 顯示「重新載入最新表單」；5xx 與連線中斷保留草稿、顯示可再試的訊息；試填失敗保留答案。
 
+
+## 8. #145 同意提交與回執（2026-10-03）
+
+### 8.1 提交入口與 #148 的分界
+
+- **本票的入口是「表單連結」**（`/app/forms/{databaseId}`，來源 `form-link`）：同組織、具備帳號權限 `submit-authorized-forms` 的帳號（示範資料的外部客戶）填寫數據庫目前的表單。數據庫不存在、別的組織的、沒有權限一律同一則 `403 authorized-form`，不透露名稱、欄位或可查看者。擁有者與資料管理者沒有這個權限就不能提交（他們用試填）。
+- **提交是應用服務 `DatabaseSubmissionService`**（`apps/api/src/SmartAgri.Api/Databases/DatabaseSubmissionService.cs`），端點只是其中一個入口。服務負責入口以外的所有伺服器端檢查；**入口授權由呼叫端負責**：表單連結檢查 `submit-authorized-forms`，#148 的對話表單要先檢查助理可用、助理已連接這個數據庫、分享未撤回，再以 `DatabaseSubmissionSource.AssistantConversation` 呼叫同一個 `SubmitAsync`（同一套欄位驗證、同意、冪等與回執）。#148 只需新增入口與連接表，不另寫提交邏輯。
+- 私人對話內容永遠不是輸入：提交只帶表單答案。
+
+### 8.2 資料模型（migration `AddDatabaseSubmissions`）
+
+| 資料表 | 內容 | 規則 |
+| --- | --- | --- |
+| `DatabaseSubmissions`（**軌跡**，不含填寫內容） | `Id`、`DatabaseId`、`FormVersionId`／`FormVersionNumber`、`SubmittedByAccountId`、`IdempotencyKey`、`Source`（`form-link`／`assistant-conversation`）、`ReceiptNumber`（`R-yyyyMMdd-` + id 末 10 碼）、`SubmittedAt`、`ConsentTerms`（jsonb：資料庫名稱、目的、接收單位、送出當下實際可查看者、敏感資料提示）、`WithdrawnAt`（#146 用，本票恆為 null） | 三個複合外鍵都含 `OrganizationId`（→ `Databases`、`DatabaseFormVersions (Id, OrganizationId)`、同組織帳號），全部 `Restrict`；`(SubmittedByAccountId, IdempotencyKey)` 唯一（冪等）；`(OrganizationId, ReceiptNumber)` 唯一；`(DatabaseId, SubmittedAt)` 索引 |
+| `DatabaseSubmissionEntries`（**內容**，一欄一列） | `SubmissionId`、`Position`、`FieldId`、欄位快照 `Label`／`FieldType`／`Unit`／`Display`，型別化值 `TextValue`（文字、日期、單選）／`NumberValue`（數字、量尺）／`ChoiceValues`（`text[]`，依表單選項順序）；選填未填三者皆空、`Display` 為「未填寫」 | 主鍵 `(SubmissionId, FieldId)`；複合外鍵到 `DatabaseSubmissions (Id, OrganizationId)`，`Cascade` |
+
+- 成功提交只有一次 `SaveChanges`（一個交易）同時寫入軌跡與每個欄位；任何檢查失敗都不寫入任何列（整合測試以兩張表的列數驗證）。
+- **快照**：回執與紀錄只讀 `ConsentTerms` 與 entries，表單之後改版、改名或改指定都不影響（測試以 JSON 逐字比對）。
+- **為撤回預留（#146）**：撤回 = 刪除該筆的 entries（真正刪除內容與數值）＋設定 `WithdrawnAt`；`DatabaseSubmissions` 留下「曾提交、何時撤回、來源、表單版本、提交者」且不含任何填寫內容。`ConsentTerms` 是當時告知的條款（非填寫內容），保留作為同意的證據；若 #146 認定也要清除，可改成刪除時一併改寫。重送比對讀的是 entries，所以撤回後再用同一個提交編號重送會得到 `409 submission-key-reused`（不會復活內容）；#146 可改成回傳已撤回的回執。
+
+### 8.3 API 契約
+
+| 端點 | 權限 | 成功 | 錯誤 |
+| --- | --- | --- | --- |
+| `GET /api/v1/databases/{id}/submission-form` | 登入＋`submit-authorized-forms` | `200 DatabaseSubmissionFormView`（`databaseName`、`purpose`、`recipient`「組織（數據庫）」、`viewers` 目前實際可讀者、`sensitiveNotice`、`withdrawalNotice`、`form`） | `401`；`403 authorized-form`（不存在／別組織／無權限逐位元組相同） |
+| `POST /api/v1/databases/{id}/submission-form/review` `{formVersionNumber, answers}` | 同上 | `200 DatabaseTrialPreviewView`（`saved:false`，**不寫入**） | `403`；`409 form-version-changed`；`422`（`answers.<欄位 id>`） |
+| `POST /api/v1/databases/{id}/submissions` `{submissionId, formVersionNumber, consent, answers}` | 同上 | `201 DatabaseSubmissionReceiptView`＋`Location: /api/v1/submissions/{id}`；同一個 `submissionId`、同內容重送 `200` 同一張回執 | `401`；`403 authorized-form`；`409 form-version-changed`；`409 submission-key-reused`；`422`（缺 `submissionId`／`formVersionNumber`；欄位；未同意 `reason: consent-required`、鍵 `consent`） |
+| `GET /api/v1/submissions/{id}` | 登入＋提交者本人 | `200 DatabaseSubmissionReceiptView` | `403 authorized-form`「找不到這張回執，或你沒有查看它的權限。」（不存在、別人的、別組織的相同；資料管理者也拿不到別人的回執） |
+| `GET /api/v1/databases/{id}/records` | 登入＋`DatabaseRecordReaders.CanReadAsync`（指定且具權限，每次請求重查） | `200 DatabaseRecordListView`（未撤回的紀錄，新到舊，含提交者與欄位快照） | `403 database`（看不到數據庫，同不存在）；`403 database-records`（看得到但不能讀紀錄，例如擁有者把自己移除） |
+
+- **檢查順序（提交）**：入口權限（403）→ 數據庫在組織內（403）→ `submissionId`／`formVersionNumber`（422）→ 同一提交者用過此編號：同數據庫、同版本、同來源、同意、型別化值相同 → 原回執 `200`，否則 `409 submission-key-reused` → 版本不是目前版本（409）→ 欄位 `DatabaseAnswerRules`（與試填同一套，422）→ 同意（422，欄位錯誤優先，同 mock）→ 寫入。
+- **同鍵不同內容選 409**（不是 422）：請求本身格式正確，衝突的是伺服器上已存在的狀態，與 `form-version-changed` 同類；前端以 `reason` 區分並換新編號。
+- **並行重送**：兩個請求同時用同一編號，輸家撞 `(SubmittedByAccountId, IdempotencyKey)` 唯一索引（以索引名稱辨識），清掉追蹤後走重送比對，回同一張回執。整合測試同時送 4 個請求：恰一筆軌跡、一組 entries、所有回應同一個 id。
+- **已知取捨**：版本檢查與寫入之間若擁有者剛好存了新版，紀錄仍指向成員看到並同意的那一版（內容與版本一致），不另加鎖。可查看者在提交資訊與送出之間若被變更，回執記錄的是**送出當下**的可查看者。
+
+### 8.4 前端
+
+- `getDatabaseSubmissionForm`、`reviewDatabaseSubmission`、`submitDatabaseEntry`、`getDatabaseSubmissionReceipt`（`Observable` 契約）；mock 與 Hybrid 一致，Hybrid **讀寫兩端都走 API**（mock storage 不寫入，測試驗證）。mock 的表單連結紀錄寫進收集紀錄（來源「表單連結」），資料管理者在 mock 的時間軸看得到；回執存在 `sme-demo:database-submissions`。
+- 填寫頁 `features/databases/database-submission/`：填寫 → 伺服器檢查 → 同意（`app-consent-confirmation`，送出中停用）→ 回執（網址帶 `?receipt=<id>`，重新整理仍可看）。提交編號由前端 `crypto.randomUUID()` 產生，失敗重試沿用、成功或衝突後換新；5xx／連線中斷保留答案並提示「再按一次不會重複建立紀錄」；`409` 顯示「重新載入最新表單」。詳情頁的摘要多了「表單連結」。
+- `API_UPCOMING_DATABASE_FEATURES` **保留 `records`**：收集紀錄頁籤的時間軸、撤回軌跡與趨勢是 #146／#147；本票只提供 `GET .../records` 原始清單給 #146 接。
+
+### 8.5 給後續工單的接點
+
+- **#146**：提交者自己的清單可用 `DatabaseSubmissions.SubmittedByAccountId`；撤回刪 `DatabaseSubmissionEntries`、設 `WithdrawnAt`（軌跡表已預留）；資料管理者時間軸以 `ListRecordsAsync` 為起點（已排除 `WithdrawnAt` 非 null），追蹤對象＝提交者。
+- **#147**：型別化值在 `DatabaseSubmissionEntries`（`NumberValue`／`TextValue`／`ChoiceValues`），以穩定的 `FieldId` 跨版本比較；查詢前呼叫 `DatabaseRecordReaders`，只看 `WithdrawnAt IS NULL`。
+- **#148**：見 8.1；回執 `DatabaseSubmissionReceiptView` 可直接放進對話的 `submission-receipt` 訊息，`Source = assistant-conversation`。

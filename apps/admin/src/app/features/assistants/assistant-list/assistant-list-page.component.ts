@@ -154,6 +154,7 @@ export class AssistantListPageComponent {
       status: assistant.status,
       audience: assistant.audience,
       permission: 'configure',
+      acceptanceStatus: assistant.acceptanceStatus,
     };
   }
 }

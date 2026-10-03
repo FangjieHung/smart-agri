@@ -111,8 +111,11 @@ describe('consented structured submission', () => {
     cy.contains('button', '下一步：確認同意').click();
     cy.get('app-inline-form [role="alert"]').should('contain', '目前無法使用');
     cy.get('app-inline-form').contains('button', '取消').click();
-    cy.contains('button.suggested-prompt', '回報訂單問題').click();
-    cy.get('[role="log"] app-chat-message').last().find('[data-kind]').should('not.have.attr', 'data-kind', 'form-request');
+    // 解除連接後建議問題不再提供回報入口；手動輸入也不會得到表單。
+    cy.contains('button.suggested-prompt', '回報訂單問題').should('not.exist');
+    cy.get('#chat-input').type('我要回報訂單問題');
+    cy.get('form.composer button[type="submit"]').click();
+    cy.get('[role="log"] [data-kind="form-request"]').should('have.length', 1);
 
     loginAs('SMB 管理者');
     cy.visit('/app/databases/database-orders/records');

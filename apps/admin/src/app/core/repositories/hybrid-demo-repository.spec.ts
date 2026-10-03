@@ -12,11 +12,13 @@ import type { RepositoryView } from './demo-repository';
 import { DEMO_SEED, type DemoSeed } from './demo-seed';
 import {
   API_ASSISTANT_DRAFTS_PATH,
+  API_OPERATIONS_SUMMARY_PATH,
   API_ASSISTANTS_PATH,
   API_CONNECTABLE_SOURCES_PATH,
   API_CREATE_MEMBER_PATH,
   API_KNOWLEDGE_BASES_PATH,
   API_USABLE_ASSISTANTS_PATH,
+  apiAssistantAnalyticsPath,
   apiAssistantDraftPath,
   apiAssistantKnowledgeSourcePath,
   apiAssistantPath,
@@ -2646,7 +2648,31 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     repository.saveNamedAssistantDraft(DRAFT_ID, createEmptyAssistantDraft(), 1);
     repository.updatePlatformSharing(ASSISTANT_ID, []);
 
+
     controller.expectNone(() => true);
+  });
+
+  it('reads outcome-only assistant analytics from its API path', async () => {
+    const { repository } = setUpAssistants();
+    const result = pending(repository.getAssistantAnalyticsSummary(ASSISTANT_ID));
+    controller.expectOne({ method: 'GET', url: apiAssistantAnalyticsPath(ASSISTANT_ID) }).flush({
+      from: '2026-09-01', to: '2026-09-30', totalReplies: 5,
+      replyKinds: [{ kind: 'company-data', count: 4 }, { kind: 'general-knowledge', count: 1 }, { kind: 'no-result', count: 0 }],
+      rejectionReasons: [{ reason: 'below-threshold', count: 0 }, { reason: 'citation-out-of-range', count: 0 }, { reason: 'no-citation', count: 0 }, { reason: 'cannot-answer', count: 0 }, { reason: 'empty-answer', count: 0 }],
+      mostCitedDocuments: [],
+    });
+    expect(await result).toMatchObject({ status: 'ready', data: { totalReplies: 5 } });
+  });
+
+  it('reads organization operations summary from its API path', async () => {
+    const { repository } = setUpAssistants();
+    const result = pending(repository.getOperationsSummary());
+    controller.expectOne({ method: 'GET', url: API_OPERATIONS_SUMMARY_PATH }).flush({
+      from: '2026-09-01', to: '2026-09-30', assistants: [], mostCitedDocuments: [],
+      knowledge: { processingFailedCount: 0, overduePendingReviewCount: 0 },
+      issues: { openCount: 2, averageResolutionHours: 18 },
+    });
+    expect(await result).toMatchObject({ status: 'ready', data: { issues: { openCount: 2 } } });
   });
 });
 

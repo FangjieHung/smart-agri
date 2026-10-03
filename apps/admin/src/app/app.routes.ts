@@ -113,6 +113,11 @@ export const routes: Routes = [
       import('./features/activity/activity-page.component').then((m) => m.ActivityPageComponent),
   },
   {
+    path: 'app/operations',
+    canActivate: [demoSessionGuard],
+    loadComponent: () => import('./features/operations/operations-summary/operations-summary-page.component').then((m) => m.OperationsSummaryPageComponent),
+  },
+  {
     path: 'app/issues',
     canActivate: [demoSessionGuard],
     loadComponent: () =>

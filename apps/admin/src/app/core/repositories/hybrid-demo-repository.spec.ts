@@ -526,7 +526,7 @@ describe('HybridDemoRepository', () => {
     const { repository } = setUp();
 
     expect(repository.listAssistantTemplates().status).toBe('ready');
-    expect(repository.listDatabaseSummaries('account-smb-admin').status).toBe('ready');
+    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
   });
 
   it('scopes storage by the real organization and account id from /me, read fresh on every access', () => {
@@ -548,25 +548,20 @@ describe('HybridDemoRepository', () => {
       { http: TestBed.inject(HttpClient), viewerPermissions: () => me },
     );
 
-    // 仍是 mock 的功能區（資料庫）寫進 storage 的資料，要依真實組織／帳號隔開。
-    const created = repository.createDatabaseFromTemplate('account-smb-admin', {
-      templateId: 'template-satisfaction',
-      name: '組織 A 的資料庫',
-    });
-    expect(created.status).toBe('ready');
-    const names = () => {
-      const result = repository.listDatabaseSummaries('account-smb-admin');
-      return result.status === 'ready' ? result.data.map((database) => database.name) : [];
-    };
-    expect(names()).toContain('組織 A 的資料庫');
+    // 仍是 mock 的功能區（資料庫的資料管理者指定，#144 前）寫進 storage 的資料，要依真實組織／帳號隔開。
+    const RECORDS = 'database-customer-records';
+    const saved = repository.updateDatabaseAccess('account-smb-admin', RECORDS, []);
+    expect(saved.status).toBe('ready');
+    const canReadRecords = () => repository.getDatabaseTracking('account-smb-admin', RECORDS).status === 'ready';
+    expect(canReadRecords()).toBe(false);
 
-    // 換到組織 B：同一個 Demo 角色 id，但真實組織／帳號不同，看不到組織 A 的資料。
+    // 換到組織 B：同一個 Demo 角色 id，但真實組織／帳號不同，不受組織 A 的設定影響。
     me = { demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN, organizationId: 'org-b', accountId: 'account-b-admin' };
-    expect(names()).not.toContain('組織 A 的資料庫');
+    expect(canReadRecords()).toBe(true);
 
-    // 換回組織 A：資料仍然看得到。
+    // 換回組織 A：組織 A 的設定仍在。
     me = { demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN, organizationId: 'org-a', accountId: 'account-a-admin' };
-    expect(names()).toContain('組織 A 的資料庫');
+    expect(canReadRecords()).toBe(false);
   });
 });
 

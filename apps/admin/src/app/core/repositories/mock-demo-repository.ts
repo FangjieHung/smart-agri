@@ -3177,28 +3177,48 @@ export class MockDemoRepository implements DemoRepository {
     return updated === undefined ? this.knowledgePermissionDenied() : this.applyScenario(updated);
   }
 
-  listDatabaseTemplates(
-    viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listDatabaseTemplates']> {
-    if (!this.canManageDataSources(viewerAccountId)) return this.createDatabasePermissionDenied();
-    return this.applyScenario(this.seed.databaseTemplates);
+  listDatabaseTemplates(): ReturnType<DemoRepository['listDatabaseTemplates']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      if (viewerAccountId === null || !this.canManageDataSources(viewerAccountId)) {
+        return of(this.createDatabasePermissionDenied());
+      }
+      return of(this.applyScenario(this.seed.databaseTemplates));
+    });
   }
 
-  listDatabaseSummaries(
-    viewerAccountId: AccountId,
-  ): ReturnType<DemoRepository['listDatabaseSummaries']> {
-    return this.applyScenario(
-      this.databases()
-        .filter((database) => database.ownerAccountId === viewerAccountId)
-        .map((database) => this.toDatabaseSummary(database, viewerAccountId)),
-    );
+  listDatabaseSummaries(): ReturnType<DemoRepository['listDatabaseSummaries']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      if (viewerAccountId === null) return of(this.databasePermissionDenied());
+      return of(
+        this.applyScenario(
+          this.databases()
+            .filter((database) => database.ownerAccountId === viewerAccountId)
+            .map((database) => this.toDatabaseSummary(database, viewerAccountId)),
+        ),
+      );
+    });
   }
 
   createDatabaseFromTemplate(
-    viewerAccountId: AccountId,
-    input: Parameters<DemoRepository['createDatabaseFromTemplate']>[1],
+    input: Parameters<DemoRepository['createDatabaseFromTemplate']>[0],
+  ): Observable<CreateDatabaseResult> {
+    return defer(() => of(this.writeNewDatabase(this.viewer(), input)));
+  }
+
+  getDatabaseDetail(databaseId: string): ReturnType<DemoRepository['getDatabaseDetail']> {
+    return defer(() => of(this.readDatabaseDetail(this.viewer(), databaseId)));
+  }
+
+  /** 與 API 相同的檢查順序：權限、模板、名稱；第一個錯誤當訊息（`DatabaseCreationRules`）。 */
+  private writeNewDatabase(
+    viewerAccountId: AccountId | null,
+    input: Parameters<DemoRepository['createDatabaseFromTemplate']>[0],
   ): CreateDatabaseResult {
-    if (!this.canManageDataSources(viewerAccountId)) return this.createDatabasePermissionDenied();
+    if (viewerAccountId === null || !this.canManageDataSources(viewerAccountId)) {
+      return this.createDatabasePermissionDenied();
+    }
 
     const template = this.seed.databaseTemplates.find((candidate) => candidate.id === input.templateId);
     if (template === undefined) {
@@ -3235,10 +3255,8 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(this.toDatabaseSummary(view, viewerAccountId));
   }
 
-  getDatabaseDetail(
-    viewerAccountId: AccountId,
-    databaseId: string,
-  ): ReturnType<DemoRepository['getDatabaseDetail']> {
+  private readDatabaseDetail(viewerAccountId: AccountId | null, databaseId: string): RepositoryView<DatabaseDetailView> {
+    if (viewerAccountId === null) return this.databasePermissionDenied();
     const database = this.ownedDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
 
@@ -3254,6 +3272,7 @@ export class MockDemoRepository implements DemoRepository {
         )
         .map(({ id, name, status }) => ({ id, name, status })),
       access: this.databaseAccessView(database, viewerAccountId),
+      upcomingFeatures: [],
     };
 
     return this.applyScenario(detail);
@@ -4304,15 +4323,19 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  private databaseAccountRef(id: AccountId): { readonly id: AccountId; readonly displayName: string } {
+    return {
+      id,
+      displayName: this.accounts().find((account) => account.id === id)?.displayName ?? '已停用的帳號',
+    };
+  }
+
   private databaseAccessView(
     database: DatabaseView,
     viewerAccountId: AccountId,
   ): DatabaseAccessView {
     const accounts = this.accounts();
-    const displayName = (id: AccountId) => ({
-      id,
-      displayName: accounts.find((account) => account.id === id)?.displayName ?? '已停用的帳號',
-    });
+    const displayName = (id: AccountId) => this.databaseAccountRef(id);
     const managers = this.databaseCollection(database.id).dataManagerAccountIds;
 
     return {
@@ -4358,6 +4381,7 @@ export class MockDemoRepository implements DemoRepository {
       id: database.id,
       name: database.name,
       purpose: collection.purpose,
+      owner: this.databaseAccountRef(database.ownerAccountId),
       templateName: collection.templateName,
       fieldCount: collection.fields.length,
       recordCount: isDataManager ? records.length : null,

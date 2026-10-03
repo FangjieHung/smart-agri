@@ -78,6 +78,15 @@ import {
 } from '../domain/knowledge-base.model';
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type {
+  CreateDatabaseInput,
+  DatabaseDetailView,
+  DatabaseFieldId,
+  DatabaseFieldView,
+  DatabaseSummaryView,
+  DatabaseTemplateView,
+  DatabaseUpcomingFeature,
+} from '../domain/database.model';
+import type {
   AssistantChatView,
   ChatMessageView,
   ChatReplyView,
@@ -89,6 +98,8 @@ import {
   isRepositoryPermissionDeniedReason,
   type ApproveKnowledgeVersionsResult,
   type CreateAssistantResult,
+  type CreateDatabaseResult,
+  type CreateDatabaseValidationFailedView,
   type CreateKnowledgeBaseResult,
   type CreateMemberInput,
   type CreateMemberResult,
@@ -179,6 +190,11 @@ type UpdatePlatformSharingRequest = components['schemas']['UpdatePlatformSharing
 type SetPlatformPausedRequest = components['schemas']['SetPlatformPausedRequest'];
 type ApiAssistantAnalytics = components['schemas']['AssistantAnalyticsView'];
 type ApiOperationsSummary = components['schemas']['OperationsSummaryView'];
+type ApiDatabaseTemplate = components['schemas']['DatabaseTemplateView'];
+type ApiDatabaseSummary = components['schemas']['DatabaseSummaryView'];
+type ApiDatabaseDetail = components['schemas']['DatabaseDetailView'];
+type ApiDatabaseField = components['schemas']['DatabaseFieldView'];
+type CreateDatabaseRequest = components['schemas']['CreateDatabaseRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -315,6 +331,26 @@ export function apiTrialAnswersPath(draftId: string): string {
 
 export const API_CONNECTABLE_SOURCES_PATH = '/api/v1/connectable-sources';
 
+/** 數據庫（issue #142）：模板、清單、建立與詳情。 */
+export const API_DATABASE_TEMPLATES_PATH = '/api/v1/database-templates';
+
+export const API_DATABASES_PATH = '/api/v1/databases';
+
+export function apiDatabasePath(databaseId: string): string {
+  return `${API_DATABASES_PATH}/${encodeURIComponent(databaseId)}`;
+}
+
+/**
+ * API 模式還沒有的資料庫功能（#143–#148 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」，
+ * 不呼叫對應的同步 mock 方法。
+ */
+export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
+  'form-editing',
+  'data-managers',
+  'records',
+  'assistant-connections',
+];
+
 /** 草稿 `payload` 的形狀版本（jsonb，形狀由前端決定）；形狀有不相容的變更時才遞增。 */
 export const ASSISTANT_DRAFT_SCHEMA_VERSION = 1;
 
@@ -348,6 +384,16 @@ const TEAM_DENIED: PermissionDeniedFallback = { reason: 'team', message: TEAM_PE
 const KNOWLEDGE_DENIED: PermissionDeniedFallback = {
   reason: 'knowledge-base',
   message: KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
+};
+
+/** 與後端 `ForbiddenReason.Database`／`DatabaseCreate`、mock 的訊息逐字相同。 */
+const DATABASE_DENIED: PermissionDeniedFallback = {
+  reason: 'database',
+  message: '你沒有這個資料庫的存取權限，或它已不存在。',
+};
+const DATABASE_CREATE_DENIED: PermissionDeniedFallback = {
+  reason: 'database',
+  message: '只有可管理資料來源的帳號可以建立資料庫。',
 };
 
 const ASSISTANT_CONFIGURATION_DENIED: PermissionDeniedFallback = {
@@ -944,6 +990,64 @@ export class HybridDemoRepository extends MockDemoRepository {
     return this.permissionDeniedOrThrow(error, PUBLISHING_DENIED);
   }
 
+  // ---------- 數據庫（issue #142）----------
+
+  override listDatabaseTemplates(): Observable<RepositoryView<readonly DatabaseTemplateView[]>> {
+    return this.http.get<ApiDatabaseTemplate[]>(API_DATABASE_TEMPLATES_PATH).pipe(
+      map((response): RepositoryView<readonly DatabaseTemplateView[]> => ({
+        status: 'ready',
+        data: response.map((template) => ({
+          id: template.id,
+          name: template.name,
+          description: template.description,
+          fields: template.fields.map(toDatabaseField),
+        })),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, DATABASE_CREATE_DENIED)),
+    );
+  }
+
+  override listDatabaseSummaries(): Observable<RepositoryView<readonly DatabaseSummaryView[]>> {
+    return this.http.get<ApiDatabaseSummary[]>(API_DATABASES_PATH).pipe(
+      map((response): RepositoryView<readonly DatabaseSummaryView[]> => ({
+        status: 'ready',
+        data: response.map(toDatabaseSummary),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, DATABASE_DENIED)),
+    );
+  }
+
+  /**
+   * 寫入也走 API（不是只換讀取清單）：模板 id 與名稱由伺服器驗證，`422` 轉成
+   * `validation-failed`、`403` 轉成 `database`；其他錯誤原樣拋出，由畫面保留輸入讓使用者重試。
+   */
+  override createDatabaseFromTemplate(input: CreateDatabaseInput): Observable<CreateDatabaseResult> {
+    const body: CreateDatabaseRequest = { templateId: input.templateId, name: input.name };
+    return this.http.post<ApiDatabaseSummary>(API_DATABASES_PATH, body).pipe(
+      map((response): CreateDatabaseResult => ({ status: 'ready', data: toDatabaseSummary(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422)
+          ? of(databaseValidationFailed(error))
+          : this.permissionDeniedOrThrow(error, DATABASE_CREATE_DENIED),
+      ),
+    );
+  }
+
+  /** `403 database`（不存在、別人的、別的組織的都一樣）；網址 id 不是 GUID 時路由不符是 `404`，對畫面一樣。 */
+  override getDatabaseDetail(databaseId: string): Observable<RepositoryView<DatabaseDetailView>> {
+    return this.http.get<ApiDatabaseDetail>(apiDatabasePath(databaseId)).pipe(
+      map((response): RepositoryView<DatabaseDetailView> => ({ status: 'ready', data: toDatabaseDetail(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 404) ? of(permissionDenied(DATABASE_DENIED)) : this.permissionDeniedOrThrow(error, DATABASE_DENIED),
+      ),
+    );
+  }
+
+  // 表單編輯、試填、資料管理者與收集紀錄（updateDatabaseFields／previewDatabaseEntry／
+  // updateDatabaseAccess／getDatabaseTracking）仍是同步 mock 契約，API 模式尚未提供
+  // （API_UPCOMING_DATABASE_FEATURES）。詳情頁依 `upcomingFeatures` 不呼叫它們；就算被呼叫，
+  // mock 也找不到 API 的 GUID，回傳 `database` permission-denied，不會寫入任何資料。
+
   // ---------- 知識庫 ----------
 
   override listKnowledgeBaseSummaries(): Observable<RepositoryView<readonly KnowledgeBaseSummaryView[]>> {
@@ -1355,6 +1459,68 @@ function permissionDenied(fallback: PermissionDeniedFallback): PermissionDeniedR
 }
 
 /** `422`（逐欄錯誤）與 `409`（`reason` + `message`）的共同點：一句給人看的 `message`。 */
+/** `422`：伺服器的 `message` 是第一個錯誤（模板優先，再來是名稱）。 */
+function databaseValidationFailed(error: HttpErrorResponse): CreateDatabaseValidationFailedView {
+  return { status: 'validation-failed', message: bodyMessage(error) ?? '請確認模板與資料庫名稱後再試一次。' };
+}
+
+function toDatabaseFieldId(id: string): DatabaseFieldId {
+  // 後端的欄位 id 一律是 `field-…`（`DatabaseFormVersion.EnsureValid`）；這裡只是讓型別對上。
+  return (id.startsWith('field-') ? id : `field-${id}`) as DatabaseFieldId;
+}
+
+function toDatabaseField(field: ApiDatabaseField): DatabaseFieldView {
+  return {
+    id: toDatabaseFieldId(field.id),
+    label: field.label,
+    type: field.type,
+    required: field.required,
+    options: [...field.options],
+    // 後端一律送出 `scale`（不適用時是 null）；仍同時接受省略，避免回應形狀變動時整頁壞掉。
+    scale: field.scale == null ? null : { ...field.scale },
+    unit: field.unit ?? '',
+  };
+}
+
+/**
+ * 後端摘要沒有紀錄數量與已連接助理：紀錄要等資料管理者與提交（#144–#146），在那之前任何回應都
+ * 不透露數量，這裡一律是 null／空陣列（畫面在 API 模式顯示「將於後續版本開放」）。
+ */
+function toDatabaseSummary(summary: ApiDatabaseSummary): DatabaseSummaryView {
+  return {
+    id: summary.id,
+    name: summary.name,
+    purpose: summary.purpose,
+    owner: { id: summary.owner.id, displayName: summary.owner.displayName },
+    templateName: summary.templateName,
+    fieldCount: summary.fieldCount,
+    recordCount: null,
+    subjectCount: null,
+    connectedAssistantNames: [],
+    updatedAt: summary.updatedAt,
+  };
+}
+
+function toDatabaseDetail(detail: ApiDatabaseDetail): DatabaseDetailView {
+  const summary = toDatabaseSummary(detail.summary);
+  return {
+    summary,
+    fields: detail.form.fields.map(toDatabaseField),
+    connectedAssistants: [],
+    // 資料管理者是 #144；在那之前沒有人被指定，也沒有人能從這裡讀到紀錄。
+    access: {
+      owner: summary.owner,
+      dataManagers: [],
+      viewerIsDataManager: false,
+      viewerCanReadRecords: false,
+      viewerCanManageAccess: false,
+      candidates: [],
+      savedAt: null,
+    },
+    upcomingFeatures: API_UPCOMING_DATABASE_FEATURES,
+  };
+}
+
 function knowledgeValidationFailed(error: HttpErrorResponse): KnowledgeValidationFailedView {
   return {
     status: 'validation-failed',

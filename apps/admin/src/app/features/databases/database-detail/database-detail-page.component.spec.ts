@@ -1,11 +1,17 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { map, throwError } from 'rxjs';
+import { vi } from 'vitest';
+import { API_UPCOMING_DATABASE_FEATURES } from '../../../core/repositories/hybrid-demo-repository';
+import type { MockDemoRepository } from '../../../core/repositories/mock-demo-repository';
+import { syncValue } from '../../../core/repositories/sync-value.testing';
 import { provideDatabaseTesting } from '../databases.testing';
 import { DatabaseDetailPageComponent } from './database-detail-page.component';
 
-async function openDetail(url: string) {
+async function openDetail(url: string, arrange: (repository: MockDemoRepository) => void = () => undefined) {
   const testing = provideDatabaseTesting();
+  arrange(testing.repository);
   TestBed.configureTestingModule({
     providers: [
       ...testing.providers,
@@ -14,6 +20,8 @@ async function openDetail(url: string) {
   });
   const harness = await RouterTestingHarness.create();
   await harness.navigateByUrl(url);
+  // 詳情是非同步契約（rxResource）：等第一次讀取完成再畫面。
+  await harness.fixture.whenStable();
   harness.detectChanges();
   return {
     harness,
@@ -53,7 +61,7 @@ describe('DatabaseDetailPageComponent', () => {
     harness.detectChanges();
 
     expect(page().querySelector('.designer-feedback')?.textContent).toContain('表單已儲存');
-    const detail = repository.getDatabaseDetail('account-smb-admin', 'database-orders');
+    const detail = syncValue(repository.getDatabaseDetail('database-orders'));
     expect(detail.status === 'ready' && detail.data.fields[0].label).toBe('訂單號碼');
   });
 
@@ -195,5 +203,74 @@ describe('DatabaseDetailPageComponent', () => {
     const { page } = await openDetail('/app/databases/database-customer-records/unknown');
 
     expect(page().querySelector('nav.tabs [aria-current="page"]')?.textContent).toContain('表單設計');
+  });
+
+  it('shows the owner, template and update time in the header', async () => {
+    const { page } = await openDetail('/app/databases/database-customer-records/form');
+    const meta = page().querySelector('.database-meta');
+
+    expect(meta?.querySelector('.database-owner')?.textContent).toContain('安心商行管理者');
+    expect(meta?.textContent).toContain('定期回報');
+    expect(meta?.textContent).toContain('6 個');
+    expect(meta?.querySelector('time')?.getAttribute('datetime')).toBeTruthy();
+  });
+
+  it('shows a retryable error, not a permission state, when the detail fails to load', async () => {
+    const { harness, page, repository } = await openDetail('/app/databases/database-orders/form', (repository) => {
+      vi.spyOn(repository, 'getDatabaseDetail').mockReturnValueOnce(throwError(() => new Error('500')));
+    });
+
+    expect(page().textContent).toContain('目前無法載入這個資料庫');
+    expect(page().textContent).not.toContain('無法查看這個資料庫');
+
+    button(page(), '重新載入').click();
+    await harness.fixture.whenStable();
+    harness.detectChanges();
+
+    expect(repository.getDatabaseDetail).toHaveBeenCalledTimes(2);
+    expect(page().querySelector('h1')?.textContent).toContain('訂單資料庫');
+  });
+
+  describe('features the API does not have yet (API mode, #143–#148)', () => {
+    /** 與 Hybrid repository 在 API 模式回傳的一樣：每一項都還沒開放。 */
+    function asApiMode(repository: MockDemoRepository): void {
+      const original = repository.getDatabaseDetail.bind(repository);
+      vi.spyOn(repository, 'getDatabaseDetail').mockImplementation((id) =>
+        original(id).pipe(
+          map((result) =>
+            result.status === 'ready' ? { ...result, data: { ...result.data, upcomingFeatures: API_UPCOMING_DATABASE_FEATURES } } : result,
+          ),
+        ),
+      );
+      vi.spyOn(repository, 'getDatabaseTracking');
+    }
+
+    it('shows the initial form read-only instead of the designer and trial', async () => {
+      const { page } = await openDetail('/app/databases/database-customer-records/form', asApiMode);
+
+      expect(page().querySelector('app-form-designer')).toBeNull();
+      expect(page().querySelector('app-form-trial')).toBeNull();
+      expect(page().querySelector('.upcoming-notice')?.textContent).toContain('將於後續版本開放');
+      const fields = Array.from(page().querySelectorAll('ol.field-summary > li'));
+      expect(fields).toHaveLength(6);
+      expect(fields[1].textContent).toContain('整體滿意度');
+      expect(fields[1].textContent).toContain('量尺');
+      expect(fields[1].textContent).toContain('必填');
+      expect(fields[1].textContent).toContain('1（很不滿意）到 5（非常滿意）');
+      expect(fields[2].textContent).toContain('單位：元');
+    });
+
+    it('does not read mock records, data managers or assistants', async () => {
+      for (const tab of ['records', 'trends', 'access', 'assistants']) {
+        TestBed.resetTestingModule();
+        const { page, repository } = await openDetail(`/app/databases/database-customer-records/${tab}`, asApiMode);
+
+        expect(page().querySelector('.upcoming-notice')?.textContent, tab).toContain('將於後續版本開放');
+        expect(page().querySelector('app-database-access'), tab).toBeNull();
+        expect(page().textContent, tab).not.toContain('王小姐');
+        expect(page().textContent, tab).not.toContain('客服助理');
+        expect(repository.getDatabaseTracking, tab).not.toHaveBeenCalled();
+      }
+    });
   });
 });

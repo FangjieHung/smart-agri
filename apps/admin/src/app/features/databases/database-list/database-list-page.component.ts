@@ -1,14 +1,33 @@
-import { ChangeDetectionStrategy, Component, computed, inject, linkedSignal, signal, TemplateRef, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  linkedSignal,
+  signal,
+  TemplateRef,
+  viewChild,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { DataTableCellDirective, DataTableColumn, DataTableComponent } from '@smart-agri/ui';
 import { ADMIN_DATA_TABLE_LABELS } from '../../../shared/ui/data-table-labels';
 import { fmtDateTime } from '../../../core/date-utils';
 import type { DatabaseSummaryView, DatabaseTemplateId, DatabaseTemplateView } from '../../../core/domain/database.model';
+import type { CreateDatabaseResult } from '../../../core/repositories/demo-repository';
+import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
+
+/** 與後端 `Database.NameMaxLength`、mock 的檢查相同。 */
+export const DATABASE_NAME_MAX_LENGTH = 40;
+
+const CREATE_FAILED_MESSAGE = '目前無法建立資料庫，你輸入的內容仍保留，請稍後再試一次。';
 
 @Component({
   selector: 'app-database-list-page',
@@ -19,44 +38,74 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 })
 export class DatabaseListPageComponent {
   protected readonly tableLabels = ADMIN_DATA_TABLE_LABELS;
+  protected readonly nameMaxLength = DATABASE_NAME_MAX_LENGTH;
   private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly createDialog = viewChild<TemplateRef<unknown>>('createDialog');
   private readonly session = inject(DemoSessionService);
+  /** API 模式還沒有收集紀錄與助理連接（#144–#148），兩欄改成說明，不顯示 mock 的推測值。 */
+  protected readonly apiMode = inject(ApiSessionService).apiMode;
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
 
   protected readonly columns: DataTableColumn<DatabaseSummaryView>[] = [
     { key: 'name', label: '名稱', rowHeader: true },
     { key: 'purpose', label: '用途' },
+    { key: 'owner', label: '擁有者', exportSkip: true },
     { key: 'form', label: '表單', exportSkip: true },
     { key: 'records', label: '收集紀錄', exportSkip: true },
     { key: 'assistants', label: '已連接助理', exportSkip: true },
     { key: 'updatedAt', label: '最近更新', exportSkip: true },
   ];
 
-  protected readonly view = computed(() => {
-    const accountId = this.session.activeAccountId();
-    return accountId ? this.repository.listDatabaseSummaries(accountId) : null;
+  /** 還沒有 Demo 身分時停在載入中；換身分就重新讀取。 */
+  private readonly list = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listDatabaseSummaries(),
   });
+  protected readonly view = this.list.view;
+
+  /** 沒有資料來源管理權限時是 permission-denied：不顯示建立入口，只說明原因。 */
+  private readonly templateList = repositoryResource({
+    params: () => this.session.activeAccountId() ?? undefined,
+    stream: () => this.repository.listDatabaseTemplates(),
+  });
+  protected readonly templatesView = this.templateList.view;
 
   protected readonly templates = computed<readonly DatabaseTemplateView[]>(() => {
-    const accountId = this.session.activeAccountId();
-    const result = accountId ? this.repository.listDatabaseTemplates(accountId) : null;
-    return result?.status === 'ready' || result?.status === 'partial-failure' ? result.data : [];
+    const result = this.templatesView();
+    return result.status === 'ready' || result.status === 'partial-failure' ? result.data : [];
   });
+  protected readonly canCreate = computed(() => this.templates().length > 0);
 
   protected readonly templateId = linkedSignal<DatabaseTemplateId | null>(() => this.templates()[0]?.id ?? null);
   protected readonly name = linkedSignal(
     () => this.templates().find((template) => template.id === this.templateId())?.name ?? '',
   );
   protected readonly error = signal('');
+  /** 送出中不能再按一次建立，也不能關閉對話框以免結果無處顯示。 */
+  protected readonly creating = signal(false);
 
   protected openCreateDialog(): void {
     const content = this.createDialog();
-    if (content) this.dialog.open(content, { width: 'min(42rem, calc(100vw - 2rem))', autoFocus: '#database-name', restoreFocus: true });
+    if (!content) return;
+    this.error.set('');
+    this.dialog.open(content, {
+      width: 'min(42rem, calc(100vw - 2rem))',
+      autoFocus: '#database-name',
+      restoreFocus: true,
+      ariaLabelledBy: 'create-title',
+    });
   }
 
-  protected closeCreateDialog(): void { this.dialog.closeAll(); }
+  protected closeCreateDialog(): void {
+    if (this.creating()) return;
+    this.dialog.closeAll();
+  }
+
+  protected reloadTemplates(): void {
+    this.templateList.reload();
+  }
 
   protected chooseTemplate(template: DatabaseTemplateView): void {
     this.templateId.set(template.id);
@@ -70,13 +119,32 @@ export class DatabaseListPageComponent {
 
   protected create(event: Event): void {
     event.preventDefault();
-    const accountId = this.session.activeAccountId();
     const templateId = this.templateId();
-    if (!accountId || templateId === null) return;
+    if (this.creating() || templateId === null) return;
+    // 與後端相同的必填檢查先在前端擋下，省一次來回；其餘規則以 repository 的結果為準。
+    if (this.name().trim().length === 0) {
+      this.error.set('請輸入資料庫名稱。');
+      return;
+    }
 
-    const result = this.repository.createDatabaseFromTemplate(accountId, { templateId, name: this.name() });
+    this.creating.set(true);
+    this.repository
+      .createDatabaseFromTemplate({ templateId, name: this.name() })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => this.created(result),
+        error: () => {
+          this.creating.set(false);
+          this.error.set(CREATE_FAILED_MESSAGE);
+        },
+      });
+  }
+
+  private created(result: CreateDatabaseResult): void {
+    this.creating.set(false);
     if (result.status === 'ready' || result.status === 'partial-failure') {
-      this.closeCreateDialog();
+      this.dialog.closeAll();
+      this.list.reload();
       void this.router.navigate(['/app/databases', result.data.id, 'form']);
     } else if (result.status === 'validation-failed' || result.status === 'permission-denied') {
       this.error.set(result.message);
@@ -84,9 +152,15 @@ export class DatabaseListPageComponent {
   }
 
   protected records(item: DatabaseSummaryView): string {
+    if (this.apiMode) return '將於後續版本開放';
     return item.recordCount === null
       ? '僅指定資料管理者可查看'
       : `${item.subjectCount ?? 0} 位對象・${item.recordCount} 筆紀錄`;
+  }
+
+  protected assistants(item: DatabaseSummaryView): string {
+    if (this.apiMode) return '將於後續版本開放';
+    return item.connectedAssistantNames.join('、') || '尚未連接';
   }
 
   protected updatedAt(iso: string): string {

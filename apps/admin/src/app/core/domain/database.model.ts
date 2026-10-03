@@ -9,7 +9,11 @@ export type SeededDatabaseId =
 /** 由模板建立的資料庫 id，格式固定為 `database-created-<序號>`。 */
 export type CreatedDatabaseId = `database-created-${number}`;
 
-export type DatabaseId = SeededDatabaseId | CreatedDatabaseId;
+/**
+ * mock 的 id 是 `SeededDatabaseId`／`CreatedDatabaseId`；API 模式是後端的 GUID（issue #142），
+ * 所以和 `KnowledgeBaseId` 一樣放寬成 string。id 一律只拿來比對與組網址，不解析格式。
+ */
+export type DatabaseId = string;
 
 export type DatabaseStatus = 'connected' | 'disconnected' | 'sync-error';
 
@@ -124,6 +128,8 @@ export interface DatabaseSummaryView {
   readonly id: DatabaseId;
   readonly name: string;
   readonly purpose: string;
+  /** 建立者，也是唯一能修改設定的人；不代表看得到收集紀錄（見 `canReadConsentedRecords`）。 */
+  readonly owner: DatabaseAccountView;
   readonly templateName: string;
   readonly fieldCount: number;
   /** 目前帳號不是指定資料管理者時為 null，不透露紀錄數量。 */
@@ -167,12 +173,27 @@ export interface DatabaseAccessView {
   readonly savedAt: string | null;
 }
 
+/**
+ * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
+ * - `form-editing`：編輯表單與試填（#143）；
+ * - `data-managers`：指定資料管理者（#144）；
+ * - `records`：收集紀錄與趨勢比較（#145–#147）；
+ * - `assistant-connections`：已連接助理（#148）。
+ * mock 模式全部可用，所以是空陣列。
+ */
+export type DatabaseUpcomingFeature = 'form-editing' | 'data-managers' | 'records' | 'assistant-connections';
+
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;
   readonly fields: readonly DatabaseFieldView[];
   readonly connectedAssistants: readonly DatabaseConnectedAssistantView[];
   readonly access: DatabaseAccessView;
+  /** 見 `DatabaseUpcomingFeature`；mock 模式為空陣列。 */
+  readonly upcomingFeatures: readonly DatabaseUpcomingFeature[];
 }
+
+/** API 模式中尚未開放的功能，畫面上顯示的說明。 */
+export const DATABASE_UPCOMING_FEATURE_MESSAGE = '這項功能將於後續版本開放；目前可以查看初始表單。';
 
 /* ------------------------------------------------------------------ */
 /* 收集紀錄、時間軸與比較（差異值一律由 repository 預先算好）           */

@@ -3,17 +3,15 @@ import { describe, expect, it } from 'vitest';
 import type { AccountId } from '../../../core/domain/account.model';
 import type { DatabaseAccessView, DatabaseId } from '../../../core/domain/database.model';
 import type { MockDemoRepository } from '../../../core/repositories/mock-demo-repository';
+import { syncValue } from '../../../core/repositories/sync-value.testing';
 import { provideDatabaseTesting } from '../databases.testing';
 import { DatabaseAccessComponent } from './database-access.component';
 
 const RECORDS = 'database-customer-records' as DatabaseId;
 
-function accessOf(
-  repository: MockDemoRepository,
-  accountId: AccountId,
-  databaseId: DatabaseId,
-): DatabaseAccessView {
-  const detail = repository.getDatabaseDetail(accountId, databaseId);
+/** 以 repository 目前的 viewer（`provideDatabaseTesting` 的帳號）讀取權限頁籤的資料。 */
+function accessOf(repository: MockDemoRepository, databaseId: DatabaseId): DatabaseAccessView {
+  const detail = syncValue(repository.getDatabaseDetail(databaseId));
   if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
   return detail.data.access;
 }
@@ -23,7 +21,7 @@ function render(accountId: AccountId = 'account-smb-admin', databaseId = RECORDS
   TestBed.configureTestingModule({ imports: [DatabaseAccessComponent], providers });
   const fixture = TestBed.createComponent(DatabaseAccessComponent);
   fixture.componentRef.setInput('databaseId', databaseId);
-  fixture.componentRef.setInput('access', accessOf(repository, accountId, databaseId));
+  fixture.componentRef.setInput('access', accessOf(repository, databaseId));
   fixture.detectChanges();
   let changed = 0;
   fixture.componentInstance.changed.subscribe(() => (changed += 1));
@@ -65,7 +63,7 @@ describe('DatabaseAccessComponent', () => {
     expect(feedback).toContain('已更新資料管理者');
     expect(feedback).toContain('沒有被刪除');
     expect(changes()).toBe(1);
-    expect(accessOf(repository, 'account-smb-admin', RECORDS).dataManagers).toEqual([]);
+    expect(accessOf(repository, RECORDS).dataManagers).toEqual([]);
     expect(repository.getDatabaseTracking('account-smb-admin', RECORDS).status).toBe(
       'permission-denied',
     );

@@ -82,3 +82,20 @@ dl { display: grid; gap: var(--space-2); margin: 0; }
 dl div { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: var(--space-2); }
 dt { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
 dd { margin: 0; font-size: var(--font-size-caption); font-weight: 600; overflow-wrap: anywhere; }
+
+.template-fields { color: var(--color-text-secondary); }
+.empty-panel { display: grid; justify-items: start; gap: var(--space-3); }
+.templates-error { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.link-button {
+  min-block-size: var(--target-size);
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }

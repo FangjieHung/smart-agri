@@ -3,15 +3,20 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { DetailLayoutComponent } from '@smart-agri/ui';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { AssistantStatus } from '../../../core/domain/assistant.model';
-import type {
-  DatabaseDetailView,
-  DatabaseFieldError,
-  DatabaseFieldView,
-  DatabaseTrialAnswers,
+import {
+  DATABASE_UPCOMING_FEATURE_MESSAGE,
+  type DatabaseDetailView,
+  type DatabaseFieldError,
+  type DatabaseFieldView,
+  type DatabaseTrialAnswers,
+  type DatabaseUpcomingFeature,
 } from '../../../core/domain/database.model';
 import type { PreviewDatabaseEntryResult } from '../../../core/repositories/demo-repository';
+import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
+import { fmtDateTime } from '../../../core/date-utils';
+import { FIELD_TYPE_LABELS } from '../database-labels';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status-badge/status-badge.component';
@@ -70,7 +75,7 @@ export class DatabaseDetailPageComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly params = toSignal(this.route.paramMap, { initialValue: this.route.snapshot.paramMap });
   private readonly query = toSignal(this.route.queryParamMap, { initialValue: this.route.snapshot.queryParamMap });
-  /** repository 為同步 mock，異動後遞增此值讓畫面重新讀取。 */
+  /** 表單、試填與收集紀錄仍是同步 mock，異動後遞增此值讓畫面重新讀取。 */
   private readonly revision = signal(0);
 
   protected readonly tabs = TABS;
@@ -78,18 +83,29 @@ export class DatabaseDetailPageComponent {
   protected readonly activeTab = computed<DatabaseTab>(
     () => TABS.find((tab) => tab.id === this.params().get('tab')) ?? TABS[0],
   );
-  protected readonly view = computed(() => {
-    this.revision();
-    const accountId = this.session.activeAccountId();
-    return accountId ? this.repository.getDatabaseDetail(accountId, this.databaseId()) : null;
+  /** 換身分或網址 id 就重新讀取；儲存表單或權限後 `reload()`。 */
+  private readonly detail = repositoryResource({
+    params: () => {
+      const accountId = this.session.activeAccountId();
+      return accountId ? { accountId, databaseId: this.databaseId() } : undefined;
+    },
+    stream: ({ databaseId }) => this.repository.getDatabaseDetail(databaseId),
   });
+  protected readonly view = this.detail.view;
+
+  /** API 模式尚未開放的功能（`DatabaseUpcomingFeature`）；mock 模式是空集合。 */
+  protected readonly upcoming = computed<ReadonlySet<DatabaseUpcomingFeature>>(() => {
+    const result = this.view();
+    return new Set(result.status === 'ready' || result.status === 'partial-failure' ? result.data.upcomingFeatures : []);
+  });
+  protected readonly upcomingMessage = DATABASE_UPCOMING_FEATURE_MESSAGE;
 
   /** 只在紀錄與趨勢頁籤讀取收集紀錄；非指定資料管理者會得到 permission-denied。 */
   protected readonly tracking = computed(() => {
     this.revision();
     const tab = this.activeTab().id;
     const accountId = this.session.activeAccountId();
-    if (!accountId || (tab !== 'records' && tab !== 'trends')) return null;
+    if (!accountId || (tab !== 'records' && tab !== 'trends') || this.upcoming().has('records')) return null;
     return this.repository.getDatabaseTracking(accountId, this.databaseId());
   });
 
@@ -119,6 +135,24 @@ export class DatabaseDetailPageComponent {
   /** 權限變更後重新讀取詳情，讓「你的權限」與紀錄頁籤立刻跟著變。 */
   protected reload(): void {
     this.revision.update((value) => value + 1);
+    this.detail.reload();
+  }
+
+  protected updatedAt(iso: string): string {
+    return fmtDateTime(iso);
+  }
+
+  protected fieldTypeLabel(field: DatabaseFieldView): string {
+    return FIELD_TYPE_LABELS[field.type];
+  }
+
+  /** 唯讀欄位清單的補充說明：選項、量尺範圍或單位；沒有時為空字串。 */
+  protected fieldDetail(field: DatabaseFieldView): string {
+    if (field.options.length > 0) return `選項：${field.options.join('、')}`;
+    if (field.scale !== null) {
+      return `${field.scale.min}（${field.scale.minLabel}）到 ${field.scale.max}（${field.scale.maxLabel}）`;
+    }
+    return field.unit ? `單位：${field.unit}` : '';
   }
 
   protected assistantStatus(status: AssistantStatus) {
@@ -140,7 +174,7 @@ export class DatabaseDetailPageComponent {
       this.fieldErrors.set([]);
       this.trialResult.set(null);
       this.designerFeedback.set(`表單已儲存：共 ${result.data.length} 個欄位。`);
-      this.revision.update((value) => value + 1);
+      this.reload();
     }
   }
 

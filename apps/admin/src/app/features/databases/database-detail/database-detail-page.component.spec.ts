@@ -362,8 +362,8 @@ describe('DatabaseDetailPageComponent', () => {
       expect(page().querySelector('.upcoming-notice')).toBeNull();
     });
 
-    it('does not read mock records or trends', async () => {
-      for (const tab of ['records', 'trends']) {
+    it('does not read records for the trends tab: trends are #147', async () => {
+      for (const tab of ['trends']) {
         TestBed.resetTestingModule();
         const { page, repository } = await openDetail(`/app/databases/database-customer-records/${tab}`, asApiMode);
 
@@ -379,6 +379,35 @@ describe('DatabaseDetailPageComponent', () => {
 
       expect(page().querySelector('.upcoming-notice')).toBeNull();
       expect(page().textContent).toContain('客服助理');
+    });
+
+    it('keeps a failed timeline read apart from "no records" and lets it be retried', async () => {
+      let calls = 0;
+      const { page, repository, harness } = await openDetail('/app/databases/database-customer-records/records', (repo) => {
+        const original = repo.getDatabaseTracking.bind(repo);
+        asApiMode(repo);
+        vi.mocked(repo.getDatabaseTracking).mockImplementation((id) =>
+          ++calls === 1 ? throwError(() => new Error('503')) : original(id),
+        );
+      });
+
+      expect(page().textContent).toContain('目前無法載入收集紀錄');
+      expect(page().textContent).not.toContain('還沒有收集紀錄');
+
+      button(page(), '重新載入').click();
+      await harness.fixture.whenStable();
+      harness.detectChanges();
+
+      expect(repository.getDatabaseTracking).toHaveBeenCalledTimes(2);
+      expect(page().querySelector('app-records-table')).not.toBeNull();
+    });
+
+    it('reads the timeline through the repository on the records tab (available since #146)', async () => {
+      const { page, repository } = await openDetail('/app/databases/database-customer-records/records', asApiMode);
+
+      expect(repository.getDatabaseTracking).toHaveBeenCalledWith('database-customer-records');
+      expect(page().querySelector('.upcoming-notice')).toBeNull();
+      expect(page().querySelector('app-records-table')).not.toBeNull();
     });
 
     it('offers the permissions tab in API mode (data managers are served by the API since #144)', async () => {

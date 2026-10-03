@@ -141,8 +141,66 @@
         }
       }
     },
+    "/api/v1/submissions": {
+      "get": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseOwnSubmissionListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/api/v1/submissions/{id}": {
       "get": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseSubmissionReceiptView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/submissions/{id}/withdrawal": {
+      "post": {
         "tags": [
           "DatabaseSubmissionEndpoints"
         ],
@@ -2121,6 +2179,42 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DatabaseRecordListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/tracking": {
+      "get": {
+        "tags": [
+          "DatabaseSubmissionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseTrackingView"
                 }
               }
             }
@@ -6041,6 +6135,67 @@
           }
         }
       },
+      "DatabaseOwnSubmissionListView": {
+        "required": [
+          "submissions"
+        ],
+        "type": "object",
+        "properties": {
+          "submissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseOwnSubmissionView"
+            }
+          }
+        }
+      },
+      "DatabaseOwnSubmissionView": {
+        "required": [
+          "id",
+          "receiptNumber",
+          "submittedAt",
+          "databaseId",
+          "databaseName",
+          "formVersionNumber",
+          "source",
+          "withdrawnAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receiptNumber": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "databaseName": {
+            "type": "string"
+          },
+          "formVersionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DatabaseSubmissionSource"
+          },
+          "withdrawnAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "DatabaseRecordListView": {
         "required": [
           "databaseId",
@@ -6201,7 +6356,8 @@
           "formVersionId",
           "formVersionNumber",
           "source",
-          "entries"
+          "entries",
+          "withdrawnAt"
         ],
         "type": "object",
         "properties": {
@@ -6251,6 +6407,13 @@
             "items": {
               "$ref": "#/components/schemas/DatabaseSubmissionEntryView"
             }
+          },
+          "withdrawnAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -6399,6 +6562,50 @@
           }
         }
       },
+      "DatabaseTrackedSubjectView": {
+        "required": [
+          "subject",
+          "records",
+          "withdrawals"
+        ],
+        "type": "object",
+        "properties": {
+          "subject": {
+            "$ref": "#/components/schemas/DatabaseAccountView"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseSubmittedRecordView"
+            }
+          },
+          "withdrawals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseWithdrawnRecordView"
+            }
+          }
+        }
+      },
+      "DatabaseTrackingView": {
+        "required": [
+          "databaseId",
+          "subjects"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subjects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseTrackedSubjectView"
+            }
+          }
+        }
+      },
       "DatabaseTrialEntryView": {
         "required": [
           "fieldId",
@@ -6438,6 +6645,37 @@
             "items": {
               "$ref": "#/components/schemas/DatabaseTrialEntryView"
             }
+          }
+        }
+      },
+      "DatabaseWithdrawnRecordView": {
+        "required": [
+          "id",
+          "submittedAt",
+          "withdrawnAt",
+          "source",
+          "formVersionNumber"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "withdrawnAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "$ref": "#/components/schemas/DatabaseSubmissionSource"
+          },
+          "formVersionNumber": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

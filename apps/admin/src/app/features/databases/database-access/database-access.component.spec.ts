@@ -65,7 +65,7 @@ describe('DatabaseAccessComponent', () => {
     expect(feedback).toContain('沒有被刪除');
     expect(changes()).toBe(1);
     expect(accessOf(repository, RECORDS).dataManagers).toEqual([]);
-    expect(repository.getDatabaseTracking('account-smb-admin', RECORDS).status).toBe(
+    expect(repository.readDatabaseTracking('account-smb-admin', RECORDS).status).toBe(
       'permission-denied',
     );
   });

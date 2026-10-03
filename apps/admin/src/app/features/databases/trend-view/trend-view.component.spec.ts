@@ -4,7 +4,7 @@ import { provideDatabaseTesting } from '../databases.testing';
 import { TrendViewComponent } from './trend-view.component';
 
 function subject(index: number): TrackedSubjectView {
-  const result = provideDatabaseTesting().repository.getDatabaseTracking('account-smb-admin', 'database-customer-records');
+  const result = provideDatabaseTesting().repository.readDatabaseTracking('account-smb-admin', 'database-customer-records');
   if (result.status !== 'ready') throw new Error('expected ready');
   return result.data.subjects[index];
 }

@@ -39,11 +39,12 @@ public static class DatabaseSubmissionRules
         "請勿填寫身分證字號、病歷、信用卡號或密碼等敏感資料；只填寫處理這次問題需要的內容。";
 
     /// <summary>
-    /// What the member is told about withdrawal before submitting. Withdrawal itself is #146; until
-    /// then the text says so instead of promising a button that does not exist.
+    /// What the member is told about withdrawal before submitting (M4 #146): where to withdraw,
+    /// that withdrawal deletes the content and keeps only a content-free trail, and that reports
+    /// already produced are not rewritten (withdrawal ADR). Same text as the mock's.
     /// </summary>
     public const string WithdrawalNotice =
-        "送出後會取得一張回執。撤回功能將於後續版本開放：撤回後接收單位會移除這筆資料的內容，只保留「曾提交、已撤回」的軌跡；在那之前如需撤回，請聯絡接收單位。";
+        "送出後會取得一張回執。你可以隨時在「對話與回報紀錄」撤回自己送出的資料：撤回後接收單位會刪除這筆資料的內容與數值，只保留「曾提交、已撤回」的時間軌跡；已經產生的定期報表不會追溯修改。";
 
     /// <summary>The request's own members: a client key and the form version the member saw.</summary>
     public static ValidationResult<(Guid Key, int FormVersionNumber)> ValidateRequest(Guid? submissionId, int? formVersionNumber)

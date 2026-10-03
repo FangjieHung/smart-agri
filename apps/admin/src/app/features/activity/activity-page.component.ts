@@ -6,10 +6,11 @@ import { repositoryResource } from '../../core/repositories/repository-resource'
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../shared/ui/state-panel/state-panel.component';
+import { OwnSubmissionsComponent } from './own-submissions/own-submissions.component';
 
 @Component({
   selector: 'app-activity-page',
-  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent],
+  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent, OwnSubmissionsComponent],
   templateUrl: './activity-page.component.html',
   styleUrl: './activity-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

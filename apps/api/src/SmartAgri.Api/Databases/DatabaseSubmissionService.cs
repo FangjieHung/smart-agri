@@ -267,30 +267,124 @@ public sealed class DatabaseSubmissionService
     /// </summary>
     public async Task<IReadOnlyList<DatabaseSubmittedRecordView>> ListRecordsAsync(Guid databaseId, CancellationToken cancellationToken)
     {
-        var submissions = await _dbContext.DatabaseSubmissions.AsNoTracking()
-            .Where(submission => submission.DatabaseId == databaseId && submission.WithdrawnAt == null)
+        var active = DatabaseActiveRecords.Of(_dbContext, databaseId);
+        var submissions = await active
             .OrderByDescending(submission => submission.SubmittedAt)
             .ThenByDescending(submission => submission.Id)
             .ToListAsync(cancellationToken);
-        var ids = submissions.Select(submission => submission.Id).ToList();
-        var entries = (await _dbContext.DatabaseSubmissionEntries.AsNoTracking()
-                .Where(entry => ids.Contains(entry.SubmissionId))
-                .ToListAsync(cancellationToken))
+        var entries = (await DatabaseActiveRecords.EntriesOf(_dbContext, active).ToListAsync(cancellationToken))
             .ToLookup(entry => entry.SubmissionId);
-        var submitterIds = submissions.Select(submission => submission.SubmittedByAccountId).Distinct().ToList();
-        var names = await _dbContext.Accounts.AsNoTracking()
-            .Where(account => submitterIds.Contains(account.Id))
-            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
+        var names = await NamesAsync(submissions.Select(submission => submission.SubmittedByAccountId), cancellationToken);
 
-        return [.. submissions.Select(submission => new DatabaseSubmittedRecordView(
+        return [.. submissions.Select(submission => ToRecordView(submission, names, entries[submission.Id]))];
+    }
+
+    /// <summary>
+    /// The timeline of a database per tracked subject (追蹤對象 = the submitting account, M4 #146):
+    /// each subject's active records with content and the content-free trails of its withdrawn
+    /// submissions. Only subjects who submitted to <b>this</b> database appear, so the timeline
+    /// never reaches another database's or organization's subjects. <b>The caller must have
+    /// checked <see cref="DatabaseRecordReaders.CanReadAsync"/></b> for the same request.
+    /// </summary>
+    public async Task<DatabaseTrackingView> GetTrackingAsync(Guid databaseId, CancellationToken cancellationToken)
+    {
+        var records = await ListRecordsAsync(databaseId, cancellationToken);
+        var withdrawn = await _dbContext.DatabaseSubmissions.AsNoTracking()
+            .Where(submission => submission.DatabaseId == databaseId && submission.WithdrawnAt != null)
+            .OrderByDescending(submission => submission.SubmittedAt)
+            .ThenByDescending(submission => submission.Id)
+            .ToListAsync(cancellationToken);
+        var names = await NamesAsync(withdrawn.Select(submission => submission.SubmittedByAccountId), cancellationToken);
+
+        var subjectIds = records.Select(record => record.Submitter.Id)
+            .Concat(withdrawn.Select(submission => submission.SubmittedByAccountId))
+            .Distinct();
+        var subjects = subjectIds
+            .Select(subjectId =>
+            {
+                var own = records.Where(record => record.Submitter.Id == subjectId).ToList();
+                var trails = withdrawn.Where(submission => submission.SubmittedByAccountId == subjectId)
+                    .Select(submission => new DatabaseWithdrawnRecordView(
+                        submission.Id,
+                        submission.SubmittedAt,
+                        submission.WithdrawnAt!.Value,
+                        submission.Source,
+                        submission.FormVersionNumber))
+                    .ToList();
+                var name = own.Count > 0
+                    ? own[0].Submitter.DisplayName
+                    : names.GetValueOrDefault(subjectId, RemovedAccountName);
+                var latest = own.Select(record => record.SubmittedAt).Concat(trails.Select(trail => trail.SubmittedAt)).Max();
+                return (Latest: latest, View: new DatabaseTrackedSubjectView(new DatabaseAccountView(subjectId, name), own, trails));
+            })
+            .OrderByDescending(subject => subject.Latest)
+            .ThenBy(subject => subject.View.Subject.Id)
+            .Select(subject => subject.View)
+            .ToList();
+
+        return new DatabaseTrackingView(databaseId, subjects);
+    }
+
+    /// <summary>The submitter's own submissions, newest first, active and withdrawn, without
+    /// content (M4 #146). Only <paramref name="submitterAccountId"/>'s, in the caller's organization.</summary>
+    public async Task<IReadOnlyList<DatabaseOwnSubmissionView>> ListOwnAsync(Guid submitterAccountId, CancellationToken cancellationToken)
+    {
+        var submissions = await _dbContext.DatabaseSubmissions.AsNoTracking()
+            .Where(submission => submission.SubmittedByAccountId == submitterAccountId)
+            .OrderByDescending(submission => submission.SubmittedAt)
+            .ThenByDescending(submission => submission.Id)
+            .ToListAsync(cancellationToken);
+        return [.. submissions.Select(submission => new DatabaseOwnSubmissionView(
             submission.Id,
             submission.ReceiptNumber,
             submission.SubmittedAt,
-            submission.Source,
-            new DatabaseAccountView(
-                submission.SubmittedByAccountId, names.GetValueOrDefault(submission.SubmittedByAccountId, RemovedAccountName)),
+            submission.DatabaseId,
+            submission.ConsentTerms.DatabaseName,
             submission.FormVersionNumber,
-            ToEntryViews(entries[submission.Id])))];
+            submission.Source,
+            submission.WithdrawnAt))];
+    }
+
+    /// <summary>
+    /// Withdraws <paramref name="submissionId"/> for its submitter (M4 #146, withdrawal ADR): in one
+    /// transaction sets <c>WithdrawnAt</c> and <b>deletes every entry</b> — the answers, the typed
+    /// values and the field snapshot — leaving the content-free trail (submitted, withdrawn, source,
+    /// form version, receipt number, consent terms). Returns the receipt as it now reads (no
+    /// entries); <see langword="null"/> when there is no such submission of this submitter in the
+    /// organization (missing, someone else's, another organization's: the caller answers all alike).
+    /// </summary>
+    /// <remarks>
+    /// Idempotent: withdrawing again changes nothing and returns the same receipt with the
+    /// original <c>WithdrawnAt</c>. Concurrent withdrawals serialize on the submission row: the
+    /// conditional update (<c>WHERE "WithdrawnAt" IS NULL</c>) matches for exactly one of them, the
+    /// others match nothing once it commits, and all read back the same trail.
+    /// </remarks>
+    public async Task<DatabaseSubmissionReceiptView?> WithdrawAsync(
+        Guid submissionId, Guid submitterAccountId, CancellationToken cancellationToken)
+    {
+        // ExecuteUpdate bypasses the SaveChanges interceptor that trims timestamps to PostgreSQL's
+        // microseconds, so trim here: the value returned now equals the value read back later.
+        var now = _clock.GetUtcNow();
+        now = now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond));
+
+        await using (var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken))
+        {
+            var withdrawn = await _dbContext.DatabaseSubmissions
+                .Where(submission => submission.Id == submissionId
+                    && submission.SubmittedByAccountId == submitterAccountId
+                    && submission.WithdrawnAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(submission => submission.WithdrawnAt, now), cancellationToken);
+            if (withdrawn == 1)
+            {
+                await _dbContext.DatabaseSubmissionEntries
+                    .Where(entry => entry.SubmissionId == submissionId)
+                    .ExecuteDeleteAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return await GetReceiptAsync(submissionId, submitterAccountId, cancellationToken);
     }
 
     /// <summary>
@@ -307,6 +401,18 @@ public sealed class DatabaseSubmissionService
         if (existing is null)
         {
             return null;
+        }
+
+        if (existing.WithdrawnAt is not null)
+        {
+            // The fill this key made was withdrawn (#146). A retry of it learns that final state —
+            // the withdrawn receipt, no content — and nothing is recorded again; the content cannot
+            // be compared any more because it was deleted. Another database or channel is a conflict.
+            return existing.DatabaseId == command.DatabaseId
+                && existing.FormVersionNumber == command.FormVersionNumber
+                && existing.Source == command.Source
+                    ? new DatabaseSubmissionOutcome.Replayed(ToReceipt(existing, []))
+                    : new DatabaseSubmissionOutcome.KeyReused();
         }
 
         var entries = await EntriesAsync(existing.Id, cancellationToken);
@@ -378,7 +484,28 @@ public sealed class DatabaseSubmissionService
             submission.FormVersionId,
             submission.FormVersionNumber,
             submission.Source,
+            ToEntryViews(entries),
+            submission.WithdrawnAt);
+
+    private static DatabaseSubmittedRecordView ToRecordView(
+        DatabaseSubmission submission, IReadOnlyDictionary<Guid, string> names, IEnumerable<DatabaseSubmissionEntry> entries) =>
+        new(
+            submission.Id,
+            submission.ReceiptNumber,
+            submission.SubmittedAt,
+            submission.Source,
+            new DatabaseAccountView(
+                submission.SubmittedByAccountId, names.GetValueOrDefault(submission.SubmittedByAccountId, RemovedAccountName)),
+            submission.FormVersionNumber,
             ToEntryViews(entries));
+
+    private async Task<Dictionary<Guid, string>> NamesAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken)
+    {
+        var ids = accountIds.Distinct().ToList();
+        return await _dbContext.Accounts.AsNoTracking()
+            .Where(account => ids.Contains(account.Id))
+            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
+    }
 
     private static List<DatabaseSubmissionEntryView> ToEntryViews(IEnumerable<DatabaseSubmissionEntry> entries) =>
         [.. entries.OrderBy(entry => entry.Position)

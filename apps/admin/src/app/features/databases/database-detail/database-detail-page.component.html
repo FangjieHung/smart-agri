@@ -78,9 +78,6 @@
           }
         }
         @case ('assistants') {
-          @if (upcoming().has('assistant-connections')) {
-            <p class="notice upcoming-notice" role="note">連接助理：{{ upcomingMessage }}</p>
-          } @else {
           <p class="hint">同一個資料庫可以同時連接多個助理，助理只會寫入使用者同意提交的資料。</p>
           @if (detail.connectedAssistants.length > 0) {
             <ul class="assistant-list">
@@ -95,7 +92,6 @@
           } @else {
             <p class="empty">尚未連接任何助理。可在建立或設定助理時，於「資料來源」加入此資料庫。</p>
           }
-          }
         }
         @case ('access') {
           <app-database-access
@@ -106,10 +102,18 @@
         }
         @default {
           @let records = tracking();
-          @if (upcoming().has('records')) {
-            <p class="notice upcoming-notice" role="note">收集紀錄與趨勢比較：{{ upcomingMessage }}</p>
-          } @else if (records === null || records.status === 'loading') {
+          @if (trendsUpcoming()) {
+            <p class="notice upcoming-notice" role="note">趨勢比較：{{ upcomingMessage }}收集紀錄頁籤已可查看時間軸與撤回軌跡。</p>
+          } @else if (records.status === 'loading') {
             <app-state-panel state="loading" title="正在載入收集紀錄" />
+          } @else if (records.status === 'error') {
+            <app-state-panel
+              state="error"
+              title="目前無法載入收集紀錄"
+              description="這不代表沒有紀錄。請稍後再試一次。"
+              recoveryLabel="重新載入"
+              (recover)="reloadTracking()"
+            />
           } @else if (records.status === 'permission-denied') {
             <app-state-panel
               state="permission-denied"
@@ -137,7 +141,7 @@
               <app-trend-view [subject]="subject" />
             }
           } @else {
-            <p class="empty">還沒有收集紀錄。連接助理並由使用者同意提交後，紀錄會依追蹤對象出現在這裡。</p>
+            <p class="empty">還沒有收集紀錄。使用者透過表單連結或助理對話明確同意提交後，紀錄會依追蹤對象（提交的帳號）出現在這裡。</p>
           }
         }
       }

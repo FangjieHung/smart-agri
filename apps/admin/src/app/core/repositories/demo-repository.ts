@@ -45,6 +45,7 @@ import type {
   DatabaseSummaryView,
   DatabaseTemplateView,
   DatabaseTrackingView,
+  OwnDatabaseSubmissionView,
   DatabaseTrialAnswers,
   DatabaseTrialPreviewView,
   DatabaseView,
@@ -887,13 +888,26 @@ export interface DemoRepository extends DemoScenarioController {
    */
   getDatabaseSubmissionReceipt(submissionId: string): Observable<RepositoryView<DatabaseSubmissionReceiptView>>;
   /**
-   * 收集紀錄與比較。只有指定資料管理者可查看，且只包含使用者明確同意提交的紀錄；
-   * 本次／上次／首次差異與文字摘要皆在此預先算好。
+   * 目前帳號自己送出過的資料（issue #146），新到舊，**包含已撤回的軌跡**，不含填寫內容。只依提交者
+   * 本人判斷，別人的一律不會出現。API 模式：`GET /api/v1/submissions`。
    */
-  getDatabaseTracking(
-    viewerAccountId: AccountId,
-    databaseId: string,
-  ): RepositoryView<DatabaseTrackingView>;
+  listOwnDatabaseSubmissions(): Observable<RepositoryView<readonly OwnDatabaseSubmissionView[]>>;
+  /**
+   * 撤回自己送出的一筆資料（issue #146）：內容與數值真正刪除，只留下不含內容的軌跡（曾提交、提交與
+   * 撤回時間、來源、回執編號）。回傳撤回後的回執（`entries` 為空、`withdrawnAt` 有值）；**已撤回過的
+   * 再撤回一次也是 ready，回同一個撤回時間**（冪等）。不存在、別人的（含資料管理者代為撤回）一律
+   * `submission-withdrawal` permission-denied。5xx 與連線中斷以 Observable 的 error 傳出，什麼都沒變，
+   * 畫面可以再按一次。API 模式：`POST /api/v1/submissions/{id}/withdrawal`。
+   */
+  withdrawDatabaseSubmission(submissionId: string): Observable<RepositoryView<DatabaseSubmissionReceiptView>>;
+  /**
+   * 收集紀錄時間軸（依追蹤對象＝提交者）與比較。只有「已指定 **且** 具備帳號權限」的資料管理者可查看；
+   * `records` 只有有效紀錄，`withdrawals` 是不含內容的撤回軌跡，兩者分開。看不到資料庫回 `database`，
+   * 看得到但不能讀回 `database-records`。目前帳號由 repository 內部推導。
+   * API 模式：`GET /api/v1/databases/{id}/tracking`（趨勢比較 `comparison`／`periodicReports` 是 #147，
+   * 在那之前為「紀錄不足」與空陣列，畫面以 `upcomingFeatures` 的 `trends` 顯示將於後續版本開放）。
+   */
+  getDatabaseTracking(databaseId: string): Observable<RepositoryView<DatabaseTrackingView>>;
   /**
    * 目前帳號與助理的對話清單，依最後活動時間由新到舊。id 來自網址、未經驗證；
    * 不存在或無使用權限時回傳 `assistant-use` 的 permission-denied。

@@ -25,7 +25,7 @@ function createRepository(
 }
 
 function trackingOf(repository: MockDemoRepository, id = 'database-customer-records'): DatabaseTrackingView {
-  const result = repository.getDatabaseTracking('account-smb-admin', id);
+  const result = repository.readDatabaseTracking('account-smb-admin', id);
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
   return result.data;
 }
@@ -131,7 +131,7 @@ describe('MockDemoRepository databases', () => {
     expect(foreign).toEqual(unknown);
     expect(foreign).toMatchObject({ status: 'permission-denied', reason: 'database' });
     expect(JSON.stringify(foreign)).not.toContain('同仁排班回報');
-    expect(repository.getDatabaseTracking('account-smb-admin', 'database-staff-checkins')).toEqual(unknown);
+    expect(repository.readDatabaseTracking('account-smb-admin', 'database-staff-checkins')).toEqual(unknown);
   });
 
   it('describes the detail with access rules and the assistants connected to it', () => {
@@ -435,7 +435,7 @@ describe('MockDemoRepository databases', () => {
     };
     const repository = createRepository(seed);
 
-    expect(repository.getDatabaseTracking('account-smb-admin', 'database-customer-records')).toMatchObject({
+    expect(repository.readDatabaseTracking('account-smb-admin', 'database-customer-records')).toMatchObject({
       status: 'permission-denied',
       reason: 'database-records',
     });

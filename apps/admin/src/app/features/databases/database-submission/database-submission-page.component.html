@@ -4,9 +4,15 @@
     @if (saved.status === 'ready' || saved.status === 'partial-failure') {
       @let receipt = saved.data;
       <app-page-header [title]="receipt.databaseName" description="資料已送出，以下是這次的回執。" />
-      <article class="receipt" aria-labelledby="receipt-title" data-kind="submission-receipt">
+      <article class="receipt" aria-labelledby="receipt-title" data-kind="submission-receipt" [attr.data-withdrawn]="receipt.withdrawnAt !== null">
         <h2 id="receipt-title" tabindex="-1">送出回執</h2>
-        <p class="receipt-status" role="status">已送出。資料只會交給 {{ receipt.recipient }}。</p>
+        @if (receipt.withdrawnAt !== null) {
+          <p class="receipt-status receipt-withdrawn" role="status">
+            你已在 <time [attr.datetime]="receipt.withdrawnAt">{{ submittedAt(receipt.withdrawnAt) }}</time> 撤回這筆資料。填寫的內容與數值已刪除，接收單位只保留「曾提交、已撤回」的時間軌跡。
+          </p>
+        } @else {
+          <p class="receipt-status" role="status">已送出。資料只會交給 {{ receipt.recipient }}。</p>
+        }
         <dl class="terms">
           <div><dt>回執編號</dt><dd class="receipt-number">{{ receipt.receiptNumber }}</dd></div>
           <div><dt>送出時間</dt><dd><time [attr.datetime]="receipt.submittedAt">{{ submittedAt(receipt.submittedAt) }}</time></dd></div>
@@ -26,14 +32,19 @@
         </dl>
         <section class="summary" aria-labelledby="receipt-entries-title">
           <h3 id="receipt-entries-title">你送出的內容</h3>
-          <dl class="entries">
-            @for (entry of receipt.entries; track entry.fieldId) {
-              <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
-            }
-          </dl>
+          @if (receipt.withdrawnAt !== null) {
+            <p class="entries-removed">內容已刪除。</p>
+          } @else {
+            <dl class="entries">
+              @for (entry of receipt.entries; track entry.fieldId) {
+                <div><dt>{{ entry.label }}</dt><dd>{{ entry.display }}</dd></div>
+              }
+            </dl>
+          }
         </section>
         <div class="actions">
           <button type="button" class="secondary" (click)="fillAnother()">再填一份</button>
+          <a class="own-records-link" routerLink="/app/activity">查看或撤回我送出的資料</a>
         </div>
       </article>
     } @else if (saved.status === 'permission-denied') {

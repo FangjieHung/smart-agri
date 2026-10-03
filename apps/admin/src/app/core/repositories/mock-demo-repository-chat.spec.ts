@@ -204,7 +204,7 @@ describe('MockDemoRepository assistant chat', () => {
         consent: false,
       })),
     ).toMatchObject({ status: 'validation-failed', errors: [{ fieldId: null }] });
-    expect(repository.getDatabaseTracking('account-smb-admin', 'database-orders')).toMatchObject({
+    expect(repository.readDatabaseTracking('account-smb-admin', 'database-orders')).toMatchObject({
       status: 'ready',
       data: { subjects: [] },
     });
@@ -222,7 +222,7 @@ describe('MockDemoRepository assistant chat', () => {
     const receipt = receiptOf(submitted);
     expect(receipt).toMatchObject({ kind: 'submission-receipt', recipient: expect.stringContaining('安心商行') });
 
-    const manager = createRepository(storage).getDatabaseTracking('account-smb-admin', 'database-orders');
+    const manager = createRepository(storage).readDatabaseTracking('account-smb-admin', 'database-orders');
     expect(manager.status).toBe('ready');
     if (manager.status !== 'ready') return;
     expect(manager.data.subjects).toHaveLength(1);
@@ -232,10 +232,10 @@ describe('MockDemoRepository assistant chat', () => {
       entries: expect.arrayContaining([{ fieldId: 'field-order-number', label: '訂單編號', display: 'DEMO-2001' }]),
     });
 
-    expect(repository.getDatabaseTracking('account-internal-employee', 'database-orders').status).toBe(
+    expect(repository.readDatabaseTracking('account-internal-employee', 'database-orders').status).toBe(
       'permission-denied',
     );
-    expect(repository.getDatabaseTracking('account-external-customer', 'database-orders').status).toBe(
+    expect(repository.readDatabaseTracking('account-external-customer', 'database-orders').status).toBe(
       'permission-denied',
     );
     expect(JSON.stringify(await chatAs(repository, 'account-smb-admin', ASSISTANT))).not.toContain('DEMO-2001');

@@ -90,8 +90,13 @@ import type {
   DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
   DatabaseTemplateView,
+  DatabaseRecordView,
+  DatabaseTrackingView,
   DatabaseTrialAnswers,
   DatabaseUpcomingFeature,
+  OwnDatabaseSubmissionView,
+  TrackedSubjectView,
+  WithdrawnRecordView,
 } from '../domain/database.model';
 import type { ChatViewerId } from '../domain/account.model';
 import type {
@@ -229,6 +234,9 @@ type ApiChatFormRequest = components['schemas']['ChatFormRequestView'];
 type ApiChatFormSubmission = components['schemas']['ChatFormSubmissionView'];
 type ReviewChatFormRequest = components['schemas']['ReviewChatFormRequest'];
 type SubmitChatFormRequest = components['schemas']['SubmitChatFormRequest'];
+type ApiDatabaseOwnSubmissionList = components['schemas']['DatabaseOwnSubmissionListView'];
+type ApiDatabaseTracking = components['schemas']['DatabaseTrackingView'];
+type ApiDatabaseTrackedSubject = components['schemas']['DatabaseTrackedSubjectView'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -383,8 +391,21 @@ export function apiDatabasePath(databaseId: string): string {
   return `${API_DATABASES_PATH}/${encodeURIComponent(databaseId)}`;
 }
 
-/** 同意提交（issue #145）：填寫者的回執。 */
+/** 同意提交（issue #145）：填寫者的回執；`GET` 本身是自己的提交清單（issue #146）。 */
 export const API_SUBMISSIONS_PATH = '/api/v1/submissions';
+
+/** 撤回自己的一筆提交（issue #146）：`POST`，沒有本文。 */
+export function apiSubmissionWithdrawalPath(submissionId: string): string {
+  return `${API_SUBMISSIONS_PATH}/${encodeURIComponent(submissionId)}/withdrawal`;
+}
+
+/** 資料管理者的收集紀錄時間軸（issue #146）。 */
+export function apiDatabaseTrackingPath(databaseId: string): string {
+  return `${apiDatabasePath(databaseId)}/tracking`;
+}
+
+/** API 模式還沒有的趨勢比較（#147）在時間軸裡的佔位：不是「紀錄不足」的判斷，畫面也不顯示它。 */
+const API_TRENDS_PENDING_MESSAGE = '趨勢比較將於後續版本開放。';
 
 /** 指定資料管理者（issue #144）：`PUT`，請求是指定後的完整清單。 */
 export function apiDatabaseAccessPath(databaseId: string): string {
@@ -392,17 +413,16 @@ export function apiDatabaseAccessPath(databaseId: string): string {
 }
 
 /**
- * API 模式還沒有的資料庫功能（#143–#148 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」，
- * 不呼叫對應的同步 mock 方法。
+ * API 模式還沒有的資料庫功能（#143–#148 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」。
  *
- * `records` 仍保留（#145 之後）：同意提交、回執與表單連結頁已走 API，伺服器也有給資料管理者的
- * `GET /api/v1/databases/{id}/records`，但收集紀錄頁籤的時間軸、撤回軌跡與趨勢（`getDatabaseTracking`）
- * 是 #146／#147，在那之前這兩個頁籤照舊顯示「將於後續版本開放」，不拿半套資料假裝成時間軸。
+ * `records` 已於 #146 移除：收集紀錄頁籤的時間軸與撤回軌跡走 `GET /api/v1/databases/{id}/tracking`。
+ * 剩下的 `trends`（趨勢比較與定期回報摘要）要由伺服器計算，是 #147；在那之前趨勢頁籤顯示「將於後續
+ * 版本開放」，不在前端用顯示文字自己算差異。
  *
  * `assistant-connections` 已移除（#148）：詳情的「已連接助理」來自 API。
  */
 export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
-  'records',
+  'trends',
 ];
 
 /** 草稿 `payload` 的形狀版本（jsonb，形狀由前端決定）；形狀有不相容的變更時才遞增。 */
@@ -459,6 +479,11 @@ const AUTHORIZED_FORM_DENIED: PermissionDeniedFallback = {
 const SUBMISSION_RECEIPT_DENIED: PermissionDeniedFallback = {
   reason: 'authorized-form',
   message: '找不到這張回執，或你沒有查看它的權限。',
+};
+/** 與後端 `ForbiddenReason.SubmissionWithdrawal`、mock 的訊息逐字相同。 */
+const SUBMISSION_WITHDRAWAL_DENIED: PermissionDeniedFallback = {
+  reason: 'submission-withdrawal',
+  message: '找不到這筆紀錄，或你沒有撤回它的權限。',
 };
 const DATABASE_CREATE_DENIED: PermissionDeniedFallback = {
   reason: 'database',
@@ -1307,9 +1332,71 @@ export class HybridDemoRepository extends MockDemoRepository {
       : this.permissionDeniedOrThrow(error, AUTHORIZED_FORM_DENIED);
   }
 
-  // 收集紀錄（getDatabaseTracking）仍是同步 mock 契約，API 模式尚未提供（API_UPCOMING_DATABASE_FEATURES）。
-  // 詳情頁依 `upcomingFeatures` 不呼叫它；就算被呼叫，mock 也找不到 API 的 GUID，回傳 `database`
-  // permission-denied，不會寫入任何資料。
+  /**
+   * `GET /api/v1/submissions`（issue #146）：自己的提交，新到舊，含已撤回的軌跡。mock 的回執不參與。
+   */
+  override listOwnDatabaseSubmissions(): Observable<RepositoryView<readonly OwnDatabaseSubmissionView[]>> {
+    return this.http.get<ApiDatabaseOwnSubmissionList>(API_SUBMISSIONS_PATH).pipe(
+      map((response): RepositoryView<readonly OwnDatabaseSubmissionView[]> => ({
+        status: 'ready',
+        data: response.submissions.map((submission) => ({
+          id: submission.id,
+          receiptNumber: submission.receiptNumber,
+          submittedAt: submission.submittedAt,
+          databaseId: submission.databaseId,
+          databaseName: submission.databaseName,
+          formVersion: submission.formVersionNumber,
+          source: submission.source,
+          // 後端一律送出（有效時為 null）；仍接受省略。
+          withdrawnAt: submission.withdrawnAt ?? null,
+        })),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, SUBMISSION_RECEIPT_DENIED)),
+    );
+  }
+
+  /**
+   * `POST /api/v1/submissions/{id}/withdrawal`（issue #146）：`200` 撤回後的回執（已撤回過也是同一張）；
+   * `403`（不存在、別人的、別組織的同一則）與 id 不是 GUID 的 `404` 轉成 `submission-withdrawal`。
+   * 5xx 與連線中斷原樣拋出：伺服器在同一個交易裡撤回，失敗就什麼都沒變，畫面可以再按一次。
+   */
+  override withdrawDatabaseSubmission(submissionId: string): Observable<RepositoryView<DatabaseSubmissionReceiptView>> {
+    return this.http.post<ApiDatabaseSubmissionReceipt>(apiSubmissionWithdrawalPath(submissionId), {}).pipe(
+      map((response): RepositoryView<DatabaseSubmissionReceiptView> => ({
+        status: 'ready',
+        data: toSubmissionReceipt(response),
+      })),
+      catchError((error: unknown) =>
+        isHttpError(error, 404)
+          ? of(permissionDenied(SUBMISSION_WITHDRAWAL_DENIED))
+          : this.permissionDeniedOrThrow(error, SUBMISSION_WITHDRAWAL_DENIED),
+      ),
+    );
+  }
+
+  /**
+   * `GET /api/v1/databases/{id}/tracking`（issue #146）：時間軸依追蹤對象（＝提交帳號）分組，有效紀錄與
+   * 撤回軌跡分開。`403 database-records`（看得到資料庫但不能讀）照 body 的 reason；`403 database` 與
+   * id 不是 GUID 的 `404` 是 `database`。趨勢比較（`comparison`）與定期回報是 #147：這裡填「尚未提供」
+   * 的佔位與空陣列，畫面以 `upcomingFeatures` 的 `trends` 不顯示它們。
+   */
+  override getDatabaseTracking(databaseId: string): Observable<RepositoryView<DatabaseTrackingView>> {
+    return this.http.get<ApiDatabaseTracking>(apiDatabaseTrackingPath(databaseId)).pipe(
+      map((response): RepositoryView<DatabaseTrackingView> => ({
+        status: 'ready',
+        data: {
+          databaseId: response.databaseId,
+          subjects: response.subjects.map(toTrackedSubject),
+          periodicReports: [],
+        },
+      })),
+      catchError((error: unknown) =>
+        isHttpError(error, 404)
+          ? of(permissionDenied(DATABASE_DENIED))
+          : this.permissionDeniedOrThrow(error, DATABASE_DENIED),
+      ),
+    );
+  }
 
   // ---------- 知識庫 ----------
 
@@ -1872,6 +1959,43 @@ function toSubmissionReceipt(receipt: ApiDatabaseSubmissionReceipt): DatabaseSub
       label: entry.label,
       display: entry.display,
     })),
+    // 後端一律送出（有效時為 null）；仍接受省略，避免把有效回執誤判成已撤回或反之。
+    withdrawnAt: receipt.withdrawnAt ?? null,
+  };
+}
+
+/**
+ * 時間軸的一位追蹤對象。id 沿用 mock 的 `subject-<帳號 id>`、紀錄 id 加上 `record-` 前綴，只為了對上
+ * 前端的樣板字面型別；日期標籤取 ISO 的日期部分（UTC），與 mock 相同。
+ */
+function toTrackedSubject(subject: ApiDatabaseTrackedSubject): TrackedSubjectView {
+  const records = subject.records.map(
+    (record): DatabaseRecordView => ({
+      id: `record-${record.id}`,
+      recordedAt: record.submittedAt,
+      dateLabel: record.submittedAt.slice(0, 10),
+      source: record.source,
+      entries: record.entries.map((entry) => ({
+        fieldId: toDatabaseFieldId(entry.fieldId),
+        label: entry.label,
+        display: entry.display,
+      })),
+    }),
+  );
+  return {
+    id: `subject-${subject.subject.id}`,
+    displayName: subject.subject.displayName,
+    records,
+    withdrawals: subject.withdrawals.map(
+      (trail): WithdrawnRecordView => ({
+        id: `record-${trail.id}`,
+        submittedAt: trail.submittedAt,
+        submittedDateLabel: trail.submittedAt.slice(0, 10),
+        withdrawnDateLabel: trail.withdrawnAt.slice(0, 10),
+        source: trail.source,
+      }),
+    ),
+    comparison: { status: 'insufficient-records', recordCount: records.length, message: API_TRENDS_PENDING_MESSAGE },
   };
 }
 

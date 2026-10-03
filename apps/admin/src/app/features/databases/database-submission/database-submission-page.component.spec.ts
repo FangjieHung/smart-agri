@@ -57,7 +57,7 @@ function agree(page: HTMLElement): void {
 }
 
 function recordCount(repository: MockDemoRepository): number {
-  const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+  const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
   return tracking.status === 'ready' ? tracking.data.subjects.reduce((sum, subject) => sum + subject.records.length, 0) : -1;
 }
 
@@ -172,5 +172,29 @@ describe('DatabaseSubmissionPageComponent', () => {
     await settle(first.harness);
 
     expect(first.page().querySelector('[data-kind="submission-receipt"]')?.textContent).toContain('DEMO-2001');
+  });
+
+  it('shows a withdrawn receipt as withdrawn, without any of the content (issue #146)', async () => {
+    const first = await openForm();
+    await reachConsent(first.harness, first.page);
+    agree(first.page());
+    first.harness.detectChanges();
+    button(first.page(), '同意並送出').click();
+    await settle(first.harness);
+    const url = TestBed.inject(Router).url;
+    const id = new URL(url, 'http://local').searchParams.get('receipt') ?? '';
+    first.repository.withdrawDatabaseSubmission(id).subscribe();
+
+    await first.harness.navigateByUrl('/app/forms/database-orders');
+    await settle(first.harness);
+    await first.harness.navigateByUrl(url);
+    await settle(first.harness);
+
+    const receipt = first.page().querySelector('[data-kind="submission-receipt"]');
+    expect(receipt?.getAttribute('data-withdrawn')).toBe('true');
+    expect(receipt?.textContent).toContain('你已在');
+    expect(receipt?.textContent).toContain('內容已刪除');
+    expect(receipt?.textContent).not.toContain('DEMO-2001');
+    expect(receipt?.querySelector('a[href="/app/activity"]')).not.toBeNull();
   });
 });

@@ -45,6 +45,9 @@ public sealed record DatabaseSubmissionEntryView(string FieldId, string Label, D
 /// <param name="ReceiptNumber">Shown to the member, e.g. <c>R-20261003-1A2B3C4D5E</c>.</param>
 /// <param name="Viewers">Who could read the record at submission.</param>
 /// <param name="FormVersionId">The form version filled in.</param>
+/// <param name="Entries">What was filled in; <b>empty once withdrawn</b> (the content is deleted).</param>
+/// <param name="WithdrawnAt">When the submitter withdrew it (M4 #146); <see langword="null"/> (sent
+/// as <c>null</c>, never omitted) while it is an active record.</param>
 public sealed record DatabaseSubmissionReceiptView(
     Guid Id,
     string ReceiptNumber,
@@ -57,7 +60,50 @@ public sealed record DatabaseSubmissionReceiptView(
     Guid FormVersionId,
     int FormVersionNumber,
     DatabaseSubmissionSource Source,
-    IReadOnlyList<DatabaseSubmissionEntryView> Entries);
+    IReadOnlyList<DatabaseSubmissionEntryView> Entries,
+    DateTimeOffset? WithdrawnAt);
+
+/// <summary>
+/// One row of <c>GET /api/v1/submissions</c>: a submission of the caller's, active or withdrawn,
+/// without its content (open the receipt for that). <see cref="DatabaseName"/> is the name at
+/// submission (the consent snapshot), so it reads the same after a rename.
+/// </summary>
+/// <param name="WithdrawnAt"><see langword="null"/> (sent as <c>null</c>) while active.</param>
+public sealed record DatabaseOwnSubmissionView(
+    Guid Id,
+    string ReceiptNumber,
+    DateTimeOffset SubmittedAt,
+    Guid DatabaseId,
+    string DatabaseName,
+    int FormVersionNumber,
+    DatabaseSubmissionSource Source,
+    DateTimeOffset? WithdrawnAt);
+
+/// <summary><c>GET /api/v1/submissions</c>: the caller's own submissions, newest first, including
+/// the trails of withdrawn ones.</summary>
+public sealed record DatabaseOwnSubmissionListView(IReadOnlyList<DatabaseOwnSubmissionView> Submissions);
+
+/// <summary>The trail of a withdrawn submission as a data manager sees it: that it existed, when it
+/// was submitted and withdrawn, through which channel and form version. No content.</summary>
+public sealed record DatabaseWithdrawnRecordView(
+    Guid Id,
+    DateTimeOffset SubmittedAt,
+    DateTimeOffset WithdrawnAt,
+    DatabaseSubmissionSource Source,
+    int FormVersionNumber);
+
+/// <summary>
+/// One tracked subject (追蹤對象) of a database's timeline: <b>the submitting account</b>. Its active
+/// records (with content) and the trails of its withdrawn submissions (without), both newest first.
+/// </summary>
+public sealed record DatabaseTrackedSubjectView(
+    DatabaseAccountView Subject,
+    IReadOnlyList<DatabaseSubmittedRecordView> Records,
+    IReadOnlyList<DatabaseWithdrawnRecordView> Withdrawals);
+
+/// <summary><c>GET /api/v1/databases/{id}/tracking</c>: the timeline per subject, the subject with
+/// the most recent submission first.</summary>
+public sealed record DatabaseTrackingView(Guid DatabaseId, IReadOnlyList<DatabaseTrackedSubjectView> Subjects);
 
 /// <summary>One consented record as a data manager reads it.</summary>
 public sealed record DatabaseSubmittedRecordView(
@@ -155,7 +201,23 @@ public static class DatabaseSubmissionEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
 
+        databases.MapGet("/{id:guid}/tracking", GetTrackingAsync)
+            .Produces<DatabaseTrackingView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        endpoints.MapGet(SubmissionsPath, ListOwnAsync)
+            .RequireAuthorization()
+            .Produces<DatabaseOwnSubmissionListView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
+
         endpoints.MapGet(SubmissionsPath + "/{id:guid}", GetReceiptAsync)
+            .RequireAuthorization()
+            .Produces<DatabaseSubmissionReceiptView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        endpoints.MapPost(SubmissionsPath + "/{id:guid}/withdrawal", WithdrawAsync)
             .RequireAuthorization()
             .Produces<DatabaseSubmissionReceiptView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -258,7 +320,7 @@ public static class DatabaseSubmissionEndpoints
     /// <c>read-consented-submissions</c> now (<see cref="DatabaseRecordReaders.CanReadAsync"/>).
     /// Someone who cannot even see the database gets <c>403 database</c> (as for a missing id);
     /// someone who sees it but may not read records (e.g. its owner) gets <c>403 database-records</c>.
-    /// #146 builds the submitter's own list, the timeline and withdrawal on top of this.
+    /// Withdrawn submissions are not records (<see cref="DatabaseActiveRecords"/>).
     /// </summary>
     internal static async Task<IResult> ListRecordsAsync(
         Guid id,
@@ -275,14 +337,89 @@ public static class DatabaseSubmissionEndpoints
 
         if (!await DatabaseRecordReaders.CanReadAsync(dbContext, permissions, viewerId, id, cancellationToken))
         {
-            var hasPermission = await DatabaseRecordReaders.HasReadPermissionAsync(permissions, viewerId, cancellationToken);
-            var visible = await dbContext.Databases
-                .Where(DatabaseAccess.ListedFor(viewerId, hasPermission, dbContext.DatabaseDataManagers))
-                .AnyAsync(database => database.Id == id, cancellationToken);
-            return ApiErrors.NotFound(visible ? ForbiddenReason.DatabaseRecords : ForbiddenReason.Database);
+            return await RecordsRefusedAsync(dbContext, permissions, viewerId, id, cancellationToken);
         }
 
         return Results.Ok(new DatabaseRecordListView(id, await submissions.ListRecordsAsync(id, cancellationToken)));
+    }
+
+    /// <summary>
+    /// The timeline per tracked subject (M4 #146): active records with content and the trails of
+    /// withdrawn submissions without, for the same readers and with the same refusals as
+    /// <see cref="ListRecordsAsync"/> (re-evaluated on every request).
+    /// </summary>
+    internal static async Task<IResult> GetTrackingAsync(
+        Guid id,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        RequestAccountPermissions permissions,
+        DatabaseSubmissionService submissions,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        if (!await DatabaseRecordReaders.CanReadAsync(dbContext, permissions, viewerId, id, cancellationToken))
+        {
+            return await RecordsRefusedAsync(dbContext, permissions, viewerId, id, cancellationToken);
+        }
+
+        return Results.Ok(await submissions.GetTrackingAsync(id, cancellationToken));
+    }
+
+    /// <summary>The caller's own submissions, active and withdrawn, newest first (M4 #146). Based
+    /// only on who submitted: nobody else's ever appear, and no permission can hide one's own.</summary>
+    internal static async Task<IResult> ListOwnAsync(
+        HttpContext httpContext,
+        DatabaseSubmissionService submissions,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        return Results.Ok(new DatabaseOwnSubmissionListView(await submissions.ListOwnAsync(callerId, cancellationToken)));
+    }
+
+    /// <summary>
+    /// Withdraws one of the caller's submissions (M4 #146): its content is deleted and only the
+    /// trail remains. <c>200</c> with the receipt as it now reads (no entries, <c>withdrawnAt</c>
+    /// set) — also for a submission already withdrawn, with the original time (idempotent). A
+    /// missing id, another member's submission (a data manager's included) and another
+    /// organization's get the same <c>403 submission-withdrawal</c>.
+    /// </summary>
+    internal static async Task<IResult> WithdrawAsync(
+        Guid id,
+        HttpContext httpContext,
+        DatabaseSubmissionService submissions,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var receipt = await submissions.WithdrawAsync(id, callerId, cancellationToken);
+        return receipt is null ? ApiErrors.NotFound(ForbiddenReason.SubmissionWithdrawal) : Results.Ok(receipt);
+    }
+
+    /// <summary>Someone who cannot even see the database gets <c>403 database</c> (as for a missing
+    /// id); someone who sees it but may not read records gets <c>403 database-records</c>.</summary>
+    private static async Task<IResult> RecordsRefusedAsync(
+        AppDbContext dbContext,
+        RequestAccountPermissions permissions,
+        Guid viewerId,
+        Guid databaseId,
+        CancellationToken cancellationToken)
+    {
+        var hasPermission = await DatabaseRecordReaders.HasReadPermissionAsync(permissions, viewerId, cancellationToken);
+        var visible = await dbContext.Databases
+            .Where(DatabaseAccess.ListedFor(viewerId, hasPermission, dbContext.DatabaseDataManagers))
+            .AnyAsync(database => database.Id == databaseId, cancellationToken);
+        return ApiErrors.NotFound(visible ? ForbiddenReason.DatabaseRecords : ForbiddenReason.Database);
     }
 
     /// <summary>A receipt, for its submitter only; anyone else gets the same <c>403</c> as for a

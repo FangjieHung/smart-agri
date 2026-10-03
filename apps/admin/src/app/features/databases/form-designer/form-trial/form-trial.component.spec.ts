@@ -80,7 +80,7 @@ describe('FormTrialComponent', () => {
   it('previews the entry and says nothing was saved', () => {
     const { host } = render({
       status: 'ready',
-      data: { saved: false, entries: [{ fieldId: 'field-score', label: '滿意度', display: '4 / 5' }] },
+      data: { saved: false, formVersion: 1, entries: [{ fieldId: 'field-score', label: '滿意度', display: '4 / 5' }] },
     });
     const preview = host.querySelector('.trial-preview');
 

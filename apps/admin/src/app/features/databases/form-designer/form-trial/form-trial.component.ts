@@ -17,6 +17,9 @@ import type { PreviewDatabaseEntryResult } from '../../../../core/repositories/d
 export class FormTrialComponent {
   readonly fields = input.required<readonly DatabaseFieldView[]>();
   readonly result = input<PreviewDatabaseEntryResult | null>(null);
+  /** 試填送不出去（連線或伺服器問題）時的說明；答案仍留在畫面上。 */
+  readonly failure = input('');
+  readonly busy = input(false);
   readonly trial = output<DatabaseTrialAnswers>();
 
   /** 表單結構改變時清空試填答案。 */

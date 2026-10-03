@@ -22,6 +22,15 @@ import {
 import { FIELD_TYPE_LABELS } from '../database-labels';
 
 /**
+ * 儲存失敗但不是欄位錯誤：`conflict`（別人先存過，409）、`denied`（不是擁有者）、
+ * `failed`（連線或伺服器問題，什麼都沒存，可以再試）。
+ */
+export interface FormDesignerFailure {
+  readonly kind: 'conflict' | 'denied' | 'failed';
+  readonly message: string;
+}
+
+/**
  * 表單設計：編輯欄位名稱、類型、必填、選項、量尺與排序。
  * 只保存在本元件的草稿中，按下「儲存表單」才交給頁面寫入 repository。
  */
@@ -37,7 +46,12 @@ export class FormDesignerComponent {
   readonly fields = input.required<readonly DatabaseFieldView[]>();
   readonly errors = input<readonly DatabaseFieldError[]>([]);
   readonly feedback = input('');
+  readonly failure = input<FormDesignerFailure | null>(null);
+  /** 儲存中：按鈕停用，避免重複送出。 */
+  readonly saving = input(false);
   readonly save = output<readonly DatabaseFieldView[]>();
+  /** 版本過期時，請使用者改用伺服器上的最新表單。 */
+  readonly reload = output<void>();
 
   protected readonly types = DATABASE_FIELD_TYPES;
   protected readonly typeLabels = FIELD_TYPE_LABELS;
@@ -103,10 +117,13 @@ export class FormDesignerComponent {
   }
 
   protected add(): void {
+    // 欄位 id 是跨表單版本的穩定鍵，已移除欄位的 id 不能再拿來問別的問題（伺服器會拒絕），
+    // 所以新欄位用隨機 id，不從目前的欄位數推算。
     const existing = new Set<string>(this.draft().map((field) => field.id));
-    let sequence = this.draft().length + 1;
-    while (existing.has(`field-custom-${sequence}`)) sequence += 1;
-    const id: DatabaseFieldId = `field-custom-${sequence}`;
+    let id: DatabaseFieldId;
+    do {
+      id = `field-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    } while (existing.has(id));
 
     this.draft.update((fields) => [...fields, createDatabaseField(id, 'text')]);
     this.liveMessage.set('已新增一個文字欄位。');

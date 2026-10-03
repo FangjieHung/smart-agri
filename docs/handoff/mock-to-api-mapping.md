@@ -116,16 +116,24 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `listDatabaseSummaries()` **已換成 API（#142）** | `GET /api/v1/databases` | `S` | `200` `DatabaseSummaryView[]`（只列自己擁有的，舊到新） | `429` | `401`／`5xx` | `database-list-page.component.ts` |
 | `createDatabaseFromTemplate(input)` **已換成 API（#142）** | `POST /api/v1/databases` `{ templateId, name, purpose? }` | `S+MD` | `201` `DatabaseSummaryView`＋`Location` | `422`（`message`＋`errors.templateId`／`name`／`purpose`）／`429` | `401`／`403 database`／`5xx`（畫面保留輸入可重試） | `database-list-page.component.ts` |
 | `getDatabaseDetail(id)` **已換成 API（#142）** | `GET /api/v1/databases/{id}` | `S+OWN` | `200` `DatabaseDetailView`（`summary`＋目前的 `form`） | `429` | `401`／`403 database`（不存在、別人的、別的組織的逐位元組相同）／`404`（id 不是 GUID，路由不符）／`5xx` | `features/databases/database-detail/database-detail-page.component.ts` |
-| `updateDatabaseFields(viewer, id, fields)` `:478-482` | `PUT /api/v1/databases/{id}/fields` | `S+OWN` | `200` `DatabaseFieldView[]` | `422` `DatabaseFieldError[]`（逐欄）／`409`／`429` | `401`／`403 database`／`5xx` | `database-detail-page.component.ts:129` |
+| `updateDatabaseFields(id, fields, baseFormVersion)` **已換成 API（#143）** | `PUT /api/v1/databases/{id}/form` `{ baseVersionNumber, fields }` | `S+OWN` | `200` `DatabaseFormView`（新版本；內容與目前版本相同時回目前版本、不新增） | `422`（`message`＋`errors` 鍵 `fields`／`fields[i]`／`fields[i].label`／`.options`／`.scale`／`.unit`／`.type`／`.id`／`baseVersionNumber`）／`409 form-version-changed`／`429` | `401`／`403 database`／`5xx`（畫面保留草稿可重試） | `database-detail-page.component.ts` `saveFields` |
 | `updateDatabaseAccess(viewer, id, dataManagerAccountIds)` `:491-495` | `PUT /api/v1/databases/{id}/data-managers` | `S+OWN` | `200` `DatabaseAccessView` | `422`（只有 `message`）／`409`／`429` | `401`／`403 database`／`5xx` | `features/databases/database-access/database-access.component.ts:58` |
-| `previewDatabaseEntry(viewer, id, answers)` `:497-501` | `POST /api/v1/databases/{id}/entries:preview` | `S+OWN` | `200` `DatabaseTrialPreviewView`（**不建立紀錄**） | `422` `DatabaseFieldError[]`／`429` | `401`／`403 database`／`5xx` | `database-detail-page.component.ts:148` |
+| `previewDatabaseEntry(id, answers)` **已換成 API（#143）** | `POST /api/v1/databases/{id}/form/preview` `{ answers }`（欄位 id → 字串或字串陣列） | `S+OWN` | `200` `DatabaseTrialPreviewView`（`saved: false`、`formVersion`、`entries`；**不建立紀錄**） | `422`（`errors` 鍵 `answers.<欄位 id>`）／`429` | `401`／`403 database`／`5xx` | `database-detail-page.component.ts` `runTrial` |
 | `getDatabaseTracking(viewer, id)` `:506-509` | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC` | `200` `DatabaseTrackingView`（差異與文案**由伺服端算好**） | `429` | `401`／`403 database-records`（非資料管理者）／`403 database`（不存在或非擁有者）／`5xx` | `database-detail-page.component.ts:91` |
 
 **API 模式狀態（#142，2026-10-03）**：上表前四個方法已改成非同步契約（`Observable<…>`，不再傳 viewer），API 模式由 `hybrid-demo-repository.ts` 的同名覆寫走 HTTP，**讀取與建立（寫入）兩端都換了**，不會落到 mock 的資料庫。與 mock 的刻意差異：
 
 - 後端摘要沒有 `recordCount`／`subjectCount`／`connectedAssistantNames`：讀紀錄需要資料管理者指定與帳號權限（#144／#146），在那之前任何回應都不透露數量；adapter 一律填 `null`／`[]`。摘要多了 `owner`（mock 也補上）、`templateId`、`formVersion`、`createdAt`、`viewerCanManage`。
 - 詳情的欄位在 `form.fields`（附 `form.versionNumber`、`form.createdAt`），不是頂層 `fields`；adapter 攤平成前端的 `fields`。
-- 其餘四個方法（`updateDatabaseFields`、`updateDatabaseAccess`、`previewDatabaseEntry`、`getDatabaseTracking`）在 API 模式**尚未提供**。詳情的 `upcomingFeatures`（`form-editing`、`data-managers`、`records`、`assistant-connections`；mock 是空陣列）讓畫面顯示「將於後續版本開放」並唯讀列出初始表單，不呼叫這些同步 mock 方法；#143–#148 開放一項就從 `API_UPCOMING_DATABASE_FEATURES` 移除一項。
+- 其餘兩個方法（`updateDatabaseAccess`、`getDatabaseTracking`）在 API 模式**尚未提供**。詳情的 `upcomingFeatures`（`data-managers`、`records`、`assistant-connections`；mock 是空陣列）讓畫面顯示「將於後續版本開放」，不呼叫這些同步 mock 方法；#144–#148 開放一項就從 `API_UPCOMING_DATABASE_FEATURES` 移除一項（`form-editing` 已於 #143 移除）。
+
+**API 模式狀態（#143，2026-10-03）**：`updateDatabaseFields`、`previewDatabaseEntry` 已改成 `Observable` 契約（不再傳 viewer），Hybrid 覆寫走 HTTP，**讀寫兩端都換了**（寫入與試填都由伺服器驗證，mock 的欄位清單不參與）。契約變更與刻意差異：
+
+- `updateDatabaseFields` 多一個 `baseFormVersion`（取自 `DatabaseDetailView.formVersion`，也就是 API 的 `form.versionNumber`）；結果多一種 `conflict`（`409 form-version-changed`，沒有寫入，畫面提示重新載入）；成功時回 `{ formVersion, fields }`，不再只回欄位。mock 也記版本號、也回 `conflict`，並且「內容與目前版本相同就不新增版本」，與 API 一致。
+- 逐欄錯誤：API 的 `errors` 鍵 `fields[i].…` 的 `i` 是送出的陣列位置，adapter 轉回 `fields[i].id`；整份表單的錯誤（沒有欄位、超過 50 個、缺 `baseVersionNumber`）`fieldId` 是 `null`。`message` 是第一個錯誤，mock 同（舊的「還有欄位需要修正」摘要改為各畫面自己的標題）。
+- 欄位 id 是跨版本的穩定鍵：保留的欄位（即使改名、換順序）沿用 id；送出沒有 id 的欄位由伺服器配 `field-<12 碼>`；**先前版本有、目前版本已移除的 id 不能再用**（`422 fields[i].id`），所以編輯器新增欄位改用隨機 id（不再是 `field-custom-<欄位數>`）。
+- 試填與日後的正式提交（#145）共用 `DatabaseAnswerRules.Validate`（`SmartAgri.Application.Databases`）：訊息、日期必須是存在的日期、數字顯示格式（`1,200 元`）與 mock 的 `evaluateTrial` 一致；mock 也改成同樣的日期規則。試填永遠對**目前最新版本**驗證，不寫任何資料表。
+- 兩邊的上限一致：欄位名稱 100 字、選項最多 30 個且各 100 字且不重複、單位 20 字、量尺說明 20 字、表單 50 個欄位。
 - 資料模型、版本化與後續工單的介面見 [`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md)。
 
 `DatabaseTrackingView` 的每個 `TrackedSubjectView` 除了 `records` 還有 `withdrawals`（`database.model.ts:287-295`）：已撤回同意的紀錄不出現在 `records`、也不計入 `comparison`，只以不含內容的軌跡列在 `withdrawals`。撤回讓某位追蹤對象剩下不到 2 筆時，`comparison` 會回到 `insufficient-records`。全部撤回的追蹤對象仍留在清單裡（筆數 0），不會無聲消失。

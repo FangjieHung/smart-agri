@@ -300,6 +300,344 @@ public class DatabaseEndpointsTests : IClassFixture<AuthHostFixture>
         (await admin.Spa.GetAsync($"{BasePath}/database-orders", admin.Token)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    // --- Form editing (#143) -----------------------------------------------------------------
+
+    private static object Field(
+        string? id,
+        string label,
+        string type = "text",
+        bool required = false,
+        string[]? options = null,
+        object? scale = null,
+        string? unit = null) =>
+        new { id, label, type, required, options = options ?? [], scale, unit = unit ?? string.Empty };
+
+    private static object Form(int? baseVersionNumber, params object?[] fields) => new { baseVersionNumber, fields };
+
+    private static string FormPath(Guid id) => $"{BasePath}/{id}/form";
+
+    private async Task<List<DatabaseFormVersion>> VersionsAsync(TestOrganization org, Guid databaseId)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        return await dbContext.DatabaseFormVersions.Where(version => version.DatabaseId == databaseId)
+            .OrderBy(version => version.VersionNumber).ToListAsync(CancellationToken);
+    }
+
+    [Fact]
+    public async Task The_owner_saves_a_new_version_with_added_edited_reordered_and_removed_fields_and_the_old_version_stays_as_it_was()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-satisfaction", "滿意度");
+        var original = JsonSerializer.Serialize(DatabaseTemplates.Get(DatabaseTemplateId.Satisfaction).Fields);
+
+        // Template: field-overall-satisfaction (scale), field-liked-services (multiple-choice), field-suggestion (text).
+        var response = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(
+            1,
+            Field("field-suggestion", "其他建議（改名）", required: true),
+            Field("field-overall-satisfaction", "整體滿意度", "scale", true, scale: new { min = 0, max = 10, minLabel = "差", maxLabel = "好" }),
+            Field(null, "購買金額", "number", unit: " 元 "),
+            Field("field-visit-date", "到店日期", "date"),
+            Field("field-channel", "來源", "single-choice", options: [" 網路 ", "", "門市"])));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var form = await BodyJsonAsync(response);
+        OpenApiContract.AssertKeysMatchSchema(form, "DatabaseFormView");
+        form.GetProperty("versionNumber").GetInt32().ShouldBe(2);
+        var fields = form.GetProperty("fields").EnumerateArray().ToList();
+        fields.Select(field => field.GetProperty("label").GetString()).ShouldBe(
+            ["其他建議（改名）", "整體滿意度", "購買金額", "到店日期", "來源"]);
+        // Kept fields keep their ids across versions (even renamed and reordered); a new one is given an id.
+        fields[0].GetProperty("id").GetString().ShouldBe("field-suggestion");
+        fields[1].GetProperty("id").GetString().ShouldBe("field-overall-satisfaction");
+        fields[2].GetProperty("id").GetString().ShouldStartWith("field-");
+        fields[2].GetProperty("unit").GetString().ShouldBe("元");
+        fields[4].GetProperty("options").EnumerateArray().Select(option => option.GetString()).ShouldBe(["網路", "門市"]);
+        fields[4].GetProperty("scale").ValueKind.ShouldBe(JsonValueKind.Null);
+        fields[1].GetProperty("scale").GetProperty("max").GetInt32().ShouldBe(10);
+
+        var detail = await BodyJsonAsync(await admin.Spa.GetAsync($"{BasePath}/{databaseId}", admin.Token));
+        detail.GetProperty("summary").GetProperty("formVersion").GetInt32().ShouldBe(2);
+        detail.GetProperty("summary").GetProperty("fieldCount").GetInt32().ShouldBe(5);
+        detail.GetProperty("form").GetProperty("versionNumber").GetInt32().ShouldBe(2);
+        (await ListAsync(admin))[0].GetProperty("fieldCount").GetInt32().ShouldBe(5);
+
+        var versions = await VersionsAsync(org, databaseId);
+        versions.Select(version => version.VersionNumber).ShouldBe([1, 2]);
+        versions[0].CreatedByAccountId.ShouldBe(org.Admin.Id);
+        versions[1].CreatedByAccountId.ShouldBe(org.Admin.Id);
+        // Version 1 is exactly what the template wrote: a receipt that points at it keeps its field names.
+        JsonSerializer.Serialize(versions[0].Fields).ShouldBe(original);
+        versions[1].Fields.Select(field => field.Id).ShouldBe(fields.Select(field => field.GetProperty("id").GetString()!));
+
+        // A third version changes the second again; versions 1 and 2 both stay as stored.
+        var secondJson = JsonSerializer.Serialize(versions[1].Fields);
+        var third = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(2, Field("field-suggestion", "建議")));
+        third.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var after = await VersionsAsync(org, databaseId);
+        after.Select(version => version.VersionNumber).ShouldBe([1, 2, 3]);
+        JsonSerializer.Serialize(after[0].Fields).ShouldBe(original);
+        JsonSerializer.Serialize(after[1].Fields).ShouldBe(secondJson);
+        after[2].Fields.Select(field => field.Id).ShouldBe(["field-suggestion"]);
+    }
+
+    [Fact]
+    public async Task Saving_the_form_unchanged_returns_the_current_version_and_adds_none()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-blank", "空白");
+        var current = (await BodyJsonAsync(await admin.Spa.GetAsync($"{BasePath}/{databaseId}", admin.Token))).GetProperty("form");
+
+        var response = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, new
+        {
+            baseVersionNumber = 1,
+            fields = current.GetProperty("fields").EnumerateArray().Select(field => (object)JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(field.GetRawText())!).ToList(),
+        });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(response)).GetProperty("versionNumber").GetInt32().ShouldBe(1);
+        (await VersionsAsync(org, databaseId)).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Bad_field_settings_are_422_with_a_key_that_locates_the_field_and_nothing_is_written()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-customer-profile", "客戶");
+
+        var response = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(
+            1,
+            Field("field-customer-name", "姓名"),
+            Field("field-b", "  "),
+            Field("field-c", "姓名"),
+            Field("field-d", "選擇", "single-choice", options: ["只有一個"]),
+            Field("field-e", "量尺", "scale", scale: new { min = 3, max = 3, minLabel = "", maxLabel = "" }),
+            Field("field-f", "太多刻度", "scale", scale: new { min = 0, max = 11, minLabel = "", maxLabel = "" }),
+            Field("field-g", "類型不明", "radio"),
+            Field("field-h", "重複選項", "multiple-choice", options: ["甲", "甲"]),
+            null));
+
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var body = await BodyJsonAsync(response);
+        body.GetProperty("message").GetString().ShouldBe("請填寫欄位名稱。");
+        var errors = body.GetProperty("errors");
+        string Error(string key) => errors.GetProperty(key).EnumerateArray().Single().GetString()!;
+        Error("fields[1].label").ShouldBe("請填寫欄位名稱。");
+        Error("fields[2].label").ShouldBe("欄位名稱不可重複。");
+        Error("fields[3].options").ShouldBe("單選或多選至少需要 2 個選項。");
+        Error("fields[4].scale").ShouldBe("量尺的最小值必須小於最大值。");
+        Error("fields[5].scale").ShouldBe("量尺最多 11 個刻度。");
+        Error("fields[6].type").ShouldBe("不支援的欄位類型。");
+        Error("fields[7].options").ShouldBe("選項不可重複。");
+        Error("fields[8]").ShouldBe("欄位內容不可為空。");
+        errors.EnumerateObject().Select(property => property.Name).ShouldNotContain("fields[0].label");
+
+        var noFields = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(1));
+        noFields.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(noFields)).GetProperty("errors").GetProperty("fields").EnumerateArray().Single().GetString()
+            .ShouldBe("表單至少需要一個欄位。");
+
+        var noBase = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(null, Field("field-a", "名")));
+        noBase.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(noBase)).GetProperty("errors").TryGetProperty("baseVersionNumber", out _).ShouldBeTrue();
+
+        (await VersionsAsync(org, databaseId)).Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_removed_fields_id_cannot_come_back_for_another_question_and_a_repeated_id_is_refused()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-customer-profile", "客戶");
+
+        // Version 2 drops field-phone, which was in version 1.
+        (await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(1, Field("field-customer-name", "姓名")))).StatusCode
+            .ShouldBe(HttpStatusCode.OK);
+
+        var reuse = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(
+            2, Field("field-customer-name", "姓名"), Field("field-phone", "完全不同的問題")));
+        reuse.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(reuse)).GetProperty("errors").GetProperty("fields[1].id").EnumerateArray().Single().GetString()
+            .ShouldBe("這個欄位編號屬於先前已移除的欄位，請改用新的欄位。");
+
+        var repeated = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(
+            2, Field("field-customer-name", "姓名"), Field("field-customer-name", "姓名二")));
+        repeated.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(repeated)).GetProperty("errors").TryGetProperty("fields[1].id", out _).ShouldBeTrue();
+
+        (await VersionsAsync(org, databaseId)).Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Saving_from_an_old_version_is_409_form_version_changed_and_writes_nothing()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-blank", "空白");
+        (await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(1, Field("field-a", "第二版")))).StatusCode
+            .ShouldBe(HttpStatusCode.OK);
+
+        // A second editor who still has version 1 open.
+        var stale = await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(1, Field("field-a", "第二版（舊的人改的）")));
+
+        stale.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        var body = await BodyJsonAsync(stale);
+        body.GetProperty("reason").GetString().ShouldBe("form-version-changed");
+        body.GetProperty("message").GetString()!.ShouldContain("重新載入");
+        var versions = await VersionsAsync(org, databaseId);
+        versions.Count.ShouldBe(2);
+        versions[1].Fields.Single().Label.ShouldBe("第二版");
+
+        // A version from the future is the same refusal.
+        (await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(9, Field("field-a", "x")))).StatusCode
+            .ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Two_saves_from_the_same_version_at_once_leave_exactly_one_new_version_and_one_409()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-blank", "空白");
+
+        var responses = await Task.WhenAll(
+            admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(1, Field("field-a", "甲的版本"))),
+            admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(1, Field("field-a", "乙的版本"))));
+
+        responses.Select(response => response.StatusCode).OrderBy(status => (int)status)
+            .ShouldBe([HttpStatusCode.OK, HttpStatusCode.Conflict]);
+        var versions = await VersionsAsync(org, databaseId);
+        versions.Select(version => version.VersionNumber).ShouldBe([1, 2]);
+    }
+
+    [Fact]
+    public async Task Only_the_owner_can_edit_or_try_the_form_everyone_else_gets_the_same_403_and_nothing_changes()
+    {
+        var orgA = await CreateOrganizationAsync("組織 A");
+        var adminA = await SignInAsync(orgA, "admin");
+        var databaseId = await CreateDatabaseAsync(adminA, "template-customer-profile", "A 的客戶名單");
+        await _host.CreateAccountAsync(orgA.Organization, "admin2", Password, AccountRole.SmbAdmin, "第二位管理者", AllAdminPermissions);
+        var orgB = await CreateOrganizationAsync("組織 B");
+
+        var callers = new[]
+        {
+            ("another organization's admin", await SignInAsync(orgB, "admin")),
+            ("same organization, every permission, not the owner", await SignInAsync(orgA, "admin2")),
+            ("same organization, read-consented-submissions", await SignInAsync(orgA, "internal")),
+        };
+
+        foreach (var (who, caller) in callers)
+        {
+            var save = await caller.Spa.PutAsync(FormPath(databaseId), caller.Token, Form(1, Field("field-x", "被改掉的欄位")));
+            var saveNonexistent = await caller.Spa.PutAsync(FormPath(Guid.NewGuid()), caller.Token, Form(1, Field("field-x", "被改掉的欄位")));
+            var preview = await caller.Spa.PostAsync($"{FormPath(databaseId)}/preview", caller.Token, new { answers = new { } });
+            var previewNonexistent = await caller.Spa.PostAsync($"{FormPath(Guid.NewGuid())}/preview", caller.Token, new { answers = new { } });
+
+            save.StatusCode.ShouldBe(HttpStatusCode.Forbidden, who);
+            await AssertIdenticalAsync(save, saveNonexistent);
+            preview.StatusCode.ShouldBe(HttpStatusCode.Forbidden, who);
+            await AssertIdenticalAsync(preview, previewNonexistent);
+            var raw = await save.Content.ReadAsStringAsync(CancellationToken);
+            raw.ShouldNotContain("A 的客戶名單");
+            raw.ShouldNotContain("客戶姓名");
+        }
+
+        var versions = await VersionsAsync(orgA, databaseId);
+        versions.Count.ShouldBe(1);
+        versions[0].Fields.Select(field => field.Label).ShouldContain("客戶姓名");
+    }
+
+    [Fact]
+    public async Task The_form_endpoints_need_a_signed_in_account()
+    {
+        var spa = _host.CreateSpaClient();
+
+        (await spa.PutAsync(FormPath(Guid.NewGuid()), null, Form(1, Field("field-a", "名")))).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await spa.PostAsync($"{FormPath(Guid.NewGuid())}/preview", null, new { answers = new { } })).StatusCode
+            .ShouldBe(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task A_trial_fill_checks_the_current_form_returns_the_preview_and_writes_nothing()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-satisfaction", "滿意度");
+        var countsBefore = await RowCountsAsync(org);
+
+        var ok = await admin.Spa.PostAsync($"{FormPath(databaseId)}/preview", admin.Token, new
+        {
+            answers = new Dictionary<string, object>
+            {
+                ["field-overall-satisfaction"] = "4",
+                ["field-liked-services"] = new[] { "配送速度", "商品品質" },
+                ["field-removed"] = "不在表單裡的欄位會被忽略",
+            },
+        });
+
+        ok.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var preview = await BodyJsonAsync(ok);
+        OpenApiContract.AssertKeysMatchSchema(preview, "DatabaseTrialPreviewView");
+        preview.GetProperty("saved").GetBoolean().ShouldBeFalse();
+        preview.GetProperty("formVersion").GetInt32().ShouldBe(1);
+        preview.GetProperty("entries").EnumerateArray()
+            .Select(entry => (entry.GetProperty("fieldId").GetString(), entry.GetProperty("label").GetString(), entry.GetProperty("display").GetString()))
+            .ShouldBe(
+            [
+                ("field-overall-satisfaction", "整體滿意度", "4 / 5"),
+                ("field-liked-services", "喜歡的服務", "商品品質、配送速度"),
+                ("field-suggestion", "其他建議", "未填寫"),
+            ]);
+
+        var bad = await admin.Spa.PostAsync($"{FormPath(databaseId)}/preview", admin.Token, new
+        {
+            answers = new Dictionary<string, object> { ["field-liked-services"] = new[] { "不存在的選項" } },
+        });
+        bad.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var body = await BodyJsonAsync(bad);
+        body.GetProperty("message").GetString().ShouldBe("「整體滿意度」為必填。");
+        var errors = body.GetProperty("errors");
+        errors.GetProperty("answers.field-overall-satisfaction").EnumerateArray().Single().GetString().ShouldBe("「整體滿意度」為必填。");
+        errors.GetProperty("answers.field-liked-services").EnumerateArray().Single().GetString().ShouldBe("「喜歡的服務」請從選項中選擇。");
+
+        // Nothing sent at all is the same rule: every required field is missing.
+        (await admin.Spa.PostAsync($"{FormPath(databaseId)}/preview", admin.Token, new { })).StatusCode
+            .ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        (await RowCountsAsync(org)).ShouldBe(countsBefore);
+    }
+
+    [Fact]
+    public async Task A_trial_fill_uses_the_form_as_last_saved()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin, "template-blank", "空白");
+        var blankFieldId = (await BodyJsonAsync(await admin.Spa.GetAsync($"{BasePath}/{databaseId}", admin.Token)))
+            .GetProperty("form").GetProperty("fields")[0].GetProperty("id").GetString()!;
+        (await admin.Spa.PutAsync(FormPath(databaseId), admin.Token, Form(
+            1, Field(blankFieldId, "備註"), Field("field-amount", "金額", "number", true, unit: "元")))).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var response = await admin.Spa.PostAsync($"{FormPath(databaseId)}/preview", admin.Token, new
+        {
+            answers = new Dictionary<string, object> { ["field-amount"] = "12345.5" },
+        });
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var preview = await BodyJsonAsync(response);
+        preview.GetProperty("formVersion").GetInt32().ShouldBe(2);
+        preview.GetProperty("entries")[1].GetProperty("display").GetString().ShouldBe("12,345.5 元");
+    }
+
+    private async Task<(int Databases, int Versions)> RowCountsAsync(TestOrganization org)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        return (await dbContext.Databases.CountAsync(CancellationToken), await dbContext.DatabaseFormVersions.CountAsync(CancellationToken));
+    }
+
     // --- Helpers ---------------------------------------------------------------------------
 
     private sealed record TestOrganization(Organization Organization, Account Admin, Account Internal, Account Customer);

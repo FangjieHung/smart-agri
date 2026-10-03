@@ -11,12 +11,13 @@ import {
   signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
+import { Router } from '@angular/router';
 import { finalize } from 'rxjs';
 import type {
   AssistantTestCaseImportEntry,
   AssistantTestCaseInput,
   AssistantTestCaseView,
+  AssistantTestResultView,
   AssistantTestRunView,
 } from '../../../../../core/domain/assistant-acceptance.model';
 import {
@@ -24,6 +25,7 @@ import {
   repositoryResource,
 } from '../../../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../../../core/repositories/tokens';
+import { AssistantIssuesRepository } from '../../../../../core/repositories/assistant-issues.repository';
 
 const RUN_POLL_INTERVAL_MS = 3000;
 
@@ -31,17 +33,20 @@ type LoadState = 'loading' | 'error' | 'permission-denied' | 'ready';
 
 @Component({
   selector: 'app-assistant-acceptance-tab',
-  imports: [DatePipe, RouterLink],
+  imports: [DatePipe],
   templateUrl: './assistant-acceptance-tab.component.html',
   styleUrl: './assistant-acceptance-tab.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AssistantAcceptanceTabComponent {
   readonly assistantId = input.required<string>();
+  readonly assistantName = input<string>('助理');
   readonly acceptanceStatus = input<string>('not-accepted');
   readonly runCompleted = output<void>();
 
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly issues = inject(AssistantIssuesRepository);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly document = inject(DOCUMENT);
   private readonly initiatedRunId = signal<string | null>(null);
@@ -49,6 +54,7 @@ export class AssistantAcceptanceTabComponent {
 
   protected readonly message = signal('');
   protected readonly busy = signal(false);
+  protected readonly creatingIssueId = signal<string | null>(null);
   protected readonly editingId = signal<string | null>(null);
   protected readonly question = signal('');
   protected readonly category = signal<AssistantTestCaseView['category']>('common');
@@ -266,6 +272,32 @@ export class AssistantAcceptanceTabComponent {
 
   protected openRun(run: AssistantTestRunView): void {
     this.selectedRunId.set(run.id);
+  }
+
+  protected createIssue(result: AssistantTestResultView): void {
+    if (result.passed || this.creatingIssueId()) return;
+    const runId = this.selectedRun()?.run.id;
+    if (!runId) return;
+    this.creatingIssueId.set(result.id);
+    this.message.set('');
+    this.issues.create(
+      this.assistantId(),
+      { testResultId: result.id, title: result.question },
+      { assistantName: this.assistantName(), runId, result },
+    )
+      .pipe(finalize(() => this.creatingIssueId.set(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (view) => {
+          if (view.status === 'ready') {
+            void this.router.navigate(['/app/issues'], { queryParams: { issue: view.data.id } });
+          } else if (view.status === 'conflict' && view.issueId) {
+            void this.router.navigate(['/app/issues'], { queryParams: { issue: view.issueId } });
+          } else {
+            this.message.set(view.message);
+          }
+        },
+        error: () => this.message.set('目前無法建立處理事項，請稍後再試。'),
+      });
   }
 
   protected async importFile(event: Event): Promise<void> {

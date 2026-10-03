@@ -59,11 +59,18 @@
     <section class="home-card" aria-labelledby="pending-title">
       <p class="home-card__eyebrow">需要留意</p>
       <h2 id="pending-title">待處理事項</h2>
-      <ul>
-        <li>確認助理的資料來源是否為最新版本</li>
-        <li>完成發布前的試問與回覆檢查</li>
-      </ul>
-      <a class="home-card__text-link" routerLink="/app/channels">查看發布管道 <span aria-hidden="true">→</span></a>
+      @let issues = issueSummaryView();
+      @if (issues.status === 'loading') {
+        <p role="status">正在載入待處理事項…</p>
+      } @else if (issues.status === 'error') {
+        <p role="alert">目前無法載入處理事項，請稍後再試。</p>
+      } @else if (issues.status === 'permission-denied') {
+        <p>{{ issues.message }}</p>
+      } @else {
+        <p>待處理 {{ issues.data.openCount }} 筆，處理中 {{ issues.data.inProgressCount }} 筆。</p>
+        <p>指派給我 {{ issues.data.assignedToMeCount }} 筆，已逾期 {{ issues.data.overdueCount }} 筆。</p>
+      }
+      <a class="home-card__text-link" routerLink="/app/issues">查看處理事項 <span aria-hidden="true">→</span></a>
     </section>
   </div>
 </section>

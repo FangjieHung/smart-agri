@@ -94,12 +94,15 @@ public sealed record DatabaseWithdrawnRecordView(
 
 /// <summary>
 /// One tracked subject (追蹤對象) of a database's timeline: <b>the submitting account</b>. Its active
-/// records (with content) and the trails of its withdrawn submissions (without), both newest first.
+/// records (with content) and the trails of its withdrawn submissions (without), both newest first,
+/// and the server-computed <see cref="Comparison"/> of its active records (M4 #147, the
+/// <c>subject-comparison</c> fixed query).
 /// </summary>
 public sealed record DatabaseTrackedSubjectView(
     DatabaseAccountView Subject,
     IReadOnlyList<DatabaseSubmittedRecordView> Records,
-    IReadOnlyList<DatabaseWithdrawnRecordView> Withdrawals);
+    IReadOnlyList<DatabaseWithdrawnRecordView> Withdrawals,
+    DatabaseSubjectComparison Comparison);
 
 /// <summary><c>GET /api/v1/databases/{id}/tracking</c>: the timeline per subject, the subject with
 /// the most recent submission first.</summary>
@@ -354,6 +357,7 @@ public static class DatabaseSubmissionEndpoints
         AppDbContext dbContext,
         RequestAccountPermissions permissions,
         DatabaseSubmissionService submissions,
+        DatabaseFixedQueryService fixedQueries,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
@@ -366,7 +370,12 @@ public static class DatabaseSubmissionEndpoints
             return await RecordsRefusedAsync(dbContext, permissions, viewerId, id, cancellationToken);
         }
 
-        return Results.Ok(await submissions.GetTrackingAsync(id, cancellationToken));
+        // The comparison re-checks access itself (it is the fixed query the timeline shares with
+        // the trend endpoints), so a permission revoked between the two reads is still refused.
+        var comparisons = await fixedQueries.CompareAllSubjectsAsync(viewerId, id, cancellationToken);
+        return comparisons is null
+            ? await RecordsRefusedAsync(dbContext, permissions, viewerId, id, cancellationToken)
+            : Results.Ok(await submissions.GetTrackingAsync(id, comparisons, cancellationToken));
     }
 
     /// <summary>The caller's own submissions, active and withdrawn, newest first (M4 #146). Based
@@ -408,7 +417,7 @@ public static class DatabaseSubmissionEndpoints
 
     /// <summary>Someone who cannot even see the database gets <c>403 database</c> (as for a missing
     /// id); someone who sees it but may not read records gets <c>403 database-records</c>.</summary>
-    private static async Task<IResult> RecordsRefusedAsync(
+    internal static async Task<IResult> RecordsRefusedAsync(
         AppDbContext dbContext,
         RequestAccountPermissions permissions,
         Guid viewerId,

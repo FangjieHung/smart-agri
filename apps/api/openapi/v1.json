@@ -2228,6 +2228,166 @@
         }
       }
     },
+    "/api/v1/databases/{id}/queries/record-count": {
+      "get": {
+        "tags": [
+          "SmartAgri.Api"
+        ],
+        "operationId": "DatabaseQuery_record-count",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseRecordCountResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/queries/field-sum": {
+      "get": {
+        "tags": [
+          "SmartAgri.Api"
+        ],
+        "operationId": "DatabaseQuery_field-sum",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseFieldSumResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/queries/period-summary": {
+      "get": {
+        "tags": [
+          "SmartAgri.Api"
+        ],
+        "operationId": "DatabaseQuery_period-summary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabasePeriodSummaryResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/queries/subject-comparison": {
+      "get": {
+        "tags": [
+          "SmartAgri.Api"
+        ],
+        "operationId": "DatabaseQuery_subject-comparison",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseSubjectComparisonResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants": {
       "get": {
         "tags": [
@@ -5638,6 +5798,54 @@
           }
         }
       },
+      "DatabaseComparisonAxis": {
+        "required": [
+          "min",
+          "max"
+        ],
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "number",
+            "format": "double"
+          },
+          "max": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "DatabaseComparisonPoint": {
+        "required": [
+          "recordId",
+          "date",
+          "value",
+          "display"
+        ],
+        "type": "object",
+        "properties": {
+          "recordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "display": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseComparisonStatus": {
+        "enum": [
+          "insufficient-records",
+          "available"
+        ]
+      },
       "DatabaseDataManagerView": {
         "required": [
           "account",
@@ -5741,6 +5949,89 @@
           }
         }
       },
+      "DatabaseFieldSum": {
+        "required": [
+          "fieldId",
+          "label",
+          "unit",
+          "sum",
+          "display",
+          "recordCount",
+          "previousSum",
+          "previousDisplay",
+          "previousRecordCount",
+          "change",
+          "changeLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "fieldId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "sum": {
+            "type": "number",
+            "format": "double"
+          },
+          "display": {
+            "type": "string"
+          },
+          "recordCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "previousSum": {
+            "type": "number",
+            "format": "double"
+          },
+          "previousDisplay": {
+            "type": "string"
+          },
+          "previousRecordCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "change": {
+            "type": "number",
+            "format": "double"
+          },
+          "changeLabel": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseFieldSumResult": {
+        "required": [
+          "period",
+          "previousPeriod",
+          "subjectId",
+          "field"
+        ],
+        "type": "object",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+          },
+          "previousPeriod": {
+            "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+          },
+          "subjectId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "field": {
+            "$ref": "#/components/schemas/DatabaseFieldSum"
+          }
+        }
+      },
       "DatabaseFieldType": {
         "enum": [
           "text",
@@ -5825,6 +6116,74 @@
           }
         }
       },
+      "DatabaseMetricComparison": {
+        "required": [
+          "fieldId",
+          "label",
+          "unit",
+          "first",
+          "previous",
+          "current",
+          "changeFromPrevious",
+          "changeFromFirst",
+          "changeFromPreviousLabel",
+          "changeFromFirstLabel",
+          "direction",
+          "points",
+          "axis",
+          "summary"
+        ],
+        "type": "object",
+        "properties": {
+          "fieldId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "first": {
+            "$ref": "#/components/schemas/DatabaseComparisonPoint"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/DatabaseComparisonPoint"
+          },
+          "current": {
+            "$ref": "#/components/schemas/DatabaseComparisonPoint"
+          },
+          "changeFromPrevious": {
+            "type": "number",
+            "format": "double"
+          },
+          "changeFromFirst": {
+            "type": "number",
+            "format": "double"
+          },
+          "changeFromPreviousLabel": {
+            "type": "string"
+          },
+          "changeFromFirstLabel": {
+            "type": "string"
+          },
+          "direction": {
+            "$ref": "#/components/schemas/DatabaseTrendDirection"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseComparisonPoint"
+            }
+          },
+          "axis": {
+            "$ref": "#/components/schemas/DatabaseComparisonAxis"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
       "DatabaseOwnSubmissionListView": {
         "required": [
           "submissions"
@@ -5883,6 +6242,123 @@
               "string"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "DatabasePeriodSummaryResult": {
+        "required": [
+          "period",
+          "previousPeriod",
+          "subjectId",
+          "recordCount",
+          "previousRecordCount",
+          "recordCountChange",
+          "recordCountChangeLabel",
+          "sums"
+        ],
+        "type": "object",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+          },
+          "previousPeriod": {
+            "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+          },
+          "subjectId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "recordCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "previousRecordCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "recordCountChange": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "recordCountChangeLabel": {
+            "type": "string"
+          },
+          "sums": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseFieldSum"
+            }
+          }
+        }
+      },
+      "DatabaseQueryPeriodView": {
+        "required": [
+          "period",
+          "from",
+          "to",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseRecordCountResult": {
+        "required": [
+          "period",
+          "previousPeriod",
+          "subjectId",
+          "count",
+          "previousCount",
+          "change",
+          "changeLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+          },
+          "previousPeriod": {
+            "$ref": "#/components/schemas/DatabaseQueryPeriodView"
+          },
+          "subjectId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "previousCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "change": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "changeLabel": {
+            "type": "string"
           }
         }
       },
@@ -5964,6 +6440,59 @@
           },
           "maxLabel": {
             "type": "string"
+          }
+        }
+      },
+      "DatabaseSubjectComparison": {
+        "required": [
+          "status",
+          "recordCount",
+          "message",
+          "summary",
+          "metrics"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/DatabaseComparisonStatus"
+          },
+          "recordCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "message": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "summary": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseMetricComparison"
+            }
+          }
+        }
+      },
+      "DatabaseSubjectComparisonResult": {
+        "required": [
+          "subjectId",
+          "comparison"
+        ],
+        "type": "object",
+        "properties": {
+          "subjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/DatabaseSubjectComparison"
           }
         }
       },
@@ -6249,7 +6778,8 @@
         "required": [
           "subject",
           "records",
-          "withdrawals"
+          "withdrawals",
+          "comparison"
         ],
         "type": "object",
         "properties": {
@@ -6267,6 +6797,9 @@
             "items": {
               "$ref": "#/components/schemas/DatabaseWithdrawnRecordView"
             }
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/DatabaseSubjectComparison"
           }
         }
       },
@@ -6288,6 +6821,13 @@
             }
           }
         }
+      },
+      "DatabaseTrendDirection": {
+        "enum": [
+          "up",
+          "down",
+          "flat"
+        ]
       },
       "DatabaseTrialEntryView": {
         "required": [
@@ -8291,6 +8831,9 @@
     },
     {
       "name": "KnowledgeExtractionEndpoints"
+    },
+    {
+      "name": "SmartAgri.Api"
     },
     {
       "name": "AssistantEndpoints"

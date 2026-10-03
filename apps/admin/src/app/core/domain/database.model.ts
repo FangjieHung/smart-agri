@@ -192,7 +192,7 @@ export interface DatabaseAccessView {
 /**
  * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
  * - `records`：收集紀錄與趨勢比較（#145–#147）；
- * - `assistant-connections`：已連接助理（#148）。
+ * - `assistant-connections`：已連接助理（#148 已在 API 模式開放，目前不會出現）。
  * mock 模式全部可用，所以是空陣列。
  */
 export type DatabaseUpcomingFeature = 'records' | 'assistant-connections';

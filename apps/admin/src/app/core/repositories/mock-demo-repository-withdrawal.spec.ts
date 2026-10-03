@@ -1,8 +1,9 @@
 import { firstValueFrom } from 'rxjs';
+import { syncValue } from './sync-value.testing';
 import type { ChatViewerId } from '../domain/account.model';
 import type { AssistantChatView, ChatReplyView } from '../domain/conversation.model';
 import type { DatabaseRecordId, TrackedSubjectView } from '../domain/database.model';
-import type { SubmitChatFormResult, WithdrawChatSubmissionResult } from './demo-repository';
+import type { RepositoryView, SubmitChatFormResult, WithdrawChatSubmissionResult } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
@@ -30,7 +31,7 @@ function createRepository(storage = createMemoryStorage(), chatViewer: ChatViewe
   });
 }
 
-function chatOf(result: SubmitChatFormResult | WithdrawChatSubmissionResult): AssistantChatView {
+function chatOf(result: RepositoryView<AssistantChatView> | WithdrawChatSubmissionResult): AssistantChatView {
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
   return result.data;
 }
@@ -54,14 +55,17 @@ function submit(
   viewerId: ChatViewerId,
   orderNumber: string,
 ): DatabaseRecordId {
-  const chat = chatOf(
-    repository.submitChatForm(viewerId, ASSISTANT, {
-      formId: FORM,
+  const result: SubmitChatFormResult = syncValue(repository.submitChatForm(viewerId, ASSISTANT, {
+      formId: FORM, formVersion: 1, submissionId: crypto.randomUUID(),
       answers: answers(orderNumber),
       consent: true,
-    }),
-  );
-  const recordId = lastReceipt(chat).recordId;
+    }));
+  if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+  const message = result.data.message;
+  if (message.author !== 'assistant' || message.reply.kind !== 'submission-receipt') {
+    throw new Error('expected a submission receipt');
+  }
+  const recordId = message.reply.recordId;
   if (recordId === null) throw new Error('expected the receipt to carry a record id');
   return recordId;
 }

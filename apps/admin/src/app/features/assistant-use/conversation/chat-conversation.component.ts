@@ -48,6 +48,11 @@ import {
   type WithdrawRequest,
 } from '../message/chat-message.component';
 
+/**
+ * 對話中表單的流程。`submissionId` 是冪等鍵（issue #148）：開始填寫時產生一次，確認與失敗重試都
+ * 沿用，伺服器不會重複建立紀錄；只有成功、或伺服器說這個編號已用在別的內容時才換新的。
+ * `busy`：檢查或送出中，按鈕停用避免重複送出。
+ */
 type FormFlow =
   | { readonly step: 'closed' }
   | {
@@ -55,6 +60,8 @@ type FormFlow =
       readonly form: ChatFormView;
       readonly answers: DatabaseTrialAnswers;
       readonly errors: readonly DatabaseFieldError[];
+      readonly submissionId: string;
+      readonly busy: boolean;
     }
   | {
       readonly step: 'consent';
@@ -62,7 +69,12 @@ type FormFlow =
       readonly answers: DatabaseTrialAnswers;
       readonly entries: readonly DatabaseRecordEntryView[];
       readonly error: string;
+      readonly submissionId: string;
+      readonly busy: boolean;
     };
+
+const FORM_REVIEW_FAILED_MESSAGE = '目前無法檢查填寫內容，請稍後再試；資料還沒有送出。';
+const FORM_SUBMIT_FAILED_MESSAGE = '送出失敗，資料可能還沒有送達。請再按一次「同意並送出」，不會重複建立紀錄。';
 
 const CLOSED: FormFlow = { step: 'closed' };
 
@@ -194,6 +206,8 @@ export class ChatConversationComponent {
     computation: () => null,
   });
   protected readonly withdrawFeedback = linkedSignal({ source: this.scope, computation: () => '' });
+  /** 表單流程被迫結束時的說明（表單已改版、已無法使用），顯示在對話下方。 */
+  protected readonly formNotice = linkedSignal({ source: this.scope, computation: () => '' });
   protected readonly withdrawError = linkedSignal({ source: this.scope, computation: () => '' });
   protected readonly pendingHandoff = linkedSignal<string, HandoffExchange | null>({ source: this.scope, computation: () => null });
   protected readonly handoffBusy = linkedSignal({ source: this.scope, computation: () => false });
@@ -408,10 +422,12 @@ export class ChatConversationComponent {
   }
 
   protected startForm(form: ChatFormView): void {
-    this.flow.set({ step: 'form', form, answers: {}, errors: [] });
+    this.formNotice.set('');
+    this.flow.set({ step: 'form', form, answers: {}, errors: [], submissionId: crypto.randomUUID(), busy: false });
   }
 
   protected cancelForm(): void {
+    // 取消＝什麼都不送出，不會留下任何紀錄。
     this.flow.set(CLOSED);
     this.composerInput()?.nativeElement.focus();
   }
@@ -419,51 +435,116 @@ export class ChatConversationComponent {
   protected reviewForm(answers: DatabaseTrialAnswers): void {
     const flow = this.flow();
     const viewerId = this.viewerId();
-    if (flow.step !== 'form' || viewerId === null) return;
+    if (flow.step !== 'form' || flow.busy || viewerId === null) return;
 
-    const result = this.repository.reviewChatForm(viewerId, this.assistantId(), flow.form.id, answers);
-    if (result.status === 'validation-failed') {
-      this.flow.set({ ...flow, answers, errors: result.errors });
-    } else if (result.status === 'ready' || result.status === 'partial-failure') {
-      this.flow.set({ step: 'consent', form: flow.form, answers, entries: result.data.entries, error: '' });
-    } else if (result.status === 'permission-denied') {
-      this.flow.set({ ...flow, answers, errors: [{ fieldId: null, message: result.message }] });
-    }
+    this.flow.set({ ...flow, answers, busy: true });
+    this.repository
+      .reviewChatForm(viewerId, this.assistantId(), flow.form.id, flow.form.formVersion, answers)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          const current = { ...flow, answers, busy: false };
+          if (result.status === 'validation-failed') {
+            this.flow.set({ ...current, errors: result.errors });
+          } else if (result.status === 'ready' || result.status === 'partial-failure') {
+            this.flow.set({
+              step: 'consent',
+              form: flow.form,
+              answers,
+              entries: result.data.entries,
+              error: '',
+              submissionId: flow.submissionId,
+              busy: false,
+            });
+          } else if (result.status === 'conflict') {
+            this.closeStaleForm(result.message);
+          } else if (result.status === 'permission-denied') {
+            this.flow.set({ ...current, errors: [{ fieldId: null, message: result.message }] });
+          }
+        },
+        error: () => this.flow.set({ ...flow, answers, busy: false, errors: [{ fieldId: null, message: FORM_REVIEW_FAILED_MESSAGE }] }),
+      });
   }
 
   protected backToForm(): void {
     const flow = this.flow();
-    if (flow.step === 'consent') {
-      this.flow.set({ step: 'form', form: flow.form, answers: flow.answers, errors: [] });
+    if (flow.step === 'consent' && !flow.busy) {
+      this.flow.set({
+        step: 'form',
+        form: flow.form,
+        answers: flow.answers,
+        errors: [],
+        submissionId: flow.submissionId,
+        busy: false,
+      });
     }
   }
 
   protected confirmConsent(): void {
     const flow = this.flow();
     const viewerId = this.viewerId();
-    if (flow.step !== 'consent' || viewerId === null) return;
+    if (flow.step !== 'consent' || flow.busy || viewerId === null) return;
 
-    const result = this.repository.submitChatForm(
-      viewerId,
-      this.assistantId(),
-      { formId: flow.form.id, answers: flow.answers, consent: true },
-      this.threadId() ?? undefined,
-    );
-    if (result.status === 'validation-failed') {
-      const fieldErrors = result.errors.filter((error) => error.fieldId !== null);
-      this.flow.set(
-        fieldErrors.length > 0
-          ? { step: 'form', form: flow.form, answers: flow.answers, errors: fieldErrors }
-          : { ...flow, error: result.errors[0]?.message ?? result.message },
-      );
-      return;
-    }
-    if (result.status === 'permission-denied') {
-      this.flow.set({ ...flow, error: result.message });
-      return;
-    }
+    this.flow.set({ ...flow, busy: true, error: '' });
+    this.repository
+      .submitChatForm(
+        viewerId,
+        this.assistantId(),
+        {
+          formId: flow.form.id,
+          formVersion: flow.form.formVersion,
+          submissionId: flow.submissionId,
+          answers: flow.answers,
+          consent: true,
+        },
+        this.chat()?.threadId ?? this.threadId() ?? undefined,
+      )
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          const idle = { ...flow, busy: false };
+          if (result.status === 'validation-failed') {
+            const fieldErrors = result.errors.filter((error) => error.fieldId !== null);
+            this.flow.set(
+              fieldErrors.length > 0
+                ? { step: 'form', form: flow.form, answers: flow.answers, errors: fieldErrors, submissionId: flow.submissionId, busy: false }
+                : { ...idle, error: result.errors[0]?.message ?? result.message },
+            );
+            return;
+          }
+          if (result.status === 'conflict') {
+            if (result.reason === 'form-version-changed') {
+              this.closeStaleForm(result.message);
+            } else {
+              // 這個編號已用在別的內容上：換一個新的再送，不會覆蓋那一筆。
+              this.flow.set({ ...idle, submissionId: crypto.randomUUID(), error: result.message });
+            }
+            return;
+          }
+          if (result.status === 'permission-denied') {
+            this.flow.set({ ...idle, error: result.message });
+            return;
+          }
+          if (result.status !== 'ready' && result.status !== 'partial-failure') return;
+
+          this.flow.set(CLOSED);
+          if (this.chat()?.historyMode === 'saved') {
+            this.refreshAndReveal(result.data.threadId);
+          } else {
+            // 不保存對話：收據只在這一頁出現（紀錄本身已經存進資料庫）。
+            this.local.update((entries) => [...entries, { message: result.data.message, note: null }]);
+            this.reveal();
+          }
+        },
+        error: () => this.flow.set({ ...flow, busy: false, error: FORM_SUBMIT_FAILED_MESSAGE }),
+      });
+  }
+
+  /** 表單在顯示之後改版：結束這次填寫（沒有送出任何資料），重新讀取後再開啟最新的表單。 */
+  private closeStaleForm(message: string): void {
     this.flow.set(CLOSED);
-    this.refreshAndReveal(result.status === 'ready' ? result.data.threadId : null);
+    this.formNotice.set(message);
+    if (this.chat()?.historyMode === 'saved') this.chatResource.reload();
   }
 
   protected askWithdraw(request: WithdrawRequest): void {

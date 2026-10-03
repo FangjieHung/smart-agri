@@ -1,4 +1,5 @@
 import { firstValueFrom } from 'rxjs';
+import { syncValue } from './sync-value.testing';
 import type { AccountId } from '../domain/account.model';
 import type { AssistantChatView, ChatMessageView, ChatReplyView } from '../domain/conversation.model';
 import type { RepositoryView, SendChatMessageResult, SubmitChatFormResult } from './demo-repository';
@@ -39,9 +40,17 @@ async function chatAs(
   return firstValueFrom(repository.getAssistantChat(assistantId));
 }
 
-function chatOf(result: SendChatMessageResult | SubmitChatFormResult): AssistantChatView {
+function chatOf(result: SendChatMessageResult): AssistantChatView {
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
   return result.data;
+}
+
+/** 送出成功時回傳的收據訊息（issue #148 起不再回整段對話）。 */
+function receiptOf(result: SubmitChatFormResult): ChatReplyView {
+  if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+  const message = result.data.message;
+  if (message.author !== 'assistant') throw new Error('expected an assistant reply');
+  return message.reply;
 }
 
 function lastReply(chat: AssistantChatView): ChatReplyView {
@@ -150,7 +159,7 @@ describe('MockDemoRepository assistant chat', () => {
     const reply = ask(createRepository(), '我要回報訂單問題');
 
     expect(reply.kind).toBe('form-request');
-    if (reply.kind !== 'form-request') return;
+    if (reply.kind !== 'form-request' || reply.form === null) throw new Error('expected a form');
     expect(reply.form.id).toBe('database-orders');
     expect(reply.form.fields.map((field) => field.label)).toEqual(['訂單編號', '問題類型', '回報日期']);
     expect(reply.form.consent).toMatchObject({
@@ -166,13 +175,13 @@ describe('MockDemoRepository assistant chat', () => {
     const repository = createRepository();
 
     expect(
-      repository.reviewChatForm('account-external-customer', ASSISTANT, 'database-orders', {}),
+      syncValue(repository.reviewChatForm('account-external-customer', ASSISTANT, 'database-orders', 1, {})),
     ).toMatchObject({
       status: 'validation-failed',
       errors: expect.arrayContaining([{ fieldId: 'field-order-number', message: '「訂單編號」為必填。' }]),
     });
     expect(
-      repository.reviewChatForm('account-external-customer', ASSISTANT, 'database-orders', ORDER_ANSWERS),
+      syncValue(repository.reviewChatForm('account-external-customer', ASSISTANT, 'database-orders', 1, ORDER_ANSWERS)),
     ).toMatchObject({
       status: 'ready',
       data: { saved: false, entries: expect.arrayContaining([expect.objectContaining({ display: 'DEMO-2001' })]) },
@@ -189,11 +198,11 @@ describe('MockDemoRepository assistant chat', () => {
     const repository = createRepository();
 
     expect(
-      repository.submitChatForm('account-external-customer', ASSISTANT, {
-        formId: 'database-orders',
+      syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, {
+        formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
         answers: ORDER_ANSWERS,
         consent: false,
-      }),
+      })),
     ).toMatchObject({ status: 'validation-failed', errors: [{ fieldId: null }] });
     expect(repository.getDatabaseTracking('account-smb-admin', 'database-orders')).toMatchObject({
       status: 'ready',
@@ -205,12 +214,12 @@ describe('MockDemoRepository assistant chat', () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
 
-    const submitted = repository.submitChatForm('account-external-customer', ASSISTANT, {
-      formId: 'database-orders',
+    const submitted = syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, {
+      formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
       answers: ORDER_ANSWERS,
       consent: true,
-    });
-    const receipt = lastReply(chatOf(submitted));
+    }));
+    const receipt = receiptOf(submitted);
     expect(receipt).toMatchObject({ kind: 'submission-receipt', recipient: expect.stringContaining('安心商行') });
 
     const manager = createRepository(storage).getDatabaseTracking('account-smb-admin', 'database-orders');
@@ -232,6 +241,35 @@ describe('MockDemoRepository assistant chat', () => {
     expect(JSON.stringify(await chatAs(repository, 'account-smb-admin', ASSISTANT))).not.toContain('DEMO-2001');
   });
 
+  it('answers a retry with the same submission id with the same receipt and one record (#148)', () => {
+    const repository = createRepository();
+    const submission = {
+      formId: 'database-orders', formVersion: 1, submissionId: 'retry-key', answers: ORDER_ANSWERS, consent: true,
+    };
+
+    const first = receiptOf(syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, submission)));
+    const again = receiptOf(syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, submission)));
+
+    expect(again).toEqual(first);
+    const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+    if (tracking.status !== 'ready') throw new Error('expected tracking');
+    expect(tracking.data.subjects[0].records).toHaveLength(1);
+  });
+
+  it('refuses a stale form version with form-version-changed and records nothing (#148)', () => {
+    const repository = createRepository();
+
+    expect(syncValue(repository.reviewChatForm('account-external-customer', ASSISTANT, 'database-orders', 2, ORDER_ANSWERS)))
+      .toMatchObject({ status: 'conflict', reason: 'form-version-changed' });
+    expect(syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, {
+      formId: 'database-orders', formVersion: 2, submissionId: 'stale', answers: ORDER_ANSWERS, consent: true,
+    }))).toMatchObject({ status: 'conflict', reason: 'form-version-changed' });
+    expect(repository.getDatabaseTracking('account-smb-admin', 'database-orders')).toMatchObject({
+      status: 'ready',
+      data: { subjects: [] },
+    });
+  });
+
   it('does not offer the form when the assistant is not connected to the database', () => {
     const repository = new MockDemoRepository({
       ...DEMO_SEED,
@@ -240,12 +278,12 @@ describe('MockDemoRepository assistant chat', () => {
 
     expect(ask(repository, '我要回報訂單問题')).toMatchObject({ kind: 'no-result' });
     expect(
-      repository.submitChatForm('account-external-customer', ASSISTANT, {
-        formId: 'database-orders',
+      syncValue(repository.submitChatForm('account-external-customer', ASSISTANT, {
+        formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
         answers: ORDER_ANSWERS,
         consent: true,
-      }),
-    ).toMatchObject({ status: 'permission-denied' });
+      })),
+    ).toMatchObject({ status: 'permission-denied', reason: 'assistant-form' });
   });
 
   it('answers 查無資料 with the assistant’s own saved refusal message, not a fixed string', async () => {

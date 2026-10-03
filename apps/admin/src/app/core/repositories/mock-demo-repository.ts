@@ -213,6 +213,7 @@ import type {
   SaveAssistantDraftResult,
   RetryKnowledgeDocumentResult,
   ReviewChatFormResult,
+  DatabaseSubmissionConflictView,
   SendChatMessageResult,
   SubmitChatFormResult,
   SubmitDatabaseEntryResult,
@@ -3988,10 +3989,23 @@ export class MockDemoRepository implements DemoRepository {
     viewerId: ChatViewerId,
     assistantId: string,
     formId: DatabaseId,
+    formVersion: number,
+    answers: DatabaseTrialAnswers,
+  ): Observable<ReviewChatFormResult> {
+    return defer(() => of(this.reviewChatFormSync(viewerId, assistantId, formId, formVersion, answers)));
+  }
+
+  private reviewChatFormSync(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    formId: DatabaseId,
+    formVersion: number,
     answers: DatabaseTrialAnswers,
   ): ReviewChatFormResult {
+    if (this.chatAssistant(viewerId, assistantId) === undefined) return this.chatAssistantPermissionDenied(viewerId);
     const target = this.chatFormTarget(viewerId, assistantId, formId);
-    if (target === undefined) return this.chatAssistantPermissionDenied(viewerId);
+    if (target === undefined) return this.chatFormPermissionDenied();
+    if (target.form.formVersion !== formVersion) return this.chatFormVersionChanged();
 
     const outcome = evaluateTrial(target.form.fields, answers);
     if ('errors' in outcome) {
@@ -4010,11 +4024,52 @@ export class MockDemoRepository implements DemoRepository {
     assistantId: string,
     submission: ChatFormSubmission,
     threadId?: string,
-  ): SubmitChatFormResult {
-    const target = this.chatFormTarget(viewerId, assistantId, submission.formId);
-    if (target === undefined) return this.chatAssistantPermissionDenied(viewerId);
+  ): Observable<SubmitChatFormResult> {
+    return defer(() => of(this.submitChatFormSync(viewerId, assistantId, submission, threadId)));
+  }
 
-    const { assistant, form } = target;
+  /**
+   * 與 API 相同的檢查順序：可使用助理 → 對話 → 這份表單仍可使用 → 同一個提交編號（重送回同一張
+   * 收據）→ 表單版本 → 欄位 → 同意。紀錄 id 由提交編號推出，所以重送不會多一筆。
+   */
+  private submitChatFormSync(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    submission: ChatFormSubmission,
+    threadId?: string,
+  ): SubmitChatFormResult {
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
+
+    const chatTarget = this.resolveChatTarget(viewerId, assistant, threadId);
+    if (chatTarget === undefined) return this.chatThreadPermissionDenied();
+
+    const target = this.chatFormTarget(viewerId, assistantId, submission.formId);
+    if (target === undefined) return this.chatFormPermissionDenied();
+    const { form } = target;
+
+    const recordId: `record-${string}` = `record-chat-${submission.submissionId}`;
+    const existing = this.chatRecords();
+    const messages = this.targetMessages(viewerId, assistant, chatTarget);
+    if (existing.some((record) => record.id === recordId)) {
+      const receipt = messages.find(
+        (message) =>
+          message.author === 'assistant' &&
+          message.reply.kind === 'submission-receipt' &&
+          message.reply.recordId === recordId,
+      );
+      if (receipt !== undefined) {
+        return this.applyScenario({ message: receipt, threadId: chatTarget?.id ?? null });
+      }
+      return immutableCopy({
+        status: 'conflict',
+        reason: 'submission-key-reused',
+        message: '這個提交編號已經用在另一份內容上，資料沒有送出。請重新載入表單後再填寫。',
+      });
+    }
+
+    if (form.formVersion !== submission.formVersion) return this.chatFormVersionChanged();
+
     const outcome = evaluateTrial(form.fields, submission.answers);
     if ('errors' in outcome) {
       return immutableCopy({
@@ -4031,14 +4086,10 @@ export class MockDemoRepository implements DemoRepository {
       });
     }
 
-    const chatTarget = this.resolveChatTarget(viewerId, assistant, threadId);
-    if (chatTarget === undefined) return this.chatThreadPermissionDenied();
-
     const recordedAt = this.now().toISOString();
-    const existing = this.chatRecords();
     // 未登入訪客的紀錄以訪客 id 當追蹤對象：與任何帳號都不同，也不冒認成帳號。
     const record: DatabaseRecordFixture = {
-      id: `record-chat-${existing.length + 1}`,
+      id: recordId,
       databaseId: form.id,
       subjectId: `subject-${viewerId}`,
       recordedAt,
@@ -4048,28 +4099,39 @@ export class MockDemoRepository implements DemoRepository {
     };
     this.storage.setItem(CHAT_RECORDS_KEY, JSON.stringify([...existing, record]));
 
-    const messages = this.targetMessages(viewerId, assistant, chatTarget);
-    const next: readonly ChatMessageView[] = [
-      ...messages,
-      {
-        id: `chat-message-${messages.length + 1}`,
-        author: 'assistant',
-        createdAt: recordedAt,
-        reply: {
-          kind: 'submission-receipt',
-          text: `已送出。資料只會交給 ${form.consent.recipient}，你可以在這張收據上撤回。`,
-          recipient: form.consent.recipient,
-          recordId: record.id,
-          entries: outcome.entries,
-          // 讀取時一律以 `chatRecords()` 重新判定，這裡只是寫入當下的狀態。
-          withdrawal: this.withdrawalView(viewerId, record),
-        },
+    const receipt: ChatMessageView = {
+      id: `chat-message-${messages.length + 1}`,
+      author: 'assistant',
+      createdAt: recordedAt,
+      reply: {
+        kind: 'submission-receipt',
+        text: `已送出。資料只會交給 ${form.consent.recipient}，你可以在這張收據上撤回。`,
+        recipient: form.consent.recipient,
+        recordId: record.id,
+        entries: outcome.entries,
+        // 讀取時一律以 `chatRecords()` 重新判定，這裡只是寫入當下的狀態。
+        withdrawal: this.withdrawalView(viewerId, record),
       },
-    ];
+    };
+    const chat = this.writeChatMessages(viewerId, assistant, chatTarget, [...messages, receipt]);
 
-    return this.applyScenario(
-      this.writeChatMessages(viewerId, assistant, chatTarget, next),
+    return this.applyScenario({ message: receipt, threadId: chat.threadId });
+  }
+
+  /** 對話中的表單已無法使用：與 API 的 `403 assistant-form` 同一則訊息。 */
+  private chatFormPermissionDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied(
+      'assistant-form',
+      '這份表單目前無法使用：助理已不再連接這個資料庫，或你沒有填寫它的權限。',
     );
+  }
+
+  private chatFormVersionChanged(): DatabaseSubmissionConflictView {
+    return immutableCopy({
+      status: 'conflict',
+      reason: 'form-version-changed',
+      message: '這份表單已更新，請重新載入最新的表單後再填寫。你這次填寫的內容尚未送出。',
+    });
   }
 
   withdrawChatSubmission(
@@ -4547,6 +4609,7 @@ export class MockDemoRepository implements DemoRepository {
     return {
       id: database.id,
       title: database.name,
+      formVersion: this.databaseFormVersion(database.id),
       fields: collection.fields,
       consent: {
         recipient: `${nameOf(database.ownerAccountId)}（${database.name}）`,

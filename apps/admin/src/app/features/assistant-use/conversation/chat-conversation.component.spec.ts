@@ -1,9 +1,10 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { syncValue } from '../../../core/repositories/sync-value.testing';
 import { provideRouter } from '@angular/router';
 import type { ChatViewerId } from '../../../core/domain/account.model';
 import { provideAssistantUseTesting } from '../assistant-use.testing';
 import { AssistantIssuesRepository } from '../../../core/repositories/assistant-issues.repository';
-import { firstValueFrom, Subject } from 'rxjs';
+import { firstValueFrom, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { ChatConversationComponent } from './chat-conversation.component';
 
@@ -20,11 +21,11 @@ function setup(anonymous = false, question?: string) {
   const viewerId: ChatViewerId = anonymous
     ? (testing.visitor.visitorId() as ChatViewerId)
     : 'account-external-customer';
-  const submitted = testing.repository.submitChatForm(viewerId, ASSISTANT, {
-    formId: 'database-orders',
+  const submitted = syncValue(testing.repository.submitChatForm(viewerId, ASSISTANT, {
+    formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
     answers: ANSWERS,
     consent: true,
-  });
+  }));
   if (submitted.status !== 'ready') throw new Error(`expected ready, got ${submitted.status}`);
   if (question) {
     const answered = testing.repository.sendChatMessage(viewerId, ASSISTANT, question);
@@ -176,5 +177,99 @@ describe('ChatConversationComponent handoff', () => {
     click(host, 'button.confirm-handoff');
     expect(create).toHaveBeenCalledTimes(1);
     pending.complete();
+  });
+});
+
+describe('ChatConversationComponent form request (#148)', () => {
+  afterEach(() =>
+    document.body.querySelectorAll('app-chat-conversation').forEach((node) => node.remove()),
+  );
+
+  /** 開啟一段已經有表單請求的對話，填好並走到同意畫面。 */
+  function toConsent() {
+    const testing = provideAssistantUseTesting('account-external-customer');
+    const asked = testing.repository.sendChatMessage('account-external-customer', ASSISTANT, '我要回報訂單問題');
+    if (asked.status !== 'ready') throw new Error('expected a form request');
+    TestBed.configureTestingModule({
+      imports: [ChatConversationComponent],
+      providers: [provideRouter([]), ...testing.providers],
+    });
+    const fixture = TestBed.createComponent(ChatConversationComponent);
+    fixture.componentRef.setInput('assistantId', ASSISTANT);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(host);
+
+    vi.spyOn(testing.repository, 'reviewChatForm').mockReturnValue(
+      of({ status: 'ready', data: { formId: 'database-orders', saved: false, entries: [] } }),
+    );
+    click(host, 'button.form-start');
+    fixture.detectChanges();
+    click(host, 'app-inline-form button[type="submit"]');
+    fixture.detectChanges();
+    click(host, '#consent-agree');
+    fixture.detectChanges();
+    return { fixture, host, repository: testing.repository };
+  }
+
+  it('keeps the consent step after a failed submission and retries with the same submission id', () => {
+    const { fixture, host, repository } = toConsent();
+    const submit = vi.spyOn(repository, 'submitChatForm')
+      .mockReturnValueOnce(throwError(() => new Error('offline')));
+
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+    expect(host.querySelector('app-consent-confirmation .error')?.textContent).toContain('不會重複建立紀錄');
+
+    submit.mockReturnValueOnce(of({
+      status: 'permission-denied',
+      reason: 'assistant-form',
+      message: '這份表單目前無法使用：助理已不再連接這個資料庫，或你沒有填寫它的權限。',
+    }));
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+    expect(host.querySelector('app-consent-confirmation .error')?.textContent).toContain('目前無法使用');
+
+    const keys = submit.mock.calls.map((call) => call[2].submissionId);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it('ends the fill when the form changed, without submitting anything', () => {
+    const { fixture, host, repository } = toConsent();
+    vi.spyOn(repository, 'submitChatForm').mockReturnValue(of({
+      status: 'conflict',
+      reason: 'form-version-changed',
+      message: '這份表單已更新，請重新載入最新的表單後再填寫。你這次填寫的內容尚未送出。',
+    }));
+
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+
+    expect(host.querySelector('app-consent-confirmation')).toBeNull();
+    expect(host.querySelector('.form-notice')?.textContent).toContain('尚未送出');
+  });
+
+  it('cancelling the form records nothing', () => {
+    const testing = provideAssistantUseTesting('account-external-customer');
+    testing.repository.sendChatMessage('account-external-customer', ASSISTANT, '我要回報訂單問題');
+    TestBed.configureTestingModule({
+      imports: [ChatConversationComponent],
+      providers: [provideRouter([]), ...testing.providers],
+    });
+    const fixture = TestBed.createComponent(ChatConversationComponent);
+    fixture.componentRef.setInput('assistantId', ASSISTANT);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const submit = vi.spyOn(testing.repository, 'submitChatForm');
+
+    click(host, 'button.form-start');
+    fixture.detectChanges();
+    click(host, 'app-inline-form button.secondary');
+    fixture.detectChanges();
+
+    expect(host.querySelector('app-inline-form')).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
+    expect(trackingOf(testing.repository, 'subject-account-external-customer')).toBeUndefined();
   });
 });

@@ -52,7 +52,7 @@
   - 與 #142 文件第 2 節的差異：詳情 `{summary, form}` 多了 `access`；`GET /databases`、`GET /databases/{id}` 不再只回擁有者的資料庫。
 - **#145 提交與回執**：已實作，見下方第 8 節（資料模型、API 契約、給 #146／#147／#148 的接點）。
 - **#146 撤回**：刪除值與快照內容，只留提交／撤回時間與來源（撤回 ADR）。
-- **#148 連接助理**：目前 `AssistantEndpoints` 對資料庫來源回「將於後續版本開放」；連接表以複合外鍵指向 `Databases`。
+- **#148 連接助理**：已實作，見下方第 9 節。
 
 ## 6. 驗收紀錄
 
@@ -118,3 +118,60 @@
 - **#146**：提交者自己的清單可用 `DatabaseSubmissions.SubmittedByAccountId`；撤回刪 `DatabaseSubmissionEntries`、設 `WithdrawnAt`（軌跡表已預留）；資料管理者時間軸以 `ListRecordsAsync` 為起點（已排除 `WithdrawnAt` 非 null），追蹤對象＝提交者。
 - **#147**：型別化值在 `DatabaseSubmissionEntries`（`NumberValue`／`TextValue`／`ChoiceValues`），以穩定的 `FieldId` 跨版本比較；查詢前呼叫 `DatabaseRecordReaders`，只看 `WithdrawnAt IS NULL`。
 - **#148**：見 8.1；回執 `DatabaseSubmissionReceiptView` 可直接放進對話的 `submission-receipt` 訊息，`Source = assistant-conversation`。
+
+
+## 9. #148 助理連接數據庫並請求表單（2026-10-03）
+
+### 9.1 連接模型（migration `AddAssistantDatabases`）
+
+| 資料表／欄位 | 內容 | 規則 |
+| --- | --- | --- |
+| `AssistantDatabases` | `AssistantId`、`DatabaseId`、`ConnectedAt`、`CollectsForms`、`CollectionPurpose`（≤ 500 字） | 主鍵 `(AssistantId, DatabaseId)`；兩條含 `OrganizationId` 的複合外鍵（→ `Assistants`、`Databases`，皆 `Cascade`）；部分唯一索引 `(AssistantId) WHERE CollectsForms`＝每個助理最多一個寫入對象；check：寫入對象一定有非空白目的、非寫入對象目的為空字串 |
+| `ChatMessages.FormDatabaseId`、`ChatMessages.SubmissionId` | 表單請求／收據訊息只存資料庫 id 與提交 id | 無外鍵（資料庫刪除後訊息仍在，顯示為已無法使用）；**不存任何填寫值**，收據訊息文字只有接收單位與回執編號 |
+| `ChatReplyKind` | 新增 `FormRequest`、`SubmissionReceipt`（整數，加在尾端） | 只由表單流程寫入，不經回答流程 |
+
+- **可連接＝擁有者可使用**（`AssistantDatabaseAccess.ConnectableBy` ＝ `DatabaseAccess.ListedFor`，以**助理擁有者**判斷）：自己擁有的，或被指定為資料管理者且具備 `read-consented-submissions` 的。資料管理者指定就是數據庫的「分享」；撤銷指定或權限＝分享撤回。
+- 連接本身不讓助理請求表單；`rules.dataWriteDatabaseId`／`dataWritePurpose`（前端 mock 既有欄位）選定其中一個已連接、可使用的數據庫作為寫入對象並說明目的。解除連接（或刪除數據庫）連帶清掉寫入對象。多個數據庫可同時連接（#149 的查詢工具使用）。
+- 解除最後一個來源（知識庫＋數據庫合計）一律 `422 last-source`。
+
+### 9.2 API 契約
+
+| 端點 | 權限 | 成功 | 錯誤 |
+| --- | --- | --- | --- |
+| `PUT /api/v1/assistants/{id}/sources/database/{databaseId}` | 登入＋`manage-assistants`＋助理擁有者 | `200 AssistantSettingsView`（冪等） | `403 assistant-configuration`；`422 source-not-connectable`（不存在、別組織、擁有者無權使用、id 格式錯誤，逐位元組相同） |
+| `DELETE …/sources/database/{databaseId}` | 同上 | `200`（未連接或 id 格式錯誤＝no-op） | `403`；`422 last-source` |
+| `PATCH …/settings` `rules.dataWriteDatabaseId`（`""` 清除、省略不變）、`rules.dataWritePurpose` | 同上 | `200`，`rules` 多兩欄、頂層多 `databaseIds` | `422`：`dataWritePurpose`（有對象卻無目的／過長）、`sources`（不是已連接且可使用的數據庫） |
+| `GET /api/v1/connectable-sources` | `manage-assistants` | 知識庫之後多 `type: "database"`（`summary`「N 個欄位」、`permission` owner／read-only） | — |
+| `POST /api/v1/assistants/{id}/chat/forms/{databaseId}/review` `{formVersionNumber, answers}` | 登入＋可使用助理 | `200 DatabaseTrialPreviewView`（不寫入） | `403 assistant-use`／`403 assistant-form`；`409 form-version-changed`；`422` |
+| `POST …/chat/forms/{databaseId}/submissions` `{submissionId, formVersionNumber, consent, answers, threadId?}` | 同上 | `201 ChatFormSubmissionView{receipt, message}`；同鍵同內容 `200` | `403 assistant-use`／`chat-thread`／`assistant-form`；`409 form-version-changed`／`submission-key-reused`／`chat-run-in-progress`；`422`（含 `consent-required`） |
+| `GET /api/v1/databases`、`GET /api/v1/databases/{id}` | 不變 | 摘要多 `connectedAssistantNames`、詳情多 `connectedAssistants`（只列呼叫者自己的助理） | 不變 |
+
+`ChatReplyView` 多 `form`（`ChatFormRequestView`：`id`、`title`、`formVersion`、`fields`、`consent{recipient, purpose, viewers, sensitiveNotice, withdrawalNotice}`）與 `receipt`（`DatabaseSubmissionReceiptView`），其他 kind 皆為 `null`。AG-UI 錄製檔（`tools/agui-contract/fixtures`）已重錄。
+
+### 9.3 表單工具與觸發
+
+- 伺服器只定義一個工具 `request_database_form`（`AssistantFormRequestRules.ToolName`），唯一的參數是「哪一份表單」，只能是伺服器判定此刻可用的寫入對象；欄位、版本、目的、接收單位、可查看者全部來自伺服器（目前表單版本＋`DatabaseSubmissionService.GetFormAsync(databaseId, purpose)`）。模型不產生欄位、查詢或 SQL。
+- 本票的呼叫由**編排層**（`ChatRunEndpoints`）決定，不經模型：問題含填寫意圖詞（`AsksForForm`：填寫／填表／表單／回報／登記／報名…）且 `AssistantFormRequests.FormRequestAsync` 找到可用的寫入對象，就以 `form-request` 回覆（同樣的 AG-UI 事件、同樣的對話保存規則；沒有模型呼叫，所以不寫 `ModelInvocations`）。否則照常走回答流程。Fake 與真實模型行為相同；沒有引入 Agent Framework 或新的 NuGet 套件。
+
+### 9.4 授權檢查順序
+
+1. 登入（`401`）。
+2. 可使用助理（`ChatEndpoints.FindUsableAsync`：擁有者，或分享＋`use-shared-assistants`＋未暫停）→ `403 assistant-use`。
+3. 指定的對話是自己的（只在保存對話時）→ `403 chat-thread`。
+4. `AssistantFormRequests.FormTargetAsync`：連接列存在、是寫入對象、數據庫在組織內、**助理擁有者此刻仍可使用**（擁有者的權限經 `RequestAccountPermissions` 每次請求重讀，指定每次查表）→ `403 assistant-form`（不連接、撤回、刪除、他組織、亂造 id 逐位元組相同）。
+5. 訊息保存需要時取得對話鎖（`409 chat-run-in-progress`），在寫入任何紀錄之前。
+6. `DatabaseSubmissionService.SubmitAsync`（`AssistantConversation` 來源、助理的收集目的寫進同意條款）：提交編號／版本 → 重送比對 → 目前版本 → 欄位 → 同意 → 單一交易寫入。
+7. 成功後才寫收據訊息（只存提交 id）；重送時沿用已存在的收據訊息，前一次中斷在兩步之間也會補上。
+
+表單請求（chat run）與重新讀取（`GET chat`）走同一個第 4 步，所以撤回後**下一個請求**就不再出現表單、舊訊息的 `form` 變成 `null`。
+
+### 9.5 隱私
+
+- 提交只帶表單答案；對話內容從不是輸入。處理人（資料管理者）經 `GET …/records` 只讀到欄位快照與提交者，讀不到對話（`chat-thread` 仍只屬於本人）。
+- 表單請求與收據訊息不能轉人工（`AssistantHandoffEndpoints` 對這兩種回 `403 chat-thread`），填寫內容只經同意的紀錄到達可查看者。
+- 不保存對話時：不寫任何對話表，紀錄照常寫入資料庫，收據訊息只在回應中出現一次。
+
+### 9.6 給 #146／#149 的接點
+
+- **#146**：對話中的收據以 `ChatMessages.SubmissionId` 指向提交，顯示時呼叫 `DatabaseSubmissionService.GetReceiptAsync`（提交者本人）；撤回後回執 API 的變化會直接反映在對話中，不必改對話表。前端 `submission-receipt` 的 `withdrawal` 目前固定 `unavailable`，#146 接上撤回時改成依回執狀態決定。
+- **#149**：可用的數據庫集合是 `AssistantFormRequests.UsableDatabaseIdsAsync(assistant)`（連接列 ∩ 擁有者此刻可使用），每次請求重算；固定查詢工具應比照 `request_database_form` 只接受伺服器列出的參數，並在執行時再套用 `DatabaseRecordReaders`（查詢者本人的讀取權）。若改由模型選擇工具，`AssistantFormRequestRules.ToolName/ToolDescription` 可直接成為工具定義，授權與執行不變。

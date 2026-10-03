@@ -39,10 +39,14 @@
         </ul>
       }
       @case ('form-request') {
-        @if (!formActive()) {
-          <button type="button" class="form-start" (click)="startForm.emit(reply.form)">
-            填寫表單：{{ reply.form.title }}
-          </button>
+        @if (reply.form; as form) {
+          @if (!formActive()) {
+            <button type="button" class="form-start" (click)="startForm.emit(form)">
+              填寫表單：{{ form.title }}
+            </button>
+          }
+        } @else {
+          <p class="notice form-unavailable">這份表單目前無法使用：助理已不再連接這個資料庫，或分享已收回。需要時請再問一次助理。</p>
         }
       }
       @case ('submission-receipt') {

@@ -106,6 +106,7 @@ export class DatabaseSubmissionPageComponent {
     return {
       id: data.databaseId,
       title: data.databaseName,
+      formVersion: data.formVersion,
       fields: data.fields,
       consent: {
         recipient: data.recipient,

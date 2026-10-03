@@ -362,8 +362,8 @@ describe('DatabaseDetailPageComponent', () => {
       expect(page().querySelector('.upcoming-notice')).toBeNull();
     });
 
-    it('does not read mock records, data managers or assistants', async () => {
-      for (const tab of ['records', 'trends', 'assistants']) {
+    it('does not read mock records or trends', async () => {
+      for (const tab of ['records', 'trends']) {
         TestBed.resetTestingModule();
         const { page, repository } = await openDetail(`/app/databases/database-customer-records/${tab}`, asApiMode);
 
@@ -372,6 +372,13 @@ describe('DatabaseDetailPageComponent', () => {
         expect(page().textContent, tab).not.toContain('客服助理');
         expect(repository.getDatabaseTracking, tab).not.toHaveBeenCalled();
       }
+    });
+
+    it('lists the connected assistants the API returned (#148), not a notice', async () => {
+      const { page } = await openDetail('/app/databases/database-customer-records/assistants', asApiMode);
+
+      expect(page().querySelector('.upcoming-notice')).toBeNull();
+      expect(page().textContent).toContain('客服助理');
     });
 
     it('offers the permissions tab in API mode (data managers are served by the API since #144)', async () => {

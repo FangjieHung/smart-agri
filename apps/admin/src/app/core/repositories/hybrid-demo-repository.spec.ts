@@ -1,4 +1,5 @@
 import { HttpClient, HttpEventType, provideHttpClient } from '@angular/common/http';
+import { syncValue } from './sync-value.testing';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -27,6 +28,8 @@ import {
   apiAssistantPlatformSharingPath,
   apiAssistantPublishingPath,
   apiAssistantSettingsPath,
+  apiAssistantDatabaseSourcePath,
+  apiAssistantChatFormPath,
   apiTrialAnswersPath,
   API_RECENT_CONVERSATIONS_PATH,
   API_TEAM_PATH,
@@ -548,22 +551,25 @@ describe('HybridDemoRepository', () => {
       { http: TestBed.inject(HttpClient), viewerPermissions: () => me },
     );
 
-    // 仍是 mock 的功能區（聊天提交寫入的收集紀錄，#145 前）寫進 storage 的資料，要依真實組織／帳號隔開。
+    // 仍是 mock 的功能區寫進 storage 的資料，要依真實組織／帳號隔開。Hybrid 的對話表單送出已改走
+    // API（#148），這裡直接呼叫 mock 的實作，只用它當「寫進 scoped storage 的 mock 寫入」。
     const recordCount = () => {
       const tracking = repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS);
       if (tracking.status !== 'ready') throw new Error(`expected tracking, got ${tracking.status}`);
       return tracking.data.subjects.reduce((total, subject) => total + subject.records.length, 0);
     };
     const baseline = recordCount();
-    const submitted = repository.submitChatForm('account-external-customer', 'assistant-customer-service', {
+    const submitted = syncValue(MockDemoRepository.prototype.submitChatForm.call(repository, 'account-external-customer', 'assistant-customer-service', {
       formId: ADMIN_ORDERS,
+      formVersion: 1,
+      submissionId: 'scoped-storage-submission',
       answers: {
         'field-order-number': 'DEMO-9001',
         'field-issue-type': '配送延遲',
         'field-reported-on': '2026-09-21',
       },
       consent: true,
-    });
+    }));
     expect(submitted.status).toBe('ready');
     expect(recordCount()).toBe(baseline + 1);
 
@@ -1414,12 +1420,17 @@ function apiAccountMessage(overrides: Partial<ApiChatMessageView> = {}): ApiChat
   };
 }
 
-function apiAssistantMessage(reply: ApiChatMessageView['reply']): ApiChatMessageView {
+type ApiReply = NonNullable<ApiChatMessageView['reply']>;
+
+/** `form`／`receipt`（#148）只有表單訊息才有值，其餘一律是 null（後端照樣送出這兩個鍵）。 */
+function apiAssistantMessage(
+  reply: Omit<ApiReply, 'form' | 'receipt'> & Partial<Pick<ApiReply, 'form' | 'receipt'>>,
+): ApiChatMessageView {
   return {
     id: '0199a000-0000-7000-8000-0000000000d2',
     author: 'assistant',
     text: null,
-    reply,
+    reply: { form: null, receipt: null, ...reply },
     createdAt: '2026-09-27T01:00:01+00:00',
   };
 }
@@ -1775,9 +1786,132 @@ describe('HybridDemoRepository chat (issue #79)', () => {
     controller.expectNone(apiAssistantChatConversationsPath(CHAT_ASSISTANT_ID));
     controller.expectNone(API_RECENT_CONVERSATIONS_PATH);
   });
+
+  // ---------- 對話中的表單（issue #148） ----------
+
+  /** 後端實際送出的 JSON（每個鍵都在，不適用的是 null）：由整合測試的回應整理而來。 */
+  const FORM_REQUEST_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f1","author":"assistant","text":null,"reply":{"kind":"form-request","text":"可以的，請在下方表單填寫資料。送出前會先讓你確認資料會交給誰、做什麼用途。","citations":[],"notice":null,"nextSteps":[],"form":{"id":"0199d000-0000-7000-8000-0000000000d1","title":"客戶資料庫","formVersion":2,"fields":[{"id":"field-customer-name","label":"客戶姓名","type":"text","required":true,"options":[],"scale":null,"unit":""}],"consent":{"recipient":"表單商行（客戶資料庫）","purpose":"記錄客戶聯絡方式，方便客服回電。","viewers":["表單商行管理者"],"sensitiveNotice":"請勿填寫敏感個資。","withdrawalNotice":"送出後可以撤回。"}},"receipt":null},"createdAt":"2026-10-03T06:00:00.123456+00:00"}`;
+
+  const RECEIPT_JSON = `{"id":"0199a000-0000-7000-8000-0000000000f2","author":"assistant","text":null,"reply":{"kind":"submission-receipt","text":"已送出。資料只會交給 表單商行（客戶資料庫），回執編號 R-20261003-0000000001。","citations":[],"notice":null,"nextSteps":[],"form":null,"receipt":{"id":"0199e000-0000-7000-8000-000000000001","receiptNumber":"R-20261003-0000000001","submittedAt":"2026-10-03T06:01:00+00:00","databaseId":"0199d000-0000-7000-8000-0000000000d1","databaseName":"客戶資料庫","purpose":"記錄客戶聯絡方式，方便客服回電。","recipient":"表單商行（客戶資料庫）","viewers":["表單商行管理者"],"formVersionId":"0199d000-0000-7000-8000-0000000000e2","formVersionNumber":2,"source":"assistant-conversation","entries":[{"fieldId":"field-customer-name","label":"客戶姓名","type":"text","display":"王小明"}]}},"createdAt":"2026-10-03T06:01:00.123456+00:00"}`;
+
+  it('maps a form request and a receipt from the actual JSON the backend sends, and an unavailable form as null', async () => {
+    const { repository } = setUpChat();
+    const result = pending(repository.getAssistantChat(CHAT_ASSISTANT_ID, CHAT_THREAD_ID));
+    const unavailable = JSON.parse(FORM_REQUEST_JSON) as ApiChatMessageView;
+    controller.expectOne(apiAssistantChatPath(CHAT_ASSISTANT_ID, CHAT_THREAD_ID)).flush(
+      apiAssistantChat({
+        messages: [
+          JSON.parse(FORM_REQUEST_JSON) as ApiChatMessageView,
+          JSON.parse(RECEIPT_JSON) as ApiChatMessageView,
+          { ...unavailable, id: 'unavailable', reply: unavailable.reply === null ? null : { ...unavailable.reply, form: null } },
+        ],
+      }),
+    );
+
+    const view = await result;
+    if (view.status !== 'ready') throw new Error('expected ready');
+    const [form, receipt, gone] = view.data.messages;
+    expect(form).toMatchObject({
+      author: 'assistant',
+      reply: {
+        kind: 'form-request',
+        form: {
+          id: '0199d000-0000-7000-8000-0000000000d1',
+          formVersion: 2,
+          fields: [{ id: 'field-customer-name', label: '客戶姓名' }],
+          consent: { purpose: '記錄客戶聯絡方式，方便客服回電。', viewers: ['表單商行管理者'] },
+        },
+      },
+    });
+    expect(receipt).toMatchObject({
+      reply: {
+        kind: 'submission-receipt',
+        recipient: '表單商行（客戶資料庫）',
+        entries: [{ fieldId: 'field-customer-name', label: '客戶姓名', display: '王小明' }],
+        withdrawal: { status: 'unavailable', notice: expect.stringContaining('R-20261003-0000000001') },
+      },
+    });
+    expect(gone).toMatchObject({ reply: { kind: 'form-request', form: null } });
+  });
+
+  it('reviews and submits a form with the GUID read from the API, through the API only', async () => {
+    const { repository } = setUpChat();
+    const databaseId = '0199d000-0000-7000-8000-0000000000d1';
+    const mockRecords = () => {
+      const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+      return tracking.status === 'ready' ? JSON.stringify(tracking.data) : tracking.status;
+    };
+    const before = mockRecords();
+
+    const review = pending(repository.reviewChatForm('account-smb-admin', CHAT_ASSISTANT_ID, databaseId, 2, { 'field-customer-name': '王小明' }));
+    const reviewRequest = controller.expectOne({ method: 'POST', url: `${apiAssistantChatFormPath(CHAT_ASSISTANT_ID, databaseId)}/review` });
+    expect(reviewRequest.request.body).toEqual({ formVersionNumber: 2, answers: { 'field-customer-name': '王小明' } });
+    reviewRequest.flush({ saved: false, formVersion: 2, entries: [{ fieldId: 'field-customer-name', label: '客戶姓名', display: '王小明' }] });
+    expect(await review).toEqual({
+      status: 'ready',
+      data: { formId: databaseId, saved: false, entries: [{ fieldId: 'field-customer-name', label: '客戶姓名', display: '王小明' }] },
+    });
+
+    const submission = { formId: databaseId, formVersion: 2, submissionId: 'key-1', answers: { 'field-customer-name': '王小明' }, consent: true };
+    const submitted = pending(repository.submitChatForm('account-smb-admin', CHAT_ASSISTANT_ID, submission, CHAT_THREAD_ID));
+    const submitRequest = controller.expectOne({ method: 'POST', url: `${apiAssistantChatFormPath(CHAT_ASSISTANT_ID, databaseId)}/submissions` });
+    expect(submitRequest.request.body).toEqual({
+      submissionId: 'key-1',
+      formVersionNumber: 2,
+      consent: true,
+      answers: { 'field-customer-name': '王小明' },
+      threadId: CHAT_THREAD_ID,
+    });
+    const receiptMessage = JSON.parse(RECEIPT_JSON) as ApiChatMessageView;
+    submitRequest.flush({ receipt: receiptMessage.reply?.receipt, message: receiptMessage }, { status: 201, statusText: 'Created' });
+    expect(await submitted).toMatchObject({
+      status: 'ready',
+      data: { threadId: CHAT_THREAD_ID, message: { reply: { kind: 'submission-receipt' } } },
+    });
+    // 寫入沒有落到 mock 的收集紀錄（#49 的教訓）。
+    expect(mockRecords()).toBe(before);
+  });
+
+  it('maps a revoked form, a changed form, a missing consent and a reused key to recoverable results', async () => {
+    const { repository } = setUpChat();
+    const databaseId = '0199d000-0000-7000-8000-0000000000d1';
+    const submit = (submissionId: string) =>
+      pending(repository.submitChatForm('account-smb-admin', CHAT_ASSISTANT_ID, {
+        formId: databaseId, formVersion: 2, submissionId, answers: {}, consent: true,
+      }));
+    const path = `${apiAssistantChatFormPath(CHAT_ASSISTANT_ID, databaseId)}/submissions`;
+
+    const revoked = submit('a');
+    controller.expectOne(path).flush(
+      { reason: 'assistant-form', message: '這份表單目前無法使用：助理已不再連接這個資料庫，或你沒有填寫它的權限。' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    expect(await revoked).toMatchObject({ status: 'permission-denied', reason: 'assistant-form' });
+
+    const changed = submit('b');
+    controller.expectOne(path).flush({ reason: 'form-version-changed', message: '這份表單已更新。' }, { status: 409, statusText: 'Conflict' });
+    expect(await changed).toEqual({ status: 'conflict', reason: 'form-version-changed', message: '這份表單已更新。' });
+
+    const reused = submit('c');
+    controller.expectOne(path).flush({ reason: 'submission-key-reused', message: '編號已用過。' }, { status: 409, statusText: 'Conflict' });
+    expect(await reused).toMatchObject({ status: 'conflict', reason: 'submission-key-reused' });
+
+    const noConsent = submit('d');
+    controller.expectOne(path).flush(
+      { reason: 'consent-required', message: '尚未同意，資料沒有送出。', errors: { consent: ['請先勾選同意，才能送出資料。'] } },
+      { status: 422, statusText: 'Unprocessable Entity' },
+    );
+    expect(await noConsent).toMatchObject({ status: 'validation-failed', errors: [{ fieldId: null }] });
+
+    // 5xx 原樣拋出，畫面用同一個編號重試。
+    const failed = submit('e');
+    controller.expectOne(path).flush('boom', { status: 502, statusText: 'Bad Gateway' });
+    await expect(failed).rejects.toBeTruthy();
+  });
 });
 
 const ASSISTANT_ID = '0199c000-0000-7000-8000-0000000000a1';
+const API_DATABASE_ID = '0199d000-0000-7000-8000-0000000000d1';
 const OTHER_ASSISTANT_ID = '0199c000-0000-7000-8000-0000000000a2';
 const DRAFT_ID = '0199c000-0000-7000-8000-0000000000f1';
 const SHARED_KB_ID = '0199b000-0000-7000-8000-0000000000b2';
@@ -1814,6 +1948,7 @@ function apiSettings(overrides: Partial<ApiAssistantSettings> = {}): ApiAssistan
   return {
     configuration: apiConfiguration(),
     knowledgeBaseIds: [KB_ID],
+    databaseIds: [],
     tone: 'professional',
     roleInstructions: '請用門市用語回答。',
     rules: {
@@ -1821,6 +1956,8 @@ function apiSettings(overrides: Partial<ApiAssistantSettings> = {}): ApiAssistan
       refusalMessage: '目前的資料中找不到答案。',
       showCitations: true,
       keepConversations: false,
+      dataWriteDatabaseId: null,
+      dataWritePurpose: '',
     },
     ...overrides,
   };
@@ -2063,7 +2200,8 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     );
 
     const request = controller.expectOne({ method: 'PATCH', url: apiAssistantSettingsPath(ASSISTANT_ID) });
-    expect(request.request.body).toEqual({ name: '新名稱', rules: { keepConversations: true } });
+    // 使用對象與定期回報（#150）不送；收集目的（#148）照送。
+    expect(request.request.body).toEqual({ name: '新名稱', rules: { keepConversations: true, dataWritePurpose: '收集' } });
     request.flush(apiSettings({ configuration: apiConfiguration({ name: '新名稱', updatedAt: '2026-09-28T04:00:00+00:00' }) }));
 
     expect(await result).toMatchObject({
@@ -2135,13 +2273,61 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     });
   });
 
-  it('refuses a database source in API mode without calling the API', async () => {
+  it('connects a database GUID read from /connectable-sources through the API and sets it as the form target (#148)', async () => {
     const { repository } = setUpAssistants();
 
-    expect(
-      await pending(repository.setAssistantSourceConnection(ASSISTANT_ID, { id: 'database-orders', type: 'database' }, true)),
-    ).toMatchObject({ status: 'validation-failed', errors: [{ field: 'sources', message: expect.stringContaining('後續版本開放') }] });
-    controller.expectNone(() => true);
+    // 讀：資料庫的 id 是 API 的 GUID，不在 mock 的種子裡。
+    const sources = pending(repository.listConnectableSources());
+    controller.expectOne({ method: 'GET', url: API_CONNECTABLE_SOURCES_PATH }).flush([
+      { id: API_DATABASE_ID, type: 'database', name: '客戶資料庫', summary: '4 個欄位', permission: 'owner', status: 'ready', updatedAt: '2026-10-03T01:00:00+00:00' },
+    ]);
+    const listed = await sources;
+    if (listed.status !== 'ready') throw new Error('expected sources');
+    const database = listed.data[0];
+    expect(database).toMatchObject({ id: API_DATABASE_ID, type: 'database' });
+
+    // 寫：用讀到的 id 走一次寫入，伺服器回的設定把它列為來源。
+    const connected = pending(repository.setAssistantSourceConnection(ASSISTANT_ID, { id: database.id, type: 'database' }, true));
+    const put = controller.expectOne({ method: 'PUT', url: apiAssistantDatabaseSourcePath(ASSISTANT_ID, API_DATABASE_ID) });
+    put.flush(apiSettings({ databaseIds: [API_DATABASE_ID] }));
+    expect(await connected).toMatchObject({
+      status: 'ready',
+      data: {
+        sources: [{ id: KB_ID, type: 'knowledge-base' }, { id: API_DATABASE_ID, type: 'database' }],
+        configuration: { databaseIds: [API_DATABASE_ID] },
+      },
+    });
+
+    const target = pending(repository.updateAssistantSettings(ASSISTANT_ID, {
+      rules: { dataWriteDatabaseId: API_DATABASE_ID, dataWritePurpose: '回電用' },
+    }));
+    const patch = controller.expectOne({ method: 'PATCH', url: apiAssistantSettingsPath(ASSISTANT_ID) });
+    expect(patch.request.body).toEqual({ rules: { dataWriteDatabaseId: API_DATABASE_ID, dataWritePurpose: '回電用' } });
+    patch.flush(apiSettings({
+      databaseIds: [API_DATABASE_ID],
+      rules: {
+        knowledgeScope: 'company-data-only',
+        refusalMessage: '目前的資料中找不到答案。',
+        showCitations: true,
+        keepConversations: false,
+        dataWriteDatabaseId: API_DATABASE_ID,
+        dataWritePurpose: '回電用',
+      },
+    }));
+    expect(await target).toMatchObject({
+      status: 'ready',
+      data: { rules: { dataWriteDatabaseId: API_DATABASE_ID, dataWritePurpose: '回電用' } },
+    });
+
+    // 清除寫入對象送空字串；解除連接走 DELETE。
+    const cleared = pending(repository.updateAssistantSettings(ASSISTANT_ID, { rules: { dataWriteDatabaseId: null } }));
+    const clear = controller.expectOne({ method: 'PATCH', url: apiAssistantSettingsPath(ASSISTANT_ID) });
+    expect(clear.request.body).toEqual({ rules: { dataWriteDatabaseId: '' } });
+    clear.flush(apiSettings({ databaseIds: [API_DATABASE_ID] }));
+    await cleared;
+    const disconnected = pending(repository.setAssistantSourceConnection(ASSISTANT_ID, { id: API_DATABASE_ID, type: 'database' }, false));
+    controller.expectOne({ method: 'DELETE', url: apiAssistantDatabaseSourcePath(ASSISTANT_ID, API_DATABASE_ID) }).flush(apiSettings());
+    expect(await disconnected).toMatchObject({ status: 'ready', data: { sources: [{ id: KB_ID, type: 'knowledge-base' }] } });
   });
 
   it('deletes an assistant with a DELETE (204) and maps 403 to the configuration permission-denied', async () => {
@@ -2438,7 +2624,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
 
   // ---------- 可連接來源 ----------
 
-  it('reads connectable sources from /connectable-sources: own, public and shared-with-me knowledge bases, no databases', async () => {
+  it('reads connectable sources from /connectable-sources: own, public and shared-with-me knowledge bases', async () => {
     const { repository } = setUpAssistants();
     const result = pending(repository.listConnectableSources());
 

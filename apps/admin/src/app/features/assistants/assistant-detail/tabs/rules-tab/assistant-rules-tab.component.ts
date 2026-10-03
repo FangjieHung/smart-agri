@@ -16,7 +16,7 @@ import { AssistantSettingsStore } from '../../assistant-settings.store';
 })
 export class AssistantRulesTabComponent {
   protected readonly store = inject(AssistantSettingsStore);
-  /** 資料庫屬於 M4：API 模式不提供資料庫寫入與定期回報。 */
+  /** API 模式可設定資料庫寫入（#148）；定期回報（#150）尚未提供。 */
   protected readonly apiMode = inject(ApiSessionService).apiMode;
 
   protected readonly errors = computed(() => ({

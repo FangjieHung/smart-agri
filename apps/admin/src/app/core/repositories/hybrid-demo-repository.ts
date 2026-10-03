@@ -93,8 +93,11 @@ import type {
   DatabaseTrialAnswers,
   DatabaseUpcomingFeature,
 } from '../domain/database.model';
+import type { ChatViewerId } from '../domain/account.model';
 import type {
   AssistantChatView,
+  ChatFormSubmission,
+  ChatFormView,
   ChatMessageView,
   ChatReplyView,
   ChatThreadListView,
@@ -128,6 +131,8 @@ import {
   type PreviewKnowledgeRetrievalResult,
   type PreviewTrialAnswerResult,
   type RenameChatThreadResult,
+  type ReviewChatFormResult,
+  type SubmitChatFormResult,
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
   type RetryKnowledgeDocumentResult,
@@ -220,6 +225,10 @@ type ApiDatabaseSubmissionForm = components['schemas']['DatabaseSubmissionFormVi
 type ApiDatabaseSubmissionReceipt = components['schemas']['DatabaseSubmissionReceiptView'];
 type ReviewDatabaseSubmissionRequest = components['schemas']['ReviewDatabaseSubmissionRequest'];
 type SubmitDatabaseEntryRequest = components['schemas']['SubmitDatabaseEntryRequest'];
+type ApiChatFormRequest = components['schemas']['ChatFormRequestView'];
+type ApiChatFormSubmission = components['schemas']['ChatFormSubmissionView'];
+type ReviewChatFormRequest = components['schemas']['ReviewChatFormRequest'];
+type SubmitChatFormRequest = components['schemas']['SubmitChatFormRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -332,6 +341,15 @@ export function apiAssistantKnowledgeSourcePath(assistantId: string, knowledgeBa
   return `${apiAssistantPath(assistantId)}/sources/knowledge-base/${encodeURIComponent(knowledgeBaseId)}`;
 }
 
+export function apiAssistantDatabaseSourcePath(assistantId: string, databaseId: string): string {
+  return `${apiAssistantPath(assistantId)}/sources/database/${encodeURIComponent(databaseId)}`;
+}
+
+/** 對話中的表單（issue #148）：`.../review` 與 `.../submissions`。 */
+export function apiAssistantChatFormPath(assistantId: string, databaseId: string): string {
+  return `${apiAssistantPath(assistantId)}/chat/forms/${encodeURIComponent(databaseId)}`;
+}
+
 export function apiAssistantPublishingPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/publishing`;
 }
@@ -380,17 +398,21 @@ export function apiDatabaseAccessPath(databaseId: string): string {
  * `records` 仍保留（#145 之後）：同意提交、回執與表單連結頁已走 API，伺服器也有給資料管理者的
  * `GET /api/v1/databases/{id}/records`，但收集紀錄頁籤的時間軸、撤回軌跡與趨勢（`getDatabaseTracking`）
  * 是 #146／#147，在那之前這兩個頁籤照舊顯示「將於後續版本開放」，不拿半套資料假裝成時間軸。
+ *
+ * `assistant-connections` 已移除（#148）：詳情的「已連接助理」來自 API。
  */
 export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
   'records',
-  'assistant-connections',
 ];
 
 /** 草稿 `payload` 的形狀版本（jsonb，形狀由前端決定）；形狀有不相容的變更時才遞增。 */
 export const ASSISTANT_DRAFT_SCHEMA_VERSION = 1;
 
-/** 與後端 `AssistantEndpoints.DatabaseSourcesNotYetAvailableMessage` 相同。 */
-const DATABASE_SOURCES_NOT_AVAILABLE_MESSAGE = '資料庫來源將於後續版本開放，目前只能連接知識庫。';
+/** 與後端 `ForbiddenReason.AssistantForm` 相同（issue #148）。 */
+const ASSISTANT_FORM_DENIED = {
+  reason: 'assistant-form',
+  message: '這份表單目前無法使用：助理已不再連接這個資料庫，或你沒有填寫它的權限。',
+} as const;
 
 /** 設定新密碼前 API 回的 403 訊息；與 API 的 `ForbiddenReason.PasswordChangeRequired` 相同。 */
 const PASSWORD_CHANGE_REQUIRED_MESSAGE = '請先設定新密碼，才能使用其他功能。';
@@ -721,8 +743,9 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /**
-   * `PATCH` 只送後端認得的欄位；使用對象（M3 只有組織內）、資料庫寫入與定期回報屬於 M4，
-   * 畫面在 API 模式不提供這些選項，即使帶進來也不送出。後端全有或全無：`422` 時完全沒有寫入。
+   * `PATCH` 只送後端認得的欄位；使用對象（M3 只有組織內）與定期回報（#150）畫面在 API 模式不提供，
+   * 即使帶進來也不送出。資料庫寫入（`dataWriteDatabaseId`／`dataWritePurpose`，#148）照送。
+   * 後端全有或全無：`422` 時完全沒有寫入。
    */
   override updateAssistantSettings(
     assistantId: string,
@@ -741,6 +764,9 @@ export class HybridDemoRepository extends MockDemoRepository {
               ...(rules.refusalMessage !== undefined ? { refusalMessage: rules.refusalMessage } : {}),
               ...(rules.showCitations !== undefined ? { showCitations: rules.showCitations } : {}),
               ...(rules.keepOwnConversations !== undefined ? { keepConversations: rules.keepOwnConversations } : {}),
+              // 寫入的資料庫（issue #148）：null 送空字串代表「不寫入」；沒帶就不變。
+              ...(rules.dataWriteDatabaseId !== undefined ? { dataWriteDatabaseId: rules.dataWriteDatabaseId ?? '' } : {}),
+              ...(rules.dataWritePurpose !== undefined ? { dataWritePurpose: rules.dataWritePurpose } : {}),
             },
           }
         : {}),
@@ -754,24 +780,18 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /**
-   * 知識庫走 `PUT`／`DELETE .../sources/knowledge-base/{id}`；資料庫在 M3 還不存在，直接回傳
-   * 與後端 `422 database-not-available` 相同的訊息，不必打 API。`422`（不可連接、最後一個來源）
-   * 轉成 `sources` 欄位的錯誤。
+   * 知識庫走 `PUT`／`DELETE .../sources/knowledge-base/{id}`，資料庫（#148）走
+   * `.../sources/database/{id}`：讀寫兩端都是 API，伺服器判斷可不可以連接（不經 mock 的種子清單）。
+   * `422`（不可連接、最後一個來源）轉成 `sources` 欄位的錯誤。
    */
   override setAssistantSourceConnection(
     assistantId: string,
     source: AssistantSourceReference,
     connected: boolean,
   ): Observable<UpdateAssistantSettingsResult> {
-    if (source.type === 'database') {
-      return of({
-        status: 'validation-failed',
-        errors: [{ field: 'sources', message: DATABASE_SOURCES_NOT_AVAILABLE_MESSAGE }],
-        message: DATABASE_SOURCES_NOT_AVAILABLE_MESSAGE,
-      });
-    }
-
-    const path = apiAssistantKnowledgeSourcePath(assistantId, source.id);
+    const path = source.type === 'database'
+      ? apiAssistantDatabaseSourcePath(assistantId, source.id)
+      : apiAssistantKnowledgeSourcePath(assistantId, source.id);
     const request = connected
       ? this.http.put<ApiAssistantSettings>(path, null)
       : this.http.delete<ApiAssistantSettings>(path);
@@ -1573,6 +1593,82 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  /**
+   * 對話中表單的確認（issue #148）：`POST .../chat/forms/{databaseId}/review`，不寫入。讀寫兩端都走
+   * API——表單 id 是 API 給的資料庫 GUID，不經 mock 的種子清單驗證（#49 的教訓）。
+   */
+  override reviewChatForm(
+    _viewerId: ChatViewerId,
+    assistantId: string,
+    formId: DatabaseId,
+    formVersion: number,
+    answers: DatabaseTrialAnswers,
+  ): Observable<ReviewChatFormResult> {
+    const body: ReviewChatFormRequest = {
+      formVersionNumber: formVersion,
+      answers: answers as unknown as Record<string, never>,
+    };
+    return this.http.post<ApiDatabaseTrialPreview>(`${apiAssistantChatFormPath(assistantId, formId)}/review`, body).pipe(
+      map((response): ReviewChatFormResult => ({
+        status: 'ready',
+        data: {
+          formId,
+          saved: false,
+          entries: response.entries.map((entry) => ({
+            fieldId: toDatabaseFieldId(entry.fieldId),
+            label: entry.label,
+            display: entry.display,
+          })),
+        },
+      })),
+      catchError((error: unknown) => this.chatFormRefusedOrThrow(error)),
+    );
+  }
+
+  /**
+   * 對話中表單的送出：`POST .../chat/forms/{databaseId}/submissions`。`201`／`200`（同一個
+   * `submissionId` 重送）都回同一張收據與收據訊息；`403 assistant-form`（已不再連接、分享或權限
+   * 收回）、`409`、`422` 轉成對應結果；5xx 與連線中斷原樣拋出，畫面以同一個編號重試。
+   */
+  override submitChatForm(
+    _viewerId: ChatViewerId,
+    assistantId: string,
+    submission: ChatFormSubmission,
+    threadId?: string,
+  ): Observable<SubmitChatFormResult> {
+    const body: SubmitChatFormRequest = {
+      submissionId: submission.submissionId,
+      formVersionNumber: submission.formVersion,
+      consent: submission.consent,
+      answers: submission.answers as unknown as Record<string, never>,
+      threadId: threadId ?? null,
+    };
+    return this.http
+      .post<ApiChatFormSubmission>(`${apiAssistantChatFormPath(assistantId, submission.formId)}/submissions`, body)
+      .pipe(
+        map((response): SubmitChatFormResult => {
+          const message = toChatMessage(response.message);
+          return { status: 'ready', data: { message, threadId: threadId ?? null } };
+        }),
+        catchError((error: unknown) => this.chatFormRefusedOrThrow(error)),
+      );
+  }
+
+  private chatFormRefusedOrThrow(
+    error: unknown,
+  ): Observable<DatabaseFieldsValidationFailedView | DatabaseSubmissionConflictView | PermissionDeniedRepositoryView> {
+    if (isHttpError(error, 409)) {
+      const reason = (error.error as ForbiddenBody | null)?.reason;
+      return of({
+        status: 'conflict',
+        reason: reason === 'submission-key-reused' ? 'submission-key-reused' : 'form-version-changed',
+        message: bodyMessage(error) ?? '這份表單已更新，請重新載入最新的表單後再填寫。',
+      });
+    }
+    if (isHttpError(error, 422)) return of(databaseFieldsValidationFailed(error, 'answers', []));
+    return this.permissionDeniedOrThrow(error, ASSISTANT_FORM_DENIED);
+  }
+
   /** `403` 的 `reason` 一定是 `assistant-use` 或 `chat-thread`；`404` 視同對話不存在。 */
   private chatDeniedOrThrow(error: unknown): Observable<PermissionDeniedRepositoryView> {
     if (isHttpError(error, 404)) return of(permissionDenied({ reason: 'chat-thread', message: '找不到這段對話，或它不屬於你的帳號。' }));
@@ -1808,7 +1904,7 @@ function toDatabaseSummary(summary: ApiDatabaseSummary): DatabaseSummaryView {
     fieldCount: summary.fieldCount,
     recordCount: null,
     subjectCount: null,
-    connectedAssistantNames: [],
+    connectedAssistantNames: [...(summary.connectedAssistantNames ?? [])],
     updatedAt: summary.updatedAt,
   };
 }
@@ -1819,7 +1915,11 @@ function toDatabaseDetail(detail: ApiDatabaseDetail): DatabaseDetailView {
     summary,
     formVersion: detail.form.versionNumber,
     fields: detail.form.fields.map(toDatabaseField),
-    connectedAssistants: [],
+    connectedAssistants: (detail.connectedAssistants ?? []).map((assistant) => ({
+      id: assistant.id as AssistantId,
+      name: assistant.name,
+      status: assistant.status,
+    })),
     access: toDatabaseAccess(detail.access),
     upcomingFeatures: API_UPCOMING_DATABASE_FEATURES,
   };
@@ -1923,6 +2023,7 @@ function toAssistantConfiguration(
   assistant: ApiAssistantConfiguration,
   knowledgeBaseIds: readonly string[] = [],
   keepOwnConversations = true,
+  databaseIds: readonly string[] = [],
 ): AssistantConfigurationView {
   return {
     id: assistant.id as AssistantId,
@@ -1933,7 +2034,7 @@ function toAssistantConfiguration(
     audience: 'account-members',
     sharedWithAccountIds: [],
     knowledgeBaseIds: [...knowledgeBaseIds],
-    databaseIds: [],
+    databaseIds: [...databaseIds],
     keepOwnConversations,
     acceptanceStatus: assistant.acceptanceStatus,
   };
@@ -1943,8 +2044,13 @@ function toAssistantConfiguration(
 function toAssistantSettings(settings: ApiAssistantSettings): AssistantSettingsView {
   const { configuration, rules } = settings;
   return {
-    configuration: toAssistantConfiguration(configuration, settings.knowledgeBaseIds, rules.keepConversations),
-    sources: settings.knowledgeBaseIds.map((id): AssistantSourceReference => ({ id, type: 'knowledge-base' })),
+    configuration: toAssistantConfiguration(
+      configuration, settings.knowledgeBaseIds, rules.keepConversations, settings.databaseIds,
+    ),
+    sources: [
+      ...settings.knowledgeBaseIds.map((id): AssistantSourceReference => ({ id, type: 'knowledge-base' })),
+      ...settings.databaseIds.map((id): AssistantSourceReference => ({ id, type: 'database' })),
+    ],
     tone: settings.tone,
     roleInstructions: settings.roleInstructions,
     rules: {
@@ -1952,9 +2058,9 @@ function toAssistantSettings(settings: ApiAssistantSettings): AssistantSettingsV
       refusalMessage: rules.refusalMessage,
       showCitations: rules.showCitations,
       keepOwnConversations: rules.keepConversations,
-      // 資料庫寫入與定期回報屬於 M4，後端沒有這些欄位。
-      dataWriteDatabaseId: null,
-      dataWritePurpose: '',
+      // 資料庫寫入（#148）來自 API；定期回報是 #150，後端還沒有。
+      dataWriteDatabaseId: rules.dataWriteDatabaseId ?? null,
+      dataWritePurpose: rules.dataWritePurpose,
       periodicReport: 'off',
     },
     savedAt: configuration.updatedAt === configuration.createdAt ? null : configuration.updatedAt,
@@ -2038,6 +2144,14 @@ const CONNECTABLE_STATUSES: readonly ConnectableSourceView['status'][] = [
 ];
 
 function toConnectableSource(source: ApiConnectableSource): ConnectableSourceView {
+  const common = {
+    name: source.name,
+    summary: source.summary,
+    permission: source.permission === 'owner' ? ('owner' as const) : ('read-only' as const),
+    status: CONNECTABLE_STATUSES.find((status) => status === source.status) ?? 'ready',
+    updatedAt: source.updatedAt,
+  };
+  if (source.type === 'database') return { ...common, id: source.id, type: 'database' };
   return {
     id: source.id,
     type: 'knowledge-base',
@@ -2351,12 +2465,34 @@ function toChatThreadListView(response: ApiChatThreadListView): ChatThreadListVi
 }
 
 /**
- * 後端的 `ChatReplyView` 是同一個扁平形狀（不適用的欄位省略），不是前端的
+ * 後端的 `ChatReplyView` 是同一個扁平形狀（不適用的欄位為 null），不是前端的
  * discriminated union（`docs/plans/2026-09-27-backend-milestone-3-in-platform-chat.md`
- * 第 3 節「與前端型別的差異」）；這裡依 `kind` 轉回前端的三種變體。`form-request` 與
- * `submission-receipt` 兩種目前後端還沒有，理論上不會出現。
+ * 第 3 節「與前端型別的差異」）；這裡依 `kind` 轉回前端的變體。`form-request` 與
+ * `submission-receipt` 是 #148：表單來自伺服器（`form` 為 null 代表已無法使用），收據由
+ * 伺服器依提交 id 即時讀取，訊息本身不含填寫內容。
  */
 function toChatReply(reply: ApiChatReplyView): ChatReplyView {
+  if (reply.kind === 'form-request') {
+    return { kind: 'form-request', text: reply.text, form: reply.form ? toChatForm(reply.form) : null };
+  }
+  if (reply.kind === 'submission-receipt') {
+    const receipt = reply.receipt ?? null;
+    return {
+      kind: 'submission-receipt',
+      text: reply.text,
+      recipient: receipt?.recipient ?? '',
+      recordId: null,
+      entries: receipt === null ? [] : toSubmissionReceipt(receipt).entries,
+      // 對話中撤回屬於 #146；在那之前 API 模式的收據不提供撤回。
+      withdrawal: {
+        status: 'unavailable',
+        withdrawnDateLabel: '',
+        notice: receipt === null
+          ? '目前無法讀取這張收據。'
+          : `回執編號 ${receipt.receiptNumber}。撤回功能將於後續版本開放。`,
+      },
+    };
+  }
   if (reply.kind === 'general-knowledge') {
     return { kind: 'general-knowledge', text: reply.text, notice: reply.notice ?? '' };
   }
@@ -2375,6 +2511,22 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
       updatedLabel: citation.updatedLabel,
     })),
     citationNotice: reply.notice ?? null,
+  };
+}
+
+function toChatForm(form: ApiChatFormRequest): ChatFormView {
+  return {
+    id: form.id,
+    title: form.title,
+    formVersion: form.formVersion,
+    fields: form.fields.map(toDatabaseField),
+    consent: {
+      recipient: form.consent.recipient,
+      purpose: form.consent.purpose,
+      viewers: [...form.consent.viewers],
+      sensitiveNotice: form.consent.sensitiveNotice,
+      withdrawalNotice: form.consent.withdrawalNotice,
+    },
   };
 }
 

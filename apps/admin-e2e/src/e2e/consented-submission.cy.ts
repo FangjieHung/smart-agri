@@ -113,8 +113,13 @@ describe('consented structured submission', () => {
     cy.get('app-inline-form').contains('button', '取消').click();
     // 解除連接後建議問題不再提供回報入口；手動輸入也不會得到表單。
     cy.contains('button.suggested-prompt', '回報訂單問題').should('not.exist');
-    cy.get('#chat-input').type('我要回報訂單問題');
-    cy.get('form.composer button[type="submit"]').click();
+    cy.get('[role="log"] app-chat-message').its('length').then((before) => {
+      cy.get('#chat-input').type('我要回報訂單問題');
+      cy.get('form.composer button[type="submit"]').click();
+      // 等使用者訊息與助理回覆都出現後才檢查，回覆不是表單請求。
+      cy.get('[role="log"] app-chat-message').should('have.length', before + 2);
+    });
+    cy.get('[role="log"] app-chat-message').last().find('[data-kind]').should('not.have.attr', 'data-kind', 'form-request');
     cy.get('[role="log"] [data-kind="form-request"]').should('have.length', 1);
 
     loginAs('SMB 管理者');

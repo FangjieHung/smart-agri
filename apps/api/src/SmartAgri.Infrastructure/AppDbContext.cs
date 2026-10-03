@@ -8,6 +8,7 @@ using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Chat;
+using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
@@ -17,6 +18,7 @@ using SmartAgri.Infrastructure.Ai;
 using SmartAgri.Infrastructure.Answers;
 using SmartAgri.Infrastructure.Assistants;
 using SmartAgri.Infrastructure.Chat;
+using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
@@ -133,6 +135,13 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
     /// <summary>A <c>company-data</c> message's cited passages, as a snapshot (#76).</summary>
     public DbSet<ChatMessageCitation> ChatMessageCitations => Set<ChatMessageCitation>();
+
+    /// <summary>數據庫: structured, consented collections created from a template (M4, #142).
+    /// The fully qualified name avoids <see cref="DbContext.Database"/>.</summary>
+    public DbSet<SmartAgri.Domain.Databases.Database> Databases => Set<SmartAgri.Domain.Databases.Database>();
+
+    /// <summary>Each database's immutable form versions; the highest number is the current form.</summary>
+    public DbSet<DatabaseFormVersion> DatabaseFormVersions => Set<DatabaseFormVersion>();
 
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
@@ -258,6 +267,10 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new ChatThreadConfiguration());
         modelBuilder.ApplyConfiguration(new ChatMessageConfiguration());
         modelBuilder.ApplyConfiguration(new ChatMessageCitationConfiguration());
+
+        // Databases and their form versions (M4, #142).
+        modelBuilder.ApplyConfiguration(new DatabaseConfiguration());
+        modelBuilder.ApplyConfiguration(new DatabaseFormVersionConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

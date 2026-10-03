@@ -41,6 +41,26 @@ public sealed class ForbiddenReason
         "只有可管理資料來源的帳號可以建立知識庫。");
 
     /// <summary>
+    /// A database (數據庫) that does not exist, belongs to another organization, or is not the
+    /// caller's own (only the owner may open or change one, #142). Same bytes in every case, so
+    /// nobody learns its name, fields or record count. Same wire name and message as the mock's
+    /// <c>databasePermissionDenied</c>.
+    /// </summary>
+    public static readonly ForbiddenReason Database = new(
+        "database",
+        "你沒有這個資料庫的存取權限，或它已不存在。");
+
+    /// <summary>
+    /// Listing templates or creating a database without <c>manage-data-sources</c>. Same wire
+    /// name as <see cref="Database"/>; the message differs (as in the mock's
+    /// <c>createDatabasePermissionDenied</c>) because there is no existing resource whose
+    /// existence it could reveal.
+    /// </summary>
+    public static readonly ForbiddenReason DatabaseCreate = new(
+        "database",
+        "只有可管理資料來源的帳號可以建立資料庫。");
+
+    /// <summary>
     /// An assistant's configuration (list, settings, source connections, deletion) that does
     /// not exist, belongs to another organization, or is not the caller's own (only the owner
     /// may open or change one; listing and settings also need <c>manage-assistants</c>). Same

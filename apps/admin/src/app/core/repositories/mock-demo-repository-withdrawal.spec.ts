@@ -67,7 +67,7 @@ function submit(
 }
 
 function subjectOf(repository: MockDemoRepository, subjectId: string): TrackedSubjectView | undefined {
-  const tracking = repository.getDatabaseTracking(MANAGER, FORM);
+  const tracking = repository.readDatabaseTracking(MANAGER, FORM);
   if (tracking.status !== 'ready') throw new Error(`expected ready, got ${tracking.status}`);
   return tracking.data.subjects.find((subject) => subject.id === subjectId);
 }

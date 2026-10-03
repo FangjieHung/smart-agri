@@ -133,7 +133,7 @@ describe('ChatShellPageComponent', () => {
 
     expect(host.querySelector('app-consent-confirmation')).toBeNull();
     expect(host.querySelector('[data-kind="submission-receipt"]')?.textContent).toContain('已送出');
-    const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+    const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
     expect(tracking).toMatchObject({ status: 'ready', data: { subjects: [{ displayName: '外部客戶' }] } });
   });
 
@@ -234,7 +234,7 @@ describe('ChatShellPageComponent', () => {
       fixture.detectChanges();
 
       expect(host.querySelector('[data-kind="submission-receipt"]')?.textContent).toContain('已送出');
-      const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+      const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
       expect(tracking).toMatchObject({
         status: 'ready',
         data: { subjects: [{ displayName: expect.stringContaining('未登入訪客') }] },

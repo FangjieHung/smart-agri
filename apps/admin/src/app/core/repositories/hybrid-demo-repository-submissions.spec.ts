@@ -152,6 +152,8 @@ describe('HybridDemoRepository consented submission (issue #145)', () => {
           { fieldId: 'field-liked-services', label: '喜歡的服務', display: '客服回應' },
           { fieldId: 'field-suggestion', label: '其他建議', display: '未填寫' },
         ],
+        // #145 的回應還沒有 `withdrawnAt`：省略視為有效（null），不會被當成已撤回。
+        withdrawnAt: null,
       },
     });
     expect(written).toEqual([]);

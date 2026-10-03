@@ -66,6 +66,7 @@ import type {
   DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
   DatabaseTrackingView,
+  OwnDatabaseSubmissionView,
   DatabaseTrialAnswers,
   DatabaseView,
   PeriodicReportView,
@@ -887,9 +888,11 @@ const DEMO_ORGANIZATION_NAME = '安心商行';
 /** 與後端 `ForbiddenReason.AuthorizedForm`／`SubmissionReceipt` 逐字相同。 */
 const AUTHORIZED_FORM_DENIED_MESSAGE = '你沒有填寫這份表單的權限，或它已不存在。';
 const SUBMISSION_RECEIPT_DENIED_MESSAGE = '找不到這張回執，或你沒有查看它的權限。';
+/** 與後端 `ForbiddenReason.SubmissionWithdrawal` 逐字相同（也是對話收據撤回的訊息）。 */
+const SUBMISSION_WITHDRAWAL_DENIED_MESSAGE = '找不到這筆紀錄，或你沒有撤回它的權限。';
 /** 與後端 `DatabaseSubmissionRules.WithdrawalNotice` 逐字相同。 */
 const DATABASE_SUBMISSION_WITHDRAWAL_NOTICE =
-  '送出後會取得一張回執。撤回功能將於後續版本開放：撤回後接收單位會移除這筆資料的內容，只保留「曾提交、已撤回」的軌跡；在那之前如需撤回，請聯絡接收單位。';
+  '送出後會取得一張回執。你可以隨時在「對話與回報紀錄」撤回自己送出的資料：撤回後接收單位會刪除這筆資料的內容與數值，只保留「曾提交、已撤回」的時間軌跡；已經產生的定期報表不會追溯修改。';
 /** 與後端 `DatabaseSubmissionEndpoints` 的訊息逐字相同。 */
 const DATABASE_SUBMISSION_FORM_CHANGED_MESSAGE =
   '這份表單已更新，請重新載入最新的表單後再填寫。你這次填寫的內容尚未送出。';
@@ -3523,9 +3526,100 @@ export class MockDemoRepository implements DemoRepository {
       return of(
         stored === undefined
           ? this.permissionDenied('authorized-form', SUBMISSION_RECEIPT_DENIED_MESSAGE)
-          : this.applyScenario(stored.receipt),
+          : this.applyScenario(this.currentReceipt(stored)),
       );
     });
+  }
+
+  /** 目前帳號自己送出的表單連結資料，新到舊，含已撤回的軌跡（issue #146）；不含填寫內容。 */
+  listOwnDatabaseSubmissions(): ReturnType<DemoRepository['listOwnDatabaseSubmissions']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      const own = viewerAccountId === null
+        ? []
+        : this.storedDatabaseSubmissions()
+            .filter((entry) => entry.submitterId === viewerAccountId)
+            .map((entry) => this.currentReceipt(entry))
+            .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt) || b.id.localeCompare(a.id))
+            .map((receipt): OwnDatabaseSubmissionView => ({
+              id: receipt.id,
+              receiptNumber: receipt.receiptNumber,
+              submittedAt: receipt.submittedAt,
+              databaseId: receipt.databaseId,
+              databaseName: receipt.databaseName,
+              formVersion: receipt.formVersion,
+              source: receipt.source,
+              withdrawnAt: receipt.withdrawnAt,
+            }));
+      return of(this.applyScenario(own));
+    });
+  }
+
+  /**
+   * 撤回（issue #146）：只有提交者本人；內容與數值從收集紀錄刪除、回執快取也一併清掉內容，只留下
+   * 軌跡。再撤回一次回同一張已撤回的回執（與 API 相同的冪等語意）。
+   */
+  withdrawDatabaseSubmission(submissionId: string): ReturnType<DemoRepository['withdrawDatabaseSubmission']> {
+    return defer(() => of(this.writeDatabaseWithdrawal(this.viewer(), submissionId)));
+  }
+
+  private writeDatabaseWithdrawal(
+    viewerAccountId: AccountId | null,
+    submissionId: string,
+  ): RepositoryView<DatabaseSubmissionReceiptView> {
+    const submissions = this.storedDatabaseSubmissions();
+    const stored = submissions.find(
+      (entry) => entry.receipt.id === submissionId && entry.submitterId === viewerAccountId,
+    );
+    if (stored === undefined || viewerAccountId === null) {
+      return this.permissionDenied('submission-withdrawal', SUBMISSION_WITHDRAWAL_DENIED_MESSAGE);
+    }
+
+    const current = this.currentReceipt(stored);
+    if (current.withdrawnAt !== null) return this.applyScenario(current);
+
+    const withdrawnAt = this.now().toISOString();
+    const records = this.chatRecords();
+    this.storage.setItem(
+      CHAT_RECORDS_KEY,
+      JSON.stringify(
+        records.map((record): DatabaseRecordFixture =>
+          record.id === stored.recordId
+            ? {
+                id: record.id,
+                databaseId: record.databaseId,
+                subjectId: record.subjectId,
+                recordedAt: record.recordedAt,
+                source: record.source,
+                consentStatus: 'withdrawn',
+                withdrawnAt,
+                values: [],
+              }
+            : record,
+        ),
+      ),
+    );
+    const receipt: DatabaseSubmissionReceiptView = { ...stored.receipt, entries: [], withdrawnAt };
+    this.storage.setItem(
+      DATABASE_SUBMISSIONS_KEY,
+      JSON.stringify(submissions.map((entry) => (entry === stored ? { ...entry, receipt } : entry))),
+    );
+    return this.applyScenario(receipt);
+  }
+
+  /**
+   * 存著的回執加上目前的撤回狀態：紀錄已撤回（或舊資料沒有 `withdrawnAt`）時，回執不帶任何內容。
+   * 撤回狀態以收集紀錄為準，回執只是快取。
+   */
+  private currentReceipt(stored: StoredDatabaseSubmission): DatabaseSubmissionReceiptView {
+    const record = this.chatRecords().find((candidate) => candidate.id === stored.recordId);
+    const withdrawnAt =
+      record?.consentStatus === 'withdrawn'
+        ? (record.withdrawnAt ?? stored.receipt.withdrawnAt ?? stored.receipt.submittedAt)
+        : (stored.receipt.withdrawnAt ?? null);
+    return withdrawnAt === null
+      ? { ...stored.receipt, withdrawnAt: null }
+      : { ...stored.receipt, entries: [], withdrawnAt };
   }
 
   private writeDatabaseSubmission(
@@ -3549,6 +3643,17 @@ export class MockDemoRepository implements DemoRepository {
       (entry) => entry.submitterId === viewerAccountId && entry.submissionKey === input.submissionId,
     );
     if (existing !== undefined) {
+      const current = this.currentReceipt(existing);
+      // 已撤回的那一份填寫：重送只會拿到撤回後的回執（不含內容），不會再建立紀錄（與 API 相同）。
+      if (current.withdrawnAt !== null) {
+        return current.databaseId === database.id && current.formVersion === input.formVersion
+          ? this.applyScenario(current)
+          : immutableCopy({
+              status: 'conflict',
+              reason: 'submission-key-reused',
+              message: DATABASE_SUBMISSION_KEY_REUSED_MESSAGE,
+            });
+      }
       const record = this.chatRecords().find((candidate) => candidate.id === existing.recordId);
       const sameContent =
         input.consent === true &&
@@ -3558,7 +3663,7 @@ export class MockDemoRepository implements DemoRepository {
         record.consentStatus === 'consented' &&
         evaluatesTo(record.values, this.databaseCollection(database.id).fields, input.answers);
       return sameContent
-        ? this.applyScenario(existing.receipt)
+        ? this.applyScenario(current)
         : immutableCopy({
             status: 'conflict',
             reason: 'submission-key-reused',
@@ -3616,6 +3721,7 @@ export class MockDemoRepository implements DemoRepository {
       formVersion: currentVersion,
       source: 'form-link',
       entries: outcome.entries,
+      withdrawnAt: null,
     };
     this.storage.setItem(CHAT_RECORDS_KEY, JSON.stringify([...records, record]));
     this.storage.setItem(
@@ -3653,10 +3759,25 @@ export class MockDemoRepository implements DemoRepository {
     return Array.isArray(stored) ? stored.filter(isStoredDatabaseSubmission) : [];
   }
 
-  getDatabaseTracking(
+  getDatabaseTracking(databaseId: string): ReturnType<DemoRepository['getDatabaseTracking']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      return of(
+        viewerAccountId === null
+          ? this.databasePermissionDenied()
+          : this.readDatabaseTracking(viewerAccountId, databaseId),
+      );
+    });
+  }
+
+  /**
+   * `getDatabaseTracking` 的同步本體，指定檢視帳號。只給 mock 內部與單元測試用（例如驗證對話提交
+   * 是否進了收集紀錄）；不在 `DemoRepository` 契約內，畫面一律用非同步的 `getDatabaseTracking`。
+   */
+  readDatabaseTracking(
     viewerAccountId: AccountId,
     databaseId: string,
-  ): ReturnType<DemoRepository['getDatabaseTracking']> {
+  ): RepositoryView<DatabaseTrackingView> {
     const database = this.ownedDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
     if (!this.canReadRecords(viewerAccountId, database.id)) {

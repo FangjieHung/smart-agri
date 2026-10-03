@@ -76,8 +76,6 @@ export class DatabaseDetailPageComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly params = toSignal(this.route.paramMap, { initialValue: this.route.snapshot.paramMap });
   private readonly query = toSignal(this.route.queryParamMap, { initialValue: this.route.snapshot.queryParamMap });
-  /** 表單、試填與收集紀錄仍是同步 mock，異動後遞增此值讓畫面重新讀取。 */
-  private readonly revision = signal(0);
 
   protected readonly tabs = TABS;
   protected readonly databaseId = computed(() => this.params().get('id') ?? '');
@@ -101,14 +99,25 @@ export class DatabaseDetailPageComponent {
   });
   protected readonly upcomingMessage = DATABASE_UPCOMING_FEATURE_MESSAGE;
 
-  /** 只在紀錄與趨勢頁籤讀取收集紀錄；非指定資料管理者會得到 permission-denied。 */
-  protected readonly tracking = computed(() => {
-    this.revision();
-    const tab = this.activeTab().id;
-    const accountId = this.session.activeAccountId();
-    if (!accountId || (tab !== 'records' && tab !== 'trends') || this.upcoming().has('records')) return null;
-    return this.repository.getDatabaseTracking(accountId, this.databaseId());
+  /** 趨勢頁籤在 API 模式尚未開放（#147）時不讀取收集紀錄，直接顯示將於後續版本開放。 */
+  protected readonly trendsUpcoming = computed(() => this.activeTab().id === 'trends' && this.upcoming().has('trends'));
+
+  /**
+   * 只在紀錄與趨勢頁籤讀取收集紀錄（詳情讀到之後，才知道哪些功能尚未開放）；非指定資料管理者會得到
+   * permission-denied。換身分、換網址 id 就重新讀取。
+   */
+  private readonly trackingResource = repositoryResource({
+    params: () => {
+      const accountId = this.session.activeAccountId();
+      const tab = this.activeTab().id;
+      const detail = this.view();
+      if (!accountId || (tab !== 'records' && tab !== 'trends') || this.trendsUpcoming()) return undefined;
+      if (detail.status !== 'ready' && detail.status !== 'partial-failure') return undefined;
+      return { accountId, databaseId: this.databaseId() };
+    },
+    stream: ({ databaseId }) => this.repository.getDatabaseTracking(databaseId),
   });
+  protected readonly tracking = this.trackingResource.view;
 
   protected readonly subjects = computed(() => {
     const tracking = this.tracking();
@@ -142,8 +151,13 @@ export class DatabaseDetailPageComponent {
   /** 權限變更或表單版本過期後重新讀取詳情；草稿會換成伺服器上最新的表單。 */
   protected reload(): void {
     this.designerFailure.set(null);
-    this.revision.update((value) => value + 1);
     this.detail.reload();
+    this.trackingResource.reload();
+  }
+
+  /** 收集紀錄讀取失敗（5xx、連線中斷）後重試；與「沒有紀錄」分開顯示。 */
+  protected reloadTracking(): void {
+    this.trackingResource.reload();
   }
 
   protected updatedAt(iso: string): string {

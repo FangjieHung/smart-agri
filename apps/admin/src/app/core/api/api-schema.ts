@@ -215,6 +215,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseOwnSubmissionListView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/submissions/{id}": {
         parameters: {
             query?: never;
@@ -260,6 +302,57 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/submissions/{id}/withdrawal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseSubmissionReceiptView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -2712,6 +2805,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}/tracking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseTrackingView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants": {
         parameters: {
             query?: never;
@@ -5119,6 +5263,24 @@ export interface components {
             createdAt: string;
             fields: components["schemas"]["DatabaseFieldView"][];
         };
+        DatabaseOwnSubmissionListView: {
+            submissions: components["schemas"]["DatabaseOwnSubmissionView"][];
+        };
+        DatabaseOwnSubmissionView: {
+            /** Format: uuid */
+            id: string;
+            receiptNumber: string;
+            /** Format: date-time */
+            submittedAt: string;
+            /** Format: uuid */
+            databaseId: string;
+            databaseName: string;
+            /** Format: int32 */
+            formVersionNumber: number;
+            source: components["schemas"]["DatabaseSubmissionSource"];
+            /** Format: date-time */
+            withdrawnAt: null | string;
+        };
         DatabaseRecordListView: {
             /** Format: uuid */
             databaseId: string;
@@ -5175,6 +5337,8 @@ export interface components {
             formVersionNumber: number;
             source: components["schemas"]["DatabaseSubmissionSource"];
             entries: components["schemas"]["DatabaseSubmissionEntryView"][];
+            /** Format: date-time */
+            withdrawnAt: null | string;
         };
         /** @enum {unknown} */
         DatabaseSubmissionSource: "form-link" | "assistant-conversation";
@@ -5216,6 +5380,16 @@ export interface components {
             description: string;
             fields: components["schemas"]["DatabaseFieldView"][];
         };
+        DatabaseTrackedSubjectView: {
+            subject: components["schemas"]["DatabaseAccountView"];
+            records: components["schemas"]["DatabaseSubmittedRecordView"][];
+            withdrawals: components["schemas"]["DatabaseWithdrawnRecordView"][];
+        };
+        DatabaseTrackingView: {
+            /** Format: uuid */
+            databaseId: string;
+            subjects: components["schemas"]["DatabaseTrackedSubjectView"][];
+        };
         DatabaseTrialEntryView: {
             fieldId: string;
             label: string;
@@ -5226,6 +5400,17 @@ export interface components {
             /** Format: int32 */
             formVersion: number;
             entries: components["schemas"]["DatabaseTrialEntryView"][];
+        };
+        DatabaseWithdrawnRecordView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            submittedAt: string;
+            /** Format: date-time */
+            withdrawnAt: string;
+            source: components["schemas"]["DatabaseSubmissionSource"];
+            /** Format: int32 */
+            formVersionNumber: number;
         };
         DisableKnowledgeDocumentRequest: {
             reason: null | string;

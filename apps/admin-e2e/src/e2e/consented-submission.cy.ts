@@ -170,6 +170,42 @@ describe('consented structured submission', () => {
     cy.contains('訂單資料庫').should('not.exist');
   });
 
+  it('lists the member’s own form-link submissions and withdraws one after confirming (issue #146)', () => {
+    loginAs('外部客戶');
+    cy.visit('/app/forms/database-orders');
+    cy.get('#chat-field-field-order-number').type('DEMO-4601');
+    cy.contains('app-inline-form label', '商品瑕疵').click();
+    cy.get('#chat-field-field-reported-on').type('2026-09-22');
+    cy.contains('button', '下一步：確認同意').click();
+    cy.get('#consent-agree').check();
+    cy.contains('button', '同意並送出').click();
+    cy.get('[data-kind="submission-receipt"]').should('contain', 'DEMO-4601');
+    cy.contains('[data-kind="submission-receipt"] a', '查看或撤回我送出的資料').click();
+
+    cy.location('pathname').should('eq', '/app/activity');
+    cy.contains('app-own-submissions li', '訂單資料庫')
+      .should('contain', '有效')
+      .and('not.contain', 'DEMO-4601')
+      .within(() => {
+        cy.contains('button', '撤回').click();
+        cy.contains('button', '取消').click();
+        cy.get('.confirm').should('not.exist');
+        cy.contains('button', '撤回').click();
+        cy.contains('button', '確認撤回').click();
+      });
+    cy.get('app-own-submissions [role="status"]').should('contain', '內容已刪除');
+    cy.contains('app-own-submissions li', '訂單資料庫').should('have.attr', 'data-withdrawn', 'true');
+    cy.contains('app-own-submissions li', '訂單資料庫').contains('a', '查看回執').click();
+    cy.get('[data-kind="submission-receipt"]').should('have.attr', 'data-withdrawn', 'true').and('not.contain', 'DEMO-4601');
+
+    // 資料管理者：時間軸沒有內容，只剩撤回軌跡；也沒有替別人撤回的按鈕。
+    loginAs('SMB 管理者');
+    cy.visit('/app/databases/database-orders/records');
+    cy.get('app-records-table').should('not.contain', 'DEMO-4601');
+    cy.get('app-records-table .withdrawn').should('contain', '已撤回的紀錄（1 筆）').and('contain', '表單連結');
+    cy.contains('button', '撤回').should('not.exist');
+  });
+
   it('gives the data manager no way to withdraw someone else’s record', () => {
     loginAs('外部客戶');
     cy.visit('/use/assistant-customer-service');

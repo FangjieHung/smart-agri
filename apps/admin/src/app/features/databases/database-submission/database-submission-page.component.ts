@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { ChatFormView } from '../../../core/domain/conversation.model';
 import type {
   DatabaseFieldError,
@@ -40,7 +40,7 @@ function newSubmissionKey(): string {
  */
 @Component({
   selector: 'app-database-submission-page',
-  imports: [PageHeaderComponent, StatePanelComponent, InlineFormComponent, ConsentConfirmationComponent],
+  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, InlineFormComponent, ConsentConfirmationComponent],
   templateUrl: './database-submission-page.component.html',
   styleUrl: './database-submission-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

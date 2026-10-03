@@ -57,7 +57,7 @@ function accessOf(repository: MockDemoRepository, accountId: AccountId, database
 }
 
 function subjectCount(repository: MockDemoRepository, accountId: AccountId, databaseId: string) {
-  return dataOf<DatabaseTrackingView>(repository.getDatabaseTracking(accountId, databaseId)).subjects
+  return dataOf<DatabaseTrackingView>(repository.readDatabaseTracking(accountId, databaseId)).subjects
     .length;
 }
 
@@ -94,7 +94,7 @@ describe('MockDemoRepository data access', () => {
       viewerIsDataManager: true,
       viewerCanReadRecords: false,
     });
-    const refused = repository.getDatabaseTracking(ADMIN, RECORDS);
+    const refused = repository.readDatabaseTracking(ADMIN, RECORDS);
     expect(refused).toMatchObject({ status: 'permission-denied', reason: 'database-records' });
     if (refused.status === 'permission-denied') {
       expect(refused.message).not.toContain('王小姐');
@@ -117,7 +117,7 @@ describe('MockDemoRepository data access', () => {
     const removed = updateAccess(repository, ADMIN, RECORDS, []);
     expect(removed.status).toBe('ready');
     expect(dataOf<DatabaseAccessView>(removed).dataManagers).toEqual([]);
-    expect(repository.getDatabaseTracking(ADMIN, RECORDS)).toMatchObject({
+    expect(repository.readDatabaseTracking(ADMIN, RECORDS)).toMatchObject({
       status: 'permission-denied',
       reason: 'database-records',
     });
@@ -172,11 +172,11 @@ describe('MockDemoRepository data access', () => {
 
   it('lets the admin revoke an employee’s access to the employee’s own database', () => {
     // 同仁是自己資料庫的擁有者，也是指定的資料管理者，所以看得到收集紀錄（目前還沒有紀錄）。
-    expect(repository.getDatabaseTracking(EMPLOYEE, CHECKINS).status).toBe('ready');
+    expect(repository.readDatabaseTracking(EMPLOYEE, CHECKINS).status).toBe('ready');
 
     repository.updateMemberPermissions(EMPLOYEE, ['use-shared-assistants']).subscribe();
 
-    expect(repository.getDatabaseTracking(EMPLOYEE, CHECKINS)).toMatchObject({
+    expect(repository.readDatabaseTracking(EMPLOYEE, CHECKINS)).toMatchObject({
       status: 'permission-denied',
       reason: 'database-records',
     });

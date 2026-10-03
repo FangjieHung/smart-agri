@@ -14,8 +14,12 @@ import { loginToApi } from '../support/api-mode';
  * 送出得到 409、重新載入 → 伺服器已寫入但回應在路上失敗，以同一個提交編號重送只得到同一張回執
  * （第二次是 200 不是 201）→ 回執可重新開啟；沒有填寫授權的帳號打不開表單；資料管理者讀到剛好一筆。
  *
+ * 第六個 `it`（M4 issue #146）：資料管理者在「收集紀錄」看到上一個 `it` 送出的那一筆 → 外部客戶在
+ * 「對話與回報紀錄」看到自己的回執並撤回（先確認）→ 回執與時間軸都只剩不含內容的撤回軌跡，紀錄清單
+ * 是 0 筆 → 再撤回一次得到同一個撤回時間 → 資料管理者不能代為撤回（403 `submission-withdrawal`）。
+ *
  * 數據庫目前沒有刪除功能，每次執行以不同名稱建立一個新的，可以對同一個資料庫重跑。
- * 五個 `it` 依序共用第一個建立的數據庫網址。
+ * 六個 `it` 依序共用第一個建立的數據庫網址。
  */
 
 const DATABASE_PATH = /^\/app\/databases\/[0-9a-f-]{36}\/form$/;
@@ -61,7 +65,11 @@ describe('databases against the real API', () => {
     cy.get('.field-editor').should('have.length', 3);
     cy.get('.field-editor[data-field-id="field-overall-satisfaction"]').should('contain', '量尺');
 
+    // 收集紀錄（#146）已開放：剛建立的數據庫沒有紀錄；趨勢比較（#147）仍是將於後續版本開放。
     cy.get('nav.tabs').contains('a', '收集紀錄').click();
+    cy.contains('還沒有收集紀錄').should('be.visible');
+    cy.get('.upcoming-notice').should('not.exist');
+    cy.get('nav.tabs').contains('a', '趨勢比較').click();
     cy.get('.upcoming-notice').should('contain', '將於後續版本開放');
 
     cy.visit('/app/databases');
@@ -277,6 +285,97 @@ describe('databases against the real API', () => {
         .request({ url: `${apiPath}/records`, headers: { authorization: adminAuth } })
         .its('body.records')
         .should('have.length', 1),
+    );
+  });
+
+  it('shows the record on the timeline, lets only its submitter withdraw it, and keeps a content-free trail (#146)', () => {
+    expect(databasePath, 'the database created by the first test').to.match(DATABASE_PATH);
+    const databaseId = databasePath.split('/')[3];
+    const recordsPath = `/app/databases/${databaseId}/records`;
+    let adminAuth = '';
+    let customerAuth = '';
+    let submissionId = '';
+
+    // 資料管理者（擁有者本人）：上一個 `it` 的那一筆在時間軸上，追蹤對象是提交的帳號。
+    loginToApi('anxin', 'admin');
+    cy.intercept('GET', `/api/v1/databases/${databaseId}/tracking`).as('tracking');
+    cy.visit(recordsPath);
+    cy.wait('@tracking').then((interception) => {
+      adminAuth = String(interception.request.headers['authorization']);
+    });
+    cy.get('#subject-select').should('contain', '外部客戶（1 筆）');
+    cy.get('app-records-table').should('contain', '1,200 元').and('contain', '表單連結');
+    cy.get('app-records-table .withdrawn').should('not.exist');
+
+    // 提交者：在「對話與回報紀錄」看到自己的回執，先確認再撤回。
+    loginToApi('anxin', 'customer');
+    cy.intercept('GET', '/api/v1/submissions').as('own');
+    cy.visit('/app/activity');
+    cy.wait('@own').then((interception) => {
+      customerAuth = String(interception.request.headers['authorization']);
+    });
+    cy.contains('app-own-submissions li', databaseName)
+      .should('contain', '有效')
+      .then(($item) => {
+        submissionId = String($item.attr('data-submission-id'));
+      })
+      .within(() => {
+        cy.contains('button', '撤回').click();
+        cy.get('.confirm').should('contain', '無法復原');
+        cy.contains('button', '確認撤回').click();
+      });
+    cy.get('app-own-submissions [role="status"]').should('contain', '內容已刪除');
+    cy.contains('app-own-submissions li', databaseName)
+      .should('have.attr', 'data-withdrawn', 'true')
+      .and('contain', '已撤回')
+      .within(() => cy.contains('a', '查看回執').click());
+    cy.get('[data-kind="submission-receipt"]')
+      .should('have.attr', 'data-withdrawn', 'true')
+      .and('contain', '你已在')
+      .and('not.contain', '1,200 元')
+      .and('not.contain', '4 / 5');
+
+    // 再撤回一次：同一個撤回時間；資料管理者不能代為撤回。
+    cy.then(() =>
+      cy
+        .request({ method: 'POST', url: `/api/v1/submissions/${submissionId}/withdrawal`, headers: { authorization: customerAuth }, body: {} })
+        .then((first) =>
+          cy
+            .request({ method: 'POST', url: `/api/v1/submissions/${submissionId}/withdrawal`, headers: { authorization: customerAuth }, body: {} })
+            .then((second) => {
+              expect(second.status).to.equal(200);
+              expect(second.body.withdrawnAt).to.equal(first.body.withdrawnAt);
+              expect(second.body.entries).to.deep.equal([]);
+            }),
+        ),
+    );
+    cy.then(() =>
+      cy
+        .request({
+          method: 'POST',
+          url: `/api/v1/submissions/${submissionId}/withdrawal`,
+          headers: { authorization: adminAuth },
+          body: {},
+          failOnStatusCode: false,
+        })
+        .then((response) => {
+          expect(response.status).to.equal(403);
+          expect(response.body.reason).to.equal('submission-withdrawal');
+        }),
+    );
+
+    // 資料管理者：時間軸只剩撤回軌跡、沒有內容；紀錄清單是 0 筆。
+    loginToApi('anxin', 'admin');
+    cy.visit(recordsPath);
+    cy.get('#subject-select').should('contain', '外部客戶（0 筆）');
+    cy.get('app-records-table .no-usable-records').should('be.visible');
+    cy.get('app-records-table .withdrawn').should('contain', '已撤回的紀錄（1 筆）').and('contain', '內容已移除');
+    cy.get('app-records-table').should('not.contain', '1,200 元');
+    cy.then(() =>
+      cy
+        .request({ url: `/api/v1/databases/${databaseId}/records`, headers: { authorization: adminAuth } })
+        .its('body.records')
+        .should('have.length', 0),
     );
   });
 });

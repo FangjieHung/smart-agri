@@ -77,8 +77,8 @@ describe('private conversations and trustworthy answers', () => {
     cy.get('[role="log"]').should('not.contain', '我的私人問題');
 
     cy.visit('/app/assistants/assistant-customer-service/activity');
-    cy.get('.usage-summary').should('contain', '對話次數').and('contain', '19');
-    cy.contains('看不到使用者的對話內容').should('be.visible');
+    cy.get('.usage-summary').should('contain', '回覆總數').and('contain', '18');
+    cy.contains('不含問題、回答、帳號或對話內容').scrollIntoView().should('be.visible');
     cy.contains('我的私人問題').should('not.exist');
   });
 

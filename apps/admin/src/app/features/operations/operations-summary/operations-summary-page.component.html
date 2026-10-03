@@ -1,0 +1,26 @@
+<section class="workspace-page">
+  <app-page-header title="營運追蹤" description="依助理與日期彙總的營運數字；不含私人對話內容。" />
+  @if (status() === 'loading') {
+    <app-state-panel state="loading" title="正在載入營運追蹤" />
+  } @else if (status() === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="你沒有查看營運追蹤的權限" />
+  } @else if (status() === 'error') {
+    <app-state-panel state="error" title="目前無法載入營運追蹤" />
+  } @else if (summary(); as data) {
+    <p class="period">統計期間：{{ data.from }} 至 {{ data.to }}</p>
+    <section class="summary-grid" aria-label="營運摘要">
+      <article><h2>文件處理失敗</h2><p>{{ data.knowledge.processingFailedCount }}</p></article>
+      <article><h2>逾期待確認</h2><p>{{ data.knowledge.overduePendingReviewCount }}</p></article>
+      <article><h2>待處理事項</h2><p>{{ data.issues.openCount }}</p></article>
+      <article><h2>平均處理時間</h2><p>{{ data.issues.averageResolutionHours === null ? '尚無已解決事項' : data.issues.averageResolutionHours + ' 小時' }}</p></article>
+    </section>
+    <h2>助理回覆狀況</h2>
+    @if (data.assistants.length) {
+      <div class="table-wrap"><table><thead><tr><th>助理</th><th>回覆數</th><th>查無資料率</th><th>引用錯誤率</th></tr></thead><tbody>
+        @for (assistant of data.assistants; track assistant.assistantId) { <tr><td><a [routerLink]="['/app/assistants', assistant.assistantId, 'activity']">{{ assistant.assistantName }}</a></td><td>{{ assistant.totalReplies }}</td><td>{{ percent(assistant.noResultRate) }}</td><td>{{ percent(assistant.rejectedCitationRate) }}</td></tr> }
+      </tbody></table></div>
+    } @else { <p>這段期間尚無助理回覆。</p> }
+    <h2>常引用文件</h2>
+    @if (data.mostCitedDocuments.length) { <ul>@for (document of data.mostCitedDocuments; track document.documentId) { <li>{{ document.documentName }}：{{ document.count }} 次</li> }</ul> } @else { <p>這段期間沒有引用文件。</p> }
+  }
+</section>

@@ -1,0 +1,8 @@
+.period { color: var(--color-text-muted); }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 1rem; margin: 1rem 0 2rem; }
+.summary-grid article { border: 1px solid var(--color-border); border-radius: .75rem; padding: 1rem; }
+.summary-grid h2 { font-size: 1rem; margin: 0; }
+.summary-grid p { font-size: 1.5rem; font-weight: 700; margin: .5rem 0 0; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border-bottom: 1px solid var(--color-border); padding: .75rem; text-align: left; }

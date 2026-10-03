@@ -135,6 +135,7 @@ export class AssistantIssuesRepository {
         answer: context?.result.answerText ?? null,
         resolutionNote: null, createdAt: now, updatedAt: now, resolvedAt: null,
         viewerIsAssistantOwner: true, viewerIsAssignee: request.assigneeAccountId === accountId,
+        handoffUnverified: false,
       };
       this.mockDetails.set(id, { issue, events: [] });
       this.mockOwners.set(id, accountId);

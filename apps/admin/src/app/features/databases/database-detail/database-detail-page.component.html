@@ -45,6 +45,19 @@
 
       @switch (activeTab().id) {
         @case ('form') {
+          @if (!detail.summary.viewerCanManage) {
+            <p class="notice upcoming-notice" role="note">只有擁有者「{{ detail.summary.owner.displayName }}」可以編輯表單；你可以查看欄位。</p>
+            <ol class="field-summary" aria-label="表單欄位">
+              @for (field of detail.fields; track field.id) {
+                <li [attr.data-field-id]="field.id">
+                  <strong>{{ field.label }}</strong>
+                  <span class="field-type">{{ fieldTypeLabel(field) }}</span>
+                  @if (field.required) { <span class="field-required">必填</span> }
+                  @if (fieldDetail(field); as detailText) { <span class="field-detail">{{ detailText }}</span> }
+                </li>
+              }
+            </ol>
+          } @else {
           <app-form-designer
             [fields]="detail.fields"
             [errors]="fieldErrors()"
@@ -61,6 +74,7 @@
             [busy]="trialRunning()"
             (trial)="runTrial(detail, $event)"
           />
+          }
         }
         @case ('assistants') {
           @if (upcoming().has('assistant-connections')) {
@@ -83,16 +97,11 @@
           }
         }
         @case ('access') {
-          @if (upcoming().has('data-managers')) {
-            <p class="notice upcoming-notice" role="note">指定資料管理者：{{ upcomingMessage }}</p>
-            <p class="hint">目前只有擁有者「{{ detail.summary.owner.displayName }}」可以管理這個資料庫的設定；擁有資料庫不代表能查看收集紀錄。</p>
-          } @else {
           <app-database-access
             [databaseId]="detail.summary.id"
             [access]="detail.access"
             (changed)="reload()"
           />
-          }
         }
         @default {
           @let records = tracking();

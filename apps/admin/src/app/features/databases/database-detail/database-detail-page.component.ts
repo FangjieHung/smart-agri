@@ -16,6 +16,7 @@ import { repositoryResource } from '../../../core/repositories/repository-resour
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { fmtDateTime } from '../../../core/date-utils';
+import { FIELD_TYPE_LABELS } from '../database-labels';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status-badge/status-badge.component';
@@ -147,6 +148,19 @@ export class DatabaseDetailPageComponent {
 
   protected updatedAt(iso: string): string {
     return fmtDateTime(iso);
+  }
+
+  protected fieldTypeLabel(field: DatabaseFieldView): string {
+    return FIELD_TYPE_LABELS[field.type];
+  }
+
+  /** 唯讀欄位清單的補充說明：選項、量尺範圍或單位；沒有時為空字串。 */
+  protected fieldDetail(field: DatabaseFieldView): string {
+    if (field.options.length > 0) return `選項：${field.options.join('、')}`;
+    if (field.scale !== null) {
+      return `${field.scale.min}（${field.scale.minLabel}）到 ${field.scale.max}（${field.scale.maxLabel}）`;
+    }
+    return field.unit ? `單位：${field.unit}` : '';
   }
 
   protected assistantStatus(status: AssistantStatus) {

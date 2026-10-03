@@ -525,6 +525,8 @@ const DATABASE_ACCESS_KEY_PREFIX = 'sme-demo:database-access:';
 interface StoredDatabaseAccess {
   readonly version: 1;
   readonly savedAt: string;
+  /** 操作人；舊版寫入的資料沒有這個欄位。 */
+  readonly savedBy?: AccountId;
   readonly dataManagerAccountIds: readonly AccountId[];
 }
 
@@ -533,6 +535,7 @@ function isStoredDatabaseAccess(value: unknown): value is StoredDatabaseAccess {
     isRecord(value) &&
     value['version'] === 1 &&
     typeof value['savedAt'] === 'string' &&
+    (value['savedBy'] === undefined || typeof value['savedBy'] === 'string') &&
     Array.isArray(value['dataManagerAccountIds']) &&
     value['dataManagerAccountIds'].every((id) => typeof id === 'string')
   );
@@ -3200,7 +3203,7 @@ export class MockDemoRepository implements DemoRepository {
       return of(
         this.applyScenario(
           this.databases()
-            .filter((database) => database.ownerAccountId === viewerAccountId)
+            .filter((database) => this.canViewDatabase(viewerAccountId, database))
             .map((database) => this.toDatabaseSummary(database, viewerAccountId)),
         ),
       );
@@ -3263,7 +3266,7 @@ export class MockDemoRepository implements DemoRepository {
 
   private readDatabaseDetail(viewerAccountId: AccountId | null, databaseId: string): RepositoryView<DatabaseDetailView> {
     if (viewerAccountId === null) return this.databasePermissionDenied();
-    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    const database = this.viewableDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
 
     const collection = this.databaseCollection(database.id);
@@ -3333,11 +3336,19 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   updateDatabaseAccess(
-    viewerAccountId: AccountId,
+    databaseId: DatabaseId,
+    dataManagerAccountIds: readonly AccountId[],
+  ): Observable<UpdateDatabaseAccessResult> {
+    return defer(() => of(this.writeDatabaseAccess(this.viewer(), databaseId, dataManagerAccountIds)));
+  }
+
+  private writeDatabaseAccess(
+    viewerAccountId: AccountId | null,
     databaseId: DatabaseId,
     dataManagerAccountIds: readonly AccountId[],
   ): UpdateDatabaseAccessResult {
     // 只有擁有者可以指定；不存在與無權限回傳同一句話。
+    if (viewerAccountId === null) return this.databasePermissionDenied();
     const database = this.ownedDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
 
@@ -3352,6 +3363,7 @@ export class MockDemoRepository implements DemoRepository {
     const record: StoredDatabaseAccess = {
       version: 1,
       savedAt: this.now().toISOString(),
+      savedBy: viewerAccountId,
       dataManagerAccountIds: normalized,
     };
     this.storage.setItem(DATABASE_ACCESS_KEY_PREFIX + database.id, JSON.stringify(record));
@@ -4333,6 +4345,20 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  /**
+   * 清單與詳情看得到的資料庫（與 API 的 `DatabaseAccess.ListedFor` 相同）：自己擁有的，加上
+   * 自己有權讀紀錄的（已指定 **且** 具備帳號層級權限）。修改仍只有擁有者（`ownedDatabase`）。
+   */
+  private canViewDatabase(viewerAccountId: AccountId, database: DatabaseView): boolean {
+    return database.ownerAccountId === viewerAccountId || this.canReadRecords(viewerAccountId, database.id);
+  }
+
+  private viewableDatabase(viewerAccountId: AccountId, databaseId: string): DatabaseView | undefined {
+    return this.databases().find(
+      (database) => database.id === databaseId && this.canViewDatabase(viewerAccountId, database),
+    );
+  }
+
   /** 收集設定；使用者儲存過的欄位會覆蓋模板或 fixture 的欄位。 */
   private databaseCollection(databaseId: DatabaseId): DatabaseCollectionFixture {
     const base =
@@ -4380,14 +4406,23 @@ export class MockDemoRepository implements DemoRepository {
     const displayName = (id: AccountId) => this.databaseAccountRef(id);
     const managers = this.databaseCollection(database.id).dataManagerAccountIds;
 
+    const stored = this.storedDatabaseAccess(database.id);
+    const canManageAccess = database.ownerAccountId === viewerAccountId;
+
     return {
       owner: displayName(database.ownerAccountId),
       dataManagers: managers.map(displayName),
+      // 已指定 且 現在具備帳號層級權限；與 API 的 `effectiveReaders` 同義。
+      effectiveReaders: managers
+        .filter((id) => canReadConsentedRecords(accounts.find((account) => account.id === id), managers))
+        .map(displayName),
       viewerIsDataManager: managers.includes(viewerAccountId),
       viewerCanReadRecords: this.canReadRecords(viewerAccountId, database.id),
-      viewerCanManageAccess: database.ownerAccountId === viewerAccountId,
-      candidates: databaseAccessCandidates(accounts),
-      savedAt: this.storedDatabaseAccess(database.id)?.savedAt ?? null,
+      viewerCanManageAccess: canManageAccess,
+      // 只有擁有者會被告知可以指定誰（API 同樣只給擁有者）。
+      candidates: canManageAccess ? databaseAccessCandidates(accounts) : [],
+      savedAt: stored?.savedAt ?? null,
+      savedBy: stored?.savedBy === undefined ? null : displayName(stored.savedBy),
     };
   }
 
@@ -4428,6 +4463,7 @@ export class MockDemoRepository implements DemoRepository {
       name: database.name,
       purpose: collection.purpose,
       owner: this.databaseAccountRef(database.ownerAccountId),
+      viewerCanManage: database.ownerAccountId === viewerAccountId,
       templateName: collection.templateName,
       fieldCount: collection.fields.length,
       recordCount: isDataManager ? records.length : null,

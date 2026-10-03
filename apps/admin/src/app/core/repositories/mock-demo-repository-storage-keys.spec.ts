@@ -119,7 +119,7 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
         detail.data.formVersion,
       ),
     );
-    repository.updateDatabaseAccess(ADMIN, database.data.id, [ADMIN]);
+    await firstValueFrom(repository.updateDatabaseAccess(database.data.id, [ADMIN]));
 
     // 對話：帳號對話（寫進 storage）與表單提交（寫收集紀錄）。
     repository.sendChatMessage(ADMIN, CUSTOMER_SERVICE, '你好');

@@ -34,6 +34,22 @@ function detailAs(repository: MockDemoRepository, accountId: AccountId, database
   }
 }
 
+/** 寫入以 repository 的 `viewer()` 為準；暫時切換身分寫一次（mock 的 Observable 是同步的）。 */
+function updateAccess(
+  repository: MockDemoRepository,
+  accountId: AccountId,
+  databaseId: string,
+  accountIds: readonly AccountId[],
+) {
+  const previous = currentViewer;
+  currentViewer = accountId;
+  try {
+    return syncValue(repository.updateDatabaseAccess(databaseId, accountIds));
+  } finally {
+    currentViewer = previous;
+  }
+}
+
 function accessOf(repository: MockDemoRepository, accountId: AccountId, databaseId: string) {
   const detail = detailAs(repository, accountId, databaseId);
   if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
@@ -87,7 +103,7 @@ describe('MockDemoRepository data access', () => {
   });
 
   it('hides the record and subject counts from a database summary when records are unreadable', () => {
-    repository.updateDatabaseAccess(ADMIN, RECORDS, []);
+    updateAccess(repository, ADMIN, RECORDS, []);
     const summaries = dataOf<readonly { id: string; recordCount: number | null }[]>(
       syncValue(repository.listDatabaseSummaries()),
     );
@@ -98,7 +114,7 @@ describe('MockDemoRepository data access', () => {
   it('lets the owner change the designated data managers and keeps every record intact', () => {
     const before = subjectCount(repository, ADMIN, RECORDS);
 
-    const removed = repository.updateDatabaseAccess(ADMIN, RECORDS, []);
+    const removed = updateAccess(repository, ADMIN, RECORDS, []);
     expect(removed.status).toBe('ready');
     expect(dataOf<DatabaseAccessView>(removed).dataManagers).toEqual([]);
     expect(repository.getDatabaseTracking(ADMIN, RECORDS)).toMatchObject({
@@ -107,13 +123,13 @@ describe('MockDemoRepository data access', () => {
     });
 
     // 收回查看權限不會刪除任何紀錄：重新指定就原封不動回來。
-    const restored = repository.updateDatabaseAccess(ADMIN, RECORDS, [ADMIN]);
+    const restored = updateAccess(repository, ADMIN, RECORDS, [ADMIN]);
     expect(restored.status).toBe('ready');
     expect(subjectCount(repository, ADMIN, RECORDS)).toBe(before);
   });
 
   it('persists the designation under the sme-demo: convention and reloads it', () => {
-    repository.updateDatabaseAccess(ADMIN, RECORDS, [ADMIN, EMPLOYEE]);
+    updateAccess(repository, ADMIN, RECORDS, [ADMIN, EMPLOYEE]);
 
     expect(storage.getItem(`sme-demo:database-access:${RECORDS}`)).toContain(EMPLOYEE);
     const reloaded = new MockDemoRepository(DEMO_SEED, { storage, viewer: () => currentViewer });
@@ -136,8 +152,8 @@ describe('MockDemoRepository data access', () => {
   });
 
   it('refuses access changes from anyone but the owner, without leaking the database name', () => {
-    const refused = repository.updateDatabaseAccess(EMPLOYEE, RECORDS, [EMPLOYEE]);
-    const unknown = repository.updateDatabaseAccess(ADMIN, 'database-nope' as DatabaseId, [ADMIN]);
+    const refused = updateAccess(repository, EMPLOYEE, RECORDS, [EMPLOYEE]);
+    const unknown = updateAccess(repository, ADMIN, 'database-nope' as DatabaseId, [ADMIN]);
 
     expect(refused).toMatchObject({ status: 'permission-denied', reason: 'database' });
     if (refused.status === 'permission-denied' && unknown.status === 'permission-denied') {
@@ -148,7 +164,7 @@ describe('MockDemoRepository data access', () => {
   });
 
   it('rejects an unknown account id without writing anything', () => {
-    const result = repository.updateDatabaseAccess(ADMIN, RECORDS, ['account-ghost' as AccountId]);
+    const result = updateAccess(repository, ADMIN, RECORDS, ['account-ghost' as AccountId]);
 
     expect(result).toMatchObject({ status: 'validation-failed' });
     expect(storage.getItem(`sme-demo:database-access:${RECORDS}`)).toBeNull();
@@ -166,5 +182,57 @@ describe('MockDemoRepository data access', () => {
     });
     // 表單設定仍然管得動：收回的只是「看紀錄」。
     expect(detailAs(repository, EMPLOYEE, CHECKINS).status).toBe('ready');
+  });
+  it('shows a designated data manager the database read-only, and only while both layers hold', () => {
+    const asEmployee = () => {
+      currentViewer = EMPLOYEE;
+      try {
+        return syncValue(repository.listDatabaseSummaries());
+      } finally {
+        currentViewer = ADMIN;
+      }
+    };
+    // 還沒被指定：只有自己的資料庫，看不到客戶資料庫。
+    expect(dataOf<readonly { id: string }[]>(asEmployee()).map((summary) => summary.id)).not.toContain(RECORDS);
+    expect(detailAs(repository, EMPLOYEE, RECORDS).status).toBe('permission-denied');
+
+    // 擁有者指定同仁（同仁具備帳號層級權限）。
+    updateAccess(repository, ADMIN, RECORDS, [ADMIN, EMPLOYEE]);
+    const listed = dataOf<readonly { id: string; viewerCanManage: boolean }[]>(asEmployee());
+    expect(listed.find((summary) => summary.id === RECORDS)?.viewerCanManage).toBe(false);
+    const access = accessOf(repository, EMPLOYEE, RECORDS);
+    expect(access).toMatchObject({
+      viewerIsDataManager: true,
+      viewerCanReadRecords: true,
+      viewerCanManageAccess: false,
+      candidates: [],
+    });
+    expect(detailAs(repository, ADMIN, RECORDS).status).toBe('ready');
+
+    // 唯讀：不能改指定，也和不存在的 id 同一句話。
+    const refused = updateAccess(repository, EMPLOYEE, RECORDS, [EMPLOYEE]);
+    expect(refused).toMatchObject({ status: 'permission-denied', reason: 'database' });
+
+    // 撤銷任一層都立刻失效：先拿掉帳號層級權限。
+    repository.updateMemberPermissions(EMPLOYEE, ['use-shared-assistants']).subscribe();
+    expect(detailAs(repository, EMPLOYEE, RECORDS).status).toBe('permission-denied');
+    expect(dataOf<readonly { id: string }[]>(asEmployee()).map((summary) => summary.id)).not.toContain(RECORDS);
+
+    // 還原權限、再撤銷指定。
+    repository.updateMemberPermissions(EMPLOYEE, ['use-shared-assistants', 'read-consented-submissions']).subscribe();
+    expect(detailAs(repository, EMPLOYEE, RECORDS).status).toBe('ready');
+    updateAccess(repository, ADMIN, RECORDS, [ADMIN]);
+    expect(detailAs(repository, EMPLOYEE, RECORDS).status).toBe('permission-denied');
+  });
+
+  it('separates who is designated from who can actually read right now, and records who changed it', () => {
+    updateAccess(repository, ADMIN, RECORDS, [ADMIN, EMPLOYEE, CUSTOMER]);
+    const access = accessOf(repository, ADMIN, RECORDS);
+
+    // 外部客戶已指定，但帳號層級沒有權限：在「已指定」，不在「目前可讀」。
+    expect(access.dataManagers.map((manager) => manager.id)).toEqual([ADMIN, EMPLOYEE, CUSTOMER]);
+    expect(access.effectiveReaders.map((reader) => reader.id)).toEqual([ADMIN, EMPLOYEE]);
+    expect(access.savedAt).toBe('2026-09-23T02:00:00.000Z');
+    expect(access.savedBy).toEqual({ id: ADMIN, displayName: expect.any(String) });
   });
 });

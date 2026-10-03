@@ -772,7 +772,7 @@ export interface DemoRepository extends DemoScenarioController {
    */
   listDatabaseTemplates(): Observable<RepositoryView<readonly DatabaseTemplateView[]>>;
   /**
-   * 目前帳號擁有的資料庫摘要；非指定資料管理者看不到紀錄數量（API 模式在 #144／#146 之前
+   * 目前帳號擁有的、以及自己有權讀紀錄的（已指定資料管理者且具備帳號權限）資料庫摘要；非指定資料管理者看不到紀錄數量（API 模式在 #146 之前
    * 一律為 null）。API 模式：`GET /api/v1/databases`。
    */
   listDatabaseSummaries(): Observable<RepositoryView<readonly DatabaseSummaryView[]>>;
@@ -800,16 +800,17 @@ export interface DemoRepository extends DemoScenarioController {
   /**
    * 指定誰是這個資料庫的資料管理者，也就是誰可以查看收集紀錄與趨勢比較。
    * 只有資料庫擁有者可以變更；不存在與無權限回傳相同的 `database` permission-denied。
+   * 帳號只能是同組織帳號，否則 `validation-failed`（什麼都不寫入）；每次變更留存操作人與時間。
+   * API 模式：`PUT /api/v1/databases/{id}/access`（issue #144）。
    *
    * 被指定的帳號還必須有帳號層級的「查看同意提交的紀錄」權限才真的看得到
    * （`canReadConsentedRecords()`）；候選清單會標示誰目前還沒有。
    * **移除只收回查看權限，不刪除任何紀錄**：重新指定就原封不動回來。
    */
   updateDatabaseAccess(
-    viewerAccountId: AccountId,
     databaseId: DatabaseId,
     dataManagerAccountIds: readonly AccountId[],
-  ): UpdateDatabaseAccessResult;
+  ): Observable<UpdateDatabaseAccessResult>;
   /**
    * 試填：以目前已儲存的表單驗證答案並回傳預覽，不會建立紀錄。API 模式由伺服器驗證，用的是
    * 日後正式提交（#145）同一套規則。

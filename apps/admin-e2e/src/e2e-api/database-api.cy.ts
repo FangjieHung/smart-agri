@@ -7,8 +7,11 @@ import { loginToApi } from '../support/api-mode';
  *
  * 編輯表單與試填（#143）：存成新版本、欄位錯誤顯示在對應欄位、試填不建立紀錄、重新整理後仍是新版。
  *
+ * 第四個 `it`（M4 issue #144）：擁有者指定資料管理者 → 被指定且具備權限的同仁看得到（唯讀）→
+ * 撤銷指定後立刻看不到，不必重新登入。
+ *
  * 數據庫目前沒有刪除功能，每次執行以不同名稱建立一個新的，可以對同一個資料庫重跑。
- * 三個 `it` 依序共用第一個建立的數據庫網址。
+ * 四個 `it` 依序共用第一個建立的數據庫網址。
  */
 
 const DATABASE_PATH = /^\/app\/databases\/[0-9a-f-]{36}\/form$/;
@@ -129,5 +132,50 @@ describe('databases against the real API', () => {
     cy.contains('無法查看這個資料庫').should('be.visible');
     cy.contains(databaseName).should('not.exist');
     cy.contains('整體滿意度').should('not.exist');
+  });
+
+  it('lets the owner designate a data manager who then sees the database read-only, until the designation is revoked', () => {
+    expect(databasePath, 'the database created by the first test').to.match(DATABASE_PATH);
+    const accessPath = databasePath.replace(/\/form$/, '/access');
+    const toggleEmployee = (checked: boolean) => {
+      cy.visit(accessPath);
+      cy.contains('h3', '誰可以查看收集紀錄').should('be.visible');
+      cy.contains('.choice', '內部同仁').find('input[type="checkbox"]')[checked ? 'check' : 'uncheck']();
+      cy.contains('button', '儲存資料管理者').click();
+      cy.get('[aria-live="polite"]').should('contain', '已更新資料管理者');
+    };
+
+    loginToApi('anxin', 'admin');
+    cy.visit(accessPath);
+    // 建立者一開始就是唯一的資料管理者；「已指定」與「目前可讀紀錄」分開顯示。
+    cy.contains('.access-list > div', '已指定資料管理者').should('contain', '安心商行管理者');
+    cy.contains('.access-list > div', '目前可讀紀錄').should('contain', '安心商行管理者');
+    toggleEmployee(true);
+    cy.contains('.access-list > div', '目前可讀紀錄').should('contain', '安心商行客服同仁');
+    cy.contains('.access-list > div', '最後變更').should('contain', '由 安心商行管理者 變更');
+
+    // 被指定、帳號也有「查看同意提交的紀錄」的同仁：清單與詳情看得到，唯讀。
+    loginToApi('anxin', 'internal');
+    cy.visit('/app/databases');
+    cy.contains('正在載入資料庫').should('not.exist');
+    cy.contains('tr', databaseName).should('be.visible');
+    cy.visit(accessPath);
+    cy.contains('.access-list > div', '你的權限').should('contain', '可查看收集紀錄與趨勢比較');
+    cy.contains('只有這個資料庫的擁有者可以變更資料管理者').should('be.visible');
+    cy.get('.choice input[type="checkbox"]').should('not.exist');
+    cy.visit(databasePath);
+    cy.get('ol.field-summary > li').should('have.length', 4);
+    cy.get('app-form-designer').should('not.exist');
+
+    // 擁有者撤銷指定：同一個工作階段重新整理就看不到，也不會透露名稱。
+    loginToApi('anxin', 'admin');
+    toggleEmployee(false);
+    loginToApi('anxin', 'internal');
+    cy.visit('/app/databases');
+    cy.contains('正在載入資料庫').should('not.exist');
+    cy.contains(databaseName).should('not.exist');
+    cy.visit(databasePath);
+    cy.contains('無法查看這個資料庫').should('be.visible');
+    cy.contains(databaseName).should('not.exist');
   });
 });

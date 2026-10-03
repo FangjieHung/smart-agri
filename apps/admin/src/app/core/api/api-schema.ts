@@ -2212,6 +2212,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateDatabaseAccessRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseAccessView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/databases/{id}/form": {
         parameters: {
             query?: never;
@@ -4682,14 +4751,44 @@ export interface components {
             member: components["schemas"]["TeamMemberResponse"];
             oneTimePassword: string;
         };
+        DatabaseAccessCandidateView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+            role: components["schemas"]["AccountRole"];
+            hasReadPermission: boolean;
+        };
+        DatabaseAccessChangeView: {
+            /** Format: date-time */
+            changedAt: string;
+            changedBy: components["schemas"]["DatabaseAccountView"];
+        };
+        DatabaseAccessView: {
+            owner: components["schemas"]["DatabaseAccountView"];
+            dataManagers: components["schemas"]["DatabaseDataManagerView"][];
+            effectiveReaders: components["schemas"]["DatabaseAccountView"][];
+            viewerIsDataManager: boolean;
+            viewerCanReadRecords: boolean;
+            viewerCanManageAccess: boolean;
+            candidates: components["schemas"]["DatabaseAccessCandidateView"][];
+            lastChange: null | components["schemas"]["DatabaseAccessChangeView"];
+        };
         DatabaseAccountView: {
             /** Format: uuid */
             id: string;
             displayName: string;
         };
+        DatabaseDataManagerView: {
+            account: components["schemas"]["DatabaseAccountView"];
+            hasReadPermission: boolean;
+            /** Format: date-time */
+            assignedAt: string;
+            assignedBy: components["schemas"]["DatabaseAccountView"];
+        };
         DatabaseDetailView: {
             summary: components["schemas"]["DatabaseSummaryView"];
             form: components["schemas"]["DatabaseFormView"];
+            access: components["schemas"]["DatabaseAccessView"];
         };
         DatabaseFieldDraft: {
             id: null | string;
@@ -5212,6 +5311,9 @@ export interface components {
             expectedDocumentIds?: null | string[];
             /** Format: uuid */
             followUpOfId?: null | string;
+        };
+        UpdateDatabaseAccessRequest: {
+            dataManagerAccountIds: null | string[];
         };
         UpdateKnowledgeBaseRequest: {
             name?: null | string;

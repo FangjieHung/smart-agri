@@ -548,23 +548,32 @@ describe('HybridDemoRepository', () => {
       { http: TestBed.inject(HttpClient), viewerPermissions: () => me },
     );
 
-    // 仍是 mock 的功能區（資料庫的表單編輯與試填，#143 前）寫進 storage 的資料，要依真實組織／帳號隔開。
-    const RECORDS = 'database-customer-records';
-    const saved = repository.updateDatabaseFields('account-smb-admin', RECORDS, [
-      { id: 'field-only-a', label: '組織 A 專屬欄位', type: 'text', required: true, options: [], scale: null, unit: '' },
-    ]);
-    expect(saved.status).toBe('ready');
-    const trialPasses = () =>
-      repository.previewDatabaseEntry('account-smb-admin', RECORDS, { 'field-only-a': '填了' }).status === 'ready';
-    expect(trialPasses()).toBe(true);
+    // 仍是 mock 的功能區（聊天提交寫入的收集紀錄，#145 前）寫進 storage 的資料，要依真實組織／帳號隔開。
+    const recordCount = () => {
+      const tracking = repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS);
+      if (tracking.status !== 'ready') throw new Error(`expected tracking, got ${tracking.status}`);
+      return tracking.data.subjects.reduce((total, subject) => total + subject.records.length, 0);
+    };
+    const baseline = recordCount();
+    const submitted = repository.submitChatForm('account-external-customer', 'assistant-customer-service', {
+      formId: ADMIN_ORDERS,
+      answers: {
+        'field-order-number': 'DEMO-9001',
+        'field-issue-type': '配送延遲',
+        'field-reported-on': '2026-09-21',
+      },
+      consent: true,
+    });
+    expect(submitted.status).toBe('ready');
+    expect(recordCount()).toBe(baseline + 1);
 
-    // 換到組織 B：同一個 Demo 角色 id，但真實組織／帳號不同，不受組織 A 的設定影響。
+    // 換到組織 B：同一個 Demo 角色 id，但真實組織／帳號不同，不受組織 A 的紀錄影響。
     me = { demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN, organizationId: 'org-b', accountId: 'account-b-admin' };
-    expect(trialPasses()).toBe(false);
+    expect(recordCount()).toBe(baseline);
 
-    // 換回組織 A：組織 A 的設定仍在。
+    // 換回組織 A：組織 A 的紀錄仍在。
     me = { demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN, organizationId: 'org-a', accountId: 'account-a-admin' };
-    expect(trialPasses()).toBe(true);
+    expect(recordCount()).toBe(baseline + 1);
   });
 });
 

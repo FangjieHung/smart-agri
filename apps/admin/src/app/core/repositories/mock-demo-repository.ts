@@ -827,6 +827,9 @@ function mockCharBigrams(value: string): ReadonlySet<string> {
   return grams;
 }
 
+/** 與後端 `DatabaseEndpoints.FormChangedMessage` 逐字相同。 */
+const DATABASE_FORM_CHANGED_MESSAGE = '這份表單已被更新過，請重新載入後再修改。你這次的修改尚未儲存。';
+
 const CREATED_DATABASES_KEY = 'sme-demo:created-databases';
 const DATABASE_FIELDS_KEY_PREFIX = 'sme-demo:database-fields:';
 
@@ -836,8 +839,11 @@ interface StoredCreatedDatabase {
 }
 
 interface StoredDatabaseFields {
+  /** 儲存格式的版本，不是表單版本。 */
   readonly version: 1;
   readonly savedAt: string;
+  /** 表單版本：沒存過（或舊格式沒有這個欄位）是 1，每次儲存加 1，與後端的 `formVersion` 同義。 */
+  readonly formVersion?: number;
   readonly fields: readonly DatabaseFieldView[];
 }
 
@@ -3266,6 +3272,7 @@ export class MockDemoRepository implements DemoRepository {
     const collection = this.databaseCollection(database.id);
     const detail: DatabaseDetailView = {
       summary: this.toDatabaseSummary(database, viewerAccountId),
+      formVersion: this.databaseFormVersion(database.id),
       fields: collection.fields,
       connectedAssistants: this.assistants()
         .filter(
@@ -3282,27 +3289,50 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   updateDatabaseFields(
-    viewerAccountId: AccountId,
     databaseId: DatabaseId,
     fields: readonly DatabaseFieldView[],
+    baseFormVersion: number,
+  ): Observable<UpdateDatabaseFieldsResult> {
+    return defer(() => of(this.writeDatabaseFields(this.viewer(), databaseId, fields, baseFormVersion)));
+  }
+
+  /** 與 API 相同的檢查順序：擁有者、版本是否過期、欄位驗證；任何一項失敗都不寫入。 */
+  private writeDatabaseFields(
+    viewerAccountId: AccountId | null,
+    databaseId: DatabaseId,
+    fields: readonly DatabaseFieldView[],
+    baseFormVersion: number,
   ): UpdateDatabaseFieldsResult {
+    if (viewerAccountId === null) return this.databasePermissionDenied();
     const database = this.ownedDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
+
+    const currentVersion = this.databaseFormVersion(database.id);
+    if (baseFormVersion !== currentVersion) {
+      return immutableCopy({ status: 'conflict', message: DATABASE_FORM_CHANGED_MESSAGE });
+    }
 
     const normalized = fields.map(normalizeField);
     const errors = validateFields(normalized);
     if (errors.length > 0) {
-      return immutableCopy({ status: 'validation-failed', errors, message: '還有欄位需要修正，表單尚未儲存。' });
+      return immutableCopy({ status: 'validation-failed', errors, message: errors[0].message });
+    }
+
+    // 沒有任何變動就不新增版本（與 API 相同）。
+    const current = this.databaseCollection(database.id).fields;
+    if (JSON.stringify(current) === JSON.stringify(normalized)) {
+      return this.applyScenario({ formVersion: currentVersion, fields: normalized });
     }
 
     const record: StoredDatabaseFields = {
       version: 1,
       savedAt: this.now().toISOString(),
+      formVersion: currentVersion + 1,
       fields: normalized,
     };
     this.storage.setItem(DATABASE_FIELDS_KEY_PREFIX + database.id, JSON.stringify(record));
 
-    return this.applyScenario(normalized);
+    return this.applyScenario({ formVersion: currentVersion + 1, fields: normalized });
   }
 
   updateDatabaseAccess(
@@ -3342,10 +3372,18 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   previewDatabaseEntry(
-    viewerAccountId: AccountId,
     databaseId: DatabaseId,
-    answers: Parameters<DemoRepository['previewDatabaseEntry']>[2],
+    answers: DatabaseTrialAnswers,
+  ): Observable<PreviewDatabaseEntryResult> {
+    return defer(() => of(this.runDatabaseTrial(this.viewer(), databaseId, answers)));
+  }
+
+  private runDatabaseTrial(
+    viewerAccountId: AccountId | null,
+    databaseId: DatabaseId,
+    answers: DatabaseTrialAnswers,
   ): PreviewDatabaseEntryResult {
+    if (viewerAccountId === null) return this.databasePermissionDenied();
     const database = this.ownedDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
 
@@ -3354,11 +3392,15 @@ export class MockDemoRepository implements DemoRepository {
       return immutableCopy({
         status: 'validation-failed',
         errors: outcome.errors,
-        message: '試填內容還有需要修正的地方。',
+        message: outcome.errors[0].message,
       });
     }
 
-    return this.applyScenario({ saved: false as const, entries: outcome.entries });
+    return this.applyScenario({
+      saved: false as const,
+      formVersion: this.databaseFormVersion(database.id),
+      entries: outcome.entries,
+    });
   }
 
   getDatabaseTracking(
@@ -4382,6 +4424,10 @@ export class MockDemoRepository implements DemoRepository {
       savedAt: stored?.savedAt ?? null,
       savedBy: stored?.savedBy === undefined ? null : displayName(stored.savedBy),
     };
+  }
+
+  private databaseFormVersion(databaseId: DatabaseId): number {
+    return this.storedDatabaseFields(databaseId)?.formVersion ?? 1;
   }
 
   private storedDatabaseFields(databaseId: DatabaseId): StoredDatabaseFields | null {

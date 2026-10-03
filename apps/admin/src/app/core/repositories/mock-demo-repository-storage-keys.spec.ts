@@ -112,7 +112,13 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
     if (database.status !== 'ready') throw new Error(`expected database to be created, got ${database.status}`);
     const detail = await firstValueFrom(repository.getDatabaseDetail(database.data.id));
     if (detail.status !== 'ready') throw new Error(`expected database detail, got ${detail.status}`);
-    repository.updateDatabaseFields(ADMIN, database.data.id, detail.data.fields);
+    await firstValueFrom(
+      repository.updateDatabaseFields(
+        database.data.id,
+        [...detail.data.fields, { ...detail.data.fields[0], id: 'field-extra', label: '新增欄位' }],
+        detail.data.formVersion,
+      ),
+    );
     await firstValueFrom(repository.updateDatabaseAccess(database.data.id, [ADMIN]));
 
     // 對話：帳號對話（寫進 storage）與表單提交（寫收集紀錄）。

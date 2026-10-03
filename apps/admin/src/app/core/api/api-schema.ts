@@ -2281,6 +2281,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}/form": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveDatabaseFormRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseFormView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/form/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PreviewDatabaseEntryRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseTrialPreviewView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants": {
         parameters: {
             query?: never;
@@ -4659,6 +4790,15 @@ export interface components {
             form: components["schemas"]["DatabaseFormView"];
             access: components["schemas"]["DatabaseAccessView"];
         };
+        DatabaseFieldDraft: {
+            id: null | string;
+            label: null | string;
+            type: null | string;
+            required: boolean;
+            options: null | string[];
+            scale: null | components["schemas"]["DatabaseScaleDraft"];
+            unit: null | string;
+        };
         /** @enum {unknown} */
         DatabaseFieldType: "text" | "number" | "date" | "single-choice" | "multiple-choice" | "scale";
         DatabaseFieldView: {
@@ -4678,6 +4818,14 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             fields: components["schemas"]["DatabaseFieldView"][];
+        };
+        DatabaseScaleDraft: {
+            /** Format: double */
+            min: null | number;
+            /** Format: double */
+            max: null | number;
+            minLabel: null | string;
+            maxLabel: null | string;
         };
         DatabaseScaleRangeView: {
             /** Format: int32 */
@@ -4712,6 +4860,17 @@ export interface components {
             name: string;
             description: string;
             fields: components["schemas"]["DatabaseFieldView"][];
+        };
+        DatabaseTrialEntryView: {
+            fieldId: string;
+            label: string;
+            display: string;
+        };
+        DatabaseTrialPreviewView: {
+            saved: boolean;
+            /** Format: int32 */
+            formVersion: number;
+            entries: components["schemas"]["DatabaseTrialEntryView"][];
         };
         DisableKnowledgeDocumentRequest: {
             reason: null | string;
@@ -4994,6 +5153,9 @@ export interface components {
             allowedAccountIds: string[];
             candidates: components["schemas"]["PlatformShareTargetView"][];
         };
+        PreviewDatabaseEntryRequest: {
+            answers: null | Record<string, never>;
+        };
         PreviewKnowledgeRetrievalRequest: {
             question: null | string;
             includePending?: null | boolean;
@@ -5059,6 +5221,11 @@ export interface components {
              * @default 1
              */
             schemaVersion: number;
+        };
+        SaveDatabaseFormRequest: {
+            /** Format: int32 */
+            baseVersionNumber: null | number;
+            fields: null | components["schemas"]["DatabaseFieldDraft"][];
         };
         SetPlatformPausedRequest: {
             paused: boolean;

@@ -190,8 +190,19 @@ export function buildPeriodicReport(input: {
   };
 }
 
-/** 修正空白與不屬於該類型的設定，讓儲存的欄位結構一致。 */
+/** 與後端 `DatabaseFormField`／`DatabaseFormVersion` 的上限相同（mock 與 API 的驗證一致）。 */
+export const DATABASE_FORM_LIMITS = {
+  maxFields: 50,
+  labelMaxLength: 100,
+  maxOptions: 30,
+  optionMaxLength: 100,
+  unitMaxLength: 20,
+  scaleLabelMaxLength: 20,
+} as const;
+
+/** 修正空白與不屬於該類型的設定，讓儲存的欄位結構一致（與後端 `DatabaseFormRules` 相同）。 */
 export function normalizeField(field: DatabaseFieldView): DatabaseFieldView {
+  const scale = field.scale ?? { min: 1, max: 5, minLabel: '', maxLabel: '' };
   return {
     id: field.id,
     label: field.label.trim(),
@@ -200,40 +211,73 @@ export function normalizeField(field: DatabaseFieldView): DatabaseFieldView {
     options: isChoiceFieldType(field.type)
       ? field.options.map((option) => option.trim()).filter((option) => option.length > 0)
       : [],
-    scale: field.type === 'scale' ? (field.scale ?? { min: 1, max: 5, minLabel: '', maxLabel: '' }) : null,
+    scale:
+      field.type === 'scale'
+        ? { ...scale, minLabel: scale.minLabel.trim(), maxLabel: scale.maxLabel.trim() }
+        : null,
     unit: field.type === 'number' ? field.unit.trim() : '',
   };
 }
 
+/** 每個欄位只回報第一個錯誤，訊息與後端 `DatabaseFormRules` 逐字相同。 */
 export function validateFields(fields: readonly DatabaseFieldView[]): DatabaseFieldError[] {
   if (fields.length === 0) return [{ fieldId: null, message: '表單至少需要一個欄位。' }];
+  if (fields.length > DATABASE_FORM_LIMITS.maxFields) {
+    return [{ fieldId: null, message: `表單最多 ${DATABASE_FORM_LIMITS.maxFields} 個欄位。` }];
+  }
 
   const seen = new Set<string>();
   return fields.flatMap((field): DatabaseFieldError[] => {
-    if (!DATABASE_FIELD_TYPES.includes(field.type)) {
-      return [{ fieldId: field.id, message: '不支援的欄位類型。' }];
+    const fail = (message: string): DatabaseFieldError[] => [{ fieldId: field.id, message }];
+    if (!DATABASE_FIELD_TYPES.includes(field.type)) return fail('不支援的欄位類型。');
+    if (field.label.length === 0) return fail('請填寫欄位名稱。');
+    if (field.label.length > DATABASE_FORM_LIMITS.labelMaxLength) {
+      return fail(`欄位名稱請在 ${DATABASE_FORM_LIMITS.labelMaxLength} 個字以內。`);
     }
-    if (field.label.length === 0) return [{ fieldId: field.id, message: '請填寫欄位名稱。' }];
-    if (seen.has(field.label)) return [{ fieldId: field.id, message: '欄位名稱不可重複。' }];
+    if (seen.has(field.label)) return fail('欄位名稱不可重複。');
     seen.add(field.label);
-    if (isChoiceFieldType(field.type) && field.options.length < 2) {
-      return [{ fieldId: field.id, message: '單選或多選至少需要 2 個選項。' }];
+    if (isChoiceFieldType(field.type)) {
+      if (field.options.length < 2) return fail('單選或多選至少需要 2 個選項。');
+      if (field.options.length > DATABASE_FORM_LIMITS.maxOptions) {
+        return fail(`單選或多選最多 ${DATABASE_FORM_LIMITS.maxOptions} 個選項。`);
+      }
+      if (field.options.some((option) => option.length > DATABASE_FORM_LIMITS.optionMaxLength)) {
+        return fail(`每個選項請在 ${DATABASE_FORM_LIMITS.optionMaxLength} 個字以內。`);
+      }
+      if (new Set(field.options).size !== field.options.length) return fail('選項不可重複。');
     }
     const scale = field.scale;
-    if (
-      field.type === 'scale' &&
-      (scale === null ||
+    if (field.type === 'scale') {
+      if (
+        scale === null ||
         !Number.isInteger(scale.min) ||
         !Number.isInteger(scale.max) ||
-        scale.min >= scale.max)
-    ) {
-      return [{ fieldId: field.id, message: '量尺的最小值必須小於最大值。' }];
+        scale.min >= scale.max
+      ) {
+        return fail('量尺的最小值必須小於最大值。');
+      }
+      if (scale.max - scale.min > 10) return fail('量尺最多 11 個刻度。');
+      if (
+        scale.minLabel.length > DATABASE_FORM_LIMITS.scaleLabelMaxLength ||
+        scale.maxLabel.length > DATABASE_FORM_LIMITS.scaleLabelMaxLength
+      ) {
+        return fail(`量尺的說明文字請在 ${DATABASE_FORM_LIMITS.scaleLabelMaxLength} 個字以內。`);
+      }
     }
-    if (scale !== null && field.type === 'scale' && scale.max - scale.min > 10) {
-      return [{ fieldId: field.id, message: '量尺最多 11 個刻度。' }];
+    if (field.unit.length > DATABASE_FORM_LIMITS.unitMaxLength) {
+      return fail(`單位請在 ${DATABASE_FORM_LIMITS.unitMaxLength} 個字以內。`);
     }
     return [];
   });
+}
+
+/** `YYYY-MM-DD` 且是真的存在的日期（與後端 `DateOnly.TryParseExact` 相同）。 */
+function isCalendarDate(text: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (match === null) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 type TrialOutcome =
@@ -269,7 +313,7 @@ export function evaluateTrial(fields: readonly DatabaseFieldView[], answers: Dat
         break;
       }
       case 'date':
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return fail('請輸入日期。');
+        if (!isCalendarDate(text)) return fail('請輸入日期。');
         break;
       case 'single-choice':
         if (!field.options.includes(text)) return fail('請從選項中選擇。');

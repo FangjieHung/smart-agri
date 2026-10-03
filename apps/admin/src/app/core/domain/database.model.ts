@@ -95,6 +95,12 @@ export function createDatabaseField(
   };
 }
 
+/** 儲存表單成功後的結果：新（或沒有變動時的現有）版本號與伺服器整理過的欄位。 */
+export interface DatabaseFormSavedView {
+  readonly formVersion: number;
+  readonly fields: readonly DatabaseFieldView[];
+}
+
 /** fieldId 為 null 表示整份表單層級的錯誤。 */
 export interface DatabaseFieldError {
   readonly fieldId: DatabaseFieldId | null;
@@ -185,15 +191,19 @@ export interface DatabaseAccessView {
 
 /**
  * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
- * - `form-editing`：編輯表單與試填（#143）；
  * - `records`：收集紀錄與趨勢比較（#145–#147）；
  * - `assistant-connections`：已連接助理（#148）。
  * mock 模式全部可用，所以是空陣列。
  */
-export type DatabaseUpcomingFeature = 'form-editing' | 'records' | 'assistant-connections';
+export type DatabaseUpcomingFeature = 'records' | 'assistant-connections';
 
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;
+  /**
+   * 目前表單的版本號（由模板建立時是 1，每次儲存表單加 1）。儲存時要帶回去，伺服器發現已有人
+   * 存過新版就回 409，不會蓋掉別人的修改。
+   */
+  readonly formVersion: number;
   readonly fields: readonly DatabaseFieldView[];
   readonly connectedAssistants: readonly DatabaseConnectedAssistantView[];
   readonly access: DatabaseAccessView;
@@ -202,7 +212,7 @@ export interface DatabaseDetailView {
 }
 
 /** API 模式中尚未開放的功能，畫面上顯示的說明。 */
-export const DATABASE_UPCOMING_FEATURE_MESSAGE = '這項功能將於後續版本開放；目前可以查看初始表單。';
+export const DATABASE_UPCOMING_FEATURE_MESSAGE = '這項功能將於後續版本開放。';
 
 /* ------------------------------------------------------------------ */
 /* 收集紀錄、時間軸與比較（差異值一律由 repository 預先算好）           */
@@ -360,5 +370,7 @@ export type DatabaseTrialAnswers = Readonly<Partial<Record<DatabaseFieldId, Data
 
 export interface DatabaseTrialPreviewView {
   readonly saved: false;
+  /** 試填驗證所依據的表單版本（儲存過的最新一版）。 */
+  readonly formVersion: number;
   readonly entries: readonly DatabaseRecordEntryView[];
 }

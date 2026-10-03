@@ -1,10 +1,10 @@
 <section class="trial" aria-labelledby="trial-title">
   <h3 id="trial-title">試填表單</h3>
-  <p class="demo-note">Demo：試填使用已儲存的表單，只檢查欄位並預覽結果，不會儲存任何紀錄。</p>
+  <p class="demo-note">試填使用已儲存的表單，只檢查欄位並預覽結果，不會儲存任何紀錄。</p>
 
   <form class="trial-form" (submit)="submit($event)" novalidate>
-    @if (message()) {
-      <p class="error-summary" role="alert">{{ message() }}</p>
+    @if (failure() || message()) {
+      <p class="error-summary" role="alert">{{ failure() || message() }}</p>
     }
 
     @for (field of fields(); track field.id) {
@@ -66,7 +66,7 @@
       }
     }
 
-    <button type="submit" class="ui-button">送出試填</button>
+    <button type="submit" class="ui-button" [disabled]="busy()">{{ busy() ? '檢查中…' : '送出試填' }}</button>
   </form>
 
   @if (preview(); as data) {

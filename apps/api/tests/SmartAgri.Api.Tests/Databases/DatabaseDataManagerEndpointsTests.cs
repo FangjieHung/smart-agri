@@ -187,9 +187,31 @@ public class DatabaseDataManagerEndpointsTests : IClassFixture<AuthHostFixture>
         refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         await AssertIdenticalAsync(refused, missing);
 
+        // Nor can a data manager edit the form or trial-fill it (#143): the same 403 as a missing id.
+        var formPath = $"{BasePath}/{databaseId}/form";
+        var missingFormPath = $"{BasePath}/{Guid.NewGuid()}/form";
+        var saveForm = await manager.Spa.PutAsync(formPath, manager.Token, new
+        {
+            baseVersionNumber = 1,
+            fields = new object[] { new { id = "field-x", label = "被改掉的欄位", type = "text", required = false } },
+        });
+        var saveMissing = await manager.Spa.PutAsync(missingFormPath, manager.Token, new
+        {
+            baseVersionNumber = 1,
+            fields = new object[] { new { id = "field-x", label = "被改掉的欄位", type = "text", required = false } },
+        });
+        saveForm.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        await AssertIdenticalAsync(saveForm, saveMissing);
+        var preview = await manager.Spa.PostAsync($"{formPath}/preview", manager.Token, new { answers = new { } });
+        var previewMissing = await manager.Spa.PostAsync($"{missingFormPath}/preview", manager.Token, new { answers = new { } });
+        preview.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        await AssertIdenticalAsync(preview, previewMissing);
+
         await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
         (await dbContext.DatabaseDataManagers.Select(m => m.AccountId).ToListAsync(CancellationToken))
             .ShouldBe([org.Admin.Id, org.Internal.Id], ignoreOrder: true);
+        (await dbContext.DatabaseFormVersions.CountAsync(v => v.DatabaseId == databaseId, CancellationToken))
+            .ShouldBe(1, "a refused form save writes no version");
     }
 
     [Fact]

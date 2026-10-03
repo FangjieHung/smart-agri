@@ -45,13 +45,9 @@
 
       @switch (activeTab().id) {
         @case ('form') {
-          @if (upcoming().has('form-editing') || !detail.summary.viewerCanManage) {
-            @if (!detail.summary.viewerCanManage) {
-              <p class="notice upcoming-notice" role="note">只有擁有者「{{ detail.summary.owner.displayName }}」可以編輯表單；你可以查看欄位。</p>
-            } @else {
-              <p class="notice upcoming-notice" role="note">表單編輯與試填：{{ upcomingMessage }}</p>
-            }
-            <ol class="field-summary" aria-label="初始表單欄位">
+          @if (!detail.summary.viewerCanManage) {
+            <p class="notice upcoming-notice" role="note">只有擁有者「{{ detail.summary.owner.displayName }}」可以編輯表單；你可以查看欄位。</p>
+            <ol class="field-summary" aria-label="表單欄位">
               @for (field of detail.fields; track field.id) {
                 <li [attr.data-field-id]="field.id">
                   <strong>{{ field.label }}</strong>
@@ -66,9 +62,18 @@
             [fields]="detail.fields"
             [errors]="fieldErrors()"
             [feedback]="designerFeedback()"
+            [failure]="designerFailure()"
+            [saving]="saving()"
             (save)="saveFields(detail, $event)"
+            (reload)="reload()"
           />
-          <app-form-trial [fields]="detail.fields" [result]="trialResult()" (trial)="runTrial(detail, $event)" />
+          <app-form-trial
+            [fields]="detail.fields"
+            [result]="trialResult()"
+            [failure]="trialFailure()"
+            [busy]="trialRunning()"
+            (trial)="runTrial(detail, $event)"
+          />
           }
         }
         @case ('assistants') {

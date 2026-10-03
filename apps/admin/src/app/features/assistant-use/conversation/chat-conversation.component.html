@@ -135,6 +135,9 @@
         <p class="handoff-feedback" role="status">已轉交這一則問答。<a [routerLink]="['/app/issues']" [queryParams]="{ issue: issueId }">查看處理進度</a></p>
       }
 
+      @if (formNotice()) {
+        <p class="form-notice" role="status">{{ formNotice() }}</p>
+      }
       @let activeFlow = flow();
       @switch (activeFlow.step) {
         @case ('form') {
@@ -151,6 +154,7 @@
             [consent]="activeFlow.form.consent"
             [entries]="activeFlow.entries"
             [error]="activeFlow.error"
+            [busy]="activeFlow.busy"
             (confirmed)="confirmConsent()"
             (back)="backToForm()"
           />

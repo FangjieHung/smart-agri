@@ -56,12 +56,14 @@ import type {
   AuthorizedFormInput,
   ChatFormReviewView,
   ChatFormSubmission,
+  ChatFormSubmissionResultView,
   ChatThreadListView,
   ChatThreadSummaryView,
   ConversationId,
   PrivateConversationView,
   RecentConversationView,
   StructuredSubmissionView,
+  SubmissionWithdrawalView,
 } from '../domain/conversation.model';
 import type {
   CreateKnowledgeBaseInput,
@@ -121,6 +123,8 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'database',
   'database-records',
   'assistant-use',
+  /** 對話中的表單（issue #148）：助理已不再連接這個資料庫、分享或權限已收回。 */
+  'assistant-form',
   'chat-thread',
   'submission-withdrawal',
   'publishing',
@@ -382,16 +386,28 @@ export type SendChatMessageResult =
   | RepositoryView<AssistantChatView>
   | ChatValidationFailedView;
 
+/** `conflict`：表單在顯示之後改版（只會是 `form-version-changed`），要重新開始填寫。 */
 export type ReviewChatFormResult =
   | RepositoryView<ChatFormReviewView>
-  | DatabaseFieldsValidationFailedView;
+  | DatabaseFieldsValidationFailedView
+  | DatabaseSubmissionConflictView;
 
+/**
+ * 對話中表單的送出結果（issue #148）。`permission-denied` 的 `assistant-form`：助理已不再連接
+ * 這個資料庫、分享或權限被收回；`conflict`：表單已改版或提交編號已用在別的內容。任何非
+ * `ready` 的結果都沒有建立紀錄。
+ */
 export type SubmitChatFormResult =
-  | RepositoryView<AssistantChatView>
-  | DatabaseFieldsValidationFailedView;
+  | RepositoryView<ChatFormSubmissionResultView>
+  | DatabaseFieldsValidationFailedView
+  | DatabaseSubmissionConflictView;
 
+/**
+ * 對話收據的撤回結果：`ready` 帶回這張收據撤回後的撤回狀態（`withdrawn`），畫面據此更新只存在本頁的
+ * 收據（不保存對話時），保存的對話則重新讀取。
+ */
 export type WithdrawChatSubmissionResult =
-  | RepositoryView<AssistantChatView>
+  | RepositoryView<SubmissionWithdrawalView>
   | ChatValidationFailedView;
 
 export type RenameChatThreadResult =
@@ -953,23 +969,29 @@ export interface DemoRepository extends DemoScenarioController {
    * 找不到這則助理訊息時什麼都不做。
    */
   discardChatReply(viewerId: ChatViewerId, assistantId: string, messageId: string, threadId?: string): void;
-  /** 對話中表單的送出前確認：只驗證並整理填寫值，不會建立紀錄。 */
+  /**
+   * 對話中表單的送出前確認：只驗證並整理填寫值，不會建立紀錄（issue #148 起為 Observable；
+   * API 模式是 `POST .../chat/forms/{databaseId}/review`）。
+   */
   reviewChatForm(
     viewerId: ChatViewerId,
     assistantId: string,
     formId: DatabaseId,
+    formVersion: number,
     answers: DatabaseTrialAnswers,
-  ): ReviewChatFormResult;
+  ): Observable<ReviewChatFormResult>;
   /**
    * 使用者明確同意後才會建立結構化紀錄，並寫入該資料庫的收集紀錄；
    * 只有指定資料管理者可在收集紀錄中看到。未同意時回傳 validation-failed。
+   * 同一個 `submissionId` 重送得到同一張收據，不會多一筆紀錄。網路錯誤與 5xx 原樣拋出，
+   * 畫面保留答案並以同一個編號重試。
    */
   submitChatForm(
     viewerId: ChatViewerId,
     assistantId: string,
     submission: ChatFormSubmission,
     threadId?: string,
-  ): SubmitChatFormResult;
+  ): Observable<SubmitChatFormResult>;
   /**
    * 撤回同意：**只有提交者本人**可以撤回自己送出的紀錄，資料管理者不能代為撤回或刪除。
    * 撤回後這筆紀錄的內容會從收集紀錄移除，也不再計入趨勢比較，只留下一筆不含內容的
@@ -978,6 +1000,11 @@ export interface DemoRepository extends DemoScenarioController {
    * recordId 來自收據、未經驗證；不存在或不屬於這位發起者一律回傳相同的
    * `submission-withdrawal` permission-denied，訊息不包含任何填寫內容。
    * 已撤回過的紀錄回傳 validation-failed，不會再寫入一次。
+   *
+   * API 模式（issue #146 接上 #148）：收據的 `recordId` 是 `record-<提交 id>`，撤回走
+   * `POST /api/v1/submissions/{id}/withdrawal`（提交者本人，與表單連結的提交同一條路徑）。伺服器的撤回
+   * 是冪等的，已撤回過也回 `ready`（同一個撤回時間），不是 validation-failed。5xx 與連線中斷以
+   * Observable 的 error 傳出，什麼都沒變，可以再按一次。
    *
    * 發起者可以是 Demo 帳號，也可以是未登入訪客（紀錄記在 `subject-<visitorId>`）。
    * 訪客的 id 只存在該瀏覽器分頁：分頁結束後就再也指認不到自己的紀錄，同意畫面與
@@ -988,7 +1015,7 @@ export interface DemoRepository extends DemoScenarioController {
     assistantId: string,
     recordId: string,
     threadId?: string,
-  ): WithdrawChatSubmissionResult;
+  ): Observable<WithdrawChatSubmissionResult>;
 }
 
 export const DEMO_SECURITY_NOTICE =

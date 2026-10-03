@@ -52,7 +52,7 @@
   - 與 #142 文件第 2 節的差異：詳情 `{summary, form}` 多了 `access`；`GET /databases`、`GET /databases/{id}` 不再只回擁有者的資料庫。
 - **#145 提交與回執**：已實作，見下方第 8 節（資料模型、API 契約、給 #146／#147／#148 的接點）。
 - **#146 查看紀錄與撤回**：已實作，見下方第 9 節（資料保留規則、撤回語意、API 契約、給 #147 的接點）。
-- **#148 連接助理**：目前 `AssistantEndpoints` 對資料庫來源回「將於後續版本開放」；連接表以複合外鍵指向 `Databases`。
+- **#148 連接助理**：已實作，見下方第 10 節。
 
 ## 6. 驗收紀錄
 
@@ -171,9 +171,9 @@
 
 - 契約：`listOwnDatabaseSubmissions()`、`withdrawDatabaseSubmission(id)`（新增）；`getDatabaseTracking(databaseId)` 改為 `Observable`、不再傳 viewer。mock 原本的同步本體改名 `readDatabaseTracking(viewer, id)`，只給 mock 內部與單元測試，不在 `DemoRepository` 契約內。Hybrid 三個方法都走 API（測試以真實 API JSON 驗證，且 mock storage 不被寫入）。回執多 `withdrawnAt`。
 - 畫面：「對話與回報紀錄」（`/app/activity`）新增「我送出的資料」（`features/activity/own-submissions/`）：載入、錯誤可重試、無權限、空白分開顯示；撤回要先確認，送出中停用按鈕，失敗（5xx／連線中斷）保留確認區塊並說明「沒有任何變更」可再按一次；伺服器拒絕時顯示其訊息並重新讀取清單。回執頁顯示已撤回狀態且不顯示內容，並連到「我送出的資料」。數據庫詳情的「收集紀錄」頁籤在 API 模式開放（讀取失敗與「沒有紀錄」分開、可重試）。
-- `API_UPCOMING_DATABASE_FEATURES`：`records` 移除，改為 `trends`（#147）。`DatabaseUpcomingFeature` 從 `'records' | …` 改成 `'trends' | …`。API 模式的 `comparison` 是「趨勢比較將於後續版本開放」的佔位、`periodicReports` 為空陣列，畫面在趨勢頁籤顯示將於後續版本開放，不用顯示文字自己算差異。
+- `API_UPCOMING_DATABASE_FEATURES`：`records` 移除，改為 `trends`（#147）。與 #148 合併後（#148 移除了 `assistant-connections`）清單與 `DatabaseUpcomingFeature` 都只剩 `trends`。API 模式的 `comparison` 是「趨勢比較將於後續版本開放」的佔位、`periodicReports` 為空陣列，畫面在趨勢頁籤顯示將於後續版本開放，不用顯示文字自己算差異。
 - 提交前的撤回說明（後端 `DatabaseSubmissionRules.WithdrawalNotice` 與 mock 逐字相同）改成說明到哪裡撤回、撤回的效果，以及既有定期報表不追溯修改。
-- mock 只列出表單連結的提交（回執存在 `sme-demo:database-submissions`）；對話中送出的資料在 mock 仍從對話收據撤回（既有行為）。API 模式的清單會包含所有來源，#148 加上對話來源後自然出現。
+- mock 只列出表單連結的提交（回執存在 `sme-demo:database-submissions`）；對話中送出的資料在 mock 仍從對話收據撤回（既有行為）。API 模式的清單包含所有來源（含 #148 的對話來源），每列以「來源：助理對話／表單連結」標示。
 
 ### 9.7 給 #147 的接點
 
@@ -181,3 +181,68 @@
 - 追蹤對象＝`SubmittedByAccountId`；欄位以穩定的 `FieldId` 跨版本比較；`NumberValue`（數字、量尺）是趨勢的來源。
 - 前端：`TrackedSubjectView.comparison` 與 `DatabaseTrackingView.periodicReports` 由 #147 從伺服器填入（可擴充 `GET .../tracking` 或另開固定查詢端點），完成後從 `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`。
 - 數據庫清單摘要的 `recordCount`／`subjectCount` 在 API 模式仍為 `null`：若 #147 要顯示，用 `DatabaseActiveRecords` 計數並只對可讀者回傳。
+
+## 10. #148 助理連接數據庫並請求表單（2026-10-03）
+
+### 10.1 連接模型（migration `AddAssistantDatabases`）
+
+| 資料表／欄位 | 內容 | 規則 |
+| --- | --- | --- |
+| `AssistantDatabases` | `AssistantId`、`DatabaseId`、`ConnectedAt`、`CollectsForms`、`CollectionPurpose`（≤ 500 字） | 主鍵 `(AssistantId, DatabaseId)`；兩條含 `OrganizationId` 的複合外鍵（→ `Assistants`、`Databases`，皆 `Cascade`）；部分唯一索引 `(AssistantId) WHERE CollectsForms`＝每個助理最多一個寫入對象；check：寫入對象一定有非空白目的、非寫入對象目的為空字串 |
+| `ChatMessages.FormDatabaseId`、`ChatMessages.SubmissionId` | 表單請求／收據訊息只存資料庫 id 與提交 id | 無外鍵（資料庫刪除後訊息仍在，顯示為已無法使用）；**不存任何填寫值**，收據訊息文字只有接收單位與回執編號 |
+| `ChatReplyKind` | 新增 `FormRequest`、`SubmissionReceipt`（整數，加在尾端） | 只由表單流程寫入，不經回答流程 |
+
+- **可連接＝擁有者可使用**（`AssistantDatabaseAccess.ConnectableBy` ＝ `DatabaseAccess.ListedFor`，以**助理擁有者**判斷）：自己擁有的，或被指定為資料管理者且具備 `read-consented-submissions` 的。資料管理者指定就是數據庫的「分享」；撤銷指定或權限＝分享撤回。
+- 連接本身不讓助理請求表單；`rules.dataWriteDatabaseId`／`dataWritePurpose`（前端 mock 既有欄位）選定其中一個已連接、可使用的數據庫作為寫入對象並說明目的。解除連接（或刪除數據庫）連帶清掉寫入對象。多個數據庫可同時連接（#149 的查詢工具使用）。
+- 解除最後一個來源（知識庫＋數據庫合計）一律 `422 last-source`。
+
+### 10.2 API 契約
+
+| 端點 | 權限 | 成功 | 錯誤 |
+| --- | --- | --- | --- |
+| `PUT /api/v1/assistants/{id}/sources/database/{databaseId}` | 登入＋`manage-assistants`＋助理擁有者 | `200 AssistantSettingsView`（冪等） | `403 assistant-configuration`；`422 source-not-connectable`（不存在、別組織、擁有者無權使用、id 格式錯誤，逐位元組相同） |
+| `DELETE …/sources/database/{databaseId}` | 同上 | `200`（未連接或 id 格式錯誤＝no-op） | `403`；`422 last-source` |
+| `PATCH …/settings` `rules.dataWriteDatabaseId`（`""` 清除、省略不變）、`rules.dataWritePurpose` | 同上 | `200`，`rules` 多兩欄、頂層多 `databaseIds` | `422`：`dataWritePurpose`（有對象卻無目的／過長）、`sources`（不是已連接且可使用的數據庫） |
+| `GET /api/v1/connectable-sources` | `manage-assistants` | 知識庫之後多 `type: "database"`（`summary`「N 個欄位」、`permission` owner／read-only） | — |
+| `POST /api/v1/assistants/{id}/chat/forms/{databaseId}/review` `{formVersionNumber, answers}` | 登入＋可使用助理 | `200 DatabaseTrialPreviewView`（不寫入） | `403 assistant-use`／`403 assistant-form`；`409 form-version-changed`；`422` |
+| `POST …/chat/forms/{databaseId}/submissions` `{submissionId, formVersionNumber, consent, answers, threadId?}` | 同上 | `201 ChatFormSubmissionView{receipt, message}`；同鍵同內容 `200` | `403 assistant-use`／`chat-thread`／`assistant-form`；`409 form-version-changed`／`submission-key-reused`／`chat-run-in-progress`；`422`（含 `consent-required`） |
+| `GET /api/v1/databases`、`GET /api/v1/databases/{id}` | 不變 | 摘要多 `connectedAssistantNames`、詳情多 `connectedAssistants`（只列呼叫者自己的助理） | 不變 |
+
+`ChatReplyView` 多 `form`（`ChatFormRequestView`：`id`、`title`、`formVersion`、`fields`、`consent{recipient, purpose, viewers, sensitiveNotice, withdrawalNotice}`）與 `receipt`（`DatabaseSubmissionReceiptView`），其他 kind 皆為 `null`。AG-UI 錄製檔（`tools/agui-contract/fixtures`）已重錄。
+
+### 10.3 表單工具與觸發
+
+- 伺服器只定義一個工具 `request_database_form`（`AssistantFormRequestRules.ToolName`），唯一的參數是「哪一份表單」，只能是伺服器判定此刻可用的寫入對象；欄位、版本、目的、接收單位、可查看者全部來自伺服器（目前表單版本＋`DatabaseSubmissionService.GetFormAsync(databaseId, purpose)`）。模型不產生欄位、查詢或 SQL。
+- 本票的呼叫由**編排層**（`ChatRunEndpoints`）決定，不經模型：問題含填寫意圖詞（`AsksForForm`：填寫／填表／表單／回報／登記／報名…）且 `AssistantFormRequests.FormRequestAsync` 找到可用的寫入對象，就以 `form-request` 回覆（同樣的 AG-UI 事件、同樣的對話保存規則；沒有模型呼叫，所以不寫 `ModelInvocations`）。否則照常走回答流程。Fake 與真實模型行為相同；沒有引入 Agent Framework 或新的 NuGet 套件。
+
+### 10.4 授權檢查順序
+
+1. 登入（`401`）。
+2. 可使用助理（`ChatEndpoints.FindUsableAsync`：擁有者，或分享＋`use-shared-assistants`＋未暫停）→ `403 assistant-use`。
+3. 指定的對話是自己的（只在保存對話時）→ `403 chat-thread`。
+4. `AssistantFormRequests.FormTargetAsync`：連接列存在、是寫入對象、數據庫在組織內、**助理擁有者此刻仍可使用**（擁有者的權限經 `RequestAccountPermissions` 每次請求重讀，指定每次查表）→ `403 assistant-form`（不連接、撤回、刪除、他組織、亂造 id 逐位元組相同）。
+5. 訊息保存需要時取得對話鎖（`409 chat-run-in-progress`），在寫入任何紀錄之前。
+6. `DatabaseSubmissionService.SubmitAsync`（`AssistantConversation` 來源、助理的收集目的寫進同意條款）：提交編號／版本 → 重送比對 → 目前版本 → 欄位 → 同意 → 單一交易寫入。
+7. 成功後才寫收據訊息（只存提交 id）；重送時沿用已存在的收據訊息，前一次中斷在兩步之間也會補上。
+
+表單請求（chat run）與重新讀取（`GET chat`）走同一個第 4 步，所以撤回後**下一個請求**就不再出現表單、舊訊息的 `form` 變成 `null`。
+
+### 10.5 隱私
+
+- 提交只帶表單答案；對話內容從不是輸入。處理人（資料管理者）經 `GET …/records` 只讀到欄位快照與提交者，讀不到對話（`chat-thread` 仍只屬於本人）。
+- 表單請求與收據訊息不能轉人工（`AssistantHandoffEndpoints` 對這兩種回 `403 chat-thread`），填寫內容只經同意的紀錄到達可查看者。
+- 不保存對話時：不寫任何對話表，紀錄照常寫入資料庫，收據訊息只在回應中出現一次。
+
+### 10.6 給 #146／#149 的接點
+
+- **#146（已接上，合併 #146 時完成）**：對話中的收據以 `ChatMessages.SubmissionId` 指向提交，顯示時呼叫 `DatabaseSubmissionService.GetReceiptAsync`（提交者本人），所以撤回後對話讀回的收據就是已撤回、不含內容，對話表不需要改。提交者本人在對話收據上撤回走 #146 的 `POST /api/v1/submissions/{id}/withdrawal`（與「我送出的資料」同一條，資料管理者一律 `403 submission-withdrawal`）；同一個 `submissionId` 在撤回後重送，回已撤回的回執與原本的收據訊息，不會再寫入。
+  - 前端：Hybrid 的收據 `recordId` 是 `record-<提交 id>`（與時間軸相同的前綴），`withdrawal` 依回執狀態決定（`available`／`withdrawn`；讀不到回執才是 `unavailable`）。`withdrawChatSubmission` 改為 `Observable`，結果是收據撤回後的 `SubmissionWithdrawalView`；Hybrid 去掉前綴後呼叫 `withdrawDatabaseSubmission`。畫面在保存的對話重新讀取；不保存對話時就地更新本頁的收據（API 模式讀不回來）；5xx／連線中斷顯示「目前無法撤回，這筆資料沒有任何變更」並保留撤回鍵。mock 行為不變（再撤回一次是 `validation-failed`；API 是冪等的 `200`）。
+  - 測試：`AssistantDatabaseFormEndpointsTests.The_submitter_withdraws_an_in_chat_submission_and_the_conversation_reads_it_back_withdrawn`（資料管理者代撤回被拒 → 本人撤回 → `DatabaseSubmissionEntries` 無該筆、`ChatMessages` 不含填寫值、對話讀回已撤回、同鍵重送不再寫入、「我送出的資料」與時間軸標示對話來源）；Hybrid（`hybrid-demo-repository-records.spec.ts`、`hybrid-demo-repository.spec.ts`）與元件（`chat-conversation.component.spec.ts`、`own-submissions.component.spec.ts`）。
+- **#149**：可用的數據庫集合是 `AssistantFormRequests.UsableDatabaseIdsAsync(assistant)`（連接列 ∩ 擁有者此刻可使用），每次請求重算；固定查詢工具應比照 `request_database_form` 只接受伺服器列出的參數，並在執行時再套用 `DatabaseRecordReaders`（查詢者本人的讀取權）。若改由模型選擇工具，`AssistantFormRequestRules.ToolName/ToolDescription` 可直接成為工具定義，授權與執行不變。
+
+### 10.7 已確認的決策
+
+負責人於 2026-10-03 同意：
+
+1. **數據庫「分享」的定義**：數據庫「分享」給某個帳號＝該帳號被指定為這個數據庫的資料管理者（#144），**且**帳號具備 `read-consented-submissions` 權限。助理擁有者要連接數據庫、讓助理在對話中請求它的表單，兩個條件都要成立；撤銷其中任何一個（移除指定，或收回權限），下一個請求起就無法再連接，已連接的助理也不再提供這份表單（`form` 讀回為 `null`、送出回 `403 assistant-form`）。
+2. **對話中表單請求的觸發方式**：目前由伺服器的編排層依填寫意圖關鍵字（`AsksForForm`）觸發，不經模型。工具定義 `request_database_form`（`AssistantFormRequestRules.ToolName`／`ToolDescription`）保留給日後改由模型選擇工具；真實模型就緒後再評估，見 #164（對話表單請求改由模型選擇工具）。

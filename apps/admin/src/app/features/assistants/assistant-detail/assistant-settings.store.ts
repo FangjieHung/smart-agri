@@ -193,8 +193,21 @@ export class AssistantSettingsStore {
     this.enqueuePatch(patch);
   }
 
+  /**
+   * 寫入的資料庫與收集目的一起送出（issue #148）：伺服器要求「有寫入對象就要有目的」，只送其中
+   * 一項時，另一項要用畫面上目前的值，否則先選資料庫、再填目的的使用者永遠存不進去。
+   */
   updateRules(patch: Partial<AssistantAnswerRules>): void {
-    this.enqueuePatch({ rules: patch });
+    const touchesWrite = patch.dataWriteDatabaseId !== undefined || patch.dataWritePurpose !== undefined;
+    const current = this.settings()?.rules;
+    const full: Partial<AssistantAnswerRules> = touchesWrite && current !== undefined
+      ? {
+          ...patch,
+          dataWriteDatabaseId: patch.dataWriteDatabaseId !== undefined ? patch.dataWriteDatabaseId : current.dataWriteDatabaseId,
+          dataWritePurpose: patch.dataWritePurpose ?? current.dataWritePurpose,
+        }
+      : patch;
+    this.enqueuePatch({ rules: full });
   }
 
   /** 加入或解除連接；只送出 id 與類型，不會複製來源內容。等伺服器回應才更新畫面。 */

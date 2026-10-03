@@ -89,6 +89,7 @@ function summary(overrides: Partial<ApiDatabaseSummary> = {}): ApiDatabaseSummar
     createdAt: '2026-10-03T02:00:00+00:00',
     updatedAt: '2026-10-03T02:00:00+00:00',
     viewerCanManage: true,
+    connectedAssistantNames: [],
     ...overrides,
   };
 }

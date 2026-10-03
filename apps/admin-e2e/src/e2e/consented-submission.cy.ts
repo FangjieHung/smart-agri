@@ -77,6 +77,56 @@ describe('consented structured submission', () => {
     cy.contains('DEMO-2001').should('not.exist');
   });
 
+  it('cancelling the inline form sends nothing (#148)', () => {
+    fillOrderForm();
+    cy.get('app-consent-confirmation').contains('button', '返回修改').click();
+    cy.get('app-inline-form').contains('button', '取消').click();
+    cy.get('app-inline-form').should('not.exist');
+    cy.get('[data-kind="submission-receipt"]').should('not.exist');
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/databases/database-orders/records');
+    cy.contains('DEMO-2001').should('not.exist');
+  });
+
+  it('refuses a form whose database was disconnected after it was offered, recording nothing (#148)', () => {
+    loginAs('外部客戶');
+    cy.visit('/use/assistant-customer-service');
+    cy.contains('button.suggested-prompt', '回報訂單問題').click();
+    cy.get('[role="log"] [data-kind="form-request"]').should('be.visible');
+
+    // 擁有者解除助理與訂單資料庫的連接。
+    loginAs('SMB 管理者');
+    cy.visit('/app/assistants/assistant-customer-service/data-sources');
+    cy.contains('.source-row', '訂單資料庫').contains('button', '已連接').click();
+    cy.contains('.source-row', '訂單資料庫').find('button.source-toggle').should('have.attr', 'aria-pressed', 'false');
+
+    // 先前顯示的表單送出時被拒，畫面說明原因、不建立紀錄；新的要求不再出現表單。
+    loginAs('外部客戶');
+    cy.visit('/use/assistant-customer-service');
+    cy.get('[role="log"] [data-kind="form-request"]').last().contains('button', '填寫表單').click();
+    cy.get('#chat-field-field-order-number').type('DEMO-4001');
+    cy.contains('app-inline-form label', '配送延遲').click();
+    cy.get('#chat-field-field-reported-on').type('2026-09-21');
+    cy.contains('button', '下一步：確認同意').click();
+    cy.get('app-inline-form [role="alert"]').should('contain', '目前無法使用');
+    cy.get('app-inline-form').contains('button', '取消').click();
+    // 解除連接後建議問題不再提供回報入口；手動輸入也不會得到表單。
+    cy.contains('button.suggested-prompt', '回報訂單問題').should('not.exist');
+    cy.get('[role="log"] app-chat-message').its('length').then((before) => {
+      cy.get('#chat-input').type('我要回報訂單問題');
+      cy.get('form.composer button[type="submit"]').click();
+      // 等使用者訊息與助理回覆都出現後才檢查，回覆不是表單請求。
+      cy.get('[role="log"] app-chat-message').should('have.length', before + 2);
+    });
+    cy.get('[role="log"] app-chat-message').last().find('[data-kind]').should('not.have.attr', 'data-kind', 'form-request');
+    cy.get('[role="log"] [data-kind="form-request"]').should('have.length', 1);
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/databases/database-orders/records');
+    cy.contains('DEMO-4001').should('not.exist');
+  });
+
   it('lets the submitter withdraw a record, which leaves the records and the trend', () => {
     loginAs('外部客戶');
     cy.visit('/use/assistant-customer-service');

@@ -1,4 +1,5 @@
 import { firstValueFrom } from 'rxjs';
+import { syncValue } from './sync-value.testing';
 import { isVisitorId, type AccountId, type ChatViewerId, type VisitorId } from '../domain/account.model';
 import type { AssistantChatView } from '../domain/conversation.model';
 import type { SendChatMessageResult, SubmitChatFormResult } from './demo-repository';
@@ -35,9 +36,13 @@ function createRepository(shared = createMemoryStorage(), visitorStorage = creat
   return { repository, viewerRef };
 }
 
-function chatOf(result: SendChatMessageResult | SubmitChatFormResult): AssistantChatView {
+function chatOf(result: SendChatMessageResult): AssistantChatView {
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
   return result.data;
+}
+
+function expectReady(result: SubmitChatFormResult): void {
+  if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
 }
 
 function ask(
@@ -164,7 +169,7 @@ describe('MockDemoRepository anonymous visitors', () => {
     const chat = ask(createRepository().repository, VISITOR, '我要回報訂單問題');
 
     const last = chat.messages[chat.messages.length - 1];
-    if (last?.author !== 'assistant' || last.reply.kind !== 'form-request') {
+    if (last?.author !== 'assistant' || last.reply.kind !== 'form-request' || last.reply.form === null) {
       throw new Error('expected a form request');
     }
     const consent = last.reply.form.consent;
@@ -179,11 +184,11 @@ describe('MockDemoRepository anonymous visitors', () => {
     const { repository } = createRepository();
     ask(repository, VISITOR, '我要回報訂單問題');
 
-    const result = repository.submitChatForm(VISITOR, PUBLISHED, {
-      formId: 'database-orders',
+    const result = syncValue(repository.submitChatForm(VISITOR, PUBLISHED, {
+      formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
       answers: ORDER_ANSWERS,
       consent: false,
-    });
+    }));
 
     expect(result.status).toBe('validation-failed');
     const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
@@ -194,12 +199,12 @@ describe('MockDemoRepository anonymous visitors', () => {
   it('delivers a consented anonymous submission to the data manager without inventing an identity', () => {
     const { repository } = createRepository();
     ask(repository, VISITOR, '我要回報訂單問題');
-    chatOf(
-      repository.submitChatForm(VISITOR, PUBLISHED, {
-        formId: 'database-orders',
+    expectReady(
+      syncValue(repository.submitChatForm(VISITOR, PUBLISHED, {
+        formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
         answers: ORDER_ANSWERS,
         consent: true,
-      }),
+      })),
     );
 
     const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
@@ -218,11 +223,11 @@ describe('MockDemoRepository anonymous visitors', () => {
   it('keeps the anonymous submission away from an account that is not the data manager', () => {
     const { repository } = createRepository();
     ask(repository, VISITOR, '我要回報訂單問題');
-    repository.submitChatForm(VISITOR, PUBLISHED, {
-      formId: 'database-orders',
+    syncValue(repository.submitChatForm(VISITOR, PUBLISHED, {
+      formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
       answers: ORDER_ANSWERS,
       consent: true,
-    });
+    }));
 
     const tracking = repository.readDatabaseTracking('account-internal-employee', 'database-orders');
 

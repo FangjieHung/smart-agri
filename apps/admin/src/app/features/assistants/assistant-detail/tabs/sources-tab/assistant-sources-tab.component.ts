@@ -16,6 +16,6 @@ import { AssistantSettingsStore } from '../../assistant-settings.store';
 })
 export class AssistantSourcesTabComponent {
   protected readonly store = inject(AssistantSettingsStore);
-  /** API 模式只列出知識庫（資料庫屬於 M4）。 */
+  /** API 模式說明資料庫的可連接範圍（#148）。 */
   protected readonly apiMode = inject(ApiSessionService).apiMode;
 }

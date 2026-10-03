@@ -95,6 +95,7 @@
   </div>
 }
 
+@if (periodicReportAvailable()) {
 <div class="field">
   <label for="periodic-report">是否請使用者定期填寫回報？</label>
   <select
@@ -116,6 +117,9 @@
     </p>
   }
 </div>
+} @else {
+  <p class="hint">請使用者定期回報將於後續版本開放。</p>
+}
 } @else {
   <p class="hint">把對話中收集到的資訊寫入資料庫、請使用者定期回報，將於後續版本開放。</p>
 }

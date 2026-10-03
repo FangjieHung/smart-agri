@@ -75,6 +75,7 @@ public sealed record DatabaseAccountView(Guid Id, string DisplayName);
 /// form version's creation.</param>
 /// <param name="ViewerCanManage">Whether the caller may open and change it
 /// (<see cref="DatabaseAccess.CanManage"/>).</param>
+/// <param name="ConnectedAssistantNames">The caller's own assistants connected to it (M4 #148).</param>
 public sealed record DatabaseSummaryView(
     Guid Id,
     string Name,
@@ -86,7 +87,8 @@ public sealed record DatabaseSummaryView(
     DatabaseAccountView Owner,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    bool ViewerCanManage);
+    bool ViewerCanManage,
+    IReadOnlyList<string> ConnectedAssistantNames);
 
 /// <summary>A form version: its number, when and by whom it was saved, and its fields.</summary>
 public sealed record DatabaseFormView(
@@ -141,7 +143,12 @@ public sealed record DatabaseAccessView(
 /// <summary><c>GET /api/v1/databases/{id}</c> response.</summary>
 /// <param name="Form">The current form (highest version).</param>
 /// <param name="Access">Data managers and who may read records.</param>
-public sealed record DatabaseDetailView(DatabaseSummaryView Summary, DatabaseFormView Form, DatabaseAccessView Access);
+/// <param name="ConnectedAssistants">The caller's own assistants connected to it (M4 #148).</param>
+public sealed record DatabaseDetailView(
+    DatabaseSummaryView Summary,
+    DatabaseFormView Form,
+    DatabaseAccessView Access,
+    IReadOnlyList<DatabaseConnectedAssistantView> ConnectedAssistants);
 
 /// <summary>
 /// <c>PUT /api/v1/databases/{id}/access</c> request: the complete list of data managers after the
@@ -278,12 +285,15 @@ public static class DatabaseEndpoints
                 dbContext.Databases.Where(DatabaseAccess.ListedFor(viewerId, hasReadPermission, dbContext.DatabaseDataManagers)))
             .ToListAsync(cancellationToken);
 
+        var connected = await DatabaseConnectedAssistants.ForAsync(
+            dbContext, viewerId, [.. rows.Select(row => row.Database.Id)], cancellationToken);
+
         // Ordered here rather than in SQL: EF Core cannot order by a member of a record built
         // through its constructor (as in KnowledgeBaseEndpoints), and a caller's databases are few.
         return Results.Ok(rows
             .OrderBy(row => row.Database.CreatedAt)
             .ThenBy(row => row.Database.Id)
-            .Select(row => ToSummary(row, viewerId))
+            .Select(row => ToSummary(row, viewerId, connected[row.Database.Id]))
             .ToList());
     }
 
@@ -360,10 +370,13 @@ public static class DatabaseEndpoints
             return ApiErrors.NotFound(ForbiddenReason.Database);
         }
 
+        var connected = (await DatabaseConnectedAssistants.ForAsync(dbContext, viewerId, [row.Database.Id], cancellationToken))
+            [row.Database.Id].ToList();
         return Results.Ok(new DatabaseDetailView(
-            ToSummary(row, viewerId),
+            ToSummary(row, viewerId, connected),
             ToFormView(row.Form),
-            await BuildAccessAsync(dbContext, row.Database, row.OwnerName, viewerId, hasReadPermission, cancellationToken)));
+            await BuildAccessAsync(dbContext, row.Database, row.OwnerName, viewerId, hasReadPermission, cancellationToken),
+            connected));
     }
 
     /// <summary>
@@ -702,7 +715,8 @@ public static class DatabaseEndpoints
             .Max(other => other.VersionNumber)
         select new DatabaseRow(database, owner.DisplayName, form);
 
-    private static DatabaseSummaryView ToSummary(DatabaseRow row, Guid viewerId)
+    private static DatabaseSummaryView ToSummary(
+        DatabaseRow row, Guid viewerId, IEnumerable<DatabaseConnectedAssistantView>? connectedAssistants = null)
     {
         var database = row.Database;
         return new DatabaseSummaryView(
@@ -716,7 +730,8 @@ public static class DatabaseEndpoints
             new DatabaseAccountView(database.OwnerAccountId, row.OwnerName),
             database.CreatedAt,
             row.Form.CreatedAt > database.UpdatedAt ? row.Form.CreatedAt : database.UpdatedAt,
-            DatabaseAccess.CanManage(database, viewerId));
+            DatabaseAccess.CanManage(database, viewerId),
+            [.. (connectedAssistants ?? []).Select(assistant => assistant.Name)]);
     }
 
     private static Guid CurrentOrganizationId(AppDbContext dbContext) =>

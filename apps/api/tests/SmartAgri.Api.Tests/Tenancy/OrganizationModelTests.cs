@@ -67,7 +67,7 @@ public class OrganizationModelTests
                 typeof(KnowledgeBase), typeof(KnowledgeBaseShare), typeof(KnowledgeActivity),
                 typeof(KnowledgeDocument), typeof(KnowledgeDocumentVersion), typeof(KnowledgeFileContent),
                 typeof(KnowledgeExtractedUnit), typeof(KnowledgeChunk),
-                typeof(Assistant), typeof(AssistantKnowledgeBase), typeof(AssistantDraft), typeof(AssistantShare),
+                typeof(Assistant), typeof(AssistantKnowledgeBase), typeof(AssistantDatabase), typeof(AssistantDraft), typeof(AssistantShare),
                 typeof(AssistantTestCase), typeof(AssistantTestRun), typeof(AssistantTestResult),
                 typeof(AssistantIssue), typeof(AssistantIssueEvent),
                 typeof(ChatThread), typeof(ChatMessage), typeof(ChatMessageCitation),

@@ -106,6 +106,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>A knowledge base connected to an assistant (M3 plan §4).</summary>
     public DbSet<AssistantKnowledgeBase> AssistantKnowledgeBases => Set<AssistantKnowledgeBase>();
 
+    /// <summary>Databases connected to assistants (M4 #148).</summary>
+    public DbSet<AssistantDatabase> AssistantDatabases => Set<AssistantDatabase>();
+
     /// <summary>In-progress wizard drafts, one or more per account (M3 plan §3, §4; #72).</summary>
     public DbSet<AssistantDraft> AssistantDrafts => Set<AssistantDraft>();
 
@@ -268,6 +271,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // Assistants (M3 plan §4).
         modelBuilder.ApplyConfiguration(new AssistantConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantKnowledgeBaseConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantDatabaseConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantDraftConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantShareConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestCaseConfiguration());

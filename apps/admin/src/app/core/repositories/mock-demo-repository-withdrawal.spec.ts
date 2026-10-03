@@ -1,8 +1,9 @@
 import { firstValueFrom } from 'rxjs';
+import { syncValue } from './sync-value.testing';
 import type { ChatViewerId } from '../domain/account.model';
 import type { AssistantChatView, ChatReplyView } from '../domain/conversation.model';
 import type { DatabaseRecordId, TrackedSubjectView } from '../domain/database.model';
-import type { SubmitChatFormResult, WithdrawChatSubmissionResult } from './demo-repository';
+import type { RepositoryView, SubmitChatFormResult, WithdrawChatSubmissionResult } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
@@ -30,7 +31,7 @@ function createRepository(storage = createMemoryStorage(), chatViewer: ChatViewe
   });
 }
 
-function chatOf(result: SubmitChatFormResult | WithdrawChatSubmissionResult): AssistantChatView {
+function chatOf(result: RepositoryView<AssistantChatView>): AssistantChatView {
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
   return result.data;
 }
@@ -54,14 +55,17 @@ function submit(
   viewerId: ChatViewerId,
   orderNumber: string,
 ): DatabaseRecordId {
-  const chat = chatOf(
-    repository.submitChatForm(viewerId, ASSISTANT, {
-      formId: FORM,
+  const result: SubmitChatFormResult = syncValue(repository.submitChatForm(viewerId, ASSISTANT, {
+      formId: FORM, formVersion: 1, submissionId: crypto.randomUUID(),
       answers: answers(orderNumber),
       consent: true,
-    }),
-  );
-  const recordId = lastReceipt(chat).recordId;
+    }));
+  if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+  const message = result.data.message;
+  if (message.author !== 'assistant' || message.reply.kind !== 'submission-receipt') {
+    throw new Error('expected a submission receipt');
+  }
+  const recordId = message.reply.recordId;
   if (recordId === null) throw new Error('expected the receipt to carry a record id');
   return recordId;
 }
@@ -93,7 +97,7 @@ describe('MockDemoRepository consent withdrawal', () => {
     const repository = createRepository();
     const recordId = submit(repository, CUSTOMER, 'DEMO-9001');
 
-    const result = repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId);
+    const result = syncValue(repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId));
     expect(result.status).toBe('ready');
 
     const receipt = lastReceipt(chatOf(await firstValueFrom(repository.getAssistantChat(ASSISTANT))));
@@ -109,7 +113,7 @@ describe('MockDemoRepository consent withdrawal', () => {
     expect(before?.records).toHaveLength(1);
     expect(JSON.stringify(before)).toContain('DEMO-9001');
 
-    repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId);
+    syncValue(repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId));
     const after = subjectOf(repository, `subject-${CUSTOMER}`);
 
     expect(after?.records).toEqual([]);
@@ -130,7 +134,7 @@ describe('MockDemoRepository consent withdrawal', () => {
       recordCount: 2,
     });
 
-    repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, first);
+    syncValue(repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, first));
 
     expect(subjectOf(repository, `subject-${CUSTOMER}`)?.comparison).toMatchObject({
       status: 'insufficient-records',
@@ -145,7 +149,7 @@ describe('MockDemoRepository consent withdrawal', () => {
     expect(
       lastReceipt(chatOf(await firstValueFrom(repository.getAssistantChat(ASSISTANT)))).withdrawal.notice,
     ).toContain('分頁');
-    expect(repository.withdrawChatSubmission(VISITOR, ASSISTANT, recordId).status).toBe('ready');
+    expect(syncValue(repository.withdrawChatSubmission(VISITOR, ASSISTANT, recordId)).status).toBe('ready');
 
     const subject = subjectOf(repository, `subject-${VISITOR}`);
     expect(subject?.records).toEqual([]);
@@ -156,8 +160,8 @@ describe('MockDemoRepository consent withdrawal', () => {
     const repository = createRepository();
     const recordId = submit(repository, CUSTOMER, 'DEMO-9001');
 
-    const denied = repository.withdrawChatSubmission(MANAGER, ASSISTANT, recordId);
-    const unknown = repository.withdrawChatSubmission(MANAGER, ASSISTANT, 'record-chat-999');
+    const denied = syncValue(repository.withdrawChatSubmission(MANAGER, ASSISTANT, recordId));
+    const unknown = syncValue(repository.withdrawChatSubmission(MANAGER, ASSISTANT, 'record-chat-999'));
 
     expect(denied).toMatchObject({ status: 'permission-denied', reason: 'submission-withdrawal' });
     expect(messageOf(denied)).toBe(messageOf(unknown));
@@ -170,7 +174,7 @@ describe('MockDemoRepository consent withdrawal', () => {
     const repository = createRepository();
     const recordId = submit(repository, CUSTOMER, 'DEMO-9001');
 
-    expect(repository.withdrawChatSubmission(VISITOR, ASSISTANT, recordId)).toMatchObject({
+    expect(syncValue(repository.withdrawChatSubmission(VISITOR, ASSISTANT, recordId))).toMatchObject({
       status: 'permission-denied',
       reason: 'submission-withdrawal',
     });
@@ -180,8 +184,8 @@ describe('MockDemoRepository consent withdrawal', () => {
     const repository = createRepository();
     const recordId = submit(repository, CUSTOMER, 'DEMO-9001');
 
-    expect(repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId).status).toBe('ready');
-    const again = repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId);
+    expect(syncValue(repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId)).status).toBe('ready');
+    const again = syncValue(repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, recordId));
 
     expect(again).toMatchObject({ status: 'validation-failed' });
     expect(messageOf(again)).toContain('已經撤回');

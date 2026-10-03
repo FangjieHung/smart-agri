@@ -22,7 +22,8 @@ namespace SmartAgri.Api.Assistants;
 // - ids are GUIDs;
 // - viewerCanManage / viewerIsOwner are added (M2 plan §3, carried over), so the frontend
 //   never compares owner ids itself;
-// - audience / sharedWithAccountIds (on AssistantConfigurationView) / databaseIds are absent:
+// - audience / sharedWithAccountIds (on AssistantConfigurationView) are absent (databaseIds and
+//   the database-write rules exist since M4 #148; periodicReport is still the frontend's own):
 //   the frontend mock models an audience-role gate that is not part of the M3 plan's data
 //   model (§4) — "who may use it" here is ownership + AssistantShare + use-shared-assistants
 //   only (AssistantUseAccess.UsableBy), not audience/role;
@@ -111,21 +112,30 @@ public sealed record UpdatePlatformSharingRequest(IReadOnlyList<string?>? Accoun
 /// <summary><c>PUT /api/v1/assistants/{id}/publishing/platform/paused</c> request.</summary>
 public sealed record SetPlatformPausedRequest(bool Paused);
 
-/// <summary>The rules governing how an assistant answers (M3 plan §4).</summary>
+/// <summary>The rules governing how an assistant answers (M3 plan §4) and, since M4 #148, which
+/// connected database its form requests fill in and the purpose members are told.</summary>
+/// <param name="DataWriteDatabaseId">The connected database the assistant's form requests fill in;
+/// <see langword="null"/> for none.</param>
+/// <param name="DataWritePurpose">Shown to members before they consent; empty without a target.</param>
 public sealed record AssistantAnswerRulesView(
     AssistantKnowledgeScope KnowledgeScope,
     string RefusalMessage,
     bool ShowCitations,
-    bool KeepConversations);
+    bool KeepConversations,
+    Guid? DataWriteDatabaseId,
+    string DataWritePurpose);
 
 /// <summary>
 /// <c>GET</c>/<c>PATCH .../settings</c> response: settings, connected knowledge bases and
 /// answer rules together, since the settings screen edits them as one form
 /// (<c>assistant-settings.model.ts</c>'s <c>AssistantSettingsView</c>).
 /// </summary>
+/// <param name="DatabaseIds">Connected databases (M4 #148), oldest connection first — including
+/// one whose owner may no longer use it (still shown, so it can be disconnected; it is not used).</param>
 public sealed record AssistantSettingsView(
     AssistantConfigurationView Configuration,
     IReadOnlyList<Guid> KnowledgeBaseIds,
+    IReadOnlyList<Guid> DatabaseIds,
     AssistantTone Tone,
     string RoleInstructions,
     AssistantAnswerRulesView Rules);
@@ -143,11 +153,16 @@ public sealed record UpdateAssistantSettingsRequest(
     AssistantAnswerRulesPatch? Rules = null);
 
 /// <summary>The <c>rules</c> part of <see cref="UpdateAssistantSettingsRequest"/>; every field optional.</summary>
+/// <param name="DataWriteDatabaseId">A connected database's id to make it the form target, <c>""</c>
+/// to have none; <see langword="null"/>/absent keeps the current one (M4 #148).</param>
+/// <param name="DataWritePurpose">The collection purpose; required (non-blank) while there is a target.</param>
 public sealed record AssistantAnswerRulesPatch(
     string? KnowledgeScope = null,
     string? RefusalMessage = null,
     bool? ShowCitations = null,
-    bool? KeepConversations = null);
+    bool? KeepConversations = null,
+    string? DataWriteDatabaseId = null,
+    string? DataWritePurpose = null);
 
 /// <summary>
 /// Assistant listing, settings, source connections, deletion and platform sharing (M3 plan,
@@ -170,8 +185,6 @@ public sealed record AssistantAnswerRulesPatch(
 /// </remarks>
 public static class AssistantEndpoints
 {
-    private const string DatabaseSourcesNotYetAvailableMessage = "資料庫來源將於後續版本開放，目前只能連接知識庫。";
-
     public static IEndpointRouteBuilder MapAssistantEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var assistants = endpoints.MapGroup("/api/v1/assistants")
@@ -229,17 +242,19 @@ public static class AssistantEndpoints
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
-        // Databases (M4) do not exist yet: both verbs always refuse, after the same
-        // ownership check as the knowledge-base source endpoints, so they cannot be used to
-        // probe whether an assistant id exists.
+        // Databases (M4 #148): the same shape as knowledge bases. The id is a plain string so a
+        // malformed one is this endpoint's own 422 (connect) or no-op (disconnect), after the
+        // ownership check, never a routing 404.
         assistants.MapPut("/{id:guid}/sources/database/{databaseId}", ConnectDatabaseAsync)
             .RequirePermission(AccountPermission.ManageAssistants, ForbiddenReason.AssistantConfiguration)
+            .Produces<AssistantSettingsView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
         assistants.MapDelete("/{id:guid}/sources/database/{databaseId}", DisconnectDatabaseAsync)
             .RequirePermission(AccountPermission.ManageAssistants, ForbiddenReason.AssistantConfiguration)
+            .Produces<AssistantSettingsView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
@@ -436,6 +451,7 @@ public static class AssistantEndpoints
         UpdateAssistantSettingsRequest request,
         HttpContext httpContext,
         AppDbContext dbContext,
+        AssistantFormRequests formRequests,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -475,6 +491,29 @@ public static class AssistantEndpoints
             return ApiErrors.ValidationFailed(validated.Failures);
         }
 
+        // The form target (M4 #148): validated against the databases the owner may use right now,
+        // before anything is written.
+        var links = await dbContext.AssistantDatabases
+            .Where(link => link.AssistantId == assistant.Id)
+            .ToListAsync(cancellationToken);
+        var currentTarget = links.Find(link => link.CollectsForms);
+        AssistantFormTarget? formTarget = null;
+        if (request.Rules?.DataWriteDatabaseId is not null || request.Rules?.DataWritePurpose is not null)
+        {
+            var usable = await formRequests.UsableDatabaseIdsAsync(assistant, cancellationToken);
+            var target = AssistantFormRequestRules.ForUpdate(
+                new AssistantFormTarget(currentTarget?.DatabaseId, currentTarget?.CollectionPurpose ?? string.Empty),
+                request.Rules.DataWriteDatabaseId,
+                request.Rules.DataWritePurpose,
+                usable);
+            if (!target.IsValid)
+            {
+                return ApiErrors.ValidationFailed(target.Failures);
+            }
+
+            formTarget = target.Value;
+        }
+
         var value = validated.Value;
         var now = clock.GetUtcNow();
         var changed = assistant.ApplySettings(
@@ -487,10 +526,29 @@ public static class AssistantEndpoints
             value.ShowCitations,
             value.KeepConversations,
             now);
-        if (changed.Count > 0)
+        var targetChanged = formTarget is not null
+            && (formTarget.DatabaseId != currentTarget?.DatabaseId
+                || (formTarget.DatabaseId is not null && formTarget.Purpose != currentTarget?.CollectionPurpose));
+        if (changed.Count > 0 || targetChanged)
         {
             await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (targetChanged)
+            {
+                // Two steps: the partial unique index allows one target per assistant at any time.
+                if (currentTarget is not null && currentTarget.DatabaseId != formTarget!.DatabaseId)
+                {
+                    currentTarget.StopCollectingForms();
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+
+                if (formTarget!.DatabaseId is { } targetId)
+                {
+                    links.Single(link => link.DatabaseId == targetId).CollectForms(formTarget.Purpose);
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+            }
+
             if (changed.Any(AnswerAffectingSettings.Contains))
             {
                 await AssistantTestRunQueue.RequestIfTestedAsync(
@@ -616,13 +674,9 @@ public static class AssistantEndpoints
         var target = links.Find(link => link.KnowledgeBaseId == knowledgeBaseId);
         if (target is not null)
         {
-            if (links.Count == 1)
+            if (links.Count + await ConnectedDatabaseCountAsync(dbContext, assistant.Id, cancellationToken) == 1)
             {
-                return ApiErrors.WithReason(
-                    StatusCodes.Status422UnprocessableEntity,
-                    "last-source",
-                    "助理至少要連接一個知識庫或資料庫才能回答問題，無法解除最後一個來源。",
-                    field: "sources");
+                return LastSource();
             }
 
             dbContext.AssistantKnowledgeBases.Remove(target);
@@ -636,26 +690,71 @@ public static class AssistantEndpoints
         return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
     }
 
-    /// <summary>Databases do not exist yet (M4): always <c>422</c>, after the same ownership
-    /// check as every other settings endpoint.</summary>
+    /// <summary>
+    /// Connects a database the assistant's owner may use (<see cref="AssistantDatabaseAccess.ConnectableBy"/>,
+    /// M4 #148): their own, or one they are a designated data manager of while holding
+    /// <c>read-consented-submissions</c>. A database that does not exist (in this organization), a
+    /// malformed id and one that is not connectable get the same <c>422</c>, so this cannot be used to
+    /// probe another account's databases. Idempotent. A connection alone does not make the assistant
+    /// ask for forms: that is the <c>rules.dataWriteDatabaseId</c> setting.
+    /// </summary>
     internal static async Task<IResult> ConnectDatabaseAsync(
         Guid id,
         string databaseId,
         HttpContext httpContext,
         AppDbContext dbContext,
-        CancellationToken cancellationToken) =>
-        await DatabaseSourceRefusedAsync(id, httpContext, dbContext, cancellationToken);
+        RequestAccountPermissions permissions,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
 
+        var assistant = await FindManageableAsync(dbContext.Assistants, id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantConfiguration);
+        }
+
+        if (!Guid.TryParse(databaseId, out var parsedId))
+        {
+            return DatabaseNotConnectable();
+        }
+
+        var ownerPermissions = await permissions.GetAsync(assistant.OwnerAccountId, cancellationToken);
+        var database = await dbContext.Databases
+            .Where(AssistantDatabaseAccess.ConnectableBy(
+                assistant.OwnerAccountId,
+                ownerPermissions.Contains(AccountPermission.ReadConsentedSubmissions),
+                dbContext.DatabaseDataManagers))
+            .SingleOrDefaultAsync(candidate => candidate.Id == parsedId, cancellationToken);
+        if (database is null)
+        {
+            return DatabaseNotConnectable();
+        }
+
+        var alreadyConnected = await dbContext.AssistantDatabases
+            .AnyAsync(link => link.AssistantId == assistant.Id && link.DatabaseId == database.Id, cancellationToken);
+        if (!alreadyConnected)
+        {
+            dbContext.AssistantDatabases.Add(new AssistantDatabase(assistant, database, clock.GetUtcNow()));
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
+    }
+
+    /// <summary>
+    /// Disconnects a database (and with it the form target, if it was the one). Refused with
+    /// <c>422 last-source</c> for the assistant's last remaining source, like knowledge bases; a
+    /// database that is not connected (or a malformed id) is a no-op. Records already submitted stay
+    /// in the database: disconnecting only stops new form requests.
+    /// </summary>
     internal static async Task<IResult> DisconnectDatabaseAsync(
         Guid id,
         string databaseId,
-        HttpContext httpContext,
-        AppDbContext dbContext,
-        CancellationToken cancellationToken) =>
-        await DatabaseSourceRefusedAsync(id, httpContext, dbContext, cancellationToken);
-
-    private static async Task<IResult> DatabaseSourceRefusedAsync(
-        Guid id,
         HttpContext httpContext,
         AppDbContext dbContext,
         CancellationToken cancellationToken)
@@ -665,18 +764,51 @@ public static class AssistantEndpoints
             return ApiErrors.Unauthorized();
         }
 
-        var assistant = await FindManageableAsync(dbContext.Assistants.AsNoTracking(), id, callerId, cancellationToken);
+        var assistant = await FindManageableAsync(dbContext.Assistants, id, callerId, cancellationToken);
         if (assistant is null)
         {
             return ApiErrors.NotFound(ForbiddenReason.AssistantConfiguration);
         }
 
-        return ApiErrors.WithReason(
-            StatusCodes.Status422UnprocessableEntity,
-            "database-not-available",
-            DatabaseSourcesNotYetAvailableMessage,
-            field: "sources");
+        if (Guid.TryParse(databaseId, out var parsedId))
+        {
+            var links = await dbContext.AssistantDatabases
+                .Where(link => link.AssistantId == assistant.Id)
+                .ToListAsync(cancellationToken);
+            var target = links.Find(link => link.DatabaseId == parsedId);
+            if (target is not null)
+            {
+                var knowledgeBases = await dbContext.AssistantKnowledgeBases
+                    .CountAsync(link => link.AssistantId == assistant.Id, cancellationToken);
+                if (links.Count + knowledgeBases == 1)
+                {
+                    return LastSource();
+                }
+
+                dbContext.AssistantDatabases.Remove(target);
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
     }
+
+    private static Task<int> ConnectedDatabaseCountAsync(AppDbContext dbContext, Guid assistantId, CancellationToken cancellationToken) =>
+        dbContext.AssistantDatabases.CountAsync(link => link.AssistantId == assistantId, cancellationToken);
+
+    private static IResult LastSource() =>
+        ApiErrors.WithReason(
+            StatusCodes.Status422UnprocessableEntity,
+            "last-source",
+            "助理至少要連接一個知識庫或資料庫才能回答問題，無法解除最後一個來源。",
+            field: "sources");
+
+    private static IResult DatabaseNotConnectable() =>
+        ApiErrors.WithReason(
+            StatusCodes.Status422UnprocessableEntity,
+            "source-not-connectable",
+            "這個資料庫無法連接到這個助理，或已不存在。",
+            field: "sources");
 
     private static IResult SourceNotConnectable() =>
         ApiErrors.WithReason(
@@ -992,8 +1124,14 @@ public static class AssistantEndpoints
         AppDbContext dbContext, Assistant assistant, Guid viewerId, CancellationToken cancellationToken)
     {
         var knowledgeBaseIds = await ConnectedKnowledgeBaseIdsAsync(dbContext, assistant.Id, cancellationToken);
+        var databases = await dbContext.AssistantDatabases
+            .AsNoTracking()
+            .Where(link => link.AssistantId == assistant.Id)
+            .OrderBy(link => link.ConnectedAt)
+            .ThenBy(link => link.DatabaseId)
+            .ToListAsync(cancellationToken);
         var acceptance = await AcceptanceStatusesAsync(dbContext, [assistant.Id], cancellationToken);
-        return ToSettings(assistant, viewerId, knowledgeBaseIds, acceptance[assistant.Id]);
+        return ToSettings(assistant, viewerId, knowledgeBaseIds, databases, acceptance[assistant.Id]);
     }
 
     private static AssistantConfigurationView ToConfiguration(
@@ -1013,12 +1151,25 @@ public static class AssistantEndpoints
         new(assistant.Id, assistant.Name, assistant.Purpose, assistant.Status, assistant.OwnerAccountId == viewerId);
 
     private static AssistantSettingsView ToSettings(
-        Assistant assistant, Guid viewerId, IReadOnlyList<Guid> knowledgeBaseIds, AssistantAcceptanceStatus acceptanceStatus) =>
-        new(
+        Assistant assistant,
+        Guid viewerId,
+        IReadOnlyList<Guid> knowledgeBaseIds,
+        IReadOnlyList<AssistantDatabase> databases,
+        AssistantAcceptanceStatus acceptanceStatus)
+    {
+        var formTarget = databases.FirstOrDefault(link => link.CollectsForms);
+        return new(
             ToConfiguration(assistant, viewerId, acceptanceStatus),
             knowledgeBaseIds,
+            [.. databases.Select(link => link.DatabaseId)],
             assistant.Tone,
             assistant.RoleInstructions,
             new AssistantAnswerRulesView(
-                assistant.KnowledgeScope, assistant.RefusalMessage, assistant.ShowCitations, assistant.KeepConversations));
+                assistant.KnowledgeScope,
+                assistant.RefusalMessage,
+                assistant.ShowCitations,
+                assistant.KeepConversations,
+                formTarget?.DatabaseId,
+                formTarget?.CollectionPurpose ?? string.Empty));
+    }
 }

@@ -18,6 +18,9 @@ namespace SmartAgri.Api.Databases;
 /// <param name="Answers">By field id (see <see cref="DatabaseEndpoints.ToAnswerInputs"/>).</param>
 /// <param name="Source">The entry point: the standalone form (#145) or an assistant's form
 /// request (#148).</param>
+/// <param name="Purpose">The purpose the member was shown, when the entry point states its own
+/// (#148: the assistant's collection purpose); <see langword="null"/> for the database's purpose.
+/// Recorded in the consent terms either way.</param>
 public sealed record DatabaseSubmissionCommand(
     Guid DatabaseId,
     Guid SubmitterAccountId,
@@ -25,7 +28,8 @@ public sealed record DatabaseSubmissionCommand(
     int? FormVersionNumber,
     bool? Consent,
     IReadOnlyDictionary<string, DatabaseAnswerInput> Answers,
-    DatabaseSubmissionSource Source);
+    DatabaseSubmissionSource Source,
+    string? Purpose = null);
 
 /// <summary>What a submission attempt came to. Exactly one of these; only
 /// <see cref="Created"/> wrote anything.</summary>
@@ -105,7 +109,12 @@ public sealed class DatabaseSubmissionService
     /// sensitive-data notice and the current form. <see langword="null"/> when the database does
     /// not exist in the caller's organization.
     /// </summary>
-    public async Task<DatabaseSubmissionFormView?> GetFormAsync(Guid databaseId, CancellationToken cancellationToken)
+    public Task<DatabaseSubmissionFormView?> GetFormAsync(Guid databaseId, CancellationToken cancellationToken) =>
+        GetFormAsync(databaseId, null, cancellationToken);
+
+    /// <summary><see cref="GetFormAsync(Guid, CancellationToken)"/> with the entry point's own
+    /// <paramref name="purpose"/> (#148) in place of the database's, when not <see langword="null"/>.</summary>
+    public async Task<DatabaseSubmissionFormView?> GetFormAsync(Guid databaseId, string? purpose, CancellationToken cancellationToken)
     {
         var row = await DatabaseEndpoints.WithOwnerAndCurrentForm(
                 _dbContext, _dbContext.Databases.Where(database => database.Id == databaseId))
@@ -115,7 +124,7 @@ public sealed class DatabaseSubmissionService
             return null;
         }
 
-        var terms = await TermsAsync(row.Database, cancellationToken);
+        var terms = await TermsAsync(row.Database, purpose, cancellationToken);
         return new DatabaseSubmissionFormView(
             row.Database.Id,
             terms.DatabaseName,
@@ -213,7 +222,7 @@ public sealed class DatabaseSubmissionService
         }
 
         var now = _clock.GetUtcNow();
-        var terms = await TermsAsync(database, cancellationToken);
+        var terms = await TermsAsync(database, command.Purpose, cancellationToken);
         var submission = DatabaseSubmission.Create(
             database, current, command.SubmitterAccountId, key, command.Source, terms, now);
         var entries = answers.Value
@@ -430,8 +439,9 @@ public sealed class DatabaseSubmissionService
             .OrderBy(entry => entry.Position)
             .ToListAsync(cancellationToken);
 
-    /// <summary>The consent terms for <paramref name="database"/> as it is right now.</summary>
-    private async Task<DatabaseConsentTerms> TermsAsync(Database database, CancellationToken cancellationToken)
+    /// <summary>The consent terms for <paramref name="database"/> as it is right now, with
+    /// <paramref name="purpose"/> in place of the database's own when given.</summary>
+    private async Task<DatabaseConsentTerms> TermsAsync(Database database, string? purpose, CancellationToken cancellationToken)
     {
         var organizationName = await _dbContext.Organizations.AsNoTracking()
             .Where(organization => organization.Id == database.OrganizationId)
@@ -454,7 +464,7 @@ public sealed class DatabaseSubmissionService
         return DatabaseSubmissionRules.TermsFor(
             organizationName,
             database.Name,
-            database.Purpose,
+            purpose ?? database.Purpose,
             [.. readers.Select(id => names.GetValueOrDefault(id, RemovedAccountName))]);
     }
 

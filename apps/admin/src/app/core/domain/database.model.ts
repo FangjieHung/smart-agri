@@ -191,11 +191,10 @@ export interface DatabaseAccessView {
 
 /**
  * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
- * - `trends`：趨勢比較與定期回報摘要（#147；收集紀錄時間軸與撤回軌跡已於 #146 開放）；
- * - `assistant-connections`：已連接助理（#148）。
+ * - `trends`：趨勢比較與定期回報摘要（#147；收集紀錄時間軸與撤回軌跡已於 #146 開放，已連接助理已於 #148 開放）。
  * mock 模式全部可用，所以是空陣列。
  */
-export type DatabaseUpcomingFeature = 'trends' | 'assistant-connections';
+export type DatabaseUpcomingFeature = 'trends';
 
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;

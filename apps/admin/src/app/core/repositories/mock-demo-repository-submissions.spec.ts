@@ -29,7 +29,7 @@ function input(overrides: Partial<DatabaseSubmissionInput> = {}): DatabaseSubmis
 }
 
 function orderRecordCount(storage: DemoKeyValueStorage): number {
-  const tracking = repositoryFor(ADMIN, storage).getDatabaseTracking(ADMIN, ORDERS);
+  const tracking = repositoryFor(ADMIN, storage).readDatabaseTracking(ADMIN, ORDERS);
   if (tracking.status !== 'ready') throw new Error(`expected ready, got ${tracking.status}`);
   return tracking.data.subjects.reduce((sum, subject) => sum + subject.records.length, 0);
 }
@@ -125,7 +125,7 @@ describe('MockDemoRepository consented submission (issue #145)', () => {
     expect(orderRecordCount(storage)).toBe(before + 1);
 
     // The data manager sees it in the timeline, from 表單連結.
-    const tracking = repositoryFor(ADMIN, storage).getDatabaseTracking(ADMIN, ORDERS);
+    const tracking = repositoryFor(ADMIN, storage).readDatabaseTracking(ADMIN, ORDERS);
     if (tracking.status !== 'ready') throw new Error(tracking.status);
     const customer = tracking.data.subjects.find((subject) => subject.displayName === '外部客戶');
     expect(customer?.records[0]).toMatchObject({ source: 'form-link' });

@@ -186,7 +186,7 @@ describe('MockDemoRepository anonymous visitors', () => {
     });
 
     expect(result.status).toBe('validation-failed');
-    const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+    const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
     if (tracking.status !== 'ready') throw new Error('expected ready');
     expect(JSON.stringify(tracking.data)).not.toContain('DEMO-9001');
   });
@@ -202,7 +202,7 @@ describe('MockDemoRepository anonymous visitors', () => {
       }),
     );
 
-    const tracking = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+    const tracking = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
 
     if (tracking.status !== 'ready') throw new Error('expected ready');
     const subject = tracking.data.subjects.find((candidate) =>
@@ -224,7 +224,7 @@ describe('MockDemoRepository anonymous visitors', () => {
       consent: true,
     });
 
-    const tracking = repository.getDatabaseTracking('account-internal-employee', 'database-orders');
+    const tracking = repository.readDatabaseTracking('account-internal-employee', 'database-orders');
 
     expect(tracking.status).toBe('permission-denied');
   });

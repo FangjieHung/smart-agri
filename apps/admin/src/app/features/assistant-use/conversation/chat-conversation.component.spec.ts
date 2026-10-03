@@ -53,7 +53,7 @@ function click(host: HTMLElement, selector: string): void {
 }
 
 function trackingOf(repository: ReturnType<typeof setup>['repository'], subjectId: string) {
-  const result = repository.getDatabaseTracking('account-smb-admin', 'database-orders');
+  const result = repository.readDatabaseTracking('account-smb-admin', 'database-orders');
   if (result.status !== 'ready') throw new Error('expected ready');
   return result.data.subjects.find((subject) => subject.id === subjectId);
 }

@@ -191,11 +191,11 @@ export interface DatabaseAccessView {
 
 /**
  * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
- * - `records`：收集紀錄與趨勢比較（#145–#147）；
+ * - `trends`：趨勢比較與定期回報摘要（#147；收集紀錄時間軸與撤回軌跡已於 #146 開放）；
  * - `assistant-connections`：已連接助理（#148）。
  * mock 模式全部可用，所以是空陣列。
  */
-export type DatabaseUpcomingFeature = 'records' | 'assistant-connections';
+export type DatabaseUpcomingFeature = 'trends' | 'assistant-connections';
 
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;
@@ -421,5 +421,29 @@ export interface DatabaseSubmissionReceiptView {
   readonly viewers: readonly string[];
   readonly formVersion: number;
   readonly source: DatabaseRecordSource;
+  /** 填寫內容；**撤回後是空陣列**（內容已刪除，issue #146）。 */
   readonly entries: readonly DatabaseRecordEntryView[];
+  /** 撤回時間（ISO）；仍有效時為 null。 */
+  readonly withdrawnAt: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* 查看自己的紀錄與撤回（issue #146）                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 提交者自己送出過的一筆資料（有效或已撤回），不含填寫內容；內容請開回執。
+ * `databaseName` 是送出當下的名稱快照。
+ */
+export interface OwnDatabaseSubmissionView {
+  /** 提交 id（開回執、撤回用），不是回執編號。 */
+  readonly id: string;
+  readonly receiptNumber: string;
+  readonly submittedAt: string;
+  readonly databaseId: DatabaseId;
+  readonly databaseName: string;
+  readonly formVersion: number;
+  readonly source: DatabaseRecordSource;
+  /** 撤回時間（ISO）；仍有效時為 null。 */
+  readonly withdrawnAt: string | null;
 }

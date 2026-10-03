@@ -1,0 +1,69 @@
+<section class="own-submissions" aria-labelledby="own-submissions-title">
+  <div class="own-submissions__head">
+    <h2 id="own-submissions-title">我送出的資料</h2>
+    <button type="button" (click)="resource.reload()">重新整理</button>
+  </div>
+  <p class="hint">
+    這裡只列出你自己送出的資料。撤回後，內容與數值會被刪除，接收單位只保留「曾提交、已撤回」的時間軌跡；已經產生的定期報表不會追溯修改。
+  </p>
+  @if (feedback()) {
+    <p class="feedback" role="status">{{ feedback() }}</p>
+  }
+
+  @let result = view();
+  @if (result.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入你送出的資料" />
+  } @else if (result.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法查看你送出的資料" [description]="result.message" />
+  } @else if (result.status === 'error') {
+    <app-state-panel
+      state="error"
+      title="目前無法載入你送出的資料"
+      description="這不代表資料不存在。請稍後再試一次。"
+      recoveryLabel="重試"
+      (recover)="resource.reload()"
+    />
+  } @else if (items().length === 0) {
+    <app-state-panel state="empty" title="尚未送出任何資料" description="透過表單連結明確同意送出資料後，回執會出現在這裡。" />
+  } @else {
+    <ul class="own-submissions__list">
+      @for (item of items(); track item.id) {
+        <li [attr.data-submission-id]="item.id" [attr.data-withdrawn]="item.withdrawnAt !== null">
+          <div class="own-submissions__summary">
+            <strong>{{ item.databaseName }}</strong>
+            <span class="receipt-number">回執 {{ item.receiptNumber }}</span>
+            <span>送出：<time [attr.datetime]="item.submittedAt">{{ time(item.submittedAt) }}</time>・來源：{{ sourceLabel(item.source) }}</span>
+            @if (item.withdrawnAt !== null) {
+              <span class="status status--withdrawn">已撤回：<time [attr.datetime]="item.withdrawnAt">{{ time(item.withdrawnAt) }}</time>・內容已刪除</span>
+            } @else {
+              <span class="status status--active">有效</span>
+            }
+          </div>
+          <div class="own-submissions__actions">
+            <a [routerLink]="['/app/forms', item.databaseId]" [queryParams]="{ receipt: item.id }">查看回執</a>
+            @if (item.withdrawnAt === null && confirmingId() !== item.id) {
+              <button type="button" class="withdraw" (click)="askWithdraw(item)">撤回</button>
+            }
+          </div>
+          @if (confirmingId() === item.id && item.withdrawnAt === null) {
+            <div class="confirm" role="group" [attr.aria-labelledby]="'withdraw-title-' + item.id">
+              <p class="confirm__title" [id]="'withdraw-title-' + item.id">撤回回執 {{ item.receiptNumber }} 的資料？</p>
+              <p>撤回後，這筆資料的內容與數值會被刪除，無法復原；接收單位只會看到「曾提交、已撤回」的時間。</p>
+              @if (failure(); as failed) {
+                @if (failed.id === item.id) {
+                  <p class="confirm__error" role="alert">{{ failed.message }}</p>
+                }
+              }
+              <div class="confirm__actions">
+                <button type="button" class="danger" [disabled]="withdrawingId() !== null" (click)="withdraw(item)">
+                  {{ withdrawingId() === item.id ? '撤回中…' : '確認撤回' }}
+                </button>
+                <button type="button" [disabled]="withdrawingId() !== null" (click)="cancelWithdraw()">取消</button>
+              </div>
+            </div>
+          }
+        </li>
+      }
+    </ul>
+  }
+</section>

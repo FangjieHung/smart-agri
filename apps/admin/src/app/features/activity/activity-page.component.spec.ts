@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AssistantIssueView } from '../../core/domain/assistant-issue.model';
 import { AssistantIssuesRepository } from '../../core/repositories/assistant-issues.repository';
 import type { RepositoryView } from '../../core/repositories/demo-repository';
+import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { ActivityPageComponent } from './activity-page.component';
 
@@ -26,6 +27,8 @@ async function render(response: Observable<RepositoryView<readonly AssistantIssu
     providers: [
       provideRouter([]),
       { provide: AssistantIssuesRepository, useValue: { list } },
+      // 「我送出的資料」區塊另有自己的測試（own-submissions.component.spec.ts）。
+      { provide: DEMO_REPOSITORY, useValue: { listOwnDatabaseSubmissions: () => of({ status: 'ready', data: [] }) } },
       { provide: DemoSessionService, useValue: { activeAccountId: () => 'account-1' } },
     ],
   }).compileComponents();

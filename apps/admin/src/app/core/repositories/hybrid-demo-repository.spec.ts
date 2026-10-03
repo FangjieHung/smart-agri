@@ -356,7 +356,7 @@ describe('HybridDemoRepository', () => {
     const first = pending(repository.getTeam());
     controller.expectOne(API_TEAM_PATH).flush(teamResponse(SEED_EMPLOYEE));
     await first;
-    expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS).status).toBe('ready');
+    expect(repository.readDatabaseTracking('account-internal-employee', CHECKINS).status).toBe('ready');
 
     const saved = pending(repository.updateMemberPermissions(EMPLOYEE_ID, ['use-shared-assistants']));
     controller
@@ -364,7 +364,7 @@ describe('HybridDemoRepository', () => {
       .flush(teamResponse(['use-shared-assistants'], '2026-09-25T02:00:00Z'));
     await saved;
 
-    expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS).status).toBe('ready');
+    expect(repository.readDatabaseTracking('account-internal-employee', CHECKINS).status).toBe('ready');
   });
 
   it('uses /me for the viewer’s own permissions before any team read', () => {
@@ -374,7 +374,7 @@ describe('HybridDemoRepository', () => {
       permissions: ['use-shared-assistants'],
     });
 
-    expect(repository.getDatabaseTracking('account-internal-employee', CHECKINS)).toMatchObject({
+    expect(repository.readDatabaseTracking('account-internal-employee', CHECKINS)).toMatchObject({
       status: 'permission-denied',
       reason: 'database-records',
     });
@@ -387,7 +387,7 @@ describe('HybridDemoRepository', () => {
       permissions: ALL_ADMIN,
     };
     const { repository, controller } = setUp('account-smb-admin', null, () => me);
-    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
+    expect(repository.readDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
 
     const withoutRecords = ALL_ADMIN.filter((permission) => permission !== 'read-consented-submissions');
     const saved = pending(repository.updateMemberPermissions(ADMIN_ID, withoutRecords));
@@ -405,14 +405,14 @@ describe('HybridDemoRepository', () => {
     } satisfies TeamResponse);
     await saved;
 
-    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS)).toMatchObject({
+    expect(repository.readDatabaseTracking('account-smb-admin', ADMIN_ORDERS)).toMatchObject({
       status: 'permission-denied',
       reason: 'database-records',
     });
 
     // 同一分頁換成另一個帳號登入（同角色、不同 GUID）：不沿用上一位的團隊結果。
     me = { accountId: EMPLOYEE_2_ID, demoAccountId: 'account-smb-admin', permissions: ALL_ADMIN };
-    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
+    expect(repository.readDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
   });
 
   it('turns a PUT to an unknown or foreign member id into the same permission-denied as no permission', async () => {
@@ -526,7 +526,7 @@ describe('HybridDemoRepository', () => {
     const { repository } = setUp();
 
     expect(repository.listAssistantTemplates().status).toBe('ready');
-    expect(repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
+    expect(repository.readDatabaseTracking('account-smb-admin', ADMIN_ORDERS).status).toBe('ready');
   });
 
   it('scopes storage by the real organization and account id from /me, read fresh on every access', () => {
@@ -550,7 +550,7 @@ describe('HybridDemoRepository', () => {
 
     // 仍是 mock 的功能區（聊天提交寫入的收集紀錄，#145 前）寫進 storage 的資料，要依真實組織／帳號隔開。
     const recordCount = () => {
-      const tracking = repository.getDatabaseTracking('account-smb-admin', ADMIN_ORDERS);
+      const tracking = repository.readDatabaseTracking('account-smb-admin', ADMIN_ORDERS);
       if (tracking.status !== 'ready') throw new Error(`expected tracking, got ${tracking.status}`);
       return tracking.data.subjects.reduce((total, subject) => total + subject.records.length, 0);
     };

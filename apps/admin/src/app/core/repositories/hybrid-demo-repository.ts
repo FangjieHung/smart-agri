@@ -111,6 +111,7 @@ import type { ChatViewerId } from '../domain/account.model';
 import type {
   AssistantChatView,
   ChatFormSubmission,
+  ChatDatabaseQueryView,
   ChatFormView,
   ChatMessageView,
   ChatReplyView,
@@ -243,6 +244,7 @@ type ApiDatabaseSubmissionReceipt = components['schemas']['DatabaseSubmissionRec
 type ReviewDatabaseSubmissionRequest = components['schemas']['ReviewDatabaseSubmissionRequest'];
 type SubmitDatabaseEntryRequest = components['schemas']['SubmitDatabaseEntryRequest'];
 type ApiChatFormRequest = components['schemas']['ChatFormRequestView'];
+type ApiChatDatabaseQuery = components['schemas']['ChatDatabaseQueryView'];
 type ApiChatFormSubmission = components['schemas']['ChatFormSubmissionView'];
 type ReviewChatFormRequest = components['schemas']['ReviewChatFormRequest'];
 type SubmitChatFormRequest = components['schemas']['SubmitChatFormRequest'];
@@ -2758,6 +2760,9 @@ function toChatWithdrawal(receipt: DatabaseSubmissionReceiptView): SubmissionWit
  * 伺服器依提交 id 即時讀取，訊息本身不含填寫內容。
  */
 function toChatReply(reply: ApiChatReplyView): ChatReplyView {
+  if (reply.kind === 'database-query') {
+    return { kind: 'database-query', text: reply.text, query: toChatDatabaseQuery(reply.databaseQuery ?? null) };
+  }
   if (reply.kind === 'form-request') {
     return { kind: 'form-request', text: reply.text, form: reply.form ? toChatForm(reply.form) : null };
   }
@@ -2793,6 +2798,45 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
       updatedLabel: citation.updatedLabel,
     })),
     citationNotice: reply.notice ?? null,
+  };
+}
+
+/**
+ * 對話中的數據庫查詢（#149）：數字與文字都是伺服器依固定查詢結果組成的，這裡只轉型別。
+ * 讀不到結構（理論上不會發生）時當成無法查詢，不顯示任何數字。
+ */
+function toChatDatabaseQuery(query: ApiChatDatabaseQuery | null): ChatDatabaseQueryView {
+  if (query === null) {
+    return {
+      status: 'not-available',
+      databaseId: null,
+      databaseName: null,
+      query: null,
+      queryLabel: null,
+      period: null,
+      previousPeriod: null,
+      subjectOnly: false,
+      figures: [],
+      message: null,
+    };
+  }
+  return {
+    status: query.status,
+    databaseId: query.databaseId ?? null,
+    databaseName: query.databaseName ?? null,
+    query: query.query ?? null,
+    queryLabel: query.queryLabel ?? null,
+    period: query.period ? toPeriodRange(query.period) : null,
+    previousPeriod: query.previousPeriod ? toPeriodRange(query.previousPeriod) : null,
+    subjectOnly: query.subjectOnly,
+    figures: query.figures.map((figure) => ({
+      metric: figure.metric,
+      value: figure.value,
+      display: figure.display,
+      previousDisplay: figure.previousDisplay ?? null,
+      changeLabel: figure.changeLabel ?? null,
+    })),
+    message: query.message ?? null,
   };
 }
 

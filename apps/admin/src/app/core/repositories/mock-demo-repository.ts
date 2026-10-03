@@ -65,6 +65,7 @@ import type {
   DatabaseSubmissionInput,
   DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
+  DatabasePeriodName,
   DatabasePeriodSummaryQuery,
   DatabasePeriodSummaryView,
   DatabaseTrackingView,
@@ -173,6 +174,7 @@ import {
   type ChatResponseFixture,
 } from './demo-seed-chat';
 import { DEMO_SEED, type DemoSeed, type KnowledgeDocumentFixture } from './demo-seed';
+import { notAvailableQueryReply, recordCountQueryReply } from './chat-database-query';
 import type {
   DatabaseCollectionFixture,
   DatabaseRecordFixture,
@@ -4606,7 +4608,11 @@ export class MockDemoRepository implements DemoRepository {
       welcome: profile.welcome,
       privacyNotice: isVisitorId(viewerId) ? CHAT_VISITOR_PRIVACY_NOTICE : CHAT_PRIVACY_NOTICE,
       suggestedPrompts: this.seed.chatResponses
-        .filter((fixture) => this.fixtureReply(viewerId, assistant, fixture) !== null)
+        .filter((fixture) => {
+          const reply = this.fixtureReply(viewerId, assistant, fixture);
+          // 不建議一個只會得到「無法查詢」的問題（issue #149）。
+          return reply !== null && !(reply.kind === 'database-query' && reply.query.status === 'not-available');
+        })
         .map((fixture) => ({ id: fixture.id, text: fixture.prompt })),
       messages: this.resolveReceipts(viewerId, messages),
     };
@@ -4752,7 +4758,37 @@ export class MockDemoRepository implements DemoRepository {
         const form = this.chatForm(viewerId, assistant, answer.databaseId);
         return form === null ? null : { kind: 'form-request', text: answer.text, form };
       }
+      case 'database-query':
+        return this.chatQueryReply(viewerId, assistant, answer.databaseId, answer.period);
     }
+  }
+
+  /**
+   * 對話中的數據庫查詢（issue #149，與後端 `ChatDatabaseQueries` 同一個順序）：助理沒有連接這個資料庫就不是
+   * 查詢（回 null，照常回答）；有連接但提問者不能讀它的紀錄（訪客、沒有指定或沒有權限）是「無法查詢」，
+   * 不透露資料庫名稱；可以讀才以提問者的身分計算筆數。
+   */
+  private chatQueryReply(
+    viewerId: ChatViewerId,
+    assistant: AssistantConfigurationView,
+    databaseId: DatabaseId,
+    period: DatabasePeriodName,
+  ): ChatReplyView | null {
+    if (!assistant.databaseIds.includes(databaseId)) return null;
+    const database = this.databases().find((candidate) => candidate.id === databaseId);
+    if (database === undefined) return null;
+    if (isVisitorId(viewerId) || !this.canReadRecords(viewerId, database.id)) return notAvailableQueryReply();
+    return recordCountQueryReply(
+      database.id,
+      database.name,
+      summarizePeriod({
+        records: this.consentedRecords(database.id),
+        fields: this.databaseCollection(database.id).fields,
+        subjectId: null,
+        period,
+        today: statisticsDay(this.now().toISOString()),
+      }),
+    );
   }
 
   /** 助理有連接該資料庫時才提供表單；接收者與可查看者皆取自資料庫設定。 */

@@ -36,6 +36,7 @@ builder.Services.AddGroundedAnswers();
 builder.Services.AddAssistantTestRuns();
 builder.Services.AddSingleton<ChatRunLocks>();
 builder.Services.AddScoped<DatabaseSubmissionService>();
+builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
@@ -142,6 +143,7 @@ app.MapAssistantAnalyticsEndpoints();
 app.MapOperationsSummaryEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
+app.MapChatFormEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

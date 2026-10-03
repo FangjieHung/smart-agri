@@ -56,8 +56,51 @@ public sealed class ChatMessage : IOrganizationScoped
     /// <see cref="ChatReplyKind.NoResult"/> — the caller (#77) is trusted to pass the right
     /// combination, mirroring <c>GroundedReply</c>'s factories.</summary>
     public static ChatMessage Assistant(
-        ChatThread thread, string text, ChatReplyKind replyKind, string? notice, IReadOnlyList<string> nextSteps, DateTimeOffset now) =>
-        new(thread, ChatMessageAuthor.Assistant, text, replyKind, notice, nextSteps, now);
+        ChatThread thread, string text, ChatReplyKind replyKind, string? notice, IReadOnlyList<string> nextSteps, DateTimeOffset now)
+    {
+        if (replyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt)
+        {
+            throw new ArgumentException("Form replies have their own factories.", nameof(replyKind));
+        }
+
+        return new(thread, ChatMessageAuthor.Assistant, text, replyKind, notice, nextSteps, now);
+    }
+
+    /// <summary>The assistant asking the member to fill in <paramref name="databaseId"/>'s form
+    /// (M4 #148). Only the database is stored: the form, purpose, recipient and readers are read
+    /// again, and re-authorized, whenever the message is shown.</summary>
+    public static ChatMessage FormRequest(ChatThread thread, string text, Guid databaseId, DateTimeOffset now)
+    {
+        RequireId(databaseId, nameof(databaseId));
+        var message = new ChatMessage(thread, ChatMessageAuthor.Assistant, text, ChatReplyKind.FormRequest, null, [], now)
+        {
+            FormDatabaseId = databaseId,
+        };
+        return message;
+    }
+
+    /// <summary>The receipt of a consented submission made from this conversation (M4 #148).
+    /// Only the submission id is stored — never the answers: the receipt is read from the
+    /// submission (its own snapshot) for its submitter whenever the message is shown.</summary>
+    public static ChatMessage SubmissionReceipt(
+        ChatThread thread, string text, Guid databaseId, Guid submissionId, DateTimeOffset now)
+    {
+        RequireId(databaseId, nameof(databaseId));
+        RequireId(submissionId, nameof(submissionId));
+        return new ChatMessage(thread, ChatMessageAuthor.Assistant, text, ChatReplyKind.SubmissionReceipt, null, [], now)
+        {
+            FormDatabaseId = databaseId,
+            SubmissionId = submissionId,
+        };
+    }
+
+    private static void RequireId(Guid id, string parameterName)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException("An id must not be empty.", parameterName);
+        }
+    }
 
     public Guid Id { get; private set; }
 
@@ -77,6 +120,15 @@ public sealed class ChatMessage : IOrganizationScoped
 
     /// <summary><see langword="null"/> for an <see cref="ChatMessageAuthor.Account"/> turn.</summary>
     public ChatReplyKind? ReplyKind { get; private set; }
+
+    /// <summary>The database of a <see cref="ChatReplyKind.FormRequest"/> or
+    /// <see cref="ChatReplyKind.SubmissionReceipt"/>; <see langword="null"/> otherwise. No foreign
+    /// key: a deleted database leaves the message, which then shows as no longer available.</summary>
+    public Guid? FormDatabaseId { get; private set; }
+
+    /// <summary>The submission of a <see cref="ChatReplyKind.SubmissionReceipt"/>;
+    /// <see langword="null"/> otherwise. No foreign key, for the same reason.</summary>
+    public Guid? SubmissionId { get; private set; }
 
     /// <summary>Set only for <see cref="ChatReplyKind.GeneralKnowledge"/>.</summary>
     public string? Notice { get; private set; }

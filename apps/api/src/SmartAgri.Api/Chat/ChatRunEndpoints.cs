@@ -7,12 +7,14 @@ using Microsoft.AspNetCore.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SmartAgri.Api.Ai;
+using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
+using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Chat;
 using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Application.Knowledge.Processing;
@@ -79,6 +81,15 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// sends is never read as a citation or a reply. Model calls are recorded either way (without
 /// content).
 /// </para>
+/// <para>
+/// <b>Form requests</b> (M4 #148). The orchestration layer, not the model, calls the assistant's one
+/// server-defined form tool (<see cref="AssistantFormRequestRules"/>): when the question asks to fill
+/// something in and <see cref="AssistantFormRequests.FormRequestAsync"/> finds a form target the
+/// assistant may use right now, the run answers with a <c>form-request</c> reply carrying the
+/// server's form (fields, version, purpose, recipient, actual readers) — same events, same saving
+/// rules, no model call (so no model invocation is recorded). Otherwise, including right after the
+/// database was disconnected or its designation revoked, the question is answered as usual.
+/// </para>
 /// </remarks>
 public static class ChatRunEndpoints
 {
@@ -130,6 +141,7 @@ public static class ChatRunEndpoints
         RequestAccountPermissions permissions,
         IAnswerKnowledgeBases knowledgeBases,
         GroundedAnswerService answers,
+        AssistantFormRequests formRequests,
         ChatRunLocks locks,
         ChatClientProvider chatProvider,
         EmbeddingProvider embeddingProvider,
@@ -251,6 +263,11 @@ public static class ChatRunEndpoints
                 }
             }
 
+            // The form tool (#148): re-authorized on this request, never cached.
+            var formRequest = AssistantFormRequestRules.AsksForForm(question.Value)
+                ? await formRequests.FormRequestAsync(assistant, null, cancellationToken)
+                : null;
+
             var connected = await knowledgeBases.ConnectedToAsync(assistant.Id, cancellationToken);
             var run = new ChatRun(
                 dbContext,
@@ -262,7 +279,8 @@ public static class ChatRunEndpoints
                     GroundedAnswerProfile.For(assistant, connected), question.Value, history, viewerId, assistant.Id),
                 thread,
                 ThreadIdForEvents(thread, input),
-                string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId);
+                string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId,
+                formRequest);
 
             await StreamAsync(httpContext, run, cancellationToken);
             return Results.Empty;
@@ -399,7 +417,8 @@ public static class ChatRunEndpoints
         GroundedAnswerRequest request,
         ChatThread? thread,
         string threadIdForEvents,
-        string runId)
+        string runId,
+        ChatFormRequestView? formRequest)
     {
         public ILogger Logger { get; } = logger;
 
@@ -414,6 +433,22 @@ public static class ChatRunEndpoints
             // lasts: the client replaces this message with it.
             var streamMessageId = Guid.NewGuid().ToString();
             yield return new TextMessageStartEvent { MessageId = streamMessageId, Role = "assistant" };
+
+            if (formRequest is not null)
+            {
+                // The form tool's reply: fixed text, the server's form, no model call.
+                yield return new TextMessageContentEvent { MessageId = streamMessageId, Delta = AssistantFormRequestRules.FormRequestText };
+                yield return new TextMessageEndEvent { MessageId = streamMessageId };
+                var formView = thread is not null
+                    ? await SaveFormRequestAsync(thread, formRequest, cancellationToken)
+                    : TransientFormRequest(formRequest);
+                foreach (var finalEvent in FinalEvents(formView))
+                {
+                    yield return finalEvent;
+                }
+
+                yield break;
+            }
 
             GroundedReply? reply = null;
             RunErrorEvent? error = null;
@@ -495,6 +530,16 @@ public static class ChatRunEndpoints
             var view = thread is not null
                 ? await SaveAsync(thread, reply, cancellationToken)
                 : Transient(reply);
+            foreach (var finalEvent in FinalEvents(view))
+            {
+                yield return finalEvent;
+            }
+        }
+
+        /// <summary><c>smartagri.reply</c>, <c>smartagri.thread</c> (saved runs only) and
+        /// <c>RUN_FINISHED</c>, after the reply has been saved (or not, for an unsaved run).</summary>
+        private IEnumerable<BaseEvent> FinalEvents(ChatMessageView view)
+        {
             yield return new CustomEvent { Name = ReplyEventName, Value = JsonSerializer.SerializeToElement(view, jsonOptions) };
 
             if (thread is not null)
@@ -508,6 +553,31 @@ public static class ChatRunEndpoints
 
             Ended = true;
             yield return new RunFinishedEvent { ThreadId = threadIdForEvents, RunId = runId };
+        }
+
+        /// <summary>Saves a form request (only the database id; the form is re-read and
+        /// re-authorized whenever it is shown) and returns it exactly as <c>GET chat</c> will.</summary>
+        private async Task<ChatMessageView> SaveFormRequestAsync(
+            ChatThread savedThread, ChatFormRequestView form, CancellationToken cancellationToken)
+        {
+            var message = ChatMessage.FormRequest(savedThread, AssistantFormRequestRules.FormRequestText, form.Id, clock.GetUtcNow());
+            dbContext.ChatMessages.Add(message);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return ChatEndpoints.ToMessageView(message, [], form);
+        }
+
+        private ChatMessageView TransientFormRequest(ChatFormRequestView form) =>
+            new(
+                Guid.CreateVersion7(),
+                "assistant",
+                null,
+                new ChatReplyView("form-request", AssistantFormRequestRules.FormRequestText, [], null, [], form, null),
+                MicrosecondNow());
+
+        private DateTimeOffset MicrosecondNow()
+        {
+            var now = clock.GetUtcNow();
+            return now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond));
         }
 
         /// <summary>Saves the reply and its citation snapshots in one <c>SaveChanges</c> and
@@ -559,9 +629,11 @@ public static class ChatRunEndpoints
                             ChatEndpoints.UpdatedLabel(citation.VersionEffectiveFrom))),
                     ],
                     null,
-                    []),
-                GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, []),
-                _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps),
+                    [],
+                    null,
+                    null),
+                GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, [], null, null),
+                _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps, null, null),
             };
             // Microseconds, like every saved timestamp (PostgreSQL's precision).
             var now = clock.GetUtcNow();

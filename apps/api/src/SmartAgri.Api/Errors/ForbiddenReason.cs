@@ -110,6 +110,17 @@ public sealed class ForbiddenReason
         "你沒有使用這個助理的權限，或它已不存在。");
 
     /// <summary>
+    /// A form an assistant asked for in a conversation (M4 #148) that the caller may not review or
+    /// submit right now: the database is not (or no longer) the assistant's connected form, the
+    /// assistant's owner may no longer use it (designation or permission revoked), or it does not
+    /// exist in the caller's organization. Same bytes in every case, so nothing about the database
+    /// leaks; the assistant itself is usable (otherwise <see cref="AssistantUse"/>).
+    /// </summary>
+    public static readonly ForbiddenReason AssistantForm = new(
+        "assistant-form",
+        "這份表單目前無法使用：助理已不再連接這個資料庫，或你沒有填寫它的權限。");
+
+    /// <summary>
     /// An assistant wizard draft that does not exist, belongs to another organization, or
     /// belongs to another account of the same organization (drafts are never shared: only
     /// their owner may read, save or delete one). Same bytes in every case (M3 plan, Slice 2

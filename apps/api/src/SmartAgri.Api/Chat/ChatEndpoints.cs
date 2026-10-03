@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Authentication;
+using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.Databases;
 using SmartAgri.Api.Errors;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Chat;
@@ -30,7 +32,11 @@ namespace SmartAgri.Api.Chat;
 //   mapping §5.6 point 3, is explicitly fixture-only and out of scope): welcome and privacyNotice are
 //   derived from fields that do exist (name/purpose/historyMode), and suggestedPrompts is always [].
 //   A later ticket owns making these configurable;
-// - form-request / submission-receipt reply kinds do not exist (M3 plan §8: forms are M4).
+// - form-request / submission-receipt (M4 #148) carry the server's own views instead of the
+//   frontend's: ChatReplyView.form is ChatFormRequestView (ChatFormView plus formVersion) and
+//   ChatReplyView.receipt is #145's DatabaseSubmissionReceiptView; the frontend derives its
+//   receipt shape (recipient, entries, …) from it. Both are null for every other kind, and also
+//   when the form is no longer available to the caller or the receipt cannot be read.
 
 /// <summary>One citation a <c>company-data</c> reply shows inline.</summary>
 public sealed record ChatCitationView(string Id, string KnowledgeBaseName, string DocumentName, string Excerpt, string UpdatedLabel);
@@ -39,14 +45,19 @@ public sealed record ChatCitationView(string Id, string KnowledgeBaseName, strin
 /// One reply's content, shaped like the frontend's <c>ChatReplyView</c> union — see the
 /// class-level note on why this is one record rather than a true union. <see cref="Citations"/>
 /// is only ever non-empty for <c>company-data</c>; <see cref="Notice"/> only for
-/// <c>general-knowledge</c>; <see cref="NextSteps"/> only for <c>no-result</c>.
+/// <c>general-knowledge</c>; <see cref="NextSteps"/> only for <c>no-result</c>; <see cref="Form"/>
+/// only for <c>form-request</c> (and <see langword="null"/> there too once the form is no longer
+/// available: disconnected, revoked or no longer the assistant's form); <see cref="Receipt"/> only
+/// for <c>submission-receipt</c>, read from the submission for its submitter (M4 #148).
 /// </summary>
 public sealed record ChatReplyView(
     string Kind,
     string Text,
     IReadOnlyList<ChatCitationView> Citations,
     string? Notice,
-    IReadOnlyList<string> NextSteps);
+    IReadOnlyList<string> NextSteps,
+    ChatFormRequestView? Form,
+    DatabaseSubmissionReceiptView? Receipt);
 
 /// <summary>One turn. <see cref="Text"/> is set for <c>author: "account"</c>,
 /// <see cref="Reply"/> for <c>author: "assistant"</c> — never both. Both are always present in
@@ -326,6 +337,8 @@ public static class ChatEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         RequestAccountPermissions permissions,
+        AssistantFormRequests formRequests,
+        DatabaseSubmissionService submissions,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
@@ -362,7 +375,9 @@ public static class ChatEndpoints
                 .FirstOrDefaultAsync(cancellationToken);
         }
 
-        var messages = thread is null ? [] : await LoadMessagesAsync(dbContext, thread.Id, cancellationToken);
+        var messages = thread is null
+            ? []
+            : await LoadMessagesAsync(dbContext, assistant, viewerId, thread.Id, formRequests, submissions, cancellationToken);
         return Results.Ok(ToChatView(assistant, thread, messages));
     }
 
@@ -475,7 +490,13 @@ public static class ChatEndpoints
             .ToListAsync(cancellationToken);
 
     private static async Task<IReadOnlyList<ChatMessageView>> LoadMessagesAsync(
-        AppDbContext dbContext, Guid threadId, CancellationToken cancellationToken)
+        AppDbContext dbContext,
+        Assistant assistant,
+        Guid viewerId,
+        Guid threadId,
+        AssistantFormRequests formRequests,
+        DatabaseSubmissionService submissions,
+        CancellationToken cancellationToken)
     {
         // CreatedAt alone is not a stable order: two turns saved in the same save (or the same
         // millisecond) can tie. Id (a version-7 GUID) is monotonic with creation order, so it
@@ -499,24 +520,57 @@ public static class ChatEndpoints
         var citationsByMessage = citations.GroupBy(citation => citation.MessageId)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<ChatMessageCitation>)[.. group]);
 
-        return [.. messages.Select(message =>
-            ToMessageView(message, citationsByMessage.TryGetValue(message.Id, out var found) ? found : []))];
+        // Form replies (M4 #148): the form is re-authorized now (it may have been disconnected or
+        // revoked since it was offered); a receipt is read for its submitter, the thread's owner.
+        var forms = new Dictionary<Guid, ChatFormRequestView?>();
+        foreach (var databaseId in messages
+            .Where(message => message.ReplyKind == ChatReplyKind.FormRequest && message.FormDatabaseId is not null)
+            .Select(message => message.FormDatabaseId!.Value)
+            .Distinct())
+        {
+            forms[databaseId] = await formRequests.FormRequestAsync(assistant, databaseId, cancellationToken);
+        }
+
+        var receipts = new Dictionary<Guid, DatabaseSubmissionReceiptView?>();
+        foreach (var submissionId in messages
+            .Where(message => message.ReplyKind == ChatReplyKind.SubmissionReceipt && message.SubmissionId is not null)
+            .Select(message => message.SubmissionId!.Value)
+            .Distinct())
+        {
+            receipts[submissionId] = await submissions.GetReceiptAsync(submissionId, viewerId, cancellationToken);
+        }
+
+        return [.. messages.Select(message => ToMessageView(
+            message,
+            citationsByMessage.TryGetValue(message.Id, out var found) ? found : [],
+            message.ReplyKind == ChatReplyKind.FormRequest && message.FormDatabaseId is { } formId ? forms[formId] : null,
+            message.ReplyKind == ChatReplyKind.SubmissionReceipt && message.SubmissionId is { } receiptId ? receipts[receiptId] : null))];
     }
 
-    internal static ChatMessageView ToMessageView(ChatMessage message, IReadOnlyList<ChatMessageCitation> citations) =>
+    internal static ChatMessageView ToMessageView(
+        ChatMessage message,
+        IReadOnlyList<ChatMessageCitation> citations,
+        ChatFormRequestView? form = null,
+        DatabaseSubmissionReceiptView? receipt = null) =>
         message.Author == ChatMessageAuthor.Account
             ? new ChatMessageView(message.Id, "account", message.Text, null, message.CreatedAt)
-            : new ChatMessageView(message.Id, "assistant", null, ToReplyView(message, citations), message.CreatedAt);
+            : new ChatMessageView(message.Id, "assistant", null, ToReplyView(message, citations, form, receipt), message.CreatedAt);
 
-    private static ChatReplyView ToReplyView(ChatMessage message, IReadOnlyList<ChatMessageCitation> citations) =>
+    private static ChatReplyView ToReplyView(
+        ChatMessage message,
+        IReadOnlyList<ChatMessageCitation> citations,
+        ChatFormRequestView? form,
+        DatabaseSubmissionReceiptView? receipt) =>
         message.ReplyKind switch
         {
             ChatReplyKind.CompanyData => new ChatReplyView(
-                "company-data", message.Text, [.. citations.Select(ToCitationView)], null, []),
+                "company-data", message.Text, [.. citations.Select(ToCitationView)], null, [], null, null),
             ChatReplyKind.GeneralKnowledge => new ChatReplyView(
-                "general-knowledge", message.Text, [], message.Notice, []),
+                "general-knowledge", message.Text, [], message.Notice, [], null, null),
             ChatReplyKind.NoResult => new ChatReplyView(
-                "no-result", message.Text, [], null, message.NextSteps),
+                "no-result", message.Text, [], null, message.NextSteps, null, null),
+            ChatReplyKind.FormRequest => new ChatReplyView("form-request", message.Text, [], null, [], form, null),
+            ChatReplyKind.SubmissionReceipt => new ChatReplyView("submission-receipt", message.Text, [], null, [], null, receipt),
             _ => throw new InvalidOperationException("An assistant message must have a reply kind."),
         };
 

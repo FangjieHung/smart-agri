@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.Databases;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Application.Ai;
@@ -96,9 +97,10 @@ public sealed record TrialAnswerResponse(
 
 /// <summary>
 /// A source the caller may connect to an assistant right now
-/// (<c>docs/handoff/mock-to-api-mapping.md</c> §2.1's <c>listConnectableSources</c>). M3 only
-/// returns knowledge bases — <see cref="Type"/> is always <c>"knowledge-base"</c>; databases
-/// are M4. Shaped after the frontend's <c>ConnectableSourceView</c>
+/// (<c>docs/handoff/mock-to-api-mapping.md</c> §2.1's <c>listConnectableSources</c>):
+/// knowledge bases (<see cref="Type"/> <c>"knowledge-base"</c>) and, since M4 #148, databases
+/// (<c>"database"</c>; connectable from an assistant's settings, not yet from a wizard draft).
+/// Shaped after the frontend's <c>ConnectableSourceView</c>
 /// (<c>assistant-draft.model.ts</c>).
 /// </summary>
 public sealed record ConnectableSourceView(
@@ -410,11 +412,14 @@ public static class AssistantDraftEndpoints
     /// <summary>
     /// The knowledge bases the caller may connect right now
     /// (<see cref="AssistantKnowledgeAccess.ConnectableBy"/>, with the caller as the future
-    /// assistant owner): their own, any public one, or one specifically shared with them.
+    /// assistant owner): their own, any public one, or one specifically shared with them; then the
+    /// databases (<see cref="AssistantDatabaseAccess.ConnectableBy"/>, M4 #148): their own, or one
+    /// they are a designated data manager of while holding <c>read-consented-submissions</c>.
     /// </summary>
     internal static async Task<IResult> ListConnectableSourcesAsync(
         HttpContext httpContext,
         AppDbContext dbContext,
+        RequestAccountPermissions permissions,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -440,6 +445,23 @@ public static class AssistantDraftEndpoints
 
         var views = knowledgeBases.ConvertAll(knowledgeBase =>
             ToConnectableSource(knowledgeBase, callerId, KnowledgeBaseTally.Of(items[knowledgeBase.Id])));
+
+        var mayRead = await DatabaseRecordReaders.HasReadPermissionAsync(permissions, callerId, cancellationToken);
+        var databases = (await DatabaseEndpoints.WithOwnerAndCurrentForm(
+                    dbContext,
+                    dbContext.Databases.AsNoTracking()
+                        .Where(AssistantDatabaseAccess.ConnectableBy(callerId, mayRead, dbContext.DatabaseDataManagers)))
+                .ToListAsync(cancellationToken))
+            .OrderBy(row => row.Database.CreatedAt)
+            .ThenBy(row => row.Database.Id);
+        views.AddRange(databases.Select(row => new ConnectableSourceView(
+            row.Database.Id,
+            "database",
+            row.Database.Name,
+            $"{row.Form.Fields.Count} 個欄位",
+            row.Database.OwnerAccountId == callerId ? "owner" : "read-only",
+            "ready",
+            row.Form.CreatedAt > row.Database.UpdatedAt ? row.Form.CreatedAt : row.Database.UpdatedAt)));
         return Results.Ok(views);
     }
 

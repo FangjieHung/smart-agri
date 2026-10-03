@@ -169,17 +169,22 @@ public class AssistantEndpointsTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
-    public async Task Database_sources_always_refuse_with_422_after_the_ownership_check()
+    public async Task Unknown_database_sources_are_refused_with_422_after_the_ownership_check()
     {
         var org = await CreateOrganizationAsync();
         var admin = await SignInAsync(org, "admin");
         var assistantId = await CreateAssistantAsync(org, org.Admin.Id, "助理", withKnowledgeBase: true);
 
-        var connect = await admin.Spa.PutAsync($"{BasePath}/{assistantId}/sources/database/{Guid.NewGuid()}", admin.Token, new { });
-        connect.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        // M4 #148: databases are connectable now; an unknown or malformed id is the same 422.
+        var unknown = await admin.Spa.PutAsync($"{BasePath}/{assistantId}/sources/database/{Guid.NewGuid()}", admin.Token, new { });
+        unknown.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(unknown)).GetProperty("reason").GetString().ShouldBe("source-not-connectable");
+        var malformed = await admin.Spa.PutAsync($"{BasePath}/{assistantId}/sources/database/not-a-guid", admin.Token, new { });
+        malformed.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
 
+        // Disconnecting what is not connected is a no-op.
         var disconnect = await admin.Spa.DeleteAsync($"{BasePath}/{assistantId}/sources/database/{Guid.NewGuid()}", admin.Token);
-        disconnect.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        disconnect.StatusCode.ShouldBe(HttpStatusCode.OK);
 
         // Still gated by ownership: another organization's admin gets the configuration 403,
         // not the database refusal, so this cannot be used to probe assistant ids either.

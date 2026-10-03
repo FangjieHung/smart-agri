@@ -2438,6 +2438,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSettingsView"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized"
           },
@@ -2473,6 +2483,16 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSettingsView"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Unauthorized"
           },
@@ -3714,6 +3734,138 @@
           }
         }
       }
+    },
+    "/api/v1/assistants/{id}/chat/forms/{databaseId}/review": {
+      "post": {
+        "tags": [
+          "ChatFormEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "databaseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewChatFormRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseTrialPreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/forms/{databaseId}/submissions": {
+      "post": {
+        "tags": [
+          "ChatFormEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "databaseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitChatFormRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatFormSubmissionView"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatFormSubmissionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3926,6 +4078,18 @@
               "null",
               "boolean"
             ]
+          },
+          "dataWriteDatabaseId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dataWritePurpose": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -3934,7 +4098,9 @@
           "knowledgeScope",
           "refusalMessage",
           "showCitations",
-          "keepConversations"
+          "keepConversations",
+          "dataWriteDatabaseId",
+          "dataWritePurpose"
         ],
         "type": "object",
         "properties": {
@@ -3949,6 +4115,16 @@
           },
           "keepConversations": {
             "type": "boolean"
+          },
+          "dataWriteDatabaseId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "dataWritePurpose": {
+            "type": "string"
           }
         }
       },
@@ -4444,6 +4620,7 @@
         "required": [
           "configuration",
           "knowledgeBaseIds",
+          "databaseIds",
           "tone",
           "roleInstructions",
           "rules"
@@ -4454,6 +4631,13 @@
             "$ref": "#/components/schemas/AssistantConfigurationView"
           },
           "knowledgeBaseIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "databaseIds": {
             "type": "array",
             "items": {
               "type": "string",
@@ -4969,6 +5153,83 @@
           }
         }
       },
+      "ChatFormConsentView": {
+        "required": [
+          "recipient",
+          "purpose",
+          "viewers",
+          "sensitiveNotice",
+          "withdrawalNotice"
+        ],
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "viewers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sensitiveNotice": {
+            "type": "string"
+          },
+          "withdrawalNotice": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatFormRequestView": {
+        "required": [
+          "id",
+          "title",
+          "formVersion",
+          "fields",
+          "consent"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "formVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseFieldView"
+            }
+          },
+          "consent": {
+            "$ref": "#/components/schemas/ChatFormConsentView"
+          }
+        }
+      },
+      "ChatFormSubmissionView": {
+        "required": [
+          "receipt",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "receipt": {
+            "$ref": "#/components/schemas/DatabaseSubmissionReceiptView"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ChatMessageView"
+          }
+        }
+      },
       "ChatMessageView": {
         "required": [
           "id",
@@ -5014,7 +5275,9 @@
           "text",
           "citations",
           "notice",
-          "nextSteps"
+          "nextSteps",
+          "form",
+          "receipt"
         ],
         "type": "object",
         "properties": {
@@ -5041,6 +5304,26 @@
             "items": {
               "type": "string"
             }
+          },
+          "form": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatFormRequestView"
+              }
+            ]
+          },
+          "receipt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseSubmissionReceiptView"
+              }
+            ]
           }
         }
       },
@@ -5544,6 +5827,26 @@
           }
         }
       },
+      "DatabaseConnectedAssistantView": {
+        "required": [
+          "id",
+          "name",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssistantStatus"
+          }
+        }
+      },
       "DatabaseDataManagerView": {
         "required": [
           "account",
@@ -5572,7 +5875,8 @@
         "required": [
           "summary",
           "form",
-          "access"
+          "access",
+          "connectedAssistants"
         ],
         "type": "object",
         "properties": {
@@ -5584,6 +5888,12 @@
           },
           "access": {
             "$ref": "#/components/schemas/DatabaseAccessView"
+          },
+          "connectedAssistants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseConnectedAssistantView"
+            }
           }
         }
       },
@@ -6003,7 +6313,8 @@
           "owner",
           "createdAt",
           "updatedAt",
-          "viewerCanManage"
+          "viewerCanManage",
+          "connectedAssistantNames"
         ],
         "type": "object",
         "properties": {
@@ -6044,6 +6355,12 @@
           },
           "viewerCanManage": {
             "type": "boolean"
+          },
+          "connectedAssistantNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -7358,6 +7675,28 @@
           }
         }
       },
+      "ReviewChatFormRequest": {
+        "required": [
+          "formVersionNumber",
+          "answers"
+        ],
+        "type": "object",
+        "properties": {
+          "formVersionNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "answers": {
+            "type": [
+              "null",
+              "object"
+            ]
+          }
+        }
+      },
       "ReviewDatabaseSubmissionRequest": {
         "required": [
           "formVersionNumber",
@@ -7513,6 +7852,50 @@
       "Stream": {
         "type": "string",
         "format": "binary"
+      },
+      "SubmitChatFormRequest": {
+        "required": [
+          "submissionId",
+          "formVersionNumber",
+          "consent",
+          "answers"
+        ],
+        "type": "object",
+        "properties": {
+          "submissionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "formVersionNumber": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "consent": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "answers": {
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "threadId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
       },
       "SubmitDatabaseEntryRequest": {
         "required": [
@@ -8062,6 +8445,9 @@
     },
     {
       "name": "AssistantTestRunEndpoints"
+    },
+    {
+      "name": "ChatFormEndpoints"
     }
   ]
 }

@@ -191,11 +191,10 @@ export interface DatabaseAccessView {
 
 /**
  * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
- * - `periodic-reports`：助理的定期回報與 AI 摘要（#150；趨勢比較與期間統計已於 #147 開放）；
- * - `assistant-connections`：已連接助理（#148）。
+ * - `periodic-reports`：助理的定期回報與 AI 摘要（#150；趨勢比較與期間統計已於 #147 開放，已連接助理已於 #148 開放）。
  * mock 模式全部可用，所以是空陣列。
  */
-export type DatabaseUpcomingFeature = 'periodic-reports' | 'assistant-connections';
+export type DatabaseUpcomingFeature = 'periodic-reports';
 
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;

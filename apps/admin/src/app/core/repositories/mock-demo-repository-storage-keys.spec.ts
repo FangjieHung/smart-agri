@@ -1,4 +1,5 @@
 import { firstValueFrom } from 'rxjs';
+import { syncValue } from './sync-value.testing';
 import { createEmptyAssistantDraft, type AssistantDraft } from '../domain/assistant-draft.model';
 import { isUnavailableChannel } from '../domain/publishing.model';
 import type { DemoKeyValueStorage } from './demo-repository';
@@ -123,15 +124,15 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
 
     // 對話：帳號對話（寫進 storage）與表單提交（寫收集紀錄）。
     repository.sendChatMessage(ADMIN, CUSTOMER_SERVICE, '你好');
-    repository.submitChatForm(CUSTOMER, CUSTOMER_SERVICE, {
-      formId: 'database-orders',
+    syncValue(repository.submitChatForm(CUSTOMER, CUSTOMER_SERVICE, {
+      formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
       answers: {
         'field-order-number': 'DEMO-9001',
         'field-issue-type': '配送延遲',
         'field-reported-on': '2026-09-21',
       },
       consent: true,
-    });
+    }));
 
     // 官網嵌入設定（publishing）。
     const publishing = await firstValueFrom(repository.getAssistantPublishing(CUSTOMER_SERVICE));

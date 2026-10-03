@@ -52,7 +52,8 @@
   - 與 #142 文件第 2 節的差異：詳情 `{summary, form}` 多了 `access`；`GET /databases`、`GET /databases/{id}` 不再只回擁有者的資料庫。
 - **#145 提交與回執**：已實作，見下方第 8 節（資料模型、API 契約、給 #146／#147／#148 的接點）。
 - **#146 查看紀錄與撤回**：已實作，見下方第 9 節（資料保留規則、撤回語意、API 契約、給 #147 的接點）。
-- **#148 連接助理**：目前 `AssistantEndpoints` 對資料庫來源回「將於後續版本開放」；連接表以複合外鍵指向 `Databases`。
+- **#147 趨勢與固定統計查詢**：已實作，見下方第 11 節（固定查詢清單、參數與時區規則、給 #149／#150 的接點）。
+- **#148 連接助理**：已實作，見下方第 10 節。
 
 ## 6. 驗收紀錄
 
@@ -171,9 +172,9 @@
 
 - 契約：`listOwnDatabaseSubmissions()`、`withdrawDatabaseSubmission(id)`（新增）；`getDatabaseTracking(databaseId)` 改為 `Observable`、不再傳 viewer。mock 原本的同步本體改名 `readDatabaseTracking(viewer, id)`，只給 mock 內部與單元測試，不在 `DemoRepository` 契約內。Hybrid 三個方法都走 API（測試以真實 API JSON 驗證，且 mock storage 不被寫入）。回執多 `withdrawnAt`。
 - 畫面：「對話與回報紀錄」（`/app/activity`）新增「我送出的資料」（`features/activity/own-submissions/`）：載入、錯誤可重試、無權限、空白分開顯示；撤回要先確認，送出中停用按鈕，失敗（5xx／連線中斷）保留確認區塊並說明「沒有任何變更」可再按一次；伺服器拒絕時顯示其訊息並重新讀取清單。回執頁顯示已撤回狀態且不顯示內容，並連到「我送出的資料」。數據庫詳情的「收集紀錄」頁籤在 API 模式開放（讀取失敗與「沒有紀錄」分開、可重試）。
-- `API_UPCOMING_DATABASE_FEATURES`：`records` 移除，改為 `trends`（#147）。`DatabaseUpcomingFeature` 從 `'records' | …` 改成 `'trends' | …`。API 模式的 `comparison` 是「趨勢比較將於後續版本開放」的佔位、`periodicReports` 為空陣列，畫面在趨勢頁籤顯示將於後續版本開放，不用顯示文字自己算差異。
+- `API_UPCOMING_DATABASE_FEATURES`：`records` 移除，改為 `trends`（#147）。與 #148 合併後（#148 移除了 `assistant-connections`）清單與 `DatabaseUpcomingFeature` 都只剩 `trends`。API 模式的 `comparison` 是「趨勢比較將於後續版本開放」的佔位、`periodicReports` 為空陣列，畫面在趨勢頁籤顯示將於後續版本開放，不用顯示文字自己算差異。
 - 提交前的撤回說明（後端 `DatabaseSubmissionRules.WithdrawalNotice` 與 mock 逐字相同）改成說明到哪裡撤回、撤回的效果，以及既有定期報表不追溯修改。
-- mock 只列出表單連結的提交（回執存在 `sme-demo:database-submissions`）；對話中送出的資料在 mock 仍從對話收據撤回（既有行為）。API 模式的清單會包含所有來源，#148 加上對話來源後自然出現。
+- mock 只列出表單連結的提交（回執存在 `sme-demo:database-submissions`）；對話中送出的資料在 mock 仍從對話收據撤回（既有行為）。API 模式的清單包含所有來源（含 #148 的對話來源），每列以「來源：助理對話／表單連結」標示。
 
 ### 9.7 給 #147 的接點
 
@@ -182,12 +183,76 @@
 - 前端：`TrackedSubjectView.comparison` 與 `DatabaseTrackingView.periodicReports` 由 #147 從伺服器填入（可擴充 `GET .../tracking` 或另開固定查詢端點），完成後從 `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`。
 - 數據庫清單摘要的 `recordCount`／`subjectCount` 在 API 模式仍為 `null`：若 #147 要顯示，用 `DatabaseActiveRecords` 計數並只對可讀者回傳。
 
+## 10. #148 助理連接數據庫並請求表單（2026-10-03）
 
-## 10. #147 趨勢與固定統計查詢（2026-10-03）
+### 10.1 連接模型（migration `AddAssistantDatabases`）
+
+| 資料表／欄位 | 內容 | 規則 |
+| --- | --- | --- |
+| `AssistantDatabases` | `AssistantId`、`DatabaseId`、`ConnectedAt`、`CollectsForms`、`CollectionPurpose`（≤ 500 字） | 主鍵 `(AssistantId, DatabaseId)`；兩條含 `OrganizationId` 的複合外鍵（→ `Assistants`、`Databases`，皆 `Cascade`）；部分唯一索引 `(AssistantId) WHERE CollectsForms`＝每個助理最多一個寫入對象；check：寫入對象一定有非空白目的、非寫入對象目的為空字串 |
+| `ChatMessages.FormDatabaseId`、`ChatMessages.SubmissionId` | 表單請求／收據訊息只存資料庫 id 與提交 id | 無外鍵（資料庫刪除後訊息仍在，顯示為已無法使用）；**不存任何填寫值**，收據訊息文字只有接收單位與回執編號 |
+| `ChatReplyKind` | 新增 `FormRequest`、`SubmissionReceipt`（整數，加在尾端） | 只由表單流程寫入，不經回答流程 |
+
+- **可連接＝擁有者可使用**（`AssistantDatabaseAccess.ConnectableBy` ＝ `DatabaseAccess.ListedFor`，以**助理擁有者**判斷）：自己擁有的，或被指定為資料管理者且具備 `read-consented-submissions` 的。資料管理者指定就是數據庫的「分享」；撤銷指定或權限＝分享撤回。
+- 連接本身不讓助理請求表單；`rules.dataWriteDatabaseId`／`dataWritePurpose`（前端 mock 既有欄位）選定其中一個已連接、可使用的數據庫作為寫入對象並說明目的。解除連接（或刪除數據庫）連帶清掉寫入對象。多個數據庫可同時連接（#149 的查詢工具使用）。
+- 解除最後一個來源（知識庫＋數據庫合計）一律 `422 last-source`。
+
+### 10.2 API 契約
+
+| 端點 | 權限 | 成功 | 錯誤 |
+| --- | --- | --- | --- |
+| `PUT /api/v1/assistants/{id}/sources/database/{databaseId}` | 登入＋`manage-assistants`＋助理擁有者 | `200 AssistantSettingsView`（冪等） | `403 assistant-configuration`；`422 source-not-connectable`（不存在、別組織、擁有者無權使用、id 格式錯誤，逐位元組相同） |
+| `DELETE …/sources/database/{databaseId}` | 同上 | `200`（未連接或 id 格式錯誤＝no-op） | `403`；`422 last-source` |
+| `PATCH …/settings` `rules.dataWriteDatabaseId`（`""` 清除、省略不變）、`rules.dataWritePurpose` | 同上 | `200`，`rules` 多兩欄、頂層多 `databaseIds` | `422`：`dataWritePurpose`（有對象卻無目的／過長）、`sources`（不是已連接且可使用的數據庫） |
+| `GET /api/v1/connectable-sources` | `manage-assistants` | 知識庫之後多 `type: "database"`（`summary`「N 個欄位」、`permission` owner／read-only） | — |
+| `POST /api/v1/assistants/{id}/chat/forms/{databaseId}/review` `{formVersionNumber, answers}` | 登入＋可使用助理 | `200 DatabaseTrialPreviewView`（不寫入） | `403 assistant-use`／`403 assistant-form`；`409 form-version-changed`；`422` |
+| `POST …/chat/forms/{databaseId}/submissions` `{submissionId, formVersionNumber, consent, answers, threadId?}` | 同上 | `201 ChatFormSubmissionView{receipt, message}`；同鍵同內容 `200` | `403 assistant-use`／`chat-thread`／`assistant-form`；`409 form-version-changed`／`submission-key-reused`／`chat-run-in-progress`；`422`（含 `consent-required`） |
+| `GET /api/v1/databases`、`GET /api/v1/databases/{id}` | 不變 | 摘要多 `connectedAssistantNames`、詳情多 `connectedAssistants`（只列呼叫者自己的助理） | 不變 |
+
+`ChatReplyView` 多 `form`（`ChatFormRequestView`：`id`、`title`、`formVersion`、`fields`、`consent{recipient, purpose, viewers, sensitiveNotice, withdrawalNotice}`）與 `receipt`（`DatabaseSubmissionReceiptView`），其他 kind 皆為 `null`。AG-UI 錄製檔（`tools/agui-contract/fixtures`）已重錄。
+
+### 10.3 表單工具與觸發
+
+- 伺服器只定義一個工具 `request_database_form`（`AssistantFormRequestRules.ToolName`），唯一的參數是「哪一份表單」，只能是伺服器判定此刻可用的寫入對象；欄位、版本、目的、接收單位、可查看者全部來自伺服器（目前表單版本＋`DatabaseSubmissionService.GetFormAsync(databaseId, purpose)`）。模型不產生欄位、查詢或 SQL。
+- 本票的呼叫由**編排層**（`ChatRunEndpoints`）決定，不經模型：問題含填寫意圖詞（`AsksForForm`：填寫／填表／表單／回報／登記／報名…）且 `AssistantFormRequests.FormRequestAsync` 找到可用的寫入對象，就以 `form-request` 回覆（同樣的 AG-UI 事件、同樣的對話保存規則；沒有模型呼叫，所以不寫 `ModelInvocations`）。否則照常走回答流程。Fake 與真實模型行為相同；沒有引入 Agent Framework 或新的 NuGet 套件。
+
+### 10.4 授權檢查順序
+
+1. 登入（`401`）。
+2. 可使用助理（`ChatEndpoints.FindUsableAsync`：擁有者，或分享＋`use-shared-assistants`＋未暫停）→ `403 assistant-use`。
+3. 指定的對話是自己的（只在保存對話時）→ `403 chat-thread`。
+4. `AssistantFormRequests.FormTargetAsync`：連接列存在、是寫入對象、數據庫在組織內、**助理擁有者此刻仍可使用**（擁有者的權限經 `RequestAccountPermissions` 每次請求重讀，指定每次查表）→ `403 assistant-form`（不連接、撤回、刪除、他組織、亂造 id 逐位元組相同）。
+5. 訊息保存需要時取得對話鎖（`409 chat-run-in-progress`），在寫入任何紀錄之前。
+6. `DatabaseSubmissionService.SubmitAsync`（`AssistantConversation` 來源、助理的收集目的寫進同意條款）：提交編號／版本 → 重送比對 → 目前版本 → 欄位 → 同意 → 單一交易寫入。
+7. 成功後才寫收據訊息（只存提交 id）；重送時沿用已存在的收據訊息，前一次中斷在兩步之間也會補上。
+
+表單請求（chat run）與重新讀取（`GET chat`）走同一個第 4 步，所以撤回後**下一個請求**就不再出現表單、舊訊息的 `form` 變成 `null`。
+
+### 10.5 隱私
+
+- 提交只帶表單答案；對話內容從不是輸入。處理人（資料管理者）經 `GET …/records` 只讀到欄位快照與提交者，讀不到對話（`chat-thread` 仍只屬於本人）。
+- 表單請求與收據訊息不能轉人工（`AssistantHandoffEndpoints` 對這兩種回 `403 chat-thread`），填寫內容只經同意的紀錄到達可查看者。
+- 不保存對話時：不寫任何對話表，紀錄照常寫入資料庫，收據訊息只在回應中出現一次。
+
+### 10.6 給 #146／#149 的接點
+
+- **#146（已接上，合併 #146 時完成）**：對話中的收據以 `ChatMessages.SubmissionId` 指向提交，顯示時呼叫 `DatabaseSubmissionService.GetReceiptAsync`（提交者本人），所以撤回後對話讀回的收據就是已撤回、不含內容，對話表不需要改。提交者本人在對話收據上撤回走 #146 的 `POST /api/v1/submissions/{id}/withdrawal`（與「我送出的資料」同一條，資料管理者一律 `403 submission-withdrawal`）；同一個 `submissionId` 在撤回後重送，回已撤回的回執與原本的收據訊息，不會再寫入。
+  - 前端：Hybrid 的收據 `recordId` 是 `record-<提交 id>`（與時間軸相同的前綴），`withdrawal` 依回執狀態決定（`available`／`withdrawn`；讀不到回執才是 `unavailable`）。`withdrawChatSubmission` 改為 `Observable`，結果是收據撤回後的 `SubmissionWithdrawalView`；Hybrid 去掉前綴後呼叫 `withdrawDatabaseSubmission`。畫面在保存的對話重新讀取；不保存對話時就地更新本頁的收據（API 模式讀不回來）；5xx／連線中斷顯示「目前無法撤回，這筆資料沒有任何變更」並保留撤回鍵。mock 行為不變（再撤回一次是 `validation-failed`；API 是冪等的 `200`）。
+  - 測試：`AssistantDatabaseFormEndpointsTests.The_submitter_withdraws_an_in_chat_submission_and_the_conversation_reads_it_back_withdrawn`（資料管理者代撤回被拒 → 本人撤回 → `DatabaseSubmissionEntries` 無該筆、`ChatMessages` 不含填寫值、對話讀回已撤回、同鍵重送不再寫入、「我送出的資料」與時間軸標示對話來源）；Hybrid（`hybrid-demo-repository-records.spec.ts`、`hybrid-demo-repository.spec.ts`）與元件（`chat-conversation.component.spec.ts`、`own-submissions.component.spec.ts`）。
+- **#149**：可用的數據庫集合是 `AssistantFormRequests.UsableDatabaseIdsAsync(assistant)`（連接列 ∩ 擁有者此刻可使用），每次請求重算；固定查詢工具應比照 `request_database_form` 只接受伺服器列出的參數，並在執行時再套用 `DatabaseRecordReaders`（查詢者本人的讀取權）。若改由模型選擇工具，`AssistantFormRequestRules.ToolName/ToolDescription` 可直接成為工具定義，授權與執行不變。
+
+### 10.7 已確認的決策
+
+負責人於 2026-10-03 同意：
+
+1. **數據庫「分享」的定義**：數據庫「分享」給某個帳號＝該帳號被指定為這個數據庫的資料管理者（#144），**且**帳號具備 `read-consented-submissions` 權限。助理擁有者要連接數據庫、讓助理在對話中請求它的表單，兩個條件都要成立；撤銷其中任何一個（移除指定，或收回權限），下一個請求起就無法再連接，已連接的助理也不再提供這份表單（`form` 讀回為 `null`、送出回 `403 assistant-form`）。
+2. **對話中表單請求的觸發方式**：目前由伺服器的編排層依填寫意圖關鍵字（`AsksForForm`）觸發，不經模型。工具定義 `request_database_form`（`AssistantFormRequestRules.ToolName`／`ToolDescription`）保留給日後改由模型選擇工具；真實模型就緒後再評估，見 #164（對話表單請求改由模型選擇工具）。
+
+## 11. #147 趨勢與固定統計查詢（2026-10-03）
 
 依據：[助理存取知識庫與數據庫 ADR](../adr/2026-09-25-assistant-access-to-knowledge-and-databases.md)（讀取只能走服務端事先寫好的固定查詢：依期間計數、加總、比較；不接受 SQL）、[撤回與保存 ADR](../adr/2026-09-25-withdrawal-and-retention.md)、[定期報表 ADR](../adr/2026-09-25-periodic-reports.md)。
 
-### 10.1 固定查詢清單
+### 11.1 固定查詢清單
 
 定義在 `DatabaseFixedQueries.Definitions`（Application；名稱、必填與選填參數），執行在 `DatabaseFixedQueryService`（Api；`RunAsync(kind, accountId, databaseId, parameters)` 或四個具名方法）。
 
@@ -200,7 +265,7 @@
 
 端點：`GET /api/v1/databases/{id}/queries/{record-count|field-sum|period-summary|subject-comparison}`，參數放 query string；其他名稱是 `404`，沒有「任意查詢」的路由。
 
-### 10.2 參數規則（`DatabaseFixedQueries.Validate`）
+### 11.2 參數規則（`DatabaseFixedQueries.Validate`）
 
 - **只收定義內的**：不在該查詢定義內的參數名稱（例如 `sql`、`select`、`expression`、對 `record-count` 傳 `fieldId`）、重複的鍵（`?period=a&period=b`）都是 `422`，鍵就是那個參數名；必填缺漏、值不在定義內同樣是 `422`（每個失敗各一個 `errors.<參數>`）。
 - **期間**：`period` 是 `this-week`／`last-week`／`this-month`／`last-month`／`last-7-days`／`last-30-days`，或 `from`＋`to` 兩個真實存在的 `yyyy-MM-dd`（`from` 不晚於 `to`、最長 366 天、2000-01-01 至 2100-12-31）；兩種擇一，不可並用。
@@ -208,7 +273,7 @@
 - **對象**：`subjectId` 是提交帳號的 id，且必須**提交過這個數據庫**（含已全部撤回的，與時間軸列出的一致）。不是 GUID、不存在、別的數據庫的對象、別組織的帳號、從未提交過的管理者，**一律同一則** `422 subjectId`「找不到這位追蹤對象。」（整合測試比對逐位元組相同）。
 - **順序**：先判斷能不能讀這個數據庫的紀錄（`DatabaseActiveRecords.ReadableAsync`，每次呼叫重查指定與帳號權限），再驗參數。所以無權者不論參數對錯都得到同一個 `403`（`database` 或 `database-records`，與時間軸相同），看不到任何欄位或對象的資訊。
 
-### 10.3 時區規則
+### 11.3 時區規則
 
 - **設定**：`Statistics:TimeZone`（`StatisticsOptions`，IANA id，預設 `Asia/Taipei`；環境變數 `Statistics__TimeZone`）。啟動時以 `ValidateOnStart` 驗證，id 不存在就拒絕啟動並指名這個設定（容器需有 tzdata）。
 - **曆日以這個時區為準**：具名期間、`from`／`to`（解讀為該時區的曆日，`to` 含當天）、週首（週一）、「前一期」、`today` 都以該時區的曆日計算；紀錄屬於 `SubmittedAt` 落在的**該時區**曆日。所以台北 10/03 07:30（UTC 10/02 23:30）算 10/03，台北 10/04 00:30（UTC 10/03 16:30）算 10/04；週日 23:59:59（+08）仍在該週，週一 00:00（+08）是下一週；11/01 00:30（+08，UTC 仍是 10/31）屬於 11 月。
@@ -218,29 +283,28 @@
 - **#150 排程必須讀同一個設定**：注入 `IOptions<StatisticsOptions>` 解析時區，或直接呼叫 `DatabaseFixedQueryService`（已內建）；排程以「現在」在該時區的曆日解析具名期間，報表記錄的資料期間是該時區的曆日。
 - 測試：`DatabaseFixedQueriesTests`（半開區間、日界、DST）、`DatabaseFixedQueryEndpointsTests.Days_weeks_and_months_are_Taipei_calendar_days_not_UTC_days`（UTC 23:30Z／16:30Z 邊界、週界、月界、前一期、比較日期）、`StatisticsOptionsStartupTests`（無效 id 拒絕啟動）、前端 `database-tracking.spec.ts`。
 
-### 10.4 計算與資料不足
+### 11.4 計算與資料不足
 
 - **比較**（`DatabaseQueryResults.Compare`）：依穩定的 `FieldId` 跨版本比較；指標取自**最新一筆**紀錄的數字／量尺欄位，每個指標的點是有這個 id 且**型別與單位和最新一筆相同**的紀錄（單位改過的不混進同一條趨勢），至少 2 個點才成立。量尺的圖表縱軸取量尺範圍（與值取聯集），數字取值的最小最大。文字：`本次 X，較上次 +N，較首次 +M`、無變化 `持平`、量尺單位 `分`，數字格式與回執相同（千分位、最多 3 位小數）。
 - **加總**（`DatabaseQueryResults.Sums`）：只加總型別是數字、且單位等於該欄位最新單位的值；每個欄位是 `SELECT SUM … GROUP BY FieldId, Unit`（一次查詢，成本不隨筆數成長；`ToQueryString()` 確認過沒有逐欄的純量子查詢）。目前表單的數字欄位即使 0 也列出；已移除的欄位只在這兩個期間有值時才列出。
 - **資料不足**：沒有紀錄或只有一筆 → `insufficient-records`＋`message`（`目前只有 N 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。`）、沒有指標；有 2 筆以上但沒有任何欄位累積 2 個數值 → 同狀態，訊息改為 `目前有 N 筆紀錄，但沒有任何數字或量尺欄位累積 2 筆以上的數值，無法比較。`（不回「available 但沒有指標」的空趨勢）。筆數與加總沒有「不足」：0 就是 0，`recordCount` 讓呼叫端分辨「沒資料」。
 - **撤回**：撤回刪除 entries 並設 `WithdrawnAt`，所有查詢經 `DatabaseActiveRecords`，下一次查詢就排除（整合測試：逐筆撤回後筆數、加總、比較、時間軸同步變）。已產生的定期報表不追溯改寫是 #150 的規則（ADR）。
 
-### 10.5 前端
+### 11.5 前端
 
 - `TrackedSubjectView.comparison` 由伺服器填入（Hybrid 只轉換型別）；新增 `getDatabasePeriodSummary(databaseId, {period, subjectId})`（`Observable` 契約；mock 以 `now()` 在統計時區（台北）的曆日為今天計算，`summarizePeriod`／`resolvePeriod`／`previousPeriod` 在 `database-tracking.ts`，與後端同一套規則）。
 - 趨勢頁籤：變化摘要＋比較表＋趨勢圖（紀錄不足時只顯示說明，不畫圖）；新增「期間統計」（`features/databases/period-summary/`，預設近 30 天，可切換期間；讀取失敗與「沒有紀錄」分開、可重試）；每位追蹤對象底下有「查看…的原始紀錄」連到收集紀錄頁籤（`?subject=`）。
-- `DatabaseUpcomingFeature`：`'trends'` 移除，改為 `'periodic-reports'`（#150）；API 模式的趨勢頁籤只在有追蹤對象時顯示「定期回報摘要：這項功能將於後續版本開放」，`periodicReports` 仍是空陣列。
+- `DatabaseUpcomingFeature`：`'trends'` 移除，改為 `'periodic-reports'`（#150）；與 #148 合併後（#148 移除了 `assistant-connections`）清單與 `DatabaseUpcomingFeature` 都只剩 `periodic-reports`。API 模式的趨勢頁籤只在有追蹤對象時顯示「定期回報摘要：這項功能將於後續版本開放」，`periodicReports` 仍是空陣列。
 - 摘要清單的 `recordCount`／`subjectCount` 仍為 `null`（本票沒有需要顯示它的畫面；要顯示時用 `DatabaseActiveRecords` 計數且只對可讀者回傳）。
 
-### 10.6 測試
+### 11.6 測試
 
 - 後端單元：`DatabaseFixedQueriesTests`（期間解析、前一期、參數規則）、`DatabaseQueryResultsTests`（比較、不足、單位不混、加總、標籤）。
 - 後端整合（`DatabaseFixedQueryEndpointsTests`，真實 PostgreSQL，11 個）：無權限／未指定／他組織／權限撤銷／指定移除皆拒絕且不洩漏（錯誤參數同一個 403）；對象不在這個數據庫一律同一則 422；不在定義內的參數與值 422、無「任意查詢」路由；空資料與單筆＝紀錄不足；跨期邊界與跨對象計數、加總；具名期間；撤回後各查詢與時間軸同步排除；表單改版（改名、新增、移除欄位）仍以 `FieldId` 比較；量尺的軸與單位。
 - 前端：`database-tracking.spec.ts`、`mock-demo-repository-trends.spec.ts`、`period-summary.component.spec.ts`、`hybrid-demo-repository-trends.spec.ts`（**真實 API JSON**）、詳情頁與趨勢元件既有 spec 更新。
 - Cypress（未在本機執行，由 CI 跑）：`tracking.cy.ts`、`consented-submission.cy.ts`（mock）、`e2e-api/database-api.cy.ts`（API）。
 
-### 10.7 給 #149／#150 的接點
+### 11.7 給 #149／#150 的接點
 
 - **#149（對話工具）**：模型只選 `DatabaseFixedQueries.Definitions` 之一與參數（字串字典），服務端呼叫 `DatabaseFixedQueryService.RunAsync(kind, accountId, databaseId, parameters, ct)`：`Readable = false`＝無權限（不洩漏）、`Failures`＝參數不被接受（可轉成給模型的錯誤）、`Value`＝上列結果記錄。呼叫前要先確認助理已連接該數據庫且帳號當下有權使用（#148）；本服務只管「這個帳號能不能讀這個數據庫的紀錄」。結果的 `period.label`、`display`、`changeLabel` 可直接當作回答的統計期間與可核對的數字；結果沒有任何自由文字來自使用者填寫的內容，除了欄位名稱（`label`）。
 - **#150（排程）**：排程以擁有者帳號呼叫同一個服務（擁有者仍須是被指定且具權限的資料管理者，否則 `Readable = false`＝本期不產生報表）；每期存 `period`（`from`／`to`）與結果 JSON，AI 摘要只拿已算好的數字；`this-week`／`last-month` 等具名期間以排程當下在統計時區（`Statistics:TimeZone`）的曆日解析（服務用注入的 `TimeProvider`）。紀錄不足時沿用 `insufficient-records`，不產生假趨勢。
-

@@ -29,6 +29,7 @@ import { ActivatedRoute } from '@angular/router';
 import type { PreviewTrialAnswerResult, RepositoryView } from '../../../core/repositories/demo-repository';
 import { repositoryResource, type LoadedView } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 
 export type DraftSaveState =
@@ -152,9 +153,16 @@ export class AssistantDraftStore {
 
   readonly sourcesView = this.sourcesResource.view;
 
-  readonly connectableSources = computed<readonly ConnectableSourceView[]>(() =>
-    dataOf(this.sourcesView(), []),
-  );
+  /**
+   * API 模式的建立精靈還不能連接資料庫（#148 只開放建立後的「資料來源」頁籤；由草稿建立時
+   * 後端仍拒絕資料庫來源），所以只列出知識庫。
+   */
+  private readonly apiMode = inject(ApiSessionService).apiMode;
+
+  readonly connectableSources = computed<readonly ConnectableSourceView[]>(() => {
+    const sources = dataOf(this.sourcesView(), []);
+    return this.apiMode ? sources.filter((source) => source.type === 'knowledge-base') : sources;
+  });
 
   readonly trialQuestions = computed<readonly TrialQuestionView[]>(() =>
     dataOf(this.repository.listTrialQuestions(), []),

@@ -69,6 +69,22 @@ function listing(response: Observable<RepositoryView<readonly OwnDatabaseSubmiss
 }
 
 describe('OwnSubmissionsComponent (issue #146)', () => {
+  it('labels each submission with its source: API mode also lists submissions made in an assistant conversation (#148)', async () => {
+    const fromChat: OwnDatabaseSubmissionView = {
+      ...ACTIVE,
+      id: 'submission-2',
+      receiptNumber: 'R-20261003-0000000002',
+      source: 'assistant-conversation',
+    };
+    const { root } = await render(listing(of({ status: 'ready', data: [fromChat, ACTIVE] })));
+    const items = [...root.querySelectorAll('li')].map((item) => item.textContent ?? '');
+    const chatItem = items.find((text) => text.includes('R-20261003-0000000002')) ?? '';
+    const linkItem = items.find((text) => text.includes('R-20261003-0000000001')) ?? '';
+
+    expect(chatItem).toContain('來源：助理對話');
+    expect(linkItem).toContain('來源：表單連結');
+  });
+
   it('keeps loading, failure, denial and an empty list apart', async () => {
     expect((await render(listing(NEVER), false)).root.textContent).toContain('正在載入你送出的資料');
     expect((await render(listing(throwError(() => new Error('offline'))))).root.textContent).toContain('目前無法載入你送出的資料');

@@ -60,7 +60,10 @@ public static class AssistantHandoffEndpoints
                 .ToListAsync(cancellationToken);
             var asked = pair.SingleOrDefault(message => message.Id == questionId && message.Author == ChatMessageAuthor.Account);
             var replied = pair.SingleOrDefault(message => message.Id == answerId && message.Author == ChatMessageAuthor.Assistant);
-            if (asked is null || replied is null || replied.Sequence != asked.Sequence + 1)
+            // A form request or receipt (M4 #148) is not an answer to hand off: the submitted
+            // answers reach their readers only through the consented record, never through an issue.
+            if (asked is null || replied is null || replied.Sequence != asked.Sequence + 1
+                || replied.ReplyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt)
                 return ApiErrors.NotFound(ForbiddenReason.ChatThread);
             question = asked.Text;
             answer = replied.Text;

@@ -1,9 +1,10 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { syncValue } from '../../../core/repositories/sync-value.testing';
 import { provideRouter } from '@angular/router';
 import type { ChatViewerId } from '../../../core/domain/account.model';
 import { provideAssistantUseTesting } from '../assistant-use.testing';
 import { AssistantIssuesRepository } from '../../../core/repositories/assistant-issues.repository';
-import { firstValueFrom, Subject } from 'rxjs';
+import { firstValueFrom, map, of, Subject, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { ChatConversationComponent } from './chat-conversation.component';
 
@@ -20,11 +21,11 @@ function setup(anonymous = false, question?: string) {
   const viewerId: ChatViewerId = anonymous
     ? (testing.visitor.visitorId() as ChatViewerId)
     : 'account-external-customer';
-  const submitted = testing.repository.submitChatForm(viewerId, ASSISTANT, {
-    formId: 'database-orders',
+  const submitted = syncValue(testing.repository.submitChatForm(viewerId, ASSISTANT, {
+    formId: 'database-orders', formVersion: 1, submissionId: crypto.randomUUID(),
     answers: ANSWERS,
     consent: true,
-  });
+  }));
   if (submitted.status !== 'ready') throw new Error(`expected ready, got ${submitted.status}`);
   if (question) {
     const answered = testing.repository.sendChatMessage(viewerId, ASSISTANT, question);
@@ -125,6 +126,102 @@ describe('ChatConversationComponent withdrawal', () => {
   });
 });
 
+describe('ChatConversationComponent withdrawal through the repository (#146 with #148)', () => {
+  afterEach(() =>
+    document.body.querySelectorAll('app-chat-conversation').forEach((node) => node.remove()),
+  );
+
+  it('keeps the receipt and offers to try again when the withdrawal fails (5xx, offline)', async () => {
+    const { fixture, host, repository } = setup();
+    vi.spyOn(repository, 'withdrawChatSubmission').mockReturnValue(throwError(() => new Error('503')));
+
+    click(host, 'button.withdraw');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    click(host, 'button.confirm-withdraw');
+    fixture.detectChanges();
+
+    expect(host.querySelector('.withdraw-error')?.textContent).toContain('目前無法撤回');
+    expect(host.querySelector('.withdraw-feedback')).toBeNull();
+    expect(host.querySelector('[data-kind="submission-receipt"] button.withdraw')).not.toBeNull();
+    expect(trackingOf(repository, 'subject-account-external-customer')?.records).toHaveLength(1);
+  });
+
+  it('marks a receipt that only lives on this page (history not saved) as withdrawn, without re-reading', async () => {
+    const testing = provideAssistantUseTesting('account-external-customer');
+    const asked = testing.repository.sendChatMessage('account-external-customer', ASSISTANT, '我要回報訂單問題');
+    if (asked.status !== 'ready') throw new Error('expected a form request');
+    const original = testing.repository.getAssistantChat.bind(testing.repository);
+    // 不保存對話（API 模式讀不回本頁送出的收據）。
+    const read = vi.spyOn(testing.repository, 'getAssistantChat').mockImplementation((assistantId, threadId) =>
+      original(assistantId, threadId).pipe(
+        map((view) => (view.status === 'ready' ? { ...view, data: { ...view.data, historyMode: 'not-saved' as const } } : view)),
+      ),
+    );
+    vi.spyOn(testing.repository, 'reviewChatForm').mockReturnValue(
+      of({ status: 'ready', data: { formId: 'database-orders', saved: false, entries: [] } }),
+    );
+    vi.spyOn(testing.repository, 'submitChatForm').mockReturnValue(of({
+      status: 'ready',
+      data: {
+        threadId: null,
+        message: {
+          id: 'local-receipt',
+          author: 'assistant',
+          createdAt: '2026-10-03T06:00:00.000Z',
+          reply: {
+            kind: 'submission-receipt',
+            text: '已送出。',
+            recipient: '示範商行（訂單）',
+            recordId: 'record-0199e000-0000-7000-8000-000000000001',
+            entries: [{ fieldId: 'field-order-number', label: '訂單編號', display: 'DEMO-7777' }],
+            withdrawal: { status: 'available', withdrawnDateLabel: '', notice: '可以在這裡撤回。' },
+          },
+        },
+      },
+    }));
+    const withdraw = vi.spyOn(testing.repository, 'withdrawChatSubmission').mockReturnValue(of({
+      status: 'ready',
+      data: { status: 'withdrawn', withdrawnDateLabel: '2026-10-03', notice: '你已撤回這筆資料。' },
+    }));
+    TestBed.configureTestingModule({
+      imports: [ChatConversationComponent],
+      providers: [provideRouter([]), ...testing.providers],
+    });
+    const fixture = TestBed.createComponent(ChatConversationComponent);
+    fixture.componentRef.setInput('assistantId', ASSISTANT);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(host);
+    click(host, 'button.form-start');
+    fixture.detectChanges();
+    click(host, 'app-inline-form button[type="submit"]');
+    fixture.detectChanges();
+    click(host, '#consent-agree');
+    fixture.detectChanges();
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+    expect(host.querySelector('[data-kind="submission-receipt"]')?.textContent).toContain('DEMO-7777');
+    const reads = read.mock.calls.length;
+
+    click(host, '[data-kind="submission-receipt"] button.withdraw');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    click(host, 'button.confirm-withdraw');
+    fixture.detectChanges();
+
+    expect(withdraw).toHaveBeenCalledWith(
+      'account-external-customer', ASSISTANT, 'record-0199e000-0000-7000-8000-000000000001', undefined,
+    );
+    const receipt = host.querySelector('[data-kind="submission-receipt"]');
+    expect(receipt).not.toBeNull();
+    expect(receipt?.textContent).not.toContain('DEMO-7777');
+    expect(receipt?.querySelector('button.withdraw')).toBeNull();
+    expect(receipt?.querySelector('.withdrawal-notice')?.textContent).toContain('你已撤回');
+    expect(read.mock.calls.length).toBe(reads);
+  });
+});
+
 describe('ChatConversationComponent handoff', () => {
   afterEach(() =>
     document.body.querySelectorAll('app-chat-conversation').forEach((node) => node.remove()),
@@ -176,5 +273,99 @@ describe('ChatConversationComponent handoff', () => {
     click(host, 'button.confirm-handoff');
     expect(create).toHaveBeenCalledTimes(1);
     pending.complete();
+  });
+});
+
+describe('ChatConversationComponent form request (#148)', () => {
+  afterEach(() =>
+    document.body.querySelectorAll('app-chat-conversation').forEach((node) => node.remove()),
+  );
+
+  /** 開啟一段已經有表單請求的對話，填好並走到同意畫面。 */
+  function toConsent() {
+    const testing = provideAssistantUseTesting('account-external-customer');
+    const asked = testing.repository.sendChatMessage('account-external-customer', ASSISTANT, '我要回報訂單問題');
+    if (asked.status !== 'ready') throw new Error('expected a form request');
+    TestBed.configureTestingModule({
+      imports: [ChatConversationComponent],
+      providers: [provideRouter([]), ...testing.providers],
+    });
+    const fixture = TestBed.createComponent(ChatConversationComponent);
+    fixture.componentRef.setInput('assistantId', ASSISTANT);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    document.body.appendChild(host);
+
+    vi.spyOn(testing.repository, 'reviewChatForm').mockReturnValue(
+      of({ status: 'ready', data: { formId: 'database-orders', saved: false, entries: [] } }),
+    );
+    click(host, 'button.form-start');
+    fixture.detectChanges();
+    click(host, 'app-inline-form button[type="submit"]');
+    fixture.detectChanges();
+    click(host, '#consent-agree');
+    fixture.detectChanges();
+    return { fixture, host, repository: testing.repository };
+  }
+
+  it('keeps the consent step after a failed submission and retries with the same submission id', () => {
+    const { fixture, host, repository } = toConsent();
+    const submit = vi.spyOn(repository, 'submitChatForm')
+      .mockReturnValueOnce(throwError(() => new Error('offline')));
+
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+    expect(host.querySelector('app-consent-confirmation .error')?.textContent).toContain('不會重複建立紀錄');
+
+    submit.mockReturnValueOnce(of({
+      status: 'permission-denied',
+      reason: 'assistant-form',
+      message: '這份表單目前無法使用：助理已不再連接這個資料庫，或你沒有填寫它的權限。',
+    }));
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+    expect(host.querySelector('app-consent-confirmation .error')?.textContent).toContain('目前無法使用');
+
+    const keys = submit.mock.calls.map((call) => call[2].submissionId);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it('ends the fill when the form changed, without submitting anything', () => {
+    const { fixture, host, repository } = toConsent();
+    vi.spyOn(repository, 'submitChatForm').mockReturnValue(of({
+      status: 'conflict',
+      reason: 'form-version-changed',
+      message: '這份表單已更新，請重新載入最新的表單後再填寫。你這次填寫的內容尚未送出。',
+    }));
+
+    click(host, 'button.consent-submit');
+    fixture.detectChanges();
+
+    expect(host.querySelector('app-consent-confirmation')).toBeNull();
+    expect(host.querySelector('.form-notice')?.textContent).toContain('尚未送出');
+  });
+
+  it('cancelling the form records nothing', () => {
+    const testing = provideAssistantUseTesting('account-external-customer');
+    testing.repository.sendChatMessage('account-external-customer', ASSISTANT, '我要回報訂單問題');
+    TestBed.configureTestingModule({
+      imports: [ChatConversationComponent],
+      providers: [provideRouter([]), ...testing.providers],
+    });
+    const fixture = TestBed.createComponent(ChatConversationComponent);
+    fixture.componentRef.setInput('assistantId', ASSISTANT);
+    fixture.detectChanges();
+    const host = fixture.nativeElement as HTMLElement;
+    const submit = vi.spyOn(testing.repository, 'submitChatForm');
+
+    click(host, 'button.form-start');
+    fixture.detectChanges();
+    click(host, 'app-inline-form button.secondary');
+    fixture.detectChanges();
+
+    expect(host.querySelector('app-inline-form')).toBeNull();
+    expect(submit).not.toHaveBeenCalled();
+    expect(trackingOf(testing.repository, 'subject-account-external-customer')).toBeUndefined();
   });
 });

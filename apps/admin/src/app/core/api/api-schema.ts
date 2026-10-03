@@ -3283,6 +3283,15 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantSettingsView"];
+                    };
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -3319,6 +3328,15 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantSettingsView"];
+                    };
+                };
                 /** @description Unauthorized */
                 401: {
                     headers: {
@@ -4825,6 +4843,155 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/chat/forms/{databaseId}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    databaseId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReviewChatFormRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseTrialPreviewView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/forms/{databaseId}/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    databaseId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SubmitChatFormRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatFormSubmissionView"];
+                    };
+                };
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatFormSubmissionView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -4875,12 +5042,17 @@ export interface components {
             refusalMessage?: null | string;
             showCitations?: null | boolean;
             keepConversations?: null | boolean;
+            dataWriteDatabaseId?: null | string;
+            dataWritePurpose?: null | string;
         };
         AssistantAnswerRulesView: {
             knowledgeScope: components["schemas"]["AssistantKnowledgeScope"];
             refusalMessage: string;
             showCitations: boolean;
             keepConversations: boolean;
+            /** Format: uuid */
+            dataWriteDatabaseId: null | string;
+            dataWritePurpose: string;
         };
         AssistantChatView: {
             /** Format: uuid */
@@ -5018,6 +5190,7 @@ export interface components {
         AssistantSettingsView: {
             configuration: components["schemas"]["AssistantConfigurationView"];
             knowledgeBaseIds: string[];
+            databaseIds: string[];
             tone: components["schemas"]["AssistantTone"];
             roleInstructions: string;
             rules: components["schemas"]["AssistantAnswerRulesView"];
@@ -5145,6 +5318,26 @@ export interface components {
             excerpt: string;
             updatedLabel: string;
         };
+        ChatFormConsentView: {
+            recipient: string;
+            purpose: string;
+            viewers: string[];
+            sensitiveNotice: string;
+            withdrawalNotice: string;
+        };
+        ChatFormRequestView: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            /** Format: int32 */
+            formVersion: number;
+            fields: components["schemas"]["DatabaseFieldView"][];
+            consent: components["schemas"]["ChatFormConsentView"];
+        };
+        ChatFormSubmissionView: {
+            receipt: components["schemas"]["DatabaseSubmissionReceiptView"];
+            message: components["schemas"]["ChatMessageView"];
+        };
         ChatMessageView: {
             /** Format: uuid */
             id: string;
@@ -5160,6 +5353,8 @@ export interface components {
             citations: components["schemas"]["ChatCitationView"][];
             notice: null | string;
             nextSteps: string[];
+            form: null | components["schemas"]["ChatFormRequestView"];
+            receipt: null | components["schemas"]["DatabaseSubmissionReceiptView"];
         };
         ChatSuggestedPromptView: {
             id: string;
@@ -5302,6 +5497,12 @@ export interface components {
         };
         /** @enum {unknown} */
         DatabaseComparisonStatus: "insufficient-records" | "available";
+        DatabaseConnectedAssistantView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            status: components["schemas"]["AssistantStatus"];
+        };
         DatabaseDataManagerView: {
             account: components["schemas"]["DatabaseAccountView"];
             hasReadPermission: boolean;
@@ -5313,6 +5514,7 @@ export interface components {
             summary: components["schemas"]["DatabaseSummaryView"];
             form: components["schemas"]["DatabaseFormView"];
             access: components["schemas"]["DatabaseAccessView"];
+            connectedAssistants: components["schemas"]["DatabaseConnectedAssistantView"][];
         };
         DatabaseFieldDraft: {
             id: null | string;
@@ -5540,6 +5742,7 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             viewerCanManage: boolean;
+            connectedAssistantNames: string[];
         };
         /** @enum {unknown} */
         DatabaseTemplateId: "template-customer-profile" | "template-periodic-report" | "template-satisfaction" | "template-progress" | "template-blank";
@@ -5912,6 +6115,11 @@ export interface components {
             /** Format: int32 */
             count: number;
         };
+        ReviewChatFormRequest: {
+            /** Format: int32 */
+            formVersionNumber: null | number;
+            answers: null | Record<string, never>;
+        };
         ReviewDatabaseSubmissionRequest: {
             /** Format: int32 */
             formVersionNumber: null | number;
@@ -5949,6 +6157,16 @@ export interface components {
         };
         /** Format: binary */
         Stream: string;
+        SubmitChatFormRequest: {
+            /** Format: uuid */
+            submissionId: null | string;
+            /** Format: int32 */
+            formVersionNumber: null | number;
+            consent: null | boolean;
+            answers: null | Record<string, never>;
+            /** Format: uuid */
+            threadId?: null | string;
+        };
         SubmitDatabaseEntryRequest: {
             /** Format: uuid */
             submissionId: null | string;

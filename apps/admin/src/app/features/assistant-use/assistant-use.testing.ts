@@ -53,6 +53,6 @@ export function replyFor(text: string): ChatReplyView {
 
 export function orderForm(): ChatFormView {
   const reply = replyFor('我要回報訂單問題');
-  if (reply.kind !== 'form-request') throw new Error('expected form request');
+  if (reply.kind !== 'form-request' || reply.form === null) throw new Error('expected form request');
   return reply.form;
 }

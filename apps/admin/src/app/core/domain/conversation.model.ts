@@ -135,6 +135,11 @@ export interface ChatConsentView {
 export interface ChatFormView {
   readonly id: DatabaseId;
   readonly title: string;
+  /**
+   * 顯示這份表單時的表單版本（issue #148）。確認與送出都要帶回去：表單在這之間改版時，
+   * 伺服器回 `form-version-changed`，不會把答案對到另一個版本。
+   */
+  readonly formVersion: number;
   readonly fields: readonly DatabaseFieldView[];
   readonly consent: ChatConsentView;
 }
@@ -164,7 +169,11 @@ export type ChatReplyView =
   | {
       readonly kind: 'form-request';
       readonly text: string;
-      readonly form: ChatFormView;
+      /**
+       * null：這份表單現在已無法使用（助理解除了連接、資料庫的分享或權限被收回、或已不是
+       * 助理的表單），只會出現在重新讀取的舊訊息上（issue #148，API 模式每次讀取都重新授權）。
+       */
+      readonly form: ChatFormView | null;
     }
   | {
       readonly kind: 'submission-receipt';
@@ -268,8 +277,24 @@ export interface ChatFormReviewView {
 
 export interface ChatFormSubmission {
   readonly formId: DatabaseId;
+  /** 填寫時看到的表單版本（`ChatFormView.formVersion`）。 */
+  readonly formVersion: number;
+  /**
+   * 冪等鍵（issue #148）：開始填寫時產生一次，失敗重試沿用同一個，伺服器不會重複建立紀錄；
+   * 成功或衝突後才換新的。
+   */
+  readonly submissionId: string;
   readonly answers: DatabaseTrialAnswers;
   readonly consent: boolean;
+}
+
+/**
+ * 對話中送出成功：要接在對話後面的收據訊息，以及它所在的對話（不保存對話的助理為 null，
+ * 收據只在這一頁出現，紀錄本身仍存進資料庫）。
+ */
+export interface ChatFormSubmissionResultView {
+  readonly message: ChatMessageView;
+  readonly threadId: ChatThreadId | null;
 }
 
 /**

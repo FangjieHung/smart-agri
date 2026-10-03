@@ -56,7 +56,7 @@ function setUp() {
 
 describe('HybridDemoRepository trends and period statistics (issue #147)', () => {
   it('no longer lists trends as upcoming: only the periodic report (#150) and assistant connections (#148) are', () => {
-    expect(API_UPCOMING_DATABASE_FEATURES).toEqual(['periodic-reports', 'assistant-connections']);
+    expect(API_UPCOMING_DATABASE_FEATURES).toEqual(['periodic-reports']);
   });
 
   it('maps the server-computed comparison as is: available with metrics, and insufficient without any', async () => {

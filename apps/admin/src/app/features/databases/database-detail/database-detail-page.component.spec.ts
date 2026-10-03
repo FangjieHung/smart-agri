@@ -370,14 +370,6 @@ describe('DatabaseDetailPageComponent', () => {
       expect(page().querySelector('.upcoming-notice')).toBeNull();
     });
 
-    it('does not show assistants in API mode: that is #148', async () => {
-      const { page, repository } = await openDetail('/app/databases/database-customer-records/assistants', asApiMode);
-
-      expect(page().querySelector('.upcoming-notice')?.textContent).toContain('將於後續版本開放');
-      expect(page().textContent).not.toContain('客服助理');
-      expect(repository.getDatabaseTracking).not.toHaveBeenCalled();
-    });
-
     it('serves the trends tab in API mode (since #147): comparison and period statistics, with only the periodic report still upcoming', async () => {
       const { page, repository } = await openDetail(
         '/app/databases/database-customer-records/trends?subject=subject-wang',
@@ -400,6 +392,13 @@ describe('DatabaseDetailPageComponent', () => {
       expect(notices[0]).toContain('定期回報摘要');
       expect(notices[0]).toContain('將於後續版本開放');
       expect(page().textContent).not.toContain('趨勢比較：這項功能將於後續版本開放');
+    });
+
+    it('lists the connected assistants the API returned (#148), not a notice', async () => {
+      const { page } = await openDetail('/app/databases/database-customer-records/assistants', asApiMode);
+
+      expect(page().querySelector('.upcoming-notice')).toBeNull();
+      expect(page().textContent).toContain('客服助理');
     });
 
     it('keeps a failed timeline read apart from "no records" and lets it be retried', async () => {

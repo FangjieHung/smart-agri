@@ -1,0 +1,118 @@
+@let current = report();
+@if (current) {
+  @let item = current.report;
+  <article class="report" [attr.data-status]="item.status" aria-labelledby="report-title">
+    <header>
+      <h4 id="report-title">{{ item.periodLabel }}｜{{ item.assistantName }}｜{{ frequencyLabels[item.frequency] }}報表</h4>
+      <p class="hint">產生時間 {{ generatedAt(item.generatedAt) }}。報表是產生當下的快照：之後撤回的紀錄不會改動這份報表，只影響之後產生的報表。</p>
+    </header>
+
+    @if (item.status === 'skipped') {
+      <p class="notice skipped" role="status">{{ item.skipMessage }}</p>
+    } @else if (current.statistics; as statistics) {
+      <section class="statistics" aria-labelledby="statistics-title">
+        <h5 id="statistics-title">統計</h5>
+        <p class="hint">本期 {{ statistics.period.label }}；前一期 {{ statistics.previousPeriod.label }}。</p>
+        @if (item.dataMessage) {
+          <p class="notice insufficient" role="status">{{ item.dataMessage }}</p>
+        }
+        <div class="table-scroll">
+          <table class="statistics-table">
+            <caption>期間筆數與加總</caption>
+            <thead>
+              <tr>
+                <th scope="col">項目</th>
+                <th scope="col">這一期</th>
+                <th scope="col">前一期</th>
+                @if (item.dataState === 'sufficient') {
+                  <th scope="col">變化</th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-row="record-count">
+                <th scope="row">紀錄筆數</th>
+                <td>{{ statistics.recordCount }} 筆</td>
+                <td>{{ statistics.previousRecordCount }} 筆</td>
+                @if (item.dataState === 'sufficient') {
+                  <td>{{ statistics.recordCountChangeLabel }}</td>
+                }
+              </tr>
+              @for (sum of statistics.sums; track sum.fieldId) {
+                <tr [attr.data-row]="sum.fieldId">
+                  <th scope="row">{{ sum.label }}（加總）</th>
+                  <td>{{ sum.display }}</td>
+                  <td>{{ sum.previousDisplay }}</td>
+                  @if (item.dataState === 'sufficient') {
+                    <td>{{ sum.changeLabel }}</td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        @if (bars().length > 0) {
+          <figure class="chart" aria-label="這一期與前一期的長條圖">
+            @for (row of bars(); track row.key) {
+              <div class="bar-group" [attr.data-chart-row]="row.key">
+                <div class="bar-label">{{ row.label }}</div>
+                <div class="bar-line">
+                  <span class="bar-name">這一期</span>
+                  <span class="bar-track"><span class="bar current" [style.inline-size.%]="row.current.percent"></span></span>
+                  <span class="bar-value">{{ row.current.display }}</span>
+                </div>
+                <div class="bar-line">
+                  <span class="bar-name">前一期</span>
+                  <span class="bar-track"><span class="bar previous" [style.inline-size.%]="row.previous.percent"></span></span>
+                  <span class="bar-value">{{ row.previous.display }}</span>
+                </div>
+              </div>
+            }
+            <figcaption class="hint">長條只是把上表的數字依比例畫出來，數字以上表為準。</figcaption>
+          </figure>
+        }
+      </section>
+
+      <section class="ai-summary" [attr.data-summary-status]="current.aiSummary.status" aria-labelledby="ai-summary-title">
+        <h5 id="ai-summary-title"><span class="ai-label">{{ current.aiSummary.label }}</span></h5>
+        @switch (current.aiSummary.status) {
+          @case ('ready') {
+            <p class="summary-text">{{ current.aiSummary.text }}</p>
+            <p class="hint">{{ current.aiSummary.disclaimer }}</p>
+          }
+          @case ('pending') {
+            <p class="hint" role="status">AI 摘要正在產生，統計與圖表不受影響。稍後重新整理就會看到。</p>
+            <button type="button" class="secondary" (click)="reload()">重新整理</button>
+          }
+          @case ('not-requested') {
+            <p class="hint">紀錄不足，不產生 AI 摘要。</p>
+          }
+          @default {
+            <p class="notice" role="status">{{ current.aiSummary.note }}</p>
+            @if (retryFailed()) {
+              <p class="error" role="alert">目前無法重新產生，請稍後再試。</p>
+            }
+            <button type="button" class="secondary" [disabled]="retrying()" (click)="retry()">重新產生摘要</button>
+          }
+        }
+      </section>
+    }
+  </article>
+} @else if (view().status === 'loading') {
+  <app-state-panel state="loading" title="正在載入報表" />
+} @else if (view().status === 'permission-denied') {
+  <app-state-panel
+    state="permission-denied"
+    title="無法查看這份報表"
+    description="只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號可以查看。"
+  />
+} @else {
+  <app-state-panel
+    state="error"
+    title="目前無法載入這份報表"
+    description="請稍後再試一次。"
+    recoveryLabel="重新載入"
+    (recover)="reload()"
+  />
+}

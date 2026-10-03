@@ -101,6 +101,16 @@ public sealed class ForbiddenReason
         "找不到這筆紀錄，或你沒有撤回它的權限。");
 
     /// <summary>
+    /// A periodic report (M4 #150) that does not exist in a database the caller may read. A caller who may
+    /// not read the database's records gets <see cref="Database"/> or <see cref="DatabaseRecords"/> for
+    /// every report id, existing or not, so this only ever tells a reader that an id is not one of the
+    /// database's reports.
+    /// </summary>
+    public static readonly ForbiddenReason DatabaseReport = new(
+        "database-report",
+        "找不到這份報表，或你沒有查看它的權限。");
+
+    /// <summary>
     /// An assistant's configuration (list, settings, source connections, deletion) that does
     /// not exist, belongs to another organization, or is not the caller's own (only the owner
     /// may open or change one; listing and settings also need <c>manage-assistants</c>). Same

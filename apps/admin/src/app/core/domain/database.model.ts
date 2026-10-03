@@ -190,11 +190,11 @@ export interface DatabaseAccessView {
 }
 
 /**
- * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
- * - `periodic-reports`：助理的定期回報與 AI 摘要（#150；趨勢比較與期間統計已於 #147 開放，已連接助理已於 #148 開放）。
- * mock 模式全部可用，所以是空陣列。
+ * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）。M4 的功能已全部開放
+ * （定期報表是最後一項，#150），所以目前沒有任何成員；`DatabaseDetailView.upcomingFeatures` 保留給之後
+ * 又有只在 mock 先做的功能時使用。
  */
-export type DatabaseUpcomingFeature = 'periodic-reports';
+export type DatabaseUpcomingFeature = never;
 
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;
@@ -333,25 +333,6 @@ export interface TrackedSubjectView {
   readonly comparison: SubjectComparisonView;
 }
 
-/**
- * 助理規則「定期回報」開啟時，這個資料庫的回報排程與變化摘要。
- * `lines` 只是把 `MetricComparisonView.summary` 原樣搬過來，不做任何額外計算。
- */
-export interface PeriodicReportView {
-  readonly assistantName: string;
-  /** 每週一次／每月一次；關閉時不會產生這個物件。 */
-  readonly scheduleLabel: string;
-  /** 推算下次回報所依據的最近一次紀錄日期（YYYY-MM-DD）。 */
-  readonly anchorLabel: string;
-  /** 下次回報日期（YYYY-MM-DD）。 */
-  readonly nextReportLabel: string;
-  /** 助理設定的收集目的，使用者同意前看到的也是這一段。 */
-  readonly purpose: string;
-  /** 已算好的比較摘要，前面加上追蹤對象名稱。 */
-  readonly lines: readonly string[];
-  readonly note: string;
-}
-
 /* ------------------------------------------------------------------ */
 /* 期間統計（#147）：固定查詢 `period-summary`，數字由 repository／伺服器算好 */
 /* ------------------------------------------------------------------ */
@@ -418,8 +399,103 @@ export interface DatabasePeriodSummaryQuery {
 export interface DatabaseTrackingView {
   readonly databaseId: DatabaseId;
   readonly subjects: readonly TrackedSubjectView[];
-  /** 對這個資料庫開啟「定期回報」的助理；沒有時為空陣列。 */
-  readonly periodicReports: readonly PeriodicReportView[];
+}
+
+/* ------------------------------------------------------------------ */
+/* 定期報表（#150）：排程每期產生一份快照；統計與 AI 摘要分開保存          */
+/* ------------------------------------------------------------------ */
+
+/** AI 摘要永遠用這個名稱標示，與統計分開。 */
+export const DATABASE_REPORT_SUMMARY_LABEL = 'AI 摘要';
+
+export const DATABASE_REPORT_SUMMARY_DISCLAIMER = '由 AI 根據上方已算好的統計數字撰寫，僅供參考；一切數字以統計為準。';
+
+/** 助理規則「定期回報」的週期（`off` 是沒有排程，不屬於報表本身）。 */
+export type DatabaseReportFrequency = 'weekly' | 'monthly';
+
+export const DATABASE_REPORT_FREQUENCY_LABELS: Readonly<Record<DatabaseReportFrequency, string>> = {
+  weekly: '每週',
+  monthly: '每月',
+};
+
+/** `generated` 已算出統計；`skipped` 該期到了但沒有產生（見 `DatabaseReportSkipReason`）。 */
+export type DatabaseReportStatus = 'generated' | 'skipped';
+
+/** 該期沒有產生報表的原因：助理已不再連接這個資料庫，或擁有者已不能讀取它的紀錄。 */
+export type DatabaseReportSkipReason = 'not-connected' | 'owner-cannot-read';
+
+/**
+ * `sufficient`：這一期與前一期都有紀錄，變化才成立；`insufficient-records`（紀錄不足）：統計照存，
+ * 但不顯示變化、趨勢，也不產生 AI 摘要。
+ */
+export type DatabaseReportDataState = 'sufficient' | 'insufficient-records';
+
+/**
+ * AI 摘要的狀態：`not-requested` 不產生（紀錄不足或沒有產生的期間）；`pending` 排隊或產生中；`ready`
+ * 完成；`failed` 模型失敗（統計與圖表不受影響，可重試）；`discarded` 摘要含有統計沒有的數字，整段捨棄
+ * （不顯示，可重試）。
+ */
+export type DatabaseReportSummaryStatus = 'not-requested' | 'pending' | 'ready' | 'failed' | 'discarded';
+
+/** 報表清單的一列（不含統計）。日期是統計時區（Asia/Taipei）的曆日 `YYYY-MM-DD`。 */
+export interface DatabaseReportListItemView {
+  readonly id: string;
+  readonly assistantId: string;
+  /** 產生當時助理的名稱（助理刪除後報表仍在）。 */
+  readonly assistantName: string;
+  readonly frequency: DatabaseReportFrequency;
+  readonly periodFrom: string;
+  readonly periodTo: string;
+  readonly periodLabel: string;
+  readonly status: DatabaseReportStatus;
+  readonly skipReason: DatabaseReportSkipReason | null;
+  /** 沒有產生的原因（給人看的一句話）；有產生時為 null。 */
+  readonly skipMessage: string | null;
+  readonly dataState: DatabaseReportDataState | null;
+  /** 「紀錄不足」的說明；紀錄足夠或沒有產生時為 null。 */
+  readonly dataMessage: string | null;
+  /** 產生時間（ISO）。 */
+  readonly generatedAt: string;
+  readonly summaryStatus: DatabaseReportSummaryStatus;
+}
+
+/** 一位助理在這個資料庫的有效排程：多久一次，以及哪一天產生下一份。 */
+export interface DatabaseReportScheduleView {
+  readonly assistantId: string;
+  readonly assistantName: string;
+  readonly frequency: DatabaseReportFrequency;
+  /** 下一份報表所涵蓋期間的第一天。 */
+  readonly nextPeriodFrom: string;
+  /** 下一份報表產生的日期（該期結束後的第二天）。 */
+  readonly nextReportDate: string;
+}
+
+export interface DatabaseReportListView {
+  readonly databaseId: DatabaseId;
+  readonly schedules: readonly DatabaseReportScheduleView[];
+  /** 新到舊（依涵蓋的期間）。 */
+  readonly reports: readonly DatabaseReportListItemView[];
+}
+
+/** AI 摘要：與統計分開保存，永遠標示為「AI 摘要」；`text` 只在 `ready` 時有值。 */
+export interface DatabaseReportAiSummaryView {
+  readonly label: string;
+  readonly status: DatabaseReportSummaryStatus;
+  readonly text: string | null;
+  /** 失敗或捨棄的說明。 */
+  readonly note: string | null;
+  readonly updatedAt: string | null;
+  readonly disclaimer: string;
+}
+
+/**
+ * 一份報表：統計是固定查詢 `period-summary` 的結果原樣保存（快照，之後撤回紀錄也不會改動它），
+ * 沒有產生的期間 `statistics` 為 null。摘要另外保存，失敗時統計與圖表照常顯示。
+ */
+export interface DatabaseReportView {
+  readonly report: DatabaseReportListItemView;
+  readonly statistics: DatabasePeriodSummaryView | null;
+  readonly aiSummary: DatabaseReportAiSummaryView;
 }
 
 /* ------------------------------------------------------------------ */

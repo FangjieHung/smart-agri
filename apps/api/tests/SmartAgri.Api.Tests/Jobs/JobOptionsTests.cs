@@ -47,7 +47,8 @@ public class JobOptionsTests
         // Registered by the Api itself (document processing, M2 plan Slice 5). Because
         // there is a handler, the worker would poll the configured database: every test
         // host has it turned off (TestHostDefaults), which is also what this host sees.
-        factory.Services.GetRequiredService<JobRunner>().Kinds.ShouldBe(["assistants.request-test-runs", "assistants.run-test-set", "knowledge.process-version"]);
+        factory.Services.GetRequiredService<JobRunner>().Kinds.ShouldBe(
+            ["assistants.request-test-runs", "assistants.run-test-set", "knowledge.process-version", "reports.generate-period", "reports.summarize"]);
         options.WorkerEnabled.ShouldBeFalse();
     }
 

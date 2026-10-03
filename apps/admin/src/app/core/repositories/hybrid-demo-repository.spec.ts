@@ -1983,6 +1983,7 @@ function apiSettings(overrides: Partial<ApiAssistantSettings> = {}): ApiAssistan
       keepConversations: false,
       dataWriteDatabaseId: null,
       dataWritePurpose: '',
+      periodicReport: 'off',
     },
     ...overrides,
   };
@@ -2225,8 +2226,11 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     );
 
     const request = controller.expectOne({ method: 'PATCH', url: apiAssistantSettingsPath(ASSISTANT_ID) });
-    // 使用對象與定期回報（#150）不送；收集目的（#148）照送。
-    expect(request.request.body).toEqual({ name: '新名稱', rules: { keepConversations: true, dataWritePurpose: '收集' } });
+    // 使用對象不送；收集目的（#148）與定期報表（#150）照送。
+    expect(request.request.body).toEqual({
+      name: '新名稱',
+      rules: { keepConversations: true, dataWritePurpose: '收集', periodicReport: 'weekly' },
+    });
     request.flush(apiSettings({ configuration: apiConfiguration({ name: '新名稱', updatedAt: '2026-09-28T04:00:00+00:00' }) }));
 
     expect(await result).toMatchObject({
@@ -2337,6 +2341,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
         keepConversations: false,
         dataWriteDatabaseId: API_DATABASE_ID,
         dataWritePurpose: '回電用',
+        periodicReport: 'off',
       },
     }));
     expect(await target).toMatchObject({

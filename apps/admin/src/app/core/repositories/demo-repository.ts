@@ -46,6 +46,8 @@ import type {
   DatabaseTemplateView,
   DatabasePeriodSummaryQuery,
   DatabasePeriodSummaryView,
+  DatabaseReportListView,
+  DatabaseReportView,
   DatabaseTrackingView,
   OwnDatabaseSubmissionView,
   DatabaseTrialAnswers,
@@ -124,6 +126,8 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'knowledge-base',
   'database',
   'database-records',
+  /** 定期報表（issue #150）：看得到資料庫、也能讀它的紀錄，但這個 id 不是它的報表。 */
+  'database-report',
   'assistant-use',
   /** 對話中的表單（issue #148）：助理已不再連接這個資料庫、分享或權限已收回。 */
   'assistant-form',
@@ -912,8 +916,7 @@ export interface DemoRepository extends DemoScenarioController {
    * `records` 只有有效紀錄，`withdrawals` 是不含內容的撤回軌跡，兩者分開。看不到資料庫回 `database`，
    * 看得到但不能讀回 `database-records`。目前帳號由 repository 內部推導。
    * `comparison` 是每位追蹤對象的首次／上次／本次比較（紀錄不足時為 `insufficient-records`，不畫趨勢）；
-   * API 模式由伺服器的固定查詢算好（#147）。`periodicReports` 是 #150：API 模式為空陣列，畫面以
-   * `upcomingFeatures` 的 `periodic-reports` 顯示將於後續版本開放。
+   * API 模式由伺服器的固定查詢算好（#147）。定期報表（#150）不在這裡，見 `listDatabaseReports`。
    * API 模式：`GET /api/v1/databases/{id}/tracking`。
    */
   getDatabaseTracking(databaseId: string): Observable<RepositoryView<DatabaseTrackingView>>;
@@ -927,6 +930,24 @@ export interface DemoRepository extends DemoScenarioController {
     databaseId: string,
     query: DatabasePeriodSummaryQuery,
   ): Observable<RepositoryView<DatabasePeriodSummaryView>>;
+  /**
+   * 定期報表清單與這個資料庫的有效排程（issue #150）。只有「已指定 **且** 具備帳號權限」的資料管理者
+   * 看得到（每次請求重新檢查）；看不到資料庫回 `database`，看得到但不能讀回 `database-records`，兩者
+   * 對任何報表 id 都一樣，不洩漏報表是否存在。報表由助理擁有者設定的每週／每月排程產生，不是畫面
+   * 要求的。API 模式：`GET /api/v1/databases/{id}/reports`。
+   */
+  listDatabaseReports(databaseId: string): Observable<RepositoryView<DatabaseReportListView>>;
+  /**
+   * 一份報表：統計是固定查詢的結果原樣保存（快照，之後撤回紀錄也不會改動），AI 摘要另外保存並標示。
+   * 權限同 `listDatabaseReports`；看得到資料庫但不是它的報表回 `database-report`。
+   * API 模式：`GET /api/v1/databases/{id}/reports/{reportId}`。
+   */
+  getDatabaseReport(databaseId: string, reportId: string): Observable<RepositoryView<DatabaseReportView>>;
+  /**
+   * 重新產生 AI 摘要：只有 `failed`／`discarded` 的摘要會重來（回傳 `pending`），其他狀態原樣回傳，所以
+   * 連按兩次只會有一次模型呼叫。統計不受影響。API 模式：`POST .../reports/{reportId}/summary`。
+   */
+  retryDatabaseReportSummary(databaseId: string, reportId: string): Observable<RepositoryView<DatabaseReportView>>;
   /**
    * 目前帳號與助理的對話清單，依最後活動時間由新到舊。id 來自網址、未經驗證；
    * 不存在或無使用權限時回傳 `assistant-use` 的 permission-denied。

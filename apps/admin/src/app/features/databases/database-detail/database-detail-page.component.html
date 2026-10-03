@@ -93,6 +93,9 @@
             <p class="empty">尚未連接任何助理。可在建立或設定助理時，於「資料來源」加入此資料庫。</p>
           }
         }
+        @case ('reports') {
+          <app-database-reports [databaseId]="detail.summary.id" />
+        }
         @case ('access') {
           <app-database-access
             [databaseId]="detail.summary.id"
@@ -133,12 +136,6 @@
             @if (activeTab().id === 'records') {
               <app-records-table [subject]="subject" />
             } @else {
-              @if (upcoming().has('periodic-reports')) {
-                <p class="notice upcoming-notice" role="note">定期回報摘要：{{ upcomingMessage }}</p>
-              }
-              @for (report of periodicReports(); track report.assistantName) {
-                <app-periodic-report [report]="report" />
-              }
               <app-period-summary [databaseId]="detail.summary.id" [subject]="subject" />
               <app-trend-view [subject]="subject" />
               <p class="hint">

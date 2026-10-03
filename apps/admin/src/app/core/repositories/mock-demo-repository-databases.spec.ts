@@ -388,38 +388,132 @@ describe('MockDemoRepository databases', () => {
     });
   });
 
-  it('builds a 定期回報 schedule and summary only for assistants that have it on', () => {
-    const repository = createRepository();
-    const tracking = trackingOf(repository);
-
-    expect(tracking.periodicReports).toHaveLength(1);
-    const report = tracking.periodicReports[0];
-    expect(report.assistantName).toBe('客服助理');
-    expect(report.scheduleLabel).toBe('每月一次');
-    // 最近一次已同意的紀錄是 2026-09-15，每月一次即下個月同一天。
-    expect(report.anchorLabel).toBe('2026-09-15');
-    expect(report.nextReportLabel).toBe('2026-10-15');
-    // 摘要只重複使用已算好的比較字串，不另外計算。
-    const wang = tracking.subjects[0].comparison;
-    expect(wang.status).toBe('available');
-    if (wang.status === 'available') {
-      expect(report.lines).toContain(`王小姐 · ${wang.metrics[0].summary}`);
+  describe('定期報表 (#150)', () => {
+    function reportsOf(repository: MockDemoRepository, id = 'database-customer-records') {
+      const result = syncValue(repository.listDatabaseReports(id));
+      if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+      return result.data;
     }
-  });
 
-  it('drops the 定期回報 surface when the assistant turns 定期回報 off', async () => {
-    const repository = createRepository();
-    await firstValueFrom(
-      repository.updateAssistantSettings('assistant-customer-service', {
-        rules: { periodicReport: 'off' },
-      }),
-    );
+    function reportOf(repository: MockDemoRepository, reportId: string) {
+      const result = syncValue(repository.getDatabaseReport('database-customer-records', reportId));
+      if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+      return result.data;
+    }
 
-    expect(trackingOf(repository).periodicReports).toHaveLength(0);
-  });
+    it('lists the assistant that has 定期回報 on with its next report day, and its last three completed months', () => {
+      const list = reportsOf(createRepository());
 
-  it('does not offer a 定期回報 surface on a database no assistant reports into', () => {
-    expect(trackingOf(createRepository(), 'database-orders').periodicReports).toHaveLength(0);
+      // 今天是 2026-09-22：這個月的報表在 10/01（這一期結束後）產生。
+      expect(list.schedules).toEqual([
+        {
+          assistantId: 'assistant-customer-service',
+          assistantName: '客服助理',
+          frequency: 'monthly',
+          nextPeriodFrom: '2026-09-01',
+          nextReportDate: '2026-10-01',
+        },
+      ]);
+      expect(list.reports.map((report) => [report.periodFrom, report.periodTo, report.dataState])).toEqual([
+        ['2026-08-01', '2026-08-31', 'sufficient'],
+        ['2026-07-01', '2026-07-31', 'sufficient'],
+        ['2026-06-01', '2026-06-30', 'insufficient-records'],
+      ]);
+    });
+
+    it('keeps the statistics apart from a labelled AI summary that only repeats computed numbers', () => {
+      const repository = createRepository();
+      const [august] = reportsOf(repository).reports;
+      const report = reportOf(repository, august.id);
+
+      expect(report.statistics?.recordCount).toBe(2);
+      expect(report.statistics?.previousRecordCount).toBe(1);
+      const spend = report.statistics?.sums.find((sum) => sum.fieldId === 'field-monthly-spend');
+      expect([spend?.display, spend?.previousDisplay, spend?.changeLabel]).toEqual(['3,600 元', '2,400 元', '+1,200 元']);
+      expect(report.aiSummary).toMatchObject({ label: 'AI 摘要', status: 'ready' });
+      expect(report.aiSummary.text).toBe('整體來看，紀錄筆數：本期 2 筆，前一期 1 筆，變化 +1 筆。');
+    });
+
+    it('saves too few records as 紀錄不足: statistics kept, no change message trend or AI summary', () => {
+      const repository = createRepository();
+      const june = reportsOf(repository).reports.find((report) => report.periodFrom === '2026-06-01');
+      if (june === undefined) throw new Error('no june report');
+      const report = reportOf(repository, june.id);
+
+      expect(report.report.dataMessage).toBe('紀錄不足：這一期有 1 筆、前一期有 0 筆紀錄，兩期都有紀錄才會顯示變化、趨勢與 AI 摘要。');
+      expect(report.statistics?.recordCount).toBe(1);
+      expect(report.aiSummary).toMatchObject({ status: 'not-requested', text: null });
+      expect(june.summaryStatus).toBe('not-requested');
+    });
+
+    it('drops the schedule when the assistant turns 定期回報 off, keeping the reports already made', async () => {
+      const repository = createRepository();
+      const first = reportsOf(repository);
+      await firstValueFrom(repository.updateAssistantSettings('assistant-customer-service', { rules: { periodicReport: 'off' } }));
+
+      const list = reportsOf(repository);
+      expect(list.schedules).toEqual([]);
+      expect(list.reports.map((report) => report.id)).toEqual(first.reports.map((report) => report.id));
+    });
+
+    it('turns 定期回報 off when the write target is cleared, and refuses it without a target', async () => {
+      const repository = createRepository();
+      const cleared = await firstValueFrom(
+        repository.updateAssistantSettings('assistant-customer-service', { rules: { dataWriteDatabaseId: null, dataWritePurpose: '' } }),
+      );
+      expect(cleared.status === 'ready' && cleared.data.rules.periodicReport).toBe('off');
+
+      const refused = await firstValueFrom(
+        repository.updateAssistantSettings('assistant-customer-service', { rules: { periodicReport: 'weekly' } }),
+      );
+      expect(refused).toMatchObject({
+        status: 'validation-failed',
+        errors: [{ field: 'periodicReport', message: '請先指定要寫入的資料庫，才能設定定期回報。' }],
+      });
+    });
+
+    it('has no schedule or report on a database no assistant reports into', () => {
+      const list = reportsOf(createRepository(), 'database-orders');
+      expect(list.schedules).toEqual([]);
+      expect(list.reports).toEqual([]);
+    });
+
+    it('treats a report id that is not this database\'s as database-report, and hides everything from non-readers', () => {
+      const repository = createRepository();
+      const [august] = reportsOf(repository).reports;
+
+      expect(syncValue(repository.getDatabaseReport('database-customer-records', 'report-nope'))).toMatchObject({
+        status: 'permission-denied',
+        reason: 'database-report',
+      });
+      // 別的資料庫看不到這份報表，而且與一個不存在的 id 一樣。
+      expect(syncValue(repository.getDatabaseReport('database-orders', august.id))).toMatchObject({
+        status: 'permission-denied',
+        reason: 'database-report',
+      });
+
+      // 外部客戶看不到資料庫，也沒有任何報表內容。
+      const customer = createRepository(DEMO_SEED, createMemoryStorage(), 'account-external-customer');
+      expect(syncValue(customer.listDatabaseReports('database-customer-records'))).toMatchObject({
+        status: 'permission-denied',
+        reason: 'database',
+      });
+      expect(syncValue(customer.getDatabaseReport('database-customer-records', august.id))).toEqual(
+        syncValue(customer.getDatabaseReport('database-customer-records', 'report-nope')),
+      );
+    });
+
+    it('retries only a failed or discarded summary and leaves the statistics alone', () => {
+      const repository = createRepository();
+      const [august] = reportsOf(repository).reports;
+      const before = reportOf(repository, august.id);
+
+      // 已完成的摘要原樣回傳。
+      expect(syncValue(repository.retryDatabaseReportSummary('database-customer-records', august.id))).toEqual({
+        status: 'ready',
+        data: before,
+      });
+    });
   });
 
   it('only lets designated data managers read structured records', () => {

@@ -2388,6 +2388,132 @@
         }
       }
     },
+    "/api/v1/databases/{id}/reports": {
+      "get": {
+        "tags": [
+          "DatabaseReportEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseReportListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/reports/{reportId}": {
+      "get": {
+        "tags": [
+          "DatabaseReportEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseReportView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}/reports/{reportId}/summary": {
+      "post": {
+        "tags": [
+          "DatabaseReportEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseReportView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/assistants": {
       "get": {
         "tags": [
@@ -4344,6 +4470,12 @@
               "null",
               "string"
             ]
+          },
+          "periodicReport": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -4354,7 +4486,8 @@
           "showCitations",
           "keepConversations",
           "dataWriteDatabaseId",
-          "dataWritePurpose"
+          "dataWritePurpose",
+          "periodicReport"
         ],
         "type": "object",
         "properties": {
@@ -4378,6 +4511,9 @@
             "format": "uuid"
           },
           "dataWritePurpose": {
+            "type": "string"
+          },
+          "periodicReport": {
             "type": "string"
           }
         }
@@ -6691,6 +6827,213 @@
           }
         }
       },
+      "DatabaseReportAiSummaryView": {
+        "required": [
+          "label",
+          "status",
+          "text",
+          "note",
+          "updatedAt",
+          "disclaimer"
+        ],
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportSummaryStatus"
+          },
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "disclaimer": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseReportListItemView": {
+        "required": [
+          "id",
+          "assistantId",
+          "assistantName",
+          "frequency",
+          "periodFrom",
+          "periodTo",
+          "periodLabel",
+          "status",
+          "skipReason",
+          "skipMessage",
+          "dataState",
+          "dataMessage",
+          "generatedAt",
+          "summaryStatus"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "frequency": {
+            "$ref": "#/components/schemas/ReportFrequency"
+          },
+          "periodFrom": {
+            "type": "string"
+          },
+          "periodTo": {
+            "type": "string"
+          },
+          "periodLabel": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "skipReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReportSkipReason"
+              }
+            ]
+          },
+          "skipMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "dataState": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReportDataState"
+              }
+            ]
+          },
+          "dataMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "summaryStatus": {
+            "$ref": "#/components/schemas/ReportSummaryStatus"
+          }
+        }
+      },
+      "DatabaseReportListView": {
+        "required": [
+          "databaseId",
+          "schedules",
+          "reports"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseReportScheduleView"
+            }
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseReportListItemView"
+            }
+          }
+        }
+      },
+      "DatabaseReportScheduleView": {
+        "required": [
+          "assistantId",
+          "assistantName",
+          "frequency",
+          "nextPeriodFrom",
+          "nextReportDate"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "frequency": {
+            "$ref": "#/components/schemas/ReportFrequency"
+          },
+          "nextPeriodFrom": {
+            "type": "string"
+          },
+          "nextReportDate": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseReportView": {
+        "required": [
+          "report",
+          "statistics",
+          "aiSummary"
+        ],
+        "type": "object",
+        "properties": {
+          "report": {
+            "$ref": "#/components/schemas/DatabaseReportListItemView"
+          },
+          "statistics": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabasePeriodSummaryResult"
+              }
+            ]
+          },
+          "aiSummary": {
+            "$ref": "#/components/schemas/DatabaseReportAiSummaryView"
+          }
+        }
+      },
       "DatabaseScaleDraft": {
         "required": [
           "min",
@@ -8453,6 +8796,41 @@
           }
         }
       },
+      "ReportDataState": {
+        "enum": [
+          "sufficient",
+          "insufficient-records",
+          null
+        ]
+      },
+      "ReportFrequency": {
+        "enum": [
+          "weekly",
+          "monthly"
+        ]
+      },
+      "ReportSkipReason": {
+        "enum": [
+          "not-connected",
+          "owner-cannot-read",
+          null
+        ]
+      },
+      "ReportStatus": {
+        "enum": [
+          "generated",
+          "skipped"
+        ]
+      },
+      "ReportSummaryStatus": {
+        "enum": [
+          "not-requested",
+          "pending",
+          "ready",
+          "failed",
+          "discarded"
+        ]
+      },
       "ReviewChatFormRequest": {
         "required": [
           "formVersionNumber",
@@ -9217,6 +9595,9 @@
     },
     {
       "name": "SmartAgri.Api"
+    },
+    {
+      "name": "DatabaseReportEndpoints"
     },
     {
       "name": "AssistantEndpoints"

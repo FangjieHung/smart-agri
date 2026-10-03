@@ -4,12 +4,10 @@ import { DetailLayoutComponent } from '@smart-agri/ui';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { AssistantStatus } from '../../../core/domain/assistant.model';
 import {
-  DATABASE_UPCOMING_FEATURE_MESSAGE,
   type DatabaseDetailView,
   type DatabaseFieldError,
   type DatabaseFieldView,
   type DatabaseTrialAnswers,
-  type DatabaseUpcomingFeature,
 } from '../../../core/domain/database.model';
 import type { PreviewDatabaseEntryResult } from '../../../core/repositories/demo-repository';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
@@ -23,12 +21,12 @@ import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status
 import { DatabaseAccessComponent } from '../database-access/database-access.component';
 import { FormDesignerComponent, type FormDesignerFailure } from '../form-designer/form-designer.component';
 import { FormTrialComponent } from '../form-designer/form-trial/form-trial.component';
-import { PeriodicReportComponent } from '../periodic-report/periodic-report.component';
+import { DatabaseReportsComponent } from '../database-reports/database-reports.component';
 import { PeriodSummaryComponent } from '../period-summary/period-summary.component';
 import { RecordsTableComponent } from '../records-table/records-table.component';
 import { TrendViewComponent } from '../trend-view/trend-view.component';
 
-type DatabaseTabId = 'form' | 'records' | 'trends' | 'assistants' | 'access';
+type DatabaseTabId = 'form' | 'records' | 'trends' | 'reports' | 'assistants' | 'access';
 
 interface DatabaseTab {
   readonly id: DatabaseTabId;
@@ -39,6 +37,7 @@ const TABS: readonly DatabaseTab[] = [
   { id: 'form', label: '表單設計' },
   { id: 'records', label: '收集紀錄' },
   { id: 'trends', label: '趨勢比較' },
+  { id: 'reports', label: '定期報表' },
   { id: 'assistants', label: '已連接助理' },
   { id: 'access', label: '權限' },
 ];
@@ -61,7 +60,7 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
     DatabaseAccessComponent,
     FormDesignerComponent,
     FormTrialComponent,
-    PeriodicReportComponent,
+    DatabaseReportsComponent,
     PeriodSummaryComponent,
     RecordsTableComponent,
     TrendViewComponent,
@@ -94,13 +93,6 @@ export class DatabaseDetailPageComponent {
   });
   protected readonly view = this.detail.view;
 
-  /** API 模式尚未開放的功能（`DatabaseUpcomingFeature`）；mock 模式是空集合。 */
-  protected readonly upcoming = computed<ReadonlySet<DatabaseUpcomingFeature>>(() => {
-    const result = this.view();
-    return new Set(result.status === 'ready' || result.status === 'partial-failure' ? result.data.upcomingFeatures : []);
-  });
-  protected readonly upcomingMessage = DATABASE_UPCOMING_FEATURE_MESSAGE;
-
   /**
    * 只在紀錄與趨勢頁籤讀取收集紀錄與每位追蹤對象的比較；非指定資料管理者會得到 permission-denied。
    * 換身分、換網址 id 就重新讀取。
@@ -121,14 +113,6 @@ export class DatabaseDetailPageComponent {
   protected readonly subjects = computed(() => {
     const tracking = this.tracking();
     return tracking?.status === 'ready' || tracking?.status === 'partial-failure' ? tracking.data.subjects : [];
-  });
-
-  /** 助理規則開啟「定期回報」時才有；排程與摘要都由 repository 算好。 */
-  protected readonly periodicReports = computed(() => {
-    const tracking = this.tracking();
-    return tracking?.status === 'ready' || tracking?.status === 'partial-failure'
-      ? tracking.data.periodicReports
-      : [];
   });
 
   protected readonly selectedSubject = computed(() => {

@@ -15,6 +15,7 @@ export interface WritableDatabaseOption {
 export interface AnswerRulesErrors {
   readonly refusalMessage?: string | null;
   readonly dataWritePurpose?: string | null;
+  readonly periodicReport?: string | null;
 }
 
 const REPORT_OPTIONS: readonly { readonly value: PeriodicReportSchedule; readonly label: string }[] = (
@@ -44,11 +45,18 @@ export class AnswerRulesFormComponent {
    * 改成說明「後續開放」。
    */
   readonly databaseFeaturesAvailable = input(true);
-  /** 定期回報可以設定嗎？API 模式屬於 #150，尚未提供。 */
-  readonly periodicReportAvailable = input(true);
   readonly changed = output<Partial<AssistantAnswerRules>>();
 
   protected readonly reportOptions = REPORT_OPTIONS;
+
+  /** `aria-describedby`：有錯誤時帶上錯誤，已上線的助理另外帶上說明。 */
+  protected periodicReportDescription(): string | null {
+    const ids = [
+      ...(this.errors().periodicReport ? ['periodic-report-error'] : []),
+      ...(this.live() ? ['periodic-report-effect'] : []),
+    ];
+    return ids.length > 0 ? ids.join(' ') : null;
+  }
 
   protected text(event: Event): string {
     return (event.target as HTMLInputElement | HTMLTextAreaElement).value;

@@ -12,6 +12,7 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/knowledge/knowledge-product-guide/content', '商品使用指南'],
   ['/app/databases', '資料庫'],
   ['/app/databases/database-customer-records/records', '客戶資料庫'],
+  ['/app/databases/database-customer-records/reports', '定期報表'],
   ['/app/databases/database-customer-records/access', '誰可以查看收集紀錄'],
   ['/app/channels', '發布管道'],
   ['/app/assistants/assistant-customer-service/publishing?channel=line', '客服助理'],

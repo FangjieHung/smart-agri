@@ -55,8 +55,8 @@ function setUp() {
 }
 
 describe('HybridDemoRepository trends and period statistics (issue #147)', () => {
-  it('no longer lists trends as upcoming: only the periodic report (#150) and assistant connections (#148) are', () => {
-    expect(API_UPCOMING_DATABASE_FEATURES).toEqual(['periodic-reports']);
+  it('no longer lists anything as upcoming: trends (#147), assistant connections (#148) and periodic reports (#150) are all served', () => {
+    expect(API_UPCOMING_DATABASE_FEATURES).toEqual([]);
   });
 
   it('maps the server-computed comparison as is: available with metrics, and insufficient without any', async () => {
@@ -100,15 +100,6 @@ describe('HybridDemoRepository trends and period statistics (issue #147)', () =>
     expect(metric.points.map((point) => point.value)).toEqual([5, 8]);
     // 比較來自伺服器：沒有任何一筆被寫進 mock 的儲存。
     expect(written).toEqual([]);
-  });
-
-  it('keeps the periodic reports empty: they are #150', async () => {
-    const { repository, controller } = setUp();
-    const result = firstValueFrom(repository.getDatabaseTracking(DATABASE_ID));
-    controller.expectOne({ method: 'GET', url: apiDatabaseTrackingPath(DATABASE_ID) }).flush(JSON.parse(REAL_TRACKING_JSON));
-
-    const outcome = await result;
-    expect(outcome.status === 'ready' && outcome.data.periodicReports).toEqual([]);
   });
 
   it('asks the period-summary query with only the defined parameters and maps the real answer', async () => {

@@ -30,4 +30,9 @@ public enum ModelInvocationPurpose
     /// so test-run usage can be counted on its own.</summary>
     [JsonStringEnumMemberName("assistant-test")]
     AssistantTest,
+
+    /// <summary>Writing the AI summary of a periodic report from its already-computed statistics
+    /// (M4 #150): the model is given numbers, never records, and its text is checked against them.</summary>
+    [JsonStringEnumMemberName("generate-report-summary")]
+    GenerateReportSummary,
 }

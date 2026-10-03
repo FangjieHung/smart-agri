@@ -1794,6 +1794,138 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("Organizations", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Reports.DatabaseReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssistantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AssistantName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("DataState")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("DatabaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Frequency")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("GeneratedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("PeriodFrom")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly>("PeriodTo")
+                        .HasColumnType("date");
+
+                    b.Property<string>("SkipReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("StatisticsJson")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("SummaryModel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("SummaryNote")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SummaryStatus")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("SummaryText")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTimeOffset?>("SummaryUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("DatabaseId", "OrganizationId");
+
+                    b.HasIndex("DatabaseId", "PeriodFrom");
+
+                    b.HasIndex("AssistantId", "DatabaseId", "Frequency", "PeriodFrom")
+                        .IsUnique()
+                        .HasDatabaseName("IX_DatabaseReports_OnePerPeriod");
+
+                    b.ToTable("DatabaseReports", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DatabaseReports_Period", "\"PeriodTo\" >= \"PeriodFrom\"");
+
+                            t.HasCheckConstraint("CK_DatabaseReports_Status", "(\"Status\" = 'generated' AND \"StatisticsJson\" IS NOT NULL AND \"DataState\" IS NOT NULL AND \"SkipReason\" IS NULL) OR (\"Status\" = 'skipped' AND \"StatisticsJson\" IS NULL AND \"DataState\" IS NULL AND \"SkipReason\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_DatabaseReports_Summary", "(\"SummaryStatus\" = 'ready' AND \"SummaryText\" IS NOT NULL AND \"SummaryModel\" IS NOT NULL) OR (\"SummaryStatus\" <> 'ready' AND \"SummaryText\" IS NULL AND \"SummaryModel\" IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Reports.ReportSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssistantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DatabaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Frequency")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateOnly>("NextPeriodFrom")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssistantId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AssistantId", "OrganizationId");
+
+                    b.HasIndex("DatabaseId", "OrganizationId");
+
+                    b.ToTable("AssistantReportSchedules", (string)null);
+                });
+
             modelBuilder.Entity("SmartAgri.Infrastructure.Accounts.Account", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2602,6 +2734,45 @@ namespace SmartAgri.Infrastructure.Migrations
                         .WithOne()
                         .HasForeignKey("SmartAgri.Domain.Knowledge.KnowledgeFileContent", "VersionId", "OrganizationId")
                         .HasPrincipalKey("SmartAgri.Domain.Knowledge.KnowledgeDocumentVersion", "Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Reports.DatabaseReport", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Databases.Database", null)
+                        .WithMany()
+                        .HasForeignKey("DatabaseId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Reports.ReportSchedule", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)
+                        .WithMany()
+                        .HasForeignKey("AssistantId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Databases.Database", null)
+                        .WithMany()
+                        .HasForeignKey("DatabaseId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

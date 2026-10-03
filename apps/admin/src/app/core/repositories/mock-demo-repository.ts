@@ -67,14 +67,16 @@ import type {
   DatabaseSummaryView,
   DatabasePeriodSummaryQuery,
   DatabasePeriodSummaryView,
+  DatabaseReportFrequency,
+  DatabaseReportListView,
+  DatabaseReportView,
   DatabaseTrackingView,
   OwnDatabaseSubmissionView,
   DatabaseTrialAnswers,
   DatabaseView,
-  PeriodicReportView,
   TrackedSubjectId,
-  TrackedSubjectView,
 } from '../domain/database.model';
+import { DATABASE_REPORT_SUMMARY_DISCLAIMER, DATABASE_REPORT_SUMMARY_LABEL } from '../domain/database.model';
 import {
   isRetryableKnowledgeDocument,
   isUsableKnowledgeDocument,
@@ -143,9 +145,15 @@ import {
   DATABASE_RECORDS_DENIED_MESSAGE,
 } from './database-access';
 import {
-  buildPeriodicReport,
+  dayAfter,
+  insufficientReportMessage,
+  mockReportSummary,
+  reportDataState,
+  reportPeriodBefore,
+  reportPeriodContaining,
   statisticsDay,
   summarizePeriod,
+  summarizeRange,
   compareRecords,
   evaluateTrial,
   normalizeField,
@@ -553,6 +561,16 @@ function isStoredDatabaseAccess(value: unknown): value is StoredDatabaseAccess {
   );
 }
 
+function isStoredDatabaseReport(value: unknown): value is DatabaseReportView {
+  return (
+    isRecord(value) &&
+    isRecord(value['report']) &&
+    typeof value['report']['id'] === 'string' &&
+    typeof value['report']['periodFrom'] === 'string' &&
+    isRecord(value['aiSummary'])
+  );
+}
+
 const KNOWLEDGE_KEY_PREFIX = 'sme-demo:knowledge:';
 /** 在這台瀏覽器建立的知識庫（`KnowledgeBaseView[]`）。 */
 const CREATED_KNOWLEDGE_BASES_KEY = 'sme-demo:created-knowledge-bases';
@@ -888,6 +906,13 @@ const PUBLISHING_KEY_PREFIX = 'sme-demo:publishing:';
 const CHAT_RECORDS_KEY = 'sme-demo:chat-records';
 /** 表單連結的回執（issue #145）：每筆對應一個（提交者, 提交編號）。 */
 const DATABASE_SUBMISSIONS_KEY = 'sme-demo:database-submissions';
+/** 定期報表快照（issue #150），每個資料庫一份清單；產生後不再重算，撤回紀錄也不會改動。 */
+const DATABASE_REPORTS_KEY_PREFIX = 'sme-demo:database-reports:';
+
+const DATABASE_REPORT_DENIED_MESSAGE = '找不到這份報表，或你沒有查看它的權限。';
+
+/** mock 回溯產生的報表數：最近完成的幾個期間（週報 4 份、月報 3 份）。 */
+const MOCK_REPORT_PERIODS: Readonly<Record<DatabaseReportFrequency, number>> = { weekly: 4, monthly: 3 };
 /** Demo 只有一個組織；與 API 的接收單位「組織名稱（資料庫名稱）」同一個寫法。 */
 const DEMO_ORGANIZATION_NAME = '安心商行';
 /** 與後端 `ForbiddenReason.AuthorizedForm`／`SubmissionReceipt` 逐字相同。 */
@@ -1562,7 +1587,14 @@ export class MockDemoRepository implements DemoRepository {
       },
       tone: patch.tone ?? current.tone,
       roleInstructions: patch.roleInstructions ?? current.roleInstructions,
-      rules: { ...current.rules, ...patch.rules },
+      rules: {
+        ...current.rules,
+        ...patch.rules,
+        // 定期報表報告的是「寫入的資料庫」：清掉寫入對象，報表也跟著關閉（與後端相同）。
+        ...(patch.rules?.dataWriteDatabaseId === null && patch.rules.periodicReport === undefined
+          ? { periodicReport: 'off' as const }
+          : {}),
+      },
     });
   }
 
@@ -1606,7 +1638,7 @@ export class MockDemoRepository implements DemoRepository {
       ...current,
       sources,
       rules: dropsWriteTarget
-        ? { ...current.rules, dataWriteDatabaseId: null, dataWritePurpose: '' }
+        ? { ...current.rules, dataWriteDatabaseId: null, dataWritePurpose: '', periodicReport: 'off' }
         : current.rules,
     });
   }
@@ -3812,6 +3844,203 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  listDatabaseReports(databaseId: string): ReturnType<DemoRepository['listDatabaseReports']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      return of(
+        viewerAccountId === null
+          ? this.databasePermissionDenied()
+          : this.readDatabaseReports(viewerAccountId, databaseId),
+      );
+    });
+  }
+
+  getDatabaseReport(databaseId: string, reportId: string): ReturnType<DemoRepository['getDatabaseReport']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      return of(
+        viewerAccountId === null
+          ? this.databasePermissionDenied()
+          : this.readDatabaseReport(viewerAccountId, databaseId, reportId),
+      );
+    });
+  }
+
+  retryDatabaseReportSummary(
+    databaseId: string,
+    reportId: string,
+  ): ReturnType<DemoRepository['retryDatabaseReportSummary']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      return of(
+        viewerAccountId === null
+          ? this.databasePermissionDenied()
+          : this.retryReportSummary(viewerAccountId, databaseId, reportId),
+      );
+    });
+  }
+
+  /**
+   * 報表的權限與 API 相同：看不到資料庫是 `database`，看得到但不能讀紀錄是 `database-records`，兩者對
+   * 任何報表 id 都一樣；能讀才有報表（擁有者沒有額外權利）。
+   */
+  private reportsDenied(viewerAccountId: AccountId, databaseId: string): PermissionDeniedRepositoryView | null {
+    const database = this.viewableDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+    return this.canReadRecords(viewerAccountId, database.id)
+      ? null
+      : this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);
+  }
+
+  private readDatabaseReports(viewerAccountId: AccountId, databaseId: string): RepositoryView<DatabaseReportListView> {
+    const denied = this.reportsDenied(viewerAccountId, databaseId);
+    if (denied !== null) return denied;
+
+    const today = statisticsDay(this.now().toISOString());
+    this.generateDueReports(databaseId, today);
+    const schedules = this.reportingAssistants(databaseId).map(({ assistant, frequency }) => {
+      const current = reportPeriodContaining(frequency, today);
+      return {
+        assistantId: assistant.id,
+        assistantName: assistant.name,
+        frequency,
+        nextPeriodFrom: current.from,
+        nextReportDate: dayAfter(current.to),
+      };
+    });
+    const reports = this.storedDatabaseReports(databaseId)
+      .map((entry) => entry.report)
+      .sort((a, b) => b.periodFrom.localeCompare(a.periodFrom) || a.id.localeCompare(b.id));
+    return this.applyScenario({ databaseId, schedules, reports });
+  }
+
+  private readDatabaseReport(
+    viewerAccountId: AccountId,
+    databaseId: string,
+    reportId: string,
+  ): RepositoryView<DatabaseReportView> {
+    const denied = this.reportsDenied(viewerAccountId, databaseId);
+    if (denied !== null) return denied;
+
+    this.generateDueReports(databaseId, statisticsDay(this.now().toISOString()));
+    const report = this.storedDatabaseReports(databaseId).find((entry) => entry.report.id === reportId);
+    return report === undefined
+      ? this.permissionDenied('database-report', DATABASE_REPORT_DENIED_MESSAGE)
+      : this.applyScenario(report);
+  }
+
+  /** 只有失敗或被捨棄的摘要會重來；mock 沒有真的模型，重試直接成功。統計不動。 */
+  private retryReportSummary(
+    viewerAccountId: AccountId,
+    databaseId: string,
+    reportId: string,
+  ): RepositoryView<DatabaseReportView> {
+    const denied = this.reportsDenied(viewerAccountId, databaseId);
+    if (denied !== null) return denied;
+
+    const reports = this.storedDatabaseReports(databaseId);
+    const found = reports.find((entry) => entry.report.id === reportId);
+    if (found === undefined) return this.permissionDenied('database-report', DATABASE_REPORT_DENIED_MESSAGE);
+    if (found.aiSummary.status !== 'failed' && found.aiSummary.status !== 'discarded') return this.applyScenario(found);
+
+    const retried: DatabaseReportView = {
+      ...found,
+      report: { ...found.report, summaryStatus: 'ready' },
+      aiSummary: {
+        ...found.aiSummary,
+        status: 'ready',
+        text: found.statistics === null ? null : mockReportSummary(found.statistics),
+        note: null,
+        updatedAt: this.now().toISOString(),
+      },
+    };
+    this.saveDatabaseReports(databaseId, reports.map((entry) => (entry.report.id === reportId ? retried : entry)));
+    return this.applyScenario(retried);
+  }
+
+  /** 對這個資料庫開啟「定期回報」的助理：報告的是它的寫入對象。 */
+  private reportingAssistants(
+    databaseId: DatabaseId,
+  ): readonly { readonly assistant: AssistantConfigurationView; readonly frequency: DatabaseReportFrequency }[] {
+    return this.assistants().flatMap((assistant) => {
+      const rules = this.assistantRules(assistant);
+      return rules.periodicReport !== 'off' && rules.dataWriteDatabaseId === databaseId
+        ? [{ assistant, frequency: rules.periodicReport }]
+        : [];
+    });
+  }
+
+  /**
+   * 為每個排程補上最近完成的幾個期間的報表快照（週報 4 份、月報 3 份）；已有的不重算，所以之後撤回的
+   * 紀錄不會改動舊報表。統計是這個 mock 的期間統計（與固定查詢 `period-summary` 同一套規則）。
+   */
+  private generateDueReports(databaseId: DatabaseId, today: string): void {
+    const existing = this.storedDatabaseReports(databaseId);
+    const created: DatabaseReportView[] = [];
+    const records = this.consentedRecords(databaseId);
+    const fields = this.databaseCollection(databaseId).fields;
+
+    for (const { assistant, frequency } of this.reportingAssistants(databaseId)) {
+      let period = reportPeriodBefore(frequency, reportPeriodContaining(frequency, today));
+      for (let count = 0; count < MOCK_REPORT_PERIODS[frequency]; count += 1) {
+        const covered = (report: DatabaseReportView) =>
+          report.report.assistantId === assistant.id &&
+          report.report.frequency === frequency &&
+          report.report.periodFrom === period.from;
+        if (![...existing, ...created].some(covered)) {
+          const statistics = summarizeRange({
+            records,
+            fields,
+            subjectId: null,
+            period,
+            previous: reportPeriodBefore(frequency, period),
+          });
+          const dataState = reportDataState(statistics);
+          const generatedAt = this.now().toISOString();
+          created.push({
+            report: {
+              id: `report-${assistant.id}-${frequency}-${period.from}`,
+              assistantId: assistant.id,
+              assistantName: assistant.name,
+              frequency,
+              periodFrom: period.from,
+              periodTo: period.to,
+              periodLabel: period.label,
+              status: 'generated',
+              skipReason: null,
+              skipMessage: null,
+              dataState,
+              dataMessage: insufficientReportMessage(statistics),
+              generatedAt,
+              summaryStatus: dataState === 'sufficient' ? 'ready' : 'not-requested',
+            },
+            statistics,
+            aiSummary: {
+              label: DATABASE_REPORT_SUMMARY_LABEL,
+              status: dataState === 'sufficient' ? 'ready' : 'not-requested',
+              text: dataState === 'sufficient' ? mockReportSummary(statistics) : null,
+              note: null,
+              updatedAt: generatedAt,
+              disclaimer: DATABASE_REPORT_SUMMARY_DISCLAIMER,
+            },
+          });
+        }
+        period = reportPeriodBefore(frequency, period);
+      }
+    }
+
+    if (created.length > 0) this.saveDatabaseReports(databaseId, [...existing, ...created]);
+  }
+
+  private storedDatabaseReports(databaseId: DatabaseId): readonly DatabaseReportView[] {
+    const stored = parseJson(this.storage.getItem(DATABASE_REPORTS_KEY_PREFIX + databaseId));
+    return Array.isArray(stored) ? stored.filter(isStoredDatabaseReport) : [];
+  }
+
+  private saveDatabaseReports(databaseId: DatabaseId, reports: readonly DatabaseReportView[]): void {
+    this.storage.setItem(DATABASE_REPORTS_KEY_PREFIX + databaseId, JSON.stringify(reports));
+  }
+
   /**
    * `getDatabaseTracking` 的同步本體，指定檢視帳號。只給 mock 內部與單元測試用（例如驗證對話提交
    * 是否進了收集紀錄）；不在 `DemoRepository` 契約內，畫面一律用非同步的 `getDatabaseTracking`。
@@ -3847,7 +4076,6 @@ export class MockDemoRepository implements DemoRepository {
     const tracking: DatabaseTrackingView = {
       databaseId: database.id,
       subjects,
-      periodicReports: this.periodicReports(database.id, records, subjects),
     };
 
     return this.applyScenario(tracking);
@@ -5245,33 +5473,6 @@ export class MockDemoRepository implements DemoRepository {
   /** 「顯示引用出處」關掉時，組織資料的回答仍然標示成組織資料，只是不附原文片段。 */
   private showsCitations(assistant: AssistantConfigurationView): boolean {
     return this.assistantRules(assistant).showCitations;
-  }
-
-  /**
-   * 對這個資料庫開啟「定期回報」的助理。排程由最近一次已同意的紀錄推算，
-   * 摘要沿用 `compareRecords` 算好的字串——這裡不重新計算任何數字。
-   */
-  private periodicReports(
-    databaseId: DatabaseId,
-    chronological: readonly DatabaseRecordFixture[],
-    subjects: readonly TrackedSubjectView[],
-  ): readonly PeriodicReportView[] {
-    const latest = chronological.at(-1);
-    const anchorLabel = statisticsDay(latest?.recordedAt ?? this.now().toISOString());
-
-    return this.assistants().flatMap((assistant) => {
-      const rules = this.assistantRules(assistant);
-      if (rules.periodicReport === 'off' || rules.dataWriteDatabaseId !== databaseId) return [];
-      return [
-        buildPeriodicReport({
-          assistantName: assistant.name,
-          schedule: rules.periodicReport,
-          purpose: rules.dataWritePurpose,
-          anchorLabel,
-          subjects,
-        }),
-      ];
-    });
   }
 
   private assistants(): readonly AssistantConfigurationView[] {

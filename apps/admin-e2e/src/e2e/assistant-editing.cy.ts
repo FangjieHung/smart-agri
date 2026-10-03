@@ -152,18 +152,20 @@ describe('editing an assistant after it exists', () => {
       });
     });
 
-    it('turns 定期回報 off and the database trend tab stops showing the report', () => {
-      cy.visit('/app/databases/database-customer-records/trends');
-      cy.get('.periodic-report').should('contain', '客服助理').and('contain', '2026-10-15');
+    it('turns 定期回報 off: the database reports tab stops listing the schedule and keeps the reports already made', () => {
+      cy.visit('/app/databases/database-customer-records/reports');
+      cy.get('app-database-reports .schedules').should('contain', '客服助理').and('contain', '每月報表');
+      cy.get('ul.report-list li').should('have.length', 3);
 
       openTab('rules');
       cy.get('#periodic-report').should('have.value', 'monthly').select('不需要');
       cy.get('.autosave').should('contain', '已自動儲存');
 
-      cy.visit('/app/databases/database-customer-records/trends');
-      // 趨勢比較本身不受影響；先等它畫出來，再斷言定期回報已不存在（否則在頁面載入前就會通過）。
-      cy.get('.trend-conclusion').scrollIntoView().should('be.visible');
-      cy.get('.periodic-report').should('not.exist');
+      cy.visit('/app/databases/database-customer-records/reports');
+      // 先等清單畫出來，再斷言排程已不存在（否則在頁面載入前就會通過）；已產生的報表不追溯修改。
+      cy.get('ul.report-list li').should('have.length', 3);
+      cy.get('app-database-reports').should('contain', '目前沒有助理為這個資料庫設定定期報表');
+      cy.get('app-database-reports .schedules').should('not.exist');
     });
 
     it('only offers databases that are still connected as the write target', () => {

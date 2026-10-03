@@ -151,7 +151,6 @@ describe('HybridDemoRepository records and withdrawal (issue #146)', () => {
     expect(outcome.status).toBe('ready');
     if (outcome.status !== 'ready') return;
     expect(outcome.data.databaseId).toBe(DATABASE_ID);
-    expect(outcome.data.periodicReports).toEqual([]);
     expect(outcome.data.subjects).toHaveLength(1);
     const [subject] = outcome.data.subjects;
     expect(subject.id).toBe(`subject-${SUBMITTER_ID}`);

@@ -33,6 +33,7 @@ describe('structured data and tracking', () => {
         '表單設計',
         '收集紀錄',
         '趨勢比較',
+        '定期報表',
         '已連接助理',
         '權限',
       ]);

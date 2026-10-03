@@ -16,7 +16,7 @@
         @if (item.dataMessage) {
           <p class="notice insufficient" role="status">{{ item.dataMessage }}</p>
         }
-        <div class="table-scroll">
+        <div class="table-scroll" tabindex="0" role="region" aria-label="期間筆數與加總表格，可左右捲動">
           <table class="statistics-table">
             <caption>期間筆數與加總</caption>
             <thead>

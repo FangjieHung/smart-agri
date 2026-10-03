@@ -272,16 +272,16 @@ export function apiAssistantPath(assistantId: string): string {
   return `${API_ASSISTANTS_PATH}/${encodeURIComponent(assistantId)}`;
 }
 
-export function apiAssistantTestCasesPath(assistantId: string): string { return `${apiAssistantPath(assistantId)}/test-cases`; }
-export function apiAssistantTestCasePath(assistantId: string, caseId: string): string { return `${apiAssistantTestCasesPath(assistantId)}/${encodeURIComponent(caseId)}`; }
-export function apiAssistantTestRunsPath(assistantId: string): string { return `${apiAssistantPath(assistantId)}/test-runs`; }
-export function apiAssistantTestRunPath(assistantId: string, runId: string): string { return `${apiAssistantTestRunsPath(assistantId)}/${encodeURIComponent(runId)}`; }
-
 export const API_OPERATIONS_SUMMARY_PATH = '/api/v1/operations/summary';
 
 export function apiAssistantAnalyticsPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/analytics`;
 }
+
+export function apiAssistantTestCasesPath(assistantId: string): string { return `${apiAssistantPath(assistantId)}/test-cases`; }
+export function apiAssistantTestCasePath(assistantId: string, caseId: string): string { return `${apiAssistantTestCasesPath(assistantId)}/${encodeURIComponent(caseId)}`; }
+export function apiAssistantTestRunsPath(assistantId: string): string { return `${apiAssistantPath(assistantId)}/test-runs`; }
+export function apiAssistantTestRunPath(assistantId: string, runId: string): string { return `${apiAssistantTestRunsPath(assistantId)}/${encodeURIComponent(runId)}`; }
 
 export function apiAssistantSettingsPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/settings`;

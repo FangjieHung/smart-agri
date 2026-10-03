@@ -50,7 +50,7 @@ describe('databases against the real API', () => {
 
     // 表單編輯與試填（#143）已開放：模板的三個欄位可以直接編輯。
     cy.get('app-form-designer').should('be.visible');
-    cy.get('app-form-trial').should('be.visible');
+    cy.get('app-form-trial').scrollIntoView().should('be.visible');
     cy.get('.field-editor').should('have.length', 3);
     cy.get('.field-editor[data-field-id="field-overall-satisfaction"]').should('contain', '量尺');
 

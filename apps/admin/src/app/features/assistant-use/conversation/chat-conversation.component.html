@@ -76,6 +76,9 @@
                 (startForm)="startForm($event)"
                 (withdrawSubmission)="askWithdraw($event)"
               />
+              @if (handoffExchange(message)) {
+                <button type="button" class="handoff-trigger" (click)="askHandoff(message)">轉給專人</button>
+              }
             </li>
           }
           @for (entry of local(); track entry.message.id) {
@@ -87,6 +90,9 @@
                 (startForm)="startForm($event)"
                 (withdrawSubmission)="askWithdraw($event)"
               />
+              @if (handoffExchange(entry.message)) {
+                <button type="button" class="handoff-trigger" (click)="askHandoff(entry.message)">轉給專人</button>
+              }
               @switch (entry.note) {
                 @case ('stopped') {
                   <p class="run-note">已停止回答，這則問題沒有回覆。</p>
@@ -124,6 +130,9 @@
       }
       @if (withdrawError()) {
         <p class="withdraw-error" role="alert">{{ withdrawError() }}</p>
+      }
+      @if (handoffIssueId(); as issueId) {
+        <p class="handoff-feedback" role="status">已轉交這一則問答。<a [routerLink]="['/app/issues']" [queryParams]="{ issue: issueId }">查看處理進度</a></p>
       }
 
       @let activeFlow = flow();
@@ -211,6 +220,25 @@
       <div class="confirm-actions">
         <button #withdrawCancelButton type="button" class="confirm-cancel" (click)="cancelWithdraw()">取消</button>
         <button type="button" class="confirm-withdraw" (click)="confirmWithdraw()">撤回</button>
+      </div>
+    </div>
+  }
+
+  @if (pendingHandoff(); as exchange) {
+    <div class="confirm-backdrop"></div>
+    <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="handoff-confirm-title"
+      aria-describedby="handoff-confirm-detail" cdkTrapFocus (keydown.escape)="cancelHandoff()">
+      <h2 class="confirm-title" id="handoff-confirm-title">轉給專人確認</h2>
+      <p class="confirm-detail" id="handoff-confirm-detail">以下這一則問題與回覆的複本，會交給助理擁有者或被指派的處理人查看與處理。對方看不到你的其他對話內容。</p>
+      <dl class="handoff-preview">
+        <div><dt>分享的問題</dt><dd>{{ exchange.question }}</dd></div>
+        <div><dt>分享的回覆</dt><dd>{{ exchange.answer }}</dd></div>
+        <div><dt>接收對象</dt><dd>助理擁有者或被指派的處理人</dd></div>
+      </dl>
+      @if (handoffError()) { <p role="alert">{{ handoffError() }}</p> }
+      <div class="confirm-actions">
+        <button #handoffCancelButton type="button" class="confirm-cancel" [disabled]="handoffBusy()" (click)="cancelHandoff()">取消</button>
+        <button type="button" class="confirm-handoff" [disabled]="handoffBusy()" (click)="confirmHandoff()">{{ handoffBusy() ? '轉交中…' : '確認轉交' }}</button>
       </div>
     </div>
   }

@@ -1,0 +1,33 @@
+<section class="workspace-page">
+  <app-page-header title="對話與回報紀錄" description="查看你主動轉交的問題與處理進度。私人對話仍只屬於你的帳號。" />
+  <a class="activity-chat-link" routerLink="/app/chat">前往我的對話</a>
+  <section class="forwarded" aria-labelledby="forwarded-title">
+    <div class="forwarded__head">
+      <h2 id="forwarded-title">我轉交的處理事項</h2>
+      <button type="button" (click)="resource.reload()">重新整理</button>
+    </div>
+    @let result = view();
+    @if (result.status === 'loading') {
+      <app-state-panel state="loading" title="正在載入轉交紀錄" />
+    } @else if (result.status === 'permission-denied') {
+      <app-state-panel state="permission-denied" title="無法查看轉交紀錄" [description]="result.message" />
+    } @else if (result.status === 'error') {
+      <app-state-panel state="error" title="目前無法載入轉交紀錄" recoveryLabel="重試" (recover)="resource.reload()" />
+    } @else if (items().length === 0) {
+      <app-state-panel state="empty" title="尚無轉交事項" description="在助理回答下方選擇「轉給專人」，確認後就會顯示在這裡。" />
+    } @else {
+      <ul class="forwarded__list">
+        @for (issue of items(); track issue.id) {
+          <li>
+            <a [routerLink]="['/app/issues']" [queryParams]="{ issue: issue.id }">
+              <strong>{{ issue.title }}</strong>
+              <span>{{ issue.assistantName }} · {{ statusLabel(issue.status) }}</span>
+              <time [attr.datetime]="issue.createdAt">{{ issue.createdAt | date:'yyyy/MM/dd HH:mm' }}</time>
+              @if (issue.status === 'resolved' && issue.resolutionNote) { <span>處理結果：{{ issue.resolutionNote }}</span> }
+            </a>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</section>

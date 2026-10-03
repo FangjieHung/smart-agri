@@ -12,6 +12,7 @@ import type {
 } from '../domain/assistant-issue.model';
 import type { AssistantTestResultView } from '../domain/assistant-acceptance.model';
 import { DemoSessionService } from '../session/demo-session.service';
+import { DEMO_SEED } from './demo-seed';
 import type { RepositoryView } from './demo-repository';
 import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
 
@@ -22,6 +23,37 @@ export interface MockTestIssueContext {
   readonly assistantName: string;
   readonly runId: string;
   readonly result: AssistantTestResultView;
+}
+
+export interface CreateAssistantHandoffRequest {
+  readonly threadId?: string;
+  readonly questionMessageId?: string;
+  readonly answerMessageId?: string;
+  readonly sharedQuestion?: string;
+  readonly sharedAnswer?: string;
+  readonly confirmed: true;
+}
+
+export interface MockHandoffContext {
+  readonly assistantName: string;
+  readonly question: string;
+  readonly answer: string;
+  readonly historyMode: 'saved' | 'not-saved';
+}
+
+interface ForwardedAssistantIssueView {
+  readonly id: string;
+  readonly assistantId: string;
+  readonly assistantName: string;
+  readonly status: AssistantIssueView['status'];
+  readonly resolutionNote: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly resolvedAt: string | null;
+}
+
+export function apiAssistantHandoffsPath(assistantId: string): string {
+  return `/api/v1/assistants/${encodeURIComponent(assistantId)}/chat/handoffs`;
 }
 
 export function apiIssuePath(issueId: string): string {
@@ -56,8 +88,8 @@ export class AssistantIssuesRepository {
       if (filters.scope && filters.scope !== 'all') params = params.set('scope', filters.scope);
       if (filters.status) params = params.set('status', filters.status);
       if (filters.assistantId) params = params.set('assistantId', filters.assistantId);
-      return this.client().get<AssistantIssueView[]>(API_ISSUES_PATH, { params }).pipe(
-        map((data) => ({ status: 'ready' as const, data })),
+      return this.client().get<(AssistantIssueView | ForwardedAssistantIssueView)[]>(API_ISSUES_PATH, { params }).pipe(
+        map((data) => ({ status: 'ready' as const, data: data.map((issue) => this.normalizeIssue(issue)) })),
         catchError((error: unknown) => this.readError<readonly AssistantIssueView[]>(error)),
       );
     }
@@ -101,15 +133,22 @@ export class AssistantIssuesRepository {
 
   get(issueId: string): Observable<RepositoryView<AssistantIssueDetailView>> {
     if (this.apiMode) {
-      return this.client().get<AssistantIssueDetailView>(apiIssuePath(issueId)).pipe(
-        map((data) => ({ status: 'ready' as const, data })),
+      return this.client().get<AssistantIssueDetailView | { issue: ForwardedAssistantIssueView; events: [] }>(apiIssuePath(issueId)).pipe(
+        map((data) => ({ status: 'ready' as const, data: {
+          ...data, issue: this.normalizeIssue(data.issue),
+        } })),
         catchError((error: unknown) => this.readError<AssistantIssueDetailView>(error)),
       );
     }
     return defer(() => {
       const detail = this.mockDetails.get(issueId);
-      return of(detail && this.mockVisible(detail.issue, this.session.activeAccountId())
-        ? { status: 'ready' as const, data: detail } : ISSUE_DENIED);
+      const accountId = this.session.activeAccountId();
+      return of(detail && this.mockVisible(detail.issue, accountId)
+        ? { status: 'ready' as const, data: { ...detail, issue: {
+          ...detail.issue,
+          viewerIsAssistantOwner: this.mockOwners.get(issueId) === accountId,
+          viewerIsAssignee: detail.issue.assigneeAccountId === accountId,
+        } } } : ISSUE_DENIED);
     });
   }
 
@@ -143,6 +182,40 @@ export class AssistantIssuesRepository {
     });
   }
 
+  createHandoff(assistantId: string, request: CreateAssistantHandoffRequest, context: MockHandoffContext): Observable<AssistantIssueActionResult<AssistantIssueView>> {
+    if (this.apiMode) {
+      return this.client().post<AssistantIssueView>(apiAssistantHandoffsPath(assistantId), request).pipe(
+        map((data) => ({ status: 'ready' as const, data })),
+        catchError((error: unknown) => this.actionError<AssistantIssueView>(error)),
+      );
+    }
+    return defer(() => {
+      const accountId = this.session.activeAccountId();
+      if (!accountId) return of(ISSUE_DENIED);
+      const now = new Date().toISOString();
+      const id = crypto.randomUUID();
+      const owner = DEMO_SEED.assistants.find((assistant) => assistant.id === assistantId)?.ownerAccountId ?? null;
+      const reporterName = DEMO_SEED.accounts.find((account) => account.id === accountId)?.displayName ?? '目前帳號';
+      const issue: AssistantIssueView = {
+        id, assistantId, assistantName: context.assistantName, source: 'handoff', status: 'open',
+        title: context.question, assigneeAccountId: null, assigneeDisplayName: null,
+        reporterAccountId: accountId, reporterDisplayName: reporterName, dueAt: null,
+        testRunId: null, testResultId: null, testFailureReason: null,
+        question: context.question, answer: context.answer, resolutionNote: null,
+        createdAt: now, updatedAt: now, resolvedAt: null,
+        viewerIsAssistantOwner: owner === accountId, viewerIsAssignee: false,
+        handoffUnverified: context.historyMode === 'not-saved',
+      };
+      this.mockDetails.set(id, { issue, events: [{
+        id: crypto.randomUUID(), action: 'created', actorAccountId: accountId,
+        actorDisplayName: reporterName, at: now, note: null,
+        assigneeAccountId: null, assigneeDisplayName: null, status: 'open', dueAt: null,
+      }] });
+      this.mockOwners.set(id, owner);
+      return of({ status: 'ready' as const, data: issue });
+    });
+  }
+
   update(issueId: string, request: UpdateAssistantIssueRequest): Observable<AssistantIssueActionResult<AssistantIssueDetailView>> {
     if (this.apiMode) {
       return this.client().patch<AssistantIssueDetailView>(apiIssuePath(issueId), request).pipe(
@@ -152,7 +225,8 @@ export class AssistantIssuesRepository {
     }
     return defer(() => {
       const current = this.mockDetails.get(issueId);
-      if (!current || !this.mockVisible(current.issue, this.session.activeAccountId())) return of(ISSUE_DENIED);
+      const accountId = this.session.activeAccountId();
+      if (!current || (this.mockOwners.get(issueId) !== accountId && current.issue.assigneeAccountId !== accountId)) return of(ISSUE_DENIED);
       const now = new Date().toISOString();
       const issue: AssistantIssueView = {
         ...current.issue,
@@ -187,6 +261,20 @@ export class AssistantIssuesRepository {
   private client(): HttpClient {
     if (!this.http) throw new Error('API 模式缺少 HttpClient');
     return this.http;
+  }
+
+  private normalizeIssue(issue: AssistantIssueView | ForwardedAssistantIssueView): AssistantIssueView {
+    if ('title' in issue) return issue;
+    return {
+      ...issue,
+      title: '轉交給專人的問答', source: 'handoff',
+      assigneeAccountId: null, assigneeDisplayName: null,
+      reporterAccountId: this.session.activeAccountId(), reporterDisplayName: null,
+      dueAt: null, testRunId: null, testResultId: null, testFailureReason: null,
+      question: null, answer: null,
+      viewerIsAssistantOwner: false, viewerIsAssignee: false,
+      handoffUnverified: false,
+    };
   }
 
   private mockVisible(issue: AssistantIssueView, accountId: string | null): boolean {

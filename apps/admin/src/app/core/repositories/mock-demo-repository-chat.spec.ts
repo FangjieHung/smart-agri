@@ -162,7 +162,7 @@ describe('MockDemoRepository assistant chat', () => {
     expect(reply.form.consent.withdrawalNotice).toContain('撤回');
   });
 
-  it('reviews the form without creating a record and reports field errors', () => {
+  it('reviews the form without creating a record and reports field errors', async () => {
     const repository = createRepository();
 
     expect(
@@ -177,7 +177,10 @@ describe('MockDemoRepository assistant chat', () => {
       status: 'ready',
       data: { saved: false, entries: expect.arrayContaining([expect.objectContaining({ display: 'DEMO-2001' })]) },
     });
-    expect(repository.listDatabaseSummaries('account-smb-admin')).toMatchObject({
+    const box = viewerBoxes.get(repository);
+    if (box === undefined) throw new Error('unknown repository: use createRepository()');
+    box.current = 'account-smb-admin';
+    expect(await firstValueFrom(repository.listDatabaseSummaries())).toMatchObject({
       data: [{ id: 'database-orders', recordCount: 0 }, expect.anything()],
     });
   });

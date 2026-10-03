@@ -17,7 +17,7 @@ describe('structured data and tracking', () => {
     cy.location('pathname').should('eq', '/app/databases');
     cy.contains('h1', '數據庫').should('be.visible');
     // 列表已從卡片改成可整列點開的 data-table。
-    cy.contains('tr', '客戶資料庫').should('contain', '客服助理');
+    cy.contains('tr', '客戶資料庫').should('contain', '客服助理').and('contain', '安心商行管理者');
 
     // 建立表單已從內嵌區塊改成對話框，要先按「新增資料庫」才會出現。
     cy.contains('button', '新增資料庫').click();

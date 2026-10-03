@@ -166,6 +166,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/database-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseTemplateView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connectable-sources": {
         parameters: {
             query?: never;
@@ -2020,6 +2069,143 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseSummaryView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateDatabaseRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4346,6 +4532,11 @@ export interface components {
             /** Format: uuid */
             followUpOfId: null | string;
         };
+        CreateDatabaseRequest: {
+            templateId: null | string;
+            name: null | string;
+            purpose?: null | string;
+        };
         CreateKnowledgeBaseRequest: {
             name: null | string;
             purpose?: null | string;
@@ -4359,6 +4550,69 @@ export interface components {
         CreateMemberResponse: {
             member: components["schemas"]["TeamMemberResponse"];
             oneTimePassword: string;
+        };
+        DatabaseAccountView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+        };
+        DatabaseDetailView: {
+            summary: components["schemas"]["DatabaseSummaryView"];
+            form: components["schemas"]["DatabaseFormView"];
+        };
+        /** @enum {unknown} */
+        DatabaseFieldType: "text" | "number" | "date" | "single-choice" | "multiple-choice" | "scale";
+        DatabaseFieldView: {
+            id: string;
+            label: string;
+            type: components["schemas"]["DatabaseFieldType"];
+            required: boolean;
+            options: string[];
+            scale: null | components["schemas"]["DatabaseScaleRangeView"];
+            unit: string;
+        };
+        DatabaseFormView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            versionNumber: number;
+            /** Format: date-time */
+            createdAt: string;
+            fields: components["schemas"]["DatabaseFieldView"][];
+        };
+        DatabaseScaleRangeView: {
+            /** Format: int32 */
+            min: number;
+            /** Format: int32 */
+            max: number;
+            minLabel: string;
+            maxLabel: string;
+        };
+        DatabaseSummaryView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            purpose: string;
+            templateId: components["schemas"]["DatabaseTemplateId"];
+            templateName: string;
+            /** Format: int32 */
+            fieldCount: number;
+            /** Format: int32 */
+            formVersion: number;
+            owner: components["schemas"]["DatabaseAccountView"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            viewerCanManage: boolean;
+        };
+        /** @enum {unknown} */
+        DatabaseTemplateId: "template-customer-profile" | "template-periodic-report" | "template-satisfaction" | "template-progress" | "template-blank";
+        DatabaseTemplateView: {
+            id: components["schemas"]["DatabaseTemplateId"];
+            name: string;
+            description: string;
+            fields: components["schemas"]["DatabaseFieldView"][];
         };
         DisableKnowledgeDocumentRequest: {
             reason: null | string;

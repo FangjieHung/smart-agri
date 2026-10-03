@@ -1,8 +1,17 @@
 @let result = view();
 <section class="workspace-page">
-  @if (result === null || result.status === 'loading') {
+  @if (result.status === 'loading') {
     <app-page-header title="資料庫" />
     <app-state-panel state="loading" title="正在載入資料庫" />
+  } @else if (result.status === 'error') {
+    <app-page-header title="資料庫" />
+    <app-state-panel
+      state="error"
+      title="目前無法載入這個資料庫"
+      description="這不代表資料庫不存在。請稍後再試一次。"
+      recoveryLabel="重新載入"
+      (recover)="reload()"
+    />
   } @else if (result.status === 'permission-denied') {
     <app-page-header title="資料庫" />
     <app-state-panel
@@ -18,6 +27,13 @@
       <a page-header-actions class="page-back" routerLink="/app/databases">返回資料庫列表</a>
     </app-page-header>
 
+    <dl class="database-meta">
+      <div><dt>擁有者</dt><dd class="database-owner">{{ detail.summary.owner.displayName }}</dd></div>
+      <div><dt>模板</dt><dd>{{ detail.summary.templateName }}</dd></div>
+      <div><dt>欄位</dt><dd>{{ detail.summary.fieldCount }} 個</dd></div>
+      <div><dt>最近更新</dt><dd><time [attr.datetime]="detail.summary.updatedAt">{{ updatedAt(detail.summary.updatedAt) }}</time></dd></div>
+    </dl>
+
     @if (result.status === 'partial-failure') {
       <p class="notice" role="status">{{ result.message }} 其他內容仍可正常使用。</p>
     }
@@ -29,6 +45,19 @@
 
       @switch (activeTab().id) {
         @case ('form') {
+          @if (upcoming().has('form-editing')) {
+            <p class="notice upcoming-notice" role="note">表單編輯與試填：{{ upcomingMessage }}</p>
+            <ol class="field-summary" aria-label="初始表單欄位">
+              @for (field of detail.fields; track field.id) {
+                <li [attr.data-field-id]="field.id">
+                  <strong>{{ field.label }}</strong>
+                  <span class="field-type">{{ fieldTypeLabel(field) }}</span>
+                  @if (field.required) { <span class="field-required">必填</span> }
+                  @if (fieldDetail(field); as detailText) { <span class="field-detail">{{ detailText }}</span> }
+                </li>
+              }
+            </ol>
+          } @else {
           <app-form-designer
             [fields]="detail.fields"
             [errors]="fieldErrors()"
@@ -36,8 +65,12 @@
             (save)="saveFields(detail, $event)"
           />
           <app-form-trial [fields]="detail.fields" [result]="trialResult()" (trial)="runTrial(detail, $event)" />
+          }
         }
         @case ('assistants') {
+          @if (upcoming().has('assistant-connections')) {
+            <p class="notice upcoming-notice" role="note">連接助理：{{ upcomingMessage }}</p>
+          } @else {
           <p class="hint">同一個資料庫可以同時連接多個助理，助理只會寫入使用者同意提交的資料。</p>
           @if (detail.connectedAssistants.length > 0) {
             <ul class="assistant-list">
@@ -52,17 +85,25 @@
           } @else {
             <p class="empty">尚未連接任何助理。可在建立或設定助理時，於「資料來源」加入此資料庫。</p>
           }
+          }
         }
         @case ('access') {
+          @if (upcoming().has('data-managers')) {
+            <p class="notice upcoming-notice" role="note">指定資料管理者：{{ upcomingMessage }}</p>
+            <p class="hint">目前只有擁有者「{{ detail.summary.owner.displayName }}」可以管理這個資料庫的設定；擁有資料庫不代表能查看收集紀錄。</p>
+          } @else {
           <app-database-access
             [databaseId]="detail.summary.id"
             [access]="detail.access"
             (changed)="reload()"
           />
+          }
         }
         @default {
           @let records = tracking();
-          @if (records === null || records.status === 'loading') {
+          @if (upcoming().has('records')) {
+            <p class="notice upcoming-notice" role="note">收集紀錄與趨勢比較：{{ upcomingMessage }}</p>
+          } @else if (records === null || records.status === 'loading') {
             <app-state-panel state="loading" title="正在載入收集紀錄" />
           } @else if (records.status === 'permission-denied') {
             <app-state-panel

@@ -106,12 +106,11 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
     await firstValueFrom(repository.deleteKnowledgeBase(knowledgeBase.data.id));
 
     // 資料庫：建立、改欄位、改資料管理者。
-    const database = repository.createDatabaseFromTemplate(ADMIN, {
-      templateId: 'template-blank',
-      name: '測試資料庫',
-    });
+    const database = await firstValueFrom(
+      repository.createDatabaseFromTemplate({ templateId: 'template-blank', name: '測試資料庫' }),
+    );
     if (database.status !== 'ready') throw new Error(`expected database to be created, got ${database.status}`);
-    const detail = repository.getDatabaseDetail(ADMIN, database.data.id);
+    const detail = await firstValueFrom(repository.getDatabaseDetail(database.data.id));
     if (detail.status !== 'ready') throw new Error(`expected database detail, got ${detail.status}`);
     repository.updateDatabaseFields(ADMIN, database.data.id, detail.data.fields);
     repository.updateDatabaseAccess(ADMIN, database.data.id, [ADMIN]);

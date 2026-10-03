@@ -113,6 +113,34 @@
         }
       }
     },
+    "/api/v1/database-templates": {
+      "get": {
+        "tags": [
+          "DatabaseEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DatabaseTemplateView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/connectable-sources": {
       "get": {
         "tags": [
@@ -1630,6 +1658,103 @@
           },
           "409": {
             "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/databases": {
+      "get": {
+        "tags": [
+          "DatabaseEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DatabaseSummaryView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "DatabaseEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatabaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/databases/{id}": {
+      "get": {
+        "tags": [
+          "DatabaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -4833,6 +4958,33 @@
           }
         }
       },
+      "CreateDatabaseRequest": {
+        "required": [
+          "templateId",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "purpose": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CreateKnowledgeBaseRequest": {
         "required": [
           "name"
@@ -4903,6 +5055,237 @@
           },
           "oneTimePassword": {
             "type": "string"
+          }
+        }
+      },
+      "DatabaseAccountView": {
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseDetailView": {
+        "required": [
+          "summary",
+          "form"
+        ],
+        "type": "object",
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/DatabaseSummaryView"
+          },
+          "form": {
+            "$ref": "#/components/schemas/DatabaseFormView"
+          }
+        }
+      },
+      "DatabaseFieldType": {
+        "enum": [
+          "text",
+          "number",
+          "date",
+          "single-choice",
+          "multiple-choice",
+          "scale"
+        ]
+      },
+      "DatabaseFieldView": {
+        "required": [
+          "id",
+          "label",
+          "type",
+          "required",
+          "options",
+          "scale",
+          "unit"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DatabaseFieldType"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scale": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DatabaseScaleRangeView"
+              }
+            ]
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseFormView": {
+        "required": [
+          "id",
+          "versionNumber",
+          "createdAt",
+          "fields"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "versionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseFieldView"
+            }
+          }
+        }
+      },
+      "DatabaseScaleRangeView": {
+        "required": [
+          "min",
+          "max",
+          "minLabel",
+          "maxLabel"
+        ],
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "minLabel": {
+            "type": "string"
+          },
+          "maxLabel": {
+            "type": "string"
+          }
+        }
+      },
+      "DatabaseSummaryView": {
+        "required": [
+          "id",
+          "name",
+          "purpose",
+          "templateId",
+          "templateName",
+          "fieldCount",
+          "formVersion",
+          "owner",
+          "createdAt",
+          "updatedAt",
+          "viewerCanManage"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "templateId": {
+            "$ref": "#/components/schemas/DatabaseTemplateId"
+          },
+          "templateName": {
+            "type": "string"
+          },
+          "fieldCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "formVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/DatabaseAccountView"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "viewerCanManage": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DatabaseTemplateId": {
+        "enum": [
+          "template-customer-profile",
+          "template-periodic-report",
+          "template-satisfaction",
+          "template-progress",
+          "template-blank"
+        ]
+      },
+      "DatabaseTemplateView": {
+        "required": [
+          "id",
+          "name",
+          "description",
+          "fields"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/DatabaseTemplateId"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseFieldView"
+            }
           }
         }
       },
@@ -6674,6 +7057,9 @@
     },
     {
       "name": "KnowledgeRetrievalEndpoints"
+    },
+    {
+      "name": "DatabaseEndpoints"
     },
     {
       "name": "AssistantDraftEndpoints"

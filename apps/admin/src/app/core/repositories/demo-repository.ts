@@ -755,26 +755,27 @@ export interface DemoRepository extends DemoScenarioController {
     question: string,
     includePending: boolean,
   ): Observable<PreviewKnowledgeRetrievalResult>;
-  /** 資料庫入口先問「你要收集什麼」；只有可管理資料來源的帳號可以取得模板。 */
-  listDatabaseTemplates(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly DatabaseTemplateView[]>;
-  /** 目前帳號擁有的資料庫摘要；非指定資料管理者看不到紀錄數量。 */
-  listDatabaseSummaries(
-    viewerAccountId: AccountId,
-  ): RepositoryView<readonly DatabaseSummaryView[]>;
-  createDatabaseFromTemplate(
-    viewerAccountId: AccountId,
-    input: CreateDatabaseInput,
-  ): CreateDatabaseResult;
+  /**
+   * 資料庫入口先問「你要收集什麼」；只有可管理資料來源的帳號可以取得模板（否則
+   * `database` permission-denied）。API 模式：`GET /api/v1/database-templates`（issue #142）。
+   */
+  listDatabaseTemplates(): Observable<RepositoryView<readonly DatabaseTemplateView[]>>;
+  /**
+   * 目前帳號擁有的資料庫摘要；非指定資料管理者看不到紀錄數量（API 模式在 #144／#146 之前
+   * 一律為 null）。API 模式：`GET /api/v1/databases`。
+   */
+  listDatabaseSummaries(): Observable<RepositoryView<readonly DatabaseSummaryView[]>>;
+  /**
+   * 以模板建立資料庫，模板欄位成為初始表單。沒有資料來源管理權限是 `database`
+   * permission-denied；名稱或模板無效是 `validation-failed`。讀取以外的失敗（5xx、連線中斷）
+   * 以 Observable 的 error 傳出，畫面保留輸入讓使用者重試。API 模式：`POST /api/v1/databases`。
+   */
+  createDatabaseFromTemplate(input: CreateDatabaseInput): Observable<CreateDatabaseResult>;
   /**
    * 資料庫詳情。id 來自網址、未經驗證；不存在或無權限時一律回傳相同的
-   * permission-denied，訊息不包含資源名稱。
+   * permission-denied，訊息不包含資源名稱。API 模式：`GET /api/v1/databases/{id}`。
    */
-  getDatabaseDetail(
-    viewerAccountId: AccountId,
-    databaseId: string,
-  ): RepositoryView<DatabaseDetailView>;
+  getDatabaseDetail(databaseId: string): Observable<RepositoryView<DatabaseDetailView>>;
   /** 儲存表單欄位；只接受六種欄位類型，不支援條件跳題或公式。 */
   updateDatabaseFields(
     viewerAccountId: AccountId,

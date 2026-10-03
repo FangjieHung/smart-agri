@@ -8,6 +8,7 @@ import type {
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
+import { syncValue } from './sync-value.testing';
 
 const ADMIN: AccountId = 'account-smb-admin';
 const EMPLOYEE: AccountId = 'account-internal-employee';
@@ -20,8 +21,21 @@ function dataOf<T>(result: { status: string }): T {
   return (result as unknown as { data: T }).data;
 }
 
+/** 詳情是非同步契約、以 repository 的 `viewer()` 為準；這裡暫時切換身分讀一次。 */
+let currentViewer: AccountId = ADMIN;
+
+function detailAs(repository: MockDemoRepository, accountId: AccountId, databaseId: string) {
+  const previous = currentViewer;
+  currentViewer = accountId;
+  try {
+    return syncValue(repository.getDatabaseDetail(databaseId));
+  } finally {
+    currentViewer = previous;
+  }
+}
+
 function accessOf(repository: MockDemoRepository, accountId: AccountId, databaseId: string) {
-  const detail = repository.getDatabaseDetail(accountId, databaseId);
+  const detail = detailAs(repository, accountId, databaseId);
   if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
   return detail.data.access;
 }
@@ -37,10 +51,11 @@ describe('MockDemoRepository data access', () => {
 
   beforeEach(() => {
     storage = createMemoryStorage();
+    currentViewer = ADMIN;
     repository = new MockDemoRepository(DEMO_SEED, {
       storage,
       now: () => new Date('2026-09-23T02:00:00.000Z'),
-      viewer: () => ADMIN,
+      viewer: () => currentViewer,
     });
   });
 
@@ -74,7 +89,7 @@ describe('MockDemoRepository data access', () => {
   it('hides the record and subject counts from a database summary when records are unreadable', () => {
     repository.updateDatabaseAccess(ADMIN, RECORDS, []);
     const summaries = dataOf<readonly { id: string; recordCount: number | null }[]>(
-      repository.listDatabaseSummaries(ADMIN),
+      syncValue(repository.listDatabaseSummaries()),
     );
 
     expect(summaries.find((summary) => summary.id === RECORDS)?.recordCount).toBeNull();
@@ -101,7 +116,7 @@ describe('MockDemoRepository data access', () => {
     repository.updateDatabaseAccess(ADMIN, RECORDS, [ADMIN, EMPLOYEE]);
 
     expect(storage.getItem(`sme-demo:database-access:${RECORDS}`)).toContain(EMPLOYEE);
-    const reloaded = new MockDemoRepository(DEMO_SEED, { storage });
+    const reloaded = new MockDemoRepository(DEMO_SEED, { storage, viewer: () => currentViewer });
     expect(accessOf(reloaded, ADMIN, RECORDS).dataManagers.map((manager) => manager.id)).toEqual([
       ADMIN,
       EMPLOYEE,
@@ -150,6 +165,6 @@ describe('MockDemoRepository data access', () => {
       reason: 'database-records',
     });
     // 表單設定仍然管得動：收回的只是「看紀錄」。
-    expect(repository.getDatabaseDetail(EMPLOYEE, CHECKINS).status).toBe('ready');
+    expect(detailAs(repository, EMPLOYEE, CHECKINS).status).toBe('ready');
   });
 });

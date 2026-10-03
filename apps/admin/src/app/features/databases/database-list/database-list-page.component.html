@@ -1,18 +1,32 @@
 @let result = view();
+@let templateResult = templatesView();
 <section class="workspace-page">
   <app-page-header
     title="數據庫"
     description="設計收集表單、保存使用者同意提交的紀錄，並比較每次的變化；每個資料庫可以連接到多個助理。"
   >
-    @if (templates().length > 0) { <button page-header-actions type="button" class="ui-button" (click)="openCreateDialog()">新增資料庫</button> }
+    @if (canCreate()) { <button page-header-actions type="button" class="ui-button" (click)="openCreateDialog()">新增資料庫</button> }
   </app-page-header>
 
-  @if (templates().length === 0 && result !== null && result.status !== 'loading') {
+  @if (templateResult.status === 'permission-denied') {
     <p class="notice">只有可管理資料來源的帳號可以建立資料庫；你仍可查看自己擁有的資料庫。</p>
+  } @else if (templateResult.status === 'error') {
+    <p class="notice templates-error" role="alert">
+      目前無法載入資料庫模板，所以暫時不能新增資料庫。
+      <button type="button" class="link-button" (click)="reloadTemplates()">重新載入模板</button>
+    </p>
   }
 
-  @if (result === null || result.status === 'loading') {
+  @if (result.status === 'loading') {
     <app-state-panel state="loading" title="正在載入資料庫" />
+  } @else if (result.status === 'error') {
+    <app-state-panel
+      state="error"
+      title="目前無法載入資料庫"
+      description="這不代表你沒有資料庫。請稍後重新整理頁面再試一次。"
+    />
+  } @else if (result.status === 'permission-denied' && result.reason === 'password-change-required') {
+    <app-state-panel state="permission-denied" title="請先設定新密碼" [description]="result.message" />
   } @else if (result.status === 'permission-denied') {
     <app-state-panel state="permission-denied" title="無法查看資料庫" description="目前的帳號沒有查看資料庫的權限。" />
   } @else {
@@ -32,15 +46,19 @@
         <ng-template dtCell="name" let-item>
           <a [routerLink]="['/app/databases', item.id, 'form']" (click)="$event.stopPropagation()">{{ item.name }}</a>
         </ng-template>
+        <ng-template dtCell="owner" let-item>{{ item.owner.displayName }}</ng-template>
         <ng-template dtCell="form" let-item>{{ item.fieldCount }} 個欄位・{{ item.templateName }}</ng-template>
         <ng-template dtCell="records" let-item>{{ records(item) }}</ng-template>
-        <ng-template dtCell="assistants" let-item>{{ item.connectedAssistantNames.join('、') || '尚未連接' }}</ng-template>
+        <ng-template dtCell="assistants" let-item>{{ assistants(item) }}</ng-template>
         <ng-template dtCell="updatedAt" let-item><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></ng-template>
       </lib-data-table>
     } @else {
-      <section class="ui-panel" aria-labelledby="empty-database-title">
+      <section class="ui-panel empty-panel" aria-labelledby="empty-database-title">
         <h2 id="empty-database-title" class="ui-panel-title">還沒有資料庫</h2>
-        <p class="ui-panel-description">資料庫負責收集結構化紀錄，並比較每次的前後變化。</p>
+        <p class="ui-panel-description">資料庫負責收集結構化紀錄，並比較每次的前後變化。從模板開始，不需要任何示範資料。</p>
+        @if (canCreate()) {
+          <button type="button" class="ui-button" (click)="openCreateDialog()">從模板建立資料庫</button>
+        }
       </section>
     }
   }
@@ -49,7 +67,7 @@
 <ng-template #createDialog>
     <form class="create-panel" aria-labelledby="create-title" (submit)="create($event)" novalidate>
       <h2 id="create-title">建立資料庫</h2>
-      <fieldset class="template-picker">
+      <fieldset class="template-picker" [disabled]="creating()">
         <legend>你要收集什麼？</legend>
         <div class="template-grid">
           @for (template of templates(); track template.id) {
@@ -64,6 +82,7 @@
               <span>
                 <strong>{{ template.name }}</strong>
                 <small>{{ template.description }}</small>
+                <small class="template-fields">{{ template.fields.length }} 個欄位</small>
               </span>
             </label>
           }
@@ -75,14 +94,20 @@
           <input
             id="database-name"
             type="text"
-            maxlength="40"
+            [attr.maxlength]="nameMaxLength"
             [value]="name()"
+            [disabled]="creating()"
             [attr.aria-invalid]="error() ? 'true' : null"
             [attr.aria-describedby]="error() ? 'database-name-error' : null"
             (input)="setName($event)"
           />
         </div>
-        <div class="dialog-actions"><button type="button" (click)="closeCreateDialog()">取消</button><button type="submit" class="ui-button">建立資料庫</button></div>
+        <div class="dialog-actions">
+          <button type="button" [disabled]="creating()" (click)="closeCreateDialog()">取消</button>
+          <button type="submit" class="ui-button" [disabled]="creating()" [attr.aria-busy]="creating() ? 'true' : null">
+            {{ creating() ? '建立中…' : '建立資料庫' }}
+          </button>
+        </div>
       </div>
       @if (error()) {
         <p id="database-name-error" class="error" role="alert">{{ error() }}</p>

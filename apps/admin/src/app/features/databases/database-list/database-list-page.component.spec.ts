@@ -3,15 +3,22 @@ import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
+import { of, throwError } from 'rxjs';
 import type { AccountId } from '../../../core/domain/account.model';
+import type { MockDemoRepository } from '../../../core/repositories/mock-demo-repository';
 import { provideDatabaseTesting } from '../databases.testing';
 import { DatabaseListPageComponent } from './database-list-page.component';
 
 @Component({ template: '' })
 class DetailStubComponent {}
 
-async function openList(accountId: AccountId = 'account-smb-admin') {
+async function openList(
+  accountId: AccountId = 'account-smb-admin',
+  /** 在畫面建立前替換 repository 的行為（例如模擬讀取或儲存失敗）。 */
+  arrange: (repository: MockDemoRepository) => void = () => undefined,
+) {
   const testing = provideDatabaseTesting(accountId);
+  arrange(testing.repository);
   TestBed.configureTestingModule({
     providers: [
       ...testing.providers,
@@ -23,6 +30,8 @@ async function openList(accountId: AccountId = 'account-smb-admin') {
   });
   const harness = await RouterTestingHarness.create();
   await harness.navigateByUrl('/app/databases');
+  // 清單與模板都是非同步契約（rxResource）：等第一次讀取完成再畫面。
+  await harness.fixture.whenStable();
   harness.detectChanges();
   return {
     harness,
@@ -58,6 +67,85 @@ describe('DatabaseListPageComponent', () => {
     expect(customer?.textContent).toContain('6 個欄位');
     expect(customer?.textContent).toContain('3 位對象・7 筆紀錄');
     expect(customer?.textContent).toContain('客服助理');
+    expect(customer?.textContent).toContain('安心商行管理者');
+    expect(Array.from(page().querySelectorAll('lib-data-table thead th')).map((th) => th.textContent?.trim())).toContain('擁有者');
+  });
+
+  it('keeps the dialog and the typed name when saving fails, and creates on retry', async () => {
+    const { harness, page, repository, router } = await openList();
+    const create = vi.spyOn(repository, 'createDatabaseFromTemplate');
+    create.mockReturnValueOnce(throwError(() => new Error('network down')));
+
+    const dialog = openCreateDialog(page(), harness);
+    const name = dialog.querySelector<HTMLInputElement>('#database-name');
+    if (name) {
+      name.value = '門市回報';
+      name.dispatchEvent(new Event('input'));
+    }
+    button(dialog, '建立資料庫').click();
+    harness.detectChanges();
+
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('目前無法建立資料庫');
+    expect(document.querySelector('mat-dialog-container')).not.toBeNull();
+    expect(dialog.querySelector<HTMLInputElement>('#database-name')?.value).toBe('門市回報');
+    expect(router.url).toBe('/app/databases');
+
+    button(dialog, '建立資料庫').click();
+    await harness.fixture.whenStable();
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenLastCalledWith({ templateId: 'template-customer-profile', name: '門市回報' });
+    expect(router.url).toMatch(/^\/app\/databases\/database-created-\d+\/form$/);
+  });
+
+  it('shows a validation message from the repository next to the name', async () => {
+    const { harness, page } = await openList('account-smb-admin', (repository) => {
+      vi.spyOn(repository, 'createDatabaseFromTemplate').mockReturnValue(
+        of({ status: 'validation-failed', message: '資料庫名稱請在 40 個字以內。' }),
+      );
+    });
+
+    const dialog = openCreateDialog(page(), harness);
+    button(dialog, '建立資料庫').click();
+    harness.detectChanges();
+
+    expect(dialog.querySelector('#database-name-error')?.textContent).toContain('資料庫名稱請在 40 個字以內。');
+    expect(dialog.querySelector('#database-name')?.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('shows an empty state with a way to start from a template', async () => {
+    const { page } = await openList('account-smb-admin', (repository) => {
+      vi.spyOn(repository, 'listDatabaseSummaries').mockReturnValue(of({ status: 'ready', data: [] }));
+    });
+
+    expect(page().querySelector('lib-data-table')).toBeNull();
+    expect(page().querySelector('#empty-database-title')?.textContent).toContain('還沒有資料庫');
+    expect(button(page(), '從模板建立資料庫')).toBeTruthy();
+  });
+
+  it('tells a load failure apart from having no databases', async () => {
+    const { page } = await openList('account-smb-admin', (repository) => {
+      vi.spyOn(repository, 'listDatabaseSummaries').mockReturnValue(throwError(() => new Error('500')));
+    });
+
+    expect(page().textContent).toContain('目前無法載入資料庫');
+    expect(page().querySelector('#empty-database-title')).toBeNull();
+  });
+
+  it('offers to reload templates when they fail to load, instead of hiding creation silently', async () => {
+    const { harness, page, repository } = await openList('account-smb-admin', (repository) => {
+      vi.spyOn(repository, 'listDatabaseTemplates').mockReturnValueOnce(throwError(() => new Error('500')));
+    });
+
+    expect(page().querySelector('.templates-error')?.textContent).toContain('目前無法載入資料庫模板');
+    expect(page().querySelector('button[page-header-actions]')).toBeNull();
+
+    button(page(), '重新載入模板').click();
+    await harness.fixture.whenStable();
+    harness.detectChanges();
+
+    expect(repository.listDatabaseTemplates).toHaveBeenCalledTimes(2);
+    expect(button(page(), '新增資料庫')).toBeTruthy();
   });
 
   it('starts creation by asking what to collect, offering the five templates', async () => {

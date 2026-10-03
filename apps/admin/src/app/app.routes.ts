@@ -122,6 +122,12 @@ export const routes: Routes = [
     loadComponent: () => import('./features/operations/operations-summary/operations-summary-page.component').then((m) => m.OperationsSummaryPageComponent),
   },
   {
+    path: 'app/issues',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/issues/issues-page.component').then((m) => m.IssuesPageComponent),
+  },
+  {
     path: 'app/channels',
     canActivate: [demoSessionGuard],
     loadComponent: () =>

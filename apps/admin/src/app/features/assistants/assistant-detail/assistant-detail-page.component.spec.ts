@@ -50,7 +50,7 @@ describe('AssistantDetailPageComponent', () => {
     fixture.detectChanges();
 
     const page = fixture.nativeElement as HTMLElement;
-    for (const label of ['概覽', '資料來源', '回答與記錄', '測試', '發布', '使用紀錄']) {
+    for (const label of ['概覽', '資料來源', '回答與記錄', '測試', '驗收', '發布', '使用紀錄']) {
       expect(page.textContent).toContain(label);
     }
     expect(page.querySelector('app-assistant-overview-tab')).not.toBeNull();

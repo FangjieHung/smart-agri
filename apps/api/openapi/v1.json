@@ -193,6 +193,55 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/chat/handoffs": {
+      "post": {
+        "tags": [
+          "AssistantHandoffEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAssistantHandoffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantIssueView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants/{id}/analytics": {
       "get": {
         "tags": [
@@ -3700,7 +3749,8 @@
           "updatedAt",
           "resolvedAt",
           "viewerIsAssistantOwner",
-          "viewerIsAssignee"
+          "viewerIsAssignee",
+          "handoffUnverified"
         ],
         "type": "object",
         "properties": {
@@ -3818,6 +3868,9 @@
             "type": "boolean"
           },
           "viewerIsAssignee": {
+            "type": "boolean"
+          },
+          "handoffUnverified": {
             "type": "boolean"
           }
         }
@@ -4646,6 +4699,55 @@
           "draftId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "CreateAssistantHandoffRequest": {
+        "required": [
+          "threadId",
+          "questionMessageId",
+          "answerMessageId",
+          "sharedQuestion",
+          "sharedAnswer",
+          "confirmed"
+        ],
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "questionMessageId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "answerMessageId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "sharedQuestion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "sharedAnswer": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "confirmed": {
+            "type": "boolean"
           }
         }
       },
@@ -6578,6 +6680,9 @@
     },
     {
       "name": "AssistantIssueEndpoints"
+    },
+    {
+      "name": "AssistantHandoffEndpoints"
     },
     {
       "name": "AssistantAnalyticsEndpoints"

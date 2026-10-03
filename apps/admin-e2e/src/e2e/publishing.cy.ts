@@ -30,9 +30,8 @@ describe('publishing channels', () => {
 
   it('shows three channel cards per assistant with five unified statuses and an isolated failure', () => {
     loginAs('SMB 管理者');
-    // 側邊導覽已拿掉「發布管道」項目（workspace navigation refresh）；
-    // 現在從首頁「待處理事項」卡片的「查看發布管道」連結進入。
-    cy.contains('a', '查看發布管道').click();
+    // 首頁卡片現在連到處理事項；此情境直接開啟發布管道頁驗證管道狀態。
+    cy.visit('/app/channels');
     cy.location('pathname').should('eq', '/app/channels');
     cy.contains('h1', '發布管道').should('be.visible');
     // 頁面說明已改寫，不再顯示「Demo，不會連接外部服務」字樣（ChannelOverviewPageComponent

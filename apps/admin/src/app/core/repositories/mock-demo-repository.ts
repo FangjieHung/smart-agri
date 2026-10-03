@@ -22,6 +22,7 @@ import {
   type TrialAnswerView,
   type TrialAnswerResultView,
 } from '../domain/assistant-draft.model';
+import type { AssistantAcceptanceStatus, AssistantTestCaseView, AssistantTestRunView, AssistantTestRunDetailView, AssistantTestResultView, AssistantTestCaseInput, AssistantTestCasePatch, AssistantTestCaseImportEntry, AssistantTestCaseExportEntry } from '../domain/assistant-acceptance.model';
 import type {
   AssistantAudience,
   AssistantConfigurationView,
@@ -296,6 +297,7 @@ export type AccountPermissionOverrides = Readonly<
 const DRAFT_KEY_PREFIX = 'sme-demo:assistant-draft:';
 const NAMED_DRAFTS_KEY_PREFIX = 'sme-demo:assistant-drafts:';
 const CREATED_ASSISTANTS_KEY = 'sme-demo:created-assistants';
+const ASSISTANT_ACCEPTANCE_KEY = 'sme-demo:assistant-acceptance';
 /** 被刪除的種子助理（種子是唯讀 fixture，只能記下「已刪除」）。 */
 const DELETED_ASSISTANTS_KEY = 'sme-demo:deleted-assistants';
 
@@ -1034,6 +1036,12 @@ export class MockDemoRepository implements DemoRepository {
    * 不寫入 storage、不列在對話紀錄中，重新整理（重新建立實例）就消失。
    */
   private readonly ephemeralChats = new Map<string, readonly ChatMessageView[]>();
+  private readonly acceptanceCases = new Map<string, AssistantTestCaseView[]>();
+  private readonly acceptanceRuns = new Map<string, AssistantTestRunView[]>();
+  private readonly acceptanceResults = new Map<string, AssistantTestResultView[]>();
+  private readonly acceptanceStatuses = new Map<string, AssistantAcceptanceStatus>();
+  private readonly acceptancePolls = new Map<string, number>();
+  private acceptanceOrdinal = 0;
 
   constructor(
     private readonly seed: DemoSeed = DEMO_SEED,
@@ -1045,6 +1053,7 @@ export class MockDemoRepository implements DemoRepository {
     this.viewer = options.viewer ?? (() => null);
     this.chatViewer = options.chatViewer ?? (() => this.viewer());
     this.accountsSource = options.accountsSource ?? null;
+    this.restoreAcceptance();
   }
 
   setScenario(scenario: DemoScenario): void {
@@ -1185,6 +1194,149 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  listAssistantTestCases(assistantId: string): Observable<RepositoryView<readonly AssistantTestCaseView[]>> {
+    return this.signedIn(viewer => this.isAssistantOwner(viewer, assistantId) ? this.applyScenario(this.acceptanceCases.get(assistantId) ?? []) : this.assistantSettingsPermissionDenied(), () => this.assistantSettingsPermissionDenied());
+  }
+  createAssistantTestCase(assistantId: string, input: AssistantTestCaseInput): Observable<RepositoryView<AssistantTestCaseView>> {
+    return this.signedIn(viewer => {
+      if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied();
+      const now = new Date().toISOString();
+      const item: AssistantTestCaseView = { id: `mock-case-${++this.acceptanceOrdinal}`, assistantId, question: input.question ?? '', category: (input.category ?? 'common') as AssistantTestCaseView['category'], expectedKind: (input.expectedKind ?? 'company-data') as AssistantTestCaseView['expectedKind'], expectedDocumentIds: input.expectedDocumentIds ?? [], followUpOfId: input.followUpOfId ?? null, ordinal: this.acceptanceOrdinal, createdAt: now, updatedAt: now };
+      this.acceptanceCases.set(assistantId, [...(this.acceptanceCases.get(assistantId) ?? []), item]);
+      this.persistAcceptance();
+      return this.applyScenario(item);
+    }, () => this.assistantSettingsPermissionDenied());
+  }
+  updateAssistantTestCase(assistantId: string, caseId: string, patch: AssistantTestCasePatch): Observable<RepositoryView<AssistantTestCaseView>> {
+    return this.signedIn(viewer => {
+      if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied();
+      const items = this.acceptanceCases.get(assistantId) ?? []; const old = items.find(item => item.id === caseId); if (!old) return this.assistantSettingsPermissionDenied();
+      const item = { ...old, ...(patch.question !== undefined ? { question: patch.question ?? '' } : {}), ...(patch.category !== undefined ? { category: (patch.category ?? 'common') as AssistantTestCaseView['category'] } : {}), ...(patch.expectedKind !== undefined ? { expectedKind: (patch.expectedKind ?? 'company-data') as AssistantTestCaseView['expectedKind'] } : {}), ...(patch.expectedDocumentIds !== undefined ? { expectedDocumentIds: patch.expectedDocumentIds ?? [] } : {}), ...(patch.followUpOfId !== undefined ? { followUpOfId: patch.followUpOfId ?? null } : {}), updatedAt: new Date().toISOString() };
+      this.acceptanceCases.set(assistantId, items.map(candidate => candidate.id === caseId ? item : candidate));
+      this.persistAcceptance();
+      return this.applyScenario(item);
+    }, () => this.assistantSettingsPermissionDenied());
+  }
+  deleteAssistantTestCase(assistantId: string, caseId: string): Observable<RepositoryView<null>> {
+    return this.signedIn(viewer => { if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied(); this.acceptanceCases.set(assistantId, (this.acceptanceCases.get(assistantId) ?? []).filter(item => item.id !== caseId)); this.persistAcceptance(); return this.applyScenario(null); }, () => this.assistantSettingsPermissionDenied());
+  }
+  importAssistantTestCases(assistantId: string, questions: readonly AssistantTestCaseImportEntry[]): Observable<RepositoryView<readonly AssistantTestCaseView[]>> {
+    return this.signedIn(viewer => {
+      if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied();
+      for (const question of questions) this.createMockCase(assistantId, question);
+      this.persistAcceptance();
+      return this.applyScenario(this.acceptanceCases.get(assistantId) ?? []);
+    }, () => this.assistantSettingsPermissionDenied());
+  }
+  exportAssistantTestCases(assistantId: string): Observable<RepositoryView<readonly AssistantTestCaseExportEntry[]>> {
+    return this.signedIn(viewer => { if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied(); return this.applyScenario((this.acceptanceCases.get(assistantId) ?? []).map(item => ({ id: item.id, question: item.question, category: item.category, expectedKind: item.expectedKind, expectedCitedDocuments: [...item.expectedDocumentIds], followUpOf: item.followUpOfId }))); }, () => this.assistantSettingsPermissionDenied());
+  }
+  listAssistantTestRuns(assistantId: string): Observable<RepositoryView<readonly AssistantTestRunView[]>> {
+    return this.signedIn(viewer => {
+      if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied();
+      const runs = this.acceptanceRuns.get(assistantId) ?? [];
+      const active = runs.find(run => run.status === 'queued' || run.status === 'running');
+      if (active) {
+        const polls = (this.acceptancePolls.get(active.id) ?? 0) + 1;
+        this.acceptancePolls.set(active.id, polls);
+        const status = polls === 1 ? 'running' : 'completed';
+        const results = this.acceptanceResults.get(active.id) ?? [];
+        const updated: AssistantTestRunView = {
+          ...active,
+          status,
+          startedAt: active.startedAt ?? this.now().toISOString(),
+          completedAt: status === 'completed' ? this.now().toISOString() : null,
+          passedCount: status === 'completed' ? results.filter(result => result.passed).length : 0,
+          failedCount: status === 'completed' ? results.filter(result => !result.passed).length : 0,
+        };
+        this.acceptanceRuns.set(assistantId, runs.map(run => run.id === active.id ? updated : run));
+        if (status === 'completed') {
+          this.acceptanceStatuses.set(assistantId, updated.failedCount > 0 ? 'failed' : 'passed');
+        }
+        this.persistAcceptance();
+      }
+      return this.applyScenario(this.acceptanceRuns.get(assistantId) ?? []);
+    }, () => this.assistantSettingsPermissionDenied());
+  }
+  createAssistantTestRun(assistantId: string): Observable<RepositoryView<AssistantTestRunView>> {
+    return this.signedIn(viewer => {
+      if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied();
+      const cases = this.acceptanceCases.get(assistantId) ?? [];
+      const now = this.now().toISOString();
+      const run: AssistantTestRunView = {
+        id: `mock-run-${++this.acceptanceOrdinal}`, assistantId, trigger: 'manual', status: 'queued',
+        rerunRequested: false, queuedAt: now, startedAt: null, completedAt: null,
+        passedCount: 0, failedCount: 0, promptVersion: 'demo', model: 'mock', minScore: 0.3,
+      };
+      const results: AssistantTestResultView[] = cases.map((item, index) => {
+        const failed = item.category === 'exception';
+        return {
+          id: `${run.id}-result-${index}`, testCaseId: item.id, ordinal: item.ordinal,
+          question: item.question, expectedKind: item.expectedKind,
+          expectedDocumentIds: [...item.expectedDocumentIds],
+          actualKind: failed ? 'no-result' : item.expectedKind,
+          answerText: failed ? '示範回答未符合預期。' : item.expectedKind === 'no-result' ? '找不到足夠資料，無法回答。' : '這是示範重跑結果。',
+          citedDocumentIds: failed ? [] : [...item.expectedDocumentIds],
+          rejectionReason: null, topScore: failed ? null : 0.78,
+          passed: !failed, failureReason: failed ? 'kind-mismatch' : null,
+        };
+      });
+      this.acceptanceResults.set(run.id, results);
+      this.acceptanceRuns.set(assistantId, [run, ...(this.acceptanceRuns.get(assistantId) ?? [])]);
+      this.persistAcceptance();
+      return this.applyScenario(run);
+    }, () => this.assistantSettingsPermissionDenied());
+  }
+  getAssistantTestRun(assistantId: string, runId: string): Observable<RepositoryView<AssistantTestRunDetailView>> {
+    return this.signedIn(viewer => {
+      if (!this.isAssistantOwner(viewer, assistantId)) return this.assistantSettingsPermissionDenied();
+      const run = (this.acceptanceRuns.get(assistantId) ?? []).find(item => item.id === runId);
+      if (!run) return this.assistantSettingsPermissionDenied();
+      const results = run.status === 'completed' ? this.acceptanceResults.get(run.id) ?? [] : [];
+      return this.applyScenario({ run, results });
+    }, () => this.assistantSettingsPermissionDenied());
+  }
+  private isAssistantOwner(viewer: AccountId, assistantId: string): boolean { return this.assistants().some(item => item.id === assistantId && item.ownerAccountId === viewer); }
+  private createMockCase(assistantId: string, input: AssistantTestCaseImportEntry): void {
+    const now = new Date().toISOString(); const ordinal = ++this.acceptanceOrdinal;
+    const item: AssistantTestCaseView = { id: input.id ?? `mock-case-${ordinal}`, assistantId, question: input.question ?? '', category: (input.category ?? 'common') as AssistantTestCaseView['category'], expectedKind: (input.expectedKind ?? 'company-data') as AssistantTestCaseView['expectedKind'], expectedDocumentIds: input.expectedCitedDocuments ?? [], followUpOfId: input.followUpOf ?? null, ordinal, createdAt: now, updatedAt: now };
+    this.acceptanceCases.set(assistantId, [...(this.acceptanceCases.get(assistantId) ?? []), item]);
+  }
+
+  private restoreAcceptance(): void {
+    const state = parseJson(this.storage.getItem(ASSISTANT_ACCEPTANCE_KEY));
+    if (!isRecord(state)) return;
+    if (typeof state['ordinal'] === 'number' && Number.isSafeInteger(state['ordinal'])) {
+      this.acceptanceOrdinal = state['ordinal'];
+    }
+    const restoreArrayMap = <T>(source: unknown, target: Map<string, T[]>): void => {
+      if (!isRecord(source)) return;
+      for (const [id, values] of Object.entries(source)) {
+        if (Array.isArray(values)) target.set(id, values as T[]);
+      }
+    };
+    restoreArrayMap(state['cases'], this.acceptanceCases);
+    restoreArrayMap(state['runs'], this.acceptanceRuns);
+    restoreArrayMap(state['results'], this.acceptanceResults);
+    if (isRecord(state['statuses'])) {
+      for (const [id, status] of Object.entries(state['statuses'])) {
+        if (status === 'not-accepted' || status === 'passed' || status === 'failed' || status === 'outdated') {
+          this.acceptanceStatuses.set(id, status);
+        }
+      }
+    }
+  }
+
+  private persistAcceptance(): void {
+    this.storage.setItem(ASSISTANT_ACCEPTANCE_KEY, JSON.stringify({
+      ordinal: this.acceptanceOrdinal,
+      cases: Object.fromEntries(this.acceptanceCases),
+      runs: Object.fromEntries(this.acceptanceRuns),
+      results: Object.fromEntries(this.acceptanceResults),
+      statuses: Object.fromEntries(this.acceptanceStatuses),
+    }));
+  }
+
   getAssistantSettings(assistantId: string): Observable<RepositoryView<AssistantSettingsView>> {
     return this.signedIn(
       (viewer) => this.getAssistantSettingsSync(viewer, assistantId),
@@ -1238,6 +1390,14 @@ export class MockDemoRepository implements DemoRepository {
         }
         this.storage.removeItem(ASSISTANT_SETTINGS_KEY_PREFIX + assistant.id);
         this.storage.removeItem(PUBLISHING_KEY_PREFIX + assistant.id);
+        this.acceptanceCases.delete(assistant.id);
+        for (const run of this.acceptanceRuns.get(assistant.id) ?? []) {
+          this.acceptanceResults.delete(run.id);
+          this.acceptancePolls.delete(run.id);
+        }
+        this.acceptanceRuns.delete(assistant.id);
+        this.acceptanceStatuses.delete(assistant.id);
+        this.persistAcceptance();
         return this.applyScenario(null);
       },
       () => this.assistantSettingsPermissionDenied(),
@@ -4536,7 +4696,10 @@ export class MockDemoRepository implements DemoRepository {
     const deleted = new Set<string>(this.deletedAssistantIds());
     return [...this.seed.assistants, ...this.createdAssistants()]
       .filter((assistant) => !deleted.has(assistant.id))
-      .map((assistant) => this.withSavedSettings(assistant));
+      .map((assistant) => ({
+        ...this.withSavedSettings(assistant),
+        acceptanceStatus: this.acceptanceStatuses.get(assistant.id) ?? assistant.acceptanceStatus ?? 'not-accepted',
+      }));
   }
 
   private deletedAssistantIds(): readonly string[] {

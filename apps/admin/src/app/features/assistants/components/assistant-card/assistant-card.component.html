@@ -8,6 +8,10 @@
       [label]="statusLabel(assistant().status)"
       [tone]="statusTone(assistant().status)"
     />
+    <app-status-badge
+      [label]="acceptanceLabel(assistant().acceptanceStatus)"
+      [tone]="acceptanceTone(assistant().acceptanceStatus)"
+    />
   </div>
 
   <p class="assistant-card__purpose">{{ assistant().purpose }}</p>
@@ -27,16 +31,20 @@
     </div>
   </dl>
 
-  <div class="assistant-card__actions"><a
-    class="assistant-card__link"
-    [routerLink]="
-      assistant().permission === 'configure'
-        ? ['/app/assistants', assistant().id, 'overview']
-        : ['/use', assistant().id]
-    "
-  >
-    {{ assistant().permission === 'configure' ? '查看設定' : '開始使用' }}
-    <span aria-hidden="true">→</span>
-  </a>
-  <a class="assistant-card__link" [routerLink]="['/app/chat', assistant().id]">對話 <span aria-hidden="true">→</span></a></div>
+  <div class="assistant-card__actions">
+    <a
+      class="assistant-card__link"
+      [routerLink]="
+        assistant().permission === 'configure'
+          ? ['/app/assistants', assistant().id, 'overview']
+          : ['/use', assistant().id]
+      "
+    >
+      {{ assistant().permission === 'configure' ? '查看設定' : '開始使用' }}
+      <span aria-hidden="true">→</span>
+    </a>
+    <a class="assistant-card__link" [routerLink]="['/app/chat', assistant().id]"
+      >對話 <span aria-hidden="true">→</span></a
+    >
+  </div>
 </article>

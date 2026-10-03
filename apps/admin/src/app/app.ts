@@ -33,6 +33,7 @@ export class App implements OnInit {
     { route: '/app/databases', label: '數據庫', icon: 'database' },
     { route: '/app/activity', label: '對話與回報紀錄', icon: 'forum' },
     { route: '/app/operations', label: '營運追蹤', icon: 'monitoring' },
+    { route: '/app/issues', label: '處理事項', icon: 'task_alt' },
     { route: '/app/settings', label: '團隊與設定', icon: 'settings' },
   ];
 

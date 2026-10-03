@@ -6,6 +6,9 @@ import type {
   ChatViewerId,
 } from '../domain/account.model';
 import type {
+  AssistantTestCaseView, AssistantTestRunView, AssistantTestRunDetailView, AssistantTestCaseInput, AssistantTestCasePatch, AssistantTestCaseImportEntry, AssistantTestCaseExportEntry,
+} from '../domain/assistant-acceptance.model';
+import type {
   AssistantConfigurationView,
   AssistantId,
   AssistantSourceReference,
@@ -117,6 +120,7 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'submission-withdrawal',
   'publishing',
   'team',
+  'assistant-issue',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
   'password-change-required',
 ] as const;
@@ -470,6 +474,15 @@ export interface DemoRepository extends DemoScenarioController {
    * 建立後可編輯的助理設定（概覽／資料來源／回答與記錄三個頁籤共用同一份）。
    * 不存在或非擁有者一律回傳相同的 `assistant-configuration` permission-denied。
    */
+  listAssistantTestCases(assistantId: string): Observable<RepositoryView<readonly AssistantTestCaseView[]>>;
+  createAssistantTestCase(assistantId: string, input: AssistantTestCaseInput): Observable<RepositoryView<AssistantTestCaseView>>;
+  updateAssistantTestCase(assistantId: string, caseId: string, patch: AssistantTestCasePatch): Observable<RepositoryView<AssistantTestCaseView>>;
+  deleteAssistantTestCase(assistantId: string, caseId: string): Observable<RepositoryView<null>>;
+  importAssistantTestCases(assistantId: string, questions: readonly AssistantTestCaseImportEntry[]): Observable<RepositoryView<readonly AssistantTestCaseView[]>>;
+  exportAssistantTestCases(assistantId: string): Observable<RepositoryView<readonly AssistantTestCaseExportEntry[]>>;
+  listAssistantTestRuns(assistantId: string): Observable<RepositoryView<readonly AssistantTestRunView[]>>;
+  createAssistantTestRun(assistantId: string): Observable<RepositoryView<AssistantTestRunView>>;
+  getAssistantTestRun(assistantId: string, runId: string): Observable<RepositoryView<AssistantTestRunDetailView>>;
   getAssistantSettings(assistantId: string): Observable<RepositoryView<AssistantSettingsView>>;
   /**
    * 自動保存單次變更，立即套用到這個已存在的助理上，沒有「儲存」按鈕。

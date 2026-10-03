@@ -1,0 +1,165 @@
+@let list = listView();
+<section class="workspace-page">
+  <app-page-header
+    title="處理事項"
+    description="集中追蹤驗收未通過的題目與成員轉交的問題，並記錄指派和處理進度。"
+  />
+
+  <div class="issues-layout">
+    <section class="issues-list" aria-labelledby="issues-list-title">
+      <div class="issues-list__head">
+        <h2 id="issues-list-title">事項清單</h2>
+        <button class="ui-button ui-button--secondary" type="button" (click)="listResource.reload()">重新整理</button>
+      </div>
+      <div class="issues-filters">
+        <label>
+          顯示範圍
+          <select [value]="scope()" (change)="scope.set($any($event.target).value)">
+            <option value="all">我可查看的全部</option>
+            <option value="owned">我擁有的助理</option>
+            <option value="assigned">指派給我</option>
+            <option value="forwarded">我轉交的</option>
+          </select>
+        </label>
+        <label>
+          處理狀態
+          <select [value]="status()" (change)="status.set($any($event.target).value)">
+            <option value="">全部狀態</option>
+            <option value="open">待處理</option>
+            <option value="in-progress">處理中</option>
+            <option value="resolved">已解決</option>
+          </select>
+        </label>
+      </div>
+
+      @if (list.status === 'loading') {
+        <app-state-panel state="loading" title="正在載入處理事項" />
+      } @else if (list.status === 'error') {
+        <app-state-panel state="error" title="目前無法載入處理事項" recoveryLabel="重試" (recover)="listResource.reload()" />
+      } @else if (list.status === 'permission-denied') {
+        <app-state-panel state="permission-denied" title="無法查看處理事項" [description]="list.message" />
+      } @else if (list.data.length === 0) {
+        <app-state-panel state="empty" title="目前沒有符合條件的處理事項" description="可切換範圍或狀態，查看其他事項。" />
+      } @else {
+        <ul class="issue-items">
+          @for (issue of list.data; track issue.id) {
+            <li>
+              <button
+                type="button"
+                class="issue-item"
+                [class.issue-item--selected]="selectedId() === issue.id"
+                [attr.aria-pressed]="selectedId() === issue.id"
+                (click)="select(issue)"
+              >
+                <span class="issue-item__top"><strong>{{ issue.title }}</strong><span>{{ statusLabel(issue.status) }}</span></span>
+                <span>{{ issue.assistantName }} · {{ sourceLabel(issue.source) }}</span>
+                <span>建立於 {{ issue.createdAt | date:'yyyy/MM/dd HH:mm' }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="issues-detail" aria-labelledby="issue-detail-title">
+      <h2 id="issue-detail-title">事項詳情</h2>
+      @if (!selectedId()) {
+        <app-state-panel state="empty" title="選擇一筆處理事項" description="從左側清單選擇，即可查看內容與處理紀錄。" />
+      } @else {
+        @let detail = detailView();
+        @if (detail.status === 'loading') {
+          <app-state-panel state="loading" title="正在載入事項詳情" />
+        } @else if (detail.status === 'error') {
+          <app-state-panel state="error" title="目前無法載入事項詳情" recoveryLabel="重試" (recover)="detailResource.reload()" />
+        } @else if (detail.status === 'permission-denied') {
+          <app-state-panel state="permission-denied" title="無法查看事項詳情" [description]="detail.message" />
+        } @else {
+          <article class="issue-detail">
+            <div class="issue-detail__head">
+              <h3>{{ detail.data.issue.title }}</h3>
+              <span class="issue-status">{{ statusLabel(detail.data.issue.status) }}</span>
+            </div>
+            <dl class="issue-facts">
+              <div><dt>助理</dt><dd><a [routerLink]="['/app/assistants', detail.data.issue.assistantId, 'overview']">{{ detail.data.issue.assistantName }}</a></dd></div>
+              <div><dt>來源</dt><dd>{{ sourceLabel(detail.data.issue.source) }}</dd></div>
+              <div><dt>負責人</dt><dd>{{ detail.data.issue.assigneeDisplayName || '尚未指派' }}</dd></div>
+              <div><dt>到期日</dt><dd>{{ detail.data.issue.dueAt ? (detail.data.issue.dueAt | date:'yyyy/MM/dd HH:mm') : '未設定' }}</dd></div>
+              @if (detail.data.issue.reporterDisplayName) {
+                <div><dt>{{ detail.data.issue.source === 'handoff' ? '轉交人' : '建立人' }}</dt><dd>{{ detail.data.issue.reporterDisplayName }}</dd></div>
+              }
+            </dl>
+
+            @if (detail.data.issue.question) {
+              <section class="issue-snapshot" aria-labelledby="issue-question-title">
+                <h4 id="issue-question-title">問題複本</h4>
+                <p>{{ detail.data.issue.question }}</p>
+              </section>
+            }
+            @if (detail.data.issue.answer) {
+              <section class="issue-snapshot" aria-labelledby="issue-answer-title">
+                <h4 id="issue-answer-title">回覆複本</h4>
+                <p>{{ detail.data.issue.answer }}</p>
+              </section>
+            }
+            @if (detail.data.issue.testFailureReason) {
+              <p class="issue-note">驗收失敗原因：{{ failureReasonLabel(detail.data.issue.testFailureReason) }}</p>
+            }
+
+            @if (detail.data.issue.viewerIsAssistantOwner || detail.data.issue.viewerIsAssignee) {
+              <section class="issue-edit" aria-labelledby="issue-edit-title">
+                <h4 id="issue-edit-title">更新處理進度</h4>
+                <div class="issue-edit__fields">
+                  <label>狀態
+                    <select [value]="statusChoice()" (change)="statusChoice.set($any($event.target).value)">
+                      <option value="">維持目前狀態</option>
+                      <option value="open">待處理</option>
+                      <option value="in-progress">處理中</option>
+                      <option value="resolved">已解決</option>
+                    </select>
+                  </label>
+                  @if (detail.data.issue.viewerIsAssistantOwner) {
+                    <label>指派給
+                      <select [value]="assigneeChoice()" (change)="assigneeChoice.set($any($event.target).value)">
+                        <option value="">維持目前指派</option>
+                        <option value="__unassign__">取消指派</option>
+                        @for (member of eligibleAssignees(); track member.id) {
+                          <option [value]="member.id">{{ member.displayName }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
+                  <label>到期時間
+                    <input type="datetime-local" [value]="dueChoice()" [disabled]="clearDue()" (input)="dueChoice.set($any($event.target).value)" />
+                  </label>
+                  <label class="issue-edit__check"><input type="checkbox" [checked]="clearDue()" (change)="clearDue.set($any($event.target).checked)" />清除到期時間</label>
+                  <label class="issue-edit__note">處理紀錄
+                    <textarea rows="3" maxlength="2000" [value]="note()" (input)="note.set($any($event.target).value)" placeholder="記錄調查或解決方式"></textarea>
+                  </label>
+                </div>
+                <button class="ui-button" type="button" [disabled]="saving()" (click)="save()">{{ saving() ? '儲存中…' : '儲存變更' }}</button>
+                @if (actionMessage()) { <p role="status">{{ actionMessage() }}</p> }
+              </section>
+            }
+
+            <section class="issue-history" aria-labelledby="issue-history-title">
+              <h4 id="issue-history-title">處理紀錄</h4>
+              @if (detail.data.events.length === 0) {
+                <p>目前尚無處理紀錄。</p>
+              } @else {
+                <ol>
+                  @for (event of detail.data.events; track event.id) {
+                    <li>
+                      <strong>{{ event.actorDisplayName }}</strong>
+                      <time [attr.datetime]="event.at">{{ event.at | date:'yyyy/MM/dd HH:mm' }}</time>
+                      <span>{{ eventActionLabel(event.action) }}@if (event.note) {：{{ event.note }}}</span>
+                    </li>
+                  }
+                </ol>
+              }
+            </section>
+          </article>
+        }
+      }
+    </section>
+  </div>
+</section>

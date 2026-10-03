@@ -44,6 +44,8 @@ import type {
   DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
   DatabaseTemplateView,
+  DatabasePeriodSummaryQuery,
+  DatabasePeriodSummaryView,
   DatabaseTrackingView,
   OwnDatabaseSubmissionView,
   DatabaseTrialAnswers,
@@ -893,10 +895,22 @@ export interface DemoRepository extends DemoScenarioController {
    * 收集紀錄時間軸（依追蹤對象＝提交者）與比較。只有「已指定 **且** 具備帳號權限」的資料管理者可查看；
    * `records` 只有有效紀錄，`withdrawals` 是不含內容的撤回軌跡，兩者分開。看不到資料庫回 `database`，
    * 看得到但不能讀回 `database-records`。目前帳號由 repository 內部推導。
-   * API 模式：`GET /api/v1/databases/{id}/tracking`（趨勢比較 `comparison`／`periodicReports` 是 #147，
-   * 在那之前為「紀錄不足」與空陣列，畫面以 `upcomingFeatures` 的 `trends` 顯示將於後續版本開放）。
+   * `comparison` 是每位追蹤對象的首次／上次／本次比較（紀錄不足時為 `insufficient-records`，不畫趨勢）；
+   * API 模式由伺服器的固定查詢算好（#147）。`periodicReports` 是 #150：API 模式為空陣列，畫面以
+   * `upcomingFeatures` 的 `periodic-reports` 顯示將於後續版本開放。
+   * API 模式：`GET /api/v1/databases/{id}/tracking`。
    */
   getDatabaseTracking(databaseId: string): Observable<RepositoryView<DatabaseTrackingView>>;
+  /**
+   * 期間統計（固定查詢 `period-summary`，issue #147）：指定期間與前一期的有效紀錄筆數與每個數字欄位的
+   * 加總；`subjectId` 為 null 是整個資料庫。權限與 `getDatabaseTracking` 相同（看不到資料庫回
+   * `database`，看得到但不能讀回 `database-records`）；沒有紀錄時筆數與加總都是 0，不是錯誤。
+   * 日期一律是 UTC 曆日。API 模式：`GET /api/v1/databases/{id}/queries/period-summary`。
+   */
+  getDatabasePeriodSummary(
+    databaseId: string,
+    query: DatabasePeriodSummaryQuery,
+  ): Observable<RepositoryView<DatabasePeriodSummaryView>>;
   /**
    * 目前帳號與助理的對話清單，依最後活動時間由新到舊。id 來自網址、未經驗證；
    * 不存在或無使用權限時回傳 `assistant-use` 的 permission-denied。

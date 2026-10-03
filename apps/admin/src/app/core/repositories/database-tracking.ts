@@ -5,8 +5,14 @@ import {
 import {
   DATABASE_FIELD_TYPES,
   isChoiceFieldType,
+  DATABASE_PERIOD_OPTIONS,
   type ComparisonPointView,
   type DatabaseFieldError,
+  type DatabaseFieldId,
+  type DatabaseFieldSumView,
+  type DatabasePeriodName,
+  type DatabasePeriodRangeView,
+  type DatabasePeriodSummaryView,
   type DatabaseFieldView,
   type DatabaseRecordEntryView,
   type DatabaseRecordValue,
@@ -16,6 +22,7 @@ import {
   type MetricComparisonView,
   type PeriodicReportView,
   type SubjectComparisonView,
+  type TrackedSubjectId,
   type TrackedSubjectView,
   type WithdrawnRecordView,
 } from '../domain/database.model';
@@ -94,8 +101,13 @@ export function compareRecords(chronological: readonly DatabaseRecordFixture[]):
   const latest = chronological[recordCount - 1];
   const metrics = latest.values.flatMap((value): MetricComparisonView[] => {
     if (value.type !== 'number' && value.type !== 'scale') return [];
+    // 同一個欄位編號但型別或單位改過的紀錄不混進同一條趨勢（與後端 `DatabaseQueryResults.Compare` 相同）。
+    const sameMeasure = (candidate: DatabaseRecordValue): boolean =>
+      candidate.fieldId === value.fieldId &&
+      candidate.type === value.type &&
+      (candidate.type !== 'number' || (value.type === 'number' && candidate.unit === value.unit));
     const points = chronological.flatMap((record): ComparisonPointView[] => {
-      const match = record.values.find((candidate) => candidate.fieldId === value.fieldId);
+      const match = record.values.find(sameMeasure);
       if (match === undefined || (match.type !== 'number' && match.type !== 'scale')) return [];
       return [
         {
@@ -140,11 +152,174 @@ export function compareRecords(chronological: readonly DatabaseRecordFixture[]):
     ];
   });
 
+  if (metrics.length === 0) {
+    return {
+      status: 'insufficient-records',
+      recordCount,
+      message: `目前有 ${recordCount} 筆紀錄，但沒有任何數字或量尺欄位累積 2 筆以上的數值，無法比較。`,
+    };
+  }
+
   return {
     status: 'available',
     recordCount,
     summary: `比較 ${recordCount} 筆已同意提交的紀錄（${chronological[0].recordedAt.slice(0, 10)} 至 ${latest.recordedAt.slice(0, 10)}）。`,
     metrics,
+  };
+}
+
+const DAY_MS = 86_400_000;
+
+function dayNumber(label: string): number {
+  const [year, month, day] = label.split('-').map(Number);
+  return Date.UTC(year, month - 1, day) / DAY_MS;
+}
+
+function dayLabel(number: number): string {
+  return new Date(number * DAY_MS).toISOString().slice(0, 10);
+}
+
+function monthStart(label: string, offsetMonths: number): string {
+  const [year, month] = label.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1 + offsetMonths, 1)).toISOString().slice(0, 10);
+}
+
+function periodNameLabel(name: DatabasePeriodName): string {
+  return DATABASE_PERIOD_OPTIONS.find((option) => option.id === name)?.label ?? name;
+}
+
+function rangeOf(name: DatabasePeriodName | null, from: number, to: number): DatabasePeriodRangeView {
+  const range = `${dayLabel(from)} 至 ${dayLabel(to)}`;
+  return {
+    name,
+    from: dayLabel(from),
+    to: dayLabel(to),
+    label: name === null ? range : `${periodNameLabel(name)}（${range}）`,
+  };
+}
+
+/**
+ * 具名期間涵蓋的 UTC 曆日（起訖都含）：週從週一到週日、月從 1 日到月底，`last-7-days`／`last-30-days`
+ * 到今天為止。與後端 `DatabaseFixedQueries.Resolve` 相同；`today` 是 `YYYY-MM-DD`（UTC）。
+ */
+export function resolvePeriod(name: DatabasePeriodName, today: string): DatabasePeriodRangeView {
+  const todayNumber = dayNumber(today);
+  const monday = todayNumber - ((new Date(todayNumber * DAY_MS).getUTCDay() + 6) % 7);
+  switch (name) {
+    case 'this-week':
+      return rangeOf(name, monday, monday + 6);
+    case 'last-week':
+      return rangeOf(name, monday - 7, monday - 1);
+    case 'this-month':
+      return rangeOf(name, dayNumber(monthStart(today, 0)), dayNumber(monthStart(today, 1)) - 1);
+    case 'last-month':
+      return rangeOf(name, dayNumber(monthStart(today, -1)), dayNumber(monthStart(today, 0)) - 1);
+    case 'last-7-days':
+      return rangeOf(name, todayNumber - 6, todayNumber);
+    case 'last-30-days':
+      return rangeOf(name, todayNumber - 29, todayNumber);
+  }
+}
+
+/** 前一個完整期間：月的前一個曆月，其餘為同樣天數接在前面（與後端 `Previous` 相同）。 */
+export function previousPeriod(period: DatabasePeriodRangeView): DatabasePeriodRangeView {
+  const from = dayNumber(period.from);
+  if (period.name === 'this-month' || period.name === 'last-month') {
+    return rangeOf(null, dayNumber(monthStart(period.from, -1)), from - 1);
+  }
+  const days = dayNumber(period.to) - from + 1;
+  return rangeOf(null, from - days, from - 1);
+}
+
+interface PeriodRows {
+  readonly count: number;
+  readonly sums: ReadonlyMap<DatabaseFieldId, { readonly sum: number; readonly count: number }>;
+}
+
+function rowsOf(
+  records: readonly DatabaseRecordFixture[],
+  period: DatabasePeriodRangeView,
+  units: ReadonlyMap<DatabaseFieldId, string>,
+): PeriodRows {
+  const sums = new Map<DatabaseFieldId, { sum: number; count: number }>();
+  let count = 0;
+  for (const record of records) {
+    const day = new Date(Date.parse(record.recordedAt)).toISOString().slice(0, 10);
+    if (day < period.from || day > period.to) continue;
+    count += 1;
+    for (const value of record.values) {
+      // 只加總現行單位的數字（舊單位的值不併入新單位的總和）。
+      if (value.type !== 'number' || units.get(value.fieldId) !== value.unit) continue;
+      const entry = sums.get(value.fieldId) ?? { sum: 0, count: 0 };
+      sums.set(value.fieldId, { sum: entry.sum + value.value, count: entry.count + 1 });
+    }
+  }
+  return { count, sums };
+}
+
+/**
+ * 期間統計（固定查詢 `period-summary` 的 mock 版）：這一期與前一期的有效紀錄筆數，以及每個數字欄位
+ * 的加總。`records` 只放有效（已同意、未撤回）的紀錄；`fields` 是目前表單，現行欄位即使沒有值也列出，
+ * 已從表單移除、但有值的欄位才跟著列出（與後端 `DatabaseQueryResults.Sums` 相同）。
+ */
+export function summarizePeriod(input: {
+  readonly records: readonly DatabaseRecordFixture[];
+  readonly fields: readonly DatabaseFieldView[];
+  readonly subjectId: TrackedSubjectId | null;
+  readonly period: DatabasePeriodName;
+  readonly today: string;
+}): DatabasePeriodSummaryView {
+  const period = resolvePeriod(input.period, input.today);
+  const previous = previousPeriod(period);
+  const records = input.records.filter((record) => input.subjectId === null || record.subjectId === input.subjectId);
+
+  const references = new Map<DatabaseFieldId, { label: string; unit: string; current: boolean }>();
+  for (const field of input.fields) {
+    if (field.type === 'number') references.set(field.id, { label: field.label, unit: field.unit, current: true });
+  }
+  for (const record of [...records].reverse()) {
+    for (const value of record.values) {
+      if (value.type === 'number' && !references.has(value.fieldId)) {
+        references.set(value.fieldId, { label: value.label, unit: value.unit, current: false });
+      }
+    }
+  }
+
+  const units = new Map([...references].map(([id, reference]) => [id, reference.unit]));
+  const now = rowsOf(records, period, units);
+  const before = rowsOf(records, previous, units);
+  const sums = [...references].flatMap(([id, reference]): DatabaseFieldSumView[] => {
+    const current = now.sums.get(id) ?? { sum: 0, count: 0 };
+    const earlier = before.sums.get(id) ?? { sum: 0, count: 0 };
+    if (!reference.current && current.count === 0 && earlier.count === 0) return [];
+    const change = current.sum - earlier.sum;
+    return [
+      {
+        fieldId: id,
+        label: reference.label,
+        unit: reference.unit,
+        sum: current.sum,
+        display: formatNumber(current.sum, reference.unit),
+        recordCount: current.count,
+        previousSum: earlier.sum,
+        previousDisplay: formatNumber(earlier.sum, reference.unit),
+        previousRecordCount: earlier.count,
+        change,
+        changeLabel: formatSigned(change, reference.unit),
+      },
+    ];
+  });
+
+  const countChange = now.count - before.count;
+  return {
+    period,
+    previousPeriod: previous,
+    subjectId: input.subjectId,
+    recordCount: now.count,
+    previousRecordCount: before.count,
+    recordCountChange: countChange,
+    recordCountChangeLabel: formatSigned(countChange, '筆'),
+    sums,
   };
 }
 

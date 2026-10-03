@@ -84,9 +84,11 @@ describe('consented structured submission', () => {
     submitOrder('DEMO-3002');
 
     loginAs('SMB 管理者');
+    // 訂單資料庫只有文字、選項與日期欄位：兩筆紀錄也沒有任何數字或量尺可比較，所以不畫趨勢，並說明原因。
     cy.visit('/app/databases/database-orders/trends');
-    cy.get('.trend-conclusion').should('contain', '2 筆');
-    cy.get('.insufficient-records').should('not.exist');
+    cy.get('.insufficient-records').should('contain', '目前有 2 筆紀錄').and('contain', '沒有任何數字或量尺欄位');
+    cy.get('.trend-conclusion').should('not.exist');
+    cy.get('app-period-summary tr[data-row="record-count"]').should('exist');
 
     loginAs('外部客戶');
     cy.visit('/use/assistant-customer-service');
@@ -118,7 +120,7 @@ describe('consented structured submission', () => {
     cy.get('.withdrawn-list > li').should('have.length', 1).and('contain', '內容已移除');
 
     cy.contains('nav.tabs a', '趨勢比較').click();
-    cy.get('.insufficient-records').should('contain', '累積 2 筆以上');
+    cy.get('.insufficient-records').should('contain', '目前只有 1 筆紀錄').and('contain', '累積 2 筆以上');
     cy.get('.trend-conclusion').should('not.exist');
   });
 

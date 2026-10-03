@@ -1,0 +1,68 @@
+<section class="period-summary" aria-labelledby="period-summary-title">
+  <div class="heading">
+    <h3 id="period-summary-title">期間統計</h3>
+    <label class="picker">
+      <span>統計期間</span>
+      <select (change)="select($event)">
+        @for (option of options; track option.id) {
+          <option [value]="option.id" [selected]="option.id === period()">{{ option.label }}</option>
+        }
+      </select>
+    </label>
+  </div>
+
+  @let result = summary();
+  @if (result) {
+    <p class="range">
+      {{ subject().displayName }}：{{ result.period.label }}，與前一期（{{ result.previousPeriod.label }}）比較。
+    </p>
+    @if (result.recordCount === 0 && result.previousRecordCount === 0) {
+      <p class="empty" role="status">這兩個期間都沒有有效紀錄，所以筆數與加總都是 0。已撤回的紀錄不計入。</p>
+    }
+    <div class="table-scroll">
+      <table class="summary-table">
+        <caption>{{ subject().displayName }}：期間筆數與加總</caption>
+        <thead>
+          <tr>
+            <th scope="col">項目</th>
+            <th scope="col">這一期</th>
+            <th scope="col">前一期</th>
+            <th scope="col">變化</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr data-row="record-count">
+            <th scope="row">紀錄筆數</th>
+            <td>{{ result.recordCount }} 筆</td>
+            <td>{{ result.previousRecordCount }} 筆</td>
+            <td>{{ result.recordCountChangeLabel }}</td>
+          </tr>
+          @for (sum of result.sums; track sum.fieldId) {
+            <tr [attr.data-row]="sum.fieldId">
+              <th scope="row">{{ sum.label }}（加總）</th>
+              <td>{{ sum.display }}</td>
+              <td>{{ sum.previousDisplay }}</td>
+              <td>{{ sum.changeLabel }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  } @else if (view().status === 'loading') {
+    <app-state-panel state="loading" title="正在計算期間統計" />
+  } @else if (view().status === 'permission-denied') {
+    <app-state-panel
+      state="permission-denied"
+      title="無法查看期間統計"
+      description="只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號可以查看。"
+    />
+  } @else {
+    <app-state-panel
+      state="error"
+      title="目前無法載入期間統計"
+      description="這不代表這一期沒有紀錄。請稍後再試一次。"
+      recoveryLabel="重新載入"
+      (recover)="reload()"
+    />
+  }
+</section>

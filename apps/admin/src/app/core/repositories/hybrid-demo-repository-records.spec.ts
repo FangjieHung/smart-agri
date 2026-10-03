@@ -19,14 +19,14 @@ const WITHDRAWN_ID = '01a10084-843f-7125-acf5-09ec5e392b49';
 const SUBMITTER_ID = '01a10084-7efb-716e-984c-285d1dbe17a6';
 
 /*
- * 以下回應都是 2026-10-03 從 API 整合測試主機實際取得（外部客戶對「滿意度調查」模板建立的數據庫
+ * 以下回應都是 2026-10-03 從 API 整合測試主機實際取得（時間軸的 `comparison` 是 #147 加上、同日以同一個主機補取）（外部客戶對「滿意度調查」模板建立的數據庫
  * 送出兩筆、撤回其中一筆；資料管理者讀時間軸），原樣保留成字串再 `JSON.parse`，不是依產生的型別
  * 手寫（issue #146）。注意 `withdrawnAt` 在有效時是 `null`（後端一律送出，不省略）。
  */
 const REAL_OWN_LIST_JSON = `{"submissions":[{"id":"01a10084-843f-7125-acf5-09ec5e392b49","receiptNumber":"R-20261003-EC5E392B49","submittedAt":"2026-10-03T06:47:27.039302+00:00","databaseId":"01a10084-8346-791b-a454-95d92252b9ce","databaseName":"門市滿意度","formVersionNumber":1,"source":"form-link","withdrawnAt":"2026-10-03T06:47:27.048448+00:00"},{"id":"01a10084-83df-717a-96e2-28de141c3105","receiptNumber":"R-20261003-DE141C3105","submittedAt":"2026-10-03T06:47:26.943728+00:00","databaseId":"01a10084-8346-791b-a454-95d92252b9ce","databaseName":"門市滿意度","formVersionNumber":1,"source":"form-link","withdrawnAt":null}]}`;
 const REAL_WITHDRAW_200_JSON = `{"id":"01a10084-843f-7125-acf5-09ec5e392b49","receiptNumber":"R-20261003-EC5E392B49","submittedAt":"2026-10-03T06:47:27.039302+00:00","databaseId":"01a10084-8346-791b-a454-95d92252b9ce","databaseName":"門市滿意度","purpose":"收集客戶對服務的評分與建議。","recipient":"安心商行（門市滿意度）","viewers":["安心商行管理者"],"formVersionId":"01a10084-8348-7214-9a7b-a8019080e84f","formVersionNumber":1,"source":"form-link","entries":[],"withdrawnAt":"2026-10-03T06:47:27.048448+00:00"}`;
 const REAL_WITHDRAW_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"submission-withdrawal","message":"找不到這筆紀錄，或你沒有撤回它的權限。"}`;
-const REAL_TRACKING_JSON = `{"databaseId":"01a10084-8346-791b-a454-95d92252b9ce","subjects":[{"subject":{"id":"01a10084-7efb-716e-984c-285d1dbe17a6","displayName":"安心商行外部客戶"},"records":[{"id":"01a10084-83df-717a-96e2-28de141c3105","receiptNumber":"R-20261003-DE141C3105","submittedAt":"2026-10-03T06:47:26.943728+00:00","source":"form-link","submitter":{"id":"01a10084-7efb-716e-984c-285d1dbe17a6","displayName":"安心商行外部客戶"},"formVersionNumber":1,"entries":[{"fieldId":"field-overall-satisfaction","label":"整體滿意度","type":"scale","display":"4 / 5"},{"fieldId":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","display":"客服回應"},{"fieldId":"field-suggestion","label":"其他建議","type":"text","display":"未填寫"}]}],"withdrawals":[{"id":"01a10084-843f-7125-acf5-09ec5e392b49","submittedAt":"2026-10-03T06:47:27.039302+00:00","withdrawnAt":"2026-10-03T06:47:27.048448+00:00","source":"form-link","formVersionNumber":1}]}]}`;
+const REAL_TRACKING_JSON = `{"databaseId":"01a10084-8346-791b-a454-95d92252b9ce","subjects":[{"subject":{"id":"01a10084-7efb-716e-984c-285d1dbe17a6","displayName":"安心商行外部客戶"},"records":[{"id":"01a10084-83df-717a-96e2-28de141c3105","receiptNumber":"R-20261003-DE141C3105","submittedAt":"2026-10-03T06:47:26.943728+00:00","source":"form-link","submitter":{"id":"01a10084-7efb-716e-984c-285d1dbe17a6","displayName":"安心商行外部客戶"},"formVersionNumber":1,"entries":[{"fieldId":"field-overall-satisfaction","label":"整體滿意度","type":"scale","display":"4 / 5"},{"fieldId":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","display":"客服回應"},{"fieldId":"field-suggestion","label":"其他建議","type":"text","display":"未填寫"}]}],"withdrawals":[{"id":"01a10084-843f-7125-acf5-09ec5e392b49","submittedAt":"2026-10-03T06:47:27.039302+00:00","withdrawnAt":"2026-10-03T06:47:27.048448+00:00","source":"form-link","formVersionNumber":1}],"comparison":{"status":"insufficient-records","recordCount":1,"message":"目前只有 1 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。","summary":null,"metrics":[]}}]}`;
 const REAL_TRACKING_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"database-records","message":"只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號，可以查看收集紀錄與趨勢比較。"}`;
 
 function setUp() {
@@ -178,8 +178,12 @@ describe('HybridDemoRepository records and withdrawal (issue #146)', () => {
         source: 'form-link',
       },
     ]);
-    // 趨勢比較是 #147：這裡只是佔位，不會假裝算出了差異。
-    expect(subject.comparison.status).toBe('insufficient-records');
+    // 一筆有效紀錄（另一筆已撤回，不計入）：伺服器回「紀錄不足」，前端不畫趨勢。
+    expect(subject.comparison).toEqual({
+      status: 'insufficient-records',
+      recordCount: 1,
+      message: '目前只有 1 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。',
+    });
     expect(written).toEqual([]);
   });
 

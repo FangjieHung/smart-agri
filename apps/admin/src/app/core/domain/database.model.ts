@@ -191,11 +191,11 @@ export interface DatabaseAccessView {
 
 /**
  * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
- * - `trends`：趨勢比較與定期回報摘要（#147；收集紀錄時間軸與撤回軌跡已於 #146 開放）；
+ * - `periodic-reports`：助理的定期回報與 AI 摘要（#150；趨勢比較與期間統計已於 #147 開放）；
  * - `assistant-connections`：已連接助理（#148）。
  * mock 模式全部可用，所以是空陣列。
  */
-export type DatabaseUpcomingFeature = 'trends' | 'assistant-connections';
+export type DatabaseUpcomingFeature = 'periodic-reports' | 'assistant-connections';
 
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;
@@ -351,6 +351,69 @@ export interface PeriodicReportView {
   /** 已算好的比較摘要，前面加上追蹤對象名稱。 */
   readonly lines: readonly string[];
   readonly note: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* 期間統計（#147）：固定查詢 `period-summary`，數字由 repository／伺服器算好 */
+/* ------------------------------------------------------------------ */
+
+/** 固定查詢接受的具名期間（日期一律是 UTC 曆日，週從週一開始）。 */
+export type DatabasePeriodName =
+  | 'this-week'
+  | 'last-week'
+  | 'this-month'
+  | 'last-month'
+  | 'last-7-days'
+  | 'last-30-days';
+
+export const DATABASE_PERIOD_OPTIONS: readonly { readonly id: DatabasePeriodName; readonly label: string }[] = [
+  { id: 'this-week', label: '本週' },
+  { id: 'last-week', label: '上週' },
+  { id: 'this-month', label: '本月' },
+  { id: 'last-month', label: '上月' },
+  { id: 'last-7-days', label: '近 7 天' },
+  { id: 'last-30-days', label: '近 30 天' },
+];
+
+/** 一段統計期間：起訖都含在內（YYYY-MM-DD，UTC）；前一期沒有名稱。 */
+export interface DatabasePeriodRangeView {
+  readonly name: DatabasePeriodName | null;
+  readonly from: string;
+  readonly to: string;
+  readonly label: string;
+}
+
+/** 一個數字欄位在這一期與前一期的加總；`display` 與 `changeLabel` 已加上單位。 */
+export interface DatabaseFieldSumView {
+  readonly fieldId: DatabaseFieldId;
+  readonly label: string;
+  readonly unit: string;
+  readonly sum: number;
+  readonly display: string;
+  /** 這一期有填這個欄位的有效紀錄筆數。 */
+  readonly recordCount: number;
+  readonly previousSum: number;
+  readonly previousDisplay: string;
+  readonly previousRecordCount: number;
+  readonly change: number;
+  readonly changeLabel: string;
+}
+
+export interface DatabasePeriodSummaryView {
+  readonly period: DatabasePeriodRangeView;
+  readonly previousPeriod: DatabasePeriodRangeView;
+  /** 只算這位追蹤對象；null 為整個資料庫。 */
+  readonly subjectId: TrackedSubjectId | null;
+  readonly recordCount: number;
+  readonly previousRecordCount: number;
+  readonly recordCountChange: number;
+  readonly recordCountChangeLabel: string;
+  readonly sums: readonly DatabaseFieldSumView[];
+}
+
+export interface DatabasePeriodSummaryQuery {
+  readonly period: DatabasePeriodName;
+  readonly subjectId: TrackedSubjectId | null;
 }
 
 export interface DatabaseTrackingView {

@@ -91,10 +91,18 @@ import type {
   DatabaseSummaryView,
   DatabaseTemplateView,
   DatabaseRecordView,
+  DatabaseFieldSumView,
+  DatabasePeriodName,
+  DatabasePeriodRangeView,
+  DatabasePeriodSummaryQuery,
+  DatabasePeriodSummaryView,
   DatabaseTrackingView,
   DatabaseTrialAnswers,
   DatabaseUpcomingFeature,
+  ComparisonPointView,
+  MetricComparisonView,
   OwnDatabaseSubmissionView,
+  SubjectComparisonView,
   TrackedSubjectView,
   WithdrawnRecordView,
 } from '../domain/database.model';
@@ -228,6 +236,12 @@ type SubmitDatabaseEntryRequest = components['schemas']['SubmitDatabaseEntryRequ
 type ApiDatabaseOwnSubmissionList = components['schemas']['DatabaseOwnSubmissionListView'];
 type ApiDatabaseTracking = components['schemas']['DatabaseTrackingView'];
 type ApiDatabaseTrackedSubject = components['schemas']['DatabaseTrackedSubjectView'];
+type ApiSubjectComparison = components['schemas']['DatabaseSubjectComparison'];
+type ApiMetricComparison = components['schemas']['DatabaseMetricComparison'];
+type ApiComparisonPoint = components['schemas']['DatabaseComparisonPoint'];
+type ApiPeriodSummary = components['schemas']['DatabasePeriodSummaryResult'];
+type ApiPeriodRange = components['schemas']['DatabaseQueryPeriodView'];
+type ApiFieldSum = components['schemas']['DatabaseFieldSum'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -386,8 +400,18 @@ export function apiDatabaseTrackingPath(databaseId: string): string {
   return `${apiDatabasePath(databaseId)}/tracking`;
 }
 
-/** API 模式還沒有的趨勢比較（#147）在時間軸裡的佔位：不是「紀錄不足」的判斷，畫面也不顯示它。 */
-const API_TRENDS_PENDING_MESSAGE = '趨勢比較將於後續版本開放。';
+/**
+ * 固定查詢 `period-summary`（issue #147）：`period` 是具名期間；`subjectId` 只算這位追蹤對象（前端 id
+ * `subject-<帳號 GUID>` 去掉前綴）。參數只有這兩個，伺服器不接受其他。
+ */
+export function apiDatabasePeriodSummaryPath(
+  databaseId: string,
+  period: DatabasePeriodName,
+  subjectId: string | null,
+): string {
+  const subject = subjectId === null ? '' : `&subjectId=${encodeURIComponent(subjectId.replace(/^subject-/, ''))}`;
+  return `${apiDatabasePath(databaseId)}/queries/period-summary?period=${encodeURIComponent(period)}${subject}`;
+}
 
 /** 指定資料管理者（issue #144）：`PUT`，請求是指定後的完整清單。 */
 export function apiDatabaseAccessPath(databaseId: string): string {
@@ -395,14 +419,14 @@ export function apiDatabaseAccessPath(databaseId: string): string {
 }
 
 /**
- * API 模式還沒有的資料庫功能（#143–#148 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」。
+ * API 模式還沒有的資料庫功能（#143–#150 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」。
  *
- * `records` 已於 #146 移除：收集紀錄頁籤的時間軸與撤回軌跡走 `GET /api/v1/databases/{id}/tracking`。
- * 剩下的 `trends`（趨勢比較與定期回報摘要）要由伺服器計算，是 #147；在那之前趨勢頁籤顯示「將於後續
- * 版本開放」，不在前端用顯示文字自己算差異。
+ * `records` 已於 #146 移除、`trends` 已於 #147 移除：收集紀錄時間軸走 `GET .../tracking`，趨勢比較與
+ * 期間統計是伺服器的固定查詢（數字由伺服器算好，前端不用顯示文字自己算差異）。剩下的是
+ * `periodic-reports`（助理定期回報與 AI 摘要，#150）與 `assistant-connections`（#148）。
  */
 export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
-  'trends',
+  'periodic-reports',
   'assistant-connections',
 ];
 
@@ -1357,8 +1381,9 @@ export class HybridDemoRepository extends MockDemoRepository {
   /**
    * `GET /api/v1/databases/{id}/tracking`（issue #146）：時間軸依追蹤對象（＝提交帳號）分組，有效紀錄與
    * 撤回軌跡分開。`403 database-records`（看得到資料庫但不能讀）照 body 的 reason；`403 database` 與
-   * id 不是 GUID 的 `404` 是 `database`。趨勢比較（`comparison`）與定期回報是 #147：這裡填「尚未提供」
-   * 的佔位與空陣列，畫面以 `upcomingFeatures` 的 `trends` 不顯示它們。
+   * id 不是 GUID 的 `404` 是 `database`。每位追蹤對象的 `comparison`（首次／上次／本次）是伺服器的固定
+   * 查詢算好的（#147），這裡只轉換型別，不重算。定期回報是 #150：這裡是空陣列，畫面以
+   * `upcomingFeatures` 的 `periodic-reports` 顯示將於後續版本開放。
    */
   override getDatabaseTracking(databaseId: string): Observable<RepositoryView<DatabaseTrackingView>> {
     return this.http.get<ApiDatabaseTracking>(apiDatabaseTrackingPath(databaseId)).pipe(
@@ -1376,6 +1401,30 @@ export class HybridDemoRepository extends MockDemoRepository {
           : this.permissionDeniedOrThrow(error, DATABASE_DENIED),
       ),
     );
+  }
+
+  /**
+   * `GET /api/v1/databases/{id}/queries/period-summary?period=…[&subjectId=…]`（issue #147）。權限與
+   * 時間軸相同：`403 database`／`403 database-records`／id 不是 GUID 的 `404` 照 `getDatabaseTracking`
+   * 處理；`422`（期間或對象不被接受）不會由畫面產生，與其他 5xx 一樣以 Observable 的 error 傳出。
+   */
+  override getDatabasePeriodSummary(
+    databaseId: string,
+    query: DatabasePeriodSummaryQuery,
+  ): Observable<RepositoryView<DatabasePeriodSummaryView>> {
+    return this.http
+      .get<ApiPeriodSummary>(apiDatabasePeriodSummaryPath(databaseId, query.period, query.subjectId))
+      .pipe(
+        map((response): RepositoryView<DatabasePeriodSummaryView> => ({
+          status: 'ready',
+          data: toPeriodSummary(response),
+        })),
+        catchError((error: unknown) =>
+          isHttpError(error, 404)
+            ? of(permissionDenied(DATABASE_DENIED))
+            : this.permissionDeniedOrThrow(error, DATABASE_DENIED),
+        ),
+      );
   }
 
   // ---------- 知識庫 ----------
@@ -1899,7 +1948,82 @@ function toTrackedSubject(subject: ApiDatabaseTrackedSubject): TrackedSubjectVie
         source: trail.source,
       }),
     ),
-    comparison: { status: 'insufficient-records', recordCount: records.length, message: API_TRENDS_PENDING_MESSAGE },
+    comparison: toComparison(subject.comparison),
+  };
+}
+
+function toComparisonPoint(point: ApiComparisonPoint): ComparisonPointView {
+  return { recordId: `record-${point.recordId}`, dateLabel: point.date, value: point.value, display: point.display };
+}
+
+function toMetric(metric: ApiMetricComparison): MetricComparisonView {
+  return {
+    fieldId: toDatabaseFieldId(metric.fieldId),
+    label: metric.label,
+    first: toComparisonPoint(metric.first),
+    previous: toComparisonPoint(metric.previous),
+    current: toComparisonPoint(metric.current),
+    changeFromPrevious: metric.changeFromPrevious,
+    changeFromFirst: metric.changeFromFirst,
+    changeFromPreviousLabel: metric.changeFromPreviousLabel,
+    changeFromFirstLabel: metric.changeFromFirstLabel,
+    direction: metric.direction,
+    points: metric.points.map(toComparisonPoint),
+    axis: { min: metric.axis.min, max: metric.axis.max },
+    summary: metric.summary,
+  };
+}
+
+/**
+ * 伺服器算好的比較照原樣轉換。後端對不適用的 `message`／`summary` 送 `null`（不省略）；仍同時接受
+ * 省略，缺的文字當成空字串，不讓畫面壞掉。紀錄不足時沒有任何指標，畫面不畫趨勢。
+ */
+function toComparison(comparison: ApiSubjectComparison): SubjectComparisonView {
+  return comparison.status === 'available'
+    ? {
+        status: 'available',
+        recordCount: comparison.recordCount,
+        summary: comparison.summary ?? '',
+        metrics: (comparison.metrics ?? []).map(toMetric),
+      }
+    : { status: 'insufficient-records', recordCount: comparison.recordCount, message: comparison.message ?? '' };
+}
+
+function toPeriodRange(range: ApiPeriodRange): DatabasePeriodRangeView {
+  return {
+    name: range.period == null ? null : (range.period as DatabasePeriodName),
+    from: range.from,
+    to: range.to,
+    label: range.label,
+  };
+}
+
+function toFieldSum(sum: ApiFieldSum): DatabaseFieldSumView {
+  return {
+    fieldId: toDatabaseFieldId(sum.fieldId),
+    label: sum.label,
+    unit: sum.unit,
+    sum: sum.sum,
+    display: sum.display,
+    recordCount: sum.recordCount,
+    previousSum: sum.previousSum,
+    previousDisplay: sum.previousDisplay,
+    previousRecordCount: sum.previousRecordCount,
+    change: sum.change,
+    changeLabel: sum.changeLabel,
+  };
+}
+
+function toPeriodSummary(summary: ApiPeriodSummary): DatabasePeriodSummaryView {
+  return {
+    period: toPeriodRange(summary.period),
+    previousPeriod: toPeriodRange(summary.previousPeriod),
+    subjectId: summary.subjectId == null ? null : `subject-${summary.subjectId}`,
+    recordCount: summary.recordCount,
+    previousRecordCount: summary.previousRecordCount,
+    recordCountChange: summary.recordCountChange,
+    recordCountChangeLabel: summary.recordCountChangeLabel,
+    sums: summary.sums.map(toFieldSum),
   };
 }
 

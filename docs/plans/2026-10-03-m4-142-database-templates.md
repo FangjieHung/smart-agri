@@ -181,3 +181,62 @@
 - 追蹤對象＝`SubmittedByAccountId`；欄位以穩定的 `FieldId` 跨版本比較；`NumberValue`（數字、量尺）是趨勢的來源。
 - 前端：`TrackedSubjectView.comparison` 與 `DatabaseTrackingView.periodicReports` 由 #147 從伺服器填入（可擴充 `GET .../tracking` 或另開固定查詢端點），完成後從 `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`。
 - 數據庫清單摘要的 `recordCount`／`subjectCount` 在 API 模式仍為 `null`：若 #147 要顯示，用 `DatabaseActiveRecords` 計數並只對可讀者回傳。
+
+
+## 10. #147 趨勢與固定統計查詢（2026-10-03）
+
+依據：[助理存取知識庫與數據庫 ADR](../adr/2026-09-25-assistant-access-to-knowledge-and-databases.md)（讀取只能走服務端事先寫好的固定查詢：依期間計數、加總、比較；不接受 SQL）、[撤回與保存 ADR](../adr/2026-09-25-withdrawal-and-retention.md)、[定期報表 ADR](../adr/2026-09-25-periodic-reports.md)。
+
+### 10.1 固定查詢清單
+
+定義在 `DatabaseFixedQueries.Definitions`（Application；名稱、必填與選填參數），執行在 `DatabaseFixedQueryService`（Api；`RunAsync(kind, accountId, databaseId, parameters)` 或四個具名方法）。
+
+| 查詢（wire name） | 參數 | 結果 | 說明 |
+| --- | --- | --- | --- |
+| `record-count` | 期間（`period` 或 `from`＋`to`）；選填 `subjectId` | `DatabaseRecordCountResult`：`count`、`previousCount`、`change`、`changeLabel`（`+3 筆`／`持平`） | 有效紀錄筆數與前一期 |
+| `field-sum` | 期間；必填 `fieldId`（**數字**欄位）；選填 `subjectId` | `DatabaseFieldSumResult`：`field`＝`sum`、`display`（`1,200 元`）、`recordCount`、`previousSum`、`change`、`changeLabel` | 一個數字欄位的加總與前一期；量尺不可加總（`422`） |
+| `period-summary` | 期間；選填 `subjectId` | `DatabasePeriodSummaryResult`：筆數＋每個數字欄位的 `sums[]`（同上）＋前一期 | 趨勢頁籤用的「期間統計」 |
+| `subject-comparison` | 必填 `subjectId`；選填 `fieldId`（數字或量尺） | `DatabaseSubjectComparisonResult`：`comparison`＝`status`（`available`／`insufficient-records`）、`recordCount`、`message`／`summary`、`metrics[]`（首次／上次／本次、變化與標籤、`direction`、`points`、`axis`、`summary`） | 同一份 `comparison` 也放在 `GET .../tracking` 每位追蹤對象裡，兩處逐字相同（整合測試比對） |
+
+端點：`GET /api/v1/databases/{id}/queries/{record-count|field-sum|period-summary|subject-comparison}`，參數放 query string；其他名稱是 `404`，沒有「任意查詢」的路由。
+
+### 10.2 參數規則（`DatabaseFixedQueries.Validate`）
+
+- **只收定義內的**：不在該查詢定義內的參數名稱（例如 `sql`、`select`、`expression`、對 `record-count` 傳 `fieldId`）、重複的鍵（`?period=a&period=b`）都是 `422`，鍵就是那個參數名；必填缺漏、值不在定義內同樣是 `422`（每個失敗各一個 `errors.<參數>`）。
+- **期間**：`period` 是 `this-week`／`last-week`／`this-month`／`last-month`／`last-7-days`／`last-30-days`，或 `from`＋`to` 兩個真實存在的 `yyyy-MM-dd`（`from` 不晚於 `to`、最長 366 天、2000-01-01 至 2100-12-31）；兩種擇一，不可並用。
+- **欄位**：必須存在於這個數據庫**目前或任何歷史表單版本**（以該 id 最新的那一版定義為準，已移除的欄位仍可查）；`field-sum` 要數字，`subject-comparison` 要數字或量尺。
+- **對象**：`subjectId` 是提交帳號的 id，且必須**提交過這個數據庫**（含已全部撤回的，與時間軸列出的一致）。不是 GUID、不存在、別的數據庫的對象、別組織的帳號、從未提交過的管理者，**一律同一則** `422 subjectId`「找不到這位追蹤對象。」（整合測試比對逐位元組相同）。
+- **順序**：先判斷能不能讀這個數據庫的紀錄（`DatabaseActiveRecords.ReadableAsync`，每次呼叫重查指定與帳號權限），再驗參數。所以無權者不論參數對錯都得到同一個 `403`（`database` 或 `database-records`，與時間軸相同），看不到任何欄位或對象的資訊。
+
+### 10.3 日期與時區邊界
+
+- **一律 UTC 曆日**，與時間軸、紀錄的 `dateLabel`（ISO 時間的日期部分）同一天；紀錄屬於 `SubmittedAt` 落在的 UTC 日。期間含起訖兩日（`[from 00:00Z, to+1日 00:00Z)`），所以 `23:59:59.999Z` 屬當天、`00:00:00Z` 屬隔天。台灣使用者在 08:00 前送出的資料，統計上算前一天；組織時區是之後的課題（要加組織設定，兩邊一起換）。
+- 週從週一到週日；`this-week`／`this-month` 涵蓋整週／整月（含尚未發生的日子），`last-7-days`／`last-30-days` 到今天為止。
+- **前一期**是完整的前一期：上週、上月（月份天數不同照曆月）；滾動與自訂期間則是緊接在前、同樣天數。單元測試 `DatabaseFixedQueriesTests`（後端）與 `database-tracking.spec.ts`（前端）用同一組案例。
+
+### 10.4 計算與資料不足
+
+- **比較**（`DatabaseQueryResults.Compare`）：依穩定的 `FieldId` 跨版本比較；指標取自**最新一筆**紀錄的數字／量尺欄位，每個指標的點是有這個 id 且**型別與單位和最新一筆相同**的紀錄（單位改過的不混進同一條趨勢），至少 2 個點才成立。量尺的圖表縱軸取量尺範圍（與值取聯集），數字取值的最小最大。文字：`本次 X，較上次 +N，較首次 +M`、無變化 `持平`、量尺單位 `分`，數字格式與回執相同（千分位、最多 3 位小數）。
+- **加總**（`DatabaseQueryResults.Sums`）：只加總型別是數字、且單位等於該欄位最新單位的值；每個欄位是 `SELECT SUM … GROUP BY FieldId, Unit`（一次查詢，成本不隨筆數成長；`ToQueryString()` 確認過沒有逐欄的純量子查詢）。目前表單的數字欄位即使 0 也列出；已移除的欄位只在這兩個期間有值時才列出。
+- **資料不足**：沒有紀錄或只有一筆 → `insufficient-records`＋`message`（`目前只有 N 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。`）、沒有指標；有 2 筆以上但沒有任何欄位累積 2 個數值 → 同狀態，訊息改為 `目前有 N 筆紀錄，但沒有任何數字或量尺欄位累積 2 筆以上的數值，無法比較。`（不回「available 但沒有指標」的空趨勢）。筆數與加總沒有「不足」：0 就是 0，`recordCount` 讓呼叫端分辨「沒資料」。
+- **撤回**：撤回刪除 entries 並設 `WithdrawnAt`，所有查詢經 `DatabaseActiveRecords`，下一次查詢就排除（整合測試：逐筆撤回後筆數、加總、比較、時間軸同步變）。已產生的定期報表不追溯改寫是 #150 的規則（ADR）。
+
+### 10.5 前端
+
+- `TrackedSubjectView.comparison` 由伺服器填入（Hybrid 只轉換型別）；新增 `getDatabasePeriodSummary(databaseId, {period, subjectId})`（`Observable` 契約；mock 以 `now()` 的 UTC 日為今天計算，`summarizePeriod`／`resolvePeriod`／`previousPeriod` 在 `database-tracking.ts`，與後端同一套規則）。
+- 趨勢頁籤：變化摘要＋比較表＋趨勢圖（紀錄不足時只顯示說明，不畫圖）；新增「期間統計」（`features/databases/period-summary/`，預設近 30 天，可切換期間；讀取失敗與「沒有紀錄」分開、可重試）；每位追蹤對象底下有「查看…的原始紀錄」連到收集紀錄頁籤（`?subject=`）。
+- `DatabaseUpcomingFeature`：`'trends'` 移除，改為 `'periodic-reports'`（#150）；API 模式的趨勢頁籤只在有追蹤對象時顯示「定期回報摘要：這項功能將於後續版本開放」，`periodicReports` 仍是空陣列。
+- 摘要清單的 `recordCount`／`subjectCount` 仍為 `null`（本票沒有需要顯示它的畫面；要顯示時用 `DatabaseActiveRecords` 計數且只對可讀者回傳）。
+
+### 10.6 測試
+
+- 後端單元：`DatabaseFixedQueriesTests`（期間解析、前一期、參數規則）、`DatabaseQueryResultsTests`（比較、不足、單位不混、加總、標籤）。
+- 後端整合（`DatabaseFixedQueryEndpointsTests`，真實 PostgreSQL，10 個）：無權限／未指定／他組織／權限撤銷／指定移除皆拒絕且不洩漏（錯誤參數同一個 403）；對象不在這個數據庫一律同一則 422；不在定義內的參數與值 422、無「任意查詢」路由；空資料與單筆＝紀錄不足；跨期邊界與跨對象計數、加總；具名期間；撤回後各查詢與時間軸同步排除；表單改版（改名、新增、移除欄位）仍以 `FieldId` 比較；量尺的軸與單位。
+- 前端：`database-tracking.spec.ts`、`mock-demo-repository-trends.spec.ts`、`period-summary.component.spec.ts`、`hybrid-demo-repository-trends.spec.ts`（**真實 API JSON**）、詳情頁與趨勢元件既有 spec 更新。
+- Cypress（未在本機執行，由 CI 跑）：`tracking.cy.ts`、`consented-submission.cy.ts`（mock）、`e2e-api/database-api.cy.ts`（API）。
+
+### 10.7 給 #149／#150 的接點
+
+- **#149（對話工具）**：模型只選 `DatabaseFixedQueries.Definitions` 之一與參數（字串字典），服務端呼叫 `DatabaseFixedQueryService.RunAsync(kind, accountId, databaseId, parameters, ct)`：`Readable = false`＝無權限（不洩漏）、`Failures`＝參數不被接受（可轉成給模型的錯誤）、`Value`＝上列結果記錄。呼叫前要先確認助理已連接該數據庫且帳號當下有權使用（#148）；本服務只管「這個帳號能不能讀這個數據庫的紀錄」。結果的 `period.label`、`display`、`changeLabel` 可直接當作回答的統計期間與可核對的數字；結果沒有任何自由文字來自使用者填寫的內容，除了欄位名稱（`label`）。
+- **#150（排程）**：排程以擁有者帳號呼叫同一個服務（擁有者仍須是被指定且具權限的資料管理者，否則 `Readable = false`＝本期不產生報表）；每期存 `period`（`from`／`to`）與結果 JSON，AI 摘要只拿已算好的數字；`this-week`／`last-month` 等具名期間以排程當下的 UTC 日解析（服務用注入的 `TimeProvider`）。紀錄不足時沿用 `insufficient-records`，不產生假趨勢。
+

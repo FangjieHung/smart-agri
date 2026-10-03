@@ -65,6 +65,8 @@ import type {
   DatabaseSubmissionInput,
   DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
+  DatabasePeriodSummaryQuery,
+  DatabasePeriodSummaryView,
   DatabaseTrackingView,
   OwnDatabaseSubmissionView,
   DatabaseTrialAnswers,
@@ -142,6 +144,7 @@ import {
 } from './database-access';
 import {
   buildPeriodicReport,
+  summarizePeriod,
   compareRecords,
   evaluateTrial,
   normalizeField,
@@ -3768,6 +3771,43 @@ export class MockDemoRepository implements DemoRepository {
           : this.readDatabaseTracking(viewerAccountId, databaseId),
       );
     });
+  }
+
+  getDatabasePeriodSummary(
+    databaseId: string,
+    query: DatabasePeriodSummaryQuery,
+  ): ReturnType<DemoRepository['getDatabasePeriodSummary']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      return of(
+        viewerAccountId === null
+          ? this.databasePermissionDenied()
+          : this.readDatabasePeriodSummary(viewerAccountId, databaseId, query),
+      );
+    });
+  }
+
+  /** `getDatabasePeriodSummary` 的同步本體；日期以 `now()` 的 UTC 曆日為「今天」。 */
+  readDatabasePeriodSummary(
+    viewerAccountId: AccountId,
+    databaseId: string,
+    query: DatabasePeriodSummaryQuery,
+  ): RepositoryView<DatabasePeriodSummaryView> {
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+    if (!this.canReadRecords(viewerAccountId, database.id)) {
+      return this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);
+    }
+
+    return this.applyScenario(
+      summarizePeriod({
+        records: this.consentedRecords(database.id),
+        fields: this.databaseCollection(database.id).fields,
+        subjectId: query.subjectId,
+        period: query.period,
+        today: this.now().toISOString().slice(0, 10),
+      }),
+    );
   }
 
   /**

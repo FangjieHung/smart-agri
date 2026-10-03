@@ -1,0 +1,23 @@
+:host { display: block; }
+
+.period-summary {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-inline-start: var(--space-1) solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+}
+
+h3, p { margin: 0; }
+h3 { font-size: var(--font-size-body); }
+.range, .empty { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+
+.heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.picker { display: flex; align-items: center; gap: var(--space-2); font-size: var(--font-size-caption); }
+
+.table-scroll { overflow-x: auto; }
+.summary-table { inline-size: 100%; min-inline-size: 28rem; border-collapse: collapse; }
+caption { padding-block-end: var(--space-2); font-weight: 700; text-align: start; }
+th, td { padding: var(--space-2) var(--space-3); border-bottom: var(--border-default); text-align: start; }
+thead th { color: var(--color-text-secondary); font-size: var(--font-size-caption); }

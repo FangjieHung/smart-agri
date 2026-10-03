@@ -65,12 +65,13 @@ describe('databases against the real API', () => {
     cy.get('.field-editor').should('have.length', 3);
     cy.get('.field-editor[data-field-id="field-overall-satisfaction"]').should('contain', '量尺');
 
-    // 收集紀錄（#146）已開放：剛建立的數據庫沒有紀錄；趨勢比較（#147）仍是將於後續版本開放。
+    // 收集紀錄（#146）與趨勢比較（#147）都已開放：剛建立的數據庫沒有紀錄，兩個頁籤都是空白狀態。
     cy.get('nav.tabs').contains('a', '收集紀錄').click();
     cy.contains('還沒有收集紀錄').should('be.visible');
     cy.get('.upcoming-notice').should('not.exist');
     cy.get('nav.tabs').contains('a', '趨勢比較').click();
-    cy.get('.upcoming-notice').should('contain', '將於後續版本開放');
+    cy.contains('還沒有收集紀錄').should('be.visible');
+    cy.get('app-trend-chart').should('not.exist');
 
     cy.visit('/app/databases');
     cy.contains('tr', databaseName)
@@ -307,6 +308,19 @@ describe('databases against the real API', () => {
     cy.get('app-records-table').should('contain', '1,200 元').and('contain', '表單連結');
     cy.get('app-records-table .withdrawn').should('not.exist');
 
+    // 趨勢比較（#147）：只有一筆有效紀錄，所以「紀錄不足」、不畫趨勢；期間統計由伺服器的固定查詢算好，
+    // 定期回報摘要（#150）仍是將於後續版本開放。
+    cy.intercept('GET', `/api/v1/databases/${databaseId}/queries/period-summary*`).as('summary');
+    cy.visit(`/app/databases/${databaseId}/trends`);
+    cy.wait('@summary').its('response.statusCode').should('eq', 200);
+    cy.get('.insufficient-records').should('contain', '目前只有 1 筆紀錄').and('contain', '累積 2 筆以上');
+    cy.get('.trend-conclusion').should('not.exist');
+    cy.get('app-trend-chart').should('not.exist');
+    cy.get('app-period-summary tr[data-row="record-count"]').should('contain', '1 筆');
+    cy.get('app-period-summary').should('contain', '1,200 元');
+    cy.get('.upcoming-notice').should('contain', '定期回報摘要').and('contain', '將於後續版本開放');
+    cy.contains('a.records-link', '外部客戶的原始紀錄').should('have.attr', 'href').and('include', `/databases/${databaseId}/records`);
+
     // 提交者：在「對話與回報紀錄」看到自己的回執，先確認再撤回。
     loginToApi('anxin', 'customer');
     cy.intercept('GET', '/api/v1/submissions').as('own');
@@ -377,6 +391,14 @@ describe('databases against the real API', () => {
         .its('body.records')
         .should('have.length', 0),
     );
+
+    // 撤回後重新查詢就排除那一筆：期間統計是 0 筆、加總沒有 1,200 元，比較也沒有任何數字。
+    cy.intercept('GET', `/api/v1/databases/${databaseId}/queries/period-summary*`).as('summaryAfter');
+    cy.visit(`/app/databases/${databaseId}/trends`);
+    cy.wait('@summaryAfter').its('response.statusCode').should('eq', 200);
+    cy.get('app-period-summary tr[data-row="record-count"]').should('contain', '0 筆');
+    cy.get('app-period-summary').should('not.contain', '1,200 元');
+    cy.get('.insufficient-records').should('contain', '目前只有 0 筆紀錄');
   });
 });
 

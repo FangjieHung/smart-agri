@@ -2856,6 +2856,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}/queries/record-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["DatabaseQuery_record-count"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/queries/field-sum": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["DatabaseQuery_field-sum"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/queries/period-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["DatabaseQuery_period-summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/queries/subject-comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["DatabaseQuery_subject-comparison"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants": {
         parameters: {
             query?: never;
@@ -5222,6 +5286,22 @@ export interface components {
             id: string;
             displayName: string;
         };
+        DatabaseComparisonAxis: {
+            /** Format: double */
+            min: number;
+            /** Format: double */
+            max: number;
+        };
+        DatabaseComparisonPoint: {
+            /** Format: uuid */
+            recordId: string;
+            date: string;
+            /** Format: double */
+            value: number;
+            display: string;
+        };
+        /** @enum {unknown} */
+        DatabaseComparisonStatus: "insufficient-records" | "available";
         DatabaseDataManagerView: {
             account: components["schemas"]["DatabaseAccountView"];
             hasReadPermission: boolean;
@@ -5243,6 +5323,31 @@ export interface components {
             scale: null | components["schemas"]["DatabaseScaleDraft"];
             unit: null | string;
         };
+        DatabaseFieldSum: {
+            fieldId: string;
+            label: string;
+            unit: string;
+            /** Format: double */
+            sum: number;
+            display: string;
+            /** Format: int32 */
+            recordCount: number;
+            /** Format: double */
+            previousSum: number;
+            previousDisplay: string;
+            /** Format: int32 */
+            previousRecordCount: number;
+            /** Format: double */
+            change: number;
+            changeLabel: string;
+        };
+        DatabaseFieldSumResult: {
+            period: components["schemas"]["DatabaseQueryPeriodView"];
+            previousPeriod: components["schemas"]["DatabaseQueryPeriodView"];
+            /** Format: uuid */
+            subjectId: null | string;
+            field: components["schemas"]["DatabaseFieldSum"];
+        };
         /** @enum {unknown} */
         DatabaseFieldType: "text" | "number" | "date" | "single-choice" | "multiple-choice" | "scale";
         DatabaseFieldView: {
@@ -5263,6 +5368,24 @@ export interface components {
             createdAt: string;
             fields: components["schemas"]["DatabaseFieldView"][];
         };
+        DatabaseMetricComparison: {
+            fieldId: string;
+            label: string;
+            unit: string;
+            first: components["schemas"]["DatabaseComparisonPoint"];
+            previous: components["schemas"]["DatabaseComparisonPoint"];
+            current: components["schemas"]["DatabaseComparisonPoint"];
+            /** Format: double */
+            changeFromPrevious: number;
+            /** Format: double */
+            changeFromFirst: number;
+            changeFromPreviousLabel: string;
+            changeFromFirstLabel: string;
+            direction: components["schemas"]["DatabaseTrendDirection"];
+            points: components["schemas"]["DatabaseComparisonPoint"][];
+            axis: components["schemas"]["DatabaseComparisonAxis"];
+            summary: string;
+        };
         DatabaseOwnSubmissionListView: {
             submissions: components["schemas"]["DatabaseOwnSubmissionView"][];
         };
@@ -5280,6 +5403,39 @@ export interface components {
             source: components["schemas"]["DatabaseSubmissionSource"];
             /** Format: date-time */
             withdrawnAt: null | string;
+        };
+        DatabasePeriodSummaryResult: {
+            period: components["schemas"]["DatabaseQueryPeriodView"];
+            previousPeriod: components["schemas"]["DatabaseQueryPeriodView"];
+            /** Format: uuid */
+            subjectId: null | string;
+            /** Format: int32 */
+            recordCount: number;
+            /** Format: int32 */
+            previousRecordCount: number;
+            /** Format: int32 */
+            recordCountChange: number;
+            recordCountChangeLabel: string;
+            sums: components["schemas"]["DatabaseFieldSum"][];
+        };
+        DatabaseQueryPeriodView: {
+            period: null | string;
+            from: string;
+            to: string;
+            label: string;
+        };
+        DatabaseRecordCountResult: {
+            period: components["schemas"]["DatabaseQueryPeriodView"];
+            previousPeriod: components["schemas"]["DatabaseQueryPeriodView"];
+            /** Format: uuid */
+            subjectId: null | string;
+            /** Format: int32 */
+            count: number;
+            /** Format: int32 */
+            previousCount: number;
+            /** Format: int32 */
+            change: number;
+            changeLabel: string;
         };
         DatabaseRecordListView: {
             /** Format: uuid */
@@ -5301,6 +5457,19 @@ export interface components {
             max: number;
             minLabel: string;
             maxLabel: string;
+        };
+        DatabaseSubjectComparison: {
+            status: components["schemas"]["DatabaseComparisonStatus"];
+            /** Format: int32 */
+            recordCount: number;
+            message: null | string;
+            summary: null | string;
+            metrics: components["schemas"]["DatabaseMetricComparison"][];
+        };
+        DatabaseSubjectComparisonResult: {
+            /** Format: uuid */
+            subjectId: string;
+            comparison: components["schemas"]["DatabaseSubjectComparison"];
         };
         DatabaseSubmissionEntryView: {
             fieldId: string;
@@ -5384,12 +5553,15 @@ export interface components {
             subject: components["schemas"]["DatabaseAccountView"];
             records: components["schemas"]["DatabaseSubmittedRecordView"][];
             withdrawals: components["schemas"]["DatabaseWithdrawnRecordView"][];
+            comparison: components["schemas"]["DatabaseSubjectComparison"];
         };
         DatabaseTrackingView: {
             /** Format: uuid */
             databaseId: string;
             subjects: components["schemas"]["DatabaseTrackedSubjectView"][];
         };
+        /** @enum {unknown} */
+        DatabaseTrendDirection: "up" | "down" | "flat";
         DatabaseTrialEntryView: {
             fieldId: string;
             label: string;
@@ -5894,4 +6066,177 @@ export interface components {
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+    "DatabaseQuery_record-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabaseRecordCountResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    "DatabaseQuery_field-sum": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabaseFieldSumResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    "DatabaseQuery_period-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabasePeriodSummaryResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    "DatabaseQuery_subject-comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabaseSubjectComparisonResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+}

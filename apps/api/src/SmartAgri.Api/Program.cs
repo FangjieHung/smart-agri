@@ -36,6 +36,11 @@ builder.Services.AddGroundedAnswers();
 builder.Services.AddAssistantTestRuns();
 builder.Services.AddSingleton<ChatRunLocks>();
 builder.Services.AddScoped<DatabaseSubmissionService>();
+builder.Services.AddOptions<StatisticsOptions>()
+    .Bind(builder.Configuration.GetSection(StatisticsOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<StatisticsOptions>, StatisticsOptions.Validator>();
+builder.Services.AddScoped<DatabaseFixedQueryService>();
 builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();
@@ -133,6 +138,7 @@ app.MapKnowledgeReviewEndpoints();
 app.MapKnowledgeRetrievalEndpoints();
 app.MapDatabaseEndpoints();
 app.MapDatabaseSubmissionEndpoints();
+app.MapDatabaseQueryEndpoints();
 app.MapAssistantEndpoints();
 app.MapAssistantDraftEndpoints();
 app.MapAssistantTestCaseEndpoints();

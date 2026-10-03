@@ -161,9 +161,9 @@ describe('editing an assistant after it exists', () => {
       cy.get('.autosave').should('contain', '已自動儲存');
 
       cy.visit('/app/databases/database-customer-records/trends');
+      // 趨勢比較本身不受影響；先等它畫出來，再斷言定期回報已不存在（否則在頁面載入前就會通過）。
+      cy.get('.trend-conclusion').scrollIntoView().should('be.visible');
       cy.get('.periodic-report').should('not.exist');
-      // 趨勢比較本身不受影響。
-      cy.get('.trend-conclusion').should('be.visible');
     });
 
     it('only offers databases that are still connected as the write target', () => {

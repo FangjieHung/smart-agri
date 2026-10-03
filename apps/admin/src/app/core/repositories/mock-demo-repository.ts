@@ -65,6 +65,8 @@ import type {
   DatabaseSubmissionInput,
   DatabaseSubmissionReceiptView,
   DatabaseSummaryView,
+  DatabasePeriodSummaryQuery,
+  DatabasePeriodSummaryView,
   DatabaseTrackingView,
   OwnDatabaseSubmissionView,
   DatabaseTrialAnswers,
@@ -142,6 +144,8 @@ import {
 } from './database-access';
 import {
   buildPeriodicReport,
+  statisticsDay,
+  summarizePeriod,
   compareRecords,
   evaluateTrial,
   normalizeField,
@@ -3771,6 +3775,43 @@ export class MockDemoRepository implements DemoRepository {
     });
   }
 
+  getDatabasePeriodSummary(
+    databaseId: string,
+    query: DatabasePeriodSummaryQuery,
+  ): ReturnType<DemoRepository['getDatabasePeriodSummary']> {
+    return defer(() => {
+      const viewerAccountId = this.viewer();
+      return of(
+        viewerAccountId === null
+          ? this.databasePermissionDenied()
+          : this.readDatabasePeriodSummary(viewerAccountId, databaseId, query),
+      );
+    });
+  }
+
+  /** `getDatabasePeriodSummary` 的同步本體；日期以 `now()` 的 UTC 曆日為「今天」。 */
+  readDatabasePeriodSummary(
+    viewerAccountId: AccountId,
+    databaseId: string,
+    query: DatabasePeriodSummaryQuery,
+  ): RepositoryView<DatabasePeriodSummaryView> {
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+    if (!this.canReadRecords(viewerAccountId, database.id)) {
+      return this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);
+    }
+
+    return this.applyScenario(
+      summarizePeriod({
+        records: this.consentedRecords(database.id),
+        fields: this.databaseCollection(database.id).fields,
+        subjectId: query.subjectId,
+        period: query.period,
+        today: statisticsDay(this.now().toISOString()),
+      }),
+    );
+  }
+
   /**
    * `getDatabaseTracking` 的同步本體，指定檢視帳號。只給 mock 內部與單元測試用（例如驗證對話提交
    * 是否進了收集紀錄）；不在 `DemoRepository` 契約內，畫面一律用非同步的 `getDatabaseTracking`。
@@ -4628,7 +4669,7 @@ export class MockDemoRepository implements DemoRepository {
     if (record.consentStatus === 'withdrawn') {
       return {
         status: 'withdrawn',
-        withdrawnDateLabel: (record.withdrawnAt ?? '').slice(0, 10),
+        withdrawnDateLabel: record.withdrawnAt === undefined ? '' : statisticsDay(record.withdrawnAt),
         notice: CHAT_WITHDRAWN_NOTICE,
       };
     }
@@ -5216,7 +5257,7 @@ export class MockDemoRepository implements DemoRepository {
     subjects: readonly TrackedSubjectView[],
   ): readonly PeriodicReportView[] {
     const latest = chronological.at(-1);
-    const anchorLabel = (latest?.recordedAt ?? this.now().toISOString()).slice(0, 10);
+    const anchorLabel = statisticsDay(latest?.recordedAt ?? this.now().toISOString());
 
     return this.assistants().flatMap((assistant) => {
       const rules = this.assistantRules(assistant);

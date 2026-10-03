@@ -155,7 +155,7 @@ public static class DatabaseAnswerRules
 
     /// <summary>Grouped thousands and at most three decimals, like the mock's
     /// <c>Intl.NumberFormat('en-US')</c>, then the unit after a space.</summary>
-    private static string FormatNumber(double value, string unit)
+    public static string FormatNumber(double value, string unit)
     {
         var formatted = value.ToString("#,##0.###", CultureInfo.InvariantCulture);
         return unit.Length > 0 ? $"{formatted} {unit}" : formatted;

@@ -103,6 +103,18 @@ describe('structured data and tracking', () => {
     cy.get('.trend-conclusion').should('contain', '整體滿意度：本次 5 / 5，較上次 +2 分，較首次 +2 分。');
     cy.get('app-trend-chart svg[role="img"]').should('have.length', 2);
     cy.get('app-trend-chart').first().find('tbody tr').should('have.length', 4);
+
+    // 期間統計（#147）：筆數與加總已算好；數字隨「今天」變動，只檢查結構與切換期間。
+    cy.get('app-period-summary table.summary-table').should('contain', '紀錄筆數').and('contain', '本月消費金額（加總）');
+    cy.get('app-period-summary select').select('上月');
+    cy.get('app-period-summary .range').should('contain', '上月（');
+    cy.get('app-period-summary tr[data-row="record-count"]').should('exist');
+
+    // 原始紀錄入口：回到收集紀錄頁籤，仍是同一位追蹤對象。
+    cy.contains('a.records-link', '王小姐的原始紀錄').click();
+    cy.location('pathname').should('eq', '/app/databases/database-customer-records/records');
+    cy.location('search').should('eq', '?subject=subject-wang');
+    cy.get('ol.timeline > li').should('have.length', 4);
   });
 
   it('shows the 定期回報 schedule and a summary built from the precomputed comparison', () => {

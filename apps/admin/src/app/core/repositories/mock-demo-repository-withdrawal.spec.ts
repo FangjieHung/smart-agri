@@ -124,14 +124,16 @@ describe('MockDemoRepository consent withdrawal', () => {
     expect(JSON.stringify(after)).not.toContain('DEMO-9001');
   });
 
-  it('recomputes the trend without the withdrawn record and falls back below two records', () => {
+  it('recomputes the comparison without the withdrawn record and falls back below two records', () => {
     const repository = createRepository();
     const first = submit(repository, CUSTOMER, 'DEMO-9001');
     submit(repository, CUSTOMER, 'DEMO-9002');
 
+    // 兩筆都只有文字欄位，沒有任何數字或量尺可比較：說清楚，不畫空的趨勢。
     expect(subjectOf(repository, `subject-${CUSTOMER}`)?.comparison).toMatchObject({
-      status: 'available',
+      status: 'insufficient-records',
       recordCount: 2,
+      message: '目前有 2 筆紀錄，但沒有任何數字或量尺欄位累積 2 筆以上的數值，無法比較。',
     });
 
     syncValue(repository.withdrawChatSubmission(CUSTOMER, ASSISTANT, first));
@@ -139,6 +141,7 @@ describe('MockDemoRepository consent withdrawal', () => {
     expect(subjectOf(repository, `subject-${CUSTOMER}`)?.comparison).toMatchObject({
       status: 'insufficient-records',
       recordCount: 1,
+      message: '目前只有 1 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。',
     });
   });
 

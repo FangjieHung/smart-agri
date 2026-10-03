@@ -4,7 +4,7 @@
 
 ## 0. 這份文件的定位
 
-這份文件是 **`DemoRepository` 全部 60 個方法的單一索引**，回答四個問題：
+這份文件是 **`DemoRepository` 全部 61 個方法的單一索引**，回答四個問題：
 
 1. 這個方法對應哪個 endpoint、需要什麼授權、成功時回什麼。
 2. 哪些錯誤是「使用者可以在畫面上自己解決的」（可恢復），哪些不是（不可恢復）。
@@ -106,7 +106,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `retryKnowledgeDocument(viewer, kbId, docId)` `:447-451` | `POST /api/v1/knowledge-bases/{id}/documents/{docId}/retry` | `S+OWN` | `200` `KnowledgeDocumentView` | `409`（文件已在處理中）／`429` | `401`／`403 knowledge-base`／`5xx` | `knowledge-detail-page.component.ts:128` |
 | `updateKnowledgeSharing(viewer, kbId, sharing)` `:452-456` | `PUT /api/v1/knowledge-bases/{id}/sharing` | `S+OWN` | `200` `KnowledgeSharingView` | `422`（只有 `message`，無逐欄 errors）／`409`／`429` | `401`／`403 knowledge-base`／`5xx` | `knowledge-detail-page.component.ts:139` |
 
-### 2.3 資料庫、表單與追蹤（14 個方法）
+### 2.3 資料庫、表單與追蹤（15 個方法）
 
 深度：`tasks-6-10-backend-handoff.md` 第 4 節。
 
@@ -125,7 +125,8 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `getDatabaseSubmissionReceipt(submissionId)` **API（#145）** | `GET /api/v1/submissions/{id}` | `S`＋提交者本人 | `200` `DatabaseSubmissionReceiptView` | `429` | `401`／`403 authorized-form`（不存在或不是自己的，同一則）／`5xx` | 同上（`?receipt=<id>`） |
 | `listOwnDatabaseSubmissions()` **API（#146）** | `GET /api/v1/submissions` | `S`（只依提交者本人，不看 `read-own-tracking`） | `200` `DatabaseOwnSubmissionListView`（自己的提交，新到舊，**含已撤回的軌跡**，不含內容；`withdrawnAt` 有效時為 `null`） | `429` | `401`／`5xx`（畫面可重試） | `features/activity/own-submissions/own-submissions.component.ts` |
 | `withdrawDatabaseSubmission(submissionId)` **API（#146）** | `POST /api/v1/submissions/{id}/withdrawal` | `S`＋提交者本人 | `200` `DatabaseSubmissionReceiptView`（`entries: []`、`withdrawnAt`；**再撤回一次也是 `200` 同一份**） | `429` | `401`／`403 submission-withdrawal`（不存在、別人的——含資料管理者——別組織的同一則）／`404`（id 不是 GUID）／`5xx`（同一交易，失敗即無變更，可再按一次） | 同上 |
-| `getDatabaseTracking(id)`（改為 `Observable`，不再傳 viewer；**API（#146）**） | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC`（`DatabaseRecordReaders`，每次請求重查） | `200` `DatabaseTrackingView`：依追蹤對象（＝提交帳號）分組，`records` 有效紀錄（含內容）、`withdrawals` 撤回軌跡（不含內容）；**比較與趨勢（`comparison`／`periodicReports`）是 #147** | `429` | `401`／`403 database-records`（看得到但不能讀）／`403 database`（看不到，同不存在）／`404`（id 不是 GUID）／`5xx`（畫面可重試，與「沒有紀錄」分開） | `database-detail-page.component.ts`（`trackingResource`） |
+| `getDatabaseTracking(id)`（改為 `Observable`，不再傳 viewer；**API（#146）**） | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC`（`DatabaseRecordReaders`，每次請求重查） | `200` `DatabaseTrackingView`：依追蹤對象（＝提交帳號）分組，`records` 有效紀錄（含內容）、`withdrawals` 撤回軌跡（不含內容）；每位追蹤對象的 `comparison`（首次／上次／本次）由伺服器的固定查詢算好（**#147**）；`periodicReports` 是 #150（API 模式為空陣列） | `429` | `401`／`403 database-records`（看得到但不能讀）／`403 database`（看不到，同不存在）／`404`（id 不是 GUID）／`5xx`（畫面可重試，與「沒有紀錄」分開） | `database-detail-page.component.ts`（`trackingResource`） |
+| `getDatabasePeriodSummary(id, {period, subjectId})` **API（#147，新增）** | `GET /api/v1/databases/{id}/queries/period-summary?period=…[&subjectId=…]` | `S+DM+RC`（`DatabaseRecordReaders`，每次請求重查） | `200` `DatabasePeriodSummaryResult`：這一期與前一期的有效紀錄筆數與每個數字欄位的加總（`display`／`changeLabel` 已加單位）；沒有紀錄是 0 不是錯誤 | `429` | `401`／`403 database-records`／`403 database`（同 tracking）／`404`（id 不是 GUID）／`422`（不在定義內的參數、期間或對象，`errors.<參數>`；先過權限，所以無權者看不到 422）／`5xx` | `features/databases/period-summary/period-summary.component.ts` |
 
 **API 模式狀態（#142，2026-10-03）**：上表前四個方法已改成非同步契約（`Observable<…>`，不再傳 viewer），API 模式由 `hybrid-demo-repository.ts` 的同名覆寫走 HTTP，**讀取與建立（寫入）兩端都換了**，不會落到 mock 的資料庫。與 mock 的刻意差異：
 
@@ -151,9 +152,17 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 - 撤回＝同一個交易內刪除該筆的 entries（值與欄位快照）並設 `WithdrawnAt`；軌跡（提交者、數據庫、表單版本、來源、回執編號、送出／撤回時間）與 `ConsentTerms`（當時告知的條款，非填寫內容）保留。冪等：再撤回回 `200` 同一份；並行撤回只有一個生效，全部回同一份。
 - 回執多 `withdrawnAt`（有效時 `null`，一律送出）；已撤回的回執 `entries` 為空。用已撤回那份填寫的 `submissionId` 重送：同數據庫／版本／來源回 `200` 已撤回的回執、不寫入；否則 `409 submission-key-reused`。
-- 收集紀錄頁籤在 API 模式開放；`API_UPCOMING_DATABASE_FEATURES` 移除 `records`、改列 `trends`（#147：伺服器計算比較與趨勢，在那之前 Hybrid 的 `comparison` 是佔位、`periodicReports` 為空，趨勢頁籤顯示將於後續版本開放）。
+- 收集紀錄頁籤在 API 模式開放；`API_UPCOMING_DATABASE_FEATURES` 移除 `records`、改列 `trends`（#147 已接上並移除 `trends`，見下方 #147 段落）。
 - mock 的同步本體改名 `readDatabaseTracking(viewer, id)`，只給 mock 內部與單元測試（例如 Hybrid 模式下仍是 mock 的對話提交）；畫面一律用非同步的 `getDatabaseTracking`。
 - 追蹤對象＝提交的帳號；有效紀錄的唯一定義 `DatabaseActiveRecords`（#147 共用）。完整語意與資料保留規則：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 9 節。
+
+**API 模式狀態（#147，2026-10-03）**：趨勢比較與期間統計走 API（Hybrid 的 `getDatabaseTracking` 照轉伺服器算好的 `comparison`，新增的 `getDatabasePeriodSummary` 走固定查詢 `period-summary`），數字都由伺服器計算，前端不重算。重點：
+
+- **固定查詢**（`DatabaseFixedQueries`／`DatabaseFixedQueryService`，Application／Api）：`record-count`、`field-sum`、`period-summary`、`subject-comparison`，各自只接受自己定義的參數（`period`／`from`＋`to`／`fieldId`／`subjectId`），不接受運算式或 SQL；端點只是入口，#149（對話工具）與 #150（排程）直接呼叫同一個應用服務。每次呼叫重新套用組織、指定與帳號權限、只算有效紀錄（撤回即排除）。
+- **紀錄不足**：`comparison.status = 'insufficient-records'`（少於 2 筆，或有 2 筆以上但沒有任何數字／量尺欄位累積 2 個值）時沒有 `metrics`，畫面不畫趨勢。mock 的後一種情況也改成 `insufficient-records`（原本回 `available` 但沒有指標，畫面是空的趨勢）。
+- **與 mock 的刻意差異**：同一個欄位 id 若型別或單位改過，只比較／加總「目前這組型別與單位」的值，不混；mock 的比較同步這樣算（`compareRecords`）。日期一律是統計時區（`Statistics:TimeZone`，預設 `Asia/Taipei`）的曆日，週從週一；前一期是完整的前一期；前端時間軸日期標籤同樣以台北曆日顯示（`statisticsDay`）。
+- `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`、新增 `periodic-reports`（#150：定期回報與 AI 摘要；`periodicReports` 在 API 模式是空陣列，趨勢頁籤顯示將於後續版本開放）。
+- 完整契約、參數規則與給 #149／#150 的接點：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 10 節。
 
 **API 模式狀態（#143，2026-10-03）**：`updateDatabaseFields`、`previewDatabaseEntry` 已改成 `Observable` 契約（不再傳 viewer），Hybrid 覆寫走 HTTP，**讀寫兩端都換了**（寫入與試填都由伺服器驗證，mock 的欄位清單不參與）。契約變更與刻意差異：
 

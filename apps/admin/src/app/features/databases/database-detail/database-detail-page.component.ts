@@ -24,6 +24,7 @@ import { DatabaseAccessComponent } from '../database-access/database-access.comp
 import { FormDesignerComponent, type FormDesignerFailure } from '../form-designer/form-designer.component';
 import { FormTrialComponent } from '../form-designer/form-trial/form-trial.component';
 import { PeriodicReportComponent } from '../periodic-report/periodic-report.component';
+import { PeriodSummaryComponent } from '../period-summary/period-summary.component';
 import { RecordsTableComponent } from '../records-table/records-table.component';
 import { TrendViewComponent } from '../trend-view/trend-view.component';
 
@@ -61,6 +62,7 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
     FormDesignerComponent,
     FormTrialComponent,
     PeriodicReportComponent,
+    PeriodSummaryComponent,
     RecordsTableComponent,
     TrendViewComponent,
   ],
@@ -99,19 +101,16 @@ export class DatabaseDetailPageComponent {
   });
   protected readonly upcomingMessage = DATABASE_UPCOMING_FEATURE_MESSAGE;
 
-  /** 趨勢頁籤在 API 模式尚未開放（#147）時不讀取收集紀錄，直接顯示將於後續版本開放。 */
-  protected readonly trendsUpcoming = computed(() => this.activeTab().id === 'trends' && this.upcoming().has('trends'));
-
   /**
-   * 只在紀錄與趨勢頁籤讀取收集紀錄（詳情讀到之後，才知道哪些功能尚未開放）；非指定資料管理者會得到
-   * permission-denied。換身分、換網址 id 就重新讀取。
+   * 只在紀錄與趨勢頁籤讀取收集紀錄與每位追蹤對象的比較；非指定資料管理者會得到 permission-denied。
+   * 換身分、換網址 id 就重新讀取。
    */
   private readonly trackingResource = repositoryResource({
     params: () => {
       const accountId = this.session.activeAccountId();
       const tab = this.activeTab().id;
       const detail = this.view();
-      if (!accountId || (tab !== 'records' && tab !== 'trends') || this.trendsUpcoming()) return undefined;
+      if (!accountId || (tab !== 'records' && tab !== 'trends')) return undefined;
       if (detail.status !== 'ready' && detail.status !== 'partial-failure') return undefined;
       return { accountId, databaseId: this.databaseId() };
     },

@@ -242,6 +242,14 @@ describe('DatabaseDetailPageComponent', () => {
     expect(page().querySelectorAll('app-trend-chart')).toHaveLength(2);
   });
 
+  it('offers the raw records of the subject from the trend tab', async () => {
+    const { page } = await openDetail('/app/databases/database-customer-records/trends?subject=subject-wang');
+
+    const link = page().querySelector<HTMLAnchorElement>('a.records-link');
+    expect(link?.textContent).toContain('王小姐');
+    expect(link?.getAttribute('href')).toBe('/app/databases/database-customer-records/records?subject=subject-wang');
+  });
+
   it('explains instead of concluding when a subject has fewer than two records', async () => {
     const { page } = await openDetail('/app/databases/database-customer-records/trends?subject=subject-chen');
 
@@ -362,16 +370,28 @@ describe('DatabaseDetailPageComponent', () => {
       expect(page().querySelector('.upcoming-notice')).toBeNull();
     });
 
-    it('does not read records for the trends tab: trends are #147', async () => {
-      for (const tab of ['trends']) {
-        TestBed.resetTestingModule();
-        const { page, repository } = await openDetail(`/app/databases/database-customer-records/${tab}`, asApiMode);
+    it('serves the trends tab in API mode (since #147): comparison and period statistics, with only the periodic report still upcoming', async () => {
+      const { page, repository } = await openDetail(
+        '/app/databases/database-customer-records/trends?subject=subject-wang',
+        (repo) => {
+          asApiMode(repo);
+          vi.spyOn(repo, 'getDatabasePeriodSummary');
+        },
+      );
 
-        expect(page().querySelector('.upcoming-notice')?.textContent, tab).toContain('將於後續版本開放');
-        expect(page().textContent, tab).not.toContain('王小姐');
-        expect(page().textContent, tab).not.toContain('客服助理');
-        expect(repository.getDatabaseTracking, tab).not.toHaveBeenCalled();
-      }
+      expect(repository.getDatabaseTracking).toHaveBeenCalledWith('database-customer-records');
+      expect(repository.getDatabasePeriodSummary).toHaveBeenCalledWith('database-customer-records', {
+        period: 'last-30-days',
+        subjectId: 'subject-wang',
+      });
+      expect(page().querySelector('.trend-conclusion')?.textContent).toContain('較首次 +2 分');
+      expect(page().querySelectorAll('app-trend-chart')).toHaveLength(2);
+      expect(page().querySelector('app-period-summary table.summary-table')).not.toBeNull();
+      const notices = Array.from(page().querySelectorAll('.upcoming-notice')).map((notice) => notice.textContent);
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toContain('定期回報摘要');
+      expect(notices[0]).toContain('將於後續版本開放');
+      expect(page().textContent).not.toContain('趨勢比較：這項功能將於後續版本開放');
     });
 
     it('lists the connected assistants the API returned (#148), not a notice', async () => {

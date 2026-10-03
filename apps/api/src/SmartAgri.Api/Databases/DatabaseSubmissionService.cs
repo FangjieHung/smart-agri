@@ -94,6 +94,8 @@ public sealed class DatabaseSubmissionService
 {
     private const string RemovedAccountName = "已停用的帳號";
 
+    private const string NoRecordsMessage = "目前只有 0 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。";
+
     private readonly AppDbContext _dbContext;
     private readonly TimeProvider _clock;
 
@@ -284,9 +286,14 @@ public sealed class DatabaseSubmissionService
     /// each subject's active records with content and the content-free trails of its withdrawn
     /// submissions. Only subjects who submitted to <b>this</b> database appear, so the timeline
     /// never reaches another database's or organization's subjects. <b>The caller must have
-    /// checked <see cref="DatabaseRecordReaders.CanReadAsync"/></b> for the same request.
+    /// checked <see cref="DatabaseRecordReaders.CanReadAsync"/></b> for the same request;
+    /// <paramref name="comparisons"/> are <see cref="DatabaseFixedQueryService.CompareAllSubjectsAsync"/>'s
+    /// (a subject with only withdrawn submissions has none: nothing to compare).
     /// </summary>
-    public async Task<DatabaseTrackingView> GetTrackingAsync(Guid databaseId, CancellationToken cancellationToken)
+    public async Task<DatabaseTrackingView> GetTrackingAsync(
+        Guid databaseId,
+        IReadOnlyDictionary<Guid, DatabaseSubjectComparison> comparisons,
+        CancellationToken cancellationToken)
     {
         var records = await ListRecordsAsync(databaseId, cancellationToken);
         var withdrawn = await _dbContext.DatabaseSubmissions.AsNoTracking()
@@ -315,7 +322,11 @@ public sealed class DatabaseSubmissionService
                     ? own[0].Submitter.DisplayName
                     : names.GetValueOrDefault(subjectId, RemovedAccountName);
                 var latest = own.Select(record => record.SubmittedAt).Concat(trails.Select(trail => trail.SubmittedAt)).Max();
-                return (Latest: latest, View: new DatabaseTrackedSubjectView(new DatabaseAccountView(subjectId, name), own, trails));
+                return (Latest: latest, View: new DatabaseTrackedSubjectView(
+                    new DatabaseAccountView(subjectId, name),
+                    own,
+                    trails,
+                    comparisons.GetValueOrDefault(subjectId) ?? DatabaseQueryResults.Insufficient(0, NoRecordsMessage)));
             })
             .OrderByDescending(subject => subject.Latest)
             .ThenBy(subject => subject.View.Subject.Id)

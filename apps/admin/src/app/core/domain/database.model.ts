@@ -130,6 +130,11 @@ export interface DatabaseSummaryView {
   readonly purpose: string;
   /** 建立者，也是唯一能修改設定的人；不代表看得到收集紀錄（見 `canReadConsentedRecords`）。 */
   readonly owner: DatabaseAccountView;
+  /**
+   * 目前帳號能不能開啟並修改它（只有擁有者）。資料管理者看得到資料庫，但這個值是 false，
+   * 畫面要改成唯讀（issue #144）。
+   */
+  readonly viewerCanManage: boolean;
   readonly templateName: string;
   readonly fieldCount: number;
   /** 目前帳號不是指定資料管理者時為 null，不透露紀錄數量。 */
@@ -161,7 +166,10 @@ export interface DatabaseAccessCandidateView {
 
 export interface DatabaseAccessView {
   readonly owner: DatabaseAccountView;
+  /** 已指定的資料管理者（資料庫層級）；不代表現在讀得到紀錄。 */
   readonly dataManagers: readonly DatabaseAccountView[];
+  /** 目前實際可以讀紀錄的人：已指定 **且** 現在具備帳號層級權限（擁有者的預覽）。 */
+  readonly effectiveReaders: readonly DatabaseAccountView[];
   /** 有沒有被指定為資料管理者（資料庫層級）。 */
   readonly viewerIsDataManager: boolean;
   /** 實際看不看得到收集紀錄：指定 **且** 具備帳號層級權限才是 true。 */
@@ -171,17 +179,18 @@ export interface DatabaseAccessView {
   readonly candidates: readonly DatabaseAccessCandidateView[];
   /** 最後一次變更指定的時間（ISO）；從未改過為 null。 */
   readonly savedAt: string | null;
+  /** 最後一次變更指定的操作人；從未改過為 null。 */
+  readonly savedBy: DatabaseAccountView | null;
 }
 
 /**
  * API 模式尚未提供、畫面要改成「將於後續版本開放」的功能（M4 依工單逐步開放）：
  * - `form-editing`：編輯表單與試填（#143）；
- * - `data-managers`：指定資料管理者（#144）；
  * - `records`：收集紀錄與趨勢比較（#145–#147）；
  * - `assistant-connections`：已連接助理（#148）。
  * mock 模式全部可用，所以是空陣列。
  */
-export type DatabaseUpcomingFeature = 'form-editing' | 'data-managers' | 'records' | 'assistant-connections';
+export type DatabaseUpcomingFeature = 'form-editing' | 'records' | 'assistant-connections';
 
 export interface DatabaseDetailView {
   readonly summary: DatabaseSummaryView;

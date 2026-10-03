@@ -10,24 +10,33 @@ namespace SmartAgri.Application.Databases;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Ported from the frontend mock (<c>mock-demo-repository.ts</c>): <c>listDatabaseSummaries</c>
-/// keeps only databases whose owner is the viewer, and <c>ownedDatabase</c> (detail and every
-/// change) allows only the owner — mapping <c>S+OWN</c>. A caller who is not the owner gets the
-/// same <c>403 database</c> as for an id that does not exist.
+/// Ported from the frontend mock (<c>mock-demo-repository.ts</c>): the owner lists, opens and
+/// changes their databases (mapping <c>S+OWN</c>). Since #144 a data manager also <b>sees</b>
+/// the databases they manage — read-only: <see cref="ListedFor"/> adds the databases where
+/// <see cref="DatabaseRecordAccess.ReadableBy"/> holds (designated <b>and</b> holding
+/// <c>read-consented-submissions</c>), while <see cref="ManageableBy"/> stays owner-only. A
+/// caller who may not even see it gets the same <c>403 database</c> as for an id that does not
+/// exist.
 /// </para>
 /// <para>
-/// Reading <b>submitted records</b> is a separate rule (data-manager designation and the
-/// <c>read-consented-submissions</c> permission, #144/#146): owning a database never implies it.
-/// Until then no response carries a record or subject count. When data managers can list the
-/// databases they manage, <see cref="ListedFor"/> widens while <see cref="ManageableBy"/> stays
-/// owner-only.
+/// Reading <b>records</b> is <see cref="DatabaseRecordAccess"/>: owning a database never implies
+/// it, and until #146 no response carries a record or subject count.
 /// </para>
 /// </remarks>
 public static class DatabaseAccess
 {
-    /// <summary>Databases that appear in <paramref name="viewerAccountId"/>'s list.</summary>
-    public static Expression<Func<Database, bool>> ListedFor(Guid viewerAccountId) =>
-        database => database.OwnerAccountId == viewerAccountId;
+    /// <summary>Databases that appear in <paramref name="viewerAccountId"/>'s list and that they
+    /// may open (read-only unless <see cref="ManageableBy"/>): their own, plus those they may read
+    /// the records of (<see cref="DatabaseRecordAccess.ReadableBy"/>).</summary>
+    public static Expression<Func<Database, bool>> ListedFor(
+        Guid viewerAccountId, bool viewerHasReadPermission, IQueryable<DatabaseDataManager> designations)
+    {
+        ArgumentNullException.ThrowIfNull(designations);
+        return database =>
+            database.OwnerAccountId == viewerAccountId
+            || (viewerHasReadPermission
+                && designations.Any(designation => designation.DatabaseId == database.Id && designation.AccountId == viewerAccountId));
+    }
 
     /// <summary>Databases <paramref name="viewerAccountId"/> may open and change.</summary>
     public static Expression<Func<Database, bool>> ManageableBy(Guid viewerAccountId) =>

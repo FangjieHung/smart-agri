@@ -10,6 +10,7 @@ import {
   API_DATABASE_TEMPLATES_PATH,
   API_DATABASES_PATH,
   API_UPCOMING_DATABASE_FEATURES,
+  apiDatabaseAccessPath,
   apiDatabasePath,
   HybridDemoRepository,
 } from './hybrid-demo-repository';
@@ -25,7 +26,16 @@ const DATABASE_ID = '0199a3c0-0000-7000-8000-0000000000d1';
  * 實際從 API 取得的 `GET /api/v1/databases/{id}` 回應（API 整合測試主機以「滿意度調查」模板建立後讀回，2026-10-03），
  * 原樣保留成字串再 `JSON.parse`，而不是依產生的型別手寫：確保 adapter 吃得下真實的鍵與 null。
  */
-const REAL_DETAIL_JSON = `{"summary":{"id":"01a0ff7d-50ef-7b51-962e-c901576e7842","name":"門市滿意度","purpose":"收集客戶對服務的評分與建議。","templateId":"template-satisfaction","templateName":"滿意度調查","fieldCount":3,"formVersion":1,"owner":{"id":"01a0ff7d-4c9e-71cb-9d7d-43df59ad9710","displayName":"安心商行管理者"},"createdAt":"2026-10-03T01:59:57.935113+00:00","updatedAt":"2026-10-03T01:59:57.935113+00:00","viewerCanManage":true},"form":{"id":"01a0ff7d-50f0-787e-91aa-0943f162f1c3","versionNumber":1,"createdAt":"2026-10-03T01:59:57.935113+00:00","fields":[{"id":"field-overall-satisfaction","label":"整體滿意度","type":"scale","required":true,"options":[],"scale":{"min":1,"max":5,"minLabel":"很不滿意","maxLabel":"非常滿意"},"unit":""},{"id":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","required":false,"options":["商品品質","客服回應","配送速度"],"scale":null,"unit":""},{"id":"field-suggestion","label":"其他建議","type":"text","required":false,"options":[],"scale":null,"unit":""}]}}`;
+const REAL_DETAIL_JSON = `{"summary":{"id":"01a0ffc9-9dac-7a01-a9ae-3f268e9f53bf","name":"門市滿意度","purpose":"收集客戶對服務的評分與建議。","templateId":"template-satisfaction","templateName":"滿意度調查","fieldCount":3,"formVersion":1,"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"createdAt":"2026-10-03T03:23:18.315844+00:00","updatedAt":"2026-10-03T03:23:18.315844+00:00","viewerCanManage":true},"form":{"id":"01a0ffc9-9dad-7ed6-88ba-1f1e89b0c021","versionNumber":1,"createdAt":"2026-10-03T03:23:18.315844+00:00","fields":[{"id":"field-overall-satisfaction","label":"整體滿意度","type":"scale","required":true,"options":[],"scale":{"min":1,"max":5,"minLabel":"很不滿意","maxLabel":"非常滿意"},"unit":""},{"id":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","required":false,"options":["商品品質","客服回應","配送速度"],"scale":null,"unit":""},{"id":"field-suggestion","label":"其他建議","type":"text","required":false,"options":[],"scale":null,"unit":""}]},"access":{"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"dataManagers":[{"account":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.315844+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶"},"hasReadPermission":false,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}],"effectiveReaders":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"}],"viewerIsDataManager":true,"viewerCanReadRecords":true,"viewerCanManageAccess":true,"candidates":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者","role":"smb-admin","hasReadPermission":true},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁","role":"internal-employee","hasReadPermission":true},{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶","role":"external-customer","hasReadPermission":false}],"lastChange":{"changedAt":"2026-10-03T03:23:18.396829+00:00","changedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}}}`;
+
+/**
+ * 同一個數據庫，由被指定且具備權限的「非擁有者」讀到的詳情（`viewerCanManage`、`viewerCanManageAccess`
+ * 都是 false，`candidates` 為空）。2026-10-03 取自 API 整合測試主機，原樣保留。
+ */
+const REAL_MANAGER_DETAIL_JSON = `{"summary":{"id":"01a0ffc9-9dac-7a01-a9ae-3f268e9f53bf","name":"門市滿意度","purpose":"收集客戶對服務的評分與建議。","templateId":"template-satisfaction","templateName":"滿意度調查","fieldCount":3,"formVersion":1,"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"createdAt":"2026-10-03T03:23:18.315844+00:00","updatedAt":"2026-10-03T03:23:18.315844+00:00","viewerCanManage":false},"form":{"id":"01a0ffc9-9dad-7ed6-88ba-1f1e89b0c021","versionNumber":1,"createdAt":"2026-10-03T03:23:18.315844+00:00","fields":[{"id":"field-overall-satisfaction","label":"整體滿意度","type":"scale","required":true,"options":[],"scale":{"min":1,"max":5,"minLabel":"很不滿意","maxLabel":"非常滿意"},"unit":""},{"id":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","required":false,"options":["商品品質","客服回應","配送速度"],"scale":null,"unit":""},{"id":"field-suggestion","label":"其他建議","type":"text","required":false,"options":[],"scale":null,"unit":""}]},"access":{"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"dataManagers":[{"account":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.315844+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶"},"hasReadPermission":false,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}],"effectiveReaders":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"}],"viewerIsDataManager":true,"viewerCanReadRecords":true,"viewerCanManageAccess":false,"candidates":[],"lastChange":{"changedAt":"2026-10-03T03:23:18.396829+00:00","changedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}}}`;
+
+/** `PUT /api/v1/databases/{id}/access` 的真實回應（擁有者指定三個帳號後）。 */
+const REAL_PUT_ACCESS_JSON = `{"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"dataManagers":[{"account":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.315844+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶"},"hasReadPermission":false,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}],"effectiveReaders":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"}],"viewerIsDataManager":true,"viewerCanReadRecords":true,"viewerCanManageAccess":true,"candidates":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者","role":"smb-admin","hasReadPermission":true},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁","role":"internal-employee","hasReadPermission":true},{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶","role":"external-customer","hasReadPermission":false}],"lastChange":{"changedAt":"2026-10-03T03:23:18.396829+00:00","changedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}}`;
 
 function setUp() {
   TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
@@ -156,6 +166,7 @@ describe('HybridDemoRepository databases (issue #142)', () => {
           name: '門市滿意度',
           purpose: '收集客戶對服務的評分與建議。',
           owner: { id: ADMIN_ID, displayName: '安心商行管理者' },
+          viewerCanManage: true,
           templateName: '滿意度調查',
           fieldCount: 3,
           recordCount: null,
@@ -228,12 +239,117 @@ describe('HybridDemoRepository databases (issue #142)', () => {
     expect(detail.data.fields[1].options).toEqual(['商品品質', '客服回應', '配送速度']);
     expect(detail.data.upcomingFeatures).toEqual(API_UPCOMING_DATABASE_FEATURES);
     expect(detail.data.connectedAssistants).toEqual([]);
+    expect(detail.data.summary.viewerCanManage).toBe(true);
+    expect(detail.data.upcomingFeatures).not.toContain('data-managers');
+    // 擁有者（指定了三個帳號之後）：全部在「已指定」，外部客戶沒有帳號層級權限所以不在「目前可讀」。
     expect(detail.data.access).toMatchObject({
       owner: parsed.summary.owner,
-      dataManagers: [],
-      viewerCanReadRecords: false,
-      viewerCanManageAccess: false,
+      viewerIsDataManager: true,
+      viewerCanReadRecords: true,
+      viewerCanManageAccess: true,
+      savedBy: parsed.summary.owner,
     });
+    expect(detail.data.access.dataManagers).toHaveLength(3);
+    expect(detail.data.access.effectiveReaders.map((reader) => reader.displayName)).toEqual([
+      '安心商行管理者',
+      '安心商行客服同仁',
+    ]);
+    expect(detail.data.access.candidates.map((candidate) => [candidate.roleLabel, candidate.hasReadPermission])).toEqual([
+      ['管理者', true],
+      ['內部同仁', true],
+      ['外部客戶', false],
+    ]);
+  });
+
+  it('maps a data manager’s view of the real JSON as read-only, with who changed it and when', async () => {
+    const { repository, controller } = setUp();
+    const parsed = JSON.parse(REAL_MANAGER_DETAIL_JSON) as components['schemas']['DatabaseDetailView'];
+    const result = firstValueFrom(repository.getDatabaseDetail(parsed.summary.id));
+    controller.expectOne({ method: 'GET', url: apiDatabasePath(parsed.summary.id) }).flush(parsed);
+
+    const detail = await result;
+    if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
+    expect(detail.data.summary.viewerCanManage).toBe(false);
+    const { access } = detail.data;
+    expect(access.viewerCanManageAccess).toBe(false);
+    expect(access.viewerCanReadRecords).toBe(true);
+    expect(access.candidates).toEqual([]);
+    // 已指定三個帳號，但外部客戶沒有帳號層級權限：在「已指定」、不在「目前可讀」。
+    expect(access.dataManagers.map((manager) => manager.displayName)).toEqual([
+      '安心商行管理者',
+      '安心商行客服同仁',
+      '安心商行外部客戶',
+    ]);
+    expect(access.effectiveReaders.map((reader) => reader.displayName)).toEqual(['安心商行管理者', '安心商行客服同仁']);
+    expect(access.savedBy).toEqual({ id: parsed.summary.owner.id, displayName: '安心商行管理者' });
+    expect(access.savedAt).toBe(parsed.access.lastChange?.changedAt);
+  });
+
+  it('tolerates a detail whose access omits the optional change instead of breaking the page', async () => {
+    const { repository, controller } = setUp();
+    const parsed = JSON.parse(REAL_DETAIL_JSON) as components['schemas']['DatabaseDetailView'];
+    delete (parsed.access as { lastChange?: unknown }).lastChange;
+    const result = firstValueFrom(repository.getDatabaseDetail(parsed.summary.id));
+    controller.expectOne(apiDatabasePath(parsed.summary.id)).flush(parsed);
+
+    const detail = await result;
+    if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
+    expect(detail.data.access).toMatchObject({ savedAt: null, savedBy: null });
+  });
+
+  it('designates through the API with the complete list, and never touches mock storage', async () => {
+    const { repository, controller, written } = setUp();
+    const parsed = JSON.parse(REAL_PUT_ACCESS_JSON) as components['schemas']['DatabaseAccessView'];
+    const ids = parsed.dataManagers.map((manager) => manager.account.id);
+    const result = firstValueFrom(repository.updateDatabaseAccess(DATABASE_ID, ids));
+    const request = controller.expectOne({ method: 'PUT', url: apiDatabaseAccessPath(DATABASE_ID) });
+    expect(request.request.body).toEqual({ dataManagerAccountIds: ids });
+    request.flush(parsed);
+
+    const saved = await result;
+    if (saved.status !== 'ready') throw new Error(`expected ready, got ${saved.status}`);
+    expect(saved.data.dataManagers).toHaveLength(3);
+    expect(saved.data.effectiveReaders).toHaveLength(2);
+    expect(saved.data.viewerCanManageAccess).toBe(true);
+    expect(saved.data.savedBy?.displayName).toBe('安心商行管理者');
+    expect(written.filter((key) => key.includes('database'))).toEqual([]);
+  });
+
+  it('turns 422/409 on designation into validation-failed with the server message, and 403/404 into permission-denied', async () => {
+    const { repository, controller } = setUp();
+    const unknown = firstValueFrom(repository.updateDatabaseAccess(DATABASE_ID, ['0199a3c0-0000-7000-8000-00000000ffff']));
+    controller.expectOne(apiDatabaseAccessPath(DATABASE_ID)).flush(
+      {
+        status: 422,
+        message: '有不認得的帳號，這次指定沒有儲存。',
+        errors: { dataManagerAccountIds: ['有不認得的帳號，這次指定沒有儲存。'] },
+      },
+      { status: 422, statusText: 'Unprocessable Content' },
+    );
+    expect(await unknown).toEqual({ status: 'validation-failed', message: '有不認得的帳號，這次指定沒有儲存。' });
+
+    const conflict = firstValueFrom(repository.updateDatabaseAccess(DATABASE_ID, [ADMIN_ID]));
+    controller.expectOne(apiDatabaseAccessPath(DATABASE_ID)).flush(
+      { status: 409, reason: 'database-access-conflict', message: '資料管理者剛被其他人更新，請重新整理後再試一次。' },
+      { status: 409, statusText: 'Conflict' },
+    );
+    expect(await conflict).toMatchObject({ status: 'validation-failed', message: '資料管理者剛被其他人更新，請重新整理後再試一次。' });
+
+    const denied = firstValueFrom(repository.updateDatabaseAccess(DATABASE_ID, [ADMIN_ID]));
+    controller.expectOne(apiDatabaseAccessPath(DATABASE_ID)).flush(FORBIDDEN_DATABASE, { status: 403, statusText: 'Forbidden' });
+    expect(await denied).toEqual({
+      status: 'permission-denied',
+      reason: 'database',
+      message: '你沒有這個資料庫的存取權限，或它已不存在。',
+    });
+
+    const notGuid = firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN_ID]));
+    controller.expectOne(apiDatabaseAccessPath('database-orders')).flush(null, { status: 404, statusText: 'Not Found' });
+    expect(await notGuid).toMatchObject({ status: 'permission-denied', reason: 'database' });
+
+    const serverError = firstValueFrom(repository.updateDatabaseAccess(DATABASE_ID, [ADMIN_ID]));
+    controller.expectOne(apiDatabaseAccessPath(DATABASE_ID)).flush('boom', { status: 500, statusText: 'Internal Server Error' });
+    await expect(serverError).rejects.toMatchObject({ status: 500 });
   });
 
   it('turns a 403 and a non-GUID 404 on the detail into the same database permission-denied', async () => {

@@ -79,9 +79,11 @@ import {
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type {
   CreateDatabaseInput,
+  DatabaseAccessView,
   DatabaseDetailView,
   DatabaseFieldId,
   DatabaseFieldView,
+  DatabaseId,
   DatabaseSummaryView,
   DatabaseTemplateView,
   DatabaseUpcomingFeature,
@@ -101,6 +103,7 @@ import {
   type CreateDatabaseResult,
   type CreateDatabaseValidationFailedView,
   type CreateKnowledgeBaseResult,
+  type UpdateDatabaseAccessResult,
   type CreateMemberInput,
   type CreateMemberResult,
   type DeleteAssistantResult,
@@ -194,6 +197,8 @@ type ApiDatabaseTemplate = components['schemas']['DatabaseTemplateView'];
 type ApiDatabaseSummary = components['schemas']['DatabaseSummaryView'];
 type ApiDatabaseDetail = components['schemas']['DatabaseDetailView'];
 type ApiDatabaseField = components['schemas']['DatabaseFieldView'];
+type ApiDatabaseAccess = components['schemas']['DatabaseAccessView'];
+type UpdateDatabaseAccessRequest = components['schemas']['UpdateDatabaseAccessRequest'];
 type CreateDatabaseRequest = components['schemas']['CreateDatabaseRequest'];
 
 export const API_TEAM_PATH = '/api/v1/team';
@@ -340,13 +345,17 @@ export function apiDatabasePath(databaseId: string): string {
   return `${API_DATABASES_PATH}/${encodeURIComponent(databaseId)}`;
 }
 
+/** 指定資料管理者（issue #144）：`PUT`，請求是指定後的完整清單。 */
+export function apiDatabaseAccessPath(databaseId: string): string {
+  return `${apiDatabasePath(databaseId)}/access`;
+}
+
 /**
  * API 模式還沒有的資料庫功能（#143–#148 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」，
  * 不呼叫對應的同步 mock 方法。
  */
 export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
   'form-editing',
-  'data-managers',
   'records',
   'assistant-connections',
 ];
@@ -1043,10 +1052,36 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  // 表單編輯、試填、資料管理者與收集紀錄（updateDatabaseFields／previewDatabaseEntry／
-  // updateDatabaseAccess／getDatabaseTracking）仍是同步 mock 契約，API 模式尚未提供
-  // （API_UPCOMING_DATABASE_FEATURES）。詳情頁依 `upcomingFeatures` 不呼叫它們；就算被呼叫，
-  // mock 也找不到 API 的 GUID，回傳 `database` permission-denied，不會寫入任何資料。
+  /**
+   * 指定資料管理者（issue #144）。讀取（詳情的 `access`）與寫入都走 API：清單裡的帳號必須是同
+   * 組織帳號，否則 `422` 轉成 `validation-failed`、什麼都不寫入；`403`（不存在、別人的、別的組織的
+   * 都一樣，非擁有者也一樣）轉成 `database` permission-denied；`409`（同時有人也在改）轉成
+   * `validation-failed` 並顯示伺服器的訊息。成功回傳更新後的完整權限畫面。
+   */
+  override updateDatabaseAccess(
+    databaseId: DatabaseId,
+    dataManagerAccountIds: readonly AccountId[],
+  ): Observable<UpdateDatabaseAccessResult> {
+    const body: UpdateDatabaseAccessRequest = { dataManagerAccountIds: [...dataManagerAccountIds] };
+    return this.http.put<ApiDatabaseAccess>(apiDatabaseAccessPath(databaseId), body).pipe(
+      map((response): UpdateDatabaseAccessResult => ({ status: 'ready', data: toDatabaseAccess(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) || isHttpError(error, 409)
+          ? of<UpdateDatabaseAccessResult>({
+              status: 'validation-failed',
+              message: bodyMessage(error) ?? '這次指定沒有儲存，請再試一次。',
+            })
+          : isHttpError(error, 404)
+            ? of(permissionDenied(DATABASE_DENIED))
+            : this.permissionDeniedOrThrow(error, DATABASE_DENIED),
+      ),
+    );
+  }
+
+  // 表單編輯、試填與收集紀錄（updateDatabaseFields／previewDatabaseEntry／getDatabaseTracking）
+  // 仍是同步 mock 契約，API 模式尚未提供（API_UPCOMING_DATABASE_FEATURES）。詳情頁依
+  // `upcomingFeatures` 不呼叫它們；就算被呼叫，mock 也找不到 API 的 GUID，回傳 `database`
+  // permission-denied，不會寫入任何資料。
 
   // ---------- 知識庫 ----------
 
@@ -1492,6 +1527,8 @@ function toDatabaseSummary(summary: ApiDatabaseSummary): DatabaseSummaryView {
     name: summary.name,
     purpose: summary.purpose,
     owner: { id: summary.owner.id, displayName: summary.owner.displayName },
+    // 後端一律送出 `viewerCanManage`；省略時保守地當成唯讀。
+    viewerCanManage: summary.viewerCanManage === true,
     templateName: summary.templateName,
     fieldCount: summary.fieldCount,
     recordCount: null,
@@ -1507,17 +1544,36 @@ function toDatabaseDetail(detail: ApiDatabaseDetail): DatabaseDetailView {
     summary,
     fields: detail.form.fields.map(toDatabaseField),
     connectedAssistants: [],
-    // 資料管理者是 #144；在那之前沒有人被指定，也沒有人能從這裡讀到紀錄。
-    access: {
-      owner: summary.owner,
-      dataManagers: [],
-      viewerIsDataManager: false,
-      viewerCanReadRecords: false,
-      viewerCanManageAccess: false,
-      candidates: [],
-      savedAt: null,
-    },
+    access: toDatabaseAccess(detail.access),
     upcomingFeatures: API_UPCOMING_DATABASE_FEATURES,
+  };
+}
+
+function toDatabaseAccount(account: { readonly id: string; readonly displayName: string }) {
+  return { id: account.id, displayName: account.displayName };
+}
+
+/**
+ * 後端的權限畫面（issue #144）：`dataManagers` 是「已指定」，`effectiveReaders` 是「目前可讀」
+ * （已指定且現在具備帳號層級權限）。`lastChange` 在從未變更時是 `null`；仍同時接受省略，
+ * 因為後端的其他欄位曾用 `WhenWritingNull` 省略鍵，不要讓一個缺的鍵弄壞整頁。
+ */
+function toDatabaseAccess(access: ApiDatabaseAccess): DatabaseAccessView {
+  return {
+    owner: toDatabaseAccount(access.owner),
+    dataManagers: access.dataManagers.map((manager) => toDatabaseAccount(manager.account)),
+    effectiveReaders: access.effectiveReaders.map(toDatabaseAccount),
+    viewerIsDataManager: access.viewerIsDataManager,
+    viewerCanReadRecords: access.viewerCanReadRecords,
+    viewerCanManageAccess: access.viewerCanManageAccess,
+    candidates: access.candidates.map((candidate) => ({
+      id: candidate.id,
+      displayName: candidate.displayName,
+      roleLabel: ACCOUNT_ROLE_LABELS[candidate.role],
+      hasReadPermission: candidate.hasReadPermission,
+    })),
+    savedAt: access.lastChange?.changedAt ?? null,
+    savedBy: access.lastChange == null ? null : toDatabaseAccount(access.lastChange.changedBy),
   };
 }
 

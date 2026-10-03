@@ -8,9 +8,10 @@ import {
   signal,
 } from '@angular/core';
 import type { AccountId } from '../../../core/domain/account.model';
+import { fmtDateTime } from '../../../core/date-utils';
 import type { DatabaseAccessView, DatabaseId } from '../../../core/domain/database.model';
+import type { UpdateDatabaseAccessResult } from '../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
-import { DemoSessionService } from '../../../core/session/demo-session.service';
 
 /**
  * 資料庫的「權限」頁籤：擁有者指定誰是資料管理者，也就是**誰可以查看收集紀錄與趨勢比較**。
@@ -27,7 +28,6 @@ import { DemoSessionService } from '../../../core/session/demo-session.service';
 })
 export class DatabaseAccessComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
-  private readonly session = inject(DemoSessionService);
 
   readonly databaseId = input.required<DatabaseId>();
   readonly access = input.required<DatabaseAccessView>();
@@ -38,6 +38,9 @@ export class DatabaseAccessComponent {
   );
   protected readonly feedback = signal('');
   protected readonly error = signal('');
+  /** 儲存中不能重複送出。 */
+  protected readonly saving = signal(false);
+  protected readonly formatTime = fmtDateTime;
 
   protected toggle(accountId: AccountId, event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
@@ -51,14 +54,25 @@ export class DatabaseAccessComponent {
 
   protected save(event: Event): void {
     event.preventDefault();
-    const accountId = this.session.activeAccountId();
-    if (!accountId) return;
+    if (this.saving()) return;
 
     const before = this.access().dataManagers.map((manager) => manager.id);
-    const result = this.repository.updateDatabaseAccess(accountId, this.databaseId(), [
-      ...this.selected(),
-    ]);
+    this.saving.set(true);
+    this.repository.updateDatabaseAccess(this.databaseId(), [...this.selected()]).subscribe({
+      next: (result) => {
+        this.saving.set(false);
+        this.applyResult(result, before);
+      },
+      // 連線中斷或 5xx：保留勾選，讓使用者可以再按一次。
+      error: () => {
+        this.saving.set(false);
+        this.feedback.set('');
+        this.error.set('目前無法儲存資料管理者，請稍後再試一次。你的勾選仍保留。');
+      },
+    });
+  }
 
+  private applyResult(result: UpdateDatabaseAccessResult, before: readonly AccountId[]): void {
     if (result.status === 'ready' || result.status === 'partial-failure') {
       const managers = result.data.dataManagers;
       const removed = before.filter(

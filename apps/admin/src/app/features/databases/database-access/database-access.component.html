@@ -5,7 +5,7 @@
   <dl class="access-list">
     <div><dt>擁有者</dt><dd>{{ current.owner.displayName }}</dd></div>
     <div>
-      <dt>指定資料管理者</dt>
+      <dt>已指定資料管理者</dt>
       <dd>
         @for (manager of current.dataManagers; track manager.id; let last = $last) {
           {{ manager.displayName }}@if (!last) {、}
@@ -15,14 +15,38 @@
       </dd>
     </div>
     <div>
+      <dt>目前可讀紀錄</dt>
+      <dd>
+        @for (reader of current.effectiveReaders; track reader.id; let last = $last) {
+          {{ reader.displayName }}@if (!last) {、}
+        } @empty {
+          目前沒有任何帳號可以查看收集紀錄
+        }
+        <small class="list-note">已指定，而且帳號現在具備「查看同意提交的紀錄」權限，兩者缺一不可。</small>
+      </dd>
+    </div>
+    @if (current.savedAt) {
+      <div>
+        <dt>最後變更</dt>
+        <dd>
+          <time [attr.datetime]="current.savedAt">{{ formatTime(current.savedAt) }}</time>
+          @if (current.savedBy) {
+            ，由 {{ current.savedBy.displayName }} 變更
+          }
+        </dd>
+      </div>
+    }
+    <div>
       <dt>你的權限</dt>
       <dd>
         @if (current.viewerCanReadRecords) {
           可查看收集紀錄與趨勢比較
         } @else if (current.viewerIsDataManager) {
           已被指定為資料管理者，但你的帳號還沒有「查看同意提交的紀錄」權限，所以看不到收集紀錄
-        } @else {
+        } @else if (current.viewerCanManageAccess) {
           可管理表單設定，不能查看收集紀錄
+        } @else {
+          只能查看，不能查看收集紀錄
         }
       </dd>
     </div>
@@ -71,7 +95,9 @@
     </fieldset>
 
     <div class="actions">
-      <button type="submit" class="ui-button">儲存資料管理者</button>
+      <button type="submit" class="ui-button" [disabled]="saving()">
+        {{ saving() ? '儲存中…' : '儲存資料管理者' }}
+      </button>
     </div>
     <p class="feedback" aria-live="polite">{{ feedback() }}</p>
   } @else {

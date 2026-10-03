@@ -45,8 +45,12 @@
 
       @switch (activeTab().id) {
         @case ('form') {
-          @if (upcoming().has('form-editing')) {
-            <p class="notice upcoming-notice" role="note">表單編輯與試填：{{ upcomingMessage }}</p>
+          @if (upcoming().has('form-editing') || !detail.summary.viewerCanManage) {
+            @if (!detail.summary.viewerCanManage) {
+              <p class="notice upcoming-notice" role="note">只有擁有者「{{ detail.summary.owner.displayName }}」可以編輯表單；你可以查看欄位。</p>
+            } @else {
+              <p class="notice upcoming-notice" role="note">表單編輯與試填：{{ upcomingMessage }}</p>
+            }
             <ol class="field-summary" aria-label="初始表單欄位">
               @for (field of detail.fields; track field.id) {
                 <li [attr.data-field-id]="field.id">
@@ -88,16 +92,11 @@
           }
         }
         @case ('access') {
-          @if (upcoming().has('data-managers')) {
-            <p class="notice upcoming-notice" role="note">指定資料管理者：{{ upcomingMessage }}</p>
-            <p class="hint">目前只有擁有者「{{ detail.summary.owner.displayName }}」可以管理這個資料庫的設定；擁有資料庫不代表能查看收集紀錄。</p>
-          } @else {
           <app-database-access
             [databaseId]="detail.summary.id"
             [access]="detail.access"
             (changed)="reload()"
           />
-          }
         }
         @default {
           @let records = tracking();

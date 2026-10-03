@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { Subject, throwError } from 'rxjs';
+import { describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../../../core/domain/account.model';
 import type { DatabaseAccessView, DatabaseId } from '../../../core/domain/database.model';
 import type { MockDemoRepository } from '../../../core/repositories/mock-demo-repository';
@@ -100,11 +101,13 @@ describe('DatabaseAccessComponent', () => {
     fixture.componentRef.setInput('access', {
       owner: { id: 'account-smb-admin', displayName: '安心商行管理者' },
       dataManagers: [{ id: 'account-smb-admin', displayName: '安心商行管理者' }],
+      effectiveReaders: [],
       viewerIsDataManager: true,
       viewerCanReadRecords: false,
       viewerCanManageAccess: true,
       candidates: [],
       savedAt: null,
+      savedBy: null,
     } satisfies DatabaseAccessView);
     fixture.detectChanges();
 
@@ -126,11 +129,13 @@ describe('DatabaseAccessComponent', () => {
     fixture.componentRef.setInput('access', {
       owner: { id: 'account-smb-admin', displayName: '安心商行管理者' },
       dataManagers: [],
+      effectiveReaders: [],
       viewerIsDataManager: false,
       viewerCanReadRecords: false,
       viewerCanManageAccess: false,
       candidates: [],
       savedAt: null,
+      savedBy: null,
     } satisfies DatabaseAccessView);
     fixture.detectChanges();
     const readOnly = fixture.nativeElement as HTMLElement;
@@ -138,5 +143,53 @@ describe('DatabaseAccessComponent', () => {
     expect(readOnly.querySelector('input[type="checkbox"]')).toBeNull();
     expect(readOnly.querySelector('button[type="submit"]')).toBeNull();
     expect(readOnly.textContent).toContain('只有這個資料庫的擁有者可以變更資料管理者');
+  });
+  it('shows who is designated and who can actually read right now as two separate lists', () => {
+    const { repository } = render();
+    const access = accessOf(repository, RECORDS);
+
+    const rendered = TestBed.createComponent(DatabaseAccessComponent);
+    rendered.componentRef.setInput('databaseId', RECORDS);
+    rendered.componentRef.setInput('access', {
+      ...access,
+      dataManagers: [...access.dataManagers, { id: 'account-external-customer', displayName: '外部客戶' }],
+      effectiveReaders: access.effectiveReaders,
+      savedAt: '2026-10-03T02:00:00.000Z',
+      savedBy: access.owner,
+    } satisfies DatabaseAccessView);
+    rendered.detectChanges();
+    const rows = Array.from((rendered.nativeElement as HTMLElement).querySelectorAll('.access-list > div')).map(
+      (row) => [row.querySelector('dt')?.textContent?.trim(), row.querySelector('dd')?.textContent ?? ''] as const,
+    );
+
+    expect(rows.find(([label]) => label === '已指定資料管理者')?.[1]).toContain('外部客戶');
+    expect(rows.find(([label]) => label === '目前可讀紀錄')?.[1]).not.toContain('外部客戶');
+    expect(rows.find(([label]) => label === '最後變更')?.[1]).toContain('由 安心商行管理者 變更');
+  });
+
+  it('keeps the selection and says so when saving fails, and ignores a second submit while saving', () => {
+    const { fixture, host, repository } = render();
+    const pending = new Subject<never>();
+    const update = vi.spyOn(repository, 'updateDatabaseAccess').mockReturnValueOnce(pending);
+    host.querySelector<HTMLInputElement>('#data-manager-account-internal-employee')?.click();
+    fixture.detectChanges();
+    const submit = () => host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+
+    submit();
+    fixture.detectChanges();
+    expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+    submit();
+    expect(update).toHaveBeenCalledTimes(1);
+
+    pending.error(new Error('500'));
+    fixture.detectChanges();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('勾選仍保留');
+    expect(host.querySelector<HTMLInputElement>('#data-manager-account-internal-employee')?.checked).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
+
+    update.mockReturnValueOnce(throwError(() => new Error('500')));
+    submit();
+    fixture.detectChanges();
+    expect(update).toHaveBeenCalledTimes(2);
   });
 });

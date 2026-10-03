@@ -143,6 +143,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Each database's immutable form versions; the highest number is the current form.</summary>
     public DbSet<DatabaseFormVersion> DatabaseFormVersions => Set<DatabaseFormVersion>();
 
+    /// <summary>Accounts designated as a database's data managers (M4, #144).</summary>
+    public DbSet<DatabaseDataManager> DatabaseDataManagers => Set<DatabaseDataManager>();
+
+    /// <summary>Append-only history of data-manager designations and removals (M4, #144).</summary>
+    public DbSet<DatabaseDataManagerChange> DatabaseDataManagerChanges => Set<DatabaseDataManagerChange>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -271,6 +277,8 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // Databases and their form versions (M4, #142).
         modelBuilder.ApplyConfiguration(new DatabaseConfiguration());
         modelBuilder.ApplyConfiguration(new DatabaseFormVersionConfiguration());
+        modelBuilder.ApplyConfiguration(new DatabaseDataManagerConfiguration());
+        modelBuilder.ApplyConfiguration(new DatabaseDataManagerChangeConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

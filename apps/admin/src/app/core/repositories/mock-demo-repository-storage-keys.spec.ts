@@ -113,7 +113,7 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
     const detail = await firstValueFrom(repository.getDatabaseDetail(database.data.id));
     if (detail.status !== 'ready') throw new Error(`expected database detail, got ${detail.status}`);
     repository.updateDatabaseFields(ADMIN, database.data.id, detail.data.fields);
-    repository.updateDatabaseAccess(ADMIN, database.data.id, [ADMIN]);
+    await firstValueFrom(repository.updateDatabaseAccess(database.data.id, [ADMIN]));
 
     // 對話：帳號對話（寫進 storage）與表單提交（寫收集紀錄）。
     repository.sendChatMessage(ADMIN, CUSTOMER_SERVICE, '你好');

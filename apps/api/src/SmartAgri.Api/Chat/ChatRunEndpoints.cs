@@ -16,6 +16,7 @@ using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Chat;
+using SmartAgri.Application.Databases;
 using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Application.Knowledge.Processing;
 using SmartAgri.Domain.Assistants;
@@ -90,6 +91,20 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// rules, no model call (so no model invocation is recorded). Otherwise, including right after the
 /// database was disconnected or its designation revoked, the question is answered as usual.
 /// </para>
+/// <para>
+/// <b>Database queries</b> (M4 #149, <see cref="ChatDatabaseQueries"/>). When the question asks for a
+/// count, total or statistics (<see cref="DatabaseQueryTools.AsksForStatistics"/>) and the assistant
+/// has a database it may use now, the model is offered the fixed query tools for the databases the
+/// <b>asker</b> may read and chooses one tool and its parameters; the server validates them, runs the
+/// query as the asker and answers with a <c>database-query</c> reply whose text and figures are
+/// composed from the result (the model never sees it). Same events and saving rules; the reply is
+/// saved as a snapshot (<c>ChatMessages.DatabaseQuery</c>), re-checked whenever it is read, never
+/// handed off, and replaced by a placeholder in the history later model calls see. Precedence:
+/// a database query first, then the form request, then the answer pipeline — so 「本月回報了幾筆？」
+/// is a query while 「我要回報」 is a form; a question the model decides not to query (no tool call)
+/// falls through to the form request or the answer. A model failure here ends the stream with
+/// <c>RUN_ERROR chat-unavailable</c>, as in the answer pipeline.
+/// </para>
 /// </remarks>
 public static class ChatRunEndpoints
 {
@@ -142,6 +157,7 @@ public static class ChatRunEndpoints
         IAnswerKnowledgeBases knowledgeBases,
         GroundedAnswerService answers,
         AssistantFormRequests formRequests,
+        ChatDatabaseQueries databaseQueries,
         ChatRunLocks locks,
         ChatClientProvider chatProvider,
         EmbeddingProvider embeddingProvider,
@@ -268,6 +284,11 @@ public static class ChatRunEndpoints
                 ? await formRequests.FormRequestAsync(assistant, null, cancellationToken)
                 : null;
 
+            // The query tools (#149): offered only for a statistics question, scoped to this request.
+            var queryScope = DatabaseQueryTools.AsksForStatistics(question.Value)
+                ? await databaseQueries.ScopeAsync(assistant, viewerId, cancellationToken)
+                : null;
+
             var connected = await knowledgeBases.ConnectedToAsync(assistant.Id, cancellationToken);
             var run = new ChatRun(
                 dbContext,
@@ -280,7 +301,9 @@ public static class ChatRunEndpoints
                 thread,
                 ThreadIdForEvents(thread, input),
                 string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId,
-                formRequest);
+                formRequest,
+                databaseQueries,
+                queryScope);
 
             await StreamAsync(httpContext, run, cancellationToken);
             return Results.Empty;
@@ -352,14 +375,15 @@ public static class ChatRunEndpoints
             .Where(message => message.ThreadId == threadId)
             .OrderByDescending(message => message.Sequence)
             .Take(SavedHistoryMaxMessages)
-            .Select(message => new { message.Author, message.Text })
+            .Select(message => new { message.Author, message.Text, message.ReplyKind })
             .ToListAsync(cancellationToken);
         newest.Reverse();
         return
         [
             .. newest.Select(message => new ConversationTurn(
                 message.Author == ChatMessageAuthor.Account ? ConversationAuthor.Account : ConversationAuthor.Assistant,
-                message.Text)),
+                // Query results never reach a model (#149), not even as history.
+                message.ReplyKind == ChatReplyKind.DatabaseQuery ? DatabaseQueryTools.HistoryPlaceholder : message.Text)),
         ];
     }
 
@@ -418,7 +442,9 @@ public static class ChatRunEndpoints
         ChatThread? thread,
         string threadIdForEvents,
         string runId,
-        ChatFormRequestView? formRequest)
+        ChatFormRequestView? formRequest,
+        ChatDatabaseQueries databaseQueries,
+        ChatDatabaseQueryScope? queryScope)
     {
         public ILogger Logger { get; } = logger;
 
@@ -433,6 +459,49 @@ public static class ChatRunEndpoints
             // lasts: the client replaces this message with it.
             var streamMessageId = Guid.NewGuid().ToString();
             yield return new TextMessageStartEvent { MessageId = streamMessageId, Role = "assistant" };
+
+            if (queryScope is not null)
+            {
+                // The query tool (#149): the model chooses, the server runs and writes the reply.
+                ChatDatabaseQueryAnswer? query = null;
+                RunErrorEvent? queryError = null;
+                try
+                {
+                    query = await databaseQueries.AnswerAsync(
+                        queryScope, request.Question, request.AccountId, request.AssistantId!.Value, cancellationToken);
+                }
+                catch (ChatGenerationException exception)
+                {
+                    Logger.LogWarning(exception.InnerException, "A chat run's query selection failed: {Issue}", exception.Message);
+                    queryError = new RunErrorEvent
+                    {
+                        Code = exception.ProviderNotConfigured ? ChatErrors.ChatNotConfiguredReason : ChatErrors.ChatUnavailableReason,
+                        Message = exception.Message,
+                    };
+                }
+
+                if (queryError is not null)
+                {
+                    Ended = true;
+                    yield return queryError;
+                    yield break;
+                }
+
+                if (query is not null)
+                {
+                    yield return new TextMessageContentEvent { MessageId = streamMessageId, Delta = query.Text };
+                    yield return new TextMessageEndEvent { MessageId = streamMessageId };
+                    var queryView = thread is not null
+                        ? await SaveQueryAsync(thread, query, cancellationToken)
+                        : new ChatMessageView(Guid.CreateVersion7(), "assistant", null, ChatEndpoints.QueryReplyView(query), MicrosecondNow());
+                    foreach (var finalEvent in FinalEvents(queryView))
+                    {
+                        yield return finalEvent;
+                    }
+
+                    yield break;
+                }
+            }
 
             if (formRequest is not null)
             {
@@ -566,12 +635,24 @@ public static class ChatRunEndpoints
             return ChatEndpoints.ToMessageView(message, [], form);
         }
 
+        /// <summary>Saves a query answer (its text and the structured snapshot) and returns it exactly
+        /// as <c>GET chat</c> will while its database stays visible to the asker.</summary>
+        private async Task<ChatMessageView> SaveQueryAsync(
+            ChatThread savedThread, ChatDatabaseQueryAnswer query, CancellationToken cancellationToken)
+        {
+            var message = ChatMessage.DatabaseQuery(
+                savedThread, query.Text, ChatDatabaseQueryJson.Serialize(query.View), clock.GetUtcNow());
+            dbContext.ChatMessages.Add(message);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return ChatEndpoints.ToMessageView(message, [], query: query);
+        }
+
         private ChatMessageView TransientFormRequest(ChatFormRequestView form) =>
             new(
                 Guid.CreateVersion7(),
                 "assistant",
                 null,
-                new ChatReplyView("form-request", AssistantFormRequestRules.FormRequestText, [], null, [], form, null),
+                new ChatReplyView("form-request", AssistantFormRequestRules.FormRequestText, [], null, [], form, null, null),
                 MicrosecondNow());
 
         private DateTimeOffset MicrosecondNow()
@@ -631,9 +712,10 @@ public static class ChatRunEndpoints
                     null,
                     [],
                     null,
+                    null,
                     null),
-                GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, [], null, null),
-                _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps, null, null),
+                GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, [], null, null, null),
+                _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps, null, null, null),
             };
             // Microseconds, like every saved timestamp (PostgreSQL's precision).
             var now = clock.GetUtcNow();

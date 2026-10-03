@@ -49,6 +49,49 @@
           <p class="notice form-unavailable">這份表單目前無法使用：助理已不再連接這個資料庫，或分享已收回。需要時請再問一次助理。</p>
         }
       }
+      @case ('database-query') {
+        @let query = reply.query;
+        @if (query.databaseName || query.period) {
+          <dl class="query-source">
+            @if (query.databaseName) {
+              <div><dt>資料來源</dt><dd>{{ query.databaseName }}{{ query.queryLabel ? '（' + query.queryLabel + '）' : '' }}</dd></div>
+            }
+            @if (query.period) {
+              <div><dt>統計期間</dt><dd>{{ query.period.label }}</dd></div>
+            }
+            @if (query.subjectOnly) {
+              <div><dt>範圍</dt><dd>只算這位追蹤對象</dd></div>
+            }
+          </dl>
+        }
+        @if (query.figures.length > 0) {
+          <table class="query-figures">
+            <caption class="visually-hidden">查詢結果</caption>
+            <thead>
+              <tr>
+                <th scope="col">指標</th>
+                <th scope="col">數值</th>
+                <th scope="col">{{ query.period ? '前一期' : '上次' }}</th>
+                <th scope="col">變化</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (figure of query.figures; track figure.metric) {
+                <tr>
+                  <th scope="row">{{ figure.metric }}</th>
+                  <td class="figure-value">{{ figure.display }}</td>
+                  <td>{{ figure.previousDisplay ?? '—' }}</td>
+                  <td>{{ figure.changeLabel ?? '—' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+        @if (query.status === 'insufficient-data' && query.message) {
+          <p class="notice query-notice">{{ query.message }}</p>
+        }
+        <p class="query-footnote">數字由系統依你目前的查詢權限計算，不由 AI 產生。</p>
+      }
       @case ('submission-receipt') {
         @let withdrawal = reply.withdrawal;
         <dl class="receipt">

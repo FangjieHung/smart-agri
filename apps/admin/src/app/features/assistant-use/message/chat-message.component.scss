@@ -22,12 +22,12 @@ p, ul, dl { margin: 0; }
 }
 [data-kind='general-knowledge'] { border-inline-start-color: var(--color-warning); }
 [data-kind='no-result'] { border-inline-start-color: var(--color-text-secondary); }
-[data-kind='form-request'], [data-kind='submission-receipt'] { border-inline-start-color: var(--color-accent); }
+[data-kind='form-request'], [data-kind='submission-receipt'], [data-kind='database-query'] { border-inline-start-color: var(--color-accent); }
 
 .kind { font-size: var(--font-size-caption); font-weight: 700; color: var(--color-success); }
 [data-kind='general-knowledge'] .kind, .notice { color: var(--color-warning); }
 [data-kind='no-result'] .kind { color: var(--color-text-secondary); }
-[data-kind='form-request'] .kind, [data-kind='submission-receipt'] .kind { color: var(--color-accent); }
+[data-kind='form-request'] .kind, [data-kind='submission-receipt'] .kind, [data-kind='database-query'] .kind { color: var(--color-accent); }
 
 .notice {
   padding: var(--space-2) var(--space-3);
@@ -77,3 +77,26 @@ button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-o
   color: var(--color-text);
 }
 .withdrawal-notice strong { color: var(--color-text); }
+
+/* 數據庫查詢（#149）：來源、期間與數字分開列，數字照伺服器的文字顯示。 */
+.query-source { display: grid; gap: var(--space-1); font-size: var(--font-size-caption); }
+.query-source div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.query-source dt { color: var(--color-text-secondary); }
+.query-source dd { margin: 0; font-weight: 700; }
+
+.query-figures {
+  inline-size: 100%;
+  position: relative;
+  border-collapse: collapse;
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+.query-figures th, .query-figures td {
+  padding: var(--space-1) var(--space-2);
+  border-block-end: var(--border-default);
+  text-align: start;
+}
+.query-figures thead th { color: var(--color-text-secondary); font-weight: 400; }
+.query-figures .figure-value { font-weight: 700; }
+
+.query-footnote { color: var(--color-text-secondary); font-size: var(--font-size-caption); }

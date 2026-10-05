@@ -84,6 +84,11 @@
       eval/retrieval above, and never published.
     -->
     <None Include="..\..\eval\answers\**\*" Exclude="..\..\eval\answers\README.md" LinkBase="eval\answers" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+    <!--
+      The form-request trigger set (M4 #164): `eval-form-requests` reads it from eval/form-requests
+      next to the assembly (FormRequestEvalSet.DefaultDirectory). Development-only, never published.
+    -->
+    <None Include="..\..\eval\form-requests\**\*" Exclude="..\..\eval\form-requests\README.md" LinkBase="eval\form-requests" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <!--

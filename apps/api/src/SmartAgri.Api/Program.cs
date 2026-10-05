@@ -125,6 +125,15 @@ if (args is [SmartAgriCommands.EvalAnswers, .. var evalAnswersArgs])
     return;
 }
 
+// `eval-form-requests` is one-shot too, Development only: judge how often the keyword gate and the
+// model choosing `request_database_form` miss or false-trigger a form request on a labelled
+// question set, and write a Markdown report, then exit (M4 #164). The keyword trigger needs no model.
+if (args is [SmartAgriCommands.EvalFormRequests, .. var evalFormArgs])
+{
+    Environment.ExitCode = await SmartAgri.Api.Chat.Evaluation.EvalFormRequestsCommand.RunAsync(app.Services, evalFormArgs, Console.Out, Console.Error);
+    return;
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -178,6 +187,7 @@ internal static class SmartAgriCommands
     public const string Reindex = "reindex";
     public const string EvalRetrieval = "eval-retrieval";
     public const string EvalAnswers = "eval-answers";
+    public const string EvalFormRequests = "eval-form-requests";
 }
 
 namespace SmartAgri.Api

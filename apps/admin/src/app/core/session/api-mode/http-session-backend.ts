@@ -76,6 +76,7 @@ function toIdentity(me: MeResponse): ApiIdentity {
     passwordChangeRequired: me.passwordChangeRequired,
     // 真實 GUID：見 `ApiIdentity.organizationId` 的說明。
     organizationId: me.organization.id,
+    statisticsTimeZone: me.statisticsTimeZone,
   };
 }
 

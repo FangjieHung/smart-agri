@@ -10,6 +10,7 @@ import type { DatabaseRecordFixture } from './demo-seed-databases';
 
 // 2026-10-03 是星期六。
 const TODAY = '2026-10-03';
+const TAIPEI = 'Asia/Taipei';
 
 function range(name: Parameters<typeof resolvePeriod>[0], today = TODAY): [string, string] {
   const period = resolvePeriod(name, today);
@@ -43,11 +44,19 @@ function record(id: string, subject: TrackedSubjectId, at: string, value: number
 
 describe('statisticsDay', () => {
   it('is the Taipei calendar day, as the receipts show it, not the UTC day', () => {
-    expect(statisticsDay('2026-10-02T23:30:00Z')).toBe('2026-10-03');
-    expect(statisticsDay('2026-10-03T15:59:59Z')).toBe('2026-10-03');
-    expect(statisticsDay('2026-10-03T16:00:00Z')).toBe('2026-10-04');
-    expect(statisticsDay('2026-10-03T16:30:00Z')).toBe('2026-10-04');
-    expect(statisticsDay('2026-10-04T00:30:00+08:00')).toBe('2026-10-04');
+    expect(statisticsDay('2026-10-02T23:30:00Z', TAIPEI)).toBe('2026-10-03');
+    expect(statisticsDay('2026-10-03T15:59:59Z', TAIPEI)).toBe('2026-10-03');
+    expect(statisticsDay('2026-10-03T16:00:00Z', TAIPEI)).toBe('2026-10-04');
+    expect(statisticsDay('2026-10-03T16:30:00Z', TAIPEI)).toBe('2026-10-04');
+    expect(statisticsDay('2026-10-04T00:30:00+08:00', TAIPEI)).toBe('2026-10-04');
+  });
+
+  it('follows the configured zone instead of a fixed one (#177)', () => {
+    // 台北已是 10/03、柏林（夏令時間 +02）與紐約（-04）仍是 10/02。
+    expect(statisticsDay('2026-10-02T23:30:00Z', 'Europe/Berlin')).toBe('2026-10-03');
+    expect(statisticsDay('2026-10-02T20:30:00Z', TAIPEI)).toBe('2026-10-03');
+    expect(statisticsDay('2026-10-02T20:30:00Z', 'Europe/Berlin')).toBe('2026-10-02');
+    expect(statisticsDay('2026-10-02T20:30:00Z', 'America/New_York')).toBe('2026-10-02');
   });
 });
 
@@ -93,7 +102,7 @@ describe('summarizePeriod', () => {
     record('e', 'subject-lin', '2026-09-10T10:00:00.000Z', 10),
     record('f', 'subject-lin', '2026-09-11T10:00:00.000Z', null),
   ];
-  const input = { records, fields: [spend], subjectId: null, period: 'last-month' as const, today: TODAY };
+  const input = { records, fields: [spend], subjectId: null, period: 'last-month' as const, today: TODAY, timeZone: TAIPEI };
 
   it('counts and sums what is inside the period, with the day boundaries in Taipei', () => {
     const summary = summarizePeriod(input);
@@ -117,6 +126,15 @@ describe('summarizePeriod', () => {
         changeLabel: '+4,510 元',
       },
     ]);
+  });
+
+  it('puts records into the periods by the calendar days of the given zone (#177)', () => {
+    // UTC 下，台北 09/01 00:00 的 b 還是 08/31（前一期），台北 10/01 00:00 的 d 是 09/30（本期）。
+    const summary = summarizePeriod({ ...input, timeZone: 'UTC' });
+
+    expect(summary.recordCount).toBe(4);
+    expect(summary.previousRecordCount).toBe(2);
+    expect(summary.sums[0]).toMatchObject({ sum: 7510, previousSum: 3000 });
   });
 
   it('can be limited to one subject', () => {

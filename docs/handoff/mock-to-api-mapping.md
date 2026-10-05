@@ -133,7 +133,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 **API 模式狀態（#142，2026-10-03）**：上表前四個方法已改成非同步契約（`Observable<…>`，不再傳 viewer），API 模式由 `hybrid-demo-repository.ts` 的同名覆寫走 HTTP，**讀取與建立（寫入）兩端都換了**，不會落到 mock 的資料庫。與 mock 的刻意差異：
 
-- 後端摘要沒有 `recordCount`／`subjectCount`／`connectedAssistantNames`：讀紀錄需要資料管理者指定與帳號權限（#144／#146），在那之前任何回應都不透露數量；adapter 一律填 `null`／`[]`。摘要多了 `owner`（mock 也補上）、`templateId`、`formVersion`、`createdAt`、`viewerCanManage`。
+- 後端摘要沒有 `recordCount`／`subjectCount`／`connectedAssistantNames`：讀紀錄需要資料管理者指定與帳號權限（#144／#146），在那之前任何回應都不透露數量；adapter 一律填 `null`／`[]`。（#177 起 `recordCount`／`subjectCount` 只對可讀者送出、其他人省略，adapter 把省略轉成 `null`；見 M4 設計文件第 16 節。）摘要多了 `owner`（mock 也補上）、`templateId`、`formVersion`、`createdAt`、`viewerCanManage`。
 - 詳情的欄位在 `form.fields`（附 `form.versionNumber`、`form.createdAt`），不是頂層 `fields`；adapter 攤平成前端的 `fields`。
 - 其餘的方法（`getDatabaseTracking`）在 API 模式**尚未提供**（`updateDatabaseFields`、`previewDatabaseEntry` 自 #143、`updateDatabaseAccess` 自 #144 起走 API，見下）。詳情的 `upcomingFeatures`（`records`、`assistant-connections`；mock 是空陣列）讓畫面顯示「將於後續版本開放」，不呼叫同步的 mock 方法；#145–#148 開放一項就從 `API_UPCOMING_DATABASE_FEATURES` 移除一項（`form-editing` 已於 #143、`data-managers` 已於 #144、`assistant-connections` 已於 #148 移除：詳情多 `connectedAssistants`、摘要多 `connectedAssistantNames`，都只列**目前帳號自己的**助理，與 mock 相同）。**#146 與 #148 合併後 `API_UPCOMING_DATABASE_FEATURES` 只剩 `trends`（#147），`DatabaseUpcomingFeature` 也只剩 `'trends'`。**
 - **指定資料管理者（#144）**：
@@ -163,7 +163,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 - **固定查詢**（`DatabaseFixedQueries`／`DatabaseFixedQueryService`，Application／Api）：`record-count`、`field-sum`、`period-summary`、`subject-comparison`，各自只接受自己定義的參數（`period`／`from`＋`to`／`fieldId`／`subjectId`），不接受運算式或 SQL；端點只是入口，#149（對話工具）與 #150（排程）直接呼叫同一個應用服務。每次呼叫重新套用組織、指定與帳號權限、只算有效紀錄（撤回即排除）。
 - **紀錄不足**：`comparison.status = 'insufficient-records'`（少於 2 筆，或有 2 筆以上但沒有任何數字／量尺欄位累積 2 個值）時沒有 `metrics`，畫面不畫趨勢。mock 的後一種情況也改成 `insufficient-records`（原本回 `available` 但沒有指標，畫面是空的趨勢）。
-- **與 mock 的刻意差異**：同一個欄位 id 若型別或單位改過，只比較／加總「目前這組型別與單位」的值，不混；mock 的比較同步這樣算（`compareRecords`）。日期一律是統計時區（`Statistics:TimeZone`，預設 `Asia/Taipei`）的曆日，週從週一；前一期是完整的前一期；前端時間軸日期標籤同樣以台北曆日顯示（`statisticsDay`）。
+- **與 mock 的刻意差異**：同一個欄位 id 若型別或單位改過，只比較／加總「目前這組型別與單位」的值，不混；mock 的比較同步這樣算（`compareRecords`）。日期一律是統計時區（`Statistics:TimeZone`，預設 `Asia/Taipei`）的曆日，週從週一；前一期是完整的前一期；前端時間軸日期標籤同樣以統計時區的曆日顯示（`statisticsDay`；#177 起時區取自 `/me` 的 `statisticsTimeZone`）。
 - `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`、新增 `periodic-reports`（#150）；**#150 已移除 `periodic-reports`，清單現在是空的**（見下方 #150 段落）。
 - 完整契約、參數規則與給 #149／#150 的接點：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 10 節。
 

@@ -29,7 +29,7 @@ const REAL_WITHDRAW_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#sec
 const REAL_TRACKING_JSON = `{"databaseId":"01a10084-8346-791b-a454-95d92252b9ce","subjects":[{"subject":{"id":"01a10084-7efb-716e-984c-285d1dbe17a6","displayName":"安心商行外部客戶"},"records":[{"id":"01a10084-83df-717a-96e2-28de141c3105","receiptNumber":"R-20261003-DE141C3105","submittedAt":"2026-10-03T06:47:26.943728+00:00","source":"form-link","submitter":{"id":"01a10084-7efb-716e-984c-285d1dbe17a6","displayName":"安心商行外部客戶"},"formVersionNumber":1,"entries":[{"fieldId":"field-overall-satisfaction","label":"整體滿意度","type":"scale","display":"4 / 5"},{"fieldId":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","display":"客服回應"},{"fieldId":"field-suggestion","label":"其他建議","type":"text","display":"未填寫"}]}],"withdrawals":[{"id":"01a10084-843f-7125-acf5-09ec5e392b49","submittedAt":"2026-10-03T06:47:27.039302+00:00","withdrawnAt":"2026-10-03T06:47:27.048448+00:00","source":"form-link","formVersionNumber":1}],"comparison":{"status":"insufficient-records","recordCount":1,"message":"目前只有 1 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。","summary":null,"metrics":[]}}]}`;
 const REAL_TRACKING_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"database-records","message":"只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號，可以查看收集紀錄與趨勢比較。"}`;
 
-function setUp() {
+function setUp(statisticsTimeZone?: string) {
   TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
   const base = createMemoryStorage();
   /** mock storage 被寫入的鍵：API 模式的紀錄與撤回不能落到 mock 的收集紀錄上。 */
@@ -51,6 +51,7 @@ function setUp() {
         demoAccountId: 'account-external-customer',
         permissions: ['submit-authorized-forms', 'read-own-tracking'],
         organizationId: '0199a3c0-0000-7000-8000-0000000000aa',
+        statisticsTimeZone,
       }),
     },
   );
@@ -184,6 +185,25 @@ describe('HybridDemoRepository records and withdrawal (issue #146)', () => {
       message: '目前只有 1 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。',
     });
     expect(written).toEqual([]);
+  });
+
+  it('labels the timeline with the days of the time zone /me reports, not a fixed one (#177)', async () => {
+    // 06:47 UTC 在台北是 10/03 下午，在洛杉磯（-07）仍是 10/02 深夜。
+    for (const [zone, day] of [
+      ['Asia/Taipei', '2026-10-03'],
+      ['America/Los_Angeles', '2026-10-02'],
+    ] as const) {
+      TestBed.resetTestingModule();
+      const { repository, controller } = setUp(zone);
+      const result = firstValueFrom(repository.getDatabaseTracking(DATABASE_ID));
+      controller.expectOne({ method: 'GET', url: apiDatabaseTrackingPath(DATABASE_ID) }).flush(JSON.parse(REAL_TRACKING_JSON));
+
+      const outcome = await result;
+      if (outcome.status !== 'ready') throw new Error(`expected ready, got ${outcome.status}`);
+      const [subject] = outcome.data.subjects;
+      expect(subject.records[0].dateLabel, zone).toBe(day);
+      expect(subject.withdrawals[0], zone).toMatchObject({ submittedDateLabel: day, withdrawnDateLabel: day });
+    }
   });
 
   it('keeps the two refusals of the timeline apart: database-records, and database for a missing id', async () => {

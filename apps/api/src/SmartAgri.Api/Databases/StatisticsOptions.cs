@@ -24,6 +24,24 @@ public sealed class StatisticsOptions
     public TimeZoneInfo? TryResolve() =>
         TimeZoneInfo.TryFindSystemTimeZoneById(TimeZone ?? string.Empty, out var zone) ? zone : null;
 
+    /// <summary>
+    /// The configured zone as an IANA id, the form the SPA's <c>Intl.DateTimeFormat</c> accepts
+    /// (<c>GET /api/v1/me</c>'s <c>statisticsTimeZone</c>, #177). A Windows id that the runtime
+    /// also resolves (e.g. <c>Taipei Standard Time</c>) is converted; <see langword="null"/> when
+    /// the setting does not resolve (startup validation rejects that).
+    /// </summary>
+    public string? TryResolveIanaId()
+    {
+        if (TryResolve() is not { } zone)
+        {
+            return null;
+        }
+
+        return zone.HasIanaId
+            ? zone.Id
+            : TimeZoneInfo.TryConvertWindowsIdToIanaId(zone.Id, out var ianaId) ? ianaId : zone.Id;
+    }
+
     internal sealed class Validator : IValidateOptions<StatisticsOptions>
     {
         public ValidateOptionsResult Validate(string? name, StatisticsOptions options) =>

@@ -437,7 +437,7 @@ export type DatabaseReportDataState = 'sufficient' | 'insufficient-records';
  */
 export type DatabaseReportSummaryStatus = 'not-requested' | 'pending' | 'ready' | 'failed' | 'discarded';
 
-/** 報表清單的一列（不含統計）。日期是統計時區（Asia/Taipei）的曆日 `YYYY-MM-DD`。 */
+/** 報表清單的一列（不含統計）。日期是統計時區（後端 `Statistics:TimeZone`）的曆日 `YYYY-MM-DD`。 */
 export interface DatabaseReportListItemView {
   readonly id: string;
   readonly assistantId: string;

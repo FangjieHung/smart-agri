@@ -305,7 +305,16 @@ export interface MockDemoRepositoryOptions {
    * 未提供時（mock 模式）行為與過去相同：seed 疊上 `sme-demo:team-permissions`。
    */
   readonly accountsSource?: () => AccountPermissionOverrides;
+  /**
+   * 統計時區（IANA）：日期標籤、期間統計與定期報表的曆日都以它為準（#177）。API 模式由
+   * `HybridDemoRepository` 接到 `/me` 的 `statisticsTimeZone`（後端 `Statistics:TimeZone`）；
+   * 未提供時（mock 模式）用 `MOCK_STATISTICS_TIME_ZONE`，等同後端的預設設定。
+   */
+  readonly statisticsTimeZone?: () => string;
 }
+
+/** mock 模式的統計時區：扮演後端 `Statistics:TimeZone` 的預設值（`StatisticsOptions.DefaultTimeZone`）。 */
+export const MOCK_STATISTICS_TIME_ZONE = 'Asia/Taipei';
 
 /** 團隊的 403 訊息；API 的 `ForbiddenReason.Team` 使用同一句話。 */
 export const TEAM_PERMISSION_DENIED_MESSAGE =
@@ -1124,6 +1133,8 @@ export class MockDemoRepository implements DemoRepository {
   /** 未登入訪客的對話只寫在這裡，和帳號的儲存完全分開。 */
   private readonly visitorStorage: DemoKeyValueStorage;
   private readonly now: () => Date;
+  /** 目前的統計時區（見 `MockDemoRepositoryOptions.statisticsTimeZone`）；每次使用時才讀取。 */
+  protected readonly statisticsTimeZone: () => string;
   protected readonly viewer: () => AccountId | null;
   protected readonly chatViewer: () => ChatViewerId | null;
   private readonly accountsSource: (() => AccountPermissionOverrides) | null;
@@ -1146,6 +1157,7 @@ export class MockDemoRepository implements DemoRepository {
     this.storage = options.storage ?? createMemoryStorage();
     this.visitorStorage = options.visitorStorage ?? createMemoryStorage();
     this.now = options.now ?? (() => new Date());
+    this.statisticsTimeZone = options.statisticsTimeZone ?? (() => MOCK_STATISTICS_TIME_ZONE);
     this.viewer = options.viewer ?? (() => null);
     this.chatViewer = options.chatViewer ?? (() => this.viewer());
     this.accountsSource = options.accountsSource ?? null;
@@ -3841,7 +3853,8 @@ export class MockDemoRepository implements DemoRepository {
         fields: this.databaseCollection(database.id).fields,
         subjectId: query.subjectId,
         period: query.period,
-        today: statisticsDay(this.now().toISOString()),
+        today: statisticsDay(this.now().toISOString(), this.statisticsTimeZone()),
+        timeZone: this.statisticsTimeZone(),
       }),
     );
   }
@@ -3898,7 +3911,7 @@ export class MockDemoRepository implements DemoRepository {
     const denied = this.reportsDenied(viewerAccountId, databaseId);
     if (denied !== null) return denied;
 
-    const today = statisticsDay(this.now().toISOString());
+    const today = statisticsDay(this.now().toISOString(), this.statisticsTimeZone());
     this.generateDueReports(databaseId, today);
     const schedules = this.reportingAssistants(databaseId).map(({ assistant, frequency }) => {
       const current = reportPeriodContaining(frequency, today);
@@ -3924,7 +3937,7 @@ export class MockDemoRepository implements DemoRepository {
     const denied = this.reportsDenied(viewerAccountId, databaseId);
     if (denied !== null) return denied;
 
-    this.generateDueReports(databaseId, statisticsDay(this.now().toISOString()));
+    this.generateDueReports(databaseId, statisticsDay(this.now().toISOString(), this.statisticsTimeZone()));
     const report = this.storedDatabaseReports(databaseId).find((entry) => entry.report.id === reportId);
     return report === undefined
       ? this.permissionDenied('database-report', DATABASE_REPORT_DENIED_MESSAGE)
@@ -3996,6 +4009,7 @@ export class MockDemoRepository implements DemoRepository {
             subjectId: null,
             period,
             previous: reportPeriodBefore(frequency, period),
+            timeZone: this.statisticsTimeZone(),
           });
           const dataState = reportDataState(statistics);
           const generatedAt = this.now().toISOString();
@@ -4063,14 +4077,15 @@ export class MockDemoRepository implements DemoRepository {
       .filter((subject) => subject.databaseId === database.id)
       .map((subject) => {
         const chronological = records.filter((record) => record.subjectId === subject.id);
+        const timeZone = this.statisticsTimeZone();
         return {
           id: subject.id,
           displayName: subject.displayName,
-          records: [...chronological].reverse().map(toRecordView),
+          records: [...chronological].reverse().map((record) => toRecordView(record, timeZone)),
           withdrawals: withdrawn
             .filter((record) => record.subjectId === subject.id)
-            .map(toWithdrawnRecordView),
-          comparison: compareRecords(chronological),
+            .map((record) => toWithdrawnRecordView(record, timeZone)),
+          comparison: compareRecords(chronological, timeZone),
         };
       })
       // 全部撤回的追蹤對象仍然留著：只剩軌跡，但不能無聲消失。
@@ -4947,7 +4962,7 @@ export class MockDemoRepository implements DemoRepository {
     if (record.consentStatus === 'withdrawn') {
       return {
         status: 'withdrawn',
-        withdrawnDateLabel: record.withdrawnAt === undefined ? '' : statisticsDay(record.withdrawnAt),
+        withdrawnDateLabel: record.withdrawnAt === undefined ? '' : statisticsDay(record.withdrawnAt, this.statisticsTimeZone()),
         notice: CHAT_WITHDRAWN_NOTICE,
       };
     }
@@ -5058,7 +5073,8 @@ export class MockDemoRepository implements DemoRepository {
         fields: this.databaseCollection(database.id).fields,
         subjectId: null,
         period,
-        today: statisticsDay(this.now().toISOString()),
+        today: statisticsDay(this.now().toISOString(), this.statisticsTimeZone()),
+        timeZone: this.statisticsTimeZone(),
       }),
     );
   }

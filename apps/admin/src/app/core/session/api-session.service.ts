@@ -33,6 +33,11 @@ export interface ApiIdentity {
    * 也要補上；正式的 `toIdentity()`（`http-session-backend.ts`）一定會填。
    */
   readonly organizationId?: string;
+  /**
+   * `/me` 回傳的統計時區（IANA，後端 `Statistics:TimeZone`，#177）。選填的理由同 `organizationId`；
+   * 正式的 `toIdentity()` 一定會填。
+   */
+  readonly statisticsTimeZone?: string;
 }
 
 /** `redirecting`：瀏覽器即將離開這個頁面去完成 authorize。 */

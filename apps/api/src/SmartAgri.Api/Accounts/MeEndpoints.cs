@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.Databases;
 using SmartAgri.Api.Errors;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Infrastructure;
@@ -12,14 +14,18 @@ namespace SmartAgri.Api.Accounts;
 /// (<c>account.model.ts</c>); permissions are in <c>ACCOUNT_PERMISSIONS</c> order.
 /// <see cref="PasswordChangeRequired"/> is true while the account still has its one-time
 /// password from <c>setup</c>: the SPA must then send the user to set a new password
-/// (every other protected endpoint answers <c>403 password-change-required</c>).</summary>
+/// (every other protected endpoint answers <c>403 password-change-required</c>).
+/// <see cref="StatisticsTimeZone"/> is the server's <c>Statistics:TimeZone</c> as an IANA id (#177):
+/// the SPA labels record dates with the calendar days of this zone, the same days the statistics
+/// count in, instead of a constant of its own.</summary>
 public sealed record MeResponse(
     Guid Id,
     string DisplayName,
     AccountRole Role,
     IReadOnlyList<AccountPermission> Permissions,
     MeOrganization Organization,
-    bool PasswordChangeRequired);
+    bool PasswordChangeRequired,
+    string StatisticsTimeZone);
 
 public sealed record MeOrganization(Guid Id, string Name);
 
@@ -44,6 +50,7 @@ public static class MeEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         RequestAccountPermissions permissions,
+        IOptions<StatisticsOptions> statistics,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } accountId)
@@ -76,6 +83,8 @@ public static class MeEndpoints
             account.Role,
             RequestAccountPermissions.Ordered(granted),
             organization,
-            account.PasswordChangeRequired));
+            account.PasswordChangeRequired,
+            statistics.Value.TryResolveIanaId()
+                ?? throw new InvalidOperationException("Statistics:TimeZone was validated at startup.")));
     }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
@@ -15,9 +16,11 @@ namespace SmartAgri.Api.Databases;
 // apps/admin/src/app/core/domain/database.model.ts, so the generated types line up. Differences,
 // all deliberate (docs/plans/2026-10-03-m4-142-database-templates.md):
 // - ids are GUIDs (the frontend widens DatabaseId to string for API mode);
-// - DatabaseSummaryView has no recordCount / subjectCount: reading records needs the data-manager
-//   designation and the read-consented-submissions permission (#144/#146), so until then no
-//   response says anything about records; the frontend adapter maps them to null;
+// - DatabaseSummaryView's recordCount / subjectCount (#177) are sent only to a caller who may read
+//   the database's records right now (designated data manager holding read-consented-submissions,
+//   #144); for anyone else both keys are omitted (not null), so their response is byte-identical
+//   to the one before #177 and says nothing about records. The OpenAPI document marks them
+//   optional; the frontend adapter maps an absent key to null;
 // - DatabaseSummaryView adds owner, templateId, formVersion, createdAt and viewerCanManage;
 // - connectedAssistantNames / connectedAssistants are absent: assistant connections are #148;
 //   `access` (data managers, #144) is part of the detail, see DatabaseAccessView;
@@ -66,7 +69,8 @@ public sealed record DatabaseAccountView(Guid Id, string DisplayName);
 
 /// <summary>
 /// One row of <c>GET /api/v1/databases</c>, the <c>summary</c> of the detail, and the response
-/// of <c>POST</c>. Never carries a record or subject count (see the file note).
+/// of <c>POST</c>. Carries the record and subject counts only for a caller who may read the
+/// records (see the file note).
 /// </summary>
 /// <param name="TemplateName">The template's name (e.g. 滿意度調查), for display.</param>
 /// <param name="FieldCount">Fields of the current form.</param>
@@ -76,6 +80,10 @@ public sealed record DatabaseAccountView(Guid Id, string DisplayName);
 /// <param name="ViewerCanManage">Whether the caller may open and change it
 /// (<see cref="DatabaseAccess.CanManage"/>).</param>
 /// <param name="ConnectedAssistantNames">The caller's own assistants connected to it (M4 #148).</param>
+/// <param name="RecordCount">Active records (<see cref="DatabaseActiveRecords"/>; withdrawn ones
+/// excluded). Omitted unless the caller may read the records on this request (#177).</param>
+/// <param name="SubjectCount">Distinct members with at least one active record; omitted like
+/// <paramref name="RecordCount"/>.</param>
 public sealed record DatabaseSummaryView(
     Guid Id,
     string Name,
@@ -88,7 +96,9 @@ public sealed record DatabaseSummaryView(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     bool ViewerCanManage,
-    IReadOnlyList<string> ConnectedAssistantNames);
+    IReadOnlyList<string> ConnectedAssistantNames,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? RecordCount = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? SubjectCount = null);
 
 /// <summary>A form version: its number, when and by whom it was saved, and its fields.</summary>
 public sealed record DatabaseFormView(
@@ -287,14 +297,32 @@ public static class DatabaseEndpoints
 
         var connected = await DatabaseConnectedAssistants.ForAsync(
             dbContext, viewerId, [.. rows.Select(row => row.Database.Id)], cancellationToken);
+        var counts = await ReadableCountsAsync(dbContext, permissions, viewerId, cancellationToken);
 
         // Ordered here rather than in SQL: EF Core cannot order by a member of a record built
         // through its constructor (as in KnowledgeBaseEndpoints), and a caller's databases are few.
         return Results.Ok(rows
             .OrderBy(row => row.Database.CreatedAt)
             .ThenBy(row => row.Database.Id)
-            .Select(row => ToSummary(row, viewerId, connected[row.Database.Id]))
+            .Select(row => ToSummary(row, viewerId, connected[row.Database.Id], counts.GetValueOrDefault(row.Database.Id)))
             .ToList());
+    }
+
+    /// <summary>
+    /// The counts of every database the viewer may read the records of on this request
+    /// (<see cref="DatabaseRecordReaders.ReadableDatabaseIdsAsync"/>, the #144 rule), a database
+    /// without active records counted as zero. Two queries however many databases are listed
+    /// (the readable ids, then one grouped count); empty, without counting, for a caller without
+    /// the permission.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<Guid, DatabaseRecordCounts>> ReadableCountsAsync(
+        AppDbContext dbContext, RequestAccountPermissions permissions, Guid viewerId, CancellationToken cancellationToken)
+    {
+        var readable = await DatabaseRecordReaders.ReadableDatabaseIdsAsync(dbContext, permissions, viewerId, cancellationToken);
+        var counted = await DatabaseActiveRecords.CountAsync(dbContext, readable, cancellationToken);
+        return readable.ToDictionary(
+            id => id,
+            id => counted.GetValueOrDefault(id) ?? new DatabaseRecordCounts(id, 0, 0));
     }
 
     /// <summary>
@@ -305,6 +333,7 @@ public static class DatabaseEndpoints
         CreateDatabaseRequest request,
         HttpContext httpContext,
         AppDbContext dbContext,
+        RequestAccountPermissions permissions,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -339,9 +368,14 @@ public static class DatabaseEndpoints
         dbContext.DatabaseDataManagers.Add(DatabaseDataManager.Create(database, callerId, callerId, now));
         await dbContext.SaveChangesAsync(cancellationToken);
 
+        // The creator is its one data manager, so it is readable exactly when they hold the
+        // permission; a new database has no records yet.
+        var counts = await DatabaseRecordReaders.HasReadPermissionAsync(permissions, callerId, cancellationToken)
+            ? new DatabaseRecordCounts(database.Id, 0, 0)
+            : null;
         return Results.Created(
             $"{DatabasesPath}/{database.Id}",
-            ToSummary(new DatabaseRow(database, ownerName, form), callerId));
+            ToSummary(new DatabaseRow(database, ownerName, form), callerId, counts: counts));
     }
 
     /// <summary>The detail of a database the caller owns or may read the records of; the latter
@@ -372,8 +406,12 @@ public static class DatabaseEndpoints
 
         var connected = (await DatabaseConnectedAssistants.ForAsync(dbContext, viewerId, [row.Database.Id], cancellationToken))
             [row.Database.Id].ToList();
+        var counts = await DatabaseRecordReaders.CanReadAsync(dbContext, permissions, viewerId, id, cancellationToken)
+            ? (await DatabaseActiveRecords.CountAsync(dbContext, [id], cancellationToken)).GetValueOrDefault(id)
+                ?? new DatabaseRecordCounts(id, 0, 0)
+            : null;
         return Results.Ok(new DatabaseDetailView(
-            ToSummary(row, viewerId, connected),
+            ToSummary(row, viewerId, connected, counts),
             ToFormView(row.Form),
             await BuildAccessAsync(dbContext, row.Database, row.OwnerName, viewerId, hasReadPermission, cancellationToken),
             connected));
@@ -715,8 +753,13 @@ public static class DatabaseEndpoints
             .Max(other => other.VersionNumber)
         select new DatabaseRow(database, owner.DisplayName, form);
 
+    /// <param name="counts">The record counts when the viewer may read them; <see langword="null"/>
+    /// omits both counts from the JSON.</param>
     private static DatabaseSummaryView ToSummary(
-        DatabaseRow row, Guid viewerId, IEnumerable<DatabaseConnectedAssistantView>? connectedAssistants = null)
+        DatabaseRow row,
+        Guid viewerId,
+        IEnumerable<DatabaseConnectedAssistantView>? connectedAssistants = null,
+        DatabaseRecordCounts? counts = null)
     {
         var database = row.Database;
         return new DatabaseSummaryView(
@@ -731,7 +774,9 @@ public static class DatabaseEndpoints
             database.CreatedAt,
             row.Form.CreatedAt > database.UpdatedAt ? row.Form.CreatedAt : database.UpdatedAt,
             DatabaseAccess.CanManage(database, viewerId),
-            [.. (connectedAssistants ?? []).Select(assistant => assistant.Name)]);
+            [.. (connectedAssistants ?? []).Select(assistant => assistant.Name)],
+            counts?.RecordCount,
+            counts?.SubjectCount);
     }
 
     private static Guid CurrentOrganizationId(AppDbContext dbContext) =>

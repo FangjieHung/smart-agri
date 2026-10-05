@@ -35,6 +35,14 @@ const REAL_DETAIL_JSON = `{"summary":{"id":"01a0ffc9-9dac-7a01-a9ae-3f268e9f53bf
  */
 const REAL_MANAGER_DETAIL_JSON = `{"summary":{"id":"01a0ffc9-9dac-7a01-a9ae-3f268e9f53bf","name":"門市滿意度","purpose":"收集客戶對服務的評分與建議。","templateId":"template-satisfaction","templateName":"滿意度調查","fieldCount":3,"formVersion":1,"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"createdAt":"2026-10-03T03:23:18.315844+00:00","updatedAt":"2026-10-03T03:23:18.315844+00:00","viewerCanManage":false},"form":{"id":"01a0ffc9-9dad-7ed6-88ba-1f1e89b0c021","versionNumber":1,"createdAt":"2026-10-03T03:23:18.315844+00:00","fields":[{"id":"field-overall-satisfaction","label":"整體滿意度","type":"scale","required":true,"options":[],"scale":{"min":1,"max":5,"minLabel":"很不滿意","maxLabel":"非常滿意"},"unit":""},{"id":"field-liked-services","label":"喜歡的服務","type":"multiple-choice","required":false,"options":["商品品質","客服回應","配送速度"],"scale":null,"unit":""},{"id":"field-suggestion","label":"其他建議","type":"text","required":false,"options":[],"scale":null,"unit":""}]},"access":{"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"dataManagers":[{"account":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.315844+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶"},"hasReadPermission":false,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}],"effectiveReaders":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"}],"viewerIsDataManager":true,"viewerCanReadRecords":true,"viewerCanManageAccess":false,"candidates":[],"lastChange":{"changedAt":"2026-10-03T03:23:18.396829+00:00","changedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}}}`;
 
+/**
+ * 同一個數據庫的 `GET /api/v1/databases`，先由可讀紀錄的擁有者讀（三筆送出、撤回一筆後：2 筆、1 位對象），
+ * 再由取消自己指定、因此不可讀的擁有者讀（沒有 `recordCount`／`subjectCount` 鍵，#177）。
+ * 2026-10-05 取自 API 整合測試主機，原樣保留。
+ */
+const REAL_READER_LIST_JSON = `[{"id":"01a10b99-f171-71c1-9d58-56a0f978dd73","name":"門市客戶","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10b99-ec55-7b4d-b6e0-767ad3a7435c","displayName":"安心商行管理者"},"createdAt":"2026-10-05T10:26:40.624749+00:00","updatedAt":"2026-10-05T10:26:40.624749+00:00","viewerCanManage":true,"connectedAssistantNames":[],"recordCount":2,"subjectCount":1}]`;
+const REAL_NON_READER_LIST_JSON = `[{"id":"01a10b99-f171-71c1-9d58-56a0f978dd73","name":"門市客戶","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10b99-ec55-7b4d-b6e0-767ad3a7435c","displayName":"安心商行管理者"},"createdAt":"2026-10-05T10:26:40.624749+00:00","updatedAt":"2026-10-05T10:26:40.624749+00:00","viewerCanManage":true,"connectedAssistantNames":[]}]`;
+
 /** `PUT /api/v1/databases/{id}/access` 的真實回應（擁有者指定三個帳號後）。 */
 const REAL_PUT_ACCESS_JSON = `{"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"dataManagers":[{"account":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.315844+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶"},"hasReadPermission":false,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}],"effectiveReaders":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"}],"viewerIsDataManager":true,"viewerCanReadRecords":true,"viewerCanManageAccess":true,"candidates":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者","role":"smb-admin","hasReadPermission":true},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁","role":"internal-employee","hasReadPermission":true},{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶","role":"external-customer","hasReadPermission":false}],"lastChange":{"changedAt":"2026-10-03T03:23:18.396829+00:00","changedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}}`;
 
@@ -188,6 +196,18 @@ describe('HybridDemoRepository databases (issue #142)', () => {
         },
       ],
     });
+  });
+
+  it('shows the counts a reader gets from the real list and null for a non-reader, whose JSON has no count keys (#177)', async () => {
+    const { repository, controller } = setUp();
+    const reader = firstValueFrom(repository.listDatabaseSummaries());
+    controller.expectOne({ method: 'GET', url: API_DATABASES_PATH }).flush(JSON.parse(REAL_READER_LIST_JSON));
+    expect(await reader).toMatchObject({ status: 'ready', data: [{ name: '門市客戶', recordCount: 2, subjectCount: 1 }] });
+
+    const nonReader = firstValueFrom(repository.listDatabaseSummaries());
+    controller.expectOne({ method: 'GET', url: API_DATABASES_PATH }).flush(JSON.parse(REAL_NON_READER_LIST_JSON));
+    const outcome = await nonReader;
+    expect(outcome).toMatchObject({ status: 'ready', data: [{ name: '門市客戶', recordCount: null, subjectCount: null }] });
   });
 
   it('creates through the API, not the mock: the request carries the template and name, and mock storage stays empty', async () => {

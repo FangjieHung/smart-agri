@@ -183,7 +183,7 @@
 - 有效紀錄＝`DatabaseActiveRecords.ReadableAsync(...)`（或已檢查 `CanReadAsync` 後的 `Of`），型別化值用 `EntriesOf`；**不要**自己寫 `WithdrawnAt` 條件或繞過 `DatabaseRecordReaders`。撤回後重新查詢即排除，已產生的定期報表不追溯改寫（ADR）。
 - 追蹤對象＝`SubmittedByAccountId`；欄位以穩定的 `FieldId` 跨版本比較；`NumberValue`（數字、量尺）是趨勢的來源。
 - 前端：`TrackedSubjectView.comparison` 與 `DatabaseTrackingView.periodicReports` 由 #147 從伺服器填入（可擴充 `GET .../tracking` 或另開固定查詢端點），完成後從 `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`。
-- 數據庫清單摘要的 `recordCount`／`subjectCount` 在 API 模式仍為 `null`：若 #147 要顯示，用 `DatabaseActiveRecords` 計數並只對可讀者回傳。
+- 數據庫清單摘要的 `recordCount`／`subjectCount` 在 API 模式仍為 `null`：若 #147 要顯示，用 `DatabaseActiveRecords` 計數並只對可讀者回傳。（#177 已做，見第 16 節。）
 
 ## 10. #148 助理連接數據庫並請求表單（2026-10-03）
 
@@ -280,7 +280,7 @@
 - **設定**：`Statistics:TimeZone`（`StatisticsOptions`，IANA id，預設 `Asia/Taipei`；環境變數 `Statistics__TimeZone`）。啟動時以 `ValidateOnStart` 驗證，id 不存在就拒絕啟動並指名這個設定（容器需有 tzdata）。
 - **曆日以這個時區為準**：具名期間、`from`／`to`（解讀為該時區的曆日，`to` 含當天）、週首（週一）、「前一期」、`today` 都以該時區的曆日計算；紀錄屬於 `SubmittedAt` 落在的**該時區**曆日。所以台北 10/03 07:30（UTC 10/02 23:30）算 10/03，台北 10/04 00:30（UTC 10/03 16:30）算 10/04；週日 23:59:59（+08）仍在該週，週一 00:00（+08）是下一週；11/01 00:30（+08，UTC 仍是 10/31）屬於 11 月。
 - **SQL**：每個期間換算成 UTC 的半開區間 `[該時區 from 00:00, to+1 日 00:00)`（`DatabaseQueryPeriod.Start/EndExclusive(timeZone)`；遇到夏令時間造成當日午夜不存在的時區，該日從 01:00 起算）。
-- **顯示**：回應裡的日期（`period.label`、`period.from/to`、首次／上次／本次與 `points` 的 `date`、比較摘要的起訖日）同一時區，與前端回執、時間軸顯示的日期一致。前端以常數 `STATISTICS_TIME_ZONE = 'Asia/Taipei'`（`database-tracking.ts`）的 `statisticsDay()` 產生時間軸日期標籤與 mock 的期間統計，Hybrid 的時間軸標籤也用它，不再切 ISO 字串（原本是 UTC 日，會與統計差一天）；後端設定若改了，前端常數要一起改（之後可由伺服器告知）。回執編號中的日期仍是 UTC 日（`R-yyyyMMdd-…`，不是統計日期）。
+- **顯示**：回應裡的日期（`period.label`、`period.from/to`、首次／上次／本次與 `points` 的 `date`、比較摘要的起訖日）同一時區，與前端回執、時間軸顯示的日期一致。前端以常數 `STATISTICS_TIME_ZONE = 'Asia/Taipei'`（`database-tracking.ts`）的 `statisticsDay()` 產生時間軸日期標籤與 mock 的期間統計，Hybrid 的時間軸標籤也用它，不再切 ISO 字串（原本是 UTC 日，會與統計差一天）；後端設定若改了，前端常數要一起改（之後可由伺服器告知）。**#177 起前端不再有這個常數**：時區由 `GET /api/v1/me` 的 `statisticsTimeZone` 提供，見第 16 節。回執編號中的日期仍是 UTC 日（`R-yyyyMMdd-…`，不是統計日期）。
 - 週首固定週一；`this-week`／`this-month` 涵蓋整週／整月（含尚未發生的日子），`last-7-days`／`last-30-days` 到今天為止。**前一期**是完整的前一期：上週、上月（月份天數不同照曆月）；滾動與自訂期間則是緊接在前、同樣天數。
 - **#150 排程必須讀同一個設定**：注入 `IOptions<StatisticsOptions>` 解析時區，或直接呼叫 `DatabaseFixedQueryService`（已內建）；排程以「現在」在該時區的曆日解析具名期間，報表記錄的資料期間是該時區的曆日。
 - 測試：`DatabaseFixedQueriesTests`（半開區間、日界、DST）、`DatabaseFixedQueryEndpointsTests.Days_weeks_and_months_are_Taipei_calendar_days_not_UTC_days`（UTC 23:30Z／16:30Z 邊界、週界、月界、前一期、比較日期）、`StatisticsOptionsStartupTests`（無效 id 拒絕啟動）、前端 `database-tracking.spec.ts`。
@@ -297,7 +297,7 @@
 - `TrackedSubjectView.comparison` 由伺服器填入（Hybrid 只轉換型別）；新增 `getDatabasePeriodSummary(databaseId, {period, subjectId})`（`Observable` 契約；mock 以 `now()` 在統計時區（台北）的曆日為今天計算，`summarizePeriod`／`resolvePeriod`／`previousPeriod` 在 `database-tracking.ts`，與後端同一套規則）。
 - 趨勢頁籤：變化摘要＋比較表＋趨勢圖（紀錄不足時只顯示說明，不畫圖）；新增「期間統計」（`features/databases/period-summary/`，預設近 30 天，可切換期間；讀取失敗與「沒有紀錄」分開、可重試）；每位追蹤對象底下有「查看…的原始紀錄」連到收集紀錄頁籤（`?subject=`）。
 - `DatabaseUpcomingFeature`：`'trends'` 移除，改為 `'periodic-reports'`（#150；**#150 已移除它，清單與型別成為空，見第 13 節**）；與 #148 合併後（#148 移除了 `assistant-connections`）清單與 `DatabaseUpcomingFeature` 都只剩 `periodic-reports`。API 模式的趨勢頁籤只在有追蹤對象時顯示「定期回報摘要：這項功能將於後續版本開放」，`periodicReports` 仍是空陣列。
-- 摘要清單的 `recordCount`／`subjectCount` 仍為 `null`（本票沒有需要顯示它的畫面；要顯示時用 `DatabaseActiveRecords` 計數且只對可讀者回傳）。
+- 摘要清單的 `recordCount`／`subjectCount` 仍為 `null`（本票沒有需要顯示它的畫面；要顯示時用 `DatabaseActiveRecords` 計數且只對可讀者回傳）。（#177 已做，見第 16 節。）
 
 ### 11.6 測試
 
@@ -491,3 +491,30 @@
 
 - 整合（`ChatFormRequestUxTests`，真實 PostgreSQL，7 個）：`Model` 模式有寫入對象時事件恰好一次、在 `TEXT_MESSAGE_START` 之後與第一段文字之前（給表單、不給表單、模型失敗退回關鍵字三種）；關鍵字模式與清除寫入對象的助理不送；清單與表單請求的 `form` 完全相同、清除寫入對象後是 `[]`；未分享、他組織、不存在的助理一律相同的 `403 assistant-use`；關閉紀錄只有助理、表單與時間，另一位成員指定別人的對話是 `403 chat-thread`、他組織 `403 assistant-use`、非寫入對象 `403 assistant-form`，拒絕時不寫入。網域：`ChatFormDismissalTests`。
 - 前端與 Cypress 見交接文件的驗收對照與 PR 說明。
+
+## 16. #177 統計時區由 API 提供、數據庫摘要筆數（2026-10-05）
+
+### 16.1 統計時區：`GET /api/v1/me` 的 `statisticsTimeZone`
+
+- `MeResponse` 新增必填字串 `statisticsTimeZone`：後端設定 `Statistics:TimeZone`（§11.3，預設 `Asia/Taipei`）的 **IANA** 名稱。設定若寫成執行環境也認得的 Windows 名稱（例如 `Taipei Standard Time`），回傳前轉成 IANA（`StatisticsOptions.TryResolveIanaId`），因為前端以 `Intl.DateTimeFormat` 使用它。
+- 放在 `/me` 而不是新端點：前端登入與每次啟動都會先讀 `/me`，不多一次請求；這個值是部署設定、不屬於組織，所以放在頂層而不是 `organization` 裡。
+- 前端：`database-tracking.ts` 刪除 `STATISTICS_TIME_ZONE`，`statisticsDay(iso, timeZone)`、`toRecordView`、`toWithdrawnRecordView`、`compareRecords`、`summarizePeriod`／`summarizeRange` 都改成接收時區。API 模式由 `toIdentity()` 存成 `ApiIdentity.statisticsTimeZone`，`HybridDemoRepository` 經 `MockDemoRepositoryOptions.statisticsTimeZone` 每次使用時讀取（時間軸標籤、仍在 mock 的期間統計與報表期間都用它）；mock 模式用 `MOCK_STATISTICS_TIME_ZONE`（扮演後端的預設值）。舊的分頁 session 沒有這個欄位時同樣退回該預設值，下一次讀 `/me` 就更新。
+- 不變：對話收據的撤回日期（`toChatWithdrawal`）仍取 ISO 字串的 UTC 日期部分（既有行為，本票未改）；回執編號中的日期仍是 UTC 日。
+
+### 16.2 數據庫摘要筆數：只回給可讀者
+
+| 端點 | `recordCount`／`subjectCount` |
+| --- | --- |
+| `GET /api/v1/databases`（每一列） | 呼叫者此刻可讀該數據庫的紀錄（#144：被指定為資料管理者**且**目前具備 `read-consented-submissions`）時送出；否則兩個鍵都**省略** |
+| `GET /api/v1/databases/{id}` 的 `summary` | 同上（`DatabaseRecordReaders.CanReadAsync`） |
+| `POST /api/v1/databases`（`201`） | 建立者是唯一的資料管理者，具備權限時送 `0`／`0`，否則省略 |
+
+- `recordCount`＝有效紀錄（`DatabaseActiveRecords`，`WithdrawnAt IS NULL`）筆數；`subjectCount`＝有效紀錄的不同提交者數（追蹤對象中至少還有一筆有效紀錄的人）。撤回後下一次請求即減少；只剩已撤回紀錄的對象不計入 `subjectCount`（時間軸上仍列出其軌跡，§9）。可讀但沒有紀錄時是 `0`，不是省略。
+- **不可讀者的回應與 #177 之前逐位元組相同**：鍵是省略，不是 `null`（`JsonIgnore(WhenWritingNull)`），而 OpenAPI 文件把這兩個屬性標成選填（`recordCount?: number | null`），所以與 #106 的「必填鍵被省略」問題不同：`OpenApiContract` 檢查仍然成立。前端 adapter 把缺少的鍵轉成 `null`，畫面顯示「僅指定資料管理者可查看」，與 mock 一致；API 模式的清單不再顯示「將於後續版本開放」。
+- 每次請求重新判斷（權限從資料庫讀、指定從 `DatabaseDataManagers` 讀），不快取；撤銷權限或取消指定後下一次請求就省略。
+- 沒有 N+1：清單先以 `DatabaseRecordReaders.ReadableDatabaseIdsAsync` 取得可讀的 id（沒有權限時不查詢），再以 `DatabaseActiveRecords.CountsOf` **一個**分組查詢（`WHERE "DatabaseId" = ANY(@ids) AND "WithdrawnAt" IS NULL GROUP BY "DatabaseId"`，`COUNT(*)`、`COUNT(DISTINCT "SubmittedByAccountId")`）算出全部，查詢數與數據庫數量無關。
+
+### 16.3 測試
+
+- 整合（真實 PostgreSQL）：`DatabaseSummaryCountsTests`——可讀者在清單與詳情看到正確的筆數與對象數（沒有紀錄的數據庫是 0／0），撤回一筆對象仍在、撤回唯一一筆對象減少；擁有者取消自己指定後，清單與詳情沒有計數鍵，且新增、撤回紀錄前後的回應字串完全相同；授予權限的下一次請求出現計數、撤銷後消失；建立回應只對具備權限的建立者帶 0／0。`ToQueryString()` 確認計數是單一分組查詢。`SignInFlowTests`——`/me` 帶預設的 `Asia/Taipei`，設定 `Europe/Berlin` 或 `Taipei Standard Time` 時回 `Europe/Berlin`／`Asia/Taipei`。
+- 前端：`statisticsDay` 與 `summarizePeriod` 換時區後曆日與期間歸屬跟著改變；Hybrid 時間軸在 `/me` 給 `America/Los_Angeles` 時標籤是前一天；`toIdentity()` 保存 `statisticsTimeZone`；清單 adapter 用 2026-10-05 實際取得的可讀者／不可讀者 JSON（後者沒有計數鍵）。

@@ -7626,6 +7626,20 @@
             "items": {
               "type": "string"
             }
+          },
+          "recordCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "subjectCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -8746,7 +8760,8 @@
           "role",
           "permissions",
           "organization",
-          "passwordChangeRequired"
+          "passwordChangeRequired",
+          "statisticsTimeZone"
         ],
         "type": "object",
         "properties": {
@@ -8771,6 +8786,9 @@
           },
           "passwordChangeRequired": {
             "type": "boolean"
+          },
+          "statisticsTimeZone": {
+            "type": "string"
           }
         }
       },

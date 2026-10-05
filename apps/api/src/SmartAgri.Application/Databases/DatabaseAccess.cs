@@ -20,7 +20,7 @@ namespace SmartAgri.Application.Databases;
 /// </para>
 /// <para>
 /// Reading <b>records</b> is <see cref="DatabaseRecordAccess"/>: owning a database never implies
-/// it, and until #146 no response carries a record or subject count.
+/// it, and only a caller who may read them gets a record or subject count (#177).
 /// </para>
 /// </remarks>
 public static class DatabaseAccess

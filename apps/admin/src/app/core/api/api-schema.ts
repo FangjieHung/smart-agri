@@ -6078,6 +6078,10 @@ export interface components {
             updatedAt: string;
             viewerCanManage: boolean;
             connectedAssistantNames: string[];
+            /** Format: int32 */
+            recordCount?: null | number;
+            /** Format: int32 */
+            subjectCount?: null | number;
         };
         /** @enum {unknown} */
         DatabaseTemplateId: "template-customer-profile" | "template-periodic-report" | "template-satisfaction" | "template-progress" | "template-blank";
@@ -6381,6 +6385,7 @@ export interface components {
             permissions: components["schemas"]["AccountPermission"][];
             organization: components["schemas"]["MeOrganization"];
             passwordChangeRequired: boolean;
+            statisticsTimeZone: string;
         };
         NotAvailablePublishingChannelView: {
             status: string;

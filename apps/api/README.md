@@ -606,6 +606,18 @@ Configuration (section `Ai:Chat`; as environment variables `Ai__Chat__Provider`,
   that is verified, treat streaming usage from a real provider as **unconfirmed**; the middleware
   already handles "no usage reported" correctly (records `null`, never estimates) either way.
 
+**Customer-deploy compose.** `deploy/docker-compose.yml` passes the chat model and related settings
+through from `deploy/.env` (see `deploy/.env.example`): `CHAT_PROVIDER`, `CHAT_ENDPOINT`, `CHAT_MODEL`,
+`CHAT_API_KEY`, `CHAT_MAX_OUTPUT_TOKENS`, `CHAT_TIMEOUT_SECONDS`, `CHAT_REASONING_EFFORT` →
+`Ai__Chat__*`; `CHAT_FORM_REQUEST_TRIGGER` → `Chat__FormRequests__Trigger` (compose default `Model`,
+while the code default stays `Keyword`); `STATISTICS_TIME_ZONE` → `Statistics__TimeZone` (default
+`Asia/Taipei`). Blank values are fine: an empty provider means "no chat model yet", and empty
+`MaxOutputTokens`/`TimeoutSeconds`/`ReasoningEffort` bind as unset. A reasoning model such as
+`gpt-6-luna` needs `CHAT_REASONING_EFFORT=None`. In `Model` mode without a configured chat model, the
+selection call throws, is caught, and the keyword gate decides (`ChatFormRequestTool.SelectAsync`), so
+the form still appears when a member asks for it in so many words; the answer itself still
+returns `503 chat-not-configured`.
+
 ## Conversation runs (AG-UI)
 
 `POST /api/v1/assistants/{id}/chat/runs` (M3 plan Slice 7; `SmartAgri.Api.Chat.ChatRunEndpoints`)

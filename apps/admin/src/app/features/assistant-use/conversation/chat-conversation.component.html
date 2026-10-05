@@ -181,7 +181,8 @@
         </div>
       }
       @if (current.suggestedPrompts.length > 0) {
-        <div class="suggestions" role="group" aria-label="建議問題">
+        <!-- 串流中按鈕全部停用，這一列（橫向捲動區）裡沒有可聚焦的元素；讓捲動區自己可聚焦，鍵盤才捲得動（issue #174，axe scrollable-region-focusable）。 -->
+        <div class="suggestions" role="group" aria-label="建議問題" [attr.tabindex]="streaming() ? 0 : null">
           @for (prompt of current.suggestedPrompts; track prompt.id) {
             <button type="button" class="suggested-prompt" [disabled]="streaming()" (click)="ask(prompt.text)">
               {{ prompt.text }}

@@ -47,9 +47,9 @@ public sealed class ChatClientProvider : IDisposable
     /// <summary>
     /// Builds the client <paramref name="options"/> describe (the same three OpenAI-style
     /// providers as <see cref="EmbeddingProvider.Create"/>, through the same official
-    /// <c>OpenAI</c> client). <see cref="ChatModelOptions.MaxOutputTokens"/>, when set, is
-    /// applied as every call's default through <c>ChatClientBuilder.ConfigureOptions</c> (the
-    /// full <c>Microsoft.Extensions.AI</c> package) — the only thing a caller cannot already do
+    /// <c>OpenAI</c> client). <see cref="ChatModelOptions.MaxOutputTokens"/> and
+    /// <see cref="ChatModelOptions.ReasoningEffort"/>, when set, are applied as every call's default through <c>ChatClientBuilder.ConfigureOptions</c> (the
+    /// full <c>Microsoft.Extensions.AI</c> package) — the only things a caller cannot already do
     /// through <see cref="Microsoft.Extensions.AI.ChatOptions"/> itself.
     /// </summary>
     /// <remarks>Call only with options that passed <see cref="ChatModelOptions.Validate"/>.</remarks>
@@ -93,9 +93,17 @@ public sealed class ChatClientProvider : IDisposable
         var client = new OpenAIClient(new ApiKeyCredential(apiKey), clientOptions);
         var baseClient = client.GetChatClient(model).AsIChatClient();
         var maxOutputTokens = options.MaxOutputTokens;
-        var chatClient = maxOutputTokens is null
+        var reasoningEffort = options.ReasoningEffortKind;
+        var chatClient = maxOutputTokens is null && reasoningEffort is null
             ? baseClient
-            : new ChatClientBuilder(baseClient).ConfigureOptions(callOptions => callOptions.MaxOutputTokens ??= maxOutputTokens).Build();
+            : new ChatClientBuilder(baseClient).ConfigureOptions(callOptions =>
+            {
+                callOptions.MaxOutputTokens ??= maxOutputTokens;
+                if (reasoningEffort is { } effort)
+                {
+                    callOptions.Reasoning ??= new ReasoningOptions { Effort = effort };
+                }
+            }).Build();
         return new ChatClientProvider(chatClient, name, telemetryName, model, endpoint ?? new Uri("https://api.openai.com/v1"));
     }
 }

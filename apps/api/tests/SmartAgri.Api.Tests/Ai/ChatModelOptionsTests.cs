@@ -104,6 +104,35 @@ public class ChatModelOptionsTests
         provider.IsConfigured.ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("None", Microsoft.Extensions.AI.ReasoningEffort.None)]
+    [InlineData(" low ", Microsoft.Extensions.AI.ReasoningEffort.Low)]
+    [InlineData("extrahigh", Microsoft.Extensions.AI.ReasoningEffort.ExtraHigh)]
+    public void Reasoning_effort_is_a_known_level_when_set(string value, Microsoft.Extensions.AI.ReasoningEffort expected)
+    {
+        var options = new ChatModelOptions { ReasoningEffort = value };
+
+        options.Validate("Development").ShouldBeNull();
+        options.ReasoningEffortKind.ShouldBe(expected);
+        new ChatModelOptions().ReasoningEffortKind.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("minimal")]
+    [InlineData("0")]
+    [InlineData("off")]
+    public void Any_other_reasoning_effort_is_refused(string value) =>
+        new ChatModelOptions { ReasoningEffort = value }.Validate("Development")
+            .ShouldNotBeNull().ShouldContain("Ai:Chat:ReasoningEffort must be None, Low, Medium, High or ExtraHigh");
+
+    [Fact]
+    public void Reasoning_effort_configures_the_client_without_needing_a_call_option()
+    {
+        using var provider = ChatClientProvider.Create(new ChatModelOptions { Provider = "OpenAI", Model = "gpt-test", ApiKey = "sk", ReasoningEffort = "None" });
+
+        provider.IsConfigured.ShouldBeTrue();
+    }
+
     private static (string Name, string TelemetryName, string Model, string? Host) Describe(ChatModelOptions options)
     {
         using var provider = ChatClientProvider.Create(options);

@@ -575,6 +575,7 @@ Configuration (section `Ai:Chat`; as environment variables `Ai__Chat__Provider`,
 | `ApiKey` | | Required for `OpenAI` and `AzureOpenAI`; optional for `OpenAICompatible`. Environment only, never a checked-in file. |
 | `MaxOutputTokens` | (provider default) | Applied to every call that does not set its own, through `ChatClientBuilder.ConfigureOptions` (the full `Microsoft.Extensions.AI` package — the only thing Infrastructure needs it for). |
 | `TimeoutSeconds` | (client default) | Applied to the OpenAI client's `NetworkTimeout`. |
+| `ReasoningEffort` | (provider default) | `None`, `Low`, `Medium`, `High` or `ExtraHigh`; applied to every call that does not set its own (`ChatOptions.Reasoning`). Some reasoning models refuse function tools on Chat Completions unless it is `None` (M4 #164: `gpt-6-luna` answers HTTP 400), which would break the #149 query tools and the #164 form tool. |
 
 - **`Fake`** (`FakeChatClient`) is a scripted, reproducible answer generator, no model and no
   network. It reads the highest `[n]` passage number anywhere in the messages it is given and

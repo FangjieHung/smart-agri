@@ -64,12 +64,27 @@ public sealed class ChatModelOptions
     /// leaves it to the client's own default.</summary>
     public int? TimeoutSeconds { get; set; }
 
+    /// <summary>The deployment's default reasoning effort, applied to every call that does not set
+    /// its own (<see cref="Microsoft.Extensions.AI.ChatOptions.Reasoning"/>): <c>None</c>, <c>Low</c>,
+    /// <c>Medium</c>, <c>High</c> or <c>ExtraHigh</c> (case-insensitive). Some reasoning models refuse
+    /// function tools on Chat Completions unless it is <c>None</c> (M4 #164: <c>gpt-6-luna</c>).
+    /// <see langword="null"/> leaves it to the provider's own default.</summary>
+    public string? ReasoningEffort { get; set; }
+
     /// <summary>The parsed <see cref="Provider"/>; <see langword="null"/> when unset (or not a
     /// known name, which <see cref="Validate"/> refuses).</summary>
     public ChatProviderKind? ProviderKind =>
         Enum.GetValues<ChatProviderKind>()
             .Where(kind => string.Equals(kind.ToString(), Provider?.Trim(), StringComparison.OrdinalIgnoreCase))
             .Select(kind => (ChatProviderKind?)kind)
+            .SingleOrDefault();
+
+    /// <summary>The parsed <see cref="ReasoningEffort"/>; <see langword="null"/> when unset (or not a
+    /// known name, which <see cref="Validate"/> refuses).</summary>
+    public Microsoft.Extensions.AI.ReasoningEffort? ReasoningEffortKind =>
+        Enum.GetValues<Microsoft.Extensions.AI.ReasoningEffort>()
+            .Where(effort => string.Equals(effort.ToString(), ReasoningEffort?.Trim(), StringComparison.OrdinalIgnoreCase))
+            .Select(effort => (Microsoft.Extensions.AI.ReasoningEffort?)effort)
             .SingleOrDefault();
 
     /// <summary>Why these options cannot be used in <paramref name="environmentName"/>, or
@@ -86,6 +101,11 @@ public sealed class ChatModelOptions
         if (TimeoutSeconds is <= 0)
         {
             return $"{SectionName}:{nameof(TimeoutSeconds)} must be a positive number of seconds, or unset.";
+        }
+
+        if (!string.IsNullOrWhiteSpace(ReasoningEffort) && ReasoningEffortKind is null)
+        {
+            return $"{SectionName}:{nameof(ReasoningEffort)} must be None, Low, Medium, High or ExtraHigh, not '{ReasoningEffort}', or unset.";
         }
 
         if (string.IsNullOrWhiteSpace(Provider))

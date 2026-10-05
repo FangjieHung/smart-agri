@@ -17,6 +17,11 @@ type MockRepositoryModules = {
 };
 let mockModules: MockRepositoryModules | null = null;
 
+/** 只給測試：清掉載入快取，重現「尚未載入」的啟動順序。 */
+export function resetMockRepositoryModulesForTest(): void {
+  mockModules = null;
+}
+
 export async function loadMockRepositoryModules(): Promise<void> {
   if (mockModules !== null) return;
   const [repository, seed] = await Promise.all([

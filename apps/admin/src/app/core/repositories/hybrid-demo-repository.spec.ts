@@ -2980,8 +2980,12 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
       from: '2026-09-01', to: '2026-09-30', assistants: [], mostCitedDocuments: [],
       knowledge: { processingFailedCount: 0, overduePendingReviewCount: 0 },
       issues: { openCount: 2, averageResolutionHours: 18 },
+      databaseQueries: { totalCount: 8, answeredCount: 3, notPermittedCount: 1, insufficientRecordsCount: 2, failedCount: 2, failureRate: 0.25 },
     });
-    expect(await result).toMatchObject({ status: 'ready', data: { issues: { openCount: 2 } } });
+    expect(await result).toMatchObject({
+      status: 'ready',
+      data: { issues: { openCount: 2 }, databaseQueries: { totalCount: 8, failedCount: 2, failureRate: 0.25 } },
+    });
   });
 });
 

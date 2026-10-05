@@ -1847,6 +1847,8 @@ export class MockDemoRepository implements DemoRepository {
         mostCitedDocuments: [{ documentId: 'document-product-guide', documentName: '商品使用指南', count: 15 }],
         knowledge: { processingFailedCount: 0, overduePendingReviewCount: 0 },
         issues: { openCount: 2, averageResolutionHours: 18 },
+        // #178: in-chat database query answers by result, apart from the reply rates above.
+        databaseQueries: { totalCount: 8, answeredCount: 5, notPermittedCount: 1, insufficientRecordsCount: 1, failedCount: 1, failureRate: 1 / 8 },
       };
       return of(this.applyScenario(result));
     });

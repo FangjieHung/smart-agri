@@ -20,6 +20,18 @@
         @for (assistant of data.assistants; track assistant.assistantId) { <tr><td><a [routerLink]="['/app/assistants', assistant.assistantId, 'activity']">{{ assistant.assistantName }}</a></td><td>{{ assistant.totalReplies }}</td><td>{{ percent(assistant.noResultRate) }}</td><td>{{ percent(assistant.rejectedCitationRate) }}</td></tr> }
       </tbody></table></div>
     } @else { <p>這段期間尚無助理回覆。</p> }
+    <h2>對話中的數據庫查詢</h2>
+    <p class="note">另外計算，不計入上方的回覆數、查無資料率與引用錯誤率。</p>
+    @if (data.databaseQueries.totalCount) {
+      <section class="summary-grid" aria-label="數據庫查詢摘要">
+        <article><h2>查詢回答</h2><p>{{ data.databaseQueries.totalCount }}</p></article>
+        <article><h2>成功</h2><p>{{ data.databaseQueries.answeredCount }}</p></article>
+        <article><h2>無權限</h2><p>{{ data.databaseQueries.notPermittedCount }}</p></article>
+        <article><h2>紀錄不足</h2><p>{{ data.databaseQueries.insufficientRecordsCount }}</p></article>
+        <article><h2>失敗</h2><p>{{ data.databaseQueries.failedCount }}</p></article>
+        <article><h2>失敗率</h2><p>{{ percent(data.databaseQueries.failureRate) }}</p></article>
+      </section>
+    } @else { <p>這段期間沒有數據庫查詢回答。</p> }
     <h2>常引用文件</h2>
     @if (data.mostCitedDocuments.length) { <ul>@for (document of data.mostCitedDocuments; track document.documentId) { <li>{{ document.documentName }}：{{ document.count }} 次</li> }</ul> } @else { <p>這段期間沒有引用文件。</p> }
   }

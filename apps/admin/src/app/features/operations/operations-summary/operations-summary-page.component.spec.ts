@@ -10,6 +10,7 @@ const EMPTY: OperationsSummaryView = {
   from: '2026-09-01', to: '2026-09-30', assistants: [], mostCitedDocuments: [],
   knowledge: { processingFailedCount: 0, overduePendingReviewCount: 0 },
   issues: { openCount: 0, averageResolutionHours: null },
+  databaseQueries: { totalCount: 0, answeredCount: 0, notPermittedCount: 0, insufficientRecordsCount: 0, failedCount: 0, failureRate: 0 },
 };
 
 async function render(result: unknown, waitForStable = true) {
@@ -48,6 +49,7 @@ describe('OperationsSummaryPageComponent', () => {
     const empty = await render(of({ status: 'ready', data: EMPTY }));
     expect(empty.textContent).toContain('這段期間尚無助理回覆');
     expect(empty.textContent).toContain('尚無已解決事項');
+    expect(empty.textContent).toContain('這段期間沒有數據庫查詢回答');
     TestBed.resetTestingModule();
     const populated = await render(of({ status: 'ready', data: {
       ...EMPTY,
@@ -58,5 +60,19 @@ describe('OperationsSummaryPageComponent', () => {
     expect(populated.textContent).toContain('客服助理');
     expect(populated.textContent).toContain('25%');
     expect(populated.textContent).toContain('退換貨辦法：8 次');
+  });
+
+  it('shows database query answers as their own category, apart from the reply rates', async () => {
+    const page = await render(of({ status: 'ready', data: {
+      ...EMPTY,
+      assistants: [{ assistantId: 'assistant-1', assistantName: '客服助理', totalReplies: 4, noResultRate: .5, rejectedCitationRate: 0 }],
+      databaseQueries: { totalCount: 8, answeredCount: 3, notPermittedCount: 1, insufficientRecordsCount: 2, failedCount: 2, failureRate: .25 },
+    } }));
+    const cards = Array.from(page.querySelectorAll('[aria-label="數據庫查詢摘要"] article')).map((card) => card.textContent?.replace(/\s+/g, ''));
+    expect(cards).toEqual(['查詢回答8', '成功3', '無權限1', '紀錄不足2', '失敗2', '失敗率25%']);
+    expect(page.textContent).toContain('不計入上方的回覆數、查無資料率與引用錯誤率');
+    // The assistant's own row is untouched by the query answers.
+    const row = page.querySelector('tbody tr')?.textContent?.replace(/\s+/g, '');
+    expect(row).toBe('客服助理450%0%');
   });
 });

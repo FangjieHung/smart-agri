@@ -65,4 +65,30 @@ public class AnswerOutcomeTests
         Should.Throw<ArgumentException>(() =>
             AnswerOutcome.Record(Organization, Guid.Empty, AnswerOutcomeChannel.Chat, AnswerReplyKind.CompanyData, null, [], Now));
     }
+
+    [Fact]
+    public void A_database_query_outcome_holds_only_its_result_in_the_chat_channel()
+    {
+        var outcome = AnswerOutcome.RecordDatabaseQuery(Organization, Assistant, AnswerDatabaseQueryResult.InsufficientRecords, Now);
+
+        (outcome.OrganizationId, outcome.AssistantId, outcome.Channel, outcome.ReplyKind, outcome.DatabaseQueryResult, outcome.RejectionReason, outcome.At)
+            .ShouldBe((Organization, (Guid?)Assistant, AnswerOutcomeChannel.Chat, AnswerReplyKind.DatabaseQuery,
+                (AnswerDatabaseQueryResult?)AnswerDatabaseQueryResult.InsufficientRecords, (AnswerRejectionReason?)null, Now));
+        outcome.CitedDocumentIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Only_a_database_query_outcome_has_a_query_result_and_it_needs_an_organization_and_assistant()
+    {
+        AnswerOutcome.Record(Organization, Assistant, AnswerOutcomeChannel.Chat, AnswerReplyKind.CompanyData, null, [], Now)
+            .DatabaseQueryResult.ShouldBeNull();
+        Should.Throw<ArgumentException>(() =>
+            AnswerOutcome.Record(Organization, Assistant, AnswerOutcomeChannel.Chat, AnswerReplyKind.DatabaseQuery, null, [], Now));
+        Should.Throw<ArgumentException>(() =>
+            AnswerOutcome.RecordDatabaseQuery(Guid.Empty, Assistant, AnswerDatabaseQueryResult.Answered, Now));
+        Should.Throw<ArgumentException>(() =>
+            AnswerOutcome.RecordDatabaseQuery(Organization, Guid.Empty, AnswerDatabaseQueryResult.Answered, Now));
+        Should.Throw<ArgumentOutOfRangeException>(() =>
+            AnswerOutcome.RecordDatabaseQuery(Organization, Assistant, (AnswerDatabaseQueryResult)99, Now));
+    }
 }

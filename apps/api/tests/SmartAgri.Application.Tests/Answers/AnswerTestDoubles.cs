@@ -145,6 +145,11 @@ internal sealed class InMemoryAnswerOutcomeRecorder : IAnswerOutcomeRecorder
         Outcomes.Add(new Recorded(organizationId, assistantId, channel, replyKind, rejectionReason, [.. citedDocumentIds], at));
         return Task.CompletedTask;
     }
+
+    /// <summary>The answer pipeline never writes a database query outcome (M4 #178).</summary>
+    public Task RecordDatabaseQueryAsync(
+        Guid organizationId, Guid assistantId, AnswerDatabaseQueryResult result, DateTimeOffset at, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("The answer pipeline never records a database query outcome.");
 }
 
 /// <summary>A fixed organization for the scope, or none.</summary>

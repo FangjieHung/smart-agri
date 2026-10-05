@@ -43,6 +43,10 @@ public sealed class AnswerOutcome : IOrganizationScoped
     /// <summary>Set only when <see cref="ReplyKind"/> is <see cref="AnswerReplyKind.NoResult"/>.</summary>
     public AnswerRejectionReason? RejectionReason { get; private set; }
 
+    /// <summary>Set exactly when <see cref="ReplyKind"/> is <see cref="AnswerReplyKind.DatabaseQuery"/>
+    /// (M4 #178): the result category only — never the query, its parameters or its numbers.</summary>
+    public AnswerDatabaseQueryResult? DatabaseQueryResult { get; private set; }
+
     private readonly List<Guid> _citedDocumentIds = [];
 
     /// <summary>The documents a <c>company-data</c> reply cited; empty otherwise.</summary>
@@ -79,6 +83,12 @@ public sealed class AnswerOutcome : IOrganizationScoped
             throw new ArgumentOutOfRangeException(nameof(replyKind), replyKind, null);
         }
 
+        if (replyKind == AnswerReplyKind.DatabaseQuery)
+        {
+            throw new ArgumentException(
+                $"A database query outcome is recorded with {nameof(RecordDatabaseQuery)}.", nameof(replyKind));
+        }
+
         if (rejectionReason is { } reason && !Enum.IsDefined(reason))
         {
             throw new ArgumentOutOfRangeException(nameof(rejectionReason), rejectionReason, null);
@@ -105,5 +115,40 @@ public sealed class AnswerOutcome : IOrganizationScoped
         };
         outcome._citedDocumentIds.AddRange(citedDocumentIds.Distinct());
         return outcome;
+    }
+
+    /// <summary>
+    /// A conversation's database query answer (M4 #149; recorded since #178): always the
+    /// <see cref="AnswerOutcomeChannel.Chat"/> channel and an assistant, no rejection reason and no
+    /// cited document — only <paramref name="result"/>.
+    /// </summary>
+    public static AnswerOutcome RecordDatabaseQuery(
+        Guid organizationId, Guid assistantId, AnswerDatabaseQueryResult result, DateTimeOffset at)
+    {
+        if (organizationId == Guid.Empty)
+        {
+            throw new ArgumentException("An answer outcome is always recorded for an organization.", nameof(organizationId));
+        }
+
+        if (assistantId == Guid.Empty)
+        {
+            throw new ArgumentException("A database query is always asked of an assistant.", nameof(assistantId));
+        }
+
+        if (!Enum.IsDefined(result))
+        {
+            throw new ArgumentOutOfRangeException(nameof(result), result, null);
+        }
+
+        return new AnswerOutcome
+        {
+            Id = Guid.CreateVersion7(),
+            OrganizationId = organizationId,
+            AssistantId = assistantId,
+            Channel = AnswerOutcomeChannel.Chat,
+            ReplyKind = AnswerReplyKind.DatabaseQuery,
+            DatabaseQueryResult = result,
+            At = at,
+        };
     }
 }

@@ -35,6 +35,9 @@ public sealed record AssistantTestRunView(
 /// <param name="TopScore">The best retrieval score for the question, to compare with the run's
 /// <c>minScore</c>; <see langword="null"/> when nothing was found.</param>
 /// <param name="FailureReason"><see langword="null"/> exactly when <paramref name="Passed"/>.</param>
+/// <param name="ActualKind">The knowledge-base answer kind, typed with the expected kind's enum (the
+/// same three wire names) so the contract never offers <see cref="AnswerReplyKind.DatabaseQuery"/>
+/// (M4 #178), which a test result never is.</param>
 public sealed record AssistantTestResultView(
     Guid Id,
     Guid TestCaseId,
@@ -42,7 +45,7 @@ public sealed record AssistantTestResultView(
     string Question,
     AssistantTestExpectedKind ExpectedKind,
     IReadOnlyList<Guid> ExpectedDocumentIds,
-    AnswerReplyKind ActualKind,
+    AssistantTestExpectedKind ActualKind,
     string AnswerText,
     IReadOnlyList<Guid> CitedDocumentIds,
     AnswerRejectionReason? RejectionReason,
@@ -215,11 +218,19 @@ public static class AssistantTestRunEndpoints
             result.QuestionSnapshot,
             result.ExpectedKind,
             result.ExpectedDocumentIds,
-            result.ActualKind,
+            ToTestKind(result.ActualKind),
             result.AnswerText,
             result.CitedDocumentIds,
             result.RejectionReason,
             result.TopScore,
             result.Passed,
             result.FailureReason);
+
+    private static AssistantTestExpectedKind ToTestKind(AnswerReplyKind kind) => kind switch
+    {
+        AnswerReplyKind.CompanyData => AssistantTestExpectedKind.CompanyData,
+        AnswerReplyKind.GeneralKnowledge => AssistantTestExpectedKind.GeneralKnowledge,
+        AnswerReplyKind.NoResult => AssistantTestExpectedKind.NoResult,
+        _ => throw new InvalidOperationException($"A test result is never a {kind} reply."),
+    };
 }

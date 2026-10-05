@@ -144,7 +144,7 @@ export class AssistantDetailPageComponent {
   });
   protected readonly analyticsStatus = computed(() => this.analyticsResource.view().status);
   protected replyKindLabel(kind: string): string {
-    return ({ 'company-data': '組織資料', 'general-knowledge': '一般知識', 'no-result': '查無資料' } as Record<string, string>)[kind] ?? kind;
+    return ({ 'company-data': '組織資料', 'general-knowledge': '一般知識', 'no-result': '查無資料', 'database-query': '數據庫查詢' } as Record<string, string>)[kind] ?? kind;
   }
   protected rejectionReasonLabel(reason: string): string {
     return ({ 'below-threshold': '相關度不足', 'citation-out-of-range': '引用超出範圍', 'no-citation': '缺少引用', 'cannot-answer': '無法回答', 'empty-answer': '空白回答' } as Record<string, string>)[reason] ?? reason;

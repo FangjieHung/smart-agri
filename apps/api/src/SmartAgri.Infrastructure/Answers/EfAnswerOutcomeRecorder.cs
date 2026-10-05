@@ -40,10 +40,26 @@ public sealed class EfAnswerOutcomeRecorder : IAnswerOutcomeRecorder
         DateTimeOffset at,
         CancellationToken cancellationToken)
     {
+        await SaveAsync(
+            () => AnswerOutcome.Record(organizationId, assistantId, channel, replyKind, rejectionReason, citedDocumentIds, at));
+    }
+
+    /// <summary>Never throws, like <see cref="RecordAsync"/>.</summary>
+    public async Task RecordDatabaseQueryAsync(
+        Guid organizationId,
+        Guid assistantId,
+        AnswerDatabaseQueryResult result,
+        DateTimeOffset at,
+        CancellationToken cancellationToken)
+    {
+        await SaveAsync(() => AnswerOutcome.RecordDatabaseQuery(organizationId, assistantId, result, at));
+    }
+
+    private async Task SaveAsync(Func<AnswerOutcome> create)
+    {
         try
         {
-            var outcome = AnswerOutcome.Record(
-                organizationId, assistantId, channel, replyKind, rejectionReason, citedDocumentIds, at);
+            var outcome = create();
             // Not cancelled with the caller: by this point the reply is already final, so the
             // outcome should still be written even if the client just disconnected.
             await using var dbContext = new AppDbContext(_options, _organization);

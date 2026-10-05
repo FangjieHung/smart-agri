@@ -6,11 +6,14 @@ using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Databases;
 using SmartAgri.Application.Ai;
+using SmartAgri.Application.Answers;
 using SmartAgri.Application.Databases;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Observability;
+using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Chat;
@@ -70,6 +73,15 @@ public sealed record ChatDatabaseQueryScope(IReadOnlyList<DatabaseQueryToolSourc
 /// parameters or result. A model failure is a <see cref="ChatGenerationException"/>, like the answer
 /// pipeline's; a tool failure is a <c>failed</c> reply.
 /// </para>
+/// <para>
+/// <b>Answer outcome</b> (M4 #178). Every question that reaches this tool and gets a query reply —
+/// or whose selection call fails — writes exactly one <see cref="AnswerOutcome"/> of kind
+/// <see cref="AnswerReplyKind.DatabaseQuery"/> with its result category only
+/// (<see cref="AnswerKinds.ToDatabaseQueryResult"/>; a model failure is
+/// <see cref="AnswerDatabaseQueryResult.Failed"/>). A question the model decides not to query (no
+/// tool call) writes none here — the form request or answer pipeline it falls through to records
+/// its own. A cancelled request writes none.
+/// </para>
 /// </remarks>
 public sealed class ChatDatabaseQueries
 {
@@ -82,6 +94,8 @@ public sealed class ChatDatabaseQueries
     private readonly IChatClient _chat;
     private readonly TimeProvider _clock;
     private readonly StatisticsOptions _statistics;
+    private readonly IAnswerOutcomeRecorder _outcomes;
+    private readonly IOrganizationContext _organization;
     private readonly ILogger<ChatDatabaseQueries> _logger;
 
     public ChatDatabaseQueries(
@@ -92,6 +106,8 @@ public sealed class ChatDatabaseQueries
         IChatClient chat,
         TimeProvider clock,
         IOptions<StatisticsOptions> statistics,
+        IAnswerOutcomeRecorder outcomes,
+        IOrganizationContext organization,
         ILogger<ChatDatabaseQueries> logger)
     {
         _dbContext = dbContext;
@@ -101,6 +117,8 @@ public sealed class ChatDatabaseQueries
         _chat = chat;
         _clock = clock;
         _statistics = statistics.Value;
+        _outcomes = outcomes;
+        _organization = organization;
         _logger = logger;
     }
 
@@ -173,7 +191,7 @@ public sealed class ChatDatabaseQueries
         using var activity = SmartAgriActivitySource.Instance.StartActivity(ActivityName);
         if (scope.Sources.Count == 0)
         {
-            return Finish(activity, null, DatabaseQueryTools.NotAvailable());
+            return await FinishAsync(activity, null, DatabaseQueryTools.NotAvailable(), assistantId);
         }
 
         var timeZone = _statistics.TryResolve() ?? throw new InvalidOperationException("Statistics:TimeZone was validated at startup.");
@@ -193,7 +211,14 @@ public sealed class ChatDatabaseQueries
             && !(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
             activity?.SetStatus(ActivityStatusCode.Error);
+            await RecordAsync(assistantId, AnswerDatabaseQueryResult.Failed);
             throw new ChatGenerationException(providerNotConfigured: false, exception);
+        }
+        catch (ChatGenerationException)
+        {
+            // Not configured or already wrapped: still a failed query answer (#178).
+            await RecordAsync(assistantId, AnswerDatabaseQueryResult.Failed);
+            throw;
         }
 
         var call = response.Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().FirstOrDefault();
@@ -206,12 +231,12 @@ public sealed class ChatDatabaseQueries
         var parsed = DatabaseQueryTools.Parse(call.Name, call.Arguments, scope.Sources);
         if (parsed.Match == DatabaseQueryToolCallMatch.UnknownTool)
         {
-            return Finish(activity, null, DatabaseQueryTools.Rejected(null));
+            return await FinishAsync(activity, null, DatabaseQueryTools.Rejected(null), assistantId);
         }
 
         if (parsed.Call is not { } matched)
         {
-            return Finish(activity, null, DatabaseQueryTools.NotAvailable());
+            return await FinishAsync(activity, null, DatabaseQueryTools.NotAvailable(), assistantId);
         }
 
         DatabaseQueryOutcome<object> outcome;
@@ -223,16 +248,36 @@ public sealed class ChatDatabaseQueries
         {
             _logger.LogWarning(exception, "A conversation's fixed query {Query} failed.", WireNames<DatabaseQueryKind>.ToWire(matched.Kind));
             activity?.SetStatus(ActivityStatusCode.Error);
-            return Finish(activity, matched, DatabaseQueryTools.Failed());
+            return await FinishAsync(activity, matched, DatabaseQueryTools.Failed(), assistantId);
         }
 
         var answer = !outcome.Readable ? DatabaseQueryTools.NotAvailable()
             : outcome.Failures.Count > 0 ? DatabaseQueryTools.Rejected(matched)
             : DatabaseQueryTools.Compose(matched, outcome.Value);
-        return Finish(activity, matched, answer);
+        return await FinishAsync(activity, matched, answer, assistantId);
     }
 
-    private static ChatDatabaseQueryAnswer Finish(Activity? activity, DatabaseQueryToolCall? call, ChatDatabaseQueryAnswer answer)
+    private async Task<ChatDatabaseQueryAnswer> FinishAsync(
+        Activity? activity, DatabaseQueryToolCall? call, ChatDatabaseQueryAnswer answer, Guid assistantId)
+    {
+        await RecordAsync(assistantId, AnswerKinds.ToDatabaseQueryResult(answer.View.Status));
+        Tag(activity, call, answer);
+        return answer;
+    }
+
+    /// <summary>One <see cref="AnswerReplyKind.DatabaseQuery"/> outcome (#178). The recorder never
+    /// throws and is not cancelled with the request.</summary>
+    private async Task RecordAsync(Guid assistantId, AnswerDatabaseQueryResult result)
+    {
+        if (_organization.OrganizationId is not { } organizationId)
+        {
+            return;
+        }
+
+        await _outcomes.RecordDatabaseQueryAsync(organizationId, assistantId, result, _clock.GetUtcNow(), CancellationToken.None);
+    }
+
+    private static void Tag(Activity? activity, DatabaseQueryToolCall? call, ChatDatabaseQueryAnswer answer)
     {
         if (call is not null)
         {
@@ -240,6 +285,5 @@ public sealed class ChatDatabaseQueries
         }
 
         activity?.SetTag("smartagri.database_query.status", WireNames<ChatDatabaseQueryStatus>.ToWire(answer.View.Status));
-        return answer;
     }
 }

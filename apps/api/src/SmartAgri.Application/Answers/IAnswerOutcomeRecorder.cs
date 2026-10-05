@@ -24,4 +24,16 @@ public interface IAnswerOutcomeRecorder
         IReadOnlyCollection<Guid> citedDocumentIds,
         DateTimeOffset at,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Saves one <see cref="AnswerReplyKind.DatabaseQuery"/> outcome (M4 #178,
+    /// <see cref="AnswerOutcome.RecordDatabaseQuery"/>): the result category only. Same rules as
+    /// <see cref="RecordAsync"/> — its own context, never throws for the caller.
+    /// </summary>
+    Task RecordDatabaseQueryAsync(
+        Guid organizationId,
+        Guid assistantId,
+        AnswerDatabaseQueryResult result,
+        DateTimeOffset at,
+        CancellationToken cancellationToken);
 }

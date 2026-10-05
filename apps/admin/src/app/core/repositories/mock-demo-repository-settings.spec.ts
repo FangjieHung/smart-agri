@@ -324,3 +324,19 @@ describe('MockDemoRepository assistant settings', () => {
     });
   });
 });
+
+describe('MockDemoRepository operations summary (#178)', () => {
+  it('counts in-chat database query answers on their own, like the API', async () => {
+    const result = await firstValueFrom(createRepository().getOperationsSummary());
+    if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+    const queries = result.data.databaseQueries;
+    expect(queries.answeredCount + queries.notPermittedCount + queries.insufficientRecordsCount + queries.failedCount).toBe(queries.totalCount);
+    expect(queries.failureRate).toBeCloseTo(queries.failedCount / queries.totalCount);
+    expect(Object.keys(queries).sort()).toEqual(['answeredCount', 'failedCount', 'failureRate', 'insufficientRecordsCount', 'notPermittedCount', 'totalCount']);
+  });
+
+  it('refuses an account that cannot manage assistants', async () => {
+    const result = await firstValueFrom(createRepository({ viewer: EMPLOYEE }).getOperationsSummary());
+    expect(result.status).toBe('permission-denied');
+  });
+});

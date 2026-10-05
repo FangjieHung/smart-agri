@@ -114,6 +114,9 @@ public sealed class AnswerOutcomeAndAnalyticsEndpointsTests : IClassFixture<Auth
         // Outside the default 30-day window: must not be counted either.
         await SeedOutcomeAsync(
             org, assistantId, AnswerOutcomeChannel.Chat, AnswerReplyKind.CompanyData, null, [documentId], now.AddDays(-40));
+        // #178: this assistant's database query answers are not answer-quality data — no number here changes.
+        await SeedDatabaseQueryOutcomeAsync(org, assistantId, AnswerDatabaseQueryResult.Answered, now);
+        await SeedDatabaseQueryOutcomeAsync(org, assistantId, AnswerDatabaseQueryResult.Failed, now);
 
         var response = await org.Spa.GetAsync($"/api/v1/assistants/{assistantId}/analytics", org.Token);
         response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(CancellationToken));
@@ -126,6 +129,7 @@ public sealed class AnswerOutcomeAndAnalyticsEndpointsTests : IClassFixture<Auth
         replyKinds["company-data"].ShouldBe(2);
         replyKinds["no-result"].ShouldBe(1);
         replyKinds["general-knowledge"].ShouldBe(0);
+        replyKinds.Keys.ShouldBe(["company-data", "general-knowledge", "no-result"], ignoreOrder: true);
 
         var rejectionReasons = body.GetProperty("rejectionReasons").EnumerateArray()
             .ToDictionary(item => item.GetProperty("reason").GetString()!, item => item.GetProperty("count").GetInt32());
@@ -203,6 +207,20 @@ public sealed class AnswerOutcomeAndAnalyticsEndpointsTests : IClassFixture<Auth
             org, assistantId, AnswerOutcomeChannel.Chat, AnswerReplyKind.NoResult, AnswerRejectionReason.NoCitation, [], now);
         await SeedOutcomeAsync(
             org, assistantId, AnswerOutcomeChannel.Chat, AnswerReplyKind.NoResult, AnswerRejectionReason.BelowThreshold, [], now);
+        // #178: database query answers, counted on their own — the assistant's replies and rates
+        // below are exactly what they were without them.
+        foreach (var result in new[]
+        {
+            AnswerDatabaseQueryResult.Answered, AnswerDatabaseQueryResult.Answered, AnswerDatabaseQueryResult.Answered,
+            AnswerDatabaseQueryResult.NotPermitted, AnswerDatabaseQueryResult.InsufficientRecords, AnswerDatabaseQueryResult.InsufficientRecords,
+            AnswerDatabaseQueryResult.Failed, AnswerDatabaseQueryResult.Failed,
+        })
+        {
+            await SeedDatabaseQueryOutcomeAsync(org, assistantId, result, now);
+        }
+
+        // Outside the range: not counted.
+        await SeedDatabaseQueryOutcomeAsync(org, assistantId, AnswerDatabaseQueryResult.Failed, now.AddDays(-40));
 
         await SeedFailedKnowledgeVersionAsync(org);
         await SeedOverduePendingReviewVersionAsync(org, now);
@@ -228,6 +246,13 @@ public sealed class AnswerOutcomeAndAnalyticsEndpointsTests : IClassFixture<Auth
         var knowledge = body.GetProperty("knowledge");
         knowledge.GetProperty("processingFailedCount").GetInt32().ShouldBe(1);
         knowledge.GetProperty("overduePendingReviewCount").GetInt32().ShouldBe(1);
+
+        var queries = body.GetProperty("databaseQueries");
+        (queries.GetProperty("totalCount").GetInt32(), queries.GetProperty("answeredCount").GetInt32(),
+                queries.GetProperty("notPermittedCount").GetInt32(), queries.GetProperty("insufficientRecordsCount").GetInt32(),
+                queries.GetProperty("failedCount").GetInt32())
+            .ShouldBe((8, 3, 1, 2, 2));
+        queries.GetProperty("failureRate").GetDouble().ShouldBe(0.25);
 
         var issues = body.GetProperty("issues");
         issues.GetProperty("openCount").GetInt32().ShouldBe(0, "this organization has no issue");
@@ -368,6 +393,13 @@ public sealed class AnswerOutcomeAndAnalyticsEndpointsTests : IClassFixture<Auth
         await using var dbContext = _host.Postgres.CreateDbContext(owner.Organization.Id);
         dbContext.AnswerOutcomes.Add(
             AnswerOutcome.Record(owner.Organization.Id, assistantId, channel, replyKind, rejectionReason, citedDocumentIds, at));
+        await dbContext.SaveChangesAsync(CancellationToken);
+    }
+
+    private async Task SeedDatabaseQueryOutcomeAsync(Owner owner, Guid assistantId, AnswerDatabaseQueryResult result, DateTimeOffset at)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext(owner.Organization.Id);
+        dbContext.AnswerOutcomes.Add(AnswerOutcome.RecordDatabaseQuery(owner.Organization.Id, assistantId, result, at));
         await dbContext.SaveChangesAsync(CancellationToken);
     }
 

@@ -5281,7 +5281,7 @@ export interface components {
         /** @enum {unknown} */
         AnswerRejectionReason: "below-threshold" | "citation-out-of-range" | "no-citation" | "cannot-answer" | "empty-answer";
         /** @enum {unknown} */
-        AnswerReplyKind: "company-data" | "general-knowledge" | "no-result";
+        AnswerReplyKind: "company-data" | "general-knowledge" | "no-result" | "database-query";
         ApproveKnowledgeVersionsRequest: {
             versionIds: null | string[];
             effectiveFrom?: null | string;
@@ -5519,7 +5519,7 @@ export interface components {
             question: string;
             expectedKind: components["schemas"]["AssistantTestExpectedKind"];
             expectedDocumentIds: string[];
-            actualKind: components["schemas"]["AnswerReplyKind"];
+            actualKind: components["schemas"]["AssistantTestExpectedKind"];
             answerText: string;
             citedDocumentIds: string[];
             rejectionReason: null | components["schemas"]["AnswerRejectionReason"];
@@ -5907,6 +5907,20 @@ export interface components {
             recordCountChange: number;
             recordCountChangeLabel: string;
             sums: components["schemas"]["DatabaseFieldSum"][];
+        };
+        DatabaseQueryOperationsView: {
+            /** Format: int32 */
+            totalCount: number;
+            /** Format: int32 */
+            answeredCount: number;
+            /** Format: int32 */
+            notPermittedCount: number;
+            /** Format: int32 */
+            insufficientRecordsCount: number;
+            /** Format: int32 */
+            failedCount: number;
+            /** Format: double */
+            failureRate: number;
         };
         DatabaseQueryPeriodView: {
             period: null | string;
@@ -6400,6 +6414,7 @@ export interface components {
             mostCitedDocuments: components["schemas"]["CitedDocumentCountView"][];
             knowledge: components["schemas"]["KnowledgeOperationsView"];
             issues: components["schemas"]["IssuesSummaryView"];
+            databaseQueries: components["schemas"]["DatabaseQueryOperationsView"];
         };
         PlatformShareTargetView: {
             /** Format: uuid */

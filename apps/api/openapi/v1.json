@@ -4450,7 +4450,8 @@
         "enum": [
           "company-data",
           "general-knowledge",
-          "no-result"
+          "no-result",
+          "database-query"
         ]
       },
       "ApproveKnowledgeVersionsRequest": {
@@ -5388,7 +5389,7 @@
             }
           },
           "actualKind": {
-            "$ref": "#/components/schemas/AnswerReplyKind"
+            "$ref": "#/components/schemas/AssistantTestExpectedKind"
           },
           "answerText": {
             "type": "string"
@@ -6967,6 +6968,43 @@
             "items": {
               "$ref": "#/components/schemas/DatabaseFieldSum"
             }
+          }
+        }
+      },
+      "DatabaseQueryOperationsView": {
+        "required": [
+          "totalCount",
+          "answeredCount",
+          "notPermittedCount",
+          "insufficientRecordsCount",
+          "failedCount",
+          "failureRate"
+        ],
+        "type": "object",
+        "properties": {
+          "totalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "answeredCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "notPermittedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "insufficientRecordsCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "failureRate": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -8814,7 +8852,8 @@
           "assistants",
           "mostCitedDocuments",
           "knowledge",
-          "issues"
+          "issues",
+          "databaseQueries"
         ],
         "type": "object",
         "properties": {
@@ -8843,6 +8882,9 @@
           },
           "issues": {
             "$ref": "#/components/schemas/IssuesSummaryView"
+          },
+          "databaseQueries": {
+            "$ref": "#/components/schemas/DatabaseQueryOperationsView"
           }
         }
       },

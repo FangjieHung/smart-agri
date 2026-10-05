@@ -74,9 +74,9 @@ public sealed class AssistantTestResult : IOrganizationScoped
             throw new ArgumentException("A test result must be for a test case of the run's own assistant.", nameof(testCase));
         }
 
-        if (!Enum.IsDefined(actualKind))
+        if (!Enum.IsDefined(actualKind) || actualKind == AnswerReplyKind.DatabaseQuery)
         {
-            throw new ArgumentOutOfRangeException(nameof(actualKind), actualKind, "Not a declared reply kind.");
+            throw new ArgumentOutOfRangeException(nameof(actualKind), actualKind, "Not a knowledge-base answer's reply kind.");
         }
 
         if (failureReason is { } reason && !Enum.IsDefined(reason))

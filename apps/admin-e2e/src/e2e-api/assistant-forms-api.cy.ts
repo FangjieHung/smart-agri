@@ -5,12 +5,14 @@ import { loginToApi } from '../support/api-mode';
  *
  * 1. 擁有者建立數據庫（客戶基本資料模板）與一個只有空知識庫的助理，在「資料來源」連接數據庫、
  *    在「回答與記錄」設定寫入對象與收集目的，再分享給內部同仁。
- * 2. 同仁在對話中要求填寫 → 表單請求顯示接收單位、目的與實際可查看者 → 取消：不送出任何資料。
- * 3. 再次填寫、明確同意後送出 → 真實回執出現在對話中（201，來源為對話）；重新整理仍在。
+ * 2. 同仁在對話中要求填寫 → 表單請求顯示接收單位、目的與實際可查看者 → 「不用了」（#171）：不送出任何資料，
+ *    訊息改成已關閉、記錄一筆關閉事件（`204`）；關鍵字模式（CI 的設定）不出現判斷中的等待狀態。
+ * 3. 從「回報資料」入口（#171，`GET .../chat/forms`）重新開啟同一份表單、明確同意後送出 → 真實回執出現在
+ *    對話中（201，來源為對話）；重新整理仍在。
  * 4. 提交者本人在對話收據上撤回（#146）→ 收據顯示已撤回、不含內容，重新整理仍是已撤回；「我送出的資料」
  *    標示來源為助理對話。
  * 5. 權限撤回：擁有者解除連接後，重新讀取的舊表單請求顯示「目前無法使用」（每次讀取都重新授權），
- *    新的要求不再出現表單。送出端點在撤回後回 403 assistant-form 由後端整合測試涵蓋
+ *    新的要求不再出現表單，「回報資料」入口也不再出現（清單是空的）。送出端點在撤回後回 403 assistant-form 由後端整合測試涵蓋
  *    （`AssistantDatabaseFormEndpointsTests`，含分享／權限撤回）。
  *
  * 另外（#150）設定「每週」定期報表，並確認資料庫的「定期報表」頁籤列出排程；產生報表的排程、摘要與權限由後端整合測試
@@ -136,9 +138,23 @@ describe('assistant forms against the real API', () => {
     expect(assistantId).to.match(new RegExp(`^${GUID}$`));
     loginToApi('anxin', 'internal');
     cy.intercept('POST', /\/api\/v1\/assistants\/[^/]+\/chat\/forms\/[^/]+\/submissions$/).as('submit');
+    cy.intercept('POST', /\/api\/v1\/assistants\/[^/]+\/chat\/forms\/[^/]+\/dismissals$/).as('dismiss');
+    cy.intercept('GET', /\/api\/v1\/assistants\/[^/]+\/chat\/forms$/).as('forms');
+    cy.intercept('POST', /\/api\/v1\/assistants\/[^/]+\/chat\/runs$/).as('run');
     cy.visit(`/app/chat/${assistantId}`);
+    cy.wait('@forms').then(({ response }) => {
+      expect(response?.statusCode).to.eq(200);
+      expect(response?.body).to.have.length(1);
+      expect(response?.body[0].id).to.eq(databaseId);
+      expect(response?.body[0].title).to.eq(databaseName);
+    });
 
     ask(FORM_QUESTION);
+    // 關鍵字模式：伺服器不做表單判斷，不送 form-check，畫面也沒有判斷中的等待狀態（#171 ①）。
+    cy.wait('@run').then(({ response }) => {
+      expect(String(response?.body ?? '')).not.to.include('smartagri.form-check');
+    });
+    cy.get('[app-form-check-status]').should('not.exist');
     cy.get('[role="log"] [data-kind="form-request"]').last().within(() => {
       cy.contains('button.form-start', databaseName).click();
     });
@@ -151,12 +167,20 @@ describe('assistant forms against the real API', () => {
       cy.contains('可查看者').next().should('contain', '安心商行管理者');
       cy.contains('button', '返回修改').click();
     });
-    cy.get('app-inline-form').contains('button', '取消').click();
+    cy.get('app-inline-form').contains('button', '不用了').click();
     cy.get('app-inline-form').should('not.exist');
+    cy.focused().should('have.id', 'chat-input');
+    cy.get('[role="log"] [data-kind="form-request"]').last().find('.form-dismissed')
+      .should('have.text', '已關閉表單，沒有送出任何資料。');
+    cy.wait('@dismiss').then(({ request, response }) => {
+      expect(response?.statusCode).to.eq(204);
+      expect(request.body).to.have.property('threadId').that.matches(new RegExp(`^${GUID}$`));
+    });
     cy.get('@submit.all').should('have.length', 0);
 
-    // 同意後送出：201、來源為對話，收據出現在對話裡。
-    cy.get('[role="log"] [data-kind="form-request"]').last().find('button.form-start').click();
+    // 從「回報資料」入口重新開啟同一份表單；同意後送出：201、來源為對話，收據出現在對話裡。
+    cy.contains('form.composer button', '回報資料').click();
+    cy.get('app-inline-form h2').should('contain', databaseName);
     fillCustomerForm('王小明');
     cy.get('button.consent-submit').should('be.disabled');
     cy.get('#consent-agree').check();
@@ -219,11 +243,14 @@ describe('assistant forms against the real API', () => {
     cy.contains('.source-row', databaseName).find('button.source-toggle').should('have.attr', 'aria-pressed', 'false');
 
     loginToApi('anxin', 'internal');
+    cy.intercept('GET', /\/api\/v1\/assistants\/[^/]+\/chat\/forms$/).as('forms');
     cy.visit(`/app/chat/${assistantId}`);
+    cy.wait('@forms').its('response.body').should('deep.equal', []);
     cy.get('[role="log"] [data-kind="form-request"]', { timeout: STREAM_TIMEOUT }).first()
       .should('contain', '目前無法使用')
       .find('button.form-start')
       .should('not.exist');
+    cy.contains('button', '回報資料').should('not.exist');
     ask(FORM_QUESTION);
     cy.get('[role="log"] app-chat-message').last().find('[data-kind]').should('not.have.attr', 'data-kind', 'form-request');
 

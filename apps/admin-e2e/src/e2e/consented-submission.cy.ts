@@ -77,10 +77,10 @@ describe('consented structured submission', () => {
     cy.contains('DEMO-2001').should('not.exist');
   });
 
-  it('cancelling the inline form sends nothing (#148)', () => {
+  it('「不用了」 on the inline form sends nothing (#148, #171)', () => {
     fillOrderForm();
     cy.get('app-consent-confirmation').contains('button', '返回修改').click();
-    cy.get('app-inline-form').contains('button', '取消').click();
+    cy.get('app-inline-form').contains('button', '不用了').click();
     cy.get('app-inline-form').should('not.exist');
     cy.get('[data-kind="submission-receipt"]').should('not.exist');
 
@@ -110,7 +110,7 @@ describe('consented structured submission', () => {
     cy.get('#chat-field-field-reported-on').type('2026-09-21');
     cy.contains('button', '下一步：確認同意').click();
     cy.get('app-inline-form [role="alert"]').should('contain', '目前無法使用');
-    cy.get('app-inline-form').contains('button', '取消').click();
+    cy.get('app-inline-form').contains('button', '不用了').click();
     // 解除連接後建議問題不再提供回報入口；手動輸入也不會得到表單。
     cy.contains('button.suggested-prompt', '回報訂單問題').should('not.exist');
     cy.get('[role="log"] app-chat-message').its('length').then((before) => {

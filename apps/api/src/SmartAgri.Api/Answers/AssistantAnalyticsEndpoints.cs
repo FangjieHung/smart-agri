@@ -11,8 +11,10 @@ using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Answers;
 
-/// <summary>One reply kind's count in a range (every <see cref="AnswerReplyKind"/> is always
-/// present, zero when nothing of that kind happened, like <c>KnowledgeBaseTally.StatusCounts</c>).</summary>
+/// <summary>One reply kind's count in a range (every knowledge-base answer kind —
+/// <see cref="AssistantAnalyticsEndpoints.AnswerReplyKinds"/> — is always present, zero when nothing
+/// of that kind happened, like <c>KnowledgeBaseTally.StatusCounts</c>; never
+/// <see cref="AnswerReplyKind.DatabaseQuery"/>, M4 #178).</summary>
 public sealed record ReplyKindCountView(AnswerReplyKind Kind, int Count);
 
 /// <summary>One rejection reason's count in a range (every <see cref="AnswerRejectionReason"/>
@@ -51,6 +53,13 @@ public sealed record AssistantAnalyticsView(
 public static class AssistantAnalyticsEndpoints
 {
     public const string InvalidDateRangeReason = "invalid-date-range";
+
+    /// <summary>The knowledge-base answer kinds this endpoint counts. Database query answers
+    /// (<see cref="AnswerReplyKind.DatabaseQuery"/>, M4 #178) are not answer-quality data and are
+    /// left out of every number here, <c>totalReplies</c> included; the operations summary counts
+    /// them on their own.</summary>
+    public static readonly IReadOnlyList<AnswerReplyKind> AnswerReplyKinds =
+        [AnswerReplyKind.CompanyData, AnswerReplyKind.GeneralKnowledge, AnswerReplyKind.NoResult];
 
     public static IEndpointRouteBuilder MapAssistantAnalyticsEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -93,7 +102,8 @@ public static class AssistantAnalyticsEndpoints
         }
 
         var rows = await dbContext.AnswerOutcomes.AsNoTracking()
-            .Where(outcome => outcome.AssistantId == id && outcome.At >= range.FromUtc && outcome.At < range.ToExclusiveUtc)
+            .Where(outcome => outcome.AssistantId == id && outcome.At >= range.FromUtc && outcome.At < range.ToExclusiveUtc
+                && outcome.ReplyKind != AnswerReplyKind.DatabaseQuery)
             .Select(outcome => new { outcome.ReplyKind, outcome.RejectionReason, outcome.CitedDocumentIds })
             .ToListAsync(cancellationToken);
 
@@ -104,7 +114,7 @@ public static class AssistantAnalyticsEndpoints
             range.From,
             range.To,
             rows.Count,
-            [.. Enum.GetValues<AnswerReplyKind>().Select(kind => new ReplyKindCountView(kind, rows.Count(row => row.ReplyKind == kind)))],
+            [.. AnswerReplyKinds.Select(kind => new ReplyKindCountView(kind, rows.Count(row => row.ReplyKind == kind)))],
             [.. Enum.GetValues<AnswerRejectionReason>()
                 .Select(reason => new RejectionReasonCountView(reason, rows.Count(row => row.RejectionReason == reason)))],
             mostCited));

@@ -154,6 +154,19 @@ public class ReportRulesTests
     }
 
     [Fact]
+    public void A_period_while_the_database_is_archived_neither_counts_nor_resets_nor_disables()
+    {
+        // #180: paused, not skipped — however many periods pass while archived.
+        foreach (var skips in new[] { 0, 2 })
+        {
+            var progress = ReportScheduleRules.WhileArchived(skips);
+            (progress.ConsecutiveSkips, progress.Disables).ShouldBe((skips, false));
+        }
+
+        Should.Throw<ArgumentOutOfRangeException>(() => ReportScheduleRules.WhileArchived(-1));
+    }
+
+    [Fact]
     public void Only_naming_a_frequency_on_a_disabled_schedule_re_enables_it()
     {
         var weekly = new ReportScheduleChoice(ReportFrequency.Weekly, Guid.NewGuid());

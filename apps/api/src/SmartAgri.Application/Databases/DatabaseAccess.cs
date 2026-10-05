@@ -38,7 +38,17 @@ public static class DatabaseAccess
                 && designations.Any(designation => designation.DatabaseId == database.Id && designation.AccountId == viewerAccountId));
     }
 
-    /// <summary>Databases <paramref name="viewerAccountId"/> may open and change.</summary>
+    /// <summary>
+    /// Databases in use, i.e. not archived (#180): what the list shows by default and what may take
+    /// new submissions. <see cref="ListedFor"/> deliberately ignores archiving — an archived database
+    /// still opens by id, its records stay readable, and its owner may unarchive it.
+    /// </summary>
+    public static Expression<Func<Database, bool>> InUse { get; } = database => database.ArchivedAt == null;
+
+    /// <summary>Archived databases (#180): the list's <c>archived=true</c> filter.</summary>
+    public static Expression<Func<Database, bool>> Archived { get; } = database => database.ArchivedAt != null;
+
+    /// <summary>Databases <paramref name="viewerAccountId"/> may open, change, archive and unarchive.</summary>
     public static Expression<Func<Database, bool>> ManageableBy(Guid viewerAccountId) =>
         database => database.OwnerAccountId == viewerAccountId;
 

@@ -236,6 +236,99 @@ public class ChatFormRequestUxTests : IClassFixture<AuthHostFixture>
         (await dbContext.ChatFormDismissals.CountAsync(CancellationToken)).ShouldBe(1);
     }
 
+    // --- #180: an archived form target --------------------------------------------------------------
+
+    [Fact]
+    public async Task An_archived_form_target_is_offered_and_accepted_nowhere_until_it_is_unarchived()
+    {
+        await using var model = ModelMode();
+        var setup = await CreateSetupAsync(_host.Factory, keepConversations: true);
+        var modelMember = await SignInAsync(model, setup.Org, "member");
+        var earlier = await RunAsync(setup.Member, setup.AssistantId, FormQuestion);
+        earlier.Reply!.Value.GetProperty("reply").GetProperty("kind").GetString().ShouldBe("form-request");
+        var threadId = earlier.ThreadId!.Value;
+
+        var archived = await setup.Admin.Spa.PostAsync($"{DatabasesPath}/{setup.DatabaseId}/archive", setup.Admin.Token, new { });
+        archived.StatusCode.ShouldBe(HttpStatusCode.OK, await archived.Content.ReadAsStringAsync(CancellationToken));
+
+        // Keyword mode: the question is answered as usual, no form; nothing names the database.
+        var keyword = await RunAsync(setup.Member, setup.AssistantId, FormQuestion);
+        keyword.Status.ShouldBe(HttpStatusCode.OK, keyword.Body);
+        keyword.Reply!.Value.GetProperty("reply").GetProperty("kind").GetString().ShouldNotBe("form-request");
+        keyword.Body.ShouldNotContain(DatabaseName);
+
+        // Model mode (#164): no form-check, the tool is not offered, so no form even when asked for one.
+        var chosen = await RunAsync(modelMember, setup.AssistantId, $"{FormQuestion} {FakeChatDirectives.FormRequest}");
+        chosen.Status.ShouldBe(HttpStatusCode.OK, chosen.Body);
+        chosen.Body.ShouldNotContain(ChatRunEndpoints.FormCheckEventName);
+        chosen.Reply!.Value.GetProperty("reply").GetProperty("kind").GetString().ShouldNotBe("form-request");
+        chosen.Body.ShouldNotContain(DatabaseName);
+
+        // E2: an empty list.
+        (await (await ListAsync(setup.Member, setup.AssistantId)).Content.ReadAsStringAsync(CancellationToken)).ShouldBe("[]");
+
+        // The form offered before reads back as no longer usable.
+        var chat = await BodyJsonAsync(await setup.Member.Spa.GetAsync(
+            $"{AssistantsPath}/{setup.AssistantId}/chat?conversation={threadId}", setup.Member.Token));
+        chat.GetProperty("messages")[1].GetProperty("reply").GetProperty("form").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        // Review, submission and dismissal: the same 403 assistant-form as a database that is not the target.
+        var answers = new Dictionary<string, object>
+        {
+            ["field-customer-name"] = "王小明",
+            ["field-phone"] = "0912-345-678",
+            ["field-first-visit"] = "2026-09-21",
+            ["field-customer-type"] = "企業",
+        };
+        var notTarget = Guid.NewGuid();
+        foreach (var (path, body) in new (string, object)[]
+        {
+            ("review", new { formVersionNumber = 1, answers }),
+            ("submissions", new { submissionId = Guid.NewGuid(), formVersionNumber = 1, consent = true, answers }),
+            ("dismissals", new { }),
+        })
+        {
+            var refused = await setup.Member.Spa.PostAsync(
+                $"{AssistantsPath}/{setup.AssistantId}/chat/forms/{setup.DatabaseId}/{path}", setup.Member.Token, body);
+            refused.StatusCode.ShouldBe(HttpStatusCode.Forbidden, path);
+            var refusedBody = await refused.Content.ReadAsStringAsync(CancellationToken);
+            JsonDocument.Parse(refusedBody).RootElement.GetProperty("reason").GetString().ShouldBe("assistant-form");
+            refusedBody.ShouldNotContain(DatabaseName);
+            var other = await setup.Member.Spa.PostAsync(
+                $"{AssistantsPath}/{setup.AssistantId}/chat/forms/{notTarget}/{path}", setup.Member.Token, body);
+            (await other.Content.ReadAsStringAsync(CancellationToken)).ShouldBe(refusedBody, path);
+        }
+
+        // The connection is kept (so unarchiving restores it) but not offered for new connections.
+        await using (var dbContext = _host.Postgres.CreateDbContext(setup.Org.Organization.Id))
+        {
+            (await dbContext.AssistantDatabases.AsNoTracking()
+                .SingleAsync(link => link.AssistantId == setup.AssistantId, CancellationToken)).CollectsForms.ShouldBeTrue();
+            (await dbContext.DatabaseSubmissions.CountAsync(CancellationToken)).ShouldBe(0);
+            (await dbContext.ChatFormDismissals.CountAsync(CancellationToken)).ShouldBe(0);
+        }
+
+        var sources = await BodyJsonAsync(await setup.Admin.Spa.GetAsync("/api/v1/connectable-sources", setup.Admin.Token));
+        sources.EnumerateArray().Select(source => source.GetProperty("id").GetGuid()).ShouldNotContain(setup.DatabaseId);
+        var reconnect = await setup.Admin.Spa.PutAsync(
+            $"{AssistantsPath}/{setup.AssistantId}/sources/database/{setup.DatabaseId}", setup.Admin.Token, new { });
+        reconnect.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        // Unarchived: everything is back on the next request, without reconnecting.
+        var restored = await setup.Admin.Spa.PostAsync($"{DatabasesPath}/{setup.DatabaseId}/unarchive", setup.Admin.Token, new { });
+        restored.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await RunAsync(setup.Member, setup.AssistantId, FormQuestion)).Reply!.Value
+            .GetProperty("reply").GetProperty("kind").GetString().ShouldBe("form-request");
+        (await RunAsync(modelMember, setup.AssistantId, $"{FormQuestion} {FakeChatDirectives.FormRequest}")).Reply!.Value
+            .GetProperty("reply").GetProperty("kind").GetString().ShouldBe("form-request");
+        (await BodyJsonAsync(await ListAsync(setup.Member, setup.AssistantId))).GetArrayLength().ShouldBe(1);
+        var submitted = await setup.Member.Spa.PostAsync(
+            $"{AssistantsPath}/{setup.AssistantId}/chat/forms/{setup.DatabaseId}/submissions",
+            setup.Member.Token,
+            new { submissionId = Guid.NewGuid(), formVersionNumber = 1, consent = true, answers });
+        submitted.StatusCode.ShouldBe(HttpStatusCode.Created, await submitted.Content.ReadAsStringAsync(CancellationToken));
+    }
+
     // --- Helpers ----------------------------------------------------------------------------------
 
     private WebApplicationFactory<Program> ModelMode() =>

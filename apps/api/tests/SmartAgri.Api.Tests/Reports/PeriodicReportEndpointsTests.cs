@@ -613,6 +613,57 @@ public sealed class PeriodicReportEndpointsTests : IClassFixture<AuthHostFixture
             [ReportStatus.Skipped, ReportStatus.Skipped, ReportStatus.Generated, ReportStatus.Skipped, ReportStatus.Skipped]);
     }
 
+    // --- Archived database (#180) ----------------------------------------------------------------
+
+    [Fact]
+    public async Task An_archived_database_pauses_its_schedule_without_writing_anything_and_unarchiving_resumes_it()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var reader = await SignInAsync(org, "internal");
+        var databaseId = await CreateDatabaseAsync(admin);
+        (await PutAccessAsync(admin, databaseId, [org.Admin.Id, org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var assistantId = await ScheduleAsync(org, admin, databaseId, "weekly");
+        var before = await ScheduleAsync(org);
+
+        (await admin.Spa.PostAsync($"{DatabasesPath}/{databaseId}/archive", admin.Token, new { })).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // More periods than it takes to auto-disable come due: no report, no skip row, no count, never
+        // disabled; the chain moves on with exactly one queued job.
+        for (var period = 0; period < ReportSchedule.AutoDisableAfterSkips + 1; period++)
+        {
+            await RunDuePeriodAsync(org);
+        }
+
+        (await SavedReportsAsync(org)).ShouldBeEmpty();
+        var paused = await ScheduleAsync(org);
+        (paused.Id, paused.ConsecutiveSkips, paused.AutoDisabledAt).ShouldBe((before.Id, 0, (DateTimeOffset?)null));
+        paused.NextPeriodFrom.ShouldBe(before.NextPeriodFrom.AddDays(7 * (ReportSchedule.AutoDisableAfterSkips + 1)));
+        (await QueuedReportJobsAsync(org)).ShouldBe(1);
+
+        // Readers see no schedule (no next report while archived); the owner's settings are unchanged and
+        // not auto-disabled; asking for another frequency is refused like any target the owner cannot use.
+        var list = await BodyJsonAsync(await reader.Spa.GetAsync($"{DatabasesPath}/{databaseId}/reports", reader.Token));
+        (list.GetProperty("schedules").GetArrayLength(), list.GetProperty("reports").GetArrayLength()).ShouldBe((0, 0));
+        var settings = await BodyJsonAsync(await admin.Spa.GetAsync($"{AssistantsPath}/{assistantId}/settings", admin.Token));
+        settings.GetProperty("rules").GetProperty("periodicReport").GetString().ShouldBe("weekly");
+        settings.GetProperty("periodicReportAutoDisabled").ValueKind.ShouldBe(JsonValueKind.Null);
+        var changed = await PatchRulesAsync(admin, assistantId, new { periodicReport = "monthly" });
+        changed.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(changed)).GetProperty("errors").TryGetProperty("periodicReport", out _).ShouldBeTrue();
+        (await ScheduleAsync(org)).Id.ShouldBe(before.Id);
+
+        // Unarchived: the next period that comes due is reported normally, and the schedule is listed again.
+        (await admin.Spa.PostAsync($"{DatabasesPath}/{databaseId}/unarchive", admin.Token, new { })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(await reader.Spa.GetAsync($"{DatabasesPath}/{databaseId}/reports", reader.Token)))
+            .GetProperty("schedules").GetArrayLength().ShouldBe(1);
+        await RunDuePeriodAsync(org);
+        var report = (await SavedReportsAsync(org)).Single();
+        (report.Status, report.PeriodFrom).ShouldBe((ReportStatus.Generated, paused.NextPeriodFrom));
+        (await ScheduleAsync(org)).ConsecutiveSkips.ShouldBe(0);
+        (await QueuedReportJobsAsync(org)).ShouldBe(1);
+    }
+
     [Fact]
     public async Task Re_enabling_re_checks_permissions_and_resumes_from_the_current_period_without_back_filling()
     {

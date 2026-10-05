@@ -58,6 +58,18 @@ public sealed class Database : IOrganizationScoped
     /// of its own (<see cref="DatabaseFormVersion.CreatedAt"/>).</summary>
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    /// <summary>
+    /// When the owner archived it (封存, #180); <see langword="null"/> while it is in use. Archiving
+    /// is the only way a database goes away (there is no delete): nothing is removed, but it takes no
+    /// new submissions — neither through its form link nor through an assistant — and is left out of
+    /// the default list. Its records, withdrawals and members' own submissions stay as they were.
+    /// Unarchiving clears it. Set only by the archive endpoints' conditional updates
+    /// (<c>DatabaseEndpoints</c>), so archiving twice keeps the first time.
+    /// </summary>
+    public DateTimeOffset? ArchivedAt { get; private set; }
+
+    public bool IsArchived => ArchivedAt is not null;
+
     public static Database Create(
         Guid organizationId,
         Guid ownerAccountId,

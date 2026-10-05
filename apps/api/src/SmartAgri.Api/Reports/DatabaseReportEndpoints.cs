@@ -45,7 +45,8 @@ public sealed record DatabaseReportListItemView(
     ReportSummaryStatus SummaryStatus);
 
 /// <summary>An assistant's active schedule on the database: how often and when the next report is made. A
-/// schedule that disabled itself (#179) is not listed: no next report will be made.</summary>
+/// schedule that disabled itself (#179), or one on an archived database (paused, #180), is not listed: no
+/// next report will be made (until the database is unarchived).</summary>
 /// <param name="NextReportDate">The day (statistics time zone) the next period is over and its report is made.</param>
 public sealed record DatabaseReportScheduleView(
     Guid AssistantId,
@@ -140,6 +141,7 @@ public static class DatabaseReportEndpoints
         var schedules = await (
             from schedule in dbContext.ReportSchedules.AsNoTracking()
             where schedule.DatabaseId == id && schedule.AutoDisabledAt == null
+            join database in dbContext.Databases.AsNoTracking().Where(DatabaseAccess.InUse) on schedule.DatabaseId equals database.Id
             join assistant in dbContext.Assistants.AsNoTracking() on schedule.AssistantId equals assistant.Id
             orderby assistant.Name, schedule.Id
             select new { schedule.AssistantId, assistant.Name, schedule.Frequency, schedule.NextPeriodFrom })

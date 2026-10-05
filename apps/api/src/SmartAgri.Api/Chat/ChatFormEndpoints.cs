@@ -45,6 +45,14 @@ public sealed record SubmitChatFormRequest(
 public sealed record ChatFormSubmissionView(DatabaseSubmissionReceiptView Receipt, ChatMessageView Message);
 
 /// <summary>
+/// <c>POST .../chat/forms/{databaseId}/dismissals</c> request (M4 #171): the conversation the closed
+/// form was offered in, when the assistant keeps conversations — only ever the caller's own. Omitted
+/// (or an assistant that does not keep conversations), nothing about a conversation is checked.
+/// The body itself may be omitted.
+/// </summary>
+public sealed record DismissChatFormRequest(Guid? ThreadId = null);
+
+/// <summary>
 /// An assistant's in-conversation form (M4 #148): the member reviews the answers, explicitly
 /// consents and submits, in the same conversation. A second entry point to #145's
 /// <see cref="DatabaseSubmissionService"/> (<see cref="DatabaseSubmissionSource.AssistantConversation"/>):
@@ -61,6 +69,22 @@ public sealed record ChatFormSubmissionView(DatabaseSubmissionReceiptView Receip
 /// Nothing is written on any refusal, and nothing about the conversation is part of the record.
 /// </para>
 /// <para>
+/// <b>The forms a member may open from the conversation's 「回報資料」 entry</b> (M4 #171,
+/// <c>GET .../chat/forms</c>): the assistant's form target exactly as a form request would show it
+/// right now (<see cref="AssistantFormRequests.FormRequestAsync"/>, re-authorized on every request),
+/// as a list — empty when there is none (the entry is then not shown), at most one today because an
+/// assistant has at most one form target. Same refusals as the rest: <c>401</c>, then
+/// <c>403 assistant-use</c> for an assistant the caller may not use, another organization's or one
+/// that does not exist, byte-identical.
+/// </para>
+/// <para>
+/// <b>Dismissals</b> (M4 #171, <c>POST .../chat/forms/{databaseId}/dismissals</c>): the member closed
+/// a form the conversation offered (「不用了」 or ×). One <see cref="ChatFormDismissal"/> row —
+/// assistant, form, time; never the account, the conversation or anything typed — then <c>204</c>.
+/// Same order of checks as a submission: <c>401</c> → <c>403 assistant-use</c> → <c>403 chat-thread</c>
+/// (a named conversation that is not the caller's own) → <c>403 assistant-form</c>.
+/// </para>
+/// <para>
 /// <b>Conversation saving is independent</b>: the record is stored in the database whatever the
 /// assistant's <c>keepConversations</c>; only the receipt <i>message</i> follows the conversation
 /// rule. A retry with the same <c>submissionId</c> returns the same receipt and the message already
@@ -71,6 +95,13 @@ public static class ChatFormEndpoints
 {
     public static IEndpointRouteBuilder MapChatFormEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapGet("/api/v1/assistants/{id:guid}/chat/forms", ListAsync)
+            .RequireAuthorization()
+            .WithSummary("The forms the caller may open from this assistant's conversation (#171)")
+            .Produces<IReadOnlyList<ChatFormRequestView>>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
         var forms = endpoints.MapGroup("/api/v1/assistants/{id:guid}/chat/forms/{databaseId:guid}")
             .RequireAuthorization();
 
@@ -89,7 +120,82 @@ public static class ChatFormEndpoints
             .Produces(StatusCodes.Status409Conflict)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
+        forms.MapPost("/dismissals", DismissAsync)
+            .WithSummary("Record that the caller closed an offered form without filling it in (#171)")
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
         return endpoints;
+    }
+
+    /// <summary>The forms the caller may open from this assistant's conversation right now.</summary>
+    internal static async Task<IResult> ListAsync(
+        Guid id,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        RequestAccountPermissions permissions,
+        AssistantFormRequests formRequests,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await ChatEndpoints.FindUsableAsync(dbContext, permissions, id, viewerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantUse);
+        }
+
+        var form = await formRequests.FormRequestAsync(assistant, null, cancellationToken);
+        IReadOnlyList<ChatFormRequestView> forms = form is null ? [] : [form];
+        return Results.Ok(forms);
+    }
+
+    /// <summary>Records one dismissal of an offered form; never anything the member typed.</summary>
+    internal static async Task<IResult> DismissAsync(
+        Guid id,
+        Guid databaseId,
+        DismissChatFormRequest? request,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        RequestAccountPermissions permissions,
+        AssistantFormRequests formRequests,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await ChatEndpoints.FindUsableAsync(dbContext, permissions, id, viewerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantUse);
+        }
+
+        // Only the member in that conversation: a named thread must be the caller's own (ignored for
+        // an assistant that does not keep conversations, as chat runs and submissions ignore it).
+        if (assistant.KeepConversations && request?.ThreadId is { } threadId
+            && !await dbContext.ChatThreads.AsNoTracking()
+                .Where(ChatThreadAccess.OwnedBy(viewerId, assistant.Id))
+                .AnyAsync(thread => thread.Id == threadId, cancellationToken))
+        {
+            return ApiErrors.NotFound(ForbiddenReason.ChatThread);
+        }
+
+        if (await formRequests.FormTargetAsync(assistant, databaseId, cancellationToken) is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantForm);
+        }
+
+        dbContext.ChatFormDismissals.Add(
+            ChatFormDismissal.Record(assistant.OrganizationId, assistant.Id, databaseId, clock.GetUtcNow()));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Results.NoContent();
     }
 
     /// <summary>Checks the answers before consent; writes nothing.</summary>

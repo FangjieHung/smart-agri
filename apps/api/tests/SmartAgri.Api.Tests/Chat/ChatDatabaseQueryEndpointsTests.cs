@@ -15,6 +15,7 @@ using SmartAgri.Api.Tests.Infrastructure;
 using SmartAgri.Application.Databases;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Databases;
@@ -31,7 +32,8 @@ namespace SmartAgri.Api.Tests.Chat;
 /// with the server's own numbers (period, metric, source); every refusal is the same and reveals
 /// nothing; undefined parameters run nothing; too little data, a tool failure and a model failure
 /// each have their own result; saving and usage follow the conversation's rules; the form request
-/// (#148) and the query coexist.
+/// (#148) and the query coexist; every query answer writes exactly one <c>database-query</c>
+/// answer outcome with its result category only (#178).
 /// </summary>
 [Trait("Category", TestCategories.Docker)]
 public class ChatDatabaseQueryEndpointsTests : IClassFixture<AuthHostFixture>
@@ -259,6 +261,11 @@ public class ChatDatabaseQueryEndpointsTests : IClassFixture<AuthHostFixture>
             (await dbContext.ChatMessages.CountAsync(CancellationToken)).ShouldBe(1, "only the question");
             var invocation = await dbContext.ModelInvocations.SingleAsync(CancellationToken);
             (invocation.Purpose, invocation.Succeeded).ShouldBe((ModelInvocationPurpose.DatabaseQuery, false));
+
+            // #178: a model failure is one failed database-query outcome, nothing else.
+            var outcome = await dbContext.AnswerOutcomes.AsNoTracking().SingleAsync(CancellationToken);
+            (outcome.ReplyKind, outcome.DatabaseQueryResult, outcome.AssistantId, outcome.Channel)
+                .ShouldBe((AnswerReplyKind.DatabaseQuery, (AnswerDatabaseQueryResult?)AnswerDatabaseQueryResult.Failed, (Guid?)setup.AssistantId, AnswerOutcomeChannel.Chat));
         }
 
         await using var failing = _host.Factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(
@@ -271,6 +278,60 @@ public class ChatDatabaseQueryEndpointsTests : IClassFixture<AuthHostFixture>
         reply.GetProperty("text").GetString().ShouldBe(DatabaseQueryTools.FailedText);
         reply.GetProperty("databaseQuery").GetProperty("status").GetString().ShouldBe("failed");
         reply.GetProperty("databaseQuery").GetProperty("figures").GetArrayLength().ShouldBe(0);
+
+        // #178: a tool failure is a second failed database-query outcome.
+        await using var outcomes = _host.Postgres.CreateDbContext(setup.Org.Organization.Id);
+        (await outcomes.AnswerOutcomes.AsNoTracking().Select(outcome => new { outcome.ReplyKind, outcome.DatabaseQueryResult }).ToListAsync(CancellationToken))
+            .ShouldAllBe(outcome => outcome.ReplyKind == AnswerReplyKind.DatabaseQuery && outcome.DatabaseQueryResult == AnswerDatabaseQueryResult.Failed);
+        (await outcomes.AnswerOutcomes.CountAsync(CancellationToken)).ShouldBe(2);
+    }
+
+    // --- Answer outcomes (#178) -----------------------------------------------------------------
+
+    [Fact]
+    public async Task Every_query_answer_records_exactly_one_database_query_outcome_with_its_result_only()
+    {
+        var setup = await CreateSetupAsync(keepConversations: false);
+        var single = await CreateCustomerAsync(setup.Org, "customer-outcome");
+        await SeedAsync(setup.Org, setup.DatabaseId, single, At("2026-02-10T10:00:00Z"), 4);
+
+        var cases = new (SignedIn Asker, string Question, AnswerDatabaseQueryResult Expected)[]
+        {
+            (setup.Internal, $"二月幾筆？ {CountDirective(setup.DatabaseId)}", AnswerDatabaseQueryResult.Answered),
+            // no-data (nothing in the last 30 days) and insufficient-data (too few to compare).
+            (setup.Internal, "近30天有幾筆紀錄？", AnswerDatabaseQueryResult.InsufficientRecords),
+            (setup.Internal, $"這位的趨勢？ {Directive("database_subject_comparison", new { databaseId = setup.DatabaseId, subjectId = single })}",
+                AnswerDatabaseQueryResult.InsufficientRecords),
+            // A member who may not read the records (no model call) and a database not offered.
+            (setup.Member, $"二月幾筆？ {CountDirective(setup.DatabaseId)}", AnswerDatabaseQueryResult.NotPermitted),
+            (setup.Internal, $"二月幾筆？ {CountDirective(Guid.NewGuid())}", AnswerDatabaseQueryResult.NotPermitted),
+            // Outside the definitions (rejected) and a model failure.
+            (setup.Internal, $"統計一下 {Directive("run_sql", new { databaseId = setup.DatabaseId, query = "SELECT 1" })}", AnswerDatabaseQueryResult.Failed),
+            (setup.Internal, "二月幾筆？ #fail-midway", AnswerDatabaseQueryResult.Failed),
+        };
+
+        await using var dbContext = _host.Postgres.CreateDbContext(setup.Org.Organization.Id);
+        var seen = new HashSet<Guid>();
+        foreach (var (asker, question, expected) in cases)
+        {
+            var run = await RunAsync(asker, setup.AssistantId, question);
+            run.Status.ShouldBe(HttpStatusCode.OK, run.Body);
+
+            var added = await dbContext.AnswerOutcomes.AsNoTracking()
+                .Where(outcome => !seen.Contains(outcome.Id)).ToListAsync(CancellationToken);
+            var outcome = added.ShouldHaveSingleItem(question);
+            seen.Add(outcome.Id);
+            (outcome.ReplyKind, outcome.DatabaseQueryResult, outcome.Channel, outcome.AssistantId)
+                .ShouldBe((AnswerReplyKind.DatabaseQuery, (AnswerDatabaseQueryResult?)expected, AnswerOutcomeChannel.Chat, (Guid?)setup.AssistantId), question);
+            (outcome.RejectionReason, outcome.CitedDocumentIds.Count).ShouldBe((null, 0), question);
+        }
+
+        // The model choosing no tool is not a query answer: no database-query outcome (the answer
+        // pipeline it falls through to records its own kind).
+        var fallback = await RunAsync(setup.Internal, setup.AssistantId, "本月有幾筆？ #query-none");
+        fallback.Reply!.Value.GetProperty("reply").GetProperty("kind").GetString().ShouldNotBe("database-query");
+        (await dbContext.AnswerOutcomes.CountAsync(
+            outcome => !seen.Contains(outcome.Id) && outcome.ReplyKind == AnswerReplyKind.DatabaseQuery, CancellationToken)).ShouldBe(0);
     }
 
     // --- Saving and the form request -----------------------------------------------------------

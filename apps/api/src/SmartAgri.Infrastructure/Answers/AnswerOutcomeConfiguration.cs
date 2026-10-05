@@ -46,6 +46,14 @@ internal sealed class AnswerOutcomeConfiguration : IEntityTypeConfiguration<Answ
                     name => name == null ? (AnswerRejectionReason?)null : WireNames<AnswerRejectionReason>.Parse(name)))
             .HasMaxLength(32);
 
+        // M4 #178: the result category of a database-query row; null for every other kind.
+        builder.Property(outcome => outcome.DatabaseQueryResult)
+            .HasConversion(
+                new ValueConverter<AnswerDatabaseQueryResult?, string?>(
+                    result => result.HasValue ? WireNames<AnswerDatabaseQueryResult>.ToWire(result.Value) : null,
+                    name => name == null ? (AnswerDatabaseQueryResult?)null : WireNames<AnswerDatabaseQueryResult>.Parse(name)))
+            .HasMaxLength(32);
+
         builder.Property(outcome => outcome.CitedDocumentIds)
             .HasConversion(
                 new ValueConverter<IReadOnlyList<Guid>, string>(

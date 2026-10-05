@@ -575,6 +575,7 @@ Configuration (section `Ai:Chat`; as environment variables `Ai__Chat__Provider`,
 | `ApiKey` | | Required for `OpenAI` and `AzureOpenAI`; optional for `OpenAICompatible`. Environment only, never a checked-in file. |
 | `MaxOutputTokens` | (provider default) | Applied to every call that does not set its own, through `ChatClientBuilder.ConfigureOptions` (the full `Microsoft.Extensions.AI` package — the only thing Infrastructure needs it for). |
 | `TimeoutSeconds` | (client default) | Applied to the OpenAI client's `NetworkTimeout`. |
+| `ReasoningEffort` | (provider default) | `None`, `Low`, `Medium`, `High` or `ExtraHigh`; applied to every call that does not set its own (`ChatOptions.Reasoning`). Some reasoning models refuse function tools on Chat Completions unless it is `None` (M4 #164: `gpt-6-luna` answers HTTP 400), which would break the #149 query tools and the #164 form tool. |
 
 - **`Fake`** (`FakeChatClient`) is a scripted, reproducible answer generator, no model and no
   network. It reads the highest `[n]` passage number anywhere in the messages it is given and
@@ -624,6 +625,20 @@ nothing saved but the question. The class remarks spell out every rule.
 
 `409 chat-run-in-progress` uses an in-memory lock (`ChatRunLocks`): correct for one Api process
 per deployment, not for several behind a load balancer.
+
+**Form requests: `Chat:FormRequests:Trigger`** (M4 #164). Whether a question gets the assistant's
+form (`request_database_form`, #148) is decided by:
+
+- `Keyword` (default, also when unset): the server's keyword gate (`AssistantFormRequestRules.AsksForForm`),
+  no model call — #148's behavior, which the `Fake`-model E2E relies on.
+- `Model`: whenever the assistant has a form target it may use right now, one model call (purpose
+  `form-request` in `ModelInvocations`) is offered `request_database_form` with that one form id as an
+  `enum`; the server re-authorizes the id the model names exactly as #148 does (any other id or tool is
+  simply no form). When the call fails, the keyword gate decides. This adds one model call per
+  question to assistants with a form target; #149's record queries keep their own keyword gate and
+  still come first.
+
+Anything else fails startup. `eval-form-requests` (below) compares the two on a labelled set.
 
 **Protocol check with the JavaScript client.** `tools/agui-contract/fixtures/*.sse` are streams
 recorded from the real endpoint (ids, timestamps and dates normalized).
@@ -845,6 +860,30 @@ OpenAI-compatible endpoint of its own).
 > real-model run with a committed report, checking the prompt-injection question by hand, and any
 > resulting change to the prompt or to `Retrieval:MinScore`. Until then only the `Fake` run is
 > verified.
+
+## Evaluating form-request triggers: `eval-form-requests`
+
+M4 #164: how often the keyword gate and the model choosing `request_database_form` miss a form
+request (should have shown the form) or false-trigger (should not have), on the labelled set in
+`apps/api/eval/form-requests/` (its README describes the format). No database is needed.
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-form-requests --trigger keyword   # no model needed
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-form-requests                     # keyword and model (Ai:Chat)
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-form-requests --report /tmp/form.md --set <dir> --trigger model
+```
+
+- **Development and Testing only.** The model trigger uses the production declaration and prompt
+  (`AssistantFormRequestRules.Declaration`/`SelectionPrompt`) with the set's sample form, calling
+  the configured chat model directly: no organization, so these calls are not in
+  `ModelInvocations` (the report has the average tokens).
+- The report (`docs/evals/<date>-form-requests-<model, or keyword>.md`, or `--report`) has missed and
+  false triggers per trigger, agreement on the ambiguous questions, failed calls (not judged), and
+  every question side by side. Exit codes: `0` done, `1` no chat model for `model`/`both` or a model
+  call failed, `2` bad arguments, environment or set.
+- With `Fake`, the model column only proves the pipeline (the fake follows the keyword gate unless a
+  directive says otherwise), and the report says so. The real-model run is pending a key; see
+  `docs/evals/2026-10-05-164-form-request-trigger.md`.
 
 ## Development seed data
 

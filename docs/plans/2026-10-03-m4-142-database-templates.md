@@ -248,7 +248,7 @@
 負責人於 2026-10-03 同意：
 
 1. **數據庫「分享」的定義**：數據庫「分享」給某個帳號＝該帳號被指定為這個數據庫的資料管理者（#144），**且**帳號具備 `read-consented-submissions` 權限。助理擁有者要連接數據庫、讓助理在對話中請求它的表單，兩個條件都要成立；撤銷其中任何一個（移除指定，或收回權限），下一個請求起就無法再連接，已連接的助理也不再提供這份表單（`form` 讀回為 `null`、送出回 `403 assistant-form`）。
-2. **對話中表單請求的觸發方式**：目前由伺服器的編排層依填寫意圖關鍵字（`AsksForForm`）觸發，不經模型。工具定義 `request_database_form`（`AssistantFormRequestRules.ToolName`／`ToolDescription`）保留給日後改由模型選擇工具；真實模型就緒後再評估，見 #164（對話表單請求改由模型選擇工具）。
+2. **對話中表單請求的觸發方式**：目前由伺服器的編排層依填寫意圖關鍵字（`AsksForForm`）觸發，不經模型。工具定義 `request_database_form`（`AssistantFormRequestRules.ToolName`／`ToolDescription`）保留給日後改由模型選擇工具；真實模型就緒後再評估，見 #164（對話表單請求改由模型選擇工具）。**#164 已加入可切換的模型選擇（預設仍為關鍵字），見第 14 節。**
 
 ## 11. #147 趨勢與固定統計查詢（2026-10-03）
 
@@ -426,3 +426,34 @@
 - 後端整合（`PeriodicReportEndpointsTests`，真實 PostgreSQL，10 個）：只能為已連接且可使用的資料庫設定／換掉或移除排程；排程產生正確期間與數字（含 +08 日界：週日 23:30 屬上週、週一 00:30 屬本週）、只排一個接續工作；同期不重複（重複送達、重試）；資料不足不產生趨勢與摘要、不呼叫模型；AI 摘要標示、竄改數字被捨棄且統計不動、重試與連按；模型失敗統計仍可查看、重試恢復；撤回後舊報表不變、下一期排除；擁有者失權或解除連接記錄略過原因；無權限者看不到且不洩漏（含權限撤銷、別組織、擁有者未指定）。
 - 前端：`hybrid-demo-repository-reports.spec.ts`（**真實 API JSON**）、`mock-demo-repository-databases.spec.ts`／`-records.spec.ts`（mock 快照與撤回）、`database-reports.component.spec.ts`、`database-report.component.spec.ts`、詳情頁既有 spec 更新。
 - Cypress（未在本機執行，由 CI 跑）：`tracking.cy.ts`、`assistant-editing.cy.ts`、`accessibility.cy.ts`、`responsive.cy.ts`（mock）、`e2e-api/assistant-forms-api.cy.ts`、`e2e-api/database-api.cy.ts`（API）。
+
+## 14. #164 對話表單請求改由模型選擇工具（2026-10-05）
+
+### 14.1 設定與預設
+
+- 新設定 `Chat:FormRequests:Trigger`（`ChatFormRequestOptions`）：`Keyword`（預設，未設定也是）或 `Model`，不分大小寫；其他值啟動失敗。
+- `Keyword` 與 #148 完全相同：編排層以 `AsksForForm` 決定、不呼叫模型。`Fake` 模型的 E2E 與既有測試因此不變。
+
+### 14.2 `Model` 模式的流程（`ChatFormRequestTool`，比照 #149 的設計）
+
+1. 進入串流前，照 #148 的順序檢查：登入 → 可使用助理（`403 assistant-use`）→ 對話屬於本人 → `AssistantFormRequests.FormRequestAsync(assistant, null)`：助理此刻可用的寫入對象。沒有寫入對象就**不提供工具、不呼叫模型**，照常回答（與關鍵字模式沒有寫入對象時相同）。
+2. 串流中，#149 的查詢仍先執行（查詢的關鍵字門檻與行為不變）；查詢沒有回答時，呼叫一次模型（用途 `form-request`），只提供 `request_database_form`，參數 `databaseId` 是只含這一個表單 id 的 `enum`、`additionalProperties: false`，模型只看到表單名稱與收集目的。
+3. 伺服器比對回覆（`AssistantFormRequestRules.ParseCall`）：必須是 `request_database_form` 且 id 是列出的那一個；再以該 id 呼叫 `FormRequestAsync(assistant, id)` 重新授權、由伺服器組出表單。其他工具、他組織或不存在的 id、格式錯誤、此刻已失效的寫入對象，一律「沒有表單」→ 照常回答，回覆完全相同，不透露表單是否存在。
+4. 模型呼叫失敗（逾時、供應商錯誤）時改用關鍵字門檻決定，不中斷回覆；失敗的呼叫照既有規則記一筆 `Succeeded = false`。
+
+優先序不變：**查詢 → 表單請求 → 一般回答**。
+
+### 14.3 保存與用量
+
+- 表單請求的回覆、保存（`ChatMessage.FormRequest`，只存資料庫 id，讀取時重新授權）、事件與不保存對話時的行為都沿用 #148，沒有 schema 變更、沒有 OpenAPI 變更、前端不需修改。
+- 新用途 `ModelInvocationPurpose.FormRequest`（wire `form-request`，字串欄位、不需 migration）：選擇呼叫經既有錄製中介層記錄，歸屬提問者與助理、不含內容。關鍵字模式仍不呼叫模型、不記錄。`Model` 模式下，有寫入對象的助理每題多一次選擇呼叫。
+
+### 14.4 `Fake` 模型與測試
+
+- `FakeChatClient` 被提供表單工具時：題目含 `#form-request` 一定呼叫（模擬模型抓到關鍵字以外的意圖）、含 `#form-none` 一定不呼叫，其餘照 `AsksForForm` 決定；`#query:` 仍可指定任意工具與參數（用來送出未列出的 id）。
+- 整合（`ChatFormRequestToolTests`，真實 PostgreSQL，7 個）：關鍵字模式不變且不呼叫模型；未知設定值啟動失敗；模型模式給出伺服器的表單、讀回相同、保存與用量正確；他組織、未連接、不存在、格式錯誤的 id 與其他工具一律相同的一般回答；未被分享與他組織帳號仍是 `403 assistant-use`，清除寫入對象後不再提供工具；模型失敗退回關鍵字；不保存對話不寫對話表。單元：`AssistantFormRequestRulesTests`（工具定義、比對、提示）、`FakeChatClientTests`、`ModelInvocationTests`。
+
+### 14.5 評測
+
+- `eval-form-requests`（`apps/api/eval/form-requests/` 48 題標記題庫）比較關鍵字與模型的漏觸／誤觸；結果記錄於 `docs/evals/2026-10-05-164-form-request-trigger.md`：關鍵字漏觸 10/18、誤觸 8/18；`gpt-6-luna` 0/18、0/18；`gpt-4o-mini` 1/18、0/18。程式預設維持 `Keyword`，正式環境是否切換為 `Model` 由負責人決定。
+- `Ai:Chat:ReasoningEffort`（`None`／`Low`／`Medium`／`High`／`ExtraHigh`，未設定時用供應商預設）：推理型模型（例如 `gpt-6-luna`）在 Chat Completions 上必須設為 `None` 才能使用工具，否則本票的表單工具與 #149 的查詢工具都會回 HTTP 400。

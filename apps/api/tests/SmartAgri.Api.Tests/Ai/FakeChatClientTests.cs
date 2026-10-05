@@ -163,6 +163,30 @@ public sealed class FakeChatClientTests
         none.Usage.ShouldNotBeNull();
     }
 
+    [Fact]
+    public async Task With_the_form_tool_it_follows_the_keyword_gate_unless_a_directive_says_otherwise()
+    {
+        using var client = new FakeChatClient("fake-chat");
+        var formId = Guid.NewGuid();
+        var options = new ChatOptions
+        {
+            Tools = [SmartAgri.Application.Assistants.AssistantFormRequestRules.Declaration([new(formId, "田間異常回報", "記錄異常")])],
+        };
+
+        async Task<FunctionCallContent?> CallAsync(string question) =>
+            (await client.GetResponseAsync([new ChatMessage(ChatRole.User, question)], options, CancellationToken))
+                .Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().SingleOrDefault();
+
+        var keyword = (await CallAsync("我要回報病蟲害")).ShouldNotBeNull();
+        keyword.Name.ShouldBe("request_database_form");
+        keyword.Arguments!.ShouldBe(new Dictionary<string, object?> { ["databaseId"] = formId.ToString() });
+        (await CallAsync("番茄葉子黃了是什麼原因？")).ShouldBeNull();
+        (await CallAsync($"葉子出現黃斑 {FakeChatDirectives.FormRequest}")).ShouldNotBeNull().Name.ShouldBe("request_database_form");
+        (await CallAsync($"我要回報 {FakeChatDirectives.NoForm}")).ShouldBeNull();
+        // #query-none is about the query tools only.
+        (await CallAsync($"我要回報 {FakeChatDirectives.NoQuery}")).ShouldNotBeNull();
+    }
+
     private static List<ChatMessage> WithPassages(int count, string question)
     {
         var passages = string.Join('\n', Enumerable.Range(1, count).Select(index => $"[{index}] 段落內容 {index}"));

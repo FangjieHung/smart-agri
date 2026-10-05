@@ -90,6 +90,11 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// server's form (fields, version, purpose, recipient, actual readers) — same events, same saving
 /// rules, no model call (so no model invocation is recorded). Otherwise, including right after the
 /// database was disconnected or its designation revoked, the question is answered as usual.
+/// With <c>Chat:FormRequests:Trigger = Model</c> (#164, <see cref="ChatFormRequestTool"/>) the model
+/// decides instead of the keywords: whenever the assistant has a form target it may use right now,
+/// one selection call (purpose <c>form-request</c>) is offered that one form; the server re-checks the
+/// id the model names and builds the form. A model failure falls back to the keyword gate. Same
+/// events, same saving rules.
 /// </para>
 /// <para>
 /// <b>Database queries</b> (M4 #149, <see cref="ChatDatabaseQueries"/>). When the question asks for a
@@ -158,6 +163,8 @@ public static class ChatRunEndpoints
         GroundedAnswerService answers,
         AssistantFormRequests formRequests,
         ChatDatabaseQueries databaseQueries,
+        ChatFormRequestTool formTool,
+        IOptions<ChatFormRequestOptions> formOptions,
         ChatRunLocks locks,
         ChatClientProvider chatProvider,
         EmbeddingProvider embeddingProvider,
@@ -279,10 +286,20 @@ public static class ChatRunEndpoints
                 }
             }
 
-            // The form tool (#148): re-authorized on this request, never cached.
-            var formRequest = AssistantFormRequestRules.AsksForForm(question.Value)
-                ? await formRequests.FormRequestAsync(assistant, null, cancellationToken)
-                : null;
+            // The form tool (#148): re-authorized on this request, never cached. Keyword mode decides
+            // here; model mode (#164) only finds the form to offer and lets the model decide in the run.
+            ChatFormRequestView? formRequest = null;
+            FormSelection? formSelection = null;
+            if (formOptions.Value.TriggerKind == ChatFormRequestTrigger.Model)
+            {
+                formSelection = await formRequests.FormRequestAsync(assistant, null, cancellationToken) is { } offered
+                    ? new FormSelection(formTool, assistant, offered)
+                    : null;
+            }
+            else if (AssistantFormRequestRules.AsksForForm(question.Value))
+            {
+                formRequest = await formRequests.FormRequestAsync(assistant, null, cancellationToken);
+            }
 
             // The query tools (#149): offered only for a statistics question, scoped to this request.
             var queryScope = DatabaseQueryTools.AsksForStatistics(question.Value)
@@ -302,6 +319,7 @@ public static class ChatRunEndpoints
                 ThreadIdForEvents(thread, input),
                 string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId,
                 formRequest,
+                formSelection,
                 databaseQueries,
                 queryScope);
 
@@ -431,6 +449,10 @@ public static class ChatRunEndpoints
         await Task.CompletedTask;
     }
 
+    /// <summary>Model mode's form decision (#164), made in the run: the tool, the assistant and the
+    /// form authorized for this request.</summary>
+    private sealed record FormSelection(ChatFormRequestTool Tool, Assistant Assistant, ChatFormRequestView Offered);
+
     /// <summary>One run's state while it streams.</summary>
     private sealed class ChatRun(
         AppDbContext dbContext,
@@ -443,6 +465,7 @@ public static class ChatRunEndpoints
         string threadIdForEvents,
         string runId,
         ChatFormRequestView? formRequest,
+        FormSelection? formSelection,
         ChatDatabaseQueries databaseQueries,
         ChatDatabaseQueryScope? queryScope)
     {
@@ -503,14 +526,22 @@ public static class ChatRunEndpoints
                 }
             }
 
-            if (formRequest is not null)
+            var form = formRequest;
+            if (formSelection is not null)
             {
-                // The form tool's reply: fixed text, the server's form, no model call.
+                // Model mode (#164): the model decides; the server re-authorizes and builds the form.
+                form = await formSelection.Tool.SelectAsync(
+                    formSelection.Assistant, formSelection.Offered, request.Question, request.AccountId, cancellationToken);
+            }
+
+            if (form is not null)
+            {
+                // The form tool's reply: fixed text, the server's form (no model call in keyword mode).
                 yield return new TextMessageContentEvent { MessageId = streamMessageId, Delta = AssistantFormRequestRules.FormRequestText };
                 yield return new TextMessageEndEvent { MessageId = streamMessageId };
                 var formView = thread is not null
-                    ? await SaveFormRequestAsync(thread, formRequest, cancellationToken)
-                    : TransientFormRequest(formRequest);
+                    ? await SaveFormRequestAsync(thread, form, cancellationToken)
+                    : TransientFormRequest(form);
                 foreach (var finalEvent in FinalEvents(formView))
                 {
                     yield return finalEvent;

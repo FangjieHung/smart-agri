@@ -35,8 +35,15 @@ public enum ModelInvocationPurpose
     /// (M4 #149): the model only selects a tool; it never sees the result.</summary>
     [JsonStringEnumMemberName("database-query")]
     DatabaseQuery,
+
     /// <summary>Writing the AI summary of a periodic report from its already-computed statistics
     /// (M4 #150): the model is given numbers, never records, and its text is checked against them.</summary>
     [JsonStringEnumMemberName("generate-report-summary")]
     GenerateReportSummary,
+
+    /// <summary>Deciding whether a conversation question should get the assistant's form
+    /// (<c>request_database_form</c>, M4 #164, only with <c>Chat:FormRequests:Trigger = Model</c>):
+    /// the model only chooses among the forms the server offers; the server builds the form.</summary>
+    [JsonStringEnumMemberName("form-request")]
+    FormRequest,
 }

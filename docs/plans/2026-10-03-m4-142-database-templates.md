@@ -455,4 +455,5 @@
 
 ### 14.5 評測
 
-- `eval-form-requests`（`apps/api/eval/form-requests/` 48 題標記題庫）比較關鍵字與模型的漏觸／誤觸；關鍵字結果已記錄於 `docs/evals/2026-10-05-164-form-request-trigger.md`（漏觸 10/18、誤觸 8/18）。**模型結果待真實模型**，在那之前預設維持 `Keyword`；是否切換由負責人依評測結果決定。
+- `eval-form-requests`（`apps/api/eval/form-requests/` 48 題標記題庫）比較關鍵字與模型的漏觸／誤觸；結果記錄於 `docs/evals/2026-10-05-164-form-request-trigger.md`：關鍵字漏觸 10/18、誤觸 8/18；`gpt-6-luna` 0/18、0/18；`gpt-4o-mini` 1/18、0/18。程式預設維持 `Keyword`，正式環境是否切換為 `Model` 由負責人決定。
+- `Ai:Chat:ReasoningEffort`（`None`／`Low`／`Medium`／`High`／`ExtraHigh`，未設定時用供應商預設）：推理型模型（例如 `gpt-6-luna`）在 Chat Completions 上必須設為 `None` 才能使用工具，否則本票的表單工具與 #149 的查詢工具都會回 HTTP 400。

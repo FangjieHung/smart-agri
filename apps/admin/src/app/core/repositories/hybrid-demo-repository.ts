@@ -178,6 +178,7 @@ import {
   TEAM_PERMISSION_DENIED_MESSAGE,
   type AccountPermissionOverrides,
   type MockDemoRepositoryOptions,
+  MOCK_STATISTICS_TIME_ZONE,
 } from './mock-demo-repository';
 import { createScopedStorage, type StorageIdentity } from './scoped-storage';
 
@@ -575,6 +576,11 @@ export interface ApiViewerPermissions {
    * 正式的 `HttpSessionBackend.restore()` 一定會填（`ApiIdentity` 的同名欄位）。
    */
   readonly organizationId?: string;
+  /**
+   * `/me` 的 `statisticsTimeZone`（後端 `Statistics:TimeZone`，IANA，#177）：時間軸日期標籤與仍在 mock
+   * 的期間統計都以它的曆日為準。選填的理由同 `organizationId`；沒有時退回 mock 的預設時區。
+   */
+  readonly statisticsTimeZone?: string;
 }
 
 export interface HybridDemoRepositoryDeps {
@@ -655,6 +661,8 @@ export class HybridDemoRepository extends MockDemoRepository {
       ...options,
       storage,
       accountsSource: () => viewerOverride(deps.viewerPermissions(), ownFromTeam),
+      // 每次使用時才讀：登入後、或伺服器設定改了而重新取得 `/me` 後，日期立即跟著換。
+      statisticsTimeZone: () => deps.viewerPermissions()?.statisticsTimeZone ?? MOCK_STATISTICS_TIME_ZONE,
     });
     this.http = deps.http;
     this.viewerPermissions = deps.viewerPermissions;
@@ -1438,7 +1446,7 @@ export class HybridDemoRepository extends MockDemoRepository {
         status: 'ready',
         data: {
           databaseId: response.databaseId,
-          subjects: response.subjects.map(toTrackedSubject),
+          subjects: response.subjects.map((subject) => toTrackedSubject(subject, this.statisticsTimeZone())),
         },
       })),
       catchError((error: unknown) =>
@@ -2126,14 +2134,15 @@ function toSubmissionReceipt(receipt: ApiDatabaseSubmissionReceipt): DatabaseSub
 
 /**
  * 時間軸的一位追蹤對象。id 沿用 mock 的 `subject-<帳號 id>`、紀錄 id 加上 `record-` 前綴，只為了對上
- * 前端的樣板字面型別；日期標籤是統計時區（台北）的曆日（`statisticsDay`），與 mock、後端的統計日期一致。
+ * 前端的樣板字面型別；日期標籤是統計時區（`/me` 的 `statisticsTimeZone`）的曆日（`statisticsDay`），
+ * 與 mock、後端的統計日期一致。
  */
-function toTrackedSubject(subject: ApiDatabaseTrackedSubject): TrackedSubjectView {
+function toTrackedSubject(subject: ApiDatabaseTrackedSubject, timeZone: string): TrackedSubjectView {
   const records = subject.records.map(
     (record): DatabaseRecordView => ({
       id: `record-${record.id}`,
       recordedAt: record.submittedAt,
-      dateLabel: statisticsDay(record.submittedAt),
+      dateLabel: statisticsDay(record.submittedAt, timeZone),
       source: record.source,
       entries: record.entries.map((entry) => ({
         fieldId: toDatabaseFieldId(entry.fieldId),
@@ -2150,8 +2159,8 @@ function toTrackedSubject(subject: ApiDatabaseTrackedSubject): TrackedSubjectVie
       (trail): WithdrawnRecordView => ({
         id: `record-${trail.id}`,
         submittedAt: trail.submittedAt,
-        submittedDateLabel: statisticsDay(trail.submittedAt),
-        withdrawnDateLabel: statisticsDay(trail.withdrawnAt),
+        submittedDateLabel: statisticsDay(trail.submittedAt, timeZone),
+        withdrawnDateLabel: statisticsDay(trail.withdrawnAt, timeZone),
         source: trail.source,
       }),
     ),
@@ -2310,8 +2319,8 @@ function toDatabaseField(field: ApiDatabaseField): DatabaseFieldView {
 }
 
 /**
- * 後端摘要沒有紀錄數量與已連接助理：紀錄要等資料管理者與提交（#144–#146），在那之前任何回應都
- * 不透露數量，這裡一律是 null／空陣列（畫面在 API 模式顯示「將於後續版本開放」）。
+ * 紀錄筆數與對象數只回給目前可讀紀錄的人（#177，#144 的規則）；其他人的回應根本沒有這兩個鍵，
+ * 這裡一律轉成 null（畫面顯示「僅指定資料管理者可查看」），與 mock 相同。
  */
 function toDatabaseSummary(summary: ApiDatabaseSummary): DatabaseSummaryView {
   return {
@@ -2323,8 +2332,8 @@ function toDatabaseSummary(summary: ApiDatabaseSummary): DatabaseSummaryView {
     viewerCanManage: summary.viewerCanManage === true,
     templateName: summary.templateName,
     fieldCount: summary.fieldCount,
-    recordCount: null,
-    subjectCount: null,
+    recordCount: summary.recordCount ?? null,
+    subjectCount: summary.subjectCount ?? null,
     connectedAssistantNames: [...(summary.connectedAssistantNames ?? [])],
     updatedAt: summary.updatedAt,
   };

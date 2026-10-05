@@ -151,8 +151,8 @@ export class DatabaseListPageComponent {
     }
   }
 
+  /** 筆數只有可讀紀錄的人拿得到（API 模式也一樣，#177）；其他人是 null。 */
   protected records(item: DatabaseSummaryView): string {
-    if (this.apiMode) return '將於後續版本開放';
     return item.recordCount === null
       ? '僅指定資料管理者可查看'
       : `${item.subjectCount ?? 0} 位對象・${item.recordCount} 筆紀錄`;

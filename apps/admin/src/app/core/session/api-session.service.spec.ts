@@ -37,6 +37,7 @@ const ADMIN_ME: MeResponse = {
   ],
   organization: { id: '00000000-0000-0000-0000-0000000000aa', name: '安心商行' },
   passwordChangeRequired: false,
+  statisticsTimeZone: 'Asia/Taipei',
 };
 
 const CUSTOMER_ME: MeResponse = {
@@ -222,6 +223,18 @@ describe('ApiSessionService (API mode)', () => {
       organizationId: ADMIN_ME.organization.id,
       accountId: ADMIN_ME.id,
     });
+  });
+
+  it('keeps /me’s statistics time zone on the identity (#177)', async () => {
+    const { service, http } = setUpApiMode();
+    const backend = TestBed.inject(HttpSessionBackend);
+
+    const completion = service.completeSignIn();
+    await flushMicrotasks();
+    http.expectOne('/api/v1/me').flush({ ...ADMIN_ME, statisticsTimeZone: 'Europe/Berlin' });
+    await completion;
+
+    expect(backend.restore()?.statisticsTimeZone).toBe('Europe/Berlin');
   });
 
   it('uses the permissions from /me, not the mock account list', async () => {

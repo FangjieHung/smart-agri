@@ -31,23 +31,22 @@ import type { DatabaseRecordFixture } from './demo-seed-databases';
 
 const numberFormat = new Intl.NumberFormat('en-US');
 
+/** 每個統計時區一個 formatter（建立 `Intl.DateTimeFormat` 不便宜，時區通常整個 session 只有一個）。 */
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+
 /**
- * 統計與日期標籤使用的時區（IANA）。與後端 `Statistics:TimeZone` 的預設相同（`Asia/Taipei`）：紀錄屬於
- * 它在這個時區落在的曆日，所以台灣 08:00 前送出的資料算當天，不是 UTC 的前一天。後端的設定若改了，
- * 這個常數要一起改（兩邊的規則見 M4 設計文件 §10.3）。
+ * 一個時間點在統計時區（IANA，例如 `Asia/Taipei`）的曆日（`YYYY-MM-DD`）；與回執、時間軸顯示的日期同一天。
+ * 紀錄屬於它在這個時區落在的曆日，所以台灣 08:00 前送出的資料算當天，不是 UTC 的前一天。時區不寫死在
+ * 前端（#177）：API 模式來自 `GET /api/v1/me` 的 `statisticsTimeZone`（後端設定 `Statistics:TimeZone`），
+ * mock 模式來自 `MockDemoRepositoryOptions.statisticsTimeZone`（規則見 M4 設計文件 §11.3、§16）。
  */
-export const STATISTICS_TIME_ZONE = 'Asia/Taipei';
-
-const dayFormat = new Intl.DateTimeFormat('en-CA', {
-  timeZone: STATISTICS_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-
-/** 一個時間點在統計時區的曆日（`YYYY-MM-DD`）；與回執、時間軸顯示的日期同一天。 */
-export function statisticsDay(iso: string): string {
-  return dayFormat.format(new Date(iso));
+export function statisticsDay(iso: string, timeZone: string): string {
+  let format = dayFormats.get(timeZone);
+  if (format === undefined) {
+    format = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    dayFormats.set(timeZone, format);
+  }
+  return format.format(new Date(iso));
 }
 
 export function formatNumber(value: number, unit: string): string {
@@ -74,11 +73,11 @@ export function displayRecordValue(value: DatabaseRecordValue): string {
   }
 }
 
-export function toRecordView(record: DatabaseRecordFixture): DatabaseRecordView {
+export function toRecordView(record: DatabaseRecordFixture, timeZone: string): DatabaseRecordView {
   return {
     id: record.id,
     recordedAt: record.recordedAt,
-    dateLabel: statisticsDay(record.recordedAt),
+    dateLabel: statisticsDay(record.recordedAt, timeZone),
     source: record.source,
     entries: record.values.map((value) => ({
       fieldId: value.fieldId,
@@ -92,18 +91,21 @@ export function toRecordView(record: DatabaseRecordFixture): DatabaseRecordView 
  * 已撤回同意的紀錄轉成軌跡：只保留提交與撤回的時間與來源。
  * 撤回時 `values` 已在 mock 中清空，這裡也不讀取任何欄位值。
  */
-export function toWithdrawnRecordView(record: DatabaseRecordFixture): WithdrawnRecordView {
+export function toWithdrawnRecordView(record: DatabaseRecordFixture, timeZone: string): WithdrawnRecordView {
   return {
     id: record.id,
     submittedAt: record.recordedAt,
-    submittedDateLabel: statisticsDay(record.recordedAt),
-    withdrawnDateLabel: record.withdrawnAt === undefined ? '' : statisticsDay(record.withdrawnAt),
+    submittedDateLabel: statisticsDay(record.recordedAt, timeZone),
+    withdrawnDateLabel: record.withdrawnAt === undefined ? '' : statisticsDay(record.withdrawnAt, timeZone),
     source: record.source,
   };
 }
 
 /** 依時間先後排列的已同意紀錄，建立本次／上次／首次比較。 */
-export function compareRecords(chronological: readonly DatabaseRecordFixture[]): SubjectComparisonView {
+export function compareRecords(
+  chronological: readonly DatabaseRecordFixture[],
+  timeZone: string,
+): SubjectComparisonView {
   const recordCount = chronological.length;
   if (recordCount < 2) {
     return {
@@ -127,7 +129,7 @@ export function compareRecords(chronological: readonly DatabaseRecordFixture[]):
       return [
         {
           recordId: record.id,
-          dateLabel: statisticsDay(record.recordedAt),
+          dateLabel: statisticsDay(record.recordedAt, timeZone),
           value: match.value,
           display: displayRecordValue(match),
         },
@@ -178,7 +180,7 @@ export function compareRecords(chronological: readonly DatabaseRecordFixture[]):
   return {
     status: 'available',
     recordCount,
-    summary: `比較 ${recordCount} 筆已同意提交的紀錄（${statisticsDay(chronological[0].recordedAt)} 至 ${statisticsDay(latest.recordedAt)}）。`,
+    summary: `比較 ${recordCount} 筆已同意提交的紀錄（${statisticsDay(chronological[0].recordedAt, timeZone)} 至 ${statisticsDay(latest.recordedAt, timeZone)}）。`,
     metrics,
   };
 }
@@ -214,7 +216,7 @@ function rangeOf(name: DatabasePeriodName | null, from: number, to: number): Dat
 }
 
 /**
- * 具名期間涵蓋的 統計時區（`STATISTICS_TIME_ZONE`）的曆日（起訖都含）：週從週一到週日、月從 1 日到月底，`last-7-days`／`last-30-days`
+ * 具名期間涵蓋的統計時區的曆日（起訖都含）：週從週一到週日、月從 1 日到月底，`last-7-days`／`last-30-days`
  * 到今天為止。與後端 `DatabaseFixedQueries.Resolve` 相同；`today` 是 `YYYY-MM-DD`（統計時區）。
  */
 export function resolvePeriod(name: DatabasePeriodName, today: string): DatabasePeriodRangeView {
@@ -255,11 +257,12 @@ function rowsOf(
   records: readonly DatabaseRecordFixture[],
   period: DatabasePeriodRangeView,
   units: ReadonlyMap<DatabaseFieldId, string>,
+  timeZone: string,
 ): PeriodRows {
   const sums = new Map<DatabaseFieldId, { sum: number; count: number }>();
   let count = 0;
   for (const record of records) {
-    const day = statisticsDay(record.recordedAt);
+    const day = statisticsDay(record.recordedAt, timeZone);
     if (day < period.from || day > period.to) continue;
     count += 1;
     for (const value of record.values) {
@@ -283,6 +286,8 @@ export function summarizePeriod(input: {
   readonly subjectId: TrackedSubjectId | null;
   readonly period: DatabasePeriodName;
   readonly today: string;
+  /** 統計時區（IANA）：紀錄依它落在的曆日歸入期間；`today` 也是這個時區的曆日。 */
+  readonly timeZone: string;
 }): DatabasePeriodSummaryView {
   const period = resolvePeriod(input.period, input.today);
   return summarizeRange({ ...input, period, previous: previousPeriod(period) });
@@ -298,6 +303,7 @@ export function summarizeRange(input: {
   readonly subjectId: TrackedSubjectId | null;
   readonly period: DatabasePeriodRangeView;
   readonly previous: DatabasePeriodRangeView;
+  readonly timeZone: string;
 }): DatabasePeriodSummaryView {
   const { period, previous } = input;
   const records = input.records.filter((record) => input.subjectId === null || record.subjectId === input.subjectId);
@@ -315,8 +321,8 @@ export function summarizeRange(input: {
   }
 
   const units = new Map([...references].map(([id, reference]) => [id, reference.unit]));
-  const now = rowsOf(records, period, units);
-  const before = rowsOf(records, previous, units);
+  const now = rowsOf(records, period, units, input.timeZone);
+  const before = rowsOf(records, previous, units, input.timeZone);
   const sums = [...references].flatMap(([id, reference]): DatabaseFieldSumView[] => {
     const current = now.sums.get(id) ?? { sum: 0, count: 0 };
     const earlier = before.sums.get(id) ?? { sum: 0, count: 0 };

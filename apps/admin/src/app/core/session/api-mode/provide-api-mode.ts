@@ -2,6 +2,7 @@ import { HttpClient, provideHttpClient, withFetch, withInterceptors } from '@ang
 import {
   type EnvironmentProviders,
   inject,
+  Injector,
   makeEnvironmentProviders,
   provideAppInitializer,
 } from '@angular/core';
@@ -10,7 +11,7 @@ import { CHAT_RUNNER } from '../../chat/chat-runner';
 import type { DemoSeed } from '../../repositories/demo-seed';
 import { HybridDemoRepository } from '../../repositories/hybrid-demo-repository';
 import type { MockDemoRepositoryOptions } from '../../repositories/mock-demo-repository';
-import { API_DEMO_REPOSITORY_FACTORY } from '../../repositories/tokens';
+import { API_DEMO_REPOSITORY_FACTORY, loadMockRepositoryModules } from '../../repositories/tokens';
 import { API_SESSION_BACKEND, ApiSessionService } from '../api-session.service';
 import { bearerTokenInterceptor } from './bearer-token.interceptor';
 import { HttpSessionBackend } from './http-session-backend';
@@ -54,8 +55,12 @@ export function provideApiMode(): EnvironmentProviders {
       },
     },
     // 重新整理頁面時在背景重讀 `/me`，不擋住啟動。
-    provideAppInitializer(() => {
-      void inject(ApiSessionService).refreshIdentity();
+    // Angular 不會等前一個非同步 initializer 完成才呼叫下一個，所以這裡自己等 mock 模組
+    // 載入完才解析 ApiSessionService（它在欄位初始化時注入 DEMO_REPOSITORY）。
+    provideAppInitializer(async () => {
+      const injector = inject(Injector);
+      await loadMockRepositoryModules();
+      void injector.get(ApiSessionService).refreshIdentity();
     }),
   ]);
 }

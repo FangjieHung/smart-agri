@@ -81,7 +81,10 @@
       }
     },
     "test": {
-      "executor": "@angular/build:unit-test"
+      "executor": "@angular/build:unit-test",
+      "options": {
+        "setupFiles": ["apps/admin/src/test-setup.ts"]
+      }
     },
     "lint": {
       "executor": "@nx/eslint:lint"

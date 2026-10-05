@@ -50,6 +50,22 @@ services:
       Ai__Embedding__ApiKey: ${EMBEDDING_API_KEY:-}
       Ai__Embedding__DocumentPrefix: ${EMBEDDING_DOCUMENT_PREFIX:-}
       Ai__Embedding__QueryPrefix: ${EMBEDDING_QUERY_PREFIX:-}
+      # Chat model (apps/api/README.md, "Chat model"). Without a provider the api starts but
+      # every conversation answers 503 chat-not-configured. Fake is refused here. Blank
+      # numeric values bind as "unset" (provider/client default), they do not fail startup.
+      Ai__Chat__Provider: ${CHAT_PROVIDER:-}
+      Ai__Chat__Endpoint: ${CHAT_ENDPOINT:-}
+      Ai__Chat__Model: ${CHAT_MODEL:-}
+      Ai__Chat__ApiKey: ${CHAT_API_KEY:-}
+      Ai__Chat__MaxOutputTokens: ${CHAT_MAX_OUTPUT_TOKENS:-}
+      Ai__Chat__TimeoutSeconds: ${CHAT_TIMEOUT_SECONDS:-}
+      # None/Low/Medium/High/ExtraHigh. Reasoning models (e.g. gpt-6-luna) need None.
+      Ai__Chat__ReasoningEffort: ${CHAT_REASONING_EFFORT:-}
+      # Who decides whether a question gets the assistant's form: Model (the chat model picks,
+      # keyword gate as fallback) or Keyword. Model is the customer-deploy default (#164 eval).
+      Chat__FormRequests__Trigger: ${CHAT_FORM_REQUEST_TRIGGER:-Model}
+      # IANA time zone whose calendar days the statistics queries and reports count in.
+      Statistics__TimeZone: ${STATISTICS_TIME_ZONE:-Asia/Taipei}
     volumes:
       - ./certs:/app/certs:ro
     ports:

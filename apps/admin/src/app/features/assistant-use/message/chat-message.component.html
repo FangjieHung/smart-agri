@@ -10,7 +10,11 @@
     <p class="kind">
       <span class="visually-hidden">助理回覆，</span>{{ label(reply.kind) }}
     </p>
-    <p>{{ reply.text }}</p>
+    @if (reply.kind === 'form-request' && formDismissed()) {
+      <p class="form-dismissed">已關閉表單，沒有送出任何資料。</p>
+    } @else {
+      <p>{{ reply.text }}</p>
+    }
     @switch (reply.kind) {
       @case ('company-data') {
         @if (reply.citations.length > 0) {
@@ -39,8 +43,11 @@
         </ul>
       }
       @case ('form-request') {
-        @if (reply.form; as form) {
+        @if (formDismissed()) {
+          <!-- 使用者關閉了這份表單（issue #171）：不再提示，需要時用「回報資料」入口。 -->
+        } @else if (reply.form; as form) {
           @if (!formActive()) {
+            <p class="form-offer">我找到一份可能相關的表單。要現在開始填寫嗎？</p>
             <button type="button" class="form-start" (click)="startForm.emit(form)">
               填寫表單：{{ form.title }}
             </button>

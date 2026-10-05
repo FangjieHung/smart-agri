@@ -315,6 +315,41 @@ describe('MockDemoRepository assistant chat', () => {
     ).toMatchObject({ status: 'permission-denied', reason: 'assistant-form' });
   });
 
+  it('lists the forms the entry may open and validates dismissals like the API (#171)', () => {
+    const repository = createRepository();
+    const offered = ask(repository, '我要回報訂單問題');
+    if (offered.kind !== 'form-request' || offered.form === null) throw new Error('expected a form request');
+
+    const listed = syncValue(repository.listChatForms('account-external-customer', ASSISTANT));
+    expect(listed).toEqual({ status: 'ready', data: [offered.form] });
+    expect(syncValue(repository.listChatForms('account-external-customer', 'assistant-missing'))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'assistant-use',
+    });
+    const unconnected = new MockDemoRepository({
+      ...DEMO_SEED,
+      assistants: DEMO_SEED.assistants.map((assistant) => ({ ...assistant, databaseIds: [] })),
+    });
+    expect(syncValue(unconnected.listChatForms('account-external-customer', ASSISTANT))).toEqual({ status: 'ready', data: [] });
+
+    expect(syncValue(repository.dismissChatForm('account-external-customer', ASSISTANT, 'database-orders'))).toEqual({
+      status: 'ready',
+      data: null,
+    });
+    expect(syncValue(repository.dismissChatForm('account-external-customer', ASSISTANT, 'database-orders', 'thread-not-mine'))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'chat-thread',
+    });
+    expect(syncValue(repository.dismissChatForm('account-external-customer', ASSISTANT, 'database-customer-records'))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'assistant-form',
+    });
+    expect(syncValue(repository.dismissChatForm('account-external-customer', 'assistant-missing', 'database-orders'))).toMatchObject({
+      status: 'permission-denied',
+      reason: 'assistant-use',
+    });
+  });
+
   it('answers 查無資料 with the assistant’s own saved refusal message, not a fixed string', async () => {
     const repository = createRepository();
     const box = viewerBoxes.get(repository);

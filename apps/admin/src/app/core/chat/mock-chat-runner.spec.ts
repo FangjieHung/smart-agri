@@ -1,8 +1,8 @@
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, of } from 'rxjs';
 import { DEMO_SEED } from '../repositories/demo-seed';
 import { MockDemoRepository } from '../repositories/mock-demo-repository';
 import type { ChatRunEvent, ChatRunRequest } from './chat-runner';
-import { MOCK_REJECTED_DRAFT, MOCK_SLICE_INTERVAL_MS, MockChatRunner, sliceText } from './mock-chat-runner';
+import { MOCK_FORM_CHECK_MS, MOCK_REJECTED_DRAFT, MOCK_SLICE_INTERVAL_MS, MockChatRunner, sliceText } from './mock-chat-runner';
 
 const VIEWER = 'account-external-customer';
 const REQUEST: ChatRunRequest = {
@@ -11,13 +11,20 @@ const REQUEST: ChatRunRequest = {
   question: '收到商品後幾天內可以退貨？',
 };
 
-function setup() {
+/**
+ * 客服助理有可用表單，所以每題先送 `form-check`（issue #171）；預設不等待，專門的測試才用
+ * `MOCK_FORM_CHECK_MS`。
+ */
+function setup(formCheckMs = 0) {
   const repository = new MockDemoRepository(DEMO_SEED, {
     now: () => new Date('2026-09-22T02:00:00.000Z'),
     viewer: () => VIEWER,
   });
-  return { repository, runner: new MockChatRunner(repository) };
+  return { repository, runner: new MockChatRunner(repository, MOCK_SLICE_INTERVAL_MS, formCheckMs) };
 }
+
+/** 去掉開頭的 `form-check`，只看串流與回覆。 */
+const withoutCheck = (events: readonly ChatRunEvent[]) => events.filter((event) => event.type !== 'form-check');
 
 function record(runner: MockChatRunner, request: ChatRunRequest = REQUEST) {
   const events: ChatRunEvent[] = [];
@@ -54,10 +61,10 @@ describe('MockChatRunner', () => {
     const { runner } = setup();
     const { events, isCompleted } = record(runner);
 
-    expect(events).toEqual([]);
+    expect(events).toEqual([{ type: 'form-check' }]);
     vi.advanceTimersByTime(MOCK_SLICE_INTERVAL_MS);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('text-delta');
+    expect(withoutCheck(events)).toHaveLength(1);
+    expect(withoutCheck(events)[0].type).toBe('text-delta');
 
     await vi.runAllTimersAsync();
 
@@ -73,12 +80,12 @@ describe('MockChatRunner', () => {
     const { runner, repository } = setup();
     const { events, subscription } = record(runner);
     vi.advanceTimersByTime(MOCK_SLICE_INTERVAL_MS * 2);
-    expect(events.length).toBe(2);
+    expect(withoutCheck(events).length).toBe(2);
 
     subscription.unsubscribe();
     await vi.runAllTimersAsync();
 
-    expect(events.every((event) => event.type === 'text-delta')).toBe(true);
+    expect(withoutCheck(events).every((event) => event.type === 'text-delta')).toBe(true);
     const messages = await storedMessages(repository);
     expect(messages.map((message) => message.author)).toEqual(['account']);
   });
@@ -122,5 +129,28 @@ describe('MockChatRunner', () => {
     expect(events).toEqual([
       { type: 'error', error: { kind: 'permission-denied', message: expect.any(String), retryable: false } },
     ]);
+  });
+
+  it('checks for a form first and waits before answering when the assistant has a usable form (#171)', async () => {
+    const { runner } = setup(MOCK_FORM_CHECK_MS);
+    const { events } = record(runner);
+
+    expect(events).toEqual([{ type: 'form-check' }]);
+    vi.advanceTimersByTime(MOCK_FORM_CHECK_MS - 1);
+    expect(events).toHaveLength(1);
+    vi.advanceTimersByTime(1 + MOCK_SLICE_INTERVAL_MS);
+    expect(events[1]?.type).toBe('text-delta');
+    await vi.runAllTimersAsync();
+    expect(events.filter((event) => event.type === 'form-check')).toHaveLength(1);
+  });
+
+  it('never checks for a form when the assistant has none for this viewer (#171)', async () => {
+    const { runner, repository } = setup(MOCK_FORM_CHECK_MS);
+    vi.spyOn(repository, 'listChatForms').mockReturnValue(of({ status: 'ready', data: [] }));
+    const { events } = record(runner);
+    await vi.runAllTimersAsync();
+
+    expect(events.some((event) => event.type === 'form-check')).toBe(false);
+    expect(events.some((event) => event.type === 'reply')).toBe(true);
   });
 });

@@ -1,0 +1,59 @@
+:host { display: flex; }
+
+/* 判斷完成：淡出（外層 `animate.leave` 加上這個 class），之後原位出現「正在回答…」或表單請求。 */
+:host(.form-check-leave) { animation: form-check-fade-out 160ms ease-out forwards; }
+@keyframes form-check-fade-out { to { opacity: 0; } }
+
+/* 視覺隱藏的固定文字以這裡為定位基準，不跳出捲動區把頁面撐高。 */
+.form-check { position: relative; display: block; }
+
+/* 四句疊在同一格，輪流出現；高度固定一行，不推動下方內容。 */
+.phrases {
+  display: grid;
+  margin: 0;
+  overflow: hidden;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.phrase {
+  grid-area: 1 / 1;
+  color: transparent;
+  background-image: linear-gradient(90deg, #1c2733 0%, #1c2733 35%, #9aa6b2 50%, #1c2733 65%, #1c2733 100%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  opacity: 0;
+  animation:
+    form-check-shimmer 2.5s linear infinite,
+    form-check-cycle 6s linear infinite both;
+  animation-delay: 0s, calc(var(--phrase-index, 0) * 1.5s);
+}
+
+@keyframes form-check-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* 一句 1.5 秒＝一輪的 25%：由下方 12px 淡入（約 0.24 秒）、停留、向上 12px 淡出（約 0.24 秒），不重疊。 */
+@keyframes form-check-cycle {
+  0% { opacity: 0; transform: translateY(12px); }
+  4% { opacity: 1; transform: translateY(0); }
+  21% { opacity: 1; transform: translateY(0); }
+  25% { opacity: 0; transform: translateY(-12px); }
+  100% { opacity: 0; transform: translateY(-12px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :host(.form-check-leave) { animation: none; }
+  .phrase {
+    display: none;
+    animation: none;
+    opacity: 1;
+    transform: none;
+    background: none;
+    color: var(--color-text-secondary);
+  }
+  .phrase:first-child { display: block; }
+}

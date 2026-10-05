@@ -1,7 +1,14 @@
 @let current = form();
 @let invalid = invalidIds();
 <form class="inline-form" aria-labelledby="inline-form-title" novalidate (submit)="submit($event)">
-  <h2 id="inline-form-title">{{ current.title }}</h2>
+  <div class="title-row">
+    <h2 id="inline-form-title">{{ current.title }}</h2>
+    <button type="button" class="close" aria-label="關閉表單，不填寫" (click)="cancelled.emit()">
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+    </button>
+  </div>
   <p class="hint">標示「必填」的欄位需要填寫。下一步會先確認資料的接收者與用途，確認前不會送出。</p>
 
   @if (errors().length > 0) {
@@ -77,6 +84,11 @@
 
   <div class="actions">
     <button type="submit" class="primary">下一步：確認同意</button>
-    <button type="button" class="secondary" (click)="cancelled.emit()">取消</button>
+    <button type="button" class="secondary" (click)="cancelled.emit()">不用了</button>
   </div>
+  @if (showActivityLink()) {
+    <p class="withdraw-hint">
+      想撤回已送出的資料？<a [href]="activityHref" (click)="leave($event)">前往我送出的資料</a>
+    </p>
+  }
 </form>

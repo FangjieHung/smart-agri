@@ -4411,6 +4411,50 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario({ formId: target.form.id, saved: false as const, entries: outcome.entries });
   }
 
+  listChatForms(viewerId: ChatViewerId, assistantId: string): Observable<RepositoryView<readonly ChatFormView[]>> {
+    return defer(() => of(this.listChatFormsSync(viewerId, assistantId)));
+  }
+
+  /** 與 API 相同：助理此刻可跳出的表單（mock 是 response map 裡、助理有連接的表單），每次重算。 */
+  private listChatFormsSync(viewerId: ChatViewerId, assistantId: string): RepositoryView<readonly ChatFormView[]> {
+    if (this.chatAssistant(viewerId, assistantId) === undefined) return this.chatAssistantPermissionDenied(viewerId);
+    const formIds = [
+      ...new Set(
+        this.seed.chatResponses.flatMap((fixture) => (fixture.answer.kind === 'form-request' ? [fixture.answer.databaseId] : [])),
+      ),
+    ];
+    const forms = formIds.flatMap((formId) => {
+      const target = this.chatFormTarget(viewerId, assistantId, formId);
+      return target === undefined ? [] : [target.form];
+    });
+    return immutableCopy({ status: 'ready' as const, data: forms });
+  }
+
+  dismissChatForm(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    formId: DatabaseId,
+    threadId?: string,
+  ): Observable<RepositoryView<null>> {
+    return defer(() => of(this.dismissChatFormSync(viewerId, assistantId, formId, threadId)));
+  }
+
+  /** 與 API 相同的檢查順序：可使用助理 → 對話是自己的 → 表單仍可使用；mock 不另外保存這筆紀錄。 */
+  private dismissChatFormSync(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    formId: DatabaseId,
+    threadId?: string,
+  ): RepositoryView<null> {
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
+    if (threadId !== undefined && this.keepsConversations(assistant) && this.resolveChatTarget(viewerId, assistant, threadId) === undefined) {
+      return this.chatThreadPermissionDenied();
+    }
+    if (this.chatFormTarget(viewerId, assistantId, formId) === undefined) return this.chatFormPermissionDenied();
+    return { status: 'ready', data: null };
+  }
+
   submitChatForm(
     viewerId: ChatViewerId,
     assistantId: string,

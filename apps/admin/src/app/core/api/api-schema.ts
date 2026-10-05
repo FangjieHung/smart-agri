@@ -2920,6 +2920,161 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseReportListView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/reports/{reportId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    reportId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseReportView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/databases/{id}/reports/{reportId}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    reportId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseReportView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants": {
         parameters: {
             query?: never;
@@ -5044,6 +5199,7 @@ export interface components {
             keepConversations?: null | boolean;
             dataWriteDatabaseId?: null | string;
             dataWritePurpose?: null | string;
+            periodicReport?: null | string;
         };
         AssistantAnswerRulesView: {
             knowledgeScope: components["schemas"]["AssistantKnowledgeScope"];
@@ -5053,6 +5209,7 @@ export interface components {
             /** Format: uuid */
             dataWriteDatabaseId: null | string;
             dataWritePurpose: string;
+            periodicReport: string;
         };
         AssistantChatView: {
             /** Format: uuid */
@@ -5668,6 +5825,53 @@ export interface components {
             databaseId: string;
             records: components["schemas"]["DatabaseSubmittedRecordView"][];
         };
+        DatabaseReportAiSummaryView: {
+            label: string;
+            status: components["schemas"]["ReportSummaryStatus"];
+            text: null | string;
+            note: null | string;
+            /** Format: date-time */
+            updatedAt: null | string;
+            disclaimer: string;
+        };
+        DatabaseReportListItemView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            frequency: components["schemas"]["ReportFrequency"];
+            periodFrom: string;
+            periodTo: string;
+            periodLabel: string;
+            status: components["schemas"]["ReportStatus"];
+            skipReason: null | components["schemas"]["ReportSkipReason"];
+            skipMessage: null | string;
+            dataState: null | components["schemas"]["ReportDataState"];
+            dataMessage: null | string;
+            /** Format: date-time */
+            generatedAt: string;
+            summaryStatus: components["schemas"]["ReportSummaryStatus"];
+        };
+        DatabaseReportListView: {
+            /** Format: uuid */
+            databaseId: string;
+            schedules: components["schemas"]["DatabaseReportScheduleView"][];
+            reports: components["schemas"]["DatabaseReportListItemView"][];
+        };
+        DatabaseReportScheduleView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            frequency: components["schemas"]["ReportFrequency"];
+            nextPeriodFrom: string;
+            nextReportDate: string;
+        };
+        DatabaseReportView: {
+            report: components["schemas"]["DatabaseReportListItemView"];
+            statistics: null | components["schemas"]["DatabasePeriodSummaryResult"];
+            aiSummary: components["schemas"]["DatabaseReportAiSummaryView"];
+        };
         DatabaseScaleDraft: {
             /** Format: double */
             min: null | number;
@@ -6139,6 +6343,16 @@ export interface components {
             /** Format: int32 */
             count: number;
         };
+        /** @enum {unknown} */
+        ReportDataState: "sufficient" | "insufficient-records" | null;
+        /** @enum {unknown} */
+        ReportFrequency: "weekly" | "monthly";
+        /** @enum {unknown} */
+        ReportSkipReason: "not-connected" | "owner-cannot-read" | null;
+        /** @enum {unknown} */
+        ReportStatus: "generated" | "skipped";
+        /** @enum {unknown} */
+        ReportSummaryStatus: "not-requested" | "pending" | "ready" | "failed" | "discarded";
         ReviewChatFormRequest: {
             /** Format: int32 */
             formVersionNumber: null | number;

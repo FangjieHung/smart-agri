@@ -95,31 +95,33 @@
   </div>
 }
 
-@if (periodicReportAvailable()) {
 <div class="field">
-  <label for="periodic-report">是否請使用者定期填寫回報？</label>
+  <label for="periodic-report">是否定期產生報表？</label>
   <select
     id="periodic-report"
-    [attr.aria-describedby]="live() ? 'periodic-report-effect' : null"
+    [attr.aria-invalid]="problems.periodicReport ? 'true' : null"
+    [attr.aria-describedby]="periodicReportDescription()"
     (change)="selectReport($event)"
   >
     @for (option of reportOptions; track option.value) {
       <option [value]="option.value" [selected]="current.periodicReport === option.value">{{ option.label }}</option>
     }
   </select>
+  @if (problems.periodicReport) {
+    <p id="periodic-report-error" class="error">{{ problems.periodicReport }}</p>
+  }
   @if (live()) {
     <p id="periodic-report-effect" class="hint">
       @if (current.periodicReport === 'off' || current.dataWriteDatabaseId === null) {
-        選了週期並指定寫入的資料庫之後，該資料庫的「趨勢比較」會出現下次回報日期與這一期的變化摘要。
+        選了週期並指定寫入的資料庫之後，助理會在每一期結束時為該資料庫產生一份報表：固定統計與圖表，
+        另附標示為「AI 摘要」的文字，到資料庫的「定期報表」頁籤查看。
       } @else {
-        寫入的資料庫在「趨勢比較」會顯示下次回報日期，以及由已算好的比較值組成的變化摘要。
+        每一期結束時會為寫入的資料庫產生報表，只有被指定為資料管理者、且具備查看權限的人看得到。
+        報表以產生當下的紀錄為準，之後撤回紀錄不會改動已產生的報表；助理擁有者自己也要是該資料庫的資料管理者，否則該期不會產生。
       }
     </p>
   }
 </div>
-} @else {
-  <p class="hint">請使用者定期回報將於後續版本開放。</p>
-}
 } @else {
   <p class="hint">把對話中收集到的資訊寫入資料庫、請使用者定期回報，將於後續版本開放。</p>
 }

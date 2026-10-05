@@ -24,6 +24,7 @@ import {
   type AssistantDraftField,
   type AssistantDraftFieldError,
   type ConnectableSourceView,
+  type PeriodicReportSchedule,
   type NamedAssistantDraftView,
   type TrialAnswerCitationView,
   type TrialAnswerPassageView,
@@ -97,6 +98,11 @@ import type {
   DatabasePeriodRangeView,
   DatabasePeriodSummaryQuery,
   DatabasePeriodSummaryView,
+  DatabaseReportAiSummaryView,
+  DatabaseReportListItemView,
+  DatabaseReportListView,
+  DatabaseReportScheduleView,
+  DatabaseReportView,
   DatabaseTrackingView,
   DatabaseTrialAnswers,
   DatabaseUpcomingFeature,
@@ -257,6 +263,11 @@ type ApiComparisonPoint = components['schemas']['DatabaseComparisonPoint'];
 type ApiPeriodSummary = components['schemas']['DatabasePeriodSummaryResult'];
 type ApiPeriodRange = components['schemas']['DatabaseQueryPeriodView'];
 type ApiFieldSum = components['schemas']['DatabaseFieldSum'];
+type ApiReportList = components['schemas']['DatabaseReportListView'];
+type ApiReportListItem = components['schemas']['DatabaseReportListItemView'];
+type ApiReportSchedule = components['schemas']['DatabaseReportScheduleView'];
+type ApiReport = components['schemas']['DatabaseReportView'];
+type ApiReportAiSummary = components['schemas']['DatabaseReportAiSummaryView'];
 
 export const API_TEAM_PATH = '/api/v1/team';
 
@@ -424,6 +435,19 @@ export function apiDatabaseTrackingPath(databaseId: string): string {
   return `${apiDatabasePath(databaseId)}/tracking`;
 }
 
+/** 定期報表（issue #150）：清單、單份、重試 AI 摘要。 */
+export function apiDatabaseReportsPath(databaseId: string): string {
+  return `${apiDatabasePath(databaseId)}/reports`;
+}
+
+export function apiDatabaseReportPath(databaseId: string, reportId: string): string {
+  return `${apiDatabaseReportsPath(databaseId)}/${encodeURIComponent(reportId)}`;
+}
+
+export function apiDatabaseReportSummaryPath(databaseId: string, reportId: string): string {
+  return `${apiDatabaseReportPath(databaseId, reportId)}/summary`;
+}
+
 /**
  * 固定查詢 `period-summary`（issue #147）：`period` 是具名期間；`subjectId` 只算這位追蹤對象（前端 id
  * `subject-<帳號 GUID>` 去掉前綴）。參數只有這兩個，伺服器不接受其他。
@@ -445,14 +469,10 @@ export function apiDatabaseAccessPath(databaseId: string): string {
 /**
  * API 模式還沒有的資料庫功能（#143–#150 逐張開放後從這裡移除）。詳情頁依此顯示「將於後續版本開放」。
  *
- * `records` 已於 #146 移除、`trends` 已於 #147 移除：收集紀錄時間軸走 `GET .../tracking`，趨勢比較與
- * 期間統計是伺服器的固定查詢（數字由伺服器算好，前端不用顯示文字自己算差異）。
- * `assistant-connections` 已移除（#148）：詳情的「已連接助理」來自 API。剩下的是
- * `periodic-reports`（助理定期回報與 AI 摘要，#150）。
+ * 已全部開放：收集紀錄（#146）、趨勢與期間統計（#147）、已連接助理（#148）、定期報表與 AI 摘要（#150，
+ * 最後一項）。所以這裡是空的；機制保留給之後只在 mock 先做的功能。
  */
-export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [
-  'periodic-reports',
-];
+export const API_UPCOMING_DATABASE_FEATURES: readonly DatabaseUpcomingFeature[] = [];
 
 /** 草稿 `payload` 的形狀版本（jsonb，形狀由前端決定）；形狀有不相容的變更時才遞增。 */
 export const ASSISTANT_DRAFT_SCHEMA_VERSION = 1;
@@ -797,8 +817,8 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /**
-   * `PATCH` 只送後端認得的欄位；使用對象（M3 只有組織內）與定期回報（#150）畫面在 API 模式不提供，
-   * 即使帶進來也不送出。資料庫寫入（`dataWriteDatabaseId`／`dataWritePurpose`，#148）照送。
+   * `PATCH` 只送後端認得的欄位；使用對象（M3 只有組織內）畫面在 API 模式不提供，即使帶進來也不送出。
+   * 資料庫寫入（`dataWriteDatabaseId`／`dataWritePurpose`，#148）與定期報表（`periodicReport`，#150）照送。
    * 後端全有或全無：`422` 時完全沒有寫入。
    */
   override updateAssistantSettings(
@@ -821,6 +841,8 @@ export class HybridDemoRepository extends MockDemoRepository {
               // 寫入的資料庫（issue #148）：null 送空字串代表「不寫入」；沒帶就不變。
               ...(rules.dataWriteDatabaseId !== undefined ? { dataWriteDatabaseId: rules.dataWriteDatabaseId ?? '' } : {}),
               ...(rules.dataWritePurpose !== undefined ? { dataWritePurpose: rules.dataWritePurpose } : {}),
+              // 定期報表（issue #150）：off／weekly／monthly，報告的是寫入的資料庫；沒帶就不變。
+              ...(rules.periodicReport !== undefined ? { periodicReport: rules.periodicReport } : {}),
             },
           }
         : {}),
@@ -1407,8 +1429,7 @@ export class HybridDemoRepository extends MockDemoRepository {
    * `GET /api/v1/databases/{id}/tracking`（issue #146）：時間軸依追蹤對象（＝提交帳號）分組，有效紀錄與
    * 撤回軌跡分開。`403 database-records`（看得到資料庫但不能讀）照 body 的 reason；`403 database` 與
    * id 不是 GUID 的 `404` 是 `database`。每位追蹤對象的 `comparison`（首次／上次／本次）是伺服器的固定
-   * 查詢算好的（#147），這裡只轉換型別，不重算。定期回報是 #150：這裡是空陣列，畫面以
-   * `upcomingFeatures` 的 `periodic-reports` 顯示將於後續版本開放。
+   * 查詢算好的（#147），這裡只轉換型別，不重算。定期報表（#150）在 `listDatabaseReports`。
    */
   override getDatabaseTracking(databaseId: string): Observable<RepositoryView<DatabaseTrackingView>> {
     return this.http.get<ApiDatabaseTracking>(apiDatabaseTrackingPath(databaseId)).pipe(
@@ -1417,7 +1438,6 @@ export class HybridDemoRepository extends MockDemoRepository {
         data: {
           databaseId: response.databaseId,
           subjects: response.subjects.map(toTrackedSubject),
-          periodicReports: [],
         },
       })),
       catchError((error: unknown) =>
@@ -1450,6 +1470,42 @@ export class HybridDemoRepository extends MockDemoRepository {
             : this.permissionDeniedOrThrow(error, DATABASE_DENIED),
         ),
       );
+  }
+
+  /**
+   * `GET /api/v1/databases/{id}/reports`（issue #150）。權限與時間軸相同，每次請求重新檢查：`403 database`
+   * ／`403 database-records` 照 body 的 reason；id 不是 GUID 的 `404` 是 `database`。
+   */
+  override listDatabaseReports(databaseId: string): Observable<RepositoryView<DatabaseReportListView>> {
+    return this.http.get<ApiReportList>(apiDatabaseReportsPath(databaseId)).pipe(
+      map((response): RepositoryView<DatabaseReportListView> => ({ status: 'ready', data: toReportList(response) })),
+      catchError((error: unknown) => this.reportDeniedOrThrow(error)),
+    );
+  }
+
+  /** `GET .../reports/{reportId}`：看得到資料庫但不是它的報表是 `403 database-report`。 */
+  override getDatabaseReport(databaseId: string, reportId: string): Observable<RepositoryView<DatabaseReportView>> {
+    return this.http.get<ApiReport>(apiDatabaseReportPath(databaseId, reportId)).pipe(
+      map((response): RepositoryView<DatabaseReportView> => ({ status: 'ready', data: toReport(response) })),
+      catchError((error: unknown) => this.reportDeniedOrThrow(error)),
+    );
+  }
+
+  /** `POST .../reports/{reportId}/summary`：只有失敗或被捨棄的摘要會重來；回傳報表現在的樣子。 */
+  override retryDatabaseReportSummary(
+    databaseId: string,
+    reportId: string,
+  ): Observable<RepositoryView<DatabaseReportView>> {
+    return this.http.post<ApiReport>(apiDatabaseReportSummaryPath(databaseId, reportId), null).pipe(
+      map((response): RepositoryView<DatabaseReportView> => ({ status: 'ready', data: toReport(response) })),
+      catchError((error: unknown) => this.reportDeniedOrThrow(error)),
+    );
+  }
+
+  private reportDeniedOrThrow(error: unknown): Observable<PermissionDeniedRepositoryView> {
+    return isHttpError(error, 404)
+      ? of(permissionDenied(DATABASE_DENIED))
+      : this.permissionDeniedOrThrow(error, DATABASE_DENIED);
   }
 
   // ---------- 知識庫 ----------
@@ -2149,6 +2205,68 @@ function toPeriodSummary(summary: ApiPeriodSummary): DatabasePeriodSummaryView {
   };
 }
 
+/** 後端的 `rules.periodicReport` 是字串（`off`／`weekly`／`monthly`）；未知的值當成關閉。 */
+function toPeriodicReportSchedule(value: string): PeriodicReportSchedule {
+  return value === 'weekly' || value === 'monthly' ? value : 'off';
+}
+
+function toReportListItem(item: ApiReportListItem): DatabaseReportListItemView {
+  return {
+    id: item.id,
+    assistantId: item.assistantId,
+    assistantName: item.assistantName,
+    frequency: item.frequency,
+    periodFrom: item.periodFrom,
+    periodTo: item.periodTo,
+    periodLabel: item.periodLabel,
+    status: item.status,
+    // 後端的 null 欄位也可能被省略（`JsonIgnore(WhenWritingNull)` 的端點），一律以 `?? null` 處理。
+    skipReason: item.skipReason ?? null,
+    skipMessage: item.skipMessage ?? null,
+    dataState: item.dataState ?? null,
+    dataMessage: item.dataMessage ?? null,
+    generatedAt: item.generatedAt,
+    summaryStatus: item.summaryStatus,
+  };
+}
+
+function toReportSchedule(schedule: ApiReportSchedule): DatabaseReportScheduleView {
+  return {
+    assistantId: schedule.assistantId,
+    assistantName: schedule.assistantName,
+    frequency: schedule.frequency,
+    nextPeriodFrom: schedule.nextPeriodFrom,
+    nextReportDate: schedule.nextReportDate,
+  };
+}
+
+function toReportList(list: ApiReportList): DatabaseReportListView {
+  return {
+    databaseId: list.databaseId,
+    schedules: list.schedules.map(toReportSchedule),
+    reports: list.reports.map(toReportListItem),
+  };
+}
+
+function toReportAiSummary(summary: ApiReportAiSummary): DatabaseReportAiSummaryView {
+  return {
+    label: summary.label,
+    status: summary.status,
+    text: summary.text ?? null,
+    note: summary.note ?? null,
+    updatedAt: summary.updatedAt ?? null,
+    disclaimer: summary.disclaimer,
+  };
+}
+
+function toReport(report: ApiReport): DatabaseReportView {
+  return {
+    report: toReportListItem(report.report),
+    statistics: report.statistics == null ? null : toPeriodSummary(report.statistics),
+    aiSummary: toReportAiSummary(report.aiSummary),
+  };
+}
+
 function toDatabaseField(field: ApiDatabaseField): DatabaseFieldView {
   return {
     id: toDatabaseFieldId(field.id),
@@ -2332,10 +2450,10 @@ function toAssistantSettings(settings: ApiAssistantSettings): AssistantSettingsV
       refusalMessage: rules.refusalMessage,
       showCitations: rules.showCitations,
       keepOwnConversations: rules.keepConversations,
-      // 資料庫寫入（#148）來自 API；定期回報是 #150，後端還沒有。
+      // 資料庫寫入（#148）與定期報表（#150）都來自 API。
       dataWriteDatabaseId: rules.dataWriteDatabaseId ?? null,
       dataWritePurpose: rules.dataWritePurpose,
-      periodicReport: 'off',
+      periodicReport: toPeriodicReportSchedule(rules.periodicReport),
     },
     savedAt: configuration.updatedAt === configuration.createdAt ? null : configuration.updatedAt,
   };
@@ -2539,6 +2657,7 @@ const SETTINGS_FIELDS: readonly AssistantSettingsField[] = [
   'knowledgeScope',
   'refusalMessage',
   'dataWritePurpose',
+  'periodicReport',
   'sources',
 ];
 

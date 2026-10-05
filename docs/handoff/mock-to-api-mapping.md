@@ -125,8 +125,11 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `getDatabaseSubmissionReceipt(submissionId)` **API（#145）** | `GET /api/v1/submissions/{id}` | `S`＋提交者本人 | `200` `DatabaseSubmissionReceiptView` | `429` | `401`／`403 authorized-form`（不存在或不是自己的，同一則）／`5xx` | 同上（`?receipt=<id>`） |
 | `listOwnDatabaseSubmissions()` **API（#146）** | `GET /api/v1/submissions` | `S`（只依提交者本人，不看 `read-own-tracking`） | `200` `DatabaseOwnSubmissionListView`（自己的提交，新到舊，**含已撤回的軌跡**，不含內容；`withdrawnAt` 有效時為 `null`） | `429` | `401`／`5xx`（畫面可重試） | `features/activity/own-submissions/own-submissions.component.ts` |
 | `withdrawDatabaseSubmission(submissionId)` **API（#146）** | `POST /api/v1/submissions/{id}/withdrawal` | `S`＋提交者本人 | `200` `DatabaseSubmissionReceiptView`（`entries: []`、`withdrawnAt`；**再撤回一次也是 `200` 同一份**） | `429` | `401`／`403 submission-withdrawal`（不存在、別人的——含資料管理者——別組織的同一則）／`404`（id 不是 GUID）／`5xx`（同一交易，失敗即無變更，可再按一次） | 同上 |
-| `getDatabaseTracking(id)`（改為 `Observable`，不再傳 viewer；**API（#146）**） | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC`（`DatabaseRecordReaders`，每次請求重查） | `200` `DatabaseTrackingView`：依追蹤對象（＝提交帳號）分組，`records` 有效紀錄（含內容）、`withdrawals` 撤回軌跡（不含內容）；每位追蹤對象的 `comparison`（首次／上次／本次）由伺服器的固定查詢算好（**#147**）；`periodicReports` 是 #150（API 模式為空陣列） | `429` | `401`／`403 database-records`（看得到但不能讀）／`403 database`（看不到，同不存在）／`404`（id 不是 GUID）／`5xx`（畫面可重試，與「沒有紀錄」分開） | `database-detail-page.component.ts`（`trackingResource`） |
+| `getDatabaseTracking(id)`（改為 `Observable`，不再傳 viewer；**API（#146）**） | `GET /api/v1/databases/{id}/tracking` | `S+DM+RC`（`DatabaseRecordReaders`，每次請求重查） | `200` `DatabaseTrackingView`：依追蹤對象（＝提交帳號）分組，`records` 有效紀錄（含內容）、`withdrawals` 撤回軌跡（不含內容）；每位追蹤對象的 `comparison`（首次／上次／本次）由伺服器的固定查詢算好（**#147**）；定期報表（#150）不在這裡，見下方 `listDatabaseReports` | `429` | `401`／`403 database-records`（看得到但不能讀）／`403 database`（看不到，同不存在）／`404`（id 不是 GUID）／`5xx`（畫面可重試，與「沒有紀錄」分開） | `database-detail-page.component.ts`（`trackingResource`） |
 | `getDatabasePeriodSummary(id, {period, subjectId})` **API（#147，新增）** | `GET /api/v1/databases/{id}/queries/period-summary?period=…[&subjectId=…]` | `S+DM+RC`（`DatabaseRecordReaders`，每次請求重查） | `200` `DatabasePeriodSummaryResult`：這一期與前一期的有效紀錄筆數與每個數字欄位的加總（`display`／`changeLabel` 已加單位）；沒有紀錄是 0 不是錯誤 | `429` | `401`／`403 database-records`／`403 database`（同 tracking）／`404`（id 不是 GUID）／`422`（不在定義內的參數、期間或對象，`errors.<參數>`；先過權限，所以無權者看不到 422）／`5xx` | `features/databases/period-summary/period-summary.component.ts` |
+| `listDatabaseReports(id)` **API（#150，新增）** | `GET /api/v1/databases/{id}/reports` | `S+DM+RC`（`DatabaseRecordReaders.CanReadAsync`，每次請求重查） | `200` `DatabaseReportListView`：`schedules`（這個資料庫上各助理的有效排程與下一份報表產生日）＋`reports`（新到舊，最多 60 份，不含統計） | `429` | `401`／`403 database-records`（看得到但不能讀）／`403 database`（看不到，同不存在；對任何報表 id 都一樣）／`404`（id 不是 GUID）／`5xx`（畫面可重試，與「沒有報表」分開） | `features/databases/database-reports/database-reports.component.ts` |
+| `getDatabaseReport(id, reportId)` **API（#150，新增）** | `GET /api/v1/databases/{id}/reports/{reportId}` | `S+DM+RC` | `200` `DatabaseReportView`：`report`＋`statistics`（固定查詢 `period-summary` 的結果原樣保存的快照；沒有產生的期間為 `null`）＋`aiSummary`（另外保存、標示「AI 摘要」） | `429` | 同上；能讀但這個 id 不是這個資料庫的報表：`403 database-report` | `database-report.component.ts` |
+| `retryDatabaseReportSummary(id, reportId)` **API（#150，新增）** | `POST /api/v1/databases/{id}/reports/{reportId}/summary`（沒有本文） | `S+DM+RC` | `200` `DatabaseReportView`；只有 `failed`／`discarded` 的摘要變成 `pending` 並排入一個摘要工作，其他狀態原樣回傳（連按兩次只一次模型呼叫） | `429` | 同上 | `database-report.component.ts` `retry` |
 
 **API 模式狀態（#142，2026-10-03）**：上表前四個方法已改成非同步契約（`Observable<…>`，不再傳 viewer），API 模式由 `hybrid-demo-repository.ts` 的同名覆寫走 HTTP，**讀取與建立（寫入）兩端都換了**，不會落到 mock 的資料庫。與 mock 的刻意差異：
 
@@ -161,8 +164,16 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 - **固定查詢**（`DatabaseFixedQueries`／`DatabaseFixedQueryService`，Application／Api）：`record-count`、`field-sum`、`period-summary`、`subject-comparison`，各自只接受自己定義的參數（`period`／`from`＋`to`／`fieldId`／`subjectId`），不接受運算式或 SQL；端點只是入口，#149（對話工具）與 #150（排程）直接呼叫同一個應用服務。每次呼叫重新套用組織、指定與帳號權限、只算有效紀錄（撤回即排除）。
 - **紀錄不足**：`comparison.status = 'insufficient-records'`（少於 2 筆，或有 2 筆以上但沒有任何數字／量尺欄位累積 2 個值）時沒有 `metrics`，畫面不畫趨勢。mock 的後一種情況也改成 `insufficient-records`（原本回 `available` 但沒有指標，畫面是空的趨勢）。
 - **與 mock 的刻意差異**：同一個欄位 id 若型別或單位改過，只比較／加總「目前這組型別與單位」的值，不混；mock 的比較同步這樣算（`compareRecords`）。日期一律是統計時區（`Statistics:TimeZone`，預設 `Asia/Taipei`）的曆日，週從週一；前一期是完整的前一期；前端時間軸日期標籤同樣以台北曆日顯示（`statisticsDay`）。
-- `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`、新增 `periodic-reports`（#150：定期回報與 AI 摘要；`periodicReports` 在 API 模式是空陣列，趨勢頁籤顯示將於後續版本開放）。
+- `API_UPCOMING_DATABASE_FEATURES` 移除 `trends`、新增 `periodic-reports`（#150）；**#150 已移除 `periodic-reports`，清單現在是空的**（見下方 #150 段落）。
 - 完整契約、參數規則與給 #149／#150 的接點：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 10 節。
+
+**API 模式狀態（#150，2026-10-03）**：站內定期報表走 API，**設定、排程、查看與重試摘要都換了**（Hybrid 覆寫走 HTTP，mock 的快照只在 mock 模式出現）。第一版只在站內查看，不寄 Email 或 LINE。重點：
+
+- **設定**：`PATCH /api/v1/assistants/{id}/settings` 的 `rules.periodicReport`（`off`／`weekly`／`monthly`，省略不變），設定回應的 `rules.periodicReport` 讀回。報告的是助理的**寫入對象**（`rules.dataWriteDatabaseId`，必須是已連接、且擁有者目前可使用的資料庫）：沒有寫入對象就設定週期是 `422`（`errors.periodicReport`）；改寫入對象，排程跟著移過去；清掉寫入對象，報表關閉。mock 的 `validateAssistantSettings` 同步（欄位 `periodicReport`）。畫面標籤改為「是否定期產生報表？」（選項不變：不需要／每週一次／每月一次）。
+- **報表**：每一期一份快照（`DatabaseReportView`）：`statistics` 是固定查詢 `period-summary` 的結果原樣保存、之後不再重算（撤回只影響之後產生的報表）；`aiSummary` 另外保存並固定標示「AI 摘要」，狀態 `not-requested`／`pending`／`ready`／`failed`／`discarded`，只有 `ready` 才有 `text`。這一期或前一期沒有紀錄時 `dataState = insufficient-records`（紀錄不足）：統計照存，不顯示變化、圖表趨勢與 AI 摘要。期間到了但擁有者已不能讀取、或助理已不再連接：`status = skipped` 與 `skipReason`，不含統計。
+- **查看**：與時間軸相同的權限（指定資料管理者 **且** 具備 `read-consented-submissions`），每次請求重查；擁有者沒有額外權利。看不到資料庫是 `403 database`、看得到但不能讀是 `403 database-records`（對真的與假的報表 id 逐位元組相同）；能讀但 id 不是這個資料庫的報表是 `403 database-report`（`RepositoryPermissionDeniedReason` 多 `database-report`）。
+- **畫面**：資料庫詳情多「定期報表」頁籤（排程、報表清單、選中的一份：統計表、長條圖、AI 摘要區）；趨勢比較不再放報表。`DatabaseTrackingView.periodicReports`、`PeriodicReportView`、`buildPeriodicReport` 移除；`DatabaseUpcomingFeature` 成為 `never`、`API_UPCOMING_DATABASE_FEATURES` 為空。
+- 資料模型、排程、摘要保護與保留規則：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 13 節。
 
 **API 模式狀態（#143，2026-10-03）**：`updateDatabaseFields`、`previewDatabaseEntry` 已改成 `Observable` 契約（不再傳 viewer），Hybrid 覆寫走 HTTP，**讀寫兩端都換了**（寫入與試填都由伺服器驗證，mock 的欄位清單不參與）。契約變更與刻意差異：
 
@@ -175,7 +186,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 `DatabaseTrackingView` 的每個 `TrackedSubjectView` 除了 `records` 還有 `withdrawals`（`database.model.ts:287-295`）：已撤回同意的紀錄不出現在 `records`、也不計入 `comparison`，只以不含內容的軌跡列在 `withdrawals`。撤回讓某位追蹤對象剩下不到 2 筆時，`comparison` 會回到 `insufficient-records`。全部撤回的追蹤對象仍留在清單裡（筆數 0），不會無聲消失。
 
-`DatabaseTrackingView` 另有 `periodicReports`（`database.model.ts:320`）：對這個資料庫開啟助理規則「定期回報」的助理，各自一筆「下次回報日期＋這一期的變化摘要」。**摘要是把 `MetricComparisonView.summary` 原樣搬過來的**，不是另一份分析，所以伺服端同樣應該算好再送（`database-tracking.ts` 的 `buildPeriodicReport()`）。沒有助理回報到這個資料庫時是空陣列。
+`DatabaseTrackingView` 原本有的 `periodicReports`（mock 依助理規則推算下次回報日期、再把比較摘要搬過來）已於 #150 移除：定期報表改成每一期一份保存下來的快照，走 `listDatabaseReports`／`getDatabaseReport`（見下方 #150 段落），mock 也產生同樣形狀的快照。
 
 `getDatabaseTracking` 是全表唯一會回傳**兩種不同 reason** 的方法：`database-records` 代表「這個資料庫你看得到，但收集紀錄不給你看」，`database` 代表「不存在或不是你的」。兩者的畫面呈現不同，不能合併。
 
@@ -207,7 +218,7 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 - **收據訊息**：`kind: "submission-receipt"`，`reply.receipt` 是 #145 的 `DatabaseSubmissionReceiptView`，伺服器依保存的提交 id **即時讀取**；對話表裡只存提交 id 與資料庫 id，文字只有接收單位與回執編號，**不含任何填寫值**。前端轉成 `recipient`／`entries`，`recordId` 是 `record-<提交 id>`；`withdrawal` 依回執狀態決定（#146 接上）：`withdrawnAt` 為 null 是 `available`（說明含回執編號，提交者本人可在收據上撤回），有值是 `withdrawn`（顯示撤回日期，`entries` 為空）；讀不到回執（`receipt: null`）才是 `unavailable`。撤回後保存的對話重新讀取即顯示已撤回（對話表不變）；不保存對話時，畫面以撤回結果就地更新本頁的收據。
 - **不保存對話時**：紀錄照樣寫進資料庫；收據訊息是暫時的（`message` 只回在這次回應），畫面直接接在對話後面，不重新讀取。
 - `submitChatForm` 的結果改成 `{ message, threadId }`（不再是整段對話）；`reviewChatForm` 多 `formVersion`、結果多 `conflict`；`ChatFormView` 多 `formVersion`；`form-request` 的 `form` 可為 `null`；`RepositoryPermissionDeniedReason` 多 `assistant-form`。mock 同步：同一個 `submissionId` 重送回同一張收據、版本不符回 `conflict`、表單已不可用回 `assistant-form`。
-- 設定：`AssistantSettingsView` 多 `databaseIds`；`rules` 多 `dataWriteDatabaseId`（`null`＝不寫入）與 `dataWritePurpose`；`PATCH .../settings` 的 `rules.dataWriteDatabaseId` 送 `""` 清除、省略不變；`setAssistantSourceConnection` 的資料庫走 `PUT`／`DELETE .../sources/database/{id}`；`GET /api/v1/connectable-sources` 也列出資料庫（自己擁有，或被指定為資料管理者且具備 `read-consented-submissions`）。建立精靈在 API 模式仍只列知識庫（由草稿建立時後端仍拒絕資料庫來源）。定期回報（#150）在 API 模式仍未提供。
+- 設定：`AssistantSettingsView` 多 `databaseIds`；`rules` 多 `dataWriteDatabaseId`（`null`＝不寫入）與 `dataWritePurpose`；`PATCH .../settings` 的 `rules.dataWriteDatabaseId` 送 `""` 清除、省略不變；`setAssistantSourceConnection` 的資料庫走 `PUT`／`DELETE .../sources/database/{id}`；`GET /api/v1/connectable-sources` 也列出資料庫（自己擁有，或被指定為資料管理者且具備 `read-consented-submissions`）。建立精靈在 API 模式仍只列知識庫（由草稿建立時後端仍拒絕資料庫來源）。定期回報（`rules.periodicReport`）自 #150 起走 API（見下方 #150 段落）。
 - 詳細設計：[`docs/plans/2026-10-03-m4-142-database-templates.md`](../plans/2026-10-03-m4-142-database-templates.md) 第 9 節。
 
 **API 模式狀態（#149，2026-10-03）**：對話中查詢已連接數據庫的紀錄走 API（`POST .../chat/runs` 的 `smartagri.reply` 可能是 `kind: "database-query"`），Hybrid 只轉型別，數字不重算。

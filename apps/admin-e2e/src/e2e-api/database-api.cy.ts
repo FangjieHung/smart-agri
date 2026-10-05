@@ -308,8 +308,8 @@ describe('databases against the real API', () => {
     cy.get('app-records-table').should('contain', '1,200 元').and('contain', '表單連結');
     cy.get('app-records-table .withdrawn').should('not.exist');
 
-    // 趨勢比較（#147）：只有一筆有效紀錄，所以「紀錄不足」、不畫趨勢；期間統計由伺服器的固定查詢算好，
-    // 定期回報摘要（#150）仍是將於後續版本開放。
+    // 趨勢比較（#147）：只有一筆有效紀錄，所以「紀錄不足」、不畫趨勢；期間統計由伺服器的固定查詢算好。
+    // 定期報表（#150）在自己的頁籤，趨勢比較裡不再有「將於後續版本開放」。
     cy.intercept('GET', `/api/v1/databases/${databaseId}/queries/period-summary*`).as('summary');
     cy.visit(`/app/databases/${databaseId}/trends`);
     cy.wait('@summary').its('response.statusCode').should('eq', 200);
@@ -318,8 +318,17 @@ describe('databases against the real API', () => {
     cy.get('app-trend-chart').should('not.exist');
     cy.get('app-period-summary tr[data-row="record-count"]').should('contain', '1 筆');
     cy.get('app-period-summary').should('contain', '1,200 元');
-    cy.get('.upcoming-notice').should('contain', '定期回報摘要').and('contain', '將於後續版本開放');
+    cy.get('.upcoming-notice').should('not.exist');
     cy.contains('a.records-link', '外部客戶的原始紀錄').should('have.attr', 'href').and('include', `/databases/${databaseId}/records`);
+
+    // 定期報表（#150）：沒有助理設定排程的數據庫沒有報表，也不是錯誤；指定且有權限的管理者看得到這個頁籤。
+    cy.intercept('GET', `/api/v1/databases/${databaseId}/reports`).as('reports');
+    cy.visit(`/app/databases/${databaseId}/reports`);
+    cy.wait('@reports').its('response.statusCode').should('eq', 200);
+    cy.get('app-database-reports')
+      .should('contain', '目前沒有助理為這個資料庫設定定期報表')
+      .and('contain', '還沒有報表')
+      .and('contain', '不會寄 Email 或 LINE');
 
     // 提交者：在「對話與回報紀錄」看到自己的回執，先確認再撤回。
     loginToApi('anxin', 'customer');

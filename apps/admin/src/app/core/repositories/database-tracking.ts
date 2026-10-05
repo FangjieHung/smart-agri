@@ -1,8 +1,4 @@
 import {
-  PERIODIC_REPORT_LABELS,
-  type PeriodicReportSchedule,
-} from '../domain/assistant-draft.model';
-import {
   DATABASE_FIELD_TYPES,
   isChoiceFieldType,
   DATABASE_PERIOD_OPTIONS,
@@ -10,6 +6,8 @@ import {
   type DatabaseFieldError,
   type DatabaseFieldId,
   type DatabaseFieldSumView,
+  type DatabaseReportDataState,
+  type DatabaseReportFrequency,
   type DatabasePeriodName,
   type DatabasePeriodRangeView,
   type DatabasePeriodSummaryView,
@@ -20,10 +18,8 @@ import {
   type DatabaseRecordView,
   type DatabaseTrialAnswers,
   type MetricComparisonView,
-  type PeriodicReportView,
   type SubjectComparisonView,
   type TrackedSubjectId,
-  type TrackedSubjectView,
   type WithdrawnRecordView,
 } from '../domain/database.model';
 import type { DatabaseRecordFixture } from './demo-seed-databases';
@@ -289,7 +285,21 @@ export function summarizePeriod(input: {
   readonly today: string;
 }): DatabasePeriodSummaryView {
   const period = resolvePeriod(input.period, input.today);
-  const previous = previousPeriod(period);
+  return summarizeRange({ ...input, period, previous: previousPeriod(period) });
+}
+
+/**
+ * `summarizePeriod` 的本體，期間由呼叫端明確指定（定期報表用整週、整月的曆日，不論今天是哪一天）。
+ * 與後端 `DatabaseFixedQueryService.PeriodSummaryForAsync` 相同。
+ */
+export function summarizeRange(input: {
+  readonly records: readonly DatabaseRecordFixture[];
+  readonly fields: readonly DatabaseFieldView[];
+  readonly subjectId: TrackedSubjectId | null;
+  readonly period: DatabasePeriodRangeView;
+  readonly previous: DatabasePeriodRangeView;
+}): DatabasePeriodSummaryView {
+  const { period, previous } = input;
   const records = input.records.filter((record) => input.subjectId === null || record.subjectId === input.subjectId);
 
   const references = new Map<DatabaseFieldId, { label: string; unit: string; current: boolean }>();
@@ -342,46 +352,59 @@ export function summarizePeriod(input: {
   };
 }
 
-/** 定期回報的下一次日期：每週加 7 天，每月加 1 個月（下個月沒有這一天時取月底）。 */
-export function nextReportDate(
-  anchorDateLabel: string,
-  schedule: Exclude<PeriodicReportSchedule, 'off'>,
-): string {
-  const [year, month, day] = anchorDateLabel.split('-').map(Number);
-  if (schedule === 'weekly') {
-    return new Date(Date.UTC(year, month - 1, day + 7)).toISOString().slice(0, 10);
-  }
+/* ------------------------------------------------------------------ */
+/* 定期報表（#150）：期間、紀錄是否足夠、摘要檢查（與後端 `ReportPeriods`、`ReportDataRules`、 */
+/* `ReportSummaryGuard` 相同的規則）                                                            */
+/* ------------------------------------------------------------------ */
 
-  const lastDayOfNextMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(year, month, Math.min(day, lastDayOfNextMonth)))
-    .toISOString()
-    .slice(0, 10);
+/** 包含 `day` 的報表期間：週是週一到週日，月是整個曆月（統計時區的曆日）。 */
+export function reportPeriodContaining(frequency: DatabaseReportFrequency, day: string): DatabasePeriodRangeView {
+  const number = dayNumber(day);
+  if (frequency === 'weekly') {
+    const monday = number - ((new Date(number * DAY_MS).getUTCDay() + 6) % 7);
+    return rangeOf(null, monday, monday + 6);
+  }
+  return rangeOf(null, dayNumber(monthStart(day, 0)), dayNumber(monthStart(day, 1)) - 1);
+}
+
+/** 緊接在 `period` 後面的報表期間。 */
+export function reportPeriodAfter(
+  frequency: DatabaseReportFrequency,
+  period: DatabasePeriodRangeView,
+): DatabasePeriodRangeView {
+  return reportPeriodContaining(frequency, dayLabel(dayNumber(period.to) + 1));
+}
+
+/** 緊接在 `period` 前面的完整報表期間（上週、上個曆月），也是報表拿來比較的「前一期」。 */
+export function reportPeriodBefore(
+  frequency: DatabaseReportFrequency,
+  period: DatabasePeriodRangeView,
+): DatabasePeriodRangeView {
+  return reportPeriodContaining(frequency, dayLabel(dayNumber(period.from) - 1));
+}
+
+/** `day` 的後一天（`YYYY-MM-DD`）：這一期報表產生的日期。 */
+export function dayAfter(day: string): string {
+  return dayLabel(dayNumber(day) + 1);
+}
+
+/** 這一期與前一期都有紀錄，變化才成立；否則是「紀錄不足」（統計照存，但不顯示變化、趨勢與 AI 摘要）。 */
+export function reportDataState(statistics: DatabasePeriodSummaryView): DatabaseReportDataState {
+  return statistics.recordCount > 0 && statistics.previousRecordCount > 0 ? 'sufficient' : 'insufficient-records';
+}
+
+export function insufficientReportMessage(statistics: DatabasePeriodSummaryView): string | null {
+  return reportDataState(statistics) === 'sufficient'
+    ? null
+    : `紀錄不足：這一期有 ${statistics.recordCount} 筆、前一期有 ${statistics.previousRecordCount} 筆紀錄，兩期都有紀錄才會顯示變化、趨勢與 AI 摘要。`;
 }
 
 /**
- * 定期回報面板：排程由最近一次紀錄推算，摘要則整段沿用 `compareRecords` 已經算好的
- * `MetricComparisonView.summary`——這裡不重新計算任何數字，也不產生新的結論。
+ * mock 的 AI 摘要：把已算好的「紀錄筆數」那一行原樣放進一句話，所以只會出現統計裡的數字（與後端的
+ * Fake 模型相同）。真正的模型文字由伺服器逐一檢查其中的數字都在統計裡，否則整段捨棄。
  */
-export function buildPeriodicReport(input: {
-  readonly assistantName: string;
-  readonly schedule: Exclude<PeriodicReportSchedule, 'off'>;
-  readonly purpose: string;
-  readonly anchorLabel: string;
-  readonly subjects: readonly TrackedSubjectView[];
-}): PeriodicReportView {
-  return {
-    assistantName: input.assistantName,
-    scheduleLabel: PERIODIC_REPORT_LABELS[input.schedule],
-    anchorLabel: input.anchorLabel,
-    nextReportLabel: nextReportDate(input.anchorLabel, input.schedule),
-    purpose: input.purpose,
-    lines: input.subjects.flatMap((subject) =>
-      subject.comparison.status === 'available'
-        ? subject.comparison.metrics.map((metric) => `${subject.displayName} · ${metric.summary}`)
-        : [],
-    ),
-    note: '摘要直接引用「趨勢比較」已算好的差異值，助理不會重新計算數字。',
-  };
+export function mockReportSummary(statistics: DatabasePeriodSummaryView): string {
+  return `整體來看，紀錄筆數：本期 ${statistics.recordCount} 筆，前一期 ${statistics.previousRecordCount} 筆，變化 ${statistics.recordCountChangeLabel}。`;
 }
 
 /** 與後端 `DatabaseFormField`／`DatabaseFormVersion` 的上限相同（mock 與 API 的驗證一致）。 */

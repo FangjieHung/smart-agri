@@ -12,6 +12,7 @@ using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Organizations;
+using SmartAgri.Domain.Reports;
 using Pgvector.EntityFrameworkCore;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Ai;
@@ -22,6 +23,7 @@ using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Persistence;
+using SmartAgri.Infrastructure.Reports;
 using SmartAgri.Infrastructure.Tenancy;
 
 namespace SmartAgri.Infrastructure;
@@ -159,6 +161,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>The content of each submission, one row per field (deleted on withdrawal, #146).</summary>
     public DbSet<DatabaseSubmissionEntry> DatabaseSubmissionEntries => Set<DatabaseSubmissionEntry>();
 
+    /// <summary>Assistants' periodic report settings, one per assistant (M4, #150).</summary>
+    public DbSet<ReportSchedule> ReportSchedules => Set<ReportSchedule>();
+
+    /// <summary>Snapshots of periodic reports: statistics apart from the AI summary (M4, #150).</summary>
+    public DbSet<DatabaseReport> DatabaseReports => Set<DatabaseReport>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -292,6 +300,10 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new DatabaseDataManagerChangeConfiguration());
         modelBuilder.ApplyConfiguration(new DatabaseSubmissionConfiguration());
         modelBuilder.ApplyConfiguration(new DatabaseSubmissionEntryConfiguration());
+
+        // Periodic reports (M4, #150).
+        modelBuilder.ApplyConfiguration(new ReportScheduleConfiguration());
+        modelBuilder.ApplyConfiguration(new DatabaseReportConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

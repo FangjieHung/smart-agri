@@ -1,0 +1,75 @@
+@let reports = list();
+<section class="reports" aria-labelledby="reports-title">
+  <h3 id="reports-title">定期報表</h3>
+  <p class="hint">
+    助理擁有者在「回答與記錄」設定每週或每月報表後，會在每一期結束時，用這個資料庫已連接的固定統計查詢產生一份報表。
+    報表以統計為主，另附標示為「AI 摘要」的文字；第一版只在這裡查看，不會寄 Email 或 LINE。
+  </p>
+
+  @if (reports) {
+    @if (reports.schedules.length > 0) {
+      <ul class="schedules" aria-label="報表排程">
+        @for (schedule of reports.schedules; track schedule.assistantId) {
+          <li>
+            <strong>{{ schedule.assistantName }}</strong>：{{ frequencyLabels[schedule.frequency] }}報表，下一份在
+            {{ schedule.nextReportDate }} 產生（涵蓋 {{ schedule.nextPeriodFrom }} 起的那一期）。
+          </li>
+        }
+      </ul>
+    } @else {
+      <p class="empty">目前沒有助理為這個資料庫設定定期報表。</p>
+    }
+
+    @if (reports.reports.length > 0) {
+      <div class="layout">
+        <ul class="report-list" aria-label="已產生的報表">
+          @for (item of reports.reports; track item.id) {
+            <li>
+              <button
+                type="button"
+                class="report-item"
+                [attr.aria-current]="selected()?.id === item.id ? 'true' : null"
+                [attr.data-report-id]="item.id"
+                (click)="choose(item.id)"
+              >
+                <span class="period">{{ item.periodLabel }}</span>
+                <span class="meta">{{ item.assistantName }}・{{ frequencyLabels[item.frequency] }}</span>
+                <span class="badges">
+                  @if (item.status === 'skipped') {
+                    <app-status-badge label="未產生" tone="warning" />
+                  } @else if (item.dataState === 'insufficient-records') {
+                    <app-status-badge label="紀錄不足" tone="neutral" />
+                  }
+                  @if (summaryBadge(item); as badge) {
+                    <app-status-badge [label]="badge.label" [tone]="badge.tone" />
+                  }
+                </span>
+              </button>
+            </li>
+          }
+        </ul>
+        @if (selected(); as report) {
+          <app-database-report [databaseId]="reports.databaseId" [reportId]="report.id" />
+        }
+      </div>
+    } @else {
+      <p class="empty">還沒有報表。第一份會在排程的第一期結束後產生。</p>
+    }
+  } @else if (view().status === 'loading') {
+    <app-state-panel state="loading" title="正在載入定期報表" />
+  } @else if (view().status === 'permission-denied') {
+    <app-state-panel
+      state="permission-denied"
+      title="無法查看定期報表"
+      description="只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號可以查看。在「權限」頁籤可以看到目前的設定。"
+    />
+  } @else {
+    <app-state-panel
+      state="error"
+      title="目前無法載入定期報表"
+      description="這不代表沒有報表。請稍後再試一次。"
+      recoveryLabel="重新載入"
+      (recover)="reload()"
+    />
+  }
+</section>

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using SmartAgri.Application.Ai;
+using SmartAgri.Application.Reports;
 
 namespace SmartAgri.Infrastructure.Ai;
 
@@ -152,6 +153,7 @@ public sealed class FakeChatClient : IChatClient
                 FakeChatDirectives.InvalidCitation => $"根據資料回答，本回答引用段落 [{lastPassage + 1}]。",
                 FakeChatDirectives.NoMarker => "以下是我的回答，內容沒有引用任何段落。",
                 FakeChatDirectives.CannotAnswer => ChatAnswerMarkers.CannotAnswer,
+                _ when fullText.Contains(ReportSummaryPrompt.Marker, StringComparison.Ordinal) => ReportSummary(question),
                 _ when lastPassage > 0 => "根據資料回答，本回答引用段落 [1]。",
                 _ => "以下是我的回答，內容沒有引用任何段落。",
             };
@@ -166,6 +168,14 @@ public sealed class FakeChatClient : IChatClient
             };
 
             return new FakeChatScript(directive ?? string.Empty, answer, SplitForStreaming(answer), usage);
+        }
+
+        /// <summary>A periodic report's AI summary (M4 #150): one sentence made of the first statistics line
+        /// of the facts, word for word — so it only contains numbers the facts have.</summary>
+        private static string ReportSummary(string facts)
+        {
+            var line = facts.Split('\n').Select(candidate => candidate.Trim()).FirstOrDefault(candidate => candidate.StartsWith("- ", StringComparison.Ordinal));
+            return line is null ? "這一期的統計請見上方。" : $"整體來看，{line[2..]}。";
         }
 
         /// <summary>At least two pieces; when <paramref name="answer"/> has a <c>[n]</c> marker,

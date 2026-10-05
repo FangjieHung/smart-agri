@@ -33,6 +33,7 @@ describe('structured data and tracking', () => {
         '表單設計',
         '收集紀錄',
         '趨勢比較',
+        '定期報表',
         '已連接助理',
         '權限',
       ]);
@@ -117,19 +118,24 @@ describe('structured data and tracking', () => {
     cy.get('ol.timeline > li').should('have.length', 4);
   });
 
-  it('shows the 定期回報 schedule and a summary built from the precomputed comparison', () => {
+  it('shows the 定期報表 schedule and the saved reports with a labelled AI summary apart from the statistics (#150)', () => {
     cy.visit('/app/databases/database-customer-records/records');
-    cy.get('.periodic-report').should('not.exist');
+    cy.get('app-database-reports').should('not.exist');
 
+    // 趨勢比較不再放報表；報表在自己的頁籤。
     cy.contains('nav.tabs a', '趨勢比較').click();
-    cy.get('.periodic-report')
-      .should('contain', '客服助理')
-      .and('contain', '每月一次')
-      .and('contain', '2026-10-15');
-    cy.get('.periodic-report .report-lines li')
-      .should('contain', '王小姐')
-      .and('contain', '整體滿意度：本次 5 / 5，較上次 +2 分，較首次 +2 分。');
-    cy.get('.periodic-report').should('contain', '不會重新計算數字');
+    cy.get('app-database-reports').should('not.exist');
+
+    cy.contains('nav.tabs a', '定期報表').click();
+    cy.location('pathname').should('eq', '/app/databases/database-customer-records/reports');
+    cy.get('app-database-reports .schedules').should('contain', '客服助理').and('contain', '每月報表');
+    // 每月報表回溯最近三個完成的月份；數字隨「今天」變動，所以只檢查結構：統計表在上，標示為「AI 摘要」的
+    // 文字（有足夠紀錄時）或「不產生」的說明另外放在下面，與統計分開。
+    cy.get('ul.report-list li').should('have.length', 3);
+    cy.get('app-database-report .statistics-table').should('contain', '紀錄筆數');
+    cy.get('app-database-report .ai-summary .ai-label').should('have.text', 'AI 摘要');
+    cy.get('ul.report-list li').last().find('button').click();
+    cy.get('app-database-report .statistics-table').should('contain', '紀錄筆數');
   });
 
   it('does not show a trend conclusion before there are two records', () => {

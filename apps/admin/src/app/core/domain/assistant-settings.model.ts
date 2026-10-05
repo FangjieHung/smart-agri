@@ -43,6 +43,7 @@ export type AssistantSettingsField =
   | 'knowledgeScope'
   | 'refusalMessage'
   | 'dataWritePurpose'
+  | 'periodicReport'
   | 'sources';
 
 export interface AssistantSettingsFieldError {
@@ -81,6 +82,13 @@ export function validateAssistantSettings(
     errors.push({
       field: 'dataWritePurpose',
       message: '寫入資料庫前，請說明收集目的，使用者同意前會看到這段說明。',
+    });
+  }
+  // 定期報表（#150）報告的是「寫入的資料庫」；沒有寫入對象就沒有報表可以產生（與後端相同的說明）。
+  if (settings.rules.periodicReport !== 'off' && settings.rules.dataWriteDatabaseId === null) {
+    errors.push({
+      field: 'periodicReport',
+      message: '請先指定要寫入的資料庫，才能設定定期回報。',
     });
   }
   if (settings.sources.length === 0) {

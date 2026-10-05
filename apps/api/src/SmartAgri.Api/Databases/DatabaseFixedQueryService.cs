@@ -158,22 +158,61 @@ public sealed class DatabaseFixedQueryService
 
         var (readable, spec) = (opened.Readable!, opened.Spec!);
         var period = spec.Period!;
-        var previous = DatabaseFixedQueries.Previous(period);
-        var inPeriod = InPeriod(readable, period, spec.SubjectId);
-        var inPrevious = InPeriod(readable, previous, spec.SubjectId);
+        return DatabaseQueryOutcome<DatabasePeriodSummaryResult>.Ok(await SummarizeAsync(
+            readable, period, DatabaseFixedQueries.Previous(period), spec.SubjectId, opened.Fields!, opened.CurrentVersion, cancellationToken));
+    }
+
+    /// <summary>
+    /// <c>period-summary</c> for an <b>exact</b> period and the period it is compared with, for the scheduled
+    /// report (#150): the same numbers and the same access rule as <see cref="PeriodSummaryAsync"/>, but the
+    /// caller names the calendar days itself instead of "last week", so a job that runs late still reports
+    /// the period that ended. <see cref="DatabaseQueryOutcome{T}.Readable"/> is <see langword="false"/>
+    /// when <paramref name="accountId"/> may not read the database's records now (checked first).
+    /// </summary>
+    public async Task<DatabaseQueryOutcome<DatabasePeriodSummaryResult>> PeriodSummaryForAsync(
+        Guid accountId,
+        Guid databaseId,
+        DatabaseQueryPeriod period,
+        DatabaseQueryPeriod previous,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(period);
+        ArgumentNullException.ThrowIfNull(previous);
+        var readable = await DatabaseActiveRecords.ReadableAsync(_dbContext, _permissions, accountId, databaseId, cancellationToken);
+        if (readable is null)
+        {
+            return DatabaseQueryOutcome<DatabasePeriodSummaryResult>.NotReadable();
+        }
+
+        var (references, currentVersion) = await FieldsAsync(databaseId, cancellationToken);
+        return DatabaseQueryOutcome<DatabasePeriodSummaryResult>.Ok(
+            await SummarizeAsync(readable, period, previous, null, references, currentVersion, cancellationToken));
+    }
+
+    private async Task<DatabasePeriodSummaryResult> SummarizeAsync(
+        IQueryable<DatabaseSubmission> readable,
+        DatabaseQueryPeriod period,
+        DatabaseQueryPeriod previous,
+        Guid? subjectId,
+        IReadOnlyDictionary<string, DatabaseFieldReference> fields,
+        int currentVersion,
+        CancellationToken cancellationToken)
+    {
+        var inPeriod = InPeriod(readable, period, subjectId);
+        var inPrevious = InPeriod(readable, previous, subjectId);
         var count = await inPeriod.CountAsync(cancellationToken);
         var before = await inPrevious.CountAsync(cancellationToken);
         var current = await SumRowsAsync(inPeriod, null, cancellationToken);
         var previousRows = await SumRowsAsync(inPrevious, null, cancellationToken);
-        return DatabaseQueryOutcome<DatabasePeriodSummaryResult>.Ok(new DatabasePeriodSummaryResult(
+        return new DatabasePeriodSummaryResult(
             DatabaseQueryPeriodView.Of(period),
             DatabaseQueryPeriodView.Of(previous),
-            spec.SubjectId,
+            subjectId,
             count,
             before,
             count - before,
             DatabaseQueryResults.CountChangeLabel(count - before),
-            DatabaseQueryResults.Sums(current, previousRows, opened.Fields!, opened.CurrentVersion)));
+            DatabaseQueryResults.Sums(current, previousRows, fields, currentVersion));
     }
 
     public async Task<DatabaseQueryOutcome<DatabaseSubjectComparisonResult>> SubjectComparisonAsync(

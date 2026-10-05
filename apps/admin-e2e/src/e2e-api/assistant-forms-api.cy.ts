@@ -13,6 +13,9 @@ import { loginToApi } from '../support/api-mode';
  *    新的要求不再出現表單。送出端點在撤回後回 403 assistant-form 由後端整合測試涵蓋
  *    （`AssistantDatabaseFormEndpointsTests`，含分享／權限撤回）。
  *
+ * 另外（#150）設定「每週」定期報表，並確認資料庫的「定期報表」頁籤列出排程；產生報表的排程、摘要與權限由後端整合測試
+ * （`PeriodicReportEndpointsTests`）涵蓋，因為第一份報表要等一期結束。
+ *
  * 名稱帶時間戳記，可以重覆執行；最後一個 `it` 刪除助理與知識庫（數據庫目前沒有刪除功能）。
  */
 
@@ -102,6 +105,20 @@ describe('assistant forms against the real API', () => {
     cy.reload();
     cy.get('#data-write-database').find('option:selected').should('have.text', databaseName);
     cy.get('#data-write-purpose').should('have.value', PURPOSE);
+
+    // 定期報表（#150）：週期存到伺服器，重新整理仍在；資料庫的「定期報表」頁籤列出排程。第一份報表要等
+    // 這一期結束才會產生（由背景工作排在期間結束時），所以這裡是「還沒有報表」，不是錯誤。
+    // 上面選資料庫、填目的各送過一次 PATCH：只等「帶 periodicReport」的那一次，不要被前面的請求搶走。
+    cy.intercept('PATCH', /\/api\/v1\/assistants\/[^/]+\/settings$/, (req) => {
+      if (req.body?.rules?.periodicReport !== undefined) req.alias = 'periodicRules';
+    });
+    cy.get('#periodic-report').select('每週一次');
+    cy.wait('@periodicRules').its('response.body.rules.periodicReport').should('eq', 'weekly');
+    cy.reload();
+    cy.get('#periodic-report').should('have.value', 'weekly');
+    cy.then(() => cy.visit(`/app/databases/${databaseId}/reports`));
+    cy.get('app-database-reports .schedules').should('contain', assistantName).and('contain', '每週報表');
+    cy.get('app-database-reports').should('contain', '還沒有報表');
 
     // 數據庫詳情列出這個助理。
     cy.then(() => cy.visit(`/app/databases/${databaseId}/assistants`));

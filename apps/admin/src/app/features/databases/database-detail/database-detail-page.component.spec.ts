@@ -39,12 +39,12 @@ function button(page: HTMLElement, text: string): HTMLButtonElement {
 }
 
 describe('DatabaseDetailPageComponent', () => {
-  it('renders the five detail tabs with the active tab marked for assistive tech', async () => {
+  it('renders the six detail tabs with the active tab marked for assistive tech', async () => {
     const { page } = await openDetail('/app/databases/database-customer-records/form');
     const tabs = Array.from(page().querySelectorAll('nav.tabs a'));
 
     expect(page().querySelector('h1')?.textContent).toContain('客戶資料庫');
-    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['表單設計', '收集紀錄', '趨勢比較', '已連接助理', '權限']);
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(['表單設計', '收集紀錄', '趨勢比較', '定期報表', '已連接助理', '權限']);
     expect(page().querySelector('nav.tabs')?.getAttribute('aria-label')).toBe('數據庫頁籤');
     expect(page().querySelector('nav.tabs [aria-current="page"]')?.textContent).toContain('表單設計');
     expect(page().querySelector('app-form-designer')).not.toBeNull();
@@ -348,8 +348,8 @@ describe('DatabaseDetailPageComponent', () => {
     expect(page().querySelector('h1')?.textContent).toContain('訂單資料庫');
   });
 
-  describe('features the API does not have yet (API mode, #144–#148)', () => {
-    /** 與 Hybrid repository 在 API 模式回傳的一樣：每一項都還沒開放。 */
+  describe('API mode (no feature is upcoming any more since #150)', () => {
+    /** 與 Hybrid repository 在 API 模式回傳的一樣：沒有任何「將於後續版本開放」的功能。 */
     function asApiMode(repository: MockDemoRepository): void {
       const original = repository.getDatabaseDetail.bind(repository);
       vi.spyOn(repository, 'getDatabaseDetail').mockImplementation((id) =>
@@ -370,7 +370,7 @@ describe('DatabaseDetailPageComponent', () => {
       expect(page().querySelector('.upcoming-notice')).toBeNull();
     });
 
-    it('serves the trends tab in API mode (since #147): comparison and period statistics, with only the periodic report still upcoming', async () => {
+    it('serves the trends tab in API mode (since #147): comparison and period statistics, and no notice at all', async () => {
       const { page, repository } = await openDetail(
         '/app/databases/database-customer-records/trends?subject=subject-wang',
         (repo) => {
@@ -387,11 +387,28 @@ describe('DatabaseDetailPageComponent', () => {
       expect(page().querySelector('.trend-conclusion')?.textContent).toContain('較首次 +2 分');
       expect(page().querySelectorAll('app-trend-chart')).toHaveLength(2);
       expect(page().querySelector('app-period-summary table.summary-table')).not.toBeNull();
-      const notices = Array.from(page().querySelectorAll('.upcoming-notice')).map((notice) => notice.textContent);
-      expect(notices).toHaveLength(1);
-      expect(notices[0]).toContain('定期回報摘要');
-      expect(notices[0]).toContain('將於後續版本開放');
-      expect(page().textContent).not.toContain('趨勢比較：這項功能將於後續版本開放');
+      expect(page().querySelector('.upcoming-notice')).toBeNull();
+      expect(page().textContent).not.toContain('將於後續版本開放');
+      // 定期報表在自己的頁籤，不在趨勢比較裡。
+      expect(page().querySelector('app-database-reports')).toBeNull();
+    });
+
+    it('serves the 定期報表 tab (since #150): the schedule, the reports and the selected report with its labelled AI summary', async () => {
+      const { page, repository } = await openDetail('/app/databases/database-customer-records/reports', (repo) => {
+        asApiMode(repo);
+        vi.spyOn(repo, 'listDatabaseReports');
+        vi.spyOn(repo, 'getDatabaseReport');
+      });
+
+      expect(repository.listDatabaseReports).toHaveBeenCalledWith('database-customer-records');
+      expect(page().querySelector('nav.tabs [aria-current="page"]')?.textContent).toContain('定期報表');
+      expect(page().querySelector('.schedules')?.textContent).toContain('客服助理');
+      expect(page().querySelectorAll('ul.report-list li')).toHaveLength(3);
+      // 最新一份先選中；統計與 AI 摘要分開，摘要有標示。
+      expect(repository.getDatabaseReport).toHaveBeenCalledTimes(1);
+      expect(page().querySelector('.statistics-table')).not.toBeNull();
+      expect(page().querySelector('.ai-summary .ai-label')?.textContent?.trim()).toBe('AI 摘要');
+      expect(page().querySelector('.upcoming-notice')).toBeNull();
     });
 
     it('lists the connected assistants the API returned (#148), not a notice', async () => {

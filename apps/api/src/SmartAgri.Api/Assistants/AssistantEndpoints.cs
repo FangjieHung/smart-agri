@@ -4,14 +4,17 @@ using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Knowledge;
+using SmartAgri.Api.Reports;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Knowledge.Embeddings;
+using SmartAgri.Application.Reports;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Knowledge;
+using SmartAgri.Domain.Reports;
 using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Assistants;
@@ -23,7 +26,7 @@ namespace SmartAgri.Api.Assistants;
 // - viewerCanManage / viewerIsOwner are added (M2 plan §3, carried over), so the frontend
 //   never compares owner ids itself;
 // - audience / sharedWithAccountIds (on AssistantConfigurationView) are absent (databaseIds and
-//   the database-write rules exist since M4 #148; periodicReport is still the frontend's own):
+//   the database-write rules exist since M4 #148 and periodicReport since #150):
 //   the frontend mock models an audience-role gate that is not part of the M3 plan's data
 //   model (§4) — "who may use it" here is ownership + AssistantShare + use-shared-assistants
 //   only (AssistantUseAccess.UsableBy), not audience/role;
@@ -117,13 +120,16 @@ public sealed record SetPlatformPausedRequest(bool Paused);
 /// <param name="DataWriteDatabaseId">The connected database the assistant's form requests fill in;
 /// <see langword="null"/> for none.</param>
 /// <param name="DataWritePurpose">Shown to members before they consent; empty without a target.</param>
+/// <param name="PeriodicReport"><c>off</c>, <c>weekly</c> or <c>monthly</c> (M4 #150): how often a report
+/// on the form-target database is produced for the owner's databases' readers.</param>
 public sealed record AssistantAnswerRulesView(
     AssistantKnowledgeScope KnowledgeScope,
     string RefusalMessage,
     bool ShowCitations,
     bool KeepConversations,
     Guid? DataWriteDatabaseId,
-    string DataWritePurpose);
+    string DataWritePurpose,
+    string PeriodicReport);
 
 /// <summary>
 /// <c>GET</c>/<c>PATCH .../settings</c> response: settings, connected knowledge bases and
@@ -156,13 +162,16 @@ public sealed record UpdateAssistantSettingsRequest(
 /// <param name="DataWriteDatabaseId">A connected database's id to make it the form target, <c>""</c>
 /// to have none; <see langword="null"/>/absent keeps the current one (M4 #148).</param>
 /// <param name="DataWritePurpose">The collection purpose; required (non-blank) while there is a target.</param>
+/// <param name="PeriodicReport"><c>off</c>, <c>weekly</c> or <c>monthly</c>; <see langword="null"/>/absent keeps
+/// the current one. Needs the form target (<see cref="DataWriteDatabaseId"/>) to report on (M4 #150).</param>
 public sealed record AssistantAnswerRulesPatch(
     string? KnowledgeScope = null,
     string? RefusalMessage = null,
     bool? ShowCitations = null,
     bool? KeepConversations = null,
     string? DataWriteDatabaseId = null,
-    string? DataWritePurpose = null);
+    string? DataWritePurpose = null,
+    string? PeriodicReport = null);
 
 /// <summary>
 /// Assistant listing, settings, source connections, deletion and platform sharing (M3 plan,
@@ -452,6 +461,7 @@ public static class AssistantEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         AssistantFormRequests formRequests,
+        ReportScheduleService reportSchedules,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -514,6 +524,30 @@ public static class AssistantEndpoints
             formTarget = target.Value;
         }
 
+        // The periodic report (M4 #150) reports on the form target as it will be after this update.
+        var existingSchedule = await reportSchedules.FindAsync(assistant.Id, cancellationToken);
+        var resultingTarget = formTarget is not null ? formTarget.DatabaseId : currentTarget?.DatabaseId;
+        var scheduleRequested = request.Rules?.PeriodicReport;
+        // Without a report or target field in the request the schedule is left exactly as it is (it may
+        // be waiting to record a skipped period after a disconnection).
+        var scheduleChoice = new ReportScheduleChoice(existingSchedule?.Frequency, existingSchedule?.DatabaseId);
+        if (scheduleRequested is not null || (formTarget is not null && existingSchedule is not null))
+        {
+            var usableForReport = scheduleRequested is not null && scheduleRequested != ReportScheduleRules.OffName
+                ? await formRequests.UsableDatabaseIdsAsync(assistant, cancellationToken)
+                : [];
+            var reportChoice = ReportScheduleRules.ForUpdate(
+                scheduleRequested, existingSchedule?.Frequency, resultingTarget, usableForReport);
+            if (!reportChoice.IsValid)
+            {
+                return ApiErrors.ValidationFailed(reportChoice.Failures);
+            }
+
+            scheduleChoice = reportChoice.Value;
+        }
+
+        var scheduleChanged = ReportScheduleRules.Differs(existingSchedule?.Frequency, existingSchedule?.DatabaseId, scheduleChoice);
+
         var value = validated.Value;
         var now = clock.GetUtcNow();
         var changed = assistant.ApplySettings(
@@ -529,7 +563,7 @@ public static class AssistantEndpoints
         var targetChanged = formTarget is not null
             && (formTarget.DatabaseId != currentTarget?.DatabaseId
                 || (formTarget.DatabaseId is not null && formTarget.Purpose != currentTarget?.CollectionPurpose));
-        if (changed.Count > 0 || targetChanged)
+        if (changed.Count > 0 || targetChanged || scheduleChanged)
         {
             await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -547,6 +581,11 @@ public static class AssistantEndpoints
                     links.Single(link => link.DatabaseId == targetId).CollectForms(formTarget.Purpose);
                     await dbContext.SaveChangesAsync(cancellationToken);
                 }
+            }
+
+            if (scheduleChanged)
+            {
+                await reportSchedules.ApplyAsync(assistant, existingSchedule, scheduleChoice, cancellationToken);
             }
 
             if (changed.Any(AnswerAffectingSettings.Contains))
@@ -1131,7 +1170,11 @@ public static class AssistantEndpoints
             .ThenBy(link => link.DatabaseId)
             .ToListAsync(cancellationToken);
         var acceptance = await AcceptanceStatusesAsync(dbContext, [assistant.Id], cancellationToken);
-        return ToSettings(assistant, viewerId, knowledgeBaseIds, databases, acceptance[assistant.Id]);
+        var report = await dbContext.ReportSchedules.AsNoTracking()
+            .Where(schedule => schedule.AssistantId == assistant.Id)
+            .Select(schedule => (ReportFrequency?)schedule.Frequency)
+            .SingleOrDefaultAsync(cancellationToken);
+        return ToSettings(assistant, viewerId, knowledgeBaseIds, databases, acceptance[assistant.Id], report);
     }
 
     private static AssistantConfigurationView ToConfiguration(
@@ -1155,7 +1198,8 @@ public static class AssistantEndpoints
         Guid viewerId,
         IReadOnlyList<Guid> knowledgeBaseIds,
         IReadOnlyList<AssistantDatabase> databases,
-        AssistantAcceptanceStatus acceptanceStatus)
+        AssistantAcceptanceStatus acceptanceStatus,
+        ReportFrequency? periodicReport)
     {
         var formTarget = databases.FirstOrDefault(link => link.CollectsForms);
         return new(
@@ -1170,6 +1214,7 @@ public static class AssistantEndpoints
                 assistant.ShowCitations,
                 assistant.KeepConversations,
                 formTarget?.DatabaseId,
-                formTarget?.CollectionPurpose ?? string.Empty));
+                formTarget?.CollectionPurpose ?? string.Empty,
+                ReportScheduleChoice.Wire(periodicReport)));
     }
 }

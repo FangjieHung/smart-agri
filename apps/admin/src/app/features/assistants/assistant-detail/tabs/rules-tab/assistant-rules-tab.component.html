@@ -5,7 +5,6 @@
       [writableDatabases]="store.writableDatabases()"
       [errors]="errors()"
       [live]="true"
-      [periodicReportAvailable]="!apiMode"
       (changed)="store.updateRules($event)"
     />
   </div>

@@ -142,4 +142,50 @@ describe('MockDemoRepository records and withdrawal (issue #146)', () => {
       repositoryFor(ADMIN, storage).readDatabaseTracking(ADMIN, ORDERS),
     );
   });
+
+  describe('定期報表 snapshots (issue #150)', () => {
+    function submitAt(storage: DemoKeyValueStorage, orderNumber: string, at: string): string {
+      const result = syncValue(repositoryFor(CUSTOMER, storage, at).submitDatabaseEntry(ORDERS, input(orderNumber)));
+      if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+      return result.data.id;
+    }
+
+    function weeklyReports(storage: DemoKeyValueStorage, at: string) {
+      const admin = repositoryFor(ADMIN, storage, at);
+      const list = syncValue(admin.listDatabaseReports(ORDERS));
+      if (list.status !== 'ready') throw new Error(`expected ready, got ${list.status}`);
+      return list.data.reports.map((report) => {
+        const detail = syncValue(admin.getDatabaseReport(ORDERS, report.id));
+        if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
+        return { from: report.periodFrom, count: detail.data.statistics?.recordCount, previous: detail.data.statistics?.previousRecordCount };
+      });
+    }
+
+    it('keeps an existing report as it was when a record is withdrawn; the next report compares without it', () => {
+      const storage = createMemoryStorage();
+      syncValue(
+        repositoryFor(ADMIN, storage, '2026-09-20T02:00:00.000Z').updateAssistantSettings('assistant-customer-service', {
+          rules: { dataWriteDatabaseId: ORDERS, dataWritePurpose: '訂單問題回報', periodicReport: 'weekly' },
+        }),
+      );
+      submitAt(storage, 'DEMO-4001', '2026-09-22T02:00:00.000Z');
+      const withdrawn = submitAt(storage, 'DEMO-4002', '2026-09-29T02:00:00.000Z');
+      submitAt(storage, 'DEMO-4003', '2026-09-30T02:00:00.000Z');
+
+      // 週一到週日：2026-09-28 那週有 2 筆，前一週（9/21）有 1 筆。
+      expect(weeklyReports(storage, '2026-10-06T02:00:00.000Z').slice(0, 2)).toEqual([
+        { from: '2026-09-28', count: 2, previous: 1 },
+        { from: '2026-09-21', count: 1, previous: 0 },
+      ]);
+
+      syncValue(repositoryFor(CUSTOMER, storage, '2026-10-06T03:00:00.000Z').withdrawDatabaseSubmission(withdrawn));
+
+      // 舊報表不追溯修改；下一週的報表比較的是「撤回之後」的 9/28 那週。
+      expect(weeklyReports(storage, '2026-10-13T02:00:00.000Z').slice(0, 3)).toEqual([
+        { from: '2026-10-05', count: 0, previous: 1 },
+        { from: '2026-09-28', count: 2, previous: 1 },
+        { from: '2026-09-21', count: 1, previous: 0 },
+      ]);
+    });
+  });
 });

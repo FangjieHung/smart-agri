@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Shouldly;
@@ -68,8 +70,25 @@ public class SignInFlowTests : IClassFixture<AuthHostFixture>, IAsyncLifetime
         me.GetProperty("organization").GetProperty("id").GetGuid().ShouldBe(organization.Id);
         me.GetProperty("organization").GetProperty("name").GetString().ShouldBe("安心商行");
         me.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(["id", "displayName", "role", "permissions", "organization", "passwordChangeRequired"], ignoreOrder: true);
+            .ShouldBe(["id", "displayName", "role", "permissions", "organization", "passwordChangeRequired", "statisticsTimeZone"], ignoreOrder: true);
         me.GetProperty("passwordChangeRequired").GetBoolean().ShouldBeFalse();
+        me.GetProperty("statisticsTimeZone").GetString().ShouldBe("Asia/Taipei", "the Statistics:TimeZone default (#177)");
+        OpenApiContract.AssertKeysMatchSchema(me, "MeResponse");
+    }
+
+    [Theory]
+    [InlineData("Europe/Berlin", "Europe/Berlin")]
+    [InlineData("Taipei Standard Time", "Asia/Taipei")]
+    public async Task Me_reports_the_configured_statistics_time_zone_as_an_iana_id(string configured, string expected)
+    {
+        var organization = await _host.CreateOrganizationAsync();
+        await _host.CreateAccountAsync(organization, "zone", Password);
+        await using var factory = _host.Factory.WithWebHostBuilder(builder => builder.UseSetting("Statistics:TimeZone", configured));
+        using var spa = new SpaClient(factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = true }));
+
+        var me = await spa.GetMeJsonAsync((await spa.SignInAsync(organization.Code, "zone", Password)).AccessToken);
+
+        me.GetProperty("statisticsTimeZone").GetString().ShouldBe(expected);
     }
 
     [Fact]

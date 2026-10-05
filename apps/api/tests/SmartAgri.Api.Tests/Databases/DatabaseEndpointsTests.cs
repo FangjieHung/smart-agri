@@ -151,8 +151,9 @@ public class DatabaseEndpointsTests : IClassFixture<AuthHostFixture>
             summary.GetProperty("owner").GetProperty("displayName").GetString().ShouldBe("安心商行管理者");
             summary.GetProperty("viewerCanManage").GetBoolean().ShouldBeTrue();
             summary.GetProperty("updatedAt").GetDateTimeOffset().ShouldBe(summary.GetProperty("createdAt").GetDateTimeOffset());
-            summary.TryGetProperty("recordCount", out _).ShouldBeFalse();
-            summary.TryGetProperty("subjectCount", out _).ShouldBeFalse();
+            // The creator is its data manager and holds read-consented-submissions (#177).
+            summary.GetProperty("recordCount").GetInt32().ShouldBe(0);
+            summary.GetProperty("subjectCount").GetInt32().ShouldBe(0);
 
             var detail = await BodyJsonAsync(await admin.Spa.GetAsync($"{BasePath}/{id}", admin.Token));
             OpenApiContract.AssertKeysMatchSchema(detail, "DatabaseDetailView");

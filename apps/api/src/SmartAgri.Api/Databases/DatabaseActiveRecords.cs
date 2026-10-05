@@ -33,6 +33,38 @@ public static class DatabaseActiveRecords
             .Where(submission => submission.DatabaseId == databaseId && submission.WithdrawnAt == null);
     }
 
+    /// <summary>
+    /// Active-record and subject (distinct submitter) counts of each of
+    /// <paramref name="databaseIds"/> in <b>one</b> grouped query (M4 #177, the database list's
+    /// <c>recordCount</c>/<c>subjectCount</c>); a database without active records has no row.
+    /// Like <see cref="Of"/>, it is not narrowed to who may read: pass only databases the caller
+    /// may read (<see cref="DatabaseRecordReaders.ReadableDatabaseIdsAsync"/>).
+    /// </summary>
+    public static IQueryable<DatabaseRecordCounts> CountsOf(AppDbContext dbContext, IReadOnlyCollection<Guid> databaseIds)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(databaseIds);
+        return dbContext.DatabaseSubmissions.AsNoTracking()
+            .Where(submission => databaseIds.Contains(submission.DatabaseId) && submission.WithdrawnAt == null)
+            .GroupBy(submission => submission.DatabaseId)
+            .Select(group => new DatabaseRecordCounts(
+                group.Key,
+                group.Count(),
+                group.Select(submission => submission.SubmittedByAccountId).Distinct().Count()));
+    }
+
+    /// <summary><see cref="CountsOf"/> by database id; databases without active records are absent.</summary>
+    public static async Task<IReadOnlyDictionary<Guid, DatabaseRecordCounts>> CountAsync(
+        AppDbContext dbContext, IReadOnlyCollection<Guid> databaseIds, CancellationToken cancellationToken)
+    {
+        if (databaseIds.Count == 0)
+        {
+            return new Dictionary<Guid, DatabaseRecordCounts>();
+        }
+
+        return await CountsOf(dbContext, databaseIds).ToDictionaryAsync(counts => counts.DatabaseId, cancellationToken);
+    }
+
     /// <summary>The entries (typed values) of <paramref name="submissions"/>, e.g. of
     /// <see cref="Of"/>.</summary>
     public static IQueryable<DatabaseSubmissionEntry> EntriesOf(AppDbContext dbContext, IQueryable<DatabaseSubmission> submissions)
@@ -59,3 +91,7 @@ public static class DatabaseActiveRecords
             ? Of(dbContext, databaseId)
             : null;
 }
+
+/// <summary>A database's active records (<see cref="RecordCount"/>) and the distinct members who
+/// submitted them (<see cref="SubjectCount"/>, the tracked subjects with at least one active record).</summary>
+public sealed record DatabaseRecordCounts(Guid DatabaseId, int RecordCount, int SubjectCount);

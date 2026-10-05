@@ -170,7 +170,7 @@ public class DatabaseDataManagerEndpointsTests : IClassFixture<AuthHostFixture>
         list.EnumerateArray().Select(i => i.GetProperty("id").GetGuid()).ShouldBe([databaseId]);
         list[0].GetProperty("viewerCanManage").GetBoolean().ShouldBeFalse();
         list[0].GetProperty("owner").GetProperty("id").GetGuid().ShouldBe(org.Admin.Id);
-        list[0].TryGetProperty("recordCount", out _).ShouldBeFalse("no response carries a record count before #146");
+        list[0].GetProperty("recordCount").GetInt32().ShouldBe(0, "a reader gets the counts (#177)");
 
         var detail = await GetDetailAsync(manager, databaseId);
         detail.GetProperty("summary").GetProperty("viewerCanManage").GetBoolean().ShouldBeFalse();

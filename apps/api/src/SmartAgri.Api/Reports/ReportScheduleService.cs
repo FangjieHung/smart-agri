@@ -39,13 +39,15 @@ public sealed class ReportScheduleService
         _dbContext.ReportSchedules.SingleOrDefaultAsync(schedule => schedule.AssistantId == assistantId, cancellationToken);
 
     /// <summary>Makes the assistant's schedule what <paramref name="choice"/> says. Does nothing when it
-    /// already is.</summary>
+    /// already is, unless <paramref name="resume"/> (<see cref="ReportScheduleRules.Resumes"/>, #179): then an
+    /// auto-disabled schedule is replaced by a fresh one — skip counter zero, first period the one containing
+    /// today, so the periods missed while it was disabled are not back-filled.</summary>
     public async Task ApplyAsync(
-        Assistant assistant, ReportSchedule? existing, ReportScheduleChoice choice, CancellationToken cancellationToken)
+        Assistant assistant, ReportSchedule? existing, ReportScheduleChoice choice, CancellationToken cancellationToken, bool resume = false)
     {
         ArgumentNullException.ThrowIfNull(assistant);
         ArgumentNullException.ThrowIfNull(choice);
-        if (!ReportScheduleRules.Differs(existing?.Frequency, existing?.DatabaseId, choice))
+        if (!ReportScheduleRules.Differs(existing?.Frequency, existing?.DatabaseId, choice) && !resume)
         {
             return;
         }

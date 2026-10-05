@@ -513,6 +513,175 @@ public sealed class PeriodicReportEndpointsTests : IClassFixture<AuthHostFixture
         settings.GetProperty("rules").GetProperty("periodicReport").GetString().ShouldBe("weekly");
     }
 
+    // --- Auto-disable after consecutive skipped periods (#179) --------------------------------
+
+    [Fact]
+    public async Task The_third_skipped_period_in_a_row_disables_the_schedule_says_why_and_nothing_more_is_written()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var reader = await SignInAsync(org, "internal");
+        var databaseId = await CreateDatabaseAsync(admin);
+        (await PutAccessAsync(admin, databaseId, [org.Admin.Id, org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var assistantId = await ScheduleAsync(org, admin, databaseId, "weekly");
+
+        // The owner is no longer a data manager: every period is skipped.
+        (await PutAccessAsync(admin, databaseId, [org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await RunDuePeriodAsync(org);
+        await RunDuePeriodAsync(org);
+        var running = await ScheduleAsync(org);
+        (running.ConsecutiveSkips, running.AutoDisabledAt).ShouldBe((2, (DateTimeOffset?)null));
+        (await QueuedReportJobsAsync(org)).ShouldBe(1, "two skips in a row still queue the next period");
+
+        await RunDuePeriodAsync(org);
+        var disabled = await ScheduleAsync(org);
+        disabled.ConsecutiveSkips.ShouldBe(ReportSchedule.AutoDisableAfterSkips);
+        disabled.AutoDisabledAt.ShouldNotBeNull();
+        disabled.AutoDisabledReason.ShouldBe(ReportSkipReason.OwnerCannotRead);
+        (await QueuedReportJobsAsync(org)).ShouldBe(0, "the disabling period queues no next job");
+        var reports = await SavedReportsAsync(org);
+        reports.Count.ShouldBe(3);
+        reports.ShouldAllBe(report => report.Status == ReportStatus.Skipped && report.SkipReason == ReportSkipReason.OwnerCannotRead);
+
+        // The owner's settings say so, with the reason; the frequency is still shown.
+        var settingsResponse = await admin.Spa.GetAsync($"{AssistantsPath}/{assistantId}/settings", admin.Token);
+        var settings = await BodyJsonAsync(settingsResponse);
+        OpenApiContract.AssertKeysMatchSchema(settings, "AssistantSettingsView");
+        settings.GetProperty("rules").GetProperty("periodicReport").GetString().ShouldBe("weekly");
+        var autoDisabled = settings.GetProperty("periodicReportAutoDisabled");
+        (autoDisabled.GetProperty("reason").GetString(), autoDisabled.GetProperty("skippedPeriods").GetInt32(), autoDisabled.GetProperty("message").GetString())
+            .ShouldBe(("owner-cannot-read", 3, ReportScheduleRules.AutoDisabledMessage(ReportSkipReason.OwnerCannotRead)));
+        autoDisabled.GetProperty("disabledAt").GetDateTimeOffset().ShouldBe(disabled.AutoDisabledAt!.Value);
+
+        // Readers of the reports no longer see it as a schedule (no next report will be made).
+        var list = await BodyJsonAsync(await reader.Spa.GetAsync($"{DatabasesPath}/{databaseId}/reports", reader.Token));
+        list.GetProperty("schedules").GetArrayLength().ShouldBe(0);
+        list.GetProperty("reports").GetArrayLength().ShouldBe(3, "the skipped rows already written stay as they are");
+
+        // A late or duplicated job for the disabled schedule writes nothing (also with the owner able again).
+        (await PutAccessAsync(admin, databaseId, [org.Admin.Id, org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            dbContext.BackgroundJobs.Add(BackgroundJob.Create(
+                org.Organization.Id,
+                GenerateDatabaseReportJob.Kind,
+                new GenerateDatabaseReportJob(disabled.Id, disabled.NextPeriodFrom),
+                DateTimeOffset.UtcNow.AddMinutes(-1)));
+            await dbContext.SaveChangesAsync(CancellationToken);
+        }
+
+        await RunJobsAsync();
+        (await SavedReportsAsync(org)).Count.ShouldBe(3);
+        (await QueuedReportJobsAsync(org)).ShouldBe(0);
+        var still = await ScheduleAsync(org);
+        (still.Id, still.NextPeriodFrom, still.ConsecutiveSkips, still.AutoDisabledAt).ShouldBe(
+            (disabled.Id, disabled.NextPeriodFrom, disabled.ConsecutiveSkips, disabled.AutoDisabledAt));
+
+        // A PATCH that does not name periodicReport (here: only the collection purpose) leaves it disabled.
+        (await PatchRulesAsync(admin, assistantId, new { dataWritePurpose = "改過的收集目的。" })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ScheduleAsync(org)).Id.ShouldBe(disabled.Id);
+        (await ScheduleAsync(org)).IsAutoDisabled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task A_generated_period_between_skips_resets_the_count()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin);
+        (await PutAccessAsync(admin, databaseId, [org.Admin.Id, org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ScheduleAsync(org, admin, databaseId, "weekly");
+
+        (await PutAccessAsync(admin, databaseId, [org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await RunDuePeriodAsync(org);
+        await RunDuePeriodAsync(org);
+        (await ScheduleAsync(org)).ConsecutiveSkips.ShouldBe(2);
+
+        // The owner may read again: the period is generated (too few records still counts as generated).
+        (await PutAccessAsync(admin, databaseId, [org.Admin.Id, org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await RunDuePeriodAsync(org);
+        (await ScheduleAsync(org)).ConsecutiveSkips.ShouldBe(0);
+
+        // Two more skips: not three in a row, so it keeps running.
+        (await PutAccessAsync(admin, databaseId, [org.Internal.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await RunDuePeriodAsync(org);
+        await RunDuePeriodAsync(org);
+        var schedule = await ScheduleAsync(org);
+        (schedule.ConsecutiveSkips, schedule.IsAutoDisabled).ShouldBe((2, false));
+        (await QueuedReportJobsAsync(org)).ShouldBe(1);
+        (await SavedReportsAsync(org)).Select(report => report.Status).ShouldBe(
+            [ReportStatus.Skipped, ReportStatus.Skipped, ReportStatus.Generated, ReportStatus.Skipped, ReportStatus.Skipped]);
+    }
+
+    [Fact]
+    public async Task Re_enabling_re_checks_permissions_and_resumes_from_the_current_period_without_back_filling()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var owner2 = await SignInAsync(org, "owner2");
+        var outsider = await SignInAsync(org, "internal");
+        // A database the assistant's owner may use only while owner2 designates them.
+        var databaseId = await CreateDatabaseAsync(owner2, "別人的資料庫");
+        (await PutAccessAsync(owner2, databaseId, [org.Owner2.Id, org.Admin.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var assistantId = await ScheduleAsync(org, admin, databaseId, "weekly");
+
+        (await PutAccessAsync(owner2, databaseId, [org.Owner2.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        for (var period = 0; period < ReportSchedule.AutoDisableAfterSkips; period++)
+        {
+            await RunDuePeriodAsync(org);
+        }
+
+        var disabled = await ScheduleAsync(org);
+        disabled.IsAutoDisabled.ShouldBeTrue();
+
+        // Someone who may not manage the assistant gets exactly the settings endpoint's usual 403.
+        var foreignResume = await PatchRulesAsync(outsider, assistantId, new { periodicReport = "weekly" });
+        foreignResume.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        await AssertIdenticalAsync(foreignResume, await PatchRulesAsync(outsider, assistantId, new { showCitations = false }));
+
+        // The owner still may not use the database: re-enabling is refused like a new setting.
+        var refused = await PatchRulesAsync(admin, assistantId, new { periodicReport = "weekly" });
+        refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(refused)).GetProperty("errors").GetProperty("periodicReport")[0].GetString()
+            .ShouldBe(ReportScheduleRules.TargetNotUsableMessage);
+        (await ScheduleAsync(org)).Id.ShouldBe(disabled.Id, "a refused re-enable changes nothing");
+        (await QueuedReportJobsAsync(org)).ShouldBe(0);
+
+        // Designated again: re-enabling replaces the schedule with a fresh one from the period containing
+        // today. The periods missed while disabled are not back-filled.
+        (await PutAccessAsync(owner2, databaseId, [org.Owner2.Id, org.Admin.Id])).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var resumed = await PatchRulesAsync(admin, assistantId, new { periodicReport = "weekly" });
+        resumed.StatusCode.ShouldBe(HttpStatusCode.OK, await resumed.Content.ReadAsStringAsync(CancellationToken));
+        var settings = await BodyJsonAsync(resumed);
+        settings.GetProperty("rules").GetProperty("periodicReport").GetString().ShouldBe("weekly");
+        settings.GetProperty("periodicReportAutoDisabled").ValueKind.ShouldBe(JsonValueKind.Null);
+        var fresh = await ScheduleAsync(org);
+        fresh.Id.ShouldNotBe(disabled.Id, "a job still queued for the old schedule finds nothing");
+        (fresh.ConsecutiveSkips, fresh.AutoDisabledAt, fresh.AutoDisabledReason).ShouldBe((0, (DateTimeOffset?)null, (ReportSkipReason?)null));
+        var thisWeek = ReportPeriods.Containing(ReportFrequency.Weekly, TodayInTaipei());
+        fresh.NextPeriodFrom.ShouldBe(thisWeek.From);
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            var job = await dbContext.BackgroundJobs.AsNoTracking()
+                .SingleAsync(candidate => candidate.Kind == GenerateDatabaseReportJob.Kind && candidate.Status == BackgroundJobStatus.Queued, CancellationToken);
+            job.RunAfter.ShouldBe(ReportPeriods.DueAt(thisWeek, Taipei));
+        }
+
+        // A second identical request is an ordinary unchanged setting: no second schedule or job.
+        (await PatchRulesAsync(admin, assistantId, new { periodicReport = "weekly" })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ScheduleAsync(org)).Id.ShouldBe(fresh.Id);
+        (await QueuedReportJobsAsync(org)).ShouldBe(1);
+
+        // The chain runs again. (In this test the old schedule already reported this week — time is
+        // compressed — so the one-per-period guarantee keeps that row and makes no second one.)
+        await RunDuePeriodAsync(org);
+        var reports = await SavedReportsAsync(org);
+        reports.Count.ShouldBe(ReportSchedule.AutoDisableAfterSkips);
+        reports.Select(report => report.PeriodFrom).Distinct().Count().ShouldBe(reports.Count);
+        (await ScheduleAsync(org)).NextPeriodFrom.ShouldBe(ReportPeriods.After(ReportFrequency.Weekly, thisWeek).From);
+        (await QueuedReportJobsAsync(org)).ShouldBe(1);
+    }
+
     // --- Who sees reports --------------------------------------------------------------------
 
     [Fact]
@@ -782,6 +951,17 @@ public sealed class PeriodicReportEndpointsTests : IClassFixture<AuthHostFixture
             .Where(job => job.Status == BackgroundJobStatus.Queued && job.Kind == GenerateDatabaseReportJob.Kind)
             .ExecuteUpdateAsync(setters => setters.SetProperty(job => job.RunAfter, due), CancellationToken);
     }
+
+    /// <summary>Makes the queued report job due and runs it: one more period is reported.</summary>
+    private async Task RunDuePeriodAsync(TestOrganization org)
+    {
+        await MakeJobsDueAsync(org);
+        await RunJobsAsync();
+    }
+
+    private Task<int> QueuedReportJobsAsync(TestOrganization org) =>
+        CountAsync(org, dbContext => dbContext.BackgroundJobs.CountAsync(
+            job => job.Kind == GenerateDatabaseReportJob.Kind && job.Status == BackgroundJobStatus.Queued, CancellationToken));
 
     private Task RunJobsAsync(WebApplicationFactory<Program>? factory = null) =>
         (factory ?? _host.Factory).Services.GetRequiredService<JobRunner>().RunUntilIdleAsync(CancellationToken);

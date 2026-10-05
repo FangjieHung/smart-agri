@@ -138,13 +138,29 @@ public sealed record AssistantAnswerRulesView(
 /// </summary>
 /// <param name="DatabaseIds">Connected databases (M4 #148), oldest connection first — including
 /// one whose owner may no longer use it (still shown, so it can be disconnected; it is not used).</param>
+/// <param name="PeriodicReportAutoDisabled">Set when the periodic report schedule stopped itself after
+/// consecutive skipped periods (#179); <see langword="null"/> otherwise (also with no schedule). While set,
+/// <c>rules.periodicReport</c> still shows the configured frequency; naming a frequency in a <c>PATCH</c>
+/// re-enables it.</param>
 public sealed record AssistantSettingsView(
     AssistantConfigurationView Configuration,
     IReadOnlyList<Guid> KnowledgeBaseIds,
     IReadOnlyList<Guid> DatabaseIds,
     AssistantTone Tone,
     string RoleInstructions,
-    AssistantAnswerRulesView Rules);
+    AssistantAnswerRulesView Rules,
+    PeriodicReportAutoDisabledView? PeriodicReportAutoDisabled);
+
+/// <summary>Why and when an assistant's periodic report schedule disabled itself (#179).</summary>
+/// <param name="DisabledAt">When the period that disabled it was processed.</param>
+/// <param name="Reason">The skip reason of that (the last of the consecutive skipped) period.</param>
+/// <param name="SkippedPeriods">How many periods in a row were skipped (the threshold).</param>
+/// <param name="Message">What the settings screen shows (zh-TW).</param>
+public sealed record PeriodicReportAutoDisabledView(
+    DateTimeOffset DisabledAt,
+    ReportSkipReason Reason,
+    int SkippedPeriods,
+    string Message);
 
 /// <summary><c>PATCH /api/v1/assistants/{id}/settings</c> request: a <see langword="null"/>
 /// (or absent) field, at any level, is left unchanged. <see cref="Tone"/> and
@@ -546,7 +562,11 @@ public static class AssistantEndpoints
             scheduleChoice = reportChoice.Value;
         }
 
-        var scheduleChanged = ReportScheduleRules.Differs(existingSchedule?.Frequency, existingSchedule?.DatabaseId, scheduleChoice);
+        // #179: naming a frequency on an auto-disabled schedule re-enables it (the target was re-checked
+        // above as for a new setting).
+        var scheduleResumed = ReportScheduleRules.Resumes(existingSchedule?.IsAutoDisabled == true, scheduleRequested, scheduleChoice);
+        var scheduleChanged = scheduleResumed
+            || ReportScheduleRules.Differs(existingSchedule?.Frequency, existingSchedule?.DatabaseId, scheduleChoice);
 
         var value = validated.Value;
         var now = clock.GetUtcNow();
@@ -585,7 +605,7 @@ public static class AssistantEndpoints
 
             if (scheduleChanged)
             {
-                await reportSchedules.ApplyAsync(assistant, existingSchedule, scheduleChoice, cancellationToken);
+                await reportSchedules.ApplyAsync(assistant, existingSchedule, scheduleChoice, cancellationToken, scheduleResumed);
             }
 
             if (changed.Any(AnswerAffectingSettings.Contains))
@@ -1171,9 +1191,7 @@ public static class AssistantEndpoints
             .ToListAsync(cancellationToken);
         var acceptance = await AcceptanceStatusesAsync(dbContext, [assistant.Id], cancellationToken);
         var report = await dbContext.ReportSchedules.AsNoTracking()
-            .Where(schedule => schedule.AssistantId == assistant.Id)
-            .Select(schedule => (ReportFrequency?)schedule.Frequency)
-            .SingleOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(schedule => schedule.AssistantId == assistant.Id, cancellationToken);
         return ToSettings(assistant, viewerId, knowledgeBaseIds, databases, acceptance[assistant.Id], report);
     }
 
@@ -1199,7 +1217,7 @@ public static class AssistantEndpoints
         IReadOnlyList<Guid> knowledgeBaseIds,
         IReadOnlyList<AssistantDatabase> databases,
         AssistantAcceptanceStatus acceptanceStatus,
-        ReportFrequency? periodicReport)
+        ReportSchedule? schedule)
     {
         var formTarget = databases.FirstOrDefault(link => link.CollectsForms);
         return new(
@@ -1215,6 +1233,10 @@ public static class AssistantEndpoints
                 assistant.KeepConversations,
                 formTarget?.DatabaseId,
                 formTarget?.CollectionPurpose ?? string.Empty,
-                ReportScheduleChoice.Wire(periodicReport)));
+                ReportScheduleChoice.Wire(schedule?.Frequency)),
+            schedule is { AutoDisabledAt: { } disabledAt, AutoDisabledReason: { } reason }
+                ? new PeriodicReportAutoDisabledView(
+                    disabledAt, reason, schedule.ConsecutiveSkips, ReportScheduleRules.AutoDisabledMessage(reason))
+                : null);
     }
 }

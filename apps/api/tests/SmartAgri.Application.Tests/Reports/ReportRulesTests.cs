@@ -131,6 +131,50 @@ public class ReportRulesTests
 
     // --- What the model is given -----------------------------------------------------------------
 
+    // --- Auto-disable (#179) ----------------------------------------------------------------
+
+    [Fact]
+    public void The_third_skipped_period_in_a_row_disables_the_schedule_with_its_reason()
+    {
+        var first = ReportScheduleRules.AfterPeriod(0, ReportSkipReason.OwnerCannotRead);
+        (first.ConsecutiveSkips, first.Disables).ShouldBe((1, false));
+        var second = ReportScheduleRules.AfterPeriod(first.ConsecutiveSkips, ReportSkipReason.NotConnected);
+        (second.ConsecutiveSkips, second.Disables).ShouldBe((2, false));
+        var third = ReportScheduleRules.AfterPeriod(second.ConsecutiveSkips, ReportSkipReason.NotConnected);
+        (third.ConsecutiveSkips, third.DisabledReason).ShouldBe((ReportSchedule.AutoDisableAfterSkips, ReportSkipReason.NotConnected));
+        ReportSchedule.AutoDisableAfterSkips.ShouldBe(3);
+    }
+
+    [Fact]
+    public void A_generated_period_resets_the_count()
+    {
+        var progress = ReportScheduleRules.AfterPeriod(2, skipReason: null);
+        (progress.ConsecutiveSkips, progress.Disables).ShouldBe((0, false));
+        Should.Throw<ArgumentOutOfRangeException>(() => ReportScheduleRules.AfterPeriod(-1, null));
+    }
+
+    [Fact]
+    public void Only_naming_a_frequency_on_a_disabled_schedule_re_enables_it()
+    {
+        var weekly = new ReportScheduleChoice(ReportFrequency.Weekly, Guid.NewGuid());
+        ReportScheduleRules.Resumes(currentIsAutoDisabled: true, "weekly", weekly).ShouldBeTrue();
+        ReportScheduleRules.Resumes(currentIsAutoDisabled: true, "monthly", weekly with { Frequency = ReportFrequency.Monthly }).ShouldBeTrue();
+        ReportScheduleRules.Resumes(currentIsAutoDisabled: true, requested: null, weekly).ShouldBeFalse("a PATCH without periodicReport");
+        ReportScheduleRules.Resumes(currentIsAutoDisabled: true, "off", ReportScheduleChoice.Off).ShouldBeFalse();
+        ReportScheduleRules.Resumes(currentIsAutoDisabled: false, "weekly", weekly).ShouldBeFalse("a running schedule is unchanged");
+    }
+
+    [Theory]
+    [InlineData(ReportSkipReason.NotConnected, "不再連接")]
+    [InlineData(ReportSkipReason.OwnerCannotRead, "無法讀取")]
+    public void The_disabled_message_says_auto_disabled_and_why(ReportSkipReason reason, string why)
+    {
+        var message = ReportScheduleRules.AutoDisabledMessage(reason);
+        message.ShouldStartWith("已自動停用");
+        message.ShouldContain(why);
+        message.ShouldContain("連續 3 期");
+    }
+
     [Fact]
     public void The_model_gets_only_the_computed_numbers_and_field_names_flattened_to_one_line()
     {

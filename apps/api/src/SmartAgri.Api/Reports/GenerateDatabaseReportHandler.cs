@@ -31,6 +31,11 @@ namespace SmartAgri.Api.Reports;
 /// reports the period it names and queues the next, already due: periods are caught up in order.
 /// </para>
 /// <para>
+/// <b>Auto-disable (#179).</b> The schedule counts skipped periods in a row (a generated one resets the
+/// count); the third one in a row disables it in the compare-and-set that advances it, and no next job is
+/// queued. A job for a disabled schedule does nothing.
+/// </para>
+/// <para>
 /// A report with enough records for a comparison (<see cref="ReportDataRules"/>) gets a
 /// <see cref="SummarizeDatabaseReportJob"/> in the same save; one without never does.
 /// </para>
@@ -57,7 +62,7 @@ internal sealed class GenerateDatabaseReportHandler : IJobHandler
         var payload = job.ReadPayload<GenerateDatabaseReportJob>();
         var schedule = await _dbContext.ReportSchedules.AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == payload.ScheduleId, cancellationToken);
-        if (schedule is null || schedule.NextPeriodFrom != payload.PeriodFrom)
+        if (schedule is null || schedule.NextPeriodFrom != payload.PeriodFrom || schedule.IsAutoDisabled)
         {
             return;
         }
@@ -82,15 +87,22 @@ internal sealed class GenerateDatabaseReportHandler : IJobHandler
         var now = _clock.GetUtcNow();
         await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
-        var exists = await _dbContext.DatabaseReports.AnyAsync(
-            report => report.AssistantId == assistant.Id
+        var existing = await _dbContext.DatabaseReports.AsNoTracking()
+            .Where(report => report.AssistantId == assistant.Id
                 && report.DatabaseId == schedule.DatabaseId
                 && report.Frequency == schedule.Frequency
-                && report.PeriodFrom == period.From,
-            cancellationToken);
-        if (!exists)
+                && report.PeriodFrom == period.From)
+            .Select(report => new { report.SkipReason })
+            .SingleOrDefaultAsync(cancellationToken);
+        ReportSkipReason? skipReason;
+        if (existing is not null)
+        {
+            skipReason = existing.SkipReason;
+        }
+        else
         {
             var report = await BuildAsync(assistant, schedule, period, now, cancellationToken);
+            skipReason = report.SkipReason;
             _dbContext.DatabaseReports.Add(report);
             if (report.SummaryStatus == ReportSummaryStatus.Pending)
             {
@@ -105,11 +117,25 @@ internal sealed class GenerateDatabaseReportHandler : IJobHandler
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
+        // #179: the skip counter moves with NextPeriodFrom in the same compare-and-set (and the same
+        // transaction as the report row), so a duplicate delivery can neither count a period twice nor
+        // queue a second next job. The period that disables the schedule queues none.
+        var progress = ReportScheduleRules.AfterPeriod(schedule.ConsecutiveSkips, skipReason);
+        DateTimeOffset? disabledAt = progress.Disables ? now : null;
         var next = ReportPeriods.After(schedule.Frequency, period);
         var advanced = await _dbContext.ReportSchedules
-            .Where(candidate => candidate.Id == schedule.Id && candidate.NextPeriodFrom == period.From)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(candidate => candidate.NextPeriodFrom, next.From), cancellationToken);
-        if (advanced == 1)
+            .Where(candidate => candidate.Id == schedule.Id
+                && candidate.NextPeriodFrom == period.From
+                && candidate.ConsecutiveSkips == schedule.ConsecutiveSkips
+                && candidate.AutoDisabledAt == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(candidate => candidate.NextPeriodFrom, next.From)
+                    .SetProperty(candidate => candidate.ConsecutiveSkips, progress.ConsecutiveSkips)
+                    .SetProperty(candidate => candidate.AutoDisabledAt, disabledAt)
+                    .SetProperty(candidate => candidate.AutoDisabledReason, progress.DisabledReason),
+                cancellationToken);
+        if (advanced == 1 && !progress.Disables)
         {
             _dbContext.BackgroundJobs.Add(BackgroundJob.Create(
                 job.OrganizationId,

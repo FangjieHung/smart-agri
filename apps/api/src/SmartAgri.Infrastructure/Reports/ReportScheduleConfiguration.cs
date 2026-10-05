@@ -18,7 +18,14 @@ internal sealed class ReportScheduleConfiguration : IEntityTypeConfiguration<Rep
 {
     public void Configure(EntityTypeBuilder<ReportSchedule> builder)
     {
-        builder.ToTable("AssistantReportSchedules");
+        builder.ToTable("AssistantReportSchedules", table =>
+        {
+            // #179: the counter is never negative, and a disabled schedule always says why (and only then).
+            table.HasCheckConstraint("CK_AssistantReportSchedules_ConsecutiveSkips", "\"ConsecutiveSkips\" >= 0");
+            table.HasCheckConstraint(
+                "CK_AssistantReportSchedules_AutoDisabled",
+                "(\"AutoDisabledAt\" IS NULL) = (\"AutoDisabledReason\" IS NULL)");
+        });
         builder.HasKey(schedule => schedule.Id);
         builder.Property(schedule => schedule.Id).ValueGeneratedNever();
         builder.Property(schedule => schedule.Frequency)
@@ -26,6 +33,12 @@ internal sealed class ReportScheduleConfiguration : IEntityTypeConfiguration<Rep
             .HasMaxLength(16)
             .IsRequired();
         builder.Property(schedule => schedule.NextPeriodFrom).HasColumnType("date");
+        builder.Ignore(schedule => schedule.IsAutoDisabled);
+        builder.Property(schedule => schedule.AutoDisabledReason)
+            .HasConversion(
+                skip => skip == null ? null : SmartAgri.Domain.WireNames<ReportSkipReason>.ToWire(skip.Value),
+                name => name == null ? (ReportSkipReason?)null : SmartAgri.Domain.WireNames<ReportSkipReason>.Parse(name))
+            .HasMaxLength(32);
 
         builder.HasOne<Assistant>()
             .WithMany()

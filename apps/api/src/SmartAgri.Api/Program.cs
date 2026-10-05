@@ -45,6 +45,11 @@ builder.Services.AddScoped<DatabaseFixedQueryService>();
 builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.IChatDatabaseQueryRunner, SmartAgri.Api.Chat.FixedQueryChatRunner>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatDatabaseQueries>();
+builder.Services.AddOptions<ChatFormRequestOptions>()
+    .Bind(builder.Configuration.GetSection(ChatFormRequestOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<ChatFormRequestOptions>, ChatFormRequestOptions.Validator>();
+builder.Services.AddScoped<ChatFormRequestTool>();
 builder.Services.AddPeriodicReports();
 builder.AddSmartAgriAuthentication();
 builder.Services.AddInitialSetup();

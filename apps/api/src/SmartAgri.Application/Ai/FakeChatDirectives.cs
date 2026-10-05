@@ -30,11 +30,20 @@ public static class FakeChatDirectives
     public const string FailMidway = "#fail-midway";
 
     /// <summary>When the call offers tools (M4 #149): call the tool and arguments given by the JSON
-    /// object that follows, e.g. <c>#query:{"name":"database_record_count","arguments":{"databaseId":"…","period":"this-month"}}</c>
+    /// object that follows — any tool name, including <c>request_database_form</c> (#164), e.g. <c>#query:{"name":"database_record_count","arguments":{"databaseId":"…","period":"this-month"}}</c>
     /// — names and values are sent exactly as written, so tests can send undefined ones.</summary>
     public const string Query = "#query:";
 
     /// <summary>When the call offers tools: call none and answer with text (the model decided the
     /// question is not about the databases).</summary>
     public const string NoQuery = "#query-none";
+
+    /// <summary>When the call offers the form tool (M4 #164): call it with the first offered form,
+    /// even if the question has no fill-in word (a model recognizing an intent the keywords miss).
+    /// Without this or <see cref="NoForm"/>, the fake calls it exactly when the keyword gate would.</summary>
+    public const string FormRequest = "#form-request";
+
+    /// <summary>When the call offers the form tool (M4 #164): call none, even if the question has a
+    /// fill-in word (a model seeing that it is not a request to fill anything in).</summary>
+    public const string NoForm = "#form-none";
 }

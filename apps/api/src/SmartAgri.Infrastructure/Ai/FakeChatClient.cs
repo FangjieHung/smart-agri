@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using SmartAgri.Application.Ai;
+using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Reports;
 
 namespace SmartAgri.Infrastructure.Ai;
@@ -26,7 +27,11 @@ namespace SmartAgri.Infrastructure.Ai;
 /// the tool and arguments that follow it, <see cref="FakeChatDirectives.NoQuery"/> calls none, and
 /// otherwise it picks deterministically from the offered definitions (field sum when the question
 /// asks for a total and a number field is offered, else the record count; the first offered
-/// database; the period named in the question, else <c>last-30-days</c>).
+/// database; the period named in the question, else <c>last-30-days</c>). When the tool offered is
+/// the form tool (M4 #164), it calls it with the first offered form when the question contains
+/// <see cref="FakeChatDirectives.FormRequest"/>, never with <see cref="FakeChatDirectives.NoForm"/>,
+/// and otherwise exactly when the keyword gate (<see cref="AssistantFormRequestRules.AsksForForm"/>)
+/// would — so the model path is deterministic and, without directives, matches keyword mode.
 /// </para>
 /// <para>
 /// Streaming always splits the answer into at least two chunks, and — whenever the answer
@@ -227,6 +232,18 @@ internal static class FakeToolChoice
             }
 
             return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, name, arguments)]);
+        }
+
+        if (tools.FirstOrDefault(tool => tool.Name == AssistantFormRequestRules.ToolName) is { } formTool)
+        {
+            var wantsForm = !question.Contains(FakeChatDirectives.NoForm, StringComparison.Ordinal)
+                && (question.Contains(FakeChatDirectives.FormRequest, StringComparison.Ordinal) || AssistantFormRequestRules.AsksForForm(question));
+            return wantsForm
+                ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, formTool.Name, new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [AssistantFormRequestRules.FormIdParameter] = FirstEnum(formTool.JsonSchema.GetProperty("properties"), AssistantFormRequestRules.FormIdParameter),
+                })])
+                : new ChatMessage(ChatRole.Assistant, "不需要表單。");
         }
 
         if (question.Contains(FakeChatDirectives.NoQuery, StringComparison.Ordinal))

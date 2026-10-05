@@ -3,6 +3,7 @@ import type { AssistantId } from './assistant.model';
 import type {
   DatabaseFieldView,
   DatabaseId,
+  DatabasePeriodRangeView,
   DatabaseRecordEntryView,
   DatabaseRecordId,
   DatabaseTrialAnswers,
@@ -96,6 +97,7 @@ export type ChatResponseId =
   | 'chat-refund-window'
   | 'chat-leather-wash'
   | 'chat-leather-care'
+  | 'chat-order-count'
   | 'chat-order-issue';
 
 export interface ChatCitationView {
@@ -144,6 +146,44 @@ export interface ChatFormView {
   readonly consent: ChatConsentView;
 }
 
+/**
+ * 對話中數據庫查詢的結果（issue #149）。`answered`／`no-data` 有數字；`insufficient-data` 是紀錄不足以比較；
+ * `not-available` 是沒有可以查詢的數據庫（未連接、無權限、已撤銷、不存在都是同一個結果，不透露任何名稱）；
+ * `rejected` 是模型給了定義外的查詢條件，沒有執行；`failed` 是查詢本身失敗。
+ */
+export type ChatDatabaseQueryStatus =
+  | 'answered'
+  | 'no-data'
+  | 'insufficient-data'
+  | 'not-available'
+  | 'rejected'
+  | 'failed';
+
+/** 一個數字：`display`／`previousDisplay`／`changeLabel` 都是伺服器（或 mock）算好的文字，畫面不重算。 */
+export interface ChatDatabaseQueryFigure {
+  readonly metric: string;
+  readonly value: number;
+  readonly display: string;
+  readonly previousDisplay: string | null;
+  readonly changeLabel: string | null;
+}
+
+/** 查詢回答的結構化內容：資料來源（數據庫與查詢種類）、統計期間與數字。 */
+export interface ChatDatabaseQueryView {
+  readonly status: ChatDatabaseQueryStatus;
+  readonly databaseId: DatabaseId | null;
+  readonly databaseName: string | null;
+  /** 固定查詢的名稱（`record-count`、`field-sum`、`period-summary`、`subject-comparison`）。 */
+  readonly query: string | null;
+  readonly queryLabel: string | null;
+  readonly period: DatabasePeriodRangeView | null;
+  readonly previousPeriod: DatabasePeriodRangeView | null;
+  /** 只算一位追蹤對象。 */
+  readonly subjectOnly: boolean;
+  readonly figures: readonly ChatDatabaseQueryFigure[];
+  readonly message: string | null;
+}
+
 export type ChatReplyView =
   | {
       readonly kind: 'company-data';
@@ -186,6 +226,15 @@ export type ChatReplyView =
       readonly recordId: DatabaseRecordId | null;
       readonly entries: readonly DatabaseRecordEntryView[];
       readonly withdrawal: SubmissionWithdrawalView;
+    }
+  | {
+      /**
+       * 數據庫查詢的回答（issue #149）：模型只選固定查詢與參數，文字與數字都由伺服器依查詢結果組成。
+       * 不能轉人工（數字來自只有提問者能讀的紀錄）。
+       */
+      readonly kind: 'database-query';
+      readonly text: string;
+      readonly query: ChatDatabaseQueryView;
     };
 
 export type ChatReplyKind = ChatReplyView['kind'];
@@ -200,6 +249,7 @@ export const REPLY_KIND_LABELS: Readonly<Record<ChatReplyKind, string>> = {
   'no-result': '查無資料',
   'form-request': '需要填寫資料',
   'submission-receipt': '資料已送出',
+  'database-query': '數據庫查詢',
 };
 
 export type ChatMessageView =

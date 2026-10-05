@@ -263,7 +263,7 @@ public static class ChatFormEndpoints
                 Guid.CreateVersion7(),
                 "assistant",
                 null,
-                new ChatReplyView("submission-receipt", text, [], null, [], null, receipt),
+                new ChatReplyView("submission-receipt", text, [], null, [], null, receipt, null),
                 now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond)));
         }
 

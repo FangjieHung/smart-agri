@@ -81,6 +81,35 @@ describe('MockDemoRepository assistant chat', () => {
     expect(Object.isFrozen(chat)).toBe(true);
   });
 
+  it('answers a statistics question with the database’s record count only for those who may read its records (issue #149)', async () => {
+    const repository = createRepository();
+
+    // The data manager gets the same numbers as the trend tab's period summary.
+    const reply = ask(repository, '近 30 天有幾筆訂單問題回報？', 'account-smb-admin');
+    expect(reply.kind).toBe('database-query');
+    if (reply.kind !== 'database-query') return;
+    const summary = repository.readDatabasePeriodSummary('account-smb-admin', 'database-orders', { period: 'last-30-days', subjectId: null });
+    if (summary.status !== 'ready') throw new Error('expected the period summary');
+    expect(reply.query).toMatchObject({
+      status: summary.data.recordCount === 0 ? 'no-data' : 'answered',
+      databaseId: 'database-orders',
+      query: 'record-count',
+      period: summary.data.period,
+      figures: [{ value: summary.data.recordCount, changeLabel: summary.data.recordCountChangeLabel }],
+    });
+    expect(reply.text).toContain(summary.data.period.label);
+    expect(reply.text).toContain(reply.query.figures[0].display);
+    const suggested = chatOf(await chatAs(repository, 'account-smb-admin', ASSISTANT)).suggestedPrompts.map((prompt) => prompt.id);
+    expect(suggested).toContain('chat-order-count');
+
+    // Anyone else gets the same refusal, naming nothing, and is not offered the question.
+    const refused = ask(repository, '近 30 天有幾筆訂單問題回報？');
+    expect(refused).toMatchObject({ kind: 'database-query', query: { status: 'not-available', databaseName: null, figures: [] } });
+    expect(JSON.stringify(refused)).not.toContain('訂單資料庫');
+    // A fill-in request still gets the form.
+    expect(ask(repository, '我要回報訂單問題')).toMatchObject({ kind: 'form-request' });
+  });
+
   it('denies an unknown or unusable assistant with the same message', async () => {
     const repository = createRepository();
     const unknown = await chatAs(repository, 'account-external-customer', 'assistant-does-not-exist');

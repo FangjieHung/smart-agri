@@ -1,7 +1,7 @@
 # 後端 Milestone 5a｜網站嵌入：實作計畫
 
 **日期：** 2026-10-06
-**狀態：** 草案。第 7 節開場的四項已由負責人決定（2026-10-06）；「待確認」A–F 附有建議，確認後才拆票。issue 標題前綴用「M5a｜」。
+**狀態：** 已確認（2026-10-06）。第 7 節開場的四項由負責人決定，A–F 由負責人回覆「照建議」定案，可以拆票。issue 標題前綴用「M5a｜」。
 **依據：** [M4 結案與 M5 交接](2026-10-05-m4-closeout-m5-handoff.md) 第 3–6 節、[M3.5 計畫](2026-09-29-assistant-acceptance-milestone.md)（發布閘門）、[M3 計畫](2026-09-27-backend-milestone-3-in-platform-chat.md) 第 3 節（回答流程、AG-UI 事件、不保存對話的作法）、`docs/adr/`（milestone-order、public-channel-protection、secrets-storage、llm-providers-and-data-residency、authentication、grounded-answers、withdrawal-and-retention、assistant-access-to-knowledge-and-databases、testing-and-banned-dependencies、on-prem-packaging）、`docs/handoff/mock-to-api-mapping.md` §2.5／§3.4／§4.2、`docs/handoff/route-screen-matrix.md` §5.2、`docs/handoff/tasks-6-10-backend-handoff.md` §5.7／§6、`docs/handoff/ai-assistant-backend-integration-handoff.md` §3.2。
 **拆票方式：** 與 M1–M4 相同。每個 Slice 都是可單獨合併的垂直切片，各自附測試與驗收條件。Slice 編號是建議順序，「依賴」欄只列硬依賴。會改 migration 或 `openapi/v1.json` 的 Slice 用接續分支依序做。
 
@@ -96,7 +96,7 @@ ADR 寫的是「由伺服器以 CORS 與 `frame-ancestors` 限制」。在 ifram
 - **`frame-ancestors` 擋「誰能嵌入」**。`GET /use/{assistantId}` 依該助理的允許網域回 `Content-Security-Policy: frame-ancestors https://shop.example.com https://www.example.com; …`。助理不存在、網站頻道未發布或清單為空時回 `frame-ancestors 'none'`，畫面固定是「這個對話視窗目前無法使用」，兩種情況的狀態碼與內容逐位元組相同，不洩漏助理是否存在。
 - **「CORS」擋「誰能從瀏覽器直接呼叫訪客 API」**。訪客 API 不註冊任何 CORS 政策，跨來源的瀏覽器請求在 preflight 就失敗；伺服器另外檢查：帶有 `Origin` 標頭、且不等於 API 本身來源的請求一律 `403`。這樣惡意網站就無法繞過 iframe，在自己的頁面上直接使用訪客 API。
 - **網域格式**沿用 mock 的 `validateAllowedDomain()`：只填主機名稱、小寫、最多 5 個、不支援萬用字元與連接埠，`frame-ancestors` 一律產生 `https://<網域>`。`www.example.com` 與 `example.com` 要分別列出。Development／Testing 環境可以用 `PublicChannels:AllowLocalhostAncestors=true` 額外允許 `http://localhost:*`，Production 設成 true 會拒絕啟動。
-- **直接開啟 `/use/{id}`**（不在 iframe 裡）：見待確認 D。
+- **直接開啟 `/use/{id}`**（不在 iframe 裡）：見決定 D。
 - **誠實的限制**：這些都是**瀏覽器端**的限制。任何人都能用腳本直接呼叫訪客 API，真正擋住濫用的是第 3 節 E、F 的頻率限制與用量上限。這一點寫進部署文件。
 
 ### C. 發布閘門與「目前能不能對外回覆」（2026-10-06 決定）
@@ -111,7 +111,7 @@ ADR 寫的是「由伺服器以 CORS 與 `frame-ancestors` 限制」。在 ifram
 | `suspended-quota` | 組織當月用量已達上限（E） | 「目前暫停服務」 | 需要處理：本月用量已達上限 |
 | `serving` | 其餘情況（包含 `passed`，以及「最近一次完成的執行全部通過」的 `outdated`） | 正常對話 | 已發布 |
 
-- **發布動作**（`POST …/publishing/website:publish`）額外要求驗收狀態「現在」就是 `passed`；`outdated` 時要等重跑完成才能發布。失敗時回 `422`，`errors` 逐項列出原因（`acceptance`、`allowed-domains`、`assistant-paused`，以及待確認 B 的 `knowledge-ownership`），什麼都不寫入。
+- **發布動作**（`POST …/publishing/website:publish`）額外要求驗收狀態「現在」就是 `passed`；`outdated` 時要等重跑完成才能發布。失敗時回 `422`，`errors` 逐項列出原因（`acceptance`、`allowed-domains`、`assistant-paused`，以及決定 B 的 `knowledge-ownership`），什麼都不寫入。
 - **「過期」照常服務**：文件改版、設定變更都會自動排入重跑，過期通常只維持幾分鐘。重跑結果未通過就自動轉成 `suspended-acceptance`；之後重跑通過，就自動回到 `serving`，不需要重新發布。
 - 推導用的資料與 M3.5 相同（`AssistantAcceptanceRules`），只是多回傳「最近一次完成的執行是否全數通過」。訪客端每次建立工作階段、每次送出問題都重新判斷，不做快取，所以狀態改變會在下一個問題就生效。
 - 對訪客，`paused`、`suspended-*` 顯示同一句話，不揭露原因。
@@ -132,7 +132,7 @@ ADR 寫的是「由伺服器以 CORS 與 `frame-ancestors` 限制」。在 ifram
 
 ### E. 頻率限制
 
-ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值全部放在 `PublicChannels:RateLimits`（預設值見待確認 C）：
+ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值全部放在 `PublicChannels:RateLimits`（預設值見決定 C）：
 
 | 分區 | 對象 | 演算法 |
 | --- | --- | --- |
@@ -307,7 +307,7 @@ ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值�
 - **依賴：** 無。
 
 #### Slice 10｜admin 網站頻道改用 API
-- **內容：** 第 3 節 H：Hybrid 覆寫、發布閘門的錯誤顯示（驗收未通過時連到題組頁）、實際服務狀態與原因、嵌入程式碼、安裝偵測、發布確認對話框列出會被訪客檢索到的知識庫（待確認 B）。mock 的型別與資料一併更新。
+- **內容：** 第 3 節 H：Hybrid 覆寫、發布閘門的錯誤顯示（驗收未通過時連到題組頁）、實際服務狀態與原因、嵌入程式碼、安裝偵測、發布確認對話框列出會被訪客檢索到的知識庫（決定 B）。mock 的型別與資料一併更新。
 - **驗收：** Hybrid 測試至少一條用實際 API JSON 的 fixture；`nx test admin`；mock 模式的 `publishing.cy.ts` 照過；admin 初始 bundle 不增加。
 - **依賴：** Slice 2、Slice 6（嵌入程式碼的網址）。
 
@@ -342,7 +342,7 @@ ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值�
 | 審查項目 | 在 M5a 的處理 |
 | --- | --- |
 | 待補 5：驗收未通過時不得對外發布 | 發布閘門與自動暫停（第 3 節 C，Slice 2） |
-| 待補 5：權限變更後重跑題組 | M3.5 沒有把知識庫分享變更列為重跑觸發條件；待確認 B 讓對外回答只用擁有者自己的知識庫，分享變更就不影響對外內容 |
+| 待補 5：權限變更後重跑題組 | M3.5 沒有把知識庫分享變更列為重跑觸發條件；決定 B 讓對外回答只用擁有者自己的知識庫，分享變更就不影響對外內容 |
 | 對外上線：誰核准發布、如何暫停與回滾、額度用完通知誰 | 發布者＝擁有者且有 `manage-publishing`；暫停與取消發布（Slice 2）；用量提示給 `manage-publishing` 的帳號（Slice 3、11）；網域與嵌入測試結果（Slice 13） |
 | 客服：查無資料或高風險問題要能轉人工 | 訪客端 M5a 不做轉人工（2026-10-06 決定），以 `refusalMessage`／`nextSteps` 提供聯絡方式，發布頁提示擁有者填寫 |
 | 客服：對外回答不得引用舊政策 | 沿用知識庫的生效版本規則；文件改版會讓驗收過期並自動重跑，未通過就自動暫停 |
@@ -361,13 +361,13 @@ ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值�
 3. **發布後的閘門**：發布當下必須「通過」；之後「過期」照常服務，「未通過」或「尚未驗收」自動暫停，重跑通過後自動恢復。
 4. **用量上限**：部署預設值＋營運 CLI 調整，組織不能自行修改；用到 80% 在 admin 顯示提示，超過時暫停對外回覆；不做 Email。
 
-**待確認（附建議）：**
+**已決定（2026-10-06，負責人對待確認項回覆「照建議」）：**
 
-- **A. ADR 與用語文件隨本計畫更新。** 建議在本計畫的 PR 中：
+- **A. ADR 與用語文件隨本計畫更新**，已在本計畫的 PR 中完成：
   - [對外管道 ADR](../adr/2026-09-25-public-channel-protection.md) 新增「補充（2026-10-06）」，寫明 iframe 架構下 CORS 與 `frame-ancestors` 的分工（第 3 節 B），以及用量的計算範圍（第 3 節 F）；
   - [機敏設定 ADR](../adr/2026-09-25-secrets-storage.md) 的「影響」補上金鑰環的位置；
   - `docs/glossary.md` 新增「官網嵌入」「允許網域」「訪客」「對外發布」。
-- **B. 對外回答只能使用「助理擁有者自己擁有」的知識庫。** 目前助理可以連接別人以 `Public`（全組織）或 `SpecificAccounts` 分享給擁有者的知識庫；那些知識庫的擁有者同意的是「組織內分享」，不是放到網路上。建議：發布條件加上「連接的知識庫全部由助理擁有者擁有」，不符合時發布回 `422 knowledge-ownership` 並列出這些知識庫；已發布後才連接別人的知識庫，則實際服務狀態轉為暫停並提示原因。這樣驗收題組測到的知識範圍與訪客看到的一致。
+- **B. 對外回答只能使用「助理擁有者自己擁有」的知識庫。** 目前助理可以連接別人以 `Public`（全組織）或 `SpecificAccounts` 分享給擁有者的知識庫；那些知識庫的擁有者同意的是「組織內分享」，不是放到網路上。因此發布條件加上「連接的知識庫全部由助理擁有者擁有」，不符合時發布回 `422 knowledge-ownership` 並列出這些知識庫；已發布後才連接別人的知識庫，則實際服務狀態轉為暫停並提示原因。這樣驗收題組測到的知識範圍與訪客看到的一致。
   - 不採用的替代方案 1：發布時只顯示清單、由擁有者自行確認（知識庫擁有者沒有同意的機會）。
   - 不採用的替代方案 2：在知識庫加「允許對外助理使用」的開關，由知識庫擁有者決定（較彈性，但多一個 Slice，驗收題組與對外內容也要另外對齊）；等有「中央知識庫由專人維護」的客戶需求時再做。
 - **C. 預設數值**（全部可由部署設定覆寫）：
@@ -396,7 +396,7 @@ ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值�
 5. **「過期」可能持續很久**：重跑工作失敗（例如模型暫時不可用）時，狀態一直是 `outdated`，對外服務依舊以上一次的通過結果運作。對策：admin 在過期超過 24 小時時顯示提示；不自動暫停（依決定 3）。
 6. **widget 的 bundle**：Angular 加上 `@ag-ui/client` 可能超過預算。對策：Slice 8 先量測；`@ag-ui/client` 延後載入；必要時改用手寫解析器並由契約檢查保護（第 3 節 A）。
 7. **第三方 iframe 的瀏覽器限制**：Safari 等瀏覽器會分區或限制 iframe 內的儲存。對策：只用 `sessionStorage`，不依賴 cookie；Slice 13 在 Safari 與 Chrome 各手動驗收一次。
-8. **提示注入與知識外洩**：對外之後，任何人都能嘗試讓模型吐出知識庫內容。對策：沿用引用驗證；待確認 B 限制知識範圍；發布確認對話框明確列出「訪客可以問到的知識庫」。
+8. **提示注入與知識外洩**：對外之後，任何人都能嘗試讓模型吐出知識庫內容。對策：沿用引用驗證；決定 B 限制知識範圍；發布確認對話框明確列出「訪客可以問到的知識庫」。
 9. **E2E 測不到真正的 CSP 阻擋**：Cypress 會移除 CSP 標頭。對策：標頭以整合測試與 `cy.request` 驗證，瀏覽器實際阻擋留給 Slice 13 手動驗收。
 
 ---
@@ -407,8 +407,8 @@ ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值�
 - 訪客的表單請求、匿名提交、數據庫查詢、轉人工（2026-10-06 決定）。
 - 保存訪客對話、讓擁有者檢視對外對話；對話保存期限與自動刪除的組織設定（交接文件 §3.2「之後另排」）。
 - 組織自行設定用量上限的畫面、Email 或其他站外通知。
-- 公開連結（不經嵌入的獨立對話頁，待確認 D）、萬用字元網域、帶連接埠的網域。
-- 知識庫層級的「允許對外助理使用」開關（待確認 B 的替代方案 2）。
+- 公開連結（不經嵌入的獨立對話頁，決定 D）、萬用字元網域、帶連接埠的網域。
+- 知識庫層級的「允許對外助理使用」開關（決定 B 的替代方案 2）。
 - 人機驗證（CAPTCHA）：對外管道 ADR 決定第一版不做。
 - 依組織選擇模型的設定畫面；組織自備的模型 API 金鑰（只寫欄位的型別已就緒）。
 - 本機多語嵌入模型的評測（等完全地端部署的客戶）。

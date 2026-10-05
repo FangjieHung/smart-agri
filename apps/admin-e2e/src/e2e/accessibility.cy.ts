@@ -123,6 +123,25 @@ describe('accessibility', () => {
       auditA11y();
     });
 
+    it('keeps the suggested prompt row keyboard-scrollable while a reply is streaming', () => {
+      // 360px 手機寬度：建議問題列一定會橫向捲動；助理有表單時，送出後約 1.5 秒內都在等待判斷（串流中）。
+      cy.viewport(360, 740);
+      cy.visit('/use/assistant-customer-service');
+      cy.get('.suggestions .suggested-prompt').should('have.length.greaterThan', 1);
+      cy.injectAxe();
+      cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+      cy.get('form.composer button[type="submit"]').click();
+      cy.get('button.stop').should('be.visible');
+      cy.get('.suggestions').should(($row) => {
+        expect($row[0].scrollWidth, 'row scrolls horizontally').to.be.greaterThan($row[0].clientWidth);
+        expect($row.find('button:enabled'), 'enabled prompts').to.have.length(0);
+      });
+      cy.get('.suggestions').should('have.attr', 'tabindex', '0');
+      // 整頁掃描（不限定範圍），在串流仍進行時執行；只要有 critical／serious（含 scrollable-region-focusable）就失敗。
+      cy.checkA11y(undefined, { includedImpacts: ['critical', 'serious'] });
+      cy.get('button.stop').should('be.visible');
+    });
+
     it('traps focus inside the citation drawer and returns it on close', () => {
       cy.visit('/use/assistant-customer-service');
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');

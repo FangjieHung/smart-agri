@@ -457,3 +457,37 @@
 
 - `eval-form-requests`（`apps/api/eval/form-requests/` 48 題標記題庫）比較關鍵字與模型的漏觸／誤觸；結果記錄於 `docs/evals/2026-10-05-164-form-request-trigger.md`：關鍵字漏觸 10/18、誤觸 8/18；`gpt-6-luna` 0/18、0/18；`gpt-4o-mini` 1/18、0/18。程式預設維持 `Keyword`，正式環境是否切換為 `Model` 由負責人決定。
 - `Ai:Chat:ReasoningEffort`（`None`／`Low`／`Medium`／`High`／`ExtraHigh`，未設定時用供應商預設）：推理型模型（例如 `gpt-6-luna`）在 Chat Completions 上必須設為 `None` 才能使用工具，否則本票的表單工具與 #149 的查詢工具都會回 HTTP 400。
+
+## 15. #171 對話表單請求體驗：等待事件、可用表單與關閉紀錄（2026-10-05）
+
+畫面規格見 `docs/plans/2026-10-05-171-form-request-ux-handoff.md`；本節只記 API 契約（交接文件的 E1–E3）。
+
+### 15.1 E1 等待事件 `CUSTOM smartagri.form-check`
+
+- `POST …/chat/runs` 的串流在 `Model` 模式（§14）實際進行表單判斷時，於選擇呼叫**之前**送一個 `CUSTOM`，`name` 為 `smartagri.form-check`、`value` 為空物件 `{}`（`ChatRunEndpoints.FormCheckEventName`）。位置：`TEXT_MESSAGE_START` 之後；#149 的查詢若已回答就不會走到這裡（優先序不變：查詢 → 表單 → 一般回答）。
+- 只在 `Chat:FormRequests:Trigger = Model` **且** `AssistantFormRequests.FormRequestAsync(assistant, null)` 找到此刻可用的寫入對象時送出，每次執行最多一次。關鍵字模式、沒有寫入對象的助理一律不送（事件序列與 §10.2 完全相同，AG-UI 錄製檔不變）。
+- 前端收到才顯示「判斷中」狀態，收到第一個 `TEXT_MESSAGE_CONTENT`（一般回答或表單請求的固定文字）或 `smartagri.reply` 就收起。模型呼叫失敗退回關鍵字時，事件已經送出，同樣在之後的第一段文字收起。`@ag-ui/client` 接受文字訊息進行中的 `CUSTOM` 事件（已用 `HttpAgent` 驗證）。
+
+### 15.2 E2 可用表單 `GET /api/v1/assistants/{id}/chat/forms`
+
+| 權限 | 成功 | 錯誤 |
+| --- | --- | --- |
+| 登入＋可使用助理（`ChatEndpoints.FindUsableAsync`，同 §10.4 第 1–2 步） | `200 ChatFormRequestView[]` | `401`；`403 assistant-use`（未分享、他組織、不存在，逐位元組相同） |
+
+- 清單＝`FormRequestAsync(assistant, null)`：與對話中跳出的表單**同一個物件**（`id`、`title`、`formVersion`、`fields`、`consent`），每次請求重新授權、不快取。交接文件只要求 id 與名稱，回傳完整表單是為了讓「回報資料」入口直接開啟同一張卡片、不必再多一個讀取端點。
+- 每個助理最多一個寫入對象（§10.1 的部分唯一索引），所以目前清單只有 0 或 1 筆；空清單時前端不顯示入口。之後若允許多個寫入對象，契約不變。
+
+### 15.3 E3 關閉紀錄 `POST /api/v1/assistants/{id}/chat/forms/{databaseId}/dismissals`
+
+| 請求 | 權限與檢查順序 | 成功 | 錯誤 |
+| --- | --- | --- | --- |
+| `{ threadId? }`（整個 body 可省略） | `401` → 可使用助理（`403 assistant-use`）→ 有保存對話且指定 `threadId` 時必須是呼叫者自己的對話（`403 chat-thread`）→ `databaseId` 是助理此刻可用的寫入對象（`403 assistant-form`） | `204` | 拒絕時不寫入任何東西 |
+
+- 資料表 `ChatFormDismissals`（migration `AddChatFormDismissals`）：`Id`、`OrganizationId`、`AssistantId`、`DatabaseId`、`At`。**不記帳號、對話、問題或任何填寫內容**（`ChatFormDismissal` 沒有任何字串屬性，網域測試鎖住欄位清單）；比照 `AnswerOutcomes` 是營運紀錄，沒有外鍵，助理或數據庫刪除後仍保留；索引 `(OrganizationId, AssistantId, At)` 供抽樣查詢。
+- 只有對話中跳出的表單（`form-request` 訊息開啟的卡片）在使用者按「不用了」或 × 時記錄；從「回報資料」入口自己開啟的卡片關閉時不記錄。關鍵字模式下也會記錄（同樣是誤觸訊號）；抽樣時以當時的 `Chat:FormRequests:Trigger` 區分。
+- 用途：上線後抽樣檢查誤觸（`docs/evals/2026-10-05-164-form-request-trigger.md` 第 5 節）。目前沒有讀取端點，以資料庫查詢抽樣。
+
+### 15.4 測試
+
+- 整合（`ChatFormRequestUxTests`，真實 PostgreSQL，7 個）：`Model` 模式有寫入對象時事件恰好一次、在 `TEXT_MESSAGE_START` 之後與第一段文字之前（給表單、不給表單、模型失敗退回關鍵字三種）；關鍵字模式與清除寫入對象的助理不送；清單與表單請求的 `form` 完全相同、清除寫入對象後是 `[]`；未分享、他組織、不存在的助理一律相同的 `403 assistant-use`；關閉紀錄只有助理、表單與時間，另一位成員指定別人的對話是 `403 chat-thread`、他組織 `403 assistant-use`、非寫入對象 `403 assistant-form`，拒絕時不寫入。網域：`ChatFormDismissalTests`。
+- 前端與 Cypress 見交接文件的驗收對照與 PR 說明。

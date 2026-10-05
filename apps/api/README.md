@@ -640,6 +640,14 @@ form (`request_database_form`, #148) is decided by:
 
 Anything else fails startup. `eval-form-requests` (below) compares the two on a labelled set.
 
+In `Model` mode, a run that is about to make that selection call first sends `CUSTOM smartagri.form-check`
+(empty value; #171) so the client can show a "checking" state; keyword mode and assistants without a form
+target never send it. `GET /api/v1/assistants/{id}/chat/forms` lists the form(s) the caller may open from
+the conversation's 「回報資料」 entry (the same `ChatFormRequestView` a form request carries; empty when
+none), and `POST …/chat/forms/{databaseId}/dismissals` records that the member closed an offered form
+(`ChatFormDismissals`: assistant, form, time — no account, conversation or content). Contracts: M4 design
+doc §15.
+
 **Protocol check with the JavaScript client.** `tools/agui-contract/fixtures/*.sse` are streams
 recorded from the real endpoint (ids, timestamps and dates normalized).
 `ChatRunEndpointsTests.The_recorded_streams_match_the_fixtures_the_ag_ui_client_check_parses`

@@ -3,8 +3,28 @@ import { AnonymousVisitorService } from '../session/anonymous-visitor.service';
 import { DemoSessionService } from '../session/demo-session.service';
 import type { DemoRepository } from './demo-repository';
 import { readDemoScenario } from './demo-scenario-param';
-import { DEMO_SEED, type DemoSeed } from './demo-seed';
-import { MockDemoRepository, type MockDemoRepositoryOptions } from './mock-demo-repository';
+import type { DemoSeed } from './demo-seed';
+import type { MockDemoRepositoryOptions } from './mock-demo-repository';
+
+/**
+ * mock repository 與 seed 資料約 150 kB，不放進初始 bundle：啟動時由
+ * `provideAppInitializer(loadMockRepositoryModules)` 動態載入（獨立 lazy chunk），
+ * 之後 `DEMO_REPOSITORY` 的 factory 仍可同步取用，使用端不必改成非同步。
+ */
+type MockRepositoryModules = {
+  repository: typeof import('./mock-demo-repository');
+  seed: typeof import('./demo-seed');
+};
+let mockModules: MockRepositoryModules | null = null;
+
+export async function loadMockRepositoryModules(): Promise<void> {
+  if (mockModules !== null) return;
+  const [repository, seed] = await Promise.all([
+    import('./mock-demo-repository'),
+    import('./demo-seed'),
+  ]);
+  mockModules = { repository, seed };
+}
 
 /**
  * API 模式才有的 repository 建構方式（`HybridDemoRepository`），由 `provideApiMode()` 提供。
@@ -33,6 +53,11 @@ export const DEMO_REPOSITORY = new InjectionToken<DemoRepository>(
         chatViewer: () => session.activeAccountId() ?? visitor.visitorId(),
       };
       // API 模式：已接上 API 的方法走 HTTP，其餘仍由 mock 回答。
+      if (mockModules === null) {
+        throw new Error('loadMockRepositoryModules() must resolve before DEMO_REPOSITORY is injected.');
+      }
+      const { MockDemoRepository } = mockModules.repository;
+      const { DEMO_SEED } = mockModules.seed;
       const createApiRepository = inject(API_DEMO_REPOSITORY_FACTORY);
       const repository =
         createApiRepository?.(DEMO_SEED, options) ?? new MockDemoRepository(DEMO_SEED, options);

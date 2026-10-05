@@ -372,7 +372,7 @@
 
 ### 13.1 資料模型
 
-- **`AssistantReportSchedules`**（`ReportSchedule`）：一位助理最多一列（`AssistantId` 唯一索引）。`Id`、`DatabaseId`、`Frequency`（`weekly`／`monthly`）、`NextPeriodFrom`（`date`，下一個要報告的期間的第一天，統計時區的曆日）、`CreatedAt`。外鍵都含 `OrganizationId`、都 `Cascade`（刪助理或資料庫，排程跟著結束）；**刻意沒有指向 `AssistantDatabases`**，所以解除連接後排程還在，下一期才能記錄「為什麼沒產生」。
+- **`AssistantReportSchedules`**（`ReportSchedule`）：一位助理最多一列（`AssistantId` 唯一索引）。`Id`、`DatabaseId`、`Frequency`（`weekly`／`monthly`）、`NextPeriodFrom`（`date`，下一個要報告的期間的第一天，統計時區的曆日）、`CreatedAt`；#179 起另有 `ConsecutiveSkips`、`AutoDisabledAt`、`AutoDisabledReason`（連續略過自動停用，見 §18）。外鍵都含 `OrganizationId`、都 `Cascade`（刪助理或資料庫，排程跟著結束）；**刻意沒有指向 `AssistantDatabases`**，所以解除連接後排程還在，下一期才能記錄「為什麼沒產生」。
 - **`DatabaseReports`**（`DatabaseReport`）：每一期一份**快照**。`DatabaseId`（外鍵＋`Cascade`）、`AssistantId`（無外鍵，報表比助理活得久）＋`AssistantName`（複本）、`Frequency`、`PeriodFrom`／`PeriodTo`（`date`）、`Status`（`generated`／`skipped`）、`SkipReason`（`not-connected`／`owner-cannot-read`）、`DataState`（`sufficient`／`insufficient-records`）、`StatisticsJson`（`jsonb`，固定查詢 `period-summary` 的結果原樣）、`GeneratedAt`；**摘要與統計分開保存**：`SummaryStatus`（`not-requested`／`pending`／`ready`／`failed`／`discarded`）、`SummaryText`（只有 `ready`）、`SummaryNote`、`SummaryModel`、`SummaryUpdatedAt`。唯一索引 `IX_DatabaseReports_OnePerPeriod (AssistantId, DatabaseId, Frequency, PeriodFrom)`：同一設定同一期間只有一份。check constraint：`generated` 一定有統計與資料狀態、沒有略過原因，`skipped` 相反；只有 `ready` 的摘要有文字與模型名稱。
 - 列舉值全部用 wire name 儲存，`ModelInvocationPurpose` 多 `generate-report-summary`。
 - 兩張表都是 `IOrganizationScoped`（查詢過濾與寫入守衛照常；`OrganizationModelTests` 白名單加入）。migration：`AddPeriodicReports`。
@@ -383,13 +383,13 @@
 
 - 報告的是助理的**寫入對象**（`dataWriteDatabaseId`）。設週期但沒有寫入對象 `422 periodicReport`；新設定的寫入對象必須在 `AssistantFormRequests.UsableDatabaseIdsAsync`（已連接、且擁有者目前可使用——自己擁有，或被指定且具讀取權限）內，否則 `422`。未知的值 `422`。
 - 週期或資料庫變了，就**換掉**排程（新的 `Id`，舊的已排入佇列的工作找不到排程，什麼都不做）；寫入對象改了，排程跟著移；清掉寫入對象，報表關閉；`off` 刪除排程（已產生的報表保留）。沒有帶 `periodicReport`、也沒動寫入對象的 `PATCH` 不會碰排程（它可能正在等著記錄略過的期間）。
-- 設定回應的 `rules.periodicReport` 讀回目前排程的週期（沒有就是 `off`）。
+- 設定回應的 `rules.periodicReport` 讀回目前排程的週期（沒有就是 `off`）；排程自動停用時仍是原週期，另以 `periodicReportAutoDisabled` 說明，重新啟用見 §18。
 
 ### 13.3 排程（PostgreSQL 背景工作，沒有新的排程套件）
 
 - 排程是一串**自我接續的工作**，不是時鐘：設定時排入「包含今天的那一期」的工作（`reports.generate-period`，`RunAfter` ＝ 該期結束後隔天 00:00，統計時區換成 UTC）；工作做完，在同一個交易內把 `NextPeriodFrom` 以 compare-and-set（`ExecuteUpdate … WHERE NextPeriodFrom = 這一期`）推到下一期，**只有推成功才排下一個工作**。工作被送兩次、或 worker 停機後補跑，每一期仍只產生一次、依序補齊；補跑的工作報告的是它名下的那一期，不是「現在」所在的那一期（`DatabaseFixedQueryService.PeriodSummaryForAsync` 接收明確的期間與前一期）。
 - 期間：統計時區（`Statistics:TimeZone`，預設 `Asia/Taipei`）的曆日週（週一到週日）或曆月；前一期是完整的前一個曆週／曆月（`ReportPeriods`，單元測試涵蓋大小月與閏年）。
-- 每期做的事（`GenerateDatabaseReportHandler`，一個交易）：排程不在或 `NextPeriodFrom` 不是這個工作的期間 → 什麼都不做；期間的報表已存在 → 不再產生，仍推進接續；助理已不再連接 → 存 `skipped / not-connected`；**以助理擁有者的帳號**呼叫同一個固定查詢服務，`Readable = false`（擁有者已不是指定且具權限的資料管理者）→ 存 `skipped / owner-cannot-read`；否則存統計。略過的期間不含任何統計，仍每期記一筆（擁有者的設定頁仍顯示原設定）。
+- 每期做的事（`GenerateDatabaseReportHandler`，一個交易）：排程不在或 `NextPeriodFrom` 不是這個工作的期間 → 什麼都不做；期間的報表已存在 → 不再產生，仍推進接續；助理已不再連接 → 存 `skipped / not-connected`；**以助理擁有者的帳號**呼叫同一個固定查詢服務，`Readable = false`（擁有者已不是指定且具權限的資料管理者）→ 存 `skipped / owner-cannot-read`；否則存統計。略過的期間不含任何統計，仍每期記一筆（擁有者的設定頁仍顯示原設定）；**連續第 3 期略過時排程自動停用、不再排下一期**（#179，見 §18）。
 - **資料不足**：`DataState = insufficient-records` ＝ 這一期或前一期有效紀錄為 0（`ReportDataRules`）。統計照存（0 就是 0），但畫面不顯示變化、圖表趨勢，也**不排摘要工作**、不呼叫模型。
 - 狀態表：只有 `Sufficient` 的報表同一個交易內排一個 `reports.summarize`（`MaxAttempts = 3`）。
 
@@ -410,7 +410,7 @@
 ### 13.6 保留規則
 
 - **已產生的報表不追溯修改**：統計是快照，沒有任何重算的程式路徑；撤回只影響之後產生的報表（新報表走 `DatabaseActiveRecords`，已排除撤回；下一期的「前一期」數字也不含已撤回的紀錄）。整合測試：產生 → 撤回 → 舊報表 `StatisticsJson` 逐位元組相同、下一期的前一期數字少了那一筆。
-- 報表只含彙總數字（筆數、加總），沒有紀錄內容或提交者。刪除資料庫連帶刪除它的報表（`Cascade`）；刪除助理不刪報表（名稱是複本）。報表本身沒有到期刪除（沿用撤回與保存 ADR 的規則，之後若要加保存期限，在這裡處理）。
+- 報表只含彙總數字（筆數、加總），沒有紀錄內容或提交者。刪除資料庫連帶刪除它的報表（`Cascade`）；刪除助理不刪報表（名稱是複本）。報表本身沒有到期刪除（沿用撤回與保存 ADR 的規則，之後若要加保存期限，在這裡處理；負責人 2026-10-05 決定目前不設保存期限，#179）。
 - 摘要的文字是模型輸出、存在報表列上，不進 `ModelInvocations`；失敗與捨棄的摘要不留文字。
 
 ### 13.7 前端
@@ -560,3 +560,40 @@
 - 整合（真實 PostgreSQL）：`ChatDatabaseQueryEndpointsTests`——成功、無資料、資料不足、無權成員、不在清單的數據庫、定義外工具、模型失敗，每次執行恰好多一筆對應結果的 `database-query`（通道 `chat`、無原因、無引用）；不查詢（`#query-none`）不寫；工具失敗另一筆 `failed`。`AnswerOutcomeAndAnalyticsEndpointsTests`——加入查詢列後助理分析與營運彙總的既有數字不變，`databaseQueries` 各類筆數與失敗率正確，範圍外不計。
 - 前端：`operations-summary-page.component.spec.ts`（另一區塊、助理列不變、空狀態）、`hybrid-demo-repository.spec.ts`、`mock-demo-repository-settings.spec.ts`（mock 形狀與一致性、無權限）。Cypress 沒有任何規格寫死回覆類型或營運彙總（`grep` 確認），未修改。
 
+## 18. #179 定期報表連續略過自動停用（2026-10-05）
+
+負責人決定（2026-10-05）：擁有者失權或解除連接後，排程**連續略過 3 期就自動停用**，停用後不再產生略過紀錄；有權限者可以重新啟用。報表保留期限先不設（§13.6）。
+
+### 18.1 資料（migration `AddReportScheduleAutoDisable`，接在 `AddAnswerOutcomeDatabaseQueryResults` 之後）
+
+- `AssistantReportSchedules` 新增 `ConsecutiveSkips`（`integer`，非空，預設 0）、`AutoDisabledAt`（`timestamptz`，可空）、`AutoDisabledReason`（`varchar(32)`，可空，wire name `not-connected`／`owner-cannot-read`）。
+- check constraint：`CK_AssistantReportSchedules_ConsecutiveSkips`（`>= 0`）、`CK_AssistantReportSchedules_AutoDisabled`（`("AutoDisabledAt" IS NULL) = ("AutoDisabledReason" IS NULL)`，停用一定有原因，沒停用一定沒有）。
+- 門檻 `ReportSchedule.AutoDisableAfterSkips = 3`。既有排程 migrate 後計數從 0 開始（**不回溯**已累積的略過紀錄；那些 `DatabaseReports` 列原樣保留）。
+
+### 18.2 計數與停用（`GenerateDatabaseReportHandler`，仍是一個交易）
+
+- 每期的結果：新產生的報表，或（同期已有報表時）既有那一份的狀態。略過 → 計數 +1；產生（含紀錄不足）→ 歸零（`ReportScheduleRules.AfterPeriod`，純函式）。
+- 計數、停用與推進 `NextPeriodFrom` 在**同一個 compare-and-set**：`ExecuteUpdate … WHERE Id = 排程 AND NextPeriodFrom = 這一期 AND ConsecutiveSkips = 讀到的值 AND AutoDisabledAt IS NULL`，與略過列在同一個交易。重複送達的工作推不動，所以不會重複計數、也不會多排接續工作；「同一期只有一份」的唯一索引不變。
+- 第 3 次連續略過：該期的略過列照存，`AutoDisabledAt` ＝ 處理時間、`AutoDisabledReason` ＝ 該期的略過原因，`NextPeriodFrom` 照樣推進，但**不排下一期的工作**。
+- 停用後：任何仍送達的工作（遲到、重複、手動排入）看到 `AutoDisabledAt` 就什麼都不做——不寫報表列、不改排程、不排工作。
+- 排程列保留（不刪），擁有者的設定頁才能顯示原因；刪除助理或資料庫照舊連帶刪除。
+
+### 18.3 API 契約
+
+- `GET`／`PATCH /api/v1/assistants/{id}/settings` 回應新增必填（可為 `null`）的 `periodicReportAutoDisabled`（`PeriodicReportAutoDisabledView`）：`disabledAt`、`reason`（`ReportSkipReason`）、`skippedPeriods`（連續略過期數，即 3）、`message`（中文說明，`ReportScheduleRules.AutoDisabledMessage`）。沒有排程或排程執行中為 `null`。停用期間 `rules.periodicReport` 仍是原本的週期。
+- **重新啟用沒有新端點**：在既有的 `PATCH .../settings` 帶 `rules.periodicReport` ＝ `weekly`／`monthly`（同一個週期或另一個）即重新啟用（`ReportScheduleRules.Resumes`）。
+  - 權限與新設定完全相同：不能管理這個助理 → 與其他設定變更相同的 `403 assistant-configuration`（逐位元組相同）；寫入對象不在 `UsableDatabaseIdsAsync`（已連接、擁有者目前可使用）→ `422 periodicReport`（`TargetNotUsableMessage`）；沒有寫入對象 → `422 periodicReport`（`NeedsTargetMessage`）。被拒時排程原樣不動。
+  - 通過後**換掉**排程（新 `Id`、計數 0、`NextPeriodFrom` ＝ 包含今天的那一期），排入該期結束時的工作。**不補做**停用期間錯過的期間。
+  - 沒有帶 `periodicReport` 的 `PATCH`（例如只改收集目的）不會重新啟用；改寫入對象、改週期本來就會換掉排程，所以也會得到一個執行中的新排程；`off` 照舊刪除排程。
+- `GET /api/v1/databases/{id}/reports` 的 `schedules` **不列出**已停用的排程（不會再有下一份報表）；已產生的報表（含 3 筆略過）照常列出。
+
+### 18.4 前端
+
+- `AssistantSettingsView.periodicReportAutoDisabled`；「回答與記錄」頁籤的 `#periodic-report` 下方顯示「已自動停用」區塊（`#periodic-report-auto-disabled`，`role="status"`，也加入下拉選單的 `aria-describedby`）：伺服器的說明、停用時間、「停用後不再產生報表或略過紀錄；重新啟用時會再次確認權限，從目前這一期重新開始，不補做停用期間」，以及「重新啟用」按鈕（`AssistantSettingsStore.resumePeriodicReport()` 再送一次目前週期；儲存中停用按鈕）。被拒時錯誤照舊顯示在 `periodicReport` 欄位下。
+- Hybrid：照收 API 的值；舊版回應沒有這個鍵時當成沒有停用。mock：狀態存在助理設定紀錄裡（mock 沒有排程工作，不會自己停用；測試直接寫入儲存模擬），停用時不產生報表也不列排程；重新啟用時寫入對象必須仍連接（否則同一句 `422` 訊息）；帶 `periodicReport` 或換寫入對象就清除停用，只改其他欄位維持停用——與 API 相同。
+
+### 18.5 測試
+
+- 應用：`ReportRulesTests`——第 3 次連續略過停用並帶該期原因、產生歸零、只有帶週期的請求才重新啟用、停用說明文字。
+- 整合（真實 PostgreSQL，`PeriodicReportEndpointsTests`）：連續 3 期略過後停用、記錄原因、不排下一期、設定回應與報表清單、停用後再送達的工作不寫任何東西、只改收集目的不會重新啟用；中間一期產生使計數歸零（略過、略過、產生、略過、略過仍執行中）；重新啟用——無權者與其他設定變更相同的 `403`、擁有者仍不可用時 `422` 且排程不動、恢復指定後換成新排程（計數 0、從包含今天的那一期開始、只一個工作）、再送一次不重複、同期已有報表時不產生第二份。
+- 前端：`hybrid-demo-repository-reports.spec.ts`（**真實 API JSON**：停用、重新啟用、被拒）、`mock-demo-repository-databases.spec.ts`、`assistant-settings.store.spec.ts`、`answer-rules-form.component.spec.ts`。Cypress 沒有規格寫死排程狀態（`grep` 確認），未修改。

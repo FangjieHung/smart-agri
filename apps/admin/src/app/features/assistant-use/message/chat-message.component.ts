@@ -29,6 +29,8 @@ export class ChatMessageComponent {
   readonly message = input.required<ChatMessageView>();
   /** 此訊息的表單已在下方開啟時，隱藏開始按鈕。 */
   readonly formActive = input(false);
+  /** 使用者已用「不用了」或 × 關閉這則訊息開啟的表單（issue #171）：訊息改成已關閉的說明。 */
+  readonly formDismissed = input(false);
 
   readonly openCitations = output<CitationRequest>();
   readonly startForm = output<ChatFormView>();

@@ -1,0 +1,8 @@
+<div class="form-check" role="status">
+  <span class="visually-hidden">{{ statusText }}</span>
+  <p class="phrases" aria-hidden="true">
+    @for (phrase of phrases; track phrase; let index = $index) {
+      <span class="phrase" [style.--phrase-index]="index">{{ phrase }}</span>
+    }
+  </p>
+</div>

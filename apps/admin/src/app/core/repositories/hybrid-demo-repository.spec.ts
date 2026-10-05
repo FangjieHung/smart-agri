@@ -1945,6 +1945,44 @@ describe('HybridDemoRepository chat (issue #79)', () => {
     expect(mockRecords()).toBe(before);
   });
 
+  it('lists the entry forms and records a dismissal over HTTP (#171)', async () => {
+    const { repository } = setUpChat();
+    const databaseId = '0199d000-0000-7000-8000-0000000000d1';
+    // The list item is exactly the API's ChatFormRequestView, the same object a form request carries.
+    const formJson = JSON.stringify((JSON.parse(FORM_REQUEST_JSON) as ApiChatMessageView).reply?.form);
+
+    const listed = pending(repository.listChatForms('account-smb-admin', CHAT_ASSISTANT_ID));
+    controller.expectOne({ method: 'GET', url: `${apiAssistantPath(CHAT_ASSISTANT_ID)}/chat/forms` }).flush(JSON.parse(`[${formJson}]`));
+    const result = await listed;
+    if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]).toMatchObject({ id: databaseId, title: '客戶資料庫', formVersion: 2 });
+    expect(result.data[0].consent.recipient).toBe('表單商行（客戶資料庫）');
+
+    const empty = pending(repository.listChatForms('account-smb-admin', CHAT_ASSISTANT_ID));
+    controller.expectOne(`${apiAssistantPath(CHAT_ASSISTANT_ID)}/chat/forms`).flush([]);
+    expect(await empty).toEqual({ status: 'ready', data: [] });
+
+    const denied = pending(repository.listChatForms('account-smb-admin', CHAT_ASSISTANT_ID));
+    controller.expectOne(`${apiAssistantPath(CHAT_ASSISTANT_ID)}/chat/forms`).flush(
+      { reason: 'assistant-use', message: '你沒有使用這個助理的權限。' },
+      { status: 403, statusText: 'Forbidden' },
+    );
+    expect(await denied).toMatchObject({ status: 'permission-denied', reason: 'assistant-use' });
+
+    const dismissed = pending(repository.dismissChatForm('account-smb-admin', CHAT_ASSISTANT_ID, databaseId, CHAT_THREAD_ID));
+    const request = controller.expectOne({ method: 'POST', url: `${apiAssistantChatFormPath(CHAT_ASSISTANT_ID, databaseId)}/dismissals` });
+    expect(request.request.body).toEqual({ threadId: CHAT_THREAD_ID });
+    request.flush(null, { status: 204, statusText: 'No Content' });
+    expect(await dismissed).toEqual({ status: 'ready', data: null });
+
+    const otherThread = pending(repository.dismissChatForm('account-smb-admin', CHAT_ASSISTANT_ID, databaseId));
+    const refused = controller.expectOne(`${apiAssistantChatFormPath(CHAT_ASSISTANT_ID, databaseId)}/dismissals`);
+    expect(refused.request.body).toEqual({ threadId: null });
+    refused.flush({ reason: 'chat-thread', message: '找不到這段對話，或它不屬於你的帳號。' }, { status: 403, statusText: 'Forbidden' });
+    expect(await otherThread).toMatchObject({ status: 'permission-denied', reason: 'chat-thread' });
+  });
+
   it('maps a revoked form, a changed form, a missing consent and a reused key to recoverable results', async () => {
     const { repository } = setUpChat();
     const databaseId = '0199d000-0000-7000-8000-0000000000d1';

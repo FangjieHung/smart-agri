@@ -1,0 +1,106 @@
+:host { display: contents; }
+
+p, ul, h2 { margin: 0; }
+ul { padding: 0; list-style: none; }
+
+.entry { position: relative; display: flex; flex: 0 0 auto; }
+
+/* 次要按鈕：白底、主色框與字。 */
+.entry-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.entry-icon { flex: 0 0 auto; }
+
+/* 桌面：在按鈕上方展開。 */
+.menu {
+  position: absolute;
+  inset-block-end: calc(100% + var(--space-2));
+  inset-inline-start: 0;
+  z-index: 30;
+  display: grid;
+  gap: var(--space-2);
+  inline-size: min(380px, calc(100vw - var(--space-8)));
+  padding: var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(28 39 51 / 24%);
+}
+.menu-title, .menu-note { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+.menu-title { font-weight: 700; }
+.menu ul { display: grid; gap: var(--space-1); }
+.menu [role='menuitem'] {
+  inline-size: 100%;
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+}
+.menu [role='menuitem']:hover, .menu [role='menuitem']:focus { background: var(--color-accent-soft); }
+
+/* 手機：底部面板。 */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(28 39 51 / 40%);
+}
+.sheet {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 41;
+  display: grid;
+  gap: var(--space-3);
+  max-block-size: 80dvh;
+  overflow-y: auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
+  border-radius: var(--radius-container) var(--radius-container) 0 0;
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(28 39 51 / 24%);
+}
+.sheet-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.sheet-header h2 { font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.sheet-close {
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+.sheet-detail { color: var(--color-text-secondary); font-size: var(--font-size-caption); line-height: var(--line-height-body); }
+.sheet-options { display: grid; gap: var(--space-2); }
+.sheet-options button {
+  inline-size: 100%;
+  min-block-size: 56px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+}
+
+button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.menu [role='menuitem']:focus-visible { outline-offset: calc(-1 * var(--focus-offset)); }

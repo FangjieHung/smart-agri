@@ -72,8 +72,9 @@
               <app-chat-message
                 [message]="message"
                 [formActive]="isFormRequest(message) && flow().step !== 'closed'"
+                [formDismissed]="isDismissed(message)"
                 (openCitations)="openCitations($event)"
-                (startForm)="startForm($event)"
+                (startForm)="startForm($event, message.id)"
                 (withdrawSubmission)="askWithdraw($event)"
               />
               @if (handoffExchange(message)) {
@@ -86,8 +87,9 @@
               <app-chat-message
                 [message]="entry.message"
                 [formActive]="isFormRequest(entry.message) && flow().step !== 'closed'"
+                [formDismissed]="isDismissed(entry.message)"
                 (openCitations)="openCitations($event)"
-                (startForm)="startForm($event)"
+                (startForm)="startForm($event, entry.message.id)"
                 (withdrawSubmission)="askWithdraw($event)"
               />
               @if (handoffExchange(entry.message)) {
@@ -108,9 +110,14 @@
             <li><app-chat-message [message]="pendingQuestion(active.question)" /></li>
           }
           @if (active.phase === 'streaming') {
-            <li class="streaming" aria-busy="true">
-              <app-streaming-reply [text]="active.text" />
-            </li>
+            @if (active.checking) {
+              <!-- 伺服器正在判斷要不要跳出表單（issue #171 ①）：判斷完淡出，原位換成「正在回答…」或表單請求。 -->
+              <li app-form-check-status animate.leave="form-check-leave"></li>
+            } @else {
+              <li class="streaming" aria-busy="true">
+                <app-streaming-reply [text]="active.text" />
+              </li>
+            }
           } @else if (active.phase === 'failed') {
             <li>
               <div class="run-error" role="alert">
@@ -139,14 +146,17 @@
         <p class="form-notice" role="status">{{ formNotice() }}</p>
       }
       @let activeFlow = flow();
+      <div #formSlot class="form-slot">
       @switch (activeFlow.step) {
         @case ('form') {
           <app-inline-form
             [form]="activeFlow.form"
             [answers]="activeFlow.answers"
             [errors]="activeFlow.errors"
+            [showActivityLink]="!anonymous()"
             (review)="reviewForm($event)"
             (cancelled)="cancelForm()"
+            (leaveRequested)="requestLeave()"
           />
         }
         @case ('consent') {
@@ -160,9 +170,16 @@
           />
         }
       }
+      </div>
     </main>
 
+    @let forms = entryForms();
     <footer class="composer-area">
+      @if (forms.length > 0 && compact()) {
+        <div class="entry-row">
+          <app-form-entry [forms]="forms" [compact]="true" (selected)="openFromEntry($event)" />
+        </div>
+      }
       @if (current.suggestedPrompts.length > 0) {
         <div class="suggestions" role="group" aria-label="建議問題">
           @for (prompt of current.suggestedPrompts; track prompt.id) {
@@ -173,6 +190,9 @@
         </div>
       }
       <form class="composer" (submit)="submitDraft($event)">
+        @if (forms.length > 0 && !compact()) {
+          <app-form-entry [forms]="forms" (selected)="openFromEntry($event)" />
+        }
         <label for="chat-input" class="visually-hidden">輸入你的問題</label>
         <input
           #composerInput
@@ -187,7 +207,10 @@
           (input)="updateDraft($event)"
         />
         <!-- 回答完成前鎖住送出，避免同一段對話重複送出（後端也會回 409）。 -->
-        <button type="submit" [disabled]="streaming()">送出</button>
+        <!-- 手機寬度：等待／串流中只顯示「停止回答」，不顯示「送出」（issue #171）。 -->
+        @if (!(compact() && streaming())) {
+          <button type="submit" [disabled]="streaming()">送出</button>
+        }
         @if (streaming()) {
           <button #stopButton type="button" class="stop" (click)="stop()">停止回答</button>
         }
@@ -224,6 +247,26 @@
       <div class="confirm-actions">
         <button #withdrawCancelButton type="button" class="confirm-cancel" (click)="cancelWithdraw()">取消</button>
         <button type="button" class="confirm-withdraw" (click)="confirmWithdraw()">撤回</button>
+      </div>
+    </div>
+  }
+
+  @if (pendingLeave()) {
+    <div class="confirm-backdrop"></div>
+    <div
+      class="confirm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="leave-confirm-title"
+      aria-describedby="leave-confirm-detail"
+      cdkTrapFocus
+      (keydown.escape)="cancelLeave()"
+    >
+      <h2 class="confirm-title" id="leave-confirm-title">前往我送出的資料？</h2>
+      <p class="confirm-detail" id="leave-confirm-detail">離開會清除已填的內容。</p>
+      <div class="confirm-actions">
+        <button #leaveCancelButton type="button" class="confirm-cancel" (click)="cancelLeave()">繼續填寫</button>
+        <button type="button" (click)="confirmLeave()">離開</button>
       </div>
     </div>
   }

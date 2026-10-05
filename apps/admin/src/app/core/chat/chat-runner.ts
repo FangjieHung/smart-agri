@@ -53,11 +53,13 @@ export interface ChatRunError {
 }
 
 /**
- * 一次回答的事件，順序固定為 `text-delta`…→`reply`→（`thread`），或在任何時候以
- * `error` 結束。`reply` 是最終的訊息（id 以它為準），畫面用它**整則取代**串流文字——
+ * 一次回答的事件，順序固定為（`form-check`）→`text-delta`…→`reply`→（`thread`），或在任何時候以
+ * `error` 結束。`form-check`（issue #171）：伺服器正在判斷要不要跳出表單（只有模型判斷模式、
+ * 助理有可用表單時才會送），畫面顯示等待狀態，直到第一段文字或 `reply`。`reply` 是最終的訊息（id 以它為準），畫面用它**整則取代**串流文字——
  * 引用驗證失敗時它就是 `no-result`（M3 計畫第 3 節「先串流、驗證失敗時整則替換」）。
  */
 export type ChatRunEvent =
+  | { readonly type: 'form-check' }
   | { readonly type: 'text-delta'; readonly delta: string }
   | { readonly type: 'reply'; readonly message: ChatMessageView }
   | { readonly type: 'thread'; readonly threadId: ChatThreadId; readonly title: string }

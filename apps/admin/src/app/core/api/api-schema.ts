@@ -712,7 +712,7 @@ export interface paths {
         put?: never;
         /**
          * Answer one question as an AG-UI event stream
-         * @description Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch). 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply / smartagri.thread, RUN_FINISHED or RUN_ERROR); see ChatRunEndpoints' remarks.
+         * @description Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch). 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply / smartagri.thread, smartagri.form-check in model form-trigger mode, RUN_FINISHED or RUN_ERROR); see ChatRunEndpoints' remarks.
          */
         post: {
             parameters: {
@@ -775,6 +775,58 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/forms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The forms the caller may open from this assistant's conversation (#171) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatFormRequestView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5147,6 +5199,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/chat/forms/{databaseId}/dismissals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record that the caller closed an offered form without filling it in (#171) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    databaseId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": null | components["schemas"]["DismissChatFormRequest"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6017,6 +6124,10 @@ export interface components {
         };
         DisableKnowledgeDocumentRequest: {
             reason: null | string;
+        };
+        DismissChatFormRequest: {
+            /** Format: uuid */
+            threadId?: null | string;
         };
         ExportAssistantTestCasesResponse: {
             questions: components["schemas"]["AssistantTestCaseExportEntry"][];

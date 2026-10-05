@@ -117,6 +117,27 @@ describe('AgUiChatRunner', () => {
     ]);
   });
 
+  it('passes the server’s form-check event on before the answer text (#171)', async () => {
+    // 模型判斷模式的串流：TEXT_MESSAGE_START 之後、第一段文字之前多一個 CUSTOM smartagri.form-check。
+    const records = fixture('company-data-saved.sse').split('\n\n');
+    const start = records.findIndex((record) => record.includes('"TEXT_MESSAGE_START"'));
+    records.splice(start + 1, 0, 'data: {"type":"CUSTOM","name":"smartagri.form-check","value":{}}');
+    const { runner } = setup(sse(records.join('\n\n')));
+
+    const events = await collect(runner);
+
+    expect(events[0]).toEqual({ type: 'form-check' });
+    expect(events[1]?.type).toBe('text-delta');
+    expect(events.filter((event) => event.type === 'form-check')).toHaveLength(1);
+    expect(events.some((event) => event.type === 'reply')).toBe(true);
+  });
+
+  it('sends no form-check for a stream without one (keyword mode)', async () => {
+    const { runner } = setup(sse(fixture('company-data-saved.sse')));
+    const events: ChatRunEvent[] = await collect(runner);
+    expect(events.some((event) => event.type === 'form-check')).toBe(false);
+  });
+
   it('turns a saved company-data stream into deltas, the final reply and the thread', async () => {
     const { runner } = setup(sse(fixture('company-data-saved.sse')));
 

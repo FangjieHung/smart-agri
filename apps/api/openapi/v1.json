@@ -496,7 +496,7 @@
           "ChatRunEndpoints"
         ],
         "summary": "Answer one question as an AG-UI event stream",
-        "description": "Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch). 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply / smartagri.thread, RUN_FINISHED or RUN_ERROR); see ChatRunEndpoints' remarks.",
+        "description": "Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch). 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply / smartagri.thread, smartagri.form-check in model form-trigger mode, RUN_FINISHED or RUN_ERROR); see ChatRunEndpoints' remarks.",
         "parameters": [
           {
             "name": "id",
@@ -543,6 +543,46 @@
           },
           "503": {
             "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/forms": {
+      "get": {
+        "tags": [
+          "ChatFormEndpoints"
+        ],
+        "summary": "The forms the caller may open from this assistant's conversation (#171)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatFormRequestView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -4246,6 +4286,61 @@
           }
         }
       }
+    },
+    "/api/v1/assistants/{id}/chat/forms/{databaseId}/dismissals": {
+      "post": {
+        "tags": [
+          "ChatFormEndpoints"
+        ],
+        "summary": "Record that the caller closed an offered form without filling it in (#171)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "databaseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/DismissChatFormRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7711,6 +7806,18 @@
           }
         }
       },
+      "DismissChatFormRequest": {
+        "type": "object",
+        "properties": {
+          "threadId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "ExportAssistantTestCasesResponse": {
         "required": [
           "questions"
@@ -9711,6 +9818,9 @@
       "name": "ChatRunEndpoints"
     },
     {
+      "name": "ChatFormEndpoints"
+    },
+    {
       "name": "TeamEndpoints"
     },
     {
@@ -9742,9 +9852,6 @@
     },
     {
       "name": "AssistantTestRunEndpoints"
-    },
-    {
-      "name": "ChatFormEndpoints"
     }
   ]
 }

@@ -94,7 +94,10 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// decides instead of the keywords: whenever the assistant has a form target it may use right now,
 /// one selection call (purpose <c>form-request</c>) is offered that one form; the server re-checks the
 /// id the model names and builds the form. A model failure falls back to the keyword gate. Same
-/// events, same saving rules.
+/// events, same saving rules, plus one <c>CUSTOM smartagri.form-check</c> (empty value; #171) right
+/// before the selection call — after <c>TEXT_MESSAGE_START</c> and after a statistics query that did
+/// not answer — so the client can show that it is checking for a form. Keyword mode and assistants
+/// without a form target never send it.
 /// </para>
 /// <para>
 /// <b>Database queries</b> (M4 #149, <see cref="ChatDatabaseQueries"/>). When the question asks for a
@@ -122,6 +125,15 @@ public static class ChatRunEndpoints
     /// <summary>The custom event carrying the thread a saved run wrote to.</summary>
     public const string ThreadEventName = "smartagri.thread";
 
+    /// <summary>
+    /// The custom event sent just before model mode's form selection call (M4 #171): only with
+    /// <c>Chat:FormRequests:Trigger = Model</c> and a form target the assistant may use right now;
+    /// never in keyword mode or for an assistant without one. Its value is an empty object.
+    /// </summary>
+    public const string FormCheckEventName = "smartagri.form-check";
+
+    private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
+
     /// <summary><c>RUN_ERROR</c>'s code for a failure that is not a model/embedding one.</summary>
     public const string InternalErrorCode = "internal-error";
 
@@ -143,7 +155,8 @@ public static class ChatRunEndpoints
             .WithDescription(
                 "Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch). " +
                 "200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply / " +
-                "smartagri.thread, RUN_FINISHED or RUN_ERROR); see ChatRunEndpoints' remarks.")
+                "smartagri.thread, smartagri.form-check in model form-trigger mode, RUN_FINISHED or RUN_ERROR); " +
+                "see ChatRunEndpoints' remarks.")
             .Accepts<RunAgentInput>("application/json")
             .Produces<string>(StatusCodes.Status200OK, SseEventStreamFormatter.ServerSentEventsMediaType)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -529,6 +542,10 @@ public static class ChatRunEndpoints
             var form = formRequest;
             if (formSelection is not null)
             {
+                // #171: the client shows its "checking" state only on this event, and hides it at the
+                // first answer text or the form request (also after a keyword fallback).
+                yield return new CustomEvent { Name = FormCheckEventName, Value = EmptyObject };
+
                 // Model mode (#164): the model decides; the server re-authorizes and builds the form.
                 form = await formSelection.Tool.SelectAsync(
                     formSelection.Assistant, formSelection.Offered, request.Question, request.AccountId, cancellationToken);

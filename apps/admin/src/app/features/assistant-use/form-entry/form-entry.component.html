@@ -1,0 +1,65 @@
+@let list = forms();
+@let menu = list.length > 1;
+<div class="entry">
+  <button
+    #trigger
+    type="button"
+    class="entry-trigger"
+    [attr.aria-haspopup]="menu ? (compact() ? 'dialog' : 'menu') : null"
+    [attr.aria-expanded]="menu ? open() : null"
+    [attr.aria-controls]="menu && open() ? (compact() ? 'form-entry-sheet' : 'form-entry-menu') : null"
+    (click)="toggle()"
+    (keydown)="onTriggerKeydown($event)"
+  >
+    <svg class="entry-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        d="M9 4h6a1 1 0 0 1 1 1v1H8V5a1 1 0 0 1 1-1Z M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2 M8 11h8 M8 15h5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+    回報資料
+  </button>
+
+  @if (menu && open() && !compact()) {
+    <div id="form-entry-menu" class="menu">
+      <p class="menu-title" id="form-entry-menu-title">選擇要填寫的表單</p>
+      <ul role="menu" tabindex="-1" aria-labelledby="form-entry-menu-title" (keydown)="onMenuKeydown($event)">
+        @for (form of list; track form.id) {
+          <li role="none">
+            <button type="button" role="menuitem" tabindex="-1" (click)="choose(form)">{{ form.title }}</button>
+          </li>
+        }
+      </ul>
+      <p class="menu-note">只列出你目前可以填寫的表單。</p>
+    </div>
+  }
+</div>
+
+@if (menu && open() && compact()) {
+  <div class="sheet-backdrop"></div>
+  <div
+    id="form-entry-sheet"
+    class="sheet"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="form-entry-sheet-title"
+    aria-describedby="form-entry-sheet-detail"
+    cdkTrapFocus
+    (keydown.escape)="close()"
+  >
+    <div class="sheet-header">
+      <h2 id="form-entry-sheet-title">回報資料</h2>
+      <button type="button" class="sheet-close" (click)="close()">關閉</button>
+    </div>
+    <p id="form-entry-sheet-detail" class="sheet-detail">選擇要填寫的表單。只列出你目前可以填寫的表單。</p>
+    <ul class="sheet-options">
+      @for (form of list; track form.id) {
+        <li><button type="button" (click)="choose(form)">{{ form.title }}</button></li>
+      }
+    </ul>
+  </div>
+}

@@ -8,6 +8,8 @@ type ApiChatMessageView = components['schemas']['ChatMessageView'];
 
 export const REPLY_EVENT = 'smartagri.reply';
 export const THREAD_EVENT = 'smartagri.thread';
+/** 伺服器開始判斷要不要跳出表單（issue #171，`ChatRunEndpoints.FormCheckEventName`）。 */
+export const FORM_CHECK_EVENT = 'smartagri.form-check';
 
 export function apiChatRunsPath(assistantId: string): string {
   return `/api/v1/assistants/${encodeURIComponent(assistantId)}/chat/runs`;
@@ -42,7 +44,8 @@ const FAILED_MESSAGE = '連線中斷，這則問題沒有取得回答，請再�
  * - `threadId` 一定明確設定（沒有時是 `''`）：`HttpAgent` 遇到 undefined 會自己產生 uuid，
  *   後端會回 `403 chat-thread`；
  * - bearer token 手動帶上，因為 `fetch` 不經過攔截器；
- * - `CUSTOM smartagri.reply` 是最終的 `ChatMessageView`，`smartagri.thread` 是對話串；
+ * - `CUSTOM smartagri.reply` 是最終的 `ChatMessageView`，`smartagri.thread` 是對話串，
+ *   `smartagri.form-check`（#171）是「正在判斷表單」；
  * - 串流開始前的錯誤是一般 JSON（403／409／422／503），開始後只有 `RUN_ERROR`。
  */
 export class AgUiChatRunner implements ChatRunner {
@@ -80,6 +83,8 @@ export class AgUiChatRunner implements ChatRunner {
             }
             replied = true;
             subscriber.next({ type: 'reply', message });
+          } else if (event.name === FORM_CHECK_EVENT) {
+            if (!replied) subscriber.next({ type: 'form-check' });
           } else if (event.name === THREAD_EVENT) {
             const thread = readThread(event.value);
             if (thread !== null) subscriber.next({ type: 'thread', ...thread });

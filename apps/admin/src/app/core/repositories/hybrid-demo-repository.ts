@@ -254,6 +254,7 @@ type ApiChatDatabaseQuery = components['schemas']['ChatDatabaseQueryView'];
 type ApiChatFormSubmission = components['schemas']['ChatFormSubmissionView'];
 type ReviewChatFormRequest = components['schemas']['ReviewChatFormRequest'];
 type SubmitChatFormRequest = components['schemas']['SubmitChatFormRequest'];
+type DismissChatFormRequest = components['schemas']['DismissChatFormRequest'];
 type ApiDatabaseOwnSubmissionList = components['schemas']['DatabaseOwnSubmissionListView'];
 type ApiDatabaseTracking = components['schemas']['DatabaseTrackingView'];
 type ApiDatabaseTrackedSubject = components['schemas']['DatabaseTrackedSubjectView'];
@@ -1869,6 +1870,34 @@ export class HybridDemoRepository extends MockDemoRepository {
           ? { status: 'ready', data: toChatWithdrawal(result.data) }
           : result,
       ),
+    );
+  }
+
+  /**
+   * 「回報資料」入口的表單（issue #171）：`GET .../chat/forms` 回傳與表單請求相同的 `ChatFormRequestView`，
+   * 授權由伺服器決定（#148）；`403 assistant-use` 轉成 permission-denied，其餘錯誤原樣拋出。
+   */
+  override listChatForms(_viewerId: ChatViewerId, assistantId: string): Observable<RepositoryView<readonly ChatFormView[]>> {
+    return this.http.get<ApiChatFormRequest[]>(`${apiAssistantPath(assistantId)}/chat/forms`).pipe(
+      map((forms): RepositoryView<readonly ChatFormView[]> => ({ status: 'ready', data: forms.map(toChatForm) })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, CHAT_DENIED)),
+    );
+  }
+
+  /**
+   * 關閉對話中跳出的表單（issue #171）：`POST .../chat/forms/{databaseId}/dismissals`，只送對話 id；
+   * `204` 是 ready，`403`（`assistant-use`／`chat-thread`／`assistant-form`）轉成 permission-denied。
+   */
+  override dismissChatForm(
+    _viewerId: ChatViewerId,
+    assistantId: string,
+    formId: DatabaseId,
+    threadId?: string,
+  ): Observable<RepositoryView<null>> {
+    const body: DismissChatFormRequest = { threadId: threadId ?? null };
+    return this.http.post<null>(`${apiAssistantChatFormPath(assistantId, formId)}/dismissals`, body).pipe(
+      map((): RepositoryView<null> => ({ status: 'ready', data: null })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ASSISTANT_FORM_DENIED)),
     );
   }
 

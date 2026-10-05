@@ -1,10 +1,15 @@
-import { concat, concatMap, defer, finalize, from, map, of, timer, type Observable } from 'rxjs';
+import { EMPTY, concat, concatMap, defer, finalize, from, ignoreElements, map, of, take, timer, type Observable } from 'rxjs';
 import type { DemoRepository } from '../repositories/demo-repository';
 import type { ChatRunEvent, ChatRunner, ChatRunRequest } from './chat-runner';
 
 /** 每一片的間隔；整則最多 `MAX_SLICES` 片，Demo 的回答一秒內串完。 */
 export const MOCK_SLICE_INTERVAL_MS = 40;
 const MAX_SLICES = 12;
+/**
+ * 模擬「模型判斷要不要跳出表單」的時間（issue #171）：真實模型約多等 1.5 秒。Mock 一律以模型判斷模式
+ * 示範，所以助理有可用表單時每題都先送 `form-check`、等這麼久再開始回答。
+ */
+export const MOCK_FORM_CHECK_MS = 1500;
 const MIN_SLICE_LENGTH = 4;
 
 /**
@@ -24,6 +29,7 @@ export class MockChatRunner implements ChatRunner {
   constructor(
     private readonly repository: DemoRepository,
     private readonly intervalMs = MOCK_SLICE_INTERVAL_MS,
+    private readonly formCheckMs = MOCK_FORM_CHECK_MS,
   ) {}
 
   run(request: ChatRunRequest): Observable<ChatRunEvent> {
@@ -81,7 +87,7 @@ export class MockChatRunner implements ChatRunner {
         return from(events);
       });
 
-      return concat(deltas, finish).pipe(
+      return concat(this.formCheck(request, reply.reply.kind), deltas, finish).pipe(
         finalize(() => {
           if (!delivered) {
             this.repository.discardChatReply(
@@ -94,6 +100,23 @@ export class MockChatRunner implements ChatRunner {
         }),
       );
     });
+  }
+
+  /**
+   * 與後端相同的條件（issue #171）：數據庫查詢先回答時不判斷表單；助理有這位發起者可用的表單時才送
+   * `form-check`。間隔 0（單元測試）時不等待。
+   */
+  private formCheck(request: ChatRunRequest, replyKind: string): Observable<ChatRunEvent> {
+    if (replyKind === 'database-query') return EMPTY;
+    return this.repository.listChatForms(request.viewerId, request.assistantId).pipe(
+      take(1),
+      concatMap((result) => {
+        if (result.status !== 'ready' || result.data.length === 0) return EMPTY;
+        const event: ChatRunEvent = { type: 'form-check' };
+        const wait = this.intervalMs > 0 && this.formCheckMs > 0 ? timer(this.formCheckMs).pipe(ignoreElements()) : EMPTY;
+        return concat(of(event), wait);
+      }),
+    );
   }
 }
 

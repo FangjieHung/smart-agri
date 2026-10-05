@@ -1,4 +1,5 @@
 import { A11yModule } from '@angular/cdk/a11y';
+import { BreakpointObserver } from '@angular/cdk/layout';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -12,12 +13,13 @@ import {
   input,
   linkedSignal,
   output,
+  signal,
   untracked,
   viewChild,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { finalize, type Subscription } from 'rxjs';
+import { finalize, map, type Subscription } from 'rxjs';
 import { CHAT_RUNNER, type ChatHistoryEntry, type ChatRunError, type ChatRunEvent } from '../../../core/chat/chat-runner';
 import { isVisitorId, type ChatViewerId } from '../../../core/domain/account.model';
 import type {
@@ -41,6 +43,8 @@ import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { CitationDrawerComponent } from '../citation-drawer/citation-drawer.component';
 import { ConsentConfirmationComponent } from '../consent-confirmation/consent-confirmation.component';
+import { FormCheckStatusComponent } from '../form-check-status/form-check-status.component';
+import { FormEntryComponent } from '../form-entry/form-entry.component';
 import { InlineFormComponent } from '../inline-form/inline-form.component';
 import { StreamingReplyComponent } from '../streaming-reply/streaming-reply.component';
 import {
@@ -48,6 +52,12 @@ import {
   type CitationRequest,
   type WithdrawRequest,
 } from '../message/chat-message.component';
+
+/**
+ * 表單是從哪裡開啟的（issue #171）：對話中跳出的表單請求（關閉時記錄一筆關閉事件、訊息改成已關閉），
+ * 或「回報資料」入口（不在對話紀錄留下任何東西）。
+ */
+type FormOrigin = { readonly kind: 'request'; readonly messageId: string } | { readonly kind: 'entry' };
 
 /**
  * 對話中表單的流程。`submissionId` 是冪等鍵（issue #148）：開始填寫時產生一次，確認與失敗重試都
@@ -58,6 +68,7 @@ type FormFlow =
   | { readonly step: 'closed' }
   | {
       readonly step: 'form';
+      readonly origin: FormOrigin;
       readonly form: ChatFormView;
       readonly answers: DatabaseTrialAnswers;
       readonly errors: readonly DatabaseFieldError[];
@@ -66,6 +77,7 @@ type FormFlow =
     }
   | {
       readonly step: 'consent';
+      readonly origin: FormOrigin;
       readonly form: ChatFormView;
       readonly answers: DatabaseTrialAnswers;
       readonly entries: readonly DatabaseRecordEntryView[];
@@ -80,6 +92,10 @@ const FORM_SUBMIT_FAILED_MESSAGE = '送出失敗，資料可能還沒有送達�
 
 const CLOSED: FormFlow = { step: 'closed' };
 
+/** 「回報資料」入口改成手機版（輸入框上方一列、底部面板）的寬度。 */
+const COMPACT_QUERY = '(max-width: 600px)';
+const FORM_DISMISSED_STATUS = '已關閉表單，沒有送出任何資料。';
+
 /**
  * 這一頁送出、但還不在讀回資料裡的訊息（串流完成或停止的那幾則）。
  * `stopped`：使用者按了停止，只留下問題、不顯示半則回答。
@@ -91,12 +107,19 @@ interface LocalEntry {
 
 /**
  * 目前這一則問題的狀態（issue #80）：
- * - `streaming`：已送出、正在串流；送出鍵鎖住，顯示「停止回答」；
+ * - `streaming`：已送出、正在串流；送出鍵鎖住，顯示「停止回答」。`checking`：伺服器送了
+ *   `form-check`（issue #171），正在判斷要不要跳出表單，收到第一段文字或回覆就結束；
  * - `failed`：`RUN_ERROR`、503 等錯誤，問題留在畫面上並提供重試。
  */
 type RunState =
   | { readonly phase: 'idle' }
-  | { readonly phase: 'streaming'; readonly question: string; readonly text: string; readonly clientMessageId: string }
+  | {
+      readonly phase: 'streaming';
+      readonly question: string;
+      readonly text: string;
+      readonly clientMessageId: string;
+      readonly checking: boolean;
+    }
   | { readonly phase: 'failed'; readonly question: string; readonly error: ChatRunError; readonly clientMessageId: string };
 
 const IDLE: RunState = { phase: 'idle' };
@@ -126,6 +149,8 @@ interface HandoffExchange {
     InlineFormComponent,
     ConsentConfirmationComponent,
     StreamingReplyComponent,
+    FormCheckStatusComponent,
+    FormEntryComponent,
   ],
   templateUrl: './chat-conversation.component.html',
   styleUrl: './chat-conversation.component.scss',
@@ -159,6 +184,12 @@ export class ChatConversationComponent {
   /** 訊息有變動時送出目前的對話 id，讓外層頁面同步網址與對話紀錄。 */
   readonly changed = output<ChatThreadId | null>();
 
+  /** 手機寬度：「回報資料」放在輸入框上方一列、選單改為底部面板，串流中隱藏「送出」。 */
+  protected readonly compact = toSignal(
+    inject(BreakpointObserver).observe([COMPACT_QUERY]).pipe(map((state) => state.matches)),
+    { initialValue: false },
+  );
+
   /** API 模式的回答來自真實模型，輸入框下方的說明不同。 */
   protected readonly apiMode = this.apiSession.apiMode;
 
@@ -189,6 +220,22 @@ export class ChatConversationComponent {
     stream: ({ assistantId, threadId }) => this.repository.getAssistantChat(assistantId, threadId),
   });
   protected readonly result = this.chatResource.view;
+
+  /**
+   * 「回報資料」入口的表單（issue #171）：伺服器決定這位成員在這個助理此刻可用的表單；讀取失敗或
+   * 被拒絕都當成沒有，入口整個不出現。
+   */
+  private readonly formsResource = repositoryResource({
+    params: () => {
+      const viewerId = this.viewerId();
+      return viewerId === null ? undefined : { viewerId, assistantId: this.assistantId() };
+    },
+    stream: ({ viewerId, assistantId }) => this.repository.listChatForms(viewerId, assistantId),
+  });
+  protected readonly entryForms = computed<readonly ChatFormView[]>(() => {
+    const view = this.formsResource.view();
+    return view.status === 'ready' || view.status === 'partial-failure' ? view.data : [];
+  });
   protected readonly chat = computed(() => {
     const result = this.result();
     return result.status === 'ready' || result.status === 'partial-failure' ? result.data : null;
@@ -198,6 +245,13 @@ export class ChatConversationComponent {
   protected readonly draft = linkedSignal({ source: this.scope, computation: () => '' });
   protected readonly composerError = linkedSignal({ source: this.scope, computation: () => '' });
   protected readonly flow = linkedSignal<string, FormFlow>({ source: this.scope, computation: () => CLOSED });
+  /** 使用者關閉過表單的「需要填寫資料」訊息（issue #171）；只在這一頁記得。 */
+  protected readonly dismissedRequests = linkedSignal<string, ReadonlySet<string>>({
+    source: this.scope,
+    computation: () => new Set<string>(),
+  });
+  /** 卡片有輸入內容時按「前往我送出的資料」：先確認離開會清除已填的內容。 */
+  protected readonly pendingLeave = signal(false);
   protected readonly citations = linkedSignal<string, CitationRequest | null>({
     source: this.scope,
     computation: () => null,
@@ -236,11 +290,14 @@ export class ChatConversationComponent {
   private readonly withdrawCancelButton = viewChild<ElementRef<HTMLButtonElement>>('withdrawCancelButton');
   private readonly handoffCancelButton = viewChild<ElementRef<HTMLButtonElement>>('handoffCancelButton');
   private readonly stopButton = viewChild<ElementRef<HTMLButtonElement>>('stopButton');
+  private readonly leaveCancelButton = viewChild<ElementRef<HTMLButtonElement>>('leaveCancelButton');
+  private readonly formSlot = viewChild<ElementRef<HTMLElement>>('formSlot');
 
   constructor() {
     // 確認對話框一出現就把焦點帶到「取消」，與對話紀錄側欄的刪除確認一致。
     effect(() => this.withdrawCancelButton()?.nativeElement.focus());
     effect(() => this.handoffCancelButton()?.nativeElement.focus());
+    effect(() => this.leaveCancelButton()?.nativeElement.focus());
     // 換帳號、助理或對話時，進行中的回答不再屬於畫面上的對話：直接取消。
     effect(() => {
       this.scope();
@@ -286,7 +343,7 @@ export class ChatConversationComponent {
     // 輸入框可能還沒經過變更偵測同步草稿，直接清空避免殘留已送出的文字。
     const input = this.composerInput()?.nativeElement;
     if (input) input.value = '';
-    this.run.set({ phase: 'streaming', question, text: '', clientMessageId });
+    this.run.set({ phase: 'streaming', question, text: '', clientMessageId, checking: false });
     this.runStatus.set('助理正在回答…');
     this.reveal();
 
@@ -341,9 +398,12 @@ export class ChatConversationComponent {
 
   private onRunEvent(event: ChatRunEvent, question: string, rawText: string, clientMessageId: string): void {
     switch (event.type) {
+      case 'form-check':
+        this.run.update((current) => (current.phase === 'streaming' ? { ...current, checking: true } : current));
+        return;
       case 'text-delta':
         this.run.update((current) =>
-          current.phase === 'streaming' ? { ...current, text: current.text + event.delta } : current,
+          current.phase === 'streaming' ? { ...current, checking: false, text: current.text + event.delta } : current,
         );
         return;
       case 'reply':
@@ -426,15 +486,90 @@ export class ChatConversationComponent {
     return this.citations()?.citations ?? [];
   }
 
-  protected startForm(form: ChatFormView): void {
-    this.formNotice.set('');
-    this.flow.set({ step: 'form', form, answers: {}, errors: [], submissionId: crypto.randomUUID(), busy: false });
+  /** 從「需要填寫資料」訊息開啟表單。 */
+  protected startForm(form: ChatFormView, messageId: string): void {
+    this.openForm(form, { kind: 'request', messageId });
   }
 
+  /**
+   * 「回報資料」入口（issue #171 ③）：已經有表單卡片打開時，捲動到那張卡片並把焦點移進去，
+   * 不另外開第二張；否則開啟同一個卡片元件。從入口開表單不在對話紀錄留訊息。
+   */
+  protected openFromEntry(form: ChatFormView): void {
+    if (this.flow().step !== 'closed') {
+      this.focusOpenCard();
+      return;
+    }
+    this.openForm(form, { kind: 'entry' });
+  }
+
+  private openForm(form: ChatFormView, origin: FormOrigin): void {
+    this.formNotice.set('');
+    this.flow.set({ step: 'form', origin, form, answers: {}, errors: [], submissionId: crypto.randomUUID(), busy: false });
+    this.revealCard();
+  }
+
+  /**
+   * 「不用了」或 ×（issue #171 ②）：收起卡片、什麼都不送出，焦點回到輸入框。對話中跳出的表單另外
+   * 把訊息改成「已關閉表單，沒有送出任何資料。」並記錄一筆關閉事件（只有事件、助理、表單與時間；
+   * 記錄失敗不影響畫面）。
+   */
   protected cancelForm(): void {
-    // 取消＝什麼都不送出，不會留下任何紀錄。
+    const flow = this.flow();
+    const viewerId = this.viewerId();
     this.flow.set(CLOSED);
+    if (flow.step !== 'closed' && flow.origin.kind === 'request') {
+      const messageId = flow.origin.messageId;
+      this.dismissedRequests.update((ids) => new Set([...ids, messageId]));
+      this.runStatus.set(FORM_DISMISSED_STATUS);
+      if (viewerId !== null) {
+        this.repository
+          .dismissChatForm(viewerId, this.assistantId(), flow.form.id, this.chat()?.threadId ?? this.threadId() ?? undefined)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({ error: () => undefined });
+      }
+    }
     this.composerInput()?.nativeElement.focus();
+  }
+
+  protected isDismissed(message: ChatMessageView): boolean {
+    return this.dismissedRequests().has(message.id);
+  }
+
+  protected requestLeave(): void {
+    this.pendingLeave.set(true);
+  }
+
+  protected cancelLeave(): void {
+    this.pendingLeave.set(false);
+    this.formSlot()?.nativeElement.querySelector<HTMLElement>('.withdraw-hint a')?.focus();
+  }
+
+  /** 確認離開：清除填寫內容（什麼都沒送出），在同一分頁前往「我送出的資料」。 */
+  protected confirmLeave(): void {
+    this.pendingLeave.set(false);
+    this.flow.set(CLOSED);
+    void this.router.navigateByUrl('/app/activity');
+  }
+
+  private focusOpenCard(): void {
+    const slot = this.formSlot()?.nativeElement;
+    if (!slot) return;
+    if (typeof slot.scrollIntoView === 'function') slot.scrollIntoView({ block: 'nearest' });
+    const target =
+      slot.querySelector<HTMLElement>('input, select, textarea') ??
+      slot.querySelector<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])');
+    target?.focus();
+  }
+
+  private revealCard(): void {
+    afterNextRender(
+      () => {
+        const slot = this.formSlot()?.nativeElement;
+        if (slot && typeof slot.scrollIntoView === 'function') slot.scrollIntoView({ block: 'nearest' });
+      },
+      { injector: this.injector },
+    );
   }
 
   protected reviewForm(answers: DatabaseTrialAnswers): void {
@@ -454,6 +589,7 @@ export class ChatConversationComponent {
           } else if (result.status === 'ready' || result.status === 'partial-failure') {
             this.flow.set({
               step: 'consent',
+              origin: flow.origin,
               form: flow.form,
               answers,
               entries: result.data.entries,
@@ -476,6 +612,7 @@ export class ChatConversationComponent {
     if (flow.step === 'consent' && !flow.busy) {
       this.flow.set({
         step: 'form',
+        origin: flow.origin,
         form: flow.form,
         answers: flow.answers,
         errors: [],
@@ -512,7 +649,15 @@ export class ChatConversationComponent {
             const fieldErrors = result.errors.filter((error) => error.fieldId !== null);
             this.flow.set(
               fieldErrors.length > 0
-                ? { step: 'form', form: flow.form, answers: flow.answers, errors: fieldErrors, submissionId: flow.submissionId, busy: false }
+                ? {
+                    step: 'form',
+                    origin: flow.origin,
+                    form: flow.form,
+                    answers: flow.answers,
+                    errors: fieldErrors,
+                    submissionId: flow.submissionId,
+                    busy: false,
+                  }
                 : { ...idle, error: result.errors[0]?.message ?? result.message },
             );
             return;

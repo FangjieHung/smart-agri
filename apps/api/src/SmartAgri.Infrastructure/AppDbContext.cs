@@ -141,6 +141,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>A <c>company-data</c> message's cited passages, as a snapshot (#76).</summary>
     public DbSet<ChatMessageCitation> ChatMessageCitations => Set<ChatMessageCitation>();
 
+    /// <summary>Closed in-conversation forms (M4 #171): event, assistant, form and time only.</summary>
+    public DbSet<ChatFormDismissal> ChatFormDismissals => Set<ChatFormDismissal>();
+
     /// <summary>數據庫: structured, consented collections created from a template (M4, #142).
     /// The fully qualified name avoids <see cref="DbContext.Database"/>.</summary>
     public DbSet<SmartAgri.Domain.Databases.Database> Databases => Set<SmartAgri.Domain.Databases.Database>();
@@ -292,6 +295,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new ChatThreadConfiguration());
         modelBuilder.ApplyConfiguration(new ChatMessageConfiguration());
         modelBuilder.ApplyConfiguration(new ChatMessageCitationConfiguration());
+        modelBuilder.ApplyConfiguration(new ChatFormDismissalConfiguration());
 
         // Databases and their form versions (M4, #142).
         modelBuilder.ApplyConfiguration(new DatabaseConfiguration());

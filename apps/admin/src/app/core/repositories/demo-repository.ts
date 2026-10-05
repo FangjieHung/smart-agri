@@ -61,6 +61,7 @@ import type {
   ChatFormReviewView,
   ChatFormSubmission,
   ChatFormSubmissionResultView,
+  ChatFormView,
   ChatThreadListView,
   ChatThreadSummaryView,
   ConversationId,
@@ -1051,6 +1052,23 @@ export interface DemoRepository extends DemoScenarioController {
     recordId: string,
     threadId?: string,
   ): Observable<WithdrawChatSubmissionResult>;
+  /**
+   * 對話輸入區「回報資料」入口可開啟的表單（issue #171，API 模式是 `GET .../chat/forms`）：與對話中
+   * 跳出的表單是同一份（欄位、版本、同意條款），授權規則與 #148 相同，由伺服器（mock 依同樣的規則）
+   * 決定，畫面不自行判斷。空清單＝不顯示入口。不能使用助理時是 `assistant-use`。
+   */
+  listChatForms(viewerId: ChatViewerId, assistantId: string): Observable<RepositoryView<readonly ChatFormView[]>>;
+  /**
+   * 記錄「使用者關閉了對話中跳出的表單」（issue #171，API 模式是
+   * `POST .../chat/forms/{databaseId}/dismissals`）：只記事件、助理、表單與時間，不含任何填寫內容。
+   * 指定的對話必須是自己的（`chat-thread`）。這只是營運紀錄，失敗不影響畫面。
+   */
+  dismissChatForm(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    formId: DatabaseId,
+    threadId?: string,
+  ): Observable<RepositoryView<null>>;
 }
 
 export const DEMO_SECURITY_NOTICE =

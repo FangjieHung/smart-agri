@@ -1,15 +1,26 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  TemplateRef,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
+import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { DetailLayoutComponent } from '@smart-agri/ui';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import type { AssistantStatus } from '../../../core/domain/assistant.model';
 import {
   type DatabaseDetailView,
+  type DatabaseSummaryView,
   type DatabaseFieldError,
   type DatabaseFieldView,
   type DatabaseTrialAnswers,
 } from '../../../core/domain/database.model';
-import type { PreviewDatabaseEntryResult } from '../../../core/repositories/demo-repository';
+import type { PreviewDatabaseEntryResult, RepositoryView } from '../../../core/repositories/demo-repository';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
@@ -53,6 +64,7 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
   selector: 'app-database-detail-page',
   imports: [
     RouterLink,
+    MatDialogModule,
     DetailLayoutComponent,
     PageHeaderComponent,
     StatePanelComponent,
@@ -75,6 +87,8 @@ export class DatabaseDetailPageComponent {
   private readonly router = inject(Router);
   private readonly session = inject(DemoSessionService);
   private readonly repository = inject(DEMO_REPOSITORY);
+  private readonly dialog = inject(MatDialog);
+  private readonly archiveDialog = viewChild<TemplateRef<unknown>>('archiveDialog');
   private readonly params = toSignal(this.route.paramMap, { initialValue: this.route.snapshot.paramMap });
   private readonly query = toSignal(this.route.queryParamMap, { initialValue: this.route.snapshot.queryParamMap });
 
@@ -224,6 +238,65 @@ export class DatabaseDetailPageComponent {
           this.trialFailure.set('目前無法試填，請稍後再試一次。你填的內容還在畫面上。');
         },
       });
+  }
+
+  /** 封存或取消封存送出中（#180）；送出中不能再按，也不能關閉對話框以免結果無處顯示。 */
+  protected readonly archiving = signal(false);
+  protected readonly archiveError = signal('');
+  protected readonly archiveFeedback = signal('');
+
+  protected formatArchivedAt(iso: string): string {
+    return fmtDateTime(iso);
+  }
+
+  /** 封存與取消封存都先確認（只有擁有者看得到按鈕；伺服器同樣只接受擁有者）。 */
+  protected confirmArchive(): void {
+    const content = this.archiveDialog();
+    if (!content) return;
+    this.archiveError.set('');
+    this.dialog.open(content, {
+      width: 'min(32rem, calc(100vw - 2rem))',
+      autoFocus: '#database-archive-cancel',
+      restoreFocus: true,
+      ariaLabelledBy: 'database-archive-title',
+      ariaDescribedBy: 'database-archive-detail',
+      role: 'alertdialog',
+    });
+  }
+
+  protected closeArchiveDialog(): void {
+    if (this.archiving()) return;
+    this.dialog.closeAll();
+  }
+
+  protected archiveConfirmed(summary: DatabaseSummaryView): void {
+    if (this.archiving()) return;
+    const archive = summary.archivedAt === null;
+    this.archiving.set(true);
+    this.archiveError.set('');
+    this.archiveFeedback.set('');
+    (archive ? this.repository.archiveDatabase(summary.id) : this.repository.unarchiveDatabase(summary.id))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => this.archiveDone(result, archive),
+        error: () => {
+          this.archiving.set(false);
+          this.archiveError.set(
+            archive ? '目前無法封存這個資料庫，什麼都沒有變更，請稍後再試。' : '目前無法取消封存，什麼都沒有變更，請稍後再試。',
+          );
+        },
+      });
+  }
+
+  private archiveDone(result: RepositoryView<DatabaseSummaryView>, archive: boolean): void {
+    this.archiving.set(false);
+    if (result.status === 'ready' || result.status === 'partial-failure') {
+      this.dialog.closeAll();
+      this.archiveFeedback.set(archive ? '資料庫已封存。' : '資料庫已取消封存，恢復接受提交。');
+      this.reload();
+    } else if (result.status === 'permission-denied') {
+      this.archiveError.set(result.message);
+    }
   }
 
   protected selectSubject(event: Event): void {

@@ -15,7 +15,12 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { DataTableCellDirective, DataTableColumn, DataTableComponent } from '@smart-agri/ui';
 import { ADMIN_DATA_TABLE_LABELS } from '../../../shared/ui/data-table-labels';
 import { fmtDateTime } from '../../../core/date-utils';
-import type { DatabaseSummaryView, DatabaseTemplateId, DatabaseTemplateView } from '../../../core/domain/database.model';
+import type {
+  DatabaseListFilter,
+  DatabaseSummaryView,
+  DatabaseTemplateId,
+  DatabaseTemplateView,
+} from '../../../core/domain/database.model';
 import type { CreateDatabaseResult } from '../../../core/repositories/demo-repository';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
@@ -23,6 +28,7 @@ import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
+import { StatusBadgeComponent } from '../../../shared/ui/status-badge/status-badge.component';
 
 /** 與後端 `Database.NameMaxLength`、mock 的檢查相同。 */
 export const DATABASE_NAME_MAX_LENGTH = 40;
@@ -31,7 +37,15 @@ const CREATE_FAILED_MESSAGE = '目前無法建立資料庫，你輸入的內容�
 
 @Component({
   selector: 'app-database-list-page',
-  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, MatDialogModule, DataTableComponent, DataTableCellDirective],
+  imports: [
+    RouterLink,
+    PageHeaderComponent,
+    StatePanelComponent,
+    StatusBadgeComponent,
+    MatDialogModule,
+    DataTableComponent,
+    DataTableCellDirective,
+  ],
   templateUrl: './database-list-page.component.html',
   styleUrl: './database-list-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -58,10 +72,16 @@ export class DatabaseListPageComponent {
     { key: 'updatedAt', label: '最近更新', exportSkip: true },
   ];
 
-  /** 還沒有 Demo 身分時停在載入中；換身分就重新讀取。 */
+  /** 預設只列使用中的；「已封存」只列封存的（#180）。 */
+  protected readonly filter = signal<DatabaseListFilter>('active');
+
+  /** 還沒有 Demo 身分時停在載入中；換身分或篩選就重新讀取。 */
   private readonly list = repositoryResource({
-    params: () => this.session.activeAccountId() ?? undefined,
-    stream: () => this.repository.listDatabaseSummaries(),
+    params: () => {
+      const accountId = this.session.activeAccountId();
+      return accountId ? { accountId, filter: this.filter() } : undefined;
+    },
+    stream: ({ filter }) => this.repository.listDatabaseSummaries(filter),
   });
   protected readonly view = this.list.view;
 
@@ -101,6 +121,10 @@ export class DatabaseListPageComponent {
   protected closeCreateDialog(): void {
     if (this.creating()) return;
     this.dialog.closeAll();
+  }
+
+  protected showFilter(filter: DatabaseListFilter): void {
+    this.filter.set(filter);
   }
 
   protected reloadTemplates(): void {
@@ -144,6 +168,7 @@ export class DatabaseListPageComponent {
     this.creating.set(false);
     if (result.status === 'ready' || result.status === 'partial-failure') {
       this.dialog.closeAll();
+      this.filter.set('active');
       this.list.reload();
       void this.router.navigate(['/app/databases', result.data.id, 'form']);
     } else if (result.status === 'validation-failed' || result.status === 'permission-denied') {

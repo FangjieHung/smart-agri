@@ -99,3 +99,18 @@ dd { margin: 0; font-size: var(--font-size-caption); font-weight: 600; overflow-
   cursor: pointer;
 }
 .link-button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }
+
+.list-filter { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); justify-self: start; }
+.list-filter button {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.list-filter button[aria-pressed='true'] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.list-filter button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.archived-badge { display: inline-block; margin-inline-start: var(--space-2); }

@@ -348,6 +348,102 @@ describe('DatabaseDetailPageComponent', () => {
     expect(page().querySelector('h1')?.textContent).toContain('訂單資料庫');
   });
 
+  describe('archive (#180)', () => {
+    function dialog(): HTMLElement {
+      const found = document.querySelector<HTMLElement>('mat-dialog-container');
+      if (!found) throw new Error('missing archive dialog');
+      return found;
+    }
+
+    it('archives only after the owner confirms, then says so and pauses the form link', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form');
+      const archive = vi.spyOn(repository, 'archiveDatabase');
+      expect(page().querySelector('.archived-notice')).toBeNull();
+      expect(page().querySelector('.form-link')).not.toBeNull();
+
+      button(page(), '封存資料庫').click();
+      harness.detectChanges();
+      expect(archive).not.toHaveBeenCalled();
+      expect(dialog().querySelector('#database-archive-title')?.textContent).toContain('封存「訂單資料庫」？');
+      expect(dialog().textContent).toContain('不再接受新的提交');
+      expect(dialog().textContent).toContain('資料不會刪除');
+      expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+
+      // Cancelling changes nothing.
+      button(dialog(), '取消').click();
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+      expect(archive).not.toHaveBeenCalled();
+
+      button(page(), '封存資料庫').click();
+      harness.detectChanges();
+      button(dialog(), '封存資料庫').click();
+      await harness.fixture.whenStable();
+      harness.detectChanges();
+
+      expect(archive).toHaveBeenCalledWith('database-orders');
+      expect(page().querySelector('.archive-feedback')?.textContent).toContain('資料庫已封存');
+      expect(page().querySelector('.archived-notice')?.textContent).toContain('已封存');
+      expect(page().querySelector('.archived-notice')?.textContent).toContain('不再接受新的提交');
+      expect(page().querySelector('.form-link')).toBeNull();
+      expect(page().querySelector('.form-link-paused')?.textContent).toContain('暫停填寫');
+      expect(button(page(), '取消封存')).toBeTruthy();
+    });
+
+    it('unarchives after confirming and brings the form link back', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form', (repository) => {
+        repository.archiveDatabase('database-orders').subscribe();
+      });
+      const unarchive = vi.spyOn(repository, 'unarchiveDatabase');
+
+      button(page(), '取消封存').click();
+      harness.detectChanges();
+      expect(dialog().querySelector('#database-archive-title')?.textContent).toContain('取消封存「訂單資料庫」？');
+      button(dialog(), '取消封存').click();
+      await harness.fixture.whenStable();
+      harness.detectChanges();
+
+      expect(unarchive).toHaveBeenCalledWith('database-orders');
+      expect(page().querySelector('.archived-notice')).toBeNull();
+      expect(page().querySelector('.form-link')).not.toBeNull();
+      expect(button(page(), '封存資料庫')).toBeTruthy();
+    });
+
+    it('keeps the dialog open with an error when archiving fails, and changes nothing', async () => {
+      const { harness, page, repository } = await openDetail('/app/databases/database-orders/form', (repository) => {
+        vi.spyOn(repository, 'archiveDatabase').mockReturnValue(throwError(() => new Error('500')));
+      });
+
+      button(page(), '封存資料庫').click();
+      harness.detectChanges();
+      button(dialog(), '封存資料庫').click();
+      harness.detectChanges();
+
+      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('目前無法封存這個資料庫');
+      const detail = syncValue(repository.getDatabaseDetail('database-orders'));
+      expect(detail.status === 'ready' && detail.data.summary.archivedAt).toBeNull();
+    });
+
+    it('shows the archived state but no archive action to someone who cannot manage the database', async () => {
+      const { page } = await openDetail('/app/databases/database-orders/form', (repository) => {
+        repository.archiveDatabase('database-orders').subscribe();
+        const original = repository.getDatabaseDetail.bind(repository);
+        vi.spyOn(repository, 'getDatabaseDetail').mockImplementation((id) =>
+          original(id).pipe(
+            map((result) =>
+              result.status === 'ready'
+                ? { ...result, data: { ...result.data, summary: { ...result.data.summary, viewerCanManage: false } } }
+                : result,
+            ),
+          ),
+        );
+      });
+
+      expect(page().querySelector('#database-archive-toggle')).toBeNull();
+      expect(page().querySelector('.archived-notice')?.textContent).toContain('已封存');
+    });
+  });
+
   describe('API mode (no feature is upcoming any more since #150)', () => {
     /** 與 Hybrid repository 在 API 模式回傳的一樣：沒有任何「將於後續版本開放」的功能。 */
     function asApiMode(repository: MockDemoRepository): void {

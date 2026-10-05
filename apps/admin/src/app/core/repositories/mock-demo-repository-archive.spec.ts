@@ -133,4 +133,22 @@ describe('MockDemoRepository database archive (issue #180)', () => {
     syncValue(admin.unarchiveDatabase(ORDERS));
     expect(syncValue(customer.listChatForms(CUSTOMER, ASSISTANT))).toMatchObject({ status: 'ready', data: [{ id: ORDERS }] });
   });
+
+  it('lets a designated data manager who is not the owner read records and statistics, archived or not, like the API', () => {
+    const storage = createMemoryStorage();
+    const admin = repositoryFor(ADMIN, storage);
+    syncValue(admin.updateDatabaseAccess(ORDERS, [ADMIN, EMPLOYEE]));
+    const employee = repositoryFor(EMPLOYEE, storage);
+    const query = { period: 'last-30-days', subjectId: null } as const;
+
+    for (const archive of [false, true]) {
+      if (archive) syncValue(admin.archiveDatabase(ORDERS));
+      expect(employee.readDatabaseTracking(EMPLOYEE, ORDERS).status).toBe('ready');
+      expect(employee.readDatabasePeriodSummary(EMPLOYEE, ORDERS, query).status).toBe('ready');
+    }
+
+    // Not designated: still refused (the database is not even visible to them).
+    syncValue(admin.updateDatabaseAccess(ORDERS, [ADMIN]));
+    expect(employee.readDatabaseTracking(EMPLOYEE, ORDERS)).toMatchObject({ status: 'permission-denied', reason: 'database' });
+  });
 });

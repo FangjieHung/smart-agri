@@ -3953,7 +3953,9 @@ export class MockDemoRepository implements DemoRepository {
     databaseId: string,
     query: DatabasePeriodSummaryQuery,
   ): RepositoryView<DatabasePeriodSummaryView> {
-    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    // 與 API 相同（#144 的 `DatabaseRecordReaders`）：看得到資料庫（擁有者或可讀的資料管理者）才不是
+    // `database`；能不能讀紀錄只看指定＋帳號權限，不看是否為擁有者，也不看是否封存（#180）。
+    const database = this.viewableDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
     if (!this.canReadRecords(viewerAccountId, database.id)) {
       return this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);
@@ -4182,7 +4184,9 @@ export class MockDemoRepository implements DemoRepository {
     viewerAccountId: AccountId,
     databaseId: string,
   ): RepositoryView<DatabaseTrackingView> {
-    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    // 與 API 相同（#144 的 `DatabaseRecordReaders`）：看得到資料庫（擁有者或可讀的資料管理者）才不是
+    // `database`；能不能讀紀錄只看指定＋帳號權限，不看是否為擁有者，也不看是否封存（#180）。
+    const database = this.viewableDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
     if (!this.canReadRecords(viewerAccountId, database.id)) {
       return this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);

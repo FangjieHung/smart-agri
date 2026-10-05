@@ -357,7 +357,7 @@
 - **保存**：保存對話時，回答存成 `ChatMessages`（`ReplyKind = DatabaseQuery`、`Text`、新的 `jsonb` 欄位 `DatabaseQuery`＝結構化快照；migration `AddChatDatabaseQueries`）。快照只在**提問者本人的私人對話**裡，且每次 `GET chat` 重新檢查：該數據庫仍是助理可用的、提問者仍可讀（`ChatDatabaseQueries.VisibleDatabaseIdsAsync`），否則文字與結構都換成 `not-available`（不透露名稱與數字）。快照是回答當時的數字，與定期報表相同不追溯改寫；新的提問一律重新查詢。不保存對話時不寫任何對話表。
 - **模型看不到結果**：保存的查詢回答在之後的模型呼叫前文中換成 `DatabaseQueryTools.HistoryPlaceholder`；前端不保存對話時也不把查詢回答送回當前文。
 - **轉人工**：查詢回答不能轉人工（`AssistantHandoffEndpoints` 回 `403 chat-thread`，前端不顯示按鈕）——數字來自只有提問者能讀的紀錄，處理人不因轉人工看到他人紀錄。
-- **用量**：選擇工具的呼叫經既有錄製中介層寫一筆 `ModelInvocations`（新用途 `ModelInvocationPurpose.DatabaseQuery`，wire `database-query`，歸屬提問者與助理，不含內容；失敗也記 `Succeeded = false`）；`not-available`（第 3 步）不呼叫模型、不記。工具執行本身是一個 `smartagri.chat.database_query` span（`smartagri.database_query.query`／`.status`，不含參數與結果）。查詢回答不寫 `AnswerOutcomes`（那是知識庫回答品質的分析：組織資料／一般知識／查無資料）。
+- **用量**：選擇工具的呼叫經既有錄製中介層寫一筆 `ModelInvocations`（新用途 `ModelInvocationPurpose.DatabaseQuery`，wire `database-query`，歸屬提問者與助理，不含內容；失敗也記 `Succeeded = false`）；`not-available`（第 3 步）不呼叫模型、不記。工具執行本身是一個 `smartagri.chat.database_query` span（`smartagri.database_query.query`／`.status`，不含參數與結果）。~~查詢回答不寫 `AnswerOutcomes`~~——#178 起改為寫入，另分一類 `database-query`、不混入知識庫回答品質的比率，見 §17。
 
 ### 12.6 測試
 
@@ -518,3 +518,45 @@
 
 - 整合（真實 PostgreSQL）：`DatabaseSummaryCountsTests`——可讀者在清單與詳情看到正確的筆數與對象數（沒有紀錄的數據庫是 0／0），撤回一筆對象仍在、撤回唯一一筆對象減少；擁有者取消自己指定後，清單與詳情沒有計數鍵，且新增、撤回紀錄前後的回應字串完全相同；授予權限的下一次請求出現計數、撤銷後消失；建立回應只對具備權限的建立者帶 0／0。`ToQueryString()` 確認計數是單一分組查詢。`SignInFlowTests`——`/me` 帶預設的 `Asia/Taipei`，設定 `Europe/Berlin` 或 `Taipei Standard Time` 時回 `Europe/Berlin`／`Asia/Taipei`。
 - 前端：`statisticsDay` 與 `summarizePeriod` 換時區後曆日與期間歸屬跟著改變；Hybrid 時間軸在 `/me` 給 `America/Los_Angeles` 時標籤是前一天；`toIdentity()` 保存 `statisticsTimeZone`；清單 adapter 用 2026-10-05 實際取得的可讀者／不可讀者 JSON（後者沒有計數鍵）。
+
+## 17. #178 對話查詢回答納入回覆統計（另分一類，2026-10-05）
+
+負責人決定（2026-10-05）：#149 的查詢回答**納入** `AnswerOutcomes`，**另分一類**；不記查詢內容、參數值與數字。
+
+### 17.1 資料
+
+- `AnswerReplyKind` 新增 `database-query`（`AnswerReplyKind.DatabaseQuery`）。`AnswerOutcomes` 新增可為空的字串欄位 `DatabaseQueryResult`（migration `AddAnswerOutcomeDatabaseQueryResults`，`varchar(32)`），**只有** `database-query` 列有值，其他回覆類型永遠是 `null`。
+- 只能用 `AnswerOutcome.RecordDatabaseQuery(organizationId, assistantId, result, at)` 建立：通道固定 `chat`、一定有助理、沒有 `RejectionReason`、`CitedDocumentIds` 為空；`AnswerOutcome.Record` 拒絕 `database-query`。實體仍然沒有任何字串屬性（既有網域測試照舊成立）。
+- 結果只有四類（`AnswerDatabaseQueryResult`），由 `AnswerKinds.ToDatabaseQueryResult` 從回覆的 `status`（§12.4）對應：
+
+| 結果（wire） | 來源 `status` | 意義 |
+| --- | --- | --- |
+| `answered` | `answered` | 成功，期間內有紀錄 |
+| `not-permitted` | `not-available` | 提問者沒有可查的數據庫、模型給的數據庫不在清單、執行時已不可讀 |
+| `insufficient-records` | `no-data`、`insufficient-data` | 期間內沒有紀錄，或紀錄不足以比較 |
+| `failed` | `rejected`、`failed`、選擇工具的模型呼叫失敗（`RUN_ERROR`） | 模型或工具失敗；定義外的參數／未知工具也算失敗 |
+
+### 17.2 何時寫入
+
+- `ChatDatabaseQueries.AnswerAsync` 每次產生查詢回答（或選擇工具的模型呼叫失敗）時，經 `IAnswerOutcomeRecorder.RecordDatabaseQueryAsync` 寫**恰好一筆**；與既有規則相同：自己的 DbContext、立即 commit、不隨請求取消、寫入失敗只記 log 不影響對話。保存或不保存對話都寫（與一般回答相同）。
+- 模型決定不查詢（沒有工具呼叫）時不寫 `database-query`；之後的表單請求或回答流程照舊（回答流程寫它自己的類型）。被取消的請求不寫。
+- 只有對話（`chat`）會用到查詢工具；試答與測試集不受影響。
+
+### 17.3 統計（不混入既有比率）
+
+- `GET /api/v1/operations/summary` 新增必填 `databaseQueries`（`DatabaseQueryOperationsView`）：`totalCount`、`answeredCount`、`notPermittedCount`、`insufficientRecordsCount`、`failedCount`、`failureRate`（`failedCount / totalCount`，沒有時為 0）。範圍與其他數字相同（`from`／`to`），以組織為單位，含之後被刪除的助理的紀錄（與常引用文件相同）。
+- 同一端點的 `assistants[]`（`totalReplies`、`noResultRate`、`rejectedCitationRate`）**排除** `database-query` 列，數字與 #178 之前相同。
+- `GET /api/v1/assistants/{id}/analytics` 同樣排除：`totalReplies` 不含查詢回答，`replyKinds` 只列 `company-data`／`general-knowledge`／`no-result` 三類（`AssistantAnalyticsEndpoints.AnswerReplyKinds`），回應與之前相同。
+- 測試集結果 `AssistantTestResultView.actualKind` 改用 `AssistantTestExpectedKind` 型別（同三個 wire 名稱，JSON 不變），讓契約不會出現 `database-query`；`AssistantTestResult.Record` 拒絕 `database-query`。
+
+### 17.4 前端
+
+- `OperationsSummaryView.databaseQueries`；營運追蹤頁「助理回覆狀況」之後新增「對話中的數據庫查詢」區塊：查詢回答、成功、無權限、紀錄不足、失敗、失敗率，並註明「另外計算，不計入上方的回覆數、查無資料率與引用錯誤率」；期間內沒有時顯示「這段期間沒有數據庫查詢回答」。
+- API 模式直接使用回應；mock 給固定示範數字（各類相加等於總數、失敗率＝失敗／總數），形狀與 API 相同。`AnswerReplyKind` 型別加上 `database-query`，助理分析的類型標籤補「數據庫查詢」（實際不會出現）。
+
+### 17.5 測試
+
+- 網域：`AnswerOutcomeTests`（查詢結果只出現在 `database-query`、需要組織與助理、`Record` 拒絕 `database-query`）。應用：`AnswerKindsTests`（六個 `status` 對應四類、每類都可達、wire 名稱）。
+- 整合（真實 PostgreSQL）：`ChatDatabaseQueryEndpointsTests`——成功、無資料、資料不足、無權成員、不在清單的數據庫、定義外工具、模型失敗，每次執行恰好多一筆對應結果的 `database-query`（通道 `chat`、無原因、無引用）；不查詢（`#query-none`）不寫；工具失敗另一筆 `failed`。`AnswerOutcomeAndAnalyticsEndpointsTests`——加入查詢列後助理分析與營運彙總的既有數字不變，`databaseQueries` 各類筆數與失敗率正確，範圍外不計。
+- 前端：`operations-summary-page.component.spec.ts`（另一區塊、助理列不變、空狀態）、`hybrid-demo-repository.spec.ts`、`mock-demo-repository-settings.spec.ts`（mock 形狀與一致性、無權限）。Cypress 沒有任何規格寫死回覆類型或營運彙總（`grep` 確認），未修改。
+

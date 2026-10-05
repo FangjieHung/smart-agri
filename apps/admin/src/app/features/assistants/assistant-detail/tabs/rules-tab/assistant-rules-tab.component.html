@@ -5,7 +5,10 @@
       [writableDatabases]="store.writableDatabases()"
       [errors]="errors()"
       [live]="true"
+      [autoDisabled]="settings.periodicReportAutoDisabled"
+      [resuming]="store.busy()"
       (changed)="store.updateRules($event)"
+      (resumeReport)="store.resumePeriodicReport()"
     />
   </div>
 }

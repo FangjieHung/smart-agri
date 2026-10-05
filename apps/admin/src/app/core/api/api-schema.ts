@@ -5458,6 +5458,7 @@ export interface components {
             tone: components["schemas"]["AssistantTone"];
             roleInstructions: string;
             rules: components["schemas"]["AssistantAnswerRulesView"];
+            periodicReportAutoDisabled: null | components["schemas"]["PeriodicReportAutoDisabledView"];
         };
         /** @enum {unknown} */
         AssistantStatus: "ready" | "paused";
@@ -6415,6 +6416,14 @@ export interface components {
             knowledge: components["schemas"]["KnowledgeOperationsView"];
             issues: components["schemas"]["IssuesSummaryView"];
             databaseQueries: components["schemas"]["DatabaseQueryOperationsView"];
+        };
+        PeriodicReportAutoDisabledView: {
+            /** Format: date-time */
+            disabledAt: string;
+            reason: components["schemas"]["ReportSkipReason"];
+            /** Format: int32 */
+            skippedPeriods: number;
+            message: string;
         };
         PlatformShareTargetView: {
             /** Format: uuid */

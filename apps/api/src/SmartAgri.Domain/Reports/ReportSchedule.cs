@@ -20,6 +20,14 @@ namespace SmartAgri.Domain.Reports;
 /// It holds no permission. The job re-checks, for the period it is about, that the assistant is still
 /// connected to the database and that the owner may still read its records.
 /// </para>
+/// <para>
+/// <b>Auto-disable (#179).</b> <see cref="ConsecutiveSkips"/> counts the skipped periods in a row; a
+/// generated period resets it. The period that makes it <see cref="AutoDisableAfterSkips"/> sets
+/// <see cref="AutoDisabledAt"/> and <see cref="AutoDisabledReason"/> (that period's skip reason) in the same
+/// compare-and-set that advances <see cref="NextPeriodFrom"/>, and no next job is queued: a disabled schedule
+/// writes nothing more. It stays (the owner's settings show why) until the owner turns it off, changes it, or
+/// re-enables it, each of which replaces it with a fresh schedule.
+/// </para>
 /// </remarks>
 public sealed class ReportSchedule : IOrganizationScoped
 {
@@ -46,6 +54,22 @@ public sealed class ReportSchedule : IOrganizationScoped
     public DateOnly NextPeriodFrom { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
+
+    /// <summary>How many periods in a row were skipped, up to and including the last one reported.</summary>
+    public int ConsecutiveSkips { get; private set; }
+
+    /// <summary>When the schedule stopped itself after <see cref="AutoDisableAfterSkips"/> skipped periods in a
+    /// row; <see langword="null"/> while it runs.</summary>
+    public DateTimeOffset? AutoDisabledAt { get; private set; }
+
+    /// <summary>The skip reason of the period that disabled the schedule; set exactly when
+    /// <see cref="AutoDisabledAt"/> is.</summary>
+    public ReportSkipReason? AutoDisabledReason { get; private set; }
+
+    /// <summary>Skipped periods in a row after which the schedule disables itself (owner decision 2026-10-05).</summary>
+    public const int AutoDisableAfterSkips = 3;
+
+    public bool IsAutoDisabled => AutoDisabledAt is not null;
 
     public static ReportSchedule Create(
         Guid organizationId,

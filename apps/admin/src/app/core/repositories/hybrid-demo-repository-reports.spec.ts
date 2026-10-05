@@ -29,6 +29,14 @@ const REAL_READY_JSON = `{"report":{"id":"01a100ec-c7ed-70a1-a1b9-05647d7d3f28",
 const REAL_INSUFFICIENT_JSON = `{"report":{"id":"01a100ec-c8ee-7648-b744-3b36bf676df6","assistantId":"01a100ec-c8ab-74d0-a503-186055a90e36","assistantName":"客服小幫手","frequency":"monthly","periodFrom":"2026-10-01","periodTo":"2026-10-31","periodLabel":"2026-10-01 至 2026-10-31","status":"generated","skipReason":null,"skipMessage":null,"dataState":"insufficient-records","dataMessage":"紀錄不足：這一期有 0 筆、前一期有 0 筆紀錄，兩期都有紀錄才會顯示變化、趨勢與 AI 摘要。","generatedAt":"2026-10-03T08:41:20.359331+00:00","summaryStatus":"not-requested"},"statistics":{"period":{"period":null,"from":"2026-10-01","to":"2026-10-31","label":"2026-10-01 至 2026-10-31"},"previousPeriod":{"period":null,"from":"2026-09-01","to":"2026-09-30","label":"2026-09-01 至 2026-09-30"},"subjectId":null,"recordCount":0,"previousRecordCount":0,"recordCountChange":0,"recordCountChangeLabel":"持平","sums":[{"fieldId":"field-completed-count","label":"本期完成數量","unit":"件","sum":0,"display":"0 件","recordCount":0,"previousSum":0,"previousDisplay":"0 件","previousRecordCount":0,"change":0,"changeLabel":"持平"}]},"aiSummary":{"label":"AI 摘要","status":"not-requested","text":null,"note":null,"updatedAt":"2026-10-03T08:41:20.359331+00:00","disclaimer":"由 AI 根據上方已算好的統計數字撰寫，僅供參考；一切數字以統計為準。"}}`;
 const REAL_SETTINGS_JSON = `{"configuration":{"id":"01a100ec-c16e-7b08-9c72-8ce2b9d42dff","ownerAccountId":"01a100ec-b9a1-735b-a16c-fe915cac20e8","name":"客服小幫手","purpose":"協助回報完成數量","status":"ready","viewerCanManage":true,"createdAt":"2026-10-03T08:41:18.44656+00:00","updatedAt":"2026-10-03T08:41:18.44656+00:00","acceptanceStatus":"not-accepted"},"knowledgeBaseIds":["01a100ec-c177-747e-a2c2-23e8eec95256"],"databaseIds":["01a100ec-c145-7811-98f9-ebe88684b521"],"tone":"friendly","roleInstructions":"","rules":{"knowledgeScope":"company-data-only","refusalMessage":"目前的資料中找不到這個問題的答案。","showCitations":true,"keepConversations":true,"dataWriteDatabaseId":"01a100ec-c145-7811-98f9-ebe88684b521","dataWritePurpose":"每週回報完成數量。","periodicReport":"weekly"}}`;
 const ASSISTANT_ID = '01a100ec-c16e-7b08-9c72-8ce2b9d42dff';
+
+/*
+ * #179：2026-10-05 從 API 整合測試主機實際取得（擁有者不再是資料管理者，連續 3 期略過後自動停用；
+ * 恢復指定後重新啟用；仍不可用時重新啟用被拒）。原樣保留成字串再 `JSON.parse`。
+ */
+const REAL_AUTO_DISABLED_SETTINGS_JSON = `{"configuration":{"id":"01a10bb8-14e4-7c27-881f-30ba4d890c38","ownerAccountId":"01a10bb8-0aa8-7e2b-b314-17fb3a050caf","name":"客服小幫手","purpose":"協助回報完成數量","status":"ready","viewerCanManage":true,"createdAt":"2026-10-05T10:59:35.780165+00:00","updatedAt":"2026-10-05T10:59:35.780165+00:00","acceptanceStatus":"not-accepted"},"knowledgeBaseIds":["01a10bb8-14ec-749d-863d-c8e3070163a1"],"databaseIds":["01a10bb8-145c-707e-8a7d-5e1e4923e2cc"],"tone":"friendly","roleInstructions":"","rules":{"knowledgeScope":"company-data-only","refusalMessage":"目前的資料中找不到這個問題的答案。","showCitations":true,"keepConversations":true,"dataWriteDatabaseId":"01a10bb8-145c-707e-8a7d-5e1e4923e2cc","dataWritePurpose":"每週回報完成數量。","periodicReport":"weekly"},"periodicReportAutoDisabled":{"disabledAt":"2026-10-05T10:59:36.047524+00:00","reason":"owner-cannot-read","skippedPeriods":3,"message":"已自動停用：連續 3 期沒有產生報表，最近一期是因為助理擁有者無法讀取這個數據庫的紀錄。恢復權限後可以重新啟用。"}}`;
+const REAL_RESUMED_SETTINGS_JSON = `{"configuration":{"id":"01a10bb8-17bb-7f9f-98c8-d26de575b255","ownerAccountId":"01a10bb8-1651-719a-8fa0-75b1c8ac7943","name":"客服小幫手","purpose":"協助回報完成數量","status":"ready","viewerCanManage":true,"createdAt":"2026-10-05T10:59:36.507089+00:00","updatedAt":"2026-10-05T10:59:36.507089+00:00","acceptanceStatus":"not-accepted"},"knowledgeBaseIds":["01a10bb8-17bb-7a16-a54e-cf2946c2e332"],"databaseIds":["01a10bb8-17b3-7a8b-aa89-6575a4e4f9d9"],"tone":"friendly","roleInstructions":"","rules":{"knowledgeScope":"company-data-only","refusalMessage":"目前的資料中找不到這個問題的答案。","showCitations":true,"keepConversations":true,"dataWriteDatabaseId":"01a10bb8-17b3-7a8b-aa89-6575a4e4f9d9","dataWritePurpose":"每週回報完成數量。","periodicReport":"weekly"},"periodicReportAutoDisabled":null}`;
+const REAL_RESUME_REFUSED_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"只能為已連接到這個助理、而且你仍可使用的資料庫設定定期回報。","errors":{"periodicReport":["只能為已連接到這個助理、而且你仍可使用的資料庫設定定期回報。"]}}`;
 const REAL_REPORT_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"database-report","message":"找不到這份報表，或你沒有查看它的權限。"}`;
 const REAL_RECORDS_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"database-records","message":"只有被指定為資料管理者、且具備「查看同意提交的紀錄」權限的帳號，可以查看收集紀錄與趨勢比較。"}`;
 
@@ -238,6 +246,65 @@ describe('HybridDemoRepository periodic reports (issue #150)', () => {
       status: 'validation-failed',
       message: '請先指定要寫入的資料庫，才能設定定期回報。',
       errors: [{ field: 'periodicReport', message: '請先指定要寫入的資料庫，才能設定定期回報。' }],
+    });
+  });
+
+  describe('auto-disabled schedule (issue #179)', () => {
+    it('reads the reason and keeps the configured frequency', async () => {
+      const { repository, controller } = setUp();
+      const assistantId = JSON.parse(REAL_AUTO_DISABLED_SETTINGS_JSON).configuration.id as string;
+      const result = firstValueFrom(repository.getAssistantSettings(assistantId));
+      controller.expectOne(apiAssistantSettingsPath(assistantId)).flush(JSON.parse(REAL_AUTO_DISABLED_SETTINGS_JSON));
+
+      const view = await result;
+      expect(view.status).toBe('ready');
+      if (view.status !== 'ready') return;
+      expect(view.data.rules.periodicReport).toBe('weekly');
+      expect(view.data.periodicReportAutoDisabled).toEqual({
+        disabledAt: '2026-10-05T10:59:36.047524+00:00',
+        reason: 'owner-cannot-read',
+        skippedPeriods: 3,
+        message: '已自動停用：連續 3 期沒有產生報表，最近一期是因為助理擁有者無法讀取這個數據庫的紀錄。恢復權限後可以重新啟用。',
+      });
+    });
+
+    it('treats a response without the key as not disabled', async () => {
+      const { repository, controller } = setUp();
+      const result = firstValueFrom(repository.getAssistantSettings(ASSISTANT_ID));
+      controller.expectOne(apiAssistantSettingsPath(ASSISTANT_ID)).flush(JSON.parse(REAL_SETTINGS_JSON));
+
+      const view = await result;
+      expect(view.status === 'ready' && view.data.periodicReportAutoDisabled).toBeNull();
+    });
+
+    it('re-enables by sending the frequency again and reads the cleared state back', async () => {
+      const { repository, controller } = setUp();
+      const assistantId = JSON.parse(REAL_RESUMED_SETTINGS_JSON).configuration.id as string;
+      const result = firstValueFrom(repository.updateAssistantSettings(assistantId, { rules: { periodicReport: 'weekly' } }));
+      const request = controller.expectOne({ method: 'PATCH', url: apiAssistantSettingsPath(assistantId) });
+      expect(request.request.body).toEqual({ rules: { periodicReport: 'weekly' } });
+      request.flush(JSON.parse(REAL_RESUMED_SETTINGS_JSON));
+
+      const outcome = await result;
+      expect(outcome.status).toBe('ready');
+      if (outcome.status !== 'ready') return;
+      expect(outcome.data.periodicReportAutoDisabled).toBeNull();
+      expect(outcome.data.rules.periodicReport).toBe('weekly');
+    });
+
+    it('shows a refused re-enable (permissions re-checked) under the periodicReport field', async () => {
+      const { repository, controller } = setUp();
+      const result = firstValueFrom(repository.updateAssistantSettings(ASSISTANT_ID, { rules: { periodicReport: 'weekly' } }));
+      controller.expectOne(apiAssistantSettingsPath(ASSISTANT_ID)).flush(
+        JSON.parse(REAL_RESUME_REFUSED_422_JSON),
+        { status: 422, statusText: 'Unprocessable Entity' },
+      );
+
+      expect(await result).toEqual({
+        status: 'validation-failed',
+        message: '只能為已連接到這個助理、而且你仍可使用的資料庫設定定期回報。',
+        errors: [{ field: 'periodicReport', message: '只能為已連接到這個助理、而且你仍可使用的資料庫設定定期回報。' }],
+      });
     });
   });
 });

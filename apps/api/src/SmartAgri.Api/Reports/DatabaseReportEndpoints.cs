@@ -44,7 +44,8 @@ public sealed record DatabaseReportListItemView(
     DateTimeOffset GeneratedAt,
     ReportSummaryStatus SummaryStatus);
 
-/// <summary>An assistant's active schedule on the database: how often and when the next report is made.</summary>
+/// <summary>An assistant's active schedule on the database: how often and when the next report is made. A
+/// schedule that disabled itself (#179) is not listed: no next report will be made.</summary>
 /// <param name="NextReportDate">The day (statistics time zone) the next period is over and its report is made.</param>
 public sealed record DatabaseReportScheduleView(
     Guid AssistantId,
@@ -138,7 +139,7 @@ public static class DatabaseReportEndpoints
             .ToListAsync(cancellationToken);
         var schedules = await (
             from schedule in dbContext.ReportSchedules.AsNoTracking()
-            where schedule.DatabaseId == id
+            where schedule.DatabaseId == id && schedule.AutoDisabledAt == null
             join assistant in dbContext.Assistants.AsNoTracking() on schedule.AssistantId equals assistant.Id
             orderby assistant.Name, schedule.Id
             select new { schedule.AssistantId, assistant.Name, schedule.Frequency, schedule.NextPeriodFrom })

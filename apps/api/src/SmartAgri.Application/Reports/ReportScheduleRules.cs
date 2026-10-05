@@ -92,4 +92,50 @@ public static class ReportScheduleRules
         ArgumentNullException.ThrowIfNull(choice);
         return currentFrequency != choice.Frequency || currentDatabaseId != choice.DatabaseId;
     }
+
+    /// <summary>
+    /// Whether an update re-enables an auto-disabled schedule (#179): the request names a frequency
+    /// (<c>weekly</c>/<c>monthly</c>, the same one or another) and the result keeps a schedule. Such a request
+    /// went through <see cref="ForUpdate"/> as a new setting, so the target was re-checked as usable. A request
+    /// that does not name <c>periodicReport</c> never re-enables (changing only the collection purpose leaves
+    /// a disabled schedule disabled).
+    /// </summary>
+    public static bool Resumes(bool currentIsAutoDisabled, string? requested, ReportScheduleChoice choice)
+    {
+        ArgumentNullException.ThrowIfNull(choice);
+        return currentIsAutoDisabled && requested is not null && requested != OffName && choice.Frequency is not null;
+    }
+
+    /// <summary>
+    /// The schedule's skip counter after a period (#179): a skipped period (<paramref name="skipReason"/> not
+    /// <see langword="null"/>) adds one, a generated one resets it to zero. The period that brings it to
+    /// <see cref="ReportSchedule.AutoDisableAfterSkips"/> disables the schedule with that period's reason.
+    /// </summary>
+    public static ReportScheduleProgress AfterPeriod(int consecutiveSkips, ReportSkipReason? skipReason)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(consecutiveSkips);
+        if (skipReason is not { } reason)
+        {
+            return new ReportScheduleProgress(0, null);
+        }
+
+        var skips = consecutiveSkips + 1;
+        return new ReportScheduleProgress(skips, skips >= ReportSchedule.AutoDisableAfterSkips ? reason : null);
+    }
+
+    /// <summary>What the owner's settings say about an auto-disabled schedule.</summary>
+    public static string AutoDisabledMessage(ReportSkipReason reason) => reason switch
+    {
+        ReportSkipReason.NotConnected =>
+            $"已自動停用：連續 {ReportSchedule.AutoDisableAfterSkips} 期沒有產生報表，最近一期是因為助理已不再連接這個數據庫。重新連接後可以重新啟用。",
+        ReportSkipReason.OwnerCannotRead =>
+            $"已自動停用：連續 {ReportSchedule.AutoDisableAfterSkips} 期沒有產生報表，最近一期是因為助理擁有者無法讀取這個數據庫的紀錄。恢復權限後可以重新啟用。",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, "Not a declared reason."),
+    };
+}
+
+/// <summary>A schedule's counter after a period; <see cref="DisabledReason"/> is set when that period disables it.</summary>
+public sealed record ReportScheduleProgress(int ConsecutiveSkips, ReportSkipReason? DisabledReason)
+{
+    public bool Disables => DisabledReason is not null;
 }

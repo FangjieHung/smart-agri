@@ -472,6 +472,84 @@ describe('MockDemoRepository databases', () => {
       });
     });
 
+    describe('自動停用 (#179)', () => {
+      const AUTO_DISABLED = {
+        disabledAt: '2026-09-15T00:00:05.000Z',
+        reason: 'not-connected',
+        skippedPeriods: 3,
+        message: '已自動停用：連續 3 期沒有產生報表，最近一期是因為助理已不再連接這個數據庫。重新連接後可以重新啟用。',
+      } as const;
+
+      /** mock 沒有排程工作：先存一次設定，再把「已自動停用」寫進存起來的設定，模擬連續略過 3 期之後。 */
+      async function disabledRepository(sources?: readonly unknown[]) {
+        const base = createMemoryStorage();
+        const keys = new Set<string>();
+        const storage = { ...base, setItem: (key: string, value: string) => { keys.add(key); base.setItem(key, value); } };
+        const repository = createRepository(DEMO_SEED, storage);
+        await firstValueFrom(repository.updateAssistantSettings('assistant-customer-service', { rules: { showCitations: true } }));
+        const key = [...keys].find((candidate) => candidate.endsWith('assistant-settings:assistant-customer-service'));
+        if (key === undefined) throw new Error('settings were not saved');
+        const stored = JSON.parse(base.getItem(key) ?? '{}');
+        base.setItem(key, JSON.stringify({
+          ...stored,
+          ...(sources !== undefined ? { databaseIds: sources } : {}),
+          periodicReportAutoDisabled: AUTO_DISABLED,
+        }));
+        return repository;
+      }
+
+      async function settingsOf(repository: MockDemoRepository) {
+        const result = await firstValueFrom(repository.getAssistantSettings('assistant-customer-service'));
+        if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
+        return result.data;
+      }
+
+      it('shows the reason with the frequency kept, and makes no more reports or schedule', async () => {
+        const repository = await disabledRepository();
+        const settings = await settingsOf(repository);
+
+        expect(settings.rules.periodicReport).toBe('monthly');
+        expect(settings.periodicReportAutoDisabled).toEqual(AUTO_DISABLED);
+        const list = reportsOf(repository);
+        expect(list.schedules).toEqual([]);
+        expect(list.reports).toEqual([]);
+      });
+
+      it('stays disabled when only another rule changes', async () => {
+        const repository = await disabledRepository();
+        const saved = await firstValueFrom(
+          repository.updateAssistantSettings('assistant-customer-service', { rules: { dataWritePurpose: '改過的目的。' } }),
+        );
+
+        expect(saved.status === 'ready' && saved.data.periodicReportAutoDisabled).toEqual(AUTO_DISABLED);
+      });
+
+      it('re-enables by sending the frequency again, resuming the schedule', async () => {
+        const repository = await disabledRepository();
+        const saved = await firstValueFrom(
+          repository.updateAssistantSettings('assistant-customer-service', { rules: { periodicReport: 'monthly' } }),
+        );
+
+        expect(saved.status === 'ready' && saved.data.periodicReportAutoDisabled).toBeNull();
+        expect((await settingsOf(repository)).periodicReportAutoDisabled).toBeNull();
+        expect(reportsOf(repository).schedules.map((schedule) => schedule.assistantId)).toEqual(['assistant-customer-service']);
+      });
+
+      it('refuses to re-enable while the write target is no longer connected, changing nothing', async () => {
+        const repository = await disabledRepository([]);
+        const refused = await firstValueFrom(
+          repository.updateAssistantSettings('assistant-customer-service', { rules: { periodicReport: 'monthly' } }),
+        );
+
+        expect(refused).toEqual({
+          status: 'validation-failed',
+          errors: [{ field: 'periodicReport', message: '只能為已連接到這個助理、而且你仍可使用的資料庫設定定期回報。' }],
+          message: '只能為已連接到這個助理、而且你仍可使用的資料庫設定定期回報。',
+        });
+        expect((await settingsOf(repository)).periodicReportAutoDisabled).toEqual(AUTO_DISABLED);
+      });
+    });
+
     it('has no schedule or report on a database no assistant reports into', () => {
       const list = reportsOf(createRepository(), 'database-orders');
       expect(list.schedules).toEqual([]);

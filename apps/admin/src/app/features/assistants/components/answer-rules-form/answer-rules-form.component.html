@@ -110,6 +110,19 @@
   @if (problems.periodicReport) {
     <p id="periodic-report-error" class="error">{{ problems.periodicReport }}</p>
   }
+  @if (autoDisabled(); as disabled) {
+    <div id="periodic-report-auto-disabled" class="auto-disabled" role="status">
+      <p class="auto-disabled__title">已自動停用</p>
+      <p>{{ disabled.message }}</p>
+      <p class="hint">
+        停用時間：<time [attr.datetime]="disabled.disabledAt">{{ disabledAt(disabled.disabledAt) }}</time>。
+        停用後不再產生報表或略過紀錄；已產生的紀錄保留。重新啟用時會再次確認權限，從目前這一期重新開始，不補做停用期間。
+      </p>
+      @if (current.periodicReport !== 'off') {
+        <button type="button" class="ui-button" [disabled]="resuming()" (click)="resumeReport.emit()">重新啟用</button>
+      }
+    </div>
+  }
   @if (live()) {
     <p id="periodic-report-effect" class="hint">
       @if (current.periodicReport === 'off' || current.dataWriteDatabaseId === null) {

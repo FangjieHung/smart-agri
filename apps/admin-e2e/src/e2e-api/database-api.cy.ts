@@ -1,4 +1,4 @@
-import { loginToApi } from '../support/api-mode';
+import { archiveDatabase, loginToApi } from '../support/api-mode';
 
 /**
  * API 模式的數據庫（M4 issue #142）：對真實 API 與 PostgreSQL 跑，不需要任何示範資料庫。
@@ -18,8 +18,11 @@ import { loginToApi } from '../support/api-mode';
  * 「對話與回報紀錄」看到自己的回執並撤回（先確認）→ 回執與時間軸都只剩不含內容的撤回軌跡，紀錄清單
  * 是 0 筆 → 再撤回一次得到同一個撤回時間 → 資料管理者不能代為撤回（403 `submission-withdrawal`）。
  *
- * 數據庫目前沒有刪除功能，每次執行以不同名稱建立一個新的，可以對同一個資料庫重跑。
- * 六個 `it` 依序共用第一個建立的數據庫網址。
+ * 第七個 `it`（issue #180）：擁有者確認後封存 → 預設清單看不到、「已封存」篩選看得到並標示「已封存」→ 外部客戶開
+ * 表單連結被拒（與不存在的表單相同）→ 取消封存恢復可填寫 → 最後再封存一次，數據庫清單不會越跑越長。
+ *
+ * 數據庫沒有刪除功能，每次執行以不同名稱建立一個新的，最後封存，可以對同一個資料庫重跑。
+ * 七個 `it` 依序共用第一個建立的數據庫網址。
  */
 
 const DATABASE_PATH = /^\/app\/databases\/[0-9a-f-]{36}\/form$/;
@@ -409,5 +412,56 @@ describe('databases against the real API', () => {
     cy.get('app-period-summary').should('not.contain', '1,200 元');
     cy.get('.insufficient-records').should('contain', '目前只有 0 筆紀錄');
   });
-});
 
+  it('archives the database after confirming: hidden by default, listed as archived, its form link refused until unarchived (#180)', () => {
+    expect(databasePath, 'the database created by the first test').to.match(DATABASE_PATH);
+    const databaseId = databasePath.split('/')[3];
+    const formPath = `/app/forms/${databaseId}`;
+
+    loginToApi('anxin', 'admin');
+    cy.visit(databasePath);
+    cy.get('.archived-notice').should('not.exist');
+    // 取消確認不會封存。
+    cy.get('#database-archive-toggle').should('contain', '封存資料庫').click();
+    cy.get('[role="alertdialog"]').should('contain', '不再接受新的提交').and('contain', '資料不會刪除');
+    cy.get('#database-archive-cancel').click();
+    cy.get('[role="alertdialog"]').should('not.exist');
+    cy.get('.archived-notice').should('not.exist');
+
+    cy.intercept('POST', `/api/v1/databases/${databaseId}/archive`).as('archive');
+    cy.get('#database-archive-toggle').click();
+    cy.get('#database-archive-confirm').click();
+    cy.wait('@archive').its('response.statusCode').should('eq', 200);
+    cy.get('.archived-notice').should('contain', '已封存');
+    cy.get('.database-meta').should('contain', '已封存，暫停填寫');
+    cy.get('.database-meta a.form-link').should('not.exist');
+
+    cy.intercept({ method: 'GET', pathname: '/api/v1/databases', query: { archived: 'true' } }).as('archivedList');
+    cy.visit('/app/databases');
+    cy.contains('正在載入資料庫').should('not.exist');
+    cy.contains(databaseName).should('not.exist');
+    cy.contains('.list-filter button', '已封存').click();
+    cy.wait('@archivedList').its('response.statusCode').should('eq', 200);
+    cy.contains('tr', databaseName).should('contain', '已封存');
+
+    // 外部客戶：與不存在的表單相同的拒絕，不透露名稱。
+    loginToApi('anxin', 'customer');
+    cy.visit(formPath);
+    cy.contains('無法填寫這份表單').should('be.visible');
+    cy.contains(databaseName).should('not.exist');
+
+    // 取消封存恢復可填寫，最後再封存一次（不讓清單越跑越長）。
+    loginToApi('anxin', 'admin');
+    cy.visit(databasePath);
+    cy.get('#database-archive-toggle').should('contain', '取消封存').click();
+    cy.get('#database-archive-confirm').click();
+    cy.get('.archived-notice').should('not.exist');
+    cy.get('.database-meta a.form-link').should('have.attr', 'href', formPath);
+    loginToApi('anxin', 'customer');
+    cy.visit(formPath);
+    cy.contains('h1', databaseName).should('be.visible');
+
+    loginToApi('anxin', 'admin');
+    archiveDatabase(databaseId);
+  });
+});

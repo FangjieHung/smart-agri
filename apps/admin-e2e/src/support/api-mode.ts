@@ -26,3 +26,15 @@ export function loginToApi(organizationCode: string, loginName: string): void {
     cy.location('pathname', { timeout: 20000 }).should('eq', '/app/home');
   });
 }
+
+/**
+ * 封存測試建立的數據庫（issue #180）：API 模式的 spec 在最後呼叫，資料庫清單才不會越跑越長（數據庫沒有
+ * 刪除功能，封存後資料保留、從預設清單移到「已封存」）。從詳情頁按「封存資料庫」並確認，走與使用者相同的流程；
+ * 呼叫前要先以擁有者登入。
+ */
+export function archiveDatabase(databaseId: string): void {
+  cy.visit(`/app/databases/${databaseId}/form`);
+  cy.get('#database-archive-toggle').should('contain', '封存資料庫').click();
+  cy.get('#database-archive-confirm').click();
+  cy.get('.archived-notice').should('contain', '已封存');
+}

@@ -1,4 +1,4 @@
-import { loginToApi } from '../support/api-mode';
+import { archiveDatabase, loginToApi } from '../support/api-mode';
 
 /**
  * M4 issue #148：助理連接數據庫並在對話中請求表單，對真實 API、PostgreSQL 與 Fake 模型跑。
@@ -18,7 +18,8 @@ import { loginToApi } from '../support/api-mode';
  * 另外（#150）設定「每週」定期報表，並確認資料庫的「定期報表」頁籤列出排程；產生報表的排程、摘要與權限由後端整合測試
  * （`PeriodicReportEndpointsTests`）涵蓋，因為第一份報表要等一期結束。
  *
- * 名稱帶時間戳記，可以重覆執行；最後一個 `it` 刪除助理與知識庫（數據庫目前沒有刪除功能）。
+ * 名稱帶時間戳記，可以重覆執行；最後一個 `it` 刪除助理與知識庫，並封存數據庫（#180；數據庫沒有刪除功能，封存後
+ * 不再出現在預設清單）。
  */
 
 const GUID = '[0-9a-f-]{36}';
@@ -256,8 +257,9 @@ describe('assistant forms against the real API', () => {
 
   });
 
-  it('removes its assistant and knowledge base', () => {
+  it('removes its assistant and knowledge base and archives its database', () => {
     expect(assistantId).to.match(new RegExp(`^${GUID}$`));
+    expect(databaseId).to.match(new RegExp(`^${GUID}$`));
     loginToApi('anxin', 'admin');
     cy.visit(`/app/assistants/${assistantId}/overview`);
     cy.contains('button', '刪除助理').click();
@@ -267,5 +269,6 @@ describe('assistant forms against the real API', () => {
     cy.contains('button', '刪除知識庫').click();
     cy.get('.delete-panel').contains('button', /^刪除$/).click();
     cy.location('pathname').should('eq', '/app/knowledge');
+    archiveDatabase(databaseId);
   });
 });

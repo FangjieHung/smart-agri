@@ -7,6 +7,29 @@ import type {
   AssistantConfigurationView,
   AssistantSourceReference,
 } from './assistant.model';
+import type { DatabaseReportSkipReason } from './database.model';
+
+/**
+ * 定期報表連續略過幾期後自動停用（#179，負責人決定 2026-10-05）。停用後不再產生略過紀錄，
+ * 有權限的人可以重新啟用（重新檢查權限，從目前這一期重新開始，不補做停用期間）。
+ */
+export const PERIODIC_REPORT_AUTO_DISABLE_AFTER = 3;
+
+/** 定期報表排程為什麼、何時自動停用；`message` 由伺服器（或 mock）組好，直接顯示。 */
+export interface PeriodicReportAutoDisabledView {
+  readonly disabledAt: string;
+  /** 最後一期（使排程停用的那一期）的略過原因。 */
+  readonly reason: DatabaseReportSkipReason;
+  readonly skippedPeriods: number;
+  readonly message: string;
+}
+
+/** 與後端 `ReportScheduleRules.AutoDisabledMessage` 同一段文字（mock 用）。 */
+export function periodicReportAutoDisabledMessage(reason: DatabaseReportSkipReason): string {
+  return reason === 'not-connected'
+    ? `已自動停用：連續 ${PERIODIC_REPORT_AUTO_DISABLE_AFTER} 期沒有產生報表，最近一期是因為助理已不再連接這個數據庫。重新連接後可以重新啟用。`
+    : `已自動停用：連續 ${PERIODIC_REPORT_AUTO_DISABLE_AFTER} 期沒有產生報表，最近一期是因為助理擁有者無法讀取這個數據庫的紀錄。恢復權限後可以重新啟用。`;
+}
 
 /**
  * 助理建立後可編輯的完整設定。和建立精靈的草稿不同：這裡的每一次變更都直接套用到
@@ -20,6 +43,11 @@ export interface AssistantSettingsView {
   readonly tone: AssistantTone;
   readonly roleInstructions: string;
   readonly rules: AssistantAnswerRules;
+  /**
+   * 定期報表已自動停用（#179）時的原因；沒有停用（或沒有排程）時為 null。停用期間
+   * `rules.periodicReport` 仍是原本的週期；再送一次週期（`rules.periodicReport`）就是重新啟用。
+   */
+  readonly periodicReportAutoDisabled: PeriodicReportAutoDisabledView | null;
   /** 最後一次自動保存的時間；從未編輯過時為 null。 */
   readonly savedAt: string | null;
 }

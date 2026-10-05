@@ -35,6 +35,7 @@ import {
   validateAssistantSettings,
   type AssistantSettingsPatch,
   type AssistantSettingsView,
+  type PeriodicReportAutoDisabledView,
 } from '../domain/assistant-settings.model';
 import type {
   AssistantChatView,
@@ -425,7 +426,32 @@ interface StoredAssistantSettings {
   readonly tone: AssistantTone;
   readonly roleInstructions: string;
   readonly rules: AssistantAnswerRules;
+  /** 定期報表自動停用（#179）；沒有這個鍵的舊紀錄視為沒有停用。 */
+  readonly periodicReportAutoDisabled?: PeriodicReportAutoDisabledView | null;
 }
+
+/** 存起來的自動停用紀錄；形狀不對時當成沒有停用。 */
+function normalizeAutoDisabled(value: unknown): PeriodicReportAutoDisabledView | null {
+  if (
+    !isRecord(value) ||
+    typeof value['disabledAt'] !== 'string' ||
+    (value['reason'] !== 'not-connected' && value['reason'] !== 'owner-cannot-read') ||
+    typeof value['skippedPeriods'] !== 'number' ||
+    typeof value['message'] !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    disabledAt: value['disabledAt'],
+    reason: value['reason'],
+    skippedPeriods: value['skippedPeriods'],
+    message: value['message'],
+  };
+}
+
+/** 與後端 `ReportScheduleRules.TargetNotUsableMessage` 相同。 */
+const PERIODIC_REPORT_TARGET_NOT_USABLE_MESSAGE = '只能為已連接到這個助理、而且你仍可使用的資料庫設定定期回報。';
 
 const ASSISTANT_AUDIENCES: readonly AssistantAudience[] = [
   'account-members',
@@ -462,6 +488,7 @@ function normalizeStoredAssistantSettings(value: unknown): StoredAssistantSettin
     roleInstructions:
       typeof value['roleInstructions'] === 'string' ? value['roleInstructions'] : '',
     rules: { ...empty.rules, ...value['rules'] } as AssistantAnswerRules,
+    periodicReportAutoDisabled: normalizeAutoDisabled(value['periodicReportAutoDisabled']),
   };
 }
 
@@ -1591,8 +1618,35 @@ export class MockDemoRepository implements DemoRepository {
     if (assistant === undefined) return this.assistantSettingsPermissionDenied();
 
     const current = this.assistantSettings(assistant);
+    const requestedReport = patch.rules?.periodicReport;
+    const changesTarget =
+      patch.rules?.dataWriteDatabaseId !== undefined &&
+      patch.rules.dataWriteDatabaseId !== current.rules.dataWriteDatabaseId;
+    // #179：自動停用時再送一次週期就是重新啟用，與後端相同要重新檢查寫入對象仍可使用（這個 mock 裡
+    // 是「仍連接著」）；不合格時什麼都不寫。
+    if (
+      current.periodicReportAutoDisabled !== null &&
+      requestedReport !== undefined &&
+      requestedReport !== 'off'
+    ) {
+      const target = patch.rules?.dataWriteDatabaseId !== undefined
+        ? patch.rules.dataWriteDatabaseId
+        : current.rules.dataWriteDatabaseId;
+      if (target !== null && !current.sources.some((source) => source.type === 'database' && source.id === target)) {
+        return immutableCopy({
+          status: 'validation-failed',
+          errors: [{ field: 'periodicReport', message: PERIODIC_REPORT_TARGET_NOT_USABLE_MESSAGE }],
+          message: PERIODIC_REPORT_TARGET_NOT_USABLE_MESSAGE,
+        });
+      }
+    }
+
     return this.commitAssistantSettings({
       ...current,
+      // 指定週期（重新啟用、改週期或關閉）或換寫入對象都會換掉排程，停用狀態跟著清掉（與後端相同）；
+      // 只改收集目的等其他欄位時維持停用。
+      periodicReportAutoDisabled:
+        requestedReport !== undefined || changesTarget ? null : current.periodicReportAutoDisabled,
       configuration: {
         ...current.configuration,
         name: patch.name ?? current.configuration.name,
@@ -1654,6 +1708,7 @@ export class MockDemoRepository implements DemoRepository {
       rules: dropsWriteTarget
         ? { ...current.rules, dataWriteDatabaseId: null, dataWritePurpose: '', periodicReport: 'off' }
         : current.rules,
+      periodicReportAutoDisabled: dropsWriteTarget ? null : current.periodicReportAutoDisabled,
     });
   }
 
@@ -2361,6 +2416,7 @@ export class MockDemoRepository implements DemoRepository {
       tone: draft.tone,
       roleInstructions: draft.roleInstructions,
       rules: draft.rules,
+      periodicReportAutoDisabled: null,
       savedAt: null,
     });
     this.removeNamedDraft(viewerAccountId, draftId);
@@ -3975,13 +4031,14 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(retried);
   }
 
-  /** 對這個資料庫開啟「定期回報」的助理：報告的是它的寫入對象。 */
+  /** 對這個資料庫開啟「定期回報」的助理：報告的是它的寫入對象。自動停用的排程（#179）不再產生報表。 */
   private reportingAssistants(
     databaseId: DatabaseId,
   ): readonly { readonly assistant: AssistantConfigurationView; readonly frequency: DatabaseReportFrequency }[] {
     return this.assistants().flatMap((assistant) => {
       const rules = this.assistantRules(assistant);
-      return rules.periodicReport !== 'off' && rules.dataWriteDatabaseId === databaseId
+      const disabled = (this.storedAssistantSettings(assistant.id)?.periodicReportAutoDisabled ?? null) !== null;
+      return !disabled && rules.periodicReport !== 'off' && rules.dataWriteDatabaseId === databaseId
         ? [{ assistant, frequency: rules.periodicReport }]
         : [];
     });
@@ -5494,6 +5551,7 @@ export class MockDemoRepository implements DemoRepository {
       tone: stored?.tone ?? empty.tone,
       roleInstructions: stored?.roleInstructions ?? '',
       rules: stored?.rules ?? this.defaultRules(assistant),
+      periodicReportAutoDisabled: stored?.periodicReportAutoDisabled ?? null,
       savedAt: stored?.savedAt ?? null,
     };
   }
@@ -5537,6 +5595,7 @@ export class MockDemoRepository implements DemoRepository {
       tone: next.tone,
       roleInstructions: next.roleInstructions,
       rules: next.rules,
+      periodicReportAutoDisabled: next.periodicReportAutoDisabled,
     };
 
     this.storage.setItem(

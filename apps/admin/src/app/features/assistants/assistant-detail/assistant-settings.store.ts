@@ -210,6 +210,19 @@ export class AssistantSettingsStore {
     this.enqueuePatch({ rules: full });
   }
 
+  /**
+   * 重新啟用自動停用的定期報表（#179）：再送一次目前的週期。伺服器會像新設定一樣重新檢查寫入對象
+   * 是否仍可使用（不行就是 `periodicReport` 的欄位錯誤），通過後從目前這一期重新開始，不補做停用期間。
+   */
+  resumePeriodicReport(): void {
+    const settings = this.settings();
+    if (settings === null || settings.periodicReportAutoDisabled === null || settings.rules.periodicReport === 'off') {
+      return;
+    }
+
+    this.enqueuePatch({ rules: { periodicReport: settings.rules.periodicReport } });
+  }
+
   /** 加入或解除連接；只送出 id 與類型，不會複製來源內容。等伺服器回應才更新畫面。 */
   toggleSource(source: ConnectableSourceView): void {
     const connect = !this.isConnected(source);

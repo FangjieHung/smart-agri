@@ -112,6 +112,55 @@ describe('AssistantSettingsStore', () => {
     expect(store.settings()?.configuration.name).toBe('售後服務助理');
   });
 
+  describe('auto-disabled periodic report (issue #179)', () => {
+    const KEY = 'sme-demo:assistant-settings:assistant-customer-service';
+
+    /** 先存一次設定，再把「已自動停用」寫進去（mock 沒有排程工作）。 */
+    async function disabledStorage(): Promise<DemoKeyValueStorage> {
+      const storage = createMemoryStorage();
+      const seeding = new MockDemoRepository(DEMO_SEED, {
+        storage,
+        now: () => new Date('2026-09-23T02:00:00.000Z'),
+        viewer: () => 'account-smb-admin',
+      });
+      await firstValueFrom(seeding.updateAssistantSettings('assistant-customer-service', { rules: { showCitations: true } }));
+      const stored = JSON.parse(storage.getItem(KEY) ?? '{}');
+      storage.setItem(KEY, JSON.stringify({
+        ...stored,
+        periodicReportAutoDisabled: {
+          disabledAt: '2026-09-15T00:00:05.000Z',
+          reason: 'owner-cannot-read',
+          skippedPeriods: 3,
+          message: '已自動停用：連續 3 期沒有產生報表，最近一期是因為助理擁有者無法讀取這個數據庫的紀錄。恢復權限後可以重新啟用。',
+        },
+      }));
+      return storage;
+    }
+
+    it('re-enables by sending the current frequency and shows the server’s cleared state', async () => {
+      const { store, repository } = setup({ storage: await disabledStorage() });
+      await settleResource();
+      expect(store.settings()?.periodicReportAutoDisabled?.reason).toBe('owner-cannot-read');
+      const update = vi.spyOn(repository, 'updateAssistantSettings');
+
+      store.resumePeriodicReport();
+
+      expect(update).toHaveBeenCalledWith('assistant-customer-service', { rules: { periodicReport: 'monthly' } });
+      expect(store.settings()?.periodicReportAutoDisabled).toBeNull();
+      expect(store.settings()?.rules.periodicReport).toBe('monthly');
+    });
+
+    it('does nothing when the schedule is not disabled', async () => {
+      const { store, repository } = setup();
+      await settleResource();
+      const update = vi.spyOn(repository, 'updateAssistantSettings');
+
+      store.resumePeriodicReport();
+
+      expect(update).not.toHaveBeenCalled();
+    });
+  });
+
   it('connects and disconnects a data source through the repository', async () => {
     const { store } = setup();
     await settleResource();

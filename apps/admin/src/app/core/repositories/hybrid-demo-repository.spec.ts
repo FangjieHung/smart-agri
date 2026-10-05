@@ -2071,6 +2071,7 @@ function apiSettings(overrides: Partial<ApiAssistantSettings> = {}): ApiAssistan
       dataWritePurpose: '',
       periodicReport: 'off',
     },
+    periodicReportAutoDisabled: null,
     ...overrides,
   };
 }

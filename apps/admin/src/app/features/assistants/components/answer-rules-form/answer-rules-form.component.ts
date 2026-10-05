@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { SettingRowComponent } from '@smart-agri/ui';
+import { fmtDateTime } from '../../../../core/date-utils';
+import type { PeriodicReportAutoDisabledView } from '../../../../core/domain/assistant-settings.model';
 import {
   PERIODIC_REPORT_LABELS,
   type AssistantAnswerRules,
@@ -45,7 +47,12 @@ export class AnswerRulesFormComponent {
    * 改成說明「後續開放」。
    */
   readonly databaseFeaturesAvailable = input(true);
+  /** 定期報表已自動停用（#179，只有建立後的設定頁會帶）：顯示原因與「重新啟用」。 */
+  readonly autoDisabled = input<PeriodicReportAutoDisabledView | null>(null);
+  /** 正在儲存時停用「重新啟用」按鈕，避免連按。 */
+  readonly resuming = input(false);
   readonly changed = output<Partial<AssistantAnswerRules>>();
+  readonly resumeReport = output<void>();
 
   protected readonly reportOptions = REPORT_OPTIONS;
 
@@ -53,9 +60,14 @@ export class AnswerRulesFormComponent {
   protected periodicReportDescription(): string | null {
     const ids = [
       ...(this.errors().periodicReport ? ['periodic-report-error'] : []),
+      ...(this.autoDisabled() !== null ? ['periodic-report-auto-disabled'] : []),
       ...(this.live() ? ['periodic-report-effect'] : []),
     ];
     return ids.length > 0 ? ids.join(' ') : null;
+  }
+
+  protected disabledAt(value: string): string {
+    return fmtDateTime(value);
   }
 
   protected text(event: Event): string {

@@ -37,6 +37,7 @@ import type {
   AssistantSettingsFieldError,
   AssistantSettingsPatch,
   AssistantSettingsView,
+  PeriodicReportAutoDisabledView,
 } from '../domain/assistant-settings.model';
 import {
   EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE,
@@ -2243,6 +2244,22 @@ function toPeriodSummary(summary: ApiPeriodSummary): DatabasePeriodSummaryView {
   };
 }
 
+/**
+ * #179：定期報表自動停用的原因照收。`reason` 在產生的型別裡可為 null（共用的列舉 schema），實際上
+ * 停用一定有原因；沒有這個鍵（舊版回應）或沒有原因時當成沒有停用。
+ */
+function toPeriodicReportAutoDisabled(
+  value: ApiAssistantSettings['periodicReportAutoDisabled'] | undefined,
+): PeriodicReportAutoDisabledView | null {
+  if (value == null || value.reason == null) return null;
+  return {
+    disabledAt: value.disabledAt,
+    reason: value.reason,
+    skippedPeriods: value.skippedPeriods,
+    message: value.message,
+  };
+}
+
 /** 後端的 `rules.periodicReport` 是字串（`off`／`weekly`／`monthly`）；未知的值當成關閉。 */
 function toPeriodicReportSchedule(value: string): PeriodicReportSchedule {
   return value === 'weekly' || value === 'monthly' ? value : 'off';
@@ -2493,6 +2510,7 @@ function toAssistantSettings(settings: ApiAssistantSettings): AssistantSettingsV
       dataWritePurpose: rules.dataWritePurpose,
       periodicReport: toPeriodicReportSchedule(rules.periodicReport),
     },
+    periodicReportAutoDisabled: toPeriodicReportAutoDisabled(settings.periodicReportAutoDisabled),
     savedAt: configuration.updatedAt === configuration.createdAt ? null : configuration.updatedAt,
   };
 }

@@ -56,6 +56,7 @@
 - **#148 連接助理**：已實作，見下方第 10 節。
 - **#149 對話中查詢授權紀錄**：已實作，見下方第 12 節（工具定義、授權順序、回答格式、失敗分類）。
 - **#150 站內定期報表**：已實作，見下方第 13 節（資料模型、排程、摘要保護、保留規則）。
+- **#180 封存（軟刪除）**：已實作，見下方第 19 節。`GET /api/v1/databases` 自 #180 起預設只列使用中的數據庫。
 
 ## 6. 驗收紀錄
 
@@ -597,3 +598,50 @@
 - 應用：`ReportRulesTests`——第 3 次連續略過停用並帶該期原因、產生歸零、只有帶週期的請求才重新啟用、停用說明文字。
 - 整合（真實 PostgreSQL，`PeriodicReportEndpointsTests`）：連續 3 期略過後停用、記錄原因、不排下一期、設定回應與報表清單、停用後再送達的工作不寫任何東西、只改收集目的不會重新啟用；中間一期產生使計數歸零（略過、略過、產生、略過、略過仍執行中）；重新啟用——無權者與其他設定變更相同的 `403`、擁有者仍不可用時 `422` 且排程不動、恢復指定後換成新排程（計數 0、從包含今天的那一期開始、只一個工作）、再送一次不重複、同期已有報表時不產生第二份。
 - 前端：`hybrid-demo-repository-reports.spec.ts`（**真實 API JSON**：停用、重新啟用、被拒）、`mock-demo-repository-databases.spec.ts`、`assistant-settings.store.spec.ts`、`answer-rules-form.component.spec.ts`。Cypress 沒有規格寫死排程狀態（`grep` 確認），未修改。
+
+## 19. #180 數據庫封存（軟刪除，2026-10-05）
+
+負責人決定（2026-10-05）：數據庫不提供刪除，改為**封存**，資料全部保留；有權限者可以取消封存。
+
+### 19.1 資料（migration `AddDatabaseArchive`，接在 `AddReportScheduleAutoDisable` 之後）
+
+- `Databases` 新增可為空的 `ArchivedAt`（`timestamptz`）：`null` 為使用中。沒有其他欄位、沒有刪除任何資料列；`Database.IsArchived` 只是讀取用的計算屬性（不對應欄位）。
+- 規則集中在 Application：`DatabaseAccess.InUse`／`DatabaseAccess.Archived`（清單篩選與提交入口），`AssistantDatabaseAccess.ConnectableBy` 另加 `ArchivedAt IS NULL`。**`DatabaseAccess.ListedFor` 刻意不看封存**：封存的數據庫照樣能以 id 開啟詳情、讀紀錄，擁有者才能取消封存。
+
+### 19.2 API 契約
+
+| 端點 | 權限 | 成功 | 錯誤 |
+| --- | --- | --- | --- |
+| `POST /api/v1/databases/{id}/archive` | 登入＋擁有者（`DatabaseAccess.ManageableBy`，與編輯表單、指定資料管理者相同） | `200 DatabaseSummaryView`（`archivedAt` 為封存時間） | `401`；`403 database`：資料管理者、其他成員、他組織、不存在，逐位元組相同（對使用中與已封存的數據庫也相同） |
+| `POST /api/v1/databases/{id}/unarchive` | 同上 | `200 DatabaseSummaryView`（`archivedAt: null`） | 同上 |
+| `GET /api/v1/databases` | 不變 | 預設只列**使用中**的；`?archived=true` 只列已封存的（`false` 與省略相同）；可見範圍仍是 `ListedFor` | 不變 |
+
+- **冪等**：以條件式更新（`WHERE "ArchivedAt" IS NULL`／`IS NOT NULL`）寫入，重複封存保留第一次的時間、重複取消封存不變，同時送出的請求讀回同一個值。時間在寫入前截到微秒（`ExecuteUpdate` 不經 SaveChanges 攔截器）。
+- `DatabaseSummaryView` 新增必填（可為 `null`）的 `archivedAt`：清單、詳情的 `summary`、建立與封存的回應都帶，使用中送 `null`（不省略）。
+- 封存期間擁有者仍可編輯表單、指定資料管理者（沒有被擋）；只是不會有新的提交。
+
+### 19.3 封存後的行為（下一個請求起生效）
+
+| 範圍 | 行為 |
+| --- | --- |
+| 表單連結（#145）`GET …/submission-form`、`POST …/submission-form/review`、`POST …/submissions` | 與不存在的數據庫**逐位元組相同**的 `403 authorized-form`，不透露名稱或封存狀態。唯一例外：封存**前**已送出的同一個 `submissionId` 重送，照舊回原本的回執（`200`，不寫入），與「表單改版後重送」的既有規則一致。 |
+| 助理連接（#148） | **連接列保留但視為不可用**（決定：保留＋不可用，取消封存即恢復，不必重新連接）。`ConnectableBy` 排除封存，所以：不出現在 `GET /api/v1/connectable-sources`、不能再連接（`422 source-not-connectable`）、不能設為寫入對象或報表對象（`422`）。助理設定的 `databaseIds` 照舊列出（與擁有者失權的既有規則相同，可以解除連接）。 |
+| 對話表單（#148）、E2 `GET …/chat/forms`（#171）、`Model` 模式工具（#164） | `FormTargetAsync` 找不到可用的寫入對象：關鍵字模式不跳出表單、`Model` 模式不送 `smartagri.form-check` 也不提供工具、E2 清單是 `[]`；review／submissions／dismissals 一律 `403 assistant-form`（與「不是寫入對象」逐位元組相同），不寫入任何東西；舊的表單請求訊息重新讀取時 `form` 為 `null`。 |
+| 對話中查詢（#149） | **停止**：查詢走助理連接（`UsableDatabaseIdsAsync`），連接不可用就和解除連接相同——不是查詢、照常回答，不提到數據庫名稱。 |
+| 固定統計查詢（#147）、紀錄、時間軸（#146）、報表清單與內容（#150） | **照常可讀**（讀取權限不看封存，只看 #144 的資料管理者指定＋帳號權限）。清單的筆數照 #177 只給可讀者。 |
+| 定期報表排程（#150／#179） | **暫停**（決定：不沿用 #179 的停用、也不記為略過）。到期的工作看到數據庫已封存時：不寫報表列、不寫略過列、連續略過計數不變（`ReportScheduleRules.WhileArchived`）、不會因此自動停用；但接續照舊推進 `NextPeriodFrom` 並排下一期的工作（同一個 compare-and-set），所以取消封存後**結束的第一期**就照常產生。封存期間結束的期間不補做。`GET …/reports` 的 `schedules` 在封存期間不列出（不會有下一份），已產生的報表照常列出。設定頁的 `periodicReport` 仍顯示原週期、`periodicReportAutoDisabled` 為 `null`；封存期間改週期或重新啟用一律 `422 periodicReport`（寫入對象不可用）。 |
+| 既有紀錄、撤回（#146）、回執、「我送出的資料」 | 照常可用，不受影響。 |
+
+取消封存：以上全部在下一個請求恢復（表單連結、對話表單、E2、`Model` 模式工具、對話查詢、報表排程從下一期繼續）。
+
+### 19.4 前端
+
+- `DatabaseSummaryView.archivedAt`、`DatabaseListFilter`（`active`／`archived`）；`listDatabaseSummaries(filter?)`、`archiveDatabase(id)`、`unarchiveDatabase(id)`（`Observable`）。Hybrid 走上述端點；舊回應沒有 `archivedAt` 時當成使用中。mock 以 `sme-demo:database-archives`（id → 封存時間）保存，規則與 API 相同：只有擁有者、冪等、表單連結與不存在相同的拒絕、對話不跳出表單也不查詢、不出現在可連接來源、報表不產生也不列排程。（mock 的報表是讀取時補產生最近幾期，取消封存後會補上封存期間的期間，這點與 API 不同。）
+- 清單：頁首下方「使用中／已封存」切換（`aria-pressed`），已封存的列在名稱旁標示「已封存」；「已封存」沒有資料時顯示「沒有已封存的資料庫」。
+- 詳情：擁有者在頁首有「封存資料庫」／「取消封存」按鈕，一律先開確認對話框（`MatDialog`、`role="alertdialog"`，說明影響與資料不會刪除），送出中不能重複送出或關閉；失敗時對話框內顯示錯誤、什麼都不變。封存時顯示「已封存」區塊（封存時間與影響），表單連結改成「已封存，暫停填寫」。非擁有者（資料管理者）只看到狀態，沒有按鈕。
+
+### 19.5 測試
+
+- 整合（真實 PostgreSQL）：`DatabaseArchiveEndpointsTests`——只有擁有者、冪等（保留第一次時間）、資料管理者／成員／他組織／不存在與 `401`；預設清單與 `archived` 篩選（擁有者與資料管理者、他組織看不到）、詳情仍可開；表單連結三個端點與不存在逐位元組相同、封存前的重送仍回原回執、取消封存後恢復；紀錄、時間軸、固定查詢、清單筆數、我送出的資料、回執與撤回照常，什麼都沒刪除。`ChatFormRequestUxTests`——關鍵字與 `Model` 模式都不給表單、不送 form-check、E2 為 `[]`、舊表單讀回 `null`、review／submissions／dismissals 與非寫入對象相同的 `403 assistant-form`、連接列保留、不在可連接來源且不能再連接、取消封存後全部恢復。`ChatDatabaseQueryEndpointsTests`——封存後對話不查詢、`/queries/record-count` 照常、取消封存恢復。`PeriodicReportEndpointsTests`——封存期間 4 期不寫任何報表或略過列、不計數不停用、只排一個接續工作、報表清單不列排程、改週期 `422`，取消封存後下一期照常產生。應用：`ReportRulesTests`（`WhileArchived`）。
+- 前端：`mock-demo-repository-archive.spec.ts`、`hybrid-demo-repository-databases.spec.ts`（**真實 API JSON**：封存、已封存清單、取消封存、`403`）、`database-list-page.component.spec.ts`、`database-detail-page.component.spec.ts`。
+- Cypress（未在本機執行，由 CI 跑）：`e2e/database-archive.cy.ts`（mock）；`e2e-api/database-api.cy.ts` 新增封存流程，`e2e-api/assistant-forms-api.cy.ts`、`e2e-api/chat-database-query-api.cy.ts` 最後封存自己建立的數據庫（`support/api-mode.ts` 的 `archiveDatabase`）。`grep` 確認沒有 Cypress 規格寫死數據庫清單筆數或詳情頁首按鈕數。

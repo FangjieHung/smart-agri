@@ -24,15 +24,45 @@
   } @else {
     @let detail = result.data;
     <app-page-header [title]="detail.summary.name" [description]="detail.summary.purpose">
-      <a page-header-actions class="page-back" routerLink="/app/databases">返回資料庫列表</a>
+      <div page-header-actions class="header-actions">
+        @if (detail.summary.viewerCanManage) {
+          <button id="database-archive-toggle" type="button" class="ui-button secondary" (click)="confirmArchive()">
+            {{ detail.summary.archivedAt ? '取消封存' : '封存資料庫' }}
+          </button>
+        }
+        <a class="page-back" routerLink="/app/databases">返回資料庫列表</a>
+      </div>
     </app-page-header>
+
+    @if (archiveFeedback()) {
+      <p class="archive-feedback" role="status">{{ archiveFeedback() }}</p>
+    }
+    @if (detail.summary.archivedAt; as archivedAt) {
+      <div class="notice archived-notice" role="note">
+        <app-status-badge label="已封存" tone="neutral" />
+        <p>
+          這個資料庫已於 <time [attr.datetime]="archivedAt">{{ formatArchivedAt(archivedAt) }}</time> 封存：不再接受新的提交，
+          表單連結與助理對話都不會提供這份表單，已連接的助理暫時無法使用它，定期報表暫停。
+          既有紀錄、撤回與「我送出的資料」照常可用。
+        </p>
+      </div>
+    }
 
     <dl class="database-meta">
       <div><dt>擁有者</dt><dd class="database-owner">{{ detail.summary.owner.displayName }}</dd></div>
       <div><dt>模板</dt><dd>{{ detail.summary.templateName }}</dd></div>
       <div><dt>欄位</dt><dd>{{ detail.summary.fieldCount }} 個</dd></div>
       <div><dt>最近更新</dt><dd><time [attr.datetime]="detail.summary.updatedAt">{{ updatedAt(detail.summary.updatedAt) }}</time></dd></div>
-      <div><dt>表單連結</dt><dd><a class="form-link" [routerLink]="['/app/forms', databaseId()]">開啟填寫頁</a></dd></div>
+      <div>
+        <dt>表單連結</dt>
+        <dd>
+          @if (detail.summary.archivedAt) {
+            <span class="form-link-paused">已封存，暫停填寫</span>
+          } @else {
+            <a class="form-link" [routerLink]="['/app/forms', databaseId()]">開啟填寫頁</a>
+          }
+        </dd>
+      </div>
     </dl>
 
     @if (result.status === 'partial-failure') {
@@ -155,3 +185,41 @@
     </lib-detail-layout>
   }
 </section>
+
+<ng-template #archiveDialog>
+  @let current = view();
+  @if (current.status === 'ready' || current.status === 'partial-failure') {
+    @let summary = current.data.summary;
+    <section class="archive-panel">
+      @if (summary.archivedAt) {
+        <h2 id="database-archive-title">取消封存「{{ summary.name }}」？</h2>
+        <p id="database-archive-detail" class="hint">
+          取消封存後，表單連結與已連接助理的表單會再次接受新的提交，暫停的定期報表從下一期繼續（封存期間不補產生）。
+        </p>
+      } @else {
+        <h2 id="database-archive-title">封存「{{ summary.name }}」？</h2>
+        <p id="database-archive-detail" class="hint">
+          封存後<strong>不再接受新的提交</strong>：表單連結與助理對話都不會提供這份表單，已連接的助理暫時無法使用它，
+          定期報表暫停。資料不會刪除——既有紀錄、撤回與「我送出的資料」照常可用，資料庫也會從預設清單移到「已封存」。
+          之後可以隨時取消封存。
+        </p>
+      }
+      @if (archiveError()) {
+        <p class="action-error" role="alert">{{ archiveError() }}</p>
+      }
+      <div class="dialog-actions">
+        <button id="database-archive-cancel" type="button" class="ui-button secondary" [disabled]="archiving()" (click)="closeArchiveDialog()">取消</button>
+        <button
+          id="database-archive-confirm"
+          type="button"
+          class="ui-button"
+          [disabled]="archiving()"
+          [attr.aria-busy]="archiving() ? 'true' : null"
+          (click)="archiveConfirmed(summary)"
+        >
+          @if (summary.archivedAt) { {{ archiving() ? '取消封存中…' : '取消封存' }} } @else { {{ archiving() ? '封存中…' : '封存資料庫' }} }
+        </button>
+      </div>
+    </section>
+  }
+</ng-template>

@@ -109,7 +109,8 @@ public sealed class DatabaseSubmissionService
     /// What a member sees before submitting (提交資訊): purpose, recipient, who can actually read
     /// the record right now (<see cref="DatabaseRecordReaders.EffectiveReaderIdsAsync"/>), the
     /// sensitive-data notice and the current form. <see langword="null"/> when the database does
-    /// not exist in the caller's organization.
+    /// not exist in the caller's organization or is archived (#180) — the entry points answer both
+    /// with the same refusal, so archiving says nothing more than "not available".
     /// </summary>
     public Task<DatabaseSubmissionFormView?> GetFormAsync(Guid databaseId, CancellationToken cancellationToken) =>
         GetFormAsync(databaseId, null, cancellationToken);
@@ -119,7 +120,7 @@ public sealed class DatabaseSubmissionService
     public async Task<DatabaseSubmissionFormView?> GetFormAsync(Guid databaseId, string? purpose, CancellationToken cancellationToken)
     {
         var row = await DatabaseEndpoints.WithOwnerAndCurrentForm(
-                _dbContext, _dbContext.Databases.Where(database => database.Id == databaseId))
+                _dbContext, _dbContext.Databases.Where(DatabaseAccess.InUse).Where(database => database.Id == databaseId))
             .SingleOrDefaultAsync(cancellationToken);
         if (row is null)
         {
@@ -142,7 +143,8 @@ public sealed class DatabaseSubmissionService
     /// <summary>
     /// The "check before consenting" step (確認同意前的預覽): validates <paramref name="answers"/>
     /// against the current form with the submission's own rule and returns what would be recorded.
-    /// Writes nothing. <see langword="null"/> when the database is not in the caller's organization.
+    /// Writes nothing. <see cref="DatabaseSubmissionOutcome.Unavailable"/> when the database is not in
+    /// the caller's organization or is archived (#180).
     /// </summary>
     public async Task<DatabaseSubmissionOutcome?> ReviewAsync(
         Guid databaseId,
@@ -150,10 +152,15 @@ public sealed class DatabaseSubmissionService
         IReadOnlyDictionary<string, DatabaseAnswerInput> answers,
         CancellationToken cancellationToken)
     {
-        var current = await _dbContext.DatabaseFormVersions.AsNoTracking()
-            .Where(version => version.DatabaseId == databaseId)
-            .OrderByDescending(version => version.VersionNumber)
-            .FirstOrDefaultAsync(cancellationToken);
+        var inUse = await _dbContext.Databases.AsNoTracking()
+            .Where(DatabaseAccess.InUse)
+            .AnyAsync(database => database.Id == databaseId, cancellationToken);
+        var current = inUse
+            ? await _dbContext.DatabaseFormVersions.AsNoTracking()
+                .Where(version => version.DatabaseId == databaseId)
+                .OrderByDescending(version => version.VersionNumber)
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
         if (current is null)
         {
             return new DatabaseSubmissionOutcome.Unavailable();
@@ -196,11 +203,19 @@ public sealed class DatabaseSubmissionService
 
         var (key, versionNumber) = request.Value;
 
-        // A retry first: it gets its original receipt even if the form has changed since.
+        // A retry first: it gets its original receipt even if the form has changed (or the database
+        // was archived) since.
         var replay = await ReplayAsync(command, key, cancellationToken);
         if (replay is not null)
         {
             return replay;
+        }
+
+        // #180: an archived database takes no new submission, through any entry point; the answer is
+        // the entry point's usual "not available", nothing more.
+        if (database.IsArchived)
+        {
+            return new DatabaseSubmissionOutcome.Unavailable();
         }
 
         var current = await _dbContext.DatabaseFormVersions.AsNoTracking()

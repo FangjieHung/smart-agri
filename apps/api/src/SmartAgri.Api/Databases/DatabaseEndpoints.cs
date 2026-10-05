@@ -79,6 +79,8 @@ public sealed record DatabaseAccountView(Guid Id, string DisplayName);
 /// form version's creation.</param>
 /// <param name="ViewerCanManage">Whether the caller may open and change it
 /// (<see cref="DatabaseAccess.CanManage"/>).</param>
+/// <param name="ArchivedAt">When it was archived (#180); <see langword="null"/> (sent as <c>null</c>,
+/// never omitted) while it is in use.</param>
 /// <param name="ConnectedAssistantNames">The caller's own assistants connected to it (M4 #148).</param>
 /// <param name="RecordCount">Active records (<see cref="DatabaseActiveRecords"/>; withdrawn ones
 /// excluded). Omitted unless the caller may read the records on this request (#177).</param>
@@ -96,6 +98,7 @@ public sealed record DatabaseSummaryView(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     bool ViewerCanManage,
+    DateTimeOffset? ArchivedAt,
     IReadOnlyList<string> ConnectedAssistantNames,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? RecordCount = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? SubjectCount = null);
@@ -230,6 +233,7 @@ public static class DatabaseEndpoints
         var databases = endpoints.MapGroup(DatabasesPath).RequireAuthorization();
 
         databases.MapGet("", ListAsync)
+            .WithDescription("Databases in use by default; `archived=true` lists the archived ones instead (#180).")
             .Produces<IReadOnlyList<DatabaseSummaryView>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
 
@@ -242,6 +246,16 @@ public static class DatabaseEndpoints
 
         databases.MapGet("/{id:guid}", GetAsync)
             .Produces<DatabaseDetailView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        databases.MapPost("/{id:guid}/archive", ArchiveAsync)
+            .Produces<DatabaseSummaryView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        databases.MapPost("/{id:guid}/unarchive", UnarchiveAsync)
+            .Produces<DatabaseSummaryView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
 
@@ -277,8 +291,10 @@ public static class DatabaseEndpoints
             [.. template.Fields.Select(DatabaseFieldView.From)])).ToList());
 
     /// <summary>The caller's databases and those they may read the records of
-    /// (<see cref="DatabaseAccess.ListedFor"/>), oldest first.</summary>
+    /// (<see cref="DatabaseAccess.ListedFor"/>), oldest first: the ones in use, or with
+    /// <paramref name="archived"/> <see langword="true"/> only the archived ones (#180).</summary>
     internal static async Task<IResult> ListAsync(
+        bool? archived,
         HttpContext httpContext,
         AppDbContext dbContext,
         RequestAccountPermissions permissions,
@@ -292,7 +308,9 @@ public static class DatabaseEndpoints
         var hasReadPermission = await DatabaseRecordReaders.HasReadPermissionAsync(permissions, viewerId, cancellationToken);
         var rows = await WithOwnerAndCurrentForm(
                 dbContext,
-                dbContext.Databases.Where(DatabaseAccess.ListedFor(viewerId, hasReadPermission, dbContext.DatabaseDataManagers)))
+                dbContext.Databases
+                    .Where(archived == true ? DatabaseAccess.Archived : DatabaseAccess.InUse)
+                    .Where(DatabaseAccess.ListedFor(viewerId, hasReadPermission, dbContext.DatabaseDataManagers)))
             .ToListAsync(cancellationToken);
 
         var connected = await DatabaseConnectedAssistants.ForAsync(
@@ -415,6 +433,89 @@ public static class DatabaseEndpoints
             ToFormView(row.Form),
             await BuildAccessAsync(dbContext, row.Database, row.OwnerName, viewerId, hasReadPermission, cancellationToken),
             connected));
+    }
+
+    /// <summary>
+    /// Archives a database (封存, #180): owner only (<see cref="DatabaseAccess.ManageableBy"/>, as for
+    /// every other change), else the same <c>403 database</c> as a missing id — a data manager, another
+    /// member and another organization's caller alike. Nothing is deleted. Idempotent: archiving an
+    /// archived database keeps its first <c>archivedAt</c> (a conditional update, so concurrent requests
+    /// agree on it). <c>200</c> with the summary as it now reads.
+    /// </summary>
+    /// <remarks>
+    /// From the next request on: the form link and every assistant entry point refuse new submissions
+    /// with their usual "not available" answer, the database leaves the default list, connections stay
+    /// but are unusable (<see cref="Application.Assistants.AssistantDatabaseAccess.ConnectableBy"/>), and
+    /// report schedules on it pause (no report or skip row is written while archived). Records,
+    /// withdrawals, receipts, members' own submissions, statistics and reports keep working.
+    /// </remarks>
+    internal static Task<IResult> ArchiveAsync(
+        Guid id,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        RequestAccountPermissions permissions,
+        TimeProvider clock,
+        CancellationToken cancellationToken) =>
+        SetArchivedAsync(id, archive: true, httpContext, dbContext, permissions, clock, cancellationToken);
+
+    /// <summary>Puts an archived database back in use (#180), with the same permission, refusal and
+    /// idempotency as <see cref="ArchiveAsync"/>: submissions, connections and paused report schedules
+    /// work again from the next request (periods that ended while it was archived are not back-filled).</summary>
+    internal static Task<IResult> UnarchiveAsync(
+        Guid id,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        RequestAccountPermissions permissions,
+        TimeProvider clock,
+        CancellationToken cancellationToken) =>
+        SetArchivedAsync(id, archive: false, httpContext, dbContext, permissions, clock, cancellationToken);
+
+    private static async Task<IResult> SetArchivedAsync(
+        Guid id,
+        bool archive,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        RequestAccountPermissions permissions,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var manageable = dbContext.Databases
+            .Where(DatabaseAccess.ManageableBy(callerId))
+            .Where(database => database.Id == id);
+        if (!await manageable.AnyAsync(cancellationToken))
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Database);
+        }
+
+        if (archive)
+        {
+            // ExecuteUpdate bypasses the SaveChanges interceptor that trims timestamps to PostgreSQL's
+            // microseconds, so trim here: the value returned now equals the value read back later.
+            var now = clock.GetUtcNow();
+            now = now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond));
+            await manageable
+                .Where(database => database.ArchivedAt == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(database => database.ArchivedAt, now), cancellationToken);
+        }
+        else
+        {
+            await manageable
+                .Where(database => database.ArchivedAt != null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(database => database.ArchivedAt, (DateTimeOffset?)null), cancellationToken);
+        }
+
+        var row = await WithOwnerAndCurrentForm(dbContext, manageable).SingleAsync(cancellationToken);
+        var connected = await DatabaseConnectedAssistants.ForAsync(dbContext, callerId, [id], cancellationToken);
+        var counts = await DatabaseRecordReaders.CanReadAsync(dbContext, permissions, callerId, id, cancellationToken)
+            ? (await DatabaseActiveRecords.CountAsync(dbContext, [id], cancellationToken)).GetValueOrDefault(id)
+                ?? new DatabaseRecordCounts(id, 0, 0)
+            : null;
+        return Results.Ok(ToSummary(row, callerId, connected[id], counts));
     }
 
     /// <summary>
@@ -774,6 +875,7 @@ public static class DatabaseEndpoints
             database.CreatedAt,
             row.Form.CreatedAt > database.UpdatedAt ? row.Form.CreatedAt : database.UpdatedAt,
             DatabaseAccess.CanManage(database, viewerId),
+            database.ArchivedAt,
             [.. (connectedAssistants ?? []).Select(assistant => assistant.Name)],
             counts?.RecordCount,
             counts?.SubjectCount);

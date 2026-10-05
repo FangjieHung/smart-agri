@@ -24,6 +24,7 @@ internal sealed class DatabaseConfiguration : IEntityTypeConfiguration<Database>
             .HasConversion<WireNameConverter<DatabaseTemplateId>>()
             .HasMaxLength(64)
             .IsRequired();
+        builder.Ignore(database => database.IsArchived);
 
         // Target of the composite foreign keys from the database's own rows (form versions now;
         // data managers, submissions and connections in #144–#148), so the database refuses a

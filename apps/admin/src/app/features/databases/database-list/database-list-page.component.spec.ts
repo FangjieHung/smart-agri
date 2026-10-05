@@ -113,6 +113,45 @@ describe('DatabaseListPageComponent', () => {
     expect(dialog.querySelector('#database-name')?.getAttribute('aria-invalid')).toBe('true');
   });
 
+  it('moves an archived database out of the default list into the archived filter, with a badge (#180)', async () => {
+    const { harness, page, repository } = await openList('account-smb-admin', (repository) => {
+      repository.archiveDatabase('database-orders').subscribe();
+    });
+    const list = vi.spyOn(repository, 'listDatabaseSummaries');
+    const rows = () => Array.from(page().querySelectorAll('lib-data-table tbody tr'));
+
+    expect(button(page(), '使用中').getAttribute('aria-pressed')).toBe('true');
+    expect(rows().map((row) => row.querySelector('th a')?.textContent)).toEqual(['客戶資料庫']);
+    expect(page().querySelector('app-status-badge')).toBeNull();
+
+    button(page(), '已封存').click();
+    await harness.fixture.whenStable();
+    harness.detectChanges();
+
+    expect(list).toHaveBeenLastCalledWith('archived');
+    expect(button(page(), '已封存').getAttribute('aria-pressed')).toBe('true');
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].querySelector('th a')?.textContent).toBe('訂單資料庫');
+    expect(rows()[0].querySelector('app-status-badge')?.textContent).toContain('已封存');
+
+    button(page(), '使用中').click();
+    await harness.fixture.whenStable();
+    harness.detectChanges();
+    expect(list).toHaveBeenLastCalledWith('active');
+    expect(rows()).toHaveLength(1);
+  });
+
+  it('says there is nothing archived instead of offering to create one in the archived filter', async () => {
+    const { harness, page } = await openList();
+    button(page(), '已封存').click();
+    await harness.fixture.whenStable();
+    harness.detectChanges();
+
+    expect(page().querySelector('lib-data-table')).toBeNull();
+    expect(page().querySelector('#empty-archived-title')?.textContent).toContain('沒有已封存的資料庫');
+    expect(page().querySelector('#empty-database-title')).toBeNull();
+  });
+
   it('shows an empty state with a way to start from a template', async () => {
     const { page } = await openList('account-smb-admin', (repository) => {
       vi.spyOn(repository, 'listDatabaseSummaries').mockReturnValue(of({ status: 'ready', data: [] }));

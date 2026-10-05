@@ -60,6 +60,7 @@ import type {
   DatabaseDetailView,
   DatabaseFieldView,
   DatabaseId,
+  DatabaseListFilter,
   DatabaseRecordId,
   DatabaseRecordValue,
   DatabaseSubmissionFormView,
@@ -946,6 +947,8 @@ const CHAT_RECORDS_KEY = 'sme-demo:chat-records';
 const DATABASE_SUBMISSIONS_KEY = 'sme-demo:database-submissions';
 /** 定期報表快照（issue #150），每個資料庫一份清單；產生後不再重算，撤回紀錄也不會改動。 */
 const DATABASE_REPORTS_KEY_PREFIX = 'sme-demo:database-reports:';
+/** 已封存的資料庫（issue #180）：資料庫 id → 封存時間。取消封存就移除那一筆。 */
+const DATABASE_ARCHIVES_KEY = 'sme-demo:database-archives';
 
 const DATABASE_REPORT_DENIED_MESSAGE = '找不到這份報表，或你沒有查看它的權限。';
 
@@ -3360,18 +3363,64 @@ export class MockDemoRepository implements DemoRepository {
     });
   }
 
-  listDatabaseSummaries(): ReturnType<DemoRepository['listDatabaseSummaries']> {
+  listDatabaseSummaries(filter: DatabaseListFilter = 'active'): ReturnType<DemoRepository['listDatabaseSummaries']> {
     return defer(() => {
       const viewerAccountId = this.viewer();
       if (viewerAccountId === null) return of(this.databasePermissionDenied());
+      const archived = filter === 'archived';
       return of(
         this.applyScenario(
           this.databases()
+            .filter((database) => (this.databaseArchivedAt(database.id) !== null) === archived)
             .filter((database) => this.canViewDatabase(viewerAccountId, database))
             .map((database) => this.toDatabaseSummary(database, viewerAccountId)),
         ),
       );
     });
+  }
+
+  archiveDatabase(databaseId: DatabaseId): ReturnType<DemoRepository['archiveDatabase']> {
+    return defer(() => of(this.writeDatabaseArchive(this.viewer(), databaseId, true)));
+  }
+
+  unarchiveDatabase(databaseId: DatabaseId): ReturnType<DemoRepository['unarchiveDatabase']> {
+    return defer(() => of(this.writeDatabaseArchive(this.viewer(), databaseId, false)));
+  }
+
+  /**
+   * 與 API 相同（issue #180）：只有擁有者；其他人（含資料管理者）與不存在的 id 一律同一則 `database`
+   * permission-denied。重複封存保留第一次的時間，重複取消封存不變。不刪除任何資料。
+   */
+  private writeDatabaseArchive(
+    viewerAccountId: AccountId | null,
+    databaseId: string,
+    archive: boolean,
+  ): RepositoryView<DatabaseSummaryView> {
+    if (viewerAccountId === null) return this.databasePermissionDenied();
+    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    if (database === undefined) return this.databasePermissionDenied();
+
+    const archives = { ...this.storedDatabaseArchives() };
+    if (archive && archives[database.id] === undefined) {
+      archives[database.id] = this.now().toISOString();
+    } else if (!archive) {
+      delete archives[database.id];
+    }
+    this.storage.setItem(DATABASE_ARCHIVES_KEY, JSON.stringify(archives));
+    return this.applyScenario(this.toDatabaseSummary(database, viewerAccountId));
+  }
+
+  private storedDatabaseArchives(): Readonly<Record<string, string>> {
+    const stored = parseJson(this.storage.getItem(DATABASE_ARCHIVES_KEY));
+    if (!isRecord(stored)) return {};
+    return Object.fromEntries(
+      Object.entries(stored).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    );
+  }
+
+  /** 封存時間；使用中為 null。封存的資料庫不接受新的提交、不提供給助理、不產生新的報表（#180）。 */
+  protected databaseArchivedAt(databaseId: DatabaseId): string | null {
+    return this.storedDatabaseArchives()[databaseId] ?? null;
   }
 
   createDatabaseFromTemplate(
@@ -3844,10 +3893,15 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(receipt);
   }
 
-  /** 表單連結可以填寫的資料庫：帳號有 `submit-authorized-forms`，資料庫存在（Demo 只有一個組織）。 */
+  /**
+   * 表單連結可以填寫的資料庫：帳號有 `submit-authorized-forms`，資料庫存在（Demo 只有一個組織）且
+   * 沒有封存（#180；封存與不存在是同一則拒絕）。
+   */
   private submittableDatabase(viewerAccountId: AccountId | null, databaseId: string): DatabaseView | undefined {
     if (viewerAccountId === null || !this.hasPermission(viewerAccountId, 'submit-authorized-forms')) return undefined;
-    return this.databases().find((database) => database.id === databaseId);
+    return this.databases().find(
+      (database) => database.id === databaseId && this.databaseArchivedAt(database.id) === null,
+    );
   }
 
   private authorizedFormDenied(): PermissionDeniedRepositoryView {
@@ -3899,7 +3953,9 @@ export class MockDemoRepository implements DemoRepository {
     databaseId: string,
     query: DatabasePeriodSummaryQuery,
   ): RepositoryView<DatabasePeriodSummaryView> {
-    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    // 與 API 相同（#144 的 `DatabaseRecordReaders`）：看得到資料庫（擁有者或可讀的資料管理者）才不是
+    // `database`；能不能讀紀錄只看指定＋帳號權限，不看是否為擁有者，也不看是否封存（#180）。
+    const database = this.viewableDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
     if (!this.canReadRecords(viewerAccountId, database.id)) {
       return this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);
@@ -4031,10 +4087,14 @@ export class MockDemoRepository implements DemoRepository {
     return this.applyScenario(retried);
   }
 
-  /** 對這個資料庫開啟「定期回報」的助理：報告的是它的寫入對象。自動停用的排程（#179）不再產生報表。 */
+  /**
+   * 對這個資料庫開啟「定期回報」的助理：報告的是它的寫入對象。自動停用的排程（#179）不再產生報表；
+   * 資料庫封存期間（#180）排程暫停，不列出也不產生（不寫略過紀錄）。
+   */
   private reportingAssistants(
     databaseId: DatabaseId,
   ): readonly { readonly assistant: AssistantConfigurationView; readonly frequency: DatabaseReportFrequency }[] {
+    if (this.databaseArchivedAt(databaseId) !== null) return [];
     return this.assistants().flatMap((assistant) => {
       const rules = this.assistantRules(assistant);
       const disabled = (this.storedAssistantSettings(assistant.id)?.periodicReportAutoDisabled ?? null) !== null;
@@ -4124,7 +4184,9 @@ export class MockDemoRepository implements DemoRepository {
     viewerAccountId: AccountId,
     databaseId: string,
   ): RepositoryView<DatabaseTrackingView> {
-    const database = this.ownedDatabase(viewerAccountId, databaseId);
+    // 與 API 相同（#144 的 `DatabaseRecordReaders`）：看得到資料庫（擁有者或可讀的資料管理者）才不是
+    // `database`；能不能讀紀錄只看指定＋帳號權限，不看是否為擁有者，也不看是否封存（#180）。
+    const database = this.viewableDatabase(viewerAccountId, databaseId);
     if (database === undefined) return this.databasePermissionDenied();
     if (!this.canReadRecords(viewerAccountId, database.id)) {
       return this.permissionDenied('database-records', DATABASE_RECORDS_DENIED_MESSAGE);
@@ -5122,7 +5184,8 @@ export class MockDemoRepository implements DemoRepository {
   ): ChatReplyView | null {
     if (!assistant.databaseIds.includes(databaseId)) return null;
     const database = this.databases().find((candidate) => candidate.id === databaseId);
-    if (database === undefined) return null;
+    // 封存（#180）的連接暫時失效：與沒有連接相同，照常回答。
+    if (database === undefined || this.databaseArchivedAt(database.id) !== null) return null;
     if (isVisitorId(viewerId) || !this.canReadRecords(viewerId, database.id)) return notAvailableQueryReply();
     return recordCountQueryReply(
       database.id,
@@ -5138,7 +5201,10 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
-  /** 助理有連接該資料庫時才提供表單；接收者與可查看者皆取自資料庫設定。 */
+  /**
+   * 助理有連接該資料庫、且資料庫沒有封存（#180）時才提供表單；接收者與可查看者皆取自資料庫設定。
+   * 封存時連接保留但不可用：不跳出表單、「回報資料」清單是空的、送出與關閉都是同一則拒絕。
+   */
   private chatForm(
     viewerId: ChatViewerId,
     assistant: AssistantConfigurationView,
@@ -5146,7 +5212,7 @@ export class MockDemoRepository implements DemoRepository {
   ): ChatFormView | null {
     if (!assistant.databaseIds.includes(databaseId)) return null;
     const database = this.databases().find((candidate) => candidate.id === databaseId);
-    if (database === undefined) return null;
+    if (database === undefined || this.databaseArchivedAt(database.id) !== null) return null;
 
     const collection = this.databaseCollection(database.id);
     const nameOf = (id: AccountId) =>
@@ -5335,6 +5401,7 @@ export class MockDemoRepository implements DemoRepository {
         )
         .map((assistant) => assistant.name),
       updatedAt: savedAt > database.lastSyncedAt ? savedAt : database.lastSyncedAt,
+      archivedAt: this.databaseArchivedAt(database.id),
     };
   }
 
@@ -5716,7 +5783,7 @@ export class MockDemoRepository implements DemoRepository {
     if (!this.canManageAssistants(viewerAccountId)) return [];
 
     return this.databases()
-      .filter((database) => database.ownerAccountId === viewerAccountId)
+      .filter((database) => database.ownerAccountId === viewerAccountId && this.databaseArchivedAt(database.id) === null)
       .map(
         (database): ConnectableSourceView => ({
           id: database.id,

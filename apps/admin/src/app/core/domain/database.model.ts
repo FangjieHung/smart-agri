@@ -148,7 +148,15 @@ export interface DatabaseSummaryView {
   readonly subjectCount: number | null;
   readonly connectedAssistantNames: readonly string[];
   readonly updatedAt: string;
+  /**
+   * 封存時間（issue #180）；使用中為 null。封存後不再接受新的提交（表單連結與助理對話都不提供），
+   * 從預設清單隱藏，助理連接暫時失效、定期報表暫停；既有紀錄、撤回與「我送出的資料」照常可用。
+   */
+  readonly archivedAt: string | null;
 }
+
+/** 數據庫清單要看哪一種（issue #180）：預設只列使用中的，`archived` 只列已封存的。 */
+export type DatabaseListFilter = 'active' | 'archived';
 
 export interface DatabaseConnectedAssistantView {
   readonly id: AssistantId;

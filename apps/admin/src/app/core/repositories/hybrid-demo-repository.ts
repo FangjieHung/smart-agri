@@ -88,6 +88,7 @@ import type {
   DatabaseFieldError,
   DatabaseFieldView,
   DatabaseId,
+  DatabaseListFilter,
   DatabaseSubmissionFormView,
   DatabaseSubmissionInput,
   DatabaseSubmissionReceiptView,
@@ -1160,13 +1161,41 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  override listDatabaseSummaries(): Observable<RepositoryView<readonly DatabaseSummaryView[]>> {
-    return this.http.get<ApiDatabaseSummary[]>(API_DATABASES_PATH).pipe(
+  override listDatabaseSummaries(
+    filter: DatabaseListFilter = 'active',
+  ): Observable<RepositoryView<readonly DatabaseSummaryView[]>> {
+    const url = filter === 'archived' ? `${API_DATABASES_PATH}?archived=true` : API_DATABASES_PATH;
+    return this.http.get<ApiDatabaseSummary[]>(url).pipe(
       map((response): RepositoryView<readonly DatabaseSummaryView[]> => ({
         status: 'ready',
         data: response.map(toDatabaseSummary),
       })),
       catchError((error: unknown) => this.permissionDeniedOrThrow(error, DATABASE_DENIED)),
+    );
+  }
+
+  /**
+   * 封存（issue #180）：`POST /api/v1/databases/{id}/archive`。`403`（非擁有者、不存在、別的組織都一樣）
+   * 與 `404`（id 不是 GUID）轉成 `database` permission-denied；其他錯誤原樣拋出，由畫面提示重試。
+   */
+  override archiveDatabase(databaseId: DatabaseId): Observable<RepositoryView<DatabaseSummaryView>> {
+    return this.postDatabaseArchive(databaseId, 'archive');
+  }
+
+  /** 取消封存：`POST /api/v1/databases/{id}/unarchive`，錯誤處理同 `archiveDatabase`。 */
+  override unarchiveDatabase(databaseId: DatabaseId): Observable<RepositoryView<DatabaseSummaryView>> {
+    return this.postDatabaseArchive(databaseId, 'unarchive');
+  }
+
+  private postDatabaseArchive(
+    databaseId: DatabaseId,
+    action: 'archive' | 'unarchive',
+  ): Observable<RepositoryView<DatabaseSummaryView>> {
+    return this.http.post<ApiDatabaseSummary>(`${apiDatabasePath(databaseId)}/${action}`, {}).pipe(
+      map((response): RepositoryView<DatabaseSummaryView> => ({ status: 'ready', data: toDatabaseSummary(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 404) ? of(permissionDenied(DATABASE_DENIED)) : this.permissionDeniedOrThrow(error, DATABASE_DENIED),
+      ),
     );
   }
 
@@ -2353,6 +2382,8 @@ function toDatabaseSummary(summary: ApiDatabaseSummary): DatabaseSummaryView {
     subjectCount: summary.subjectCount ?? null,
     connectedAssistantNames: [...(summary.connectedAssistantNames ?? [])],
     updatedAt: summary.updatedAt,
+    // #180 之前的回應沒有這個鍵：當成使用中。
+    archivedAt: summary.archivedAt ?? null,
   };
 }
 

@@ -123,6 +123,17 @@ public static class ReportScheduleRules
         return new ReportScheduleProgress(skips, skips >= ReportSchedule.AutoDisableAfterSkips ? reason : null);
     }
 
+    /// <summary>
+    /// The schedule's counter after a period that came due while its database was archived (#180): the
+    /// schedule is paused, so the period is neither generated nor skipped — the counter stays as it was and
+    /// the schedule is never disabled by it.
+    /// </summary>
+    public static ReportScheduleProgress WhileArchived(int consecutiveSkips)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(consecutiveSkips);
+        return new ReportScheduleProgress(consecutiveSkips, null);
+    }
+
     /// <summary>What the owner's settings say about an auto-disabled schedule.</summary>
     public static string AutoDisabledMessage(ReportSkipReason reason) => reason switch
     {

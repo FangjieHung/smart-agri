@@ -36,6 +36,12 @@ namespace SmartAgri.Api.Reports;
 /// queued. A job for a disabled schedule does nothing.
 /// </para>
 /// <para>
+/// <b>Archived database (#180).</b> While the database is archived the schedule is <b>paused</b>: a due
+/// period writes no report and no skip row and leaves the skip counter as it is, but the chain still moves
+/// on (same compare-and-set, next job queued), so the first period that ends after the database is
+/// unarchived is reported normally. Periods that ended while it was archived are not back-filled.
+/// </para>
+/// <para>
 /// A report with enough records for a comparison (<see cref="ReportDataRules"/>) gets a
 /// <see cref="SummarizeDatabaseReportJob"/> in the same save; one without never does.
 /// </para>
@@ -94,12 +100,15 @@ internal sealed class GenerateDatabaseReportHandler : IJobHandler
                 && report.PeriodFrom == period.From)
             .Select(report => new { report.SkipReason })
             .SingleOrDefaultAsync(cancellationToken);
-        ReportSkipReason? skipReason;
+        var archived = existing is null && await _dbContext.Databases.AsNoTracking()
+            .Where(Application.Databases.DatabaseAccess.Archived)
+            .AnyAsync(database => database.Id == schedule.DatabaseId, cancellationToken);
+        ReportSkipReason? skipReason = null;
         if (existing is not null)
         {
             skipReason = existing.SkipReason;
         }
-        else
+        else if (!archived)
         {
             var report = await BuildAsync(assistant, schedule, period, now, cancellationToken);
             skipReason = report.SkipReason;
@@ -120,7 +129,9 @@ internal sealed class GenerateDatabaseReportHandler : IJobHandler
         // #179: the skip counter moves with NextPeriodFrom in the same compare-and-set (and the same
         // transaction as the report row), so a duplicate delivery can neither count a period twice nor
         // queue a second next job. The period that disables the schedule queues none.
-        var progress = ReportScheduleRules.AfterPeriod(schedule.ConsecutiveSkips, skipReason);
+        var progress = archived
+            ? ReportScheduleRules.WhileArchived(schedule.ConsecutiveSkips)
+            : ReportScheduleRules.AfterPeriod(schedule.ConsecutiveSkips, skipReason);
         DateTimeOffset? disabledAt = progress.Disables ? now : null;
         var next = ReportPeriods.After(schedule.Frequency, period);
         var advanced = await _dbContext.ReportSchedules

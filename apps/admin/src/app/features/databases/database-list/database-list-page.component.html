@@ -17,6 +17,11 @@
     </p>
   }
 
+  <div class="list-filter" role="group" aria-label="顯示的資料庫">
+    <button type="button" [attr.aria-pressed]="filter() === 'active'" (click)="showFilter('active')">使用中</button>
+    <button type="button" [attr.aria-pressed]="filter() === 'archived'" (click)="showFilter('archived')">已封存</button>
+  </div>
+
   @if (result.status === 'loading') {
     <app-state-panel state="loading" title="正在載入資料庫" />
   } @else if (result.status === 'error') {
@@ -45,6 +50,7 @@
       >
         <ng-template dtCell="name" let-item>
           <a [routerLink]="['/app/databases', item.id, 'form']" (click)="$event.stopPropagation()">{{ item.name }}</a>
+          @if (item.archivedAt) { <app-status-badge class="archived-badge" label="已封存" tone="neutral" /> }
         </ng-template>
         <ng-template dtCell="owner" let-item>{{ item.owner.displayName }}</ng-template>
         <ng-template dtCell="form" let-item>{{ item.fieldCount }} 個欄位・{{ item.templateName }}</ng-template>
@@ -52,6 +58,11 @@
         <ng-template dtCell="assistants" let-item>{{ assistants(item) }}</ng-template>
         <ng-template dtCell="updatedAt" let-item><time [attr.datetime]="item.updatedAt">{{ updatedAt(item.updatedAt) }}</time></ng-template>
       </lib-data-table>
+    } @else if (filter() === 'archived') {
+      <section class="ui-panel empty-panel" aria-labelledby="empty-archived-title">
+        <h2 id="empty-archived-title" class="ui-panel-title">沒有已封存的資料庫</h2>
+        <p class="ui-panel-description">封存的資料庫會保留所有紀錄，只是不再接受新的提交；擁有者可以在資料庫頁面封存或取消封存。</p>
+      </section>
     } @else {
       <section class="ui-panel empty-panel" aria-labelledby="empty-database-title">
         <h2 id="empty-database-title" class="ui-panel-title">還沒有資料庫</h2>

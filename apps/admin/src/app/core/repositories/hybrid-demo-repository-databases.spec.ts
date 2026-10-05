@@ -43,6 +43,17 @@ const REAL_MANAGER_DETAIL_JSON = `{"summary":{"id":"01a0ffc9-9dac-7a01-a9ae-3f26
 const REAL_READER_LIST_JSON = `[{"id":"01a10b99-f171-71c1-9d58-56a0f978dd73","name":"門市客戶","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10b99-ec55-7b4d-b6e0-767ad3a7435c","displayName":"安心商行管理者"},"createdAt":"2026-10-05T10:26:40.624749+00:00","updatedAt":"2026-10-05T10:26:40.624749+00:00","viewerCanManage":true,"connectedAssistantNames":[],"recordCount":2,"subjectCount":1}]`;
 const REAL_NON_READER_LIST_JSON = `[{"id":"01a10b99-f171-71c1-9d58-56a0f978dd73","name":"門市客戶","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10b99-ec55-7b4d-b6e0-767ad3a7435c","displayName":"安心商行管理者"},"createdAt":"2026-10-05T10:26:40.624749+00:00","updatedAt":"2026-10-05T10:26:40.624749+00:00","viewerCanManage":true,"connectedAssistantNames":[]}]`;
 
+/**
+ * 封存（#180）的真實回應（API 整合測試主機以擁有者建立「門市客戶」後依序呼叫，2026-10-05）：
+ * `POST …/archive`、`GET /api/v1/databases?archived=true`、`POST …/unarchive`，以及資料管理者呼叫
+ * `POST …/unarchive` 得到的 `403`。
+ */
+const REAL_ARCHIVE_JSON = `{"id":"01a10bca-d000-7610-96f6-618bb15839cd","name":"門市客戶","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10bca-caa4-7851-81ed-6e464a8674f9","displayName":"安心商行管理者"},"createdAt":"2026-10-05T11:20:03.328224+00:00","updatedAt":"2026-10-05T11:20:03.328224+00:00","viewerCanManage":true,"archivedAt":"2026-10-05T11:20:03.365117+00:00","connectedAssistantNames":[],"recordCount":0,"subjectCount":0}`;
+const REAL_ARCHIVED_LIST_JSON = `[{"id":"01a10bca-d000-7610-96f6-618bb15839cd","name":"門市客戶","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10bca-caa4-7851-81ed-6e464a8674f9","displayName":"安心商行管理者"},"createdAt":"2026-10-05T11:20:03.328224+00:00","updatedAt":"2026-10-05T11:20:03.328224+00:00","viewerCanManage":true,"archivedAt":"2026-10-05T11:20:03.365117+00:00","connectedAssistantNames":[],"recordCount":0,"subjectCount":0}]`;
+const REAL_UNARCHIVE_JSON = `{"id":"01a10bca-d000-7610-96f6-618bb15839cd","name":"門市客戶","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10bca-caa4-7851-81ed-6e464a8674f9","displayName":"安心商行管理者"},"createdAt":"2026-10-05T11:20:03.328224+00:00","updatedAt":"2026-10-05T11:20:03.328224+00:00","viewerCanManage":true,"archivedAt":null,"connectedAssistantNames":[],"recordCount":0,"subjectCount":0}`;
+const REAL_ARCHIVE_FORBIDDEN_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"database","message":"你沒有這個資料庫的存取權限，或它已不存在。"}`;
+const ARCHIVED_DATABASE_ID = '01a10bca-d000-7610-96f6-618bb15839cd';
+
 /** `PUT /api/v1/databases/{id}/access` 的真實回應（擁有者指定三個帳號後）。 */
 const REAL_PUT_ACCESS_JSON = `{"owner":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"dataManagers":[{"account":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.315844+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"},"hasReadPermission":true,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}},{"account":{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶"},"hasReadPermission":false,"assignedAt":"2026-10-03T03:23:18.396829+00:00","assignedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}],"effectiveReaders":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁"}],"viewerIsDataManager":true,"viewerCanReadRecords":true,"viewerCanManageAccess":true,"candidates":[{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者","role":"smb-admin","hasReadPermission":true},{"id":"01a0ffc9-964f-7adb-9f84-cc09119c6274","displayName":"安心商行客服同仁","role":"internal-employee","hasReadPermission":true},{"id":"01a0ffc9-9675-7a51-8c16-b3ee037c94aa","displayName":"安心商行外部客戶","role":"external-customer","hasReadPermission":false}],"lastChange":{"changedAt":"2026-10-03T03:23:18.396829+00:00","changedBy":{"id":"01a0ffc9-95f1-7210-bf64-13d8af38a841","displayName":"安心商行管理者"}}}`;
 
@@ -97,6 +108,7 @@ function summary(overrides: Partial<ApiDatabaseSummary> = {}): ApiDatabaseSummar
     createdAt: '2026-10-03T02:00:00+00:00',
     updatedAt: '2026-10-03T02:00:00+00:00',
     viewerCanManage: true,
+    archivedAt: null,
     connectedAssistantNames: [],
     ...overrides,
   };
@@ -193,6 +205,7 @@ describe('HybridDemoRepository databases (issue #142)', () => {
           subjectCount: null,
           connectedAssistantNames: [],
           updatedAt: '2026-10-03T02:00:00+00:00',
+          archivedAt: null,
         },
       ],
     });
@@ -560,5 +573,71 @@ describe('HybridDemoRepository form editing and trial fill (issue #143)', () => 
     const result = await detail;
     expect(result.status === 'ready' && result.data.formVersion).toBe(3);
     expect(API_UPCOMING_DATABASE_FEATURES).not.toContain('form-editing');
+  });
+
+  describe('archive (#180)', () => {
+    it('lists archived databases only with the filter and maps archivedAt from the real JSON', async () => {
+      const { repository, controller } = setUp();
+      const active = firstValueFrom(repository.listDatabaseSummaries());
+      controller.expectOne({ method: 'GET', url: API_DATABASES_PATH }).flush([summary()]);
+      expect(await active).toMatchObject({ status: 'ready', data: [{ id: DATABASE_ID, archivedAt: null }] });
+
+      const archived = firstValueFrom(repository.listDatabaseSummaries('archived'));
+      controller.expectOne({ method: 'GET', url: `${API_DATABASES_PATH}?archived=true` }).flush(JSON.parse(REAL_ARCHIVED_LIST_JSON));
+      expect(await archived).toMatchObject({
+        status: 'ready',
+        data: [{ id: ARCHIVED_DATABASE_ID, name: '門市客戶', archivedAt: '2026-10-05T11:20:03.365117+00:00', recordCount: 0 }],
+      });
+    });
+
+    it('treats a summary without archivedAt (before #180) as in use', async () => {
+      const { repository, controller } = setUp();
+      const result = firstValueFrom(repository.listDatabaseSummaries());
+      controller.expectOne({ method: 'GET', url: API_DATABASES_PATH }).flush(JSON.parse(REAL_NON_READER_LIST_JSON));
+      expect(await result).toMatchObject({ status: 'ready', data: [{ archivedAt: null }] });
+    });
+
+    it('archives and unarchives through the API and returns the summary as it now reads', async () => {
+      const { repository, controller, written } = setUp();
+      const archived = firstValueFrom(repository.archiveDatabase(ARCHIVED_DATABASE_ID));
+      const archiveRequest = controller.expectOne({ method: 'POST', url: `${apiDatabasePath(ARCHIVED_DATABASE_ID)}/archive` });
+      expect(archiveRequest.request.body).toEqual({});
+      archiveRequest.flush(JSON.parse(REAL_ARCHIVE_JSON));
+      expect(await archived).toMatchObject({
+        status: 'ready',
+        data: { id: ARCHIVED_DATABASE_ID, archivedAt: '2026-10-05T11:20:03.365117+00:00', viewerCanManage: true },
+      });
+
+      const restored = firstValueFrom(repository.unarchiveDatabase(ARCHIVED_DATABASE_ID));
+      controller
+        .expectOne({ method: 'POST', url: `${apiDatabasePath(ARCHIVED_DATABASE_ID)}/unarchive` })
+        .flush(JSON.parse(REAL_UNARCHIVE_JSON));
+      expect(await restored).toMatchObject({ status: 'ready', data: { id: ARCHIVED_DATABASE_ID, archivedAt: null } });
+      expect(written).toEqual([]);
+    });
+
+    it('turns the 403 (non-owner, missing, other organization) and a non-GUID 404 into database denied', async () => {
+      const { repository, controller } = setUp();
+      const forbidden = firstValueFrom(repository.unarchiveDatabase(ARCHIVED_DATABASE_ID));
+      controller
+        .expectOne(`${apiDatabasePath(ARCHIVED_DATABASE_ID)}/unarchive`)
+        .flush(JSON.parse(REAL_ARCHIVE_FORBIDDEN_JSON), { status: 403, statusText: 'Forbidden' });
+      const notGuid = firstValueFrom(repository.archiveDatabase('database-orders'));
+      controller.expectOne(`${apiDatabasePath('database-orders')}/archive`).flush(null, { status: 404, statusText: 'Not Found' });
+
+      expect(await forbidden).toEqual({
+        status: 'permission-denied',
+        reason: 'database',
+        message: '你沒有這個資料庫的存取權限，或它已不存在。',
+      });
+      expect(await notGuid).toEqual(await forbidden);
+    });
+
+    it('lets a server error through so the page can offer a retry', async () => {
+      const { repository, controller } = setUp();
+      const failed = firstValueFrom(repository.archiveDatabase(DATABASE_ID));
+      controller.expectOne(`${apiDatabasePath(DATABASE_ID)}/archive`).flush(null, { status: 500, statusText: 'Server Error' });
+      await expect(failed).rejects.toBeTruthy();
+    });
   });
 });

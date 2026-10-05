@@ -39,6 +39,7 @@ import type {
   DatabaseFieldView,
   DatabaseFormSavedView,
   DatabaseId,
+  DatabaseListFilter,
   DatabaseSubmissionFormView,
   DatabaseSubmissionInput,
   DatabaseSubmissionReceiptView,
@@ -825,9 +826,18 @@ export interface DemoRepository extends DemoScenarioController {
   listDatabaseTemplates(): Observable<RepositoryView<readonly DatabaseTemplateView[]>>;
   /**
    * 目前帳號擁有的、以及自己有權讀紀錄的（已指定資料管理者且具備帳號權限）資料庫摘要；非指定資料管理者看不到紀錄數量（API 模式在 #146 之前
-   * 一律為 null）。API 模式：`GET /api/v1/databases`。
+   * 一律為 null）。預設（`active`）只列使用中的，`archived` 只列已封存的（#180）。
+   * API 模式：`GET /api/v1/databases`（`?archived=true`）。
    */
-  listDatabaseSummaries(): Observable<RepositoryView<readonly DatabaseSummaryView[]>>;
+  listDatabaseSummaries(filter?: DatabaseListFilter): Observable<RepositoryView<readonly DatabaseSummaryView[]>>;
+  /**
+   * 封存（issue #180）：只有擁有者可以；其他人（含資料管理者）、不存在與別的組織一律相同的 `database`
+   * permission-denied。重複封存不變（保留第一次的時間）。不刪除任何資料。成功回傳更新後的摘要。
+   * 讀取以外的失敗（5xx、連線中斷）以 Observable 的 error 傳出。API 模式：`POST /api/v1/databases/{id}/archive`。
+   */
+  archiveDatabase(databaseId: DatabaseId): Observable<RepositoryView<DatabaseSummaryView>>;
+  /** 取消封存，恢復提交、助理連接與定期報表；權限與冪等同 `archiveDatabase`。API 模式：`POST .../unarchive`。 */
+  unarchiveDatabase(databaseId: DatabaseId): Observable<RepositoryView<DatabaseSummaryView>>;
   /**
    * 以模板建立資料庫，模板欄位成為初始表單。沒有資料來源管理權限是 `database`
    * permission-denied；名稱或模板無效是 `validation-failed`。讀取以外的失敗（5xx、連線中斷）

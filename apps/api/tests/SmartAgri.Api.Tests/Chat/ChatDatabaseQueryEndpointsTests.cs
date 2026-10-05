@@ -385,6 +385,33 @@ public class ChatDatabaseQueryEndpointsTests : IClassFixture<AuthHostFixture>
             throw new InvalidOperationException("The database is unreachable.");
     }
 
+    [Fact]
+    public async Task An_archived_database_is_not_queried_in_chat_but_its_statistics_still_read_and_unarchiving_restores_it()
+    {
+        var setup = await CreateSetupAsync(keepConversations: false);
+        var (asker, assistantId, databaseId) = (setup.Internal, setup.AssistantId, setup.DatabaseId);
+        (await setup.Admin.Spa.PostAsync($"{DatabasesPath}/{databaseId}/archive", setup.Admin.Token, new { }))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // #180: the connection is unusable, so the assistant has nothing to query — answered as usual,
+        // the database never named (like a disconnected one).
+        var archived = await RunAsync(asker, assistantId, $"二月幾筆？ {CountDirective(databaseId)}");
+        archived.Status.ShouldBe(HttpStatusCode.OK, archived.Body);
+        archived.Reply!.Value.GetProperty("reply").GetProperty("kind").GetString().ShouldNotBe("database-query");
+        archived.Body.ShouldNotContain(DatabaseName);
+
+        // Reading is not affected: the fixed query endpoint (#147) answers the data manager as before.
+        var endpoint = await asker.Spa.GetAsync(
+            $"{DatabasesPath}/{databaseId}/queries/record-count?from=2026-02-01&to=2026-02-28", asker.Token);
+        endpoint.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(endpoint)).GetProperty("count").GetInt32().ShouldBe(3);
+
+        (await setup.Admin.Spa.PostAsync($"{DatabasesPath}/{databaseId}/unarchive", setup.Admin.Token, new { }))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        Query((await RunAsync(asker, assistantId, $"二月幾筆？ {CountDirective(databaseId)}")).Reply!.Value)
+            .GetProperty("status").GetString().ShouldBe("answered");
+    }
+
     private static JsonElement Query(JsonElement message) => message.GetProperty("reply").GetProperty("databaseQuery");
 
     private static JsonElement AssertNotAvailable(RecordedRun run)

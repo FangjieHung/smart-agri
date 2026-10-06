@@ -24,7 +24,6 @@ import type {
 import type { CreateDatabaseResult } from '../../../core/repositories/demo-repository';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
-import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
@@ -57,8 +56,6 @@ export class DatabaseListPageComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly createDialog = viewChild<TemplateRef<unknown>>('createDialog');
   private readonly session = inject(DemoSessionService);
-  /** API 模式還沒有收集紀錄與助理連接（#144–#148），兩欄改成說明，不顯示 mock 的推測值。 */
-  protected readonly apiMode = inject(ApiSessionService).apiMode;
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
 
@@ -183,8 +180,8 @@ export class DatabaseListPageComponent {
       : `${item.subjectCount ?? 0} 位對象・${item.recordCount} 筆紀錄`;
   }
 
+  /** mock 與 API 模式一樣：只顯示 repository 給的名稱（API 只含呼叫者自己的助理，#148），空的是「尚未連接」。 */
   protected assistants(item: DatabaseSummaryView): string {
-    if (this.apiMode) return '將於後續版本開放';
     return item.connectedAssistantNames.join('、') || '尚未連接';
   }
 

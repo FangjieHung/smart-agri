@@ -56,7 +56,6 @@ export class DatabaseListPageComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly createDialog = viewChild<TemplateRef<unknown>>('createDialog');
   private readonly session = inject(DemoSessionService);
-  /** API 模式還沒有收集紀錄與助理連接（#144–#148），兩欄改成說明，不顯示 mock 的推測值。 */
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
 

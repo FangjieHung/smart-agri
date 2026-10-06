@@ -15,12 +15,13 @@ using SmartAgri.Infrastructure.Accounts;
 namespace SmartAgri.Api.Tests.Assistants;
 
 /// <summary>
-/// The LINE channel's settings API against real PostgreSQL (M5b plan §5 Slice 1, issue #229). Testing
-/// the connection and enabling are #230, so a tested or enabled channel is set up directly through
-/// the database with the entity's own methods.
+/// The LINE channel's settings API against real PostgreSQL (M5b plan §5 Slice 1, issue #229). Here a
+/// tested or enabled channel is set up directly through the database with the entity's own methods;
+/// testing the connection and enabling through the API (#230, against the host's fake LINE server)
+/// are in the other part of this class.
 /// </summary>
 [Trait("Category", TestCategories.Docker)]
-public class AssistantLineChannelEndpointsTests : IClassFixture<AuthHostFixture>
+public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHostFixture>
 {
     private const string Password = "Line-Channel-Pass-1!";
     private const string BasePath = "/api/v1/assistants";
@@ -577,6 +578,8 @@ public class AssistantLineChannelEndpointsTests : IClassFixture<AuthHostFixture>
         })),
         ("PUT paused", id => caller.Spa.PutAsync($"{LinePath(id)}/paused", caller.Token, new { paused = true })),
         ("POST unpublish", id => caller.Spa.PostAsync($"{LinePath(id)}:unpublish", caller.Token, new { })),
+        ("POST test", id => caller.Spa.PostAsync($"{LinePath(id)}:test", caller.Token, new { })),
+        ("POST publish", id => caller.Spa.PostAsync($"{LinePath(id)}:publish", caller.Token, new { })),
         ("GET publishing", id => caller.Spa.GetAsync($"{BasePath}/{id}/publishing", caller.Token)),
     ];
 

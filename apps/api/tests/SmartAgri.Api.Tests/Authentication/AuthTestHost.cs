@@ -16,6 +16,7 @@ using SmartAgri.Api.Tests.Infrastructure;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
+using SmartAgri.Infrastructure.Line;
 using SmartAgri.Infrastructure.Seeding;
 
 namespace SmartAgri.Api.Tests.Authentication;
@@ -51,6 +52,9 @@ public class AuthHostFixture : IAsyncLifetime
     /// <summary>The clock the host uses (OpenIddict, Identity, cookies).</summary>
     public TestClock Clock { get; } = new();
 
+    /// <summary>The LINE Messaging API the host talks to (M5b #230): nothing reaches the network.</summary>
+    public FakeLineServer Line { get; } = new();
+
     public virtual async ValueTask InitializeAsync()
     {
         await _postgres.InitializeAsync();
@@ -60,7 +64,7 @@ public class AuthHostFixture : IAsyncLifetime
             await dbContext.Database.MigrateAsync();
         }
 
-        _factory = new AuthApiFactory(_postgres.ConnectionString, Clock);
+        _factory = new AuthApiFactory(_postgres.ConnectionString, Clock, Line);
         await using var scope = _factory.Services.CreateAsyncScope();
         (await scope.ServiceProvider.GetRequiredService<AdminSpaClientRegistrar>().EnsureAsync()).ShouldBeTrue();
     }
@@ -121,11 +125,13 @@ public class AuthHostFixture : IAsyncLifetime
     {
         private readonly string _connectionString;
         private readonly TimeProvider _clock;
+        private readonly FakeLineServer _line;
 
-        public AuthApiFactory(string connectionString, TimeProvider clock)
+        public AuthApiFactory(string connectionString, TimeProvider clock, FakeLineServer line)
         {
             _connectionString = connectionString;
             _clock = clock;
+            _line = line;
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -159,7 +165,13 @@ public class AuthHostFixture : IAsyncLifetime
                 builder.UseSetting($"PublicChannels:RateLimits:{name}", "1000000");
             }
 
-            builder.ConfigureServices(services => services.AddSingleton(_clock).AddProtectedProbeEndpoint());
+            builder.ConfigureServices(services =>
+            {
+                services.AddSingleton(_clock).AddProtectedProbeEndpoint();
+
+                // Every LINE call goes to the fake LINE server, never to api.line.me (M5b #230).
+                services.AddHttpClient(LineMessagingClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => _line);
+            });
         }
     }
 }

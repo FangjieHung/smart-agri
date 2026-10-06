@@ -132,6 +132,11 @@ import {
   type WebsiteEmbedView,
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
+import type {
+  ChatModelOptionView,
+  OrganizationChatModelView,
+  OrganizationSettingChangeView,
+} from '../domain/organization-settings.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -252,6 +257,7 @@ import type {
   UpdateKnowledgeChunkExclusionResult,
   UpdateKnowledgeSharingResult,
   UpdateMemberPermissionsResult,
+  UpdateOrganizationChatModelResult,
   UpdatePlatformSharingResult,
   PublishLineResult,
   PublishWebsiteResult,
@@ -329,6 +335,33 @@ export interface MockDemoRepositoryOptions {
    * 未提供時（mock 模式）用 `MOCK_STATISTICS_TIME_ZONE`，等同後端的預設設定。
    */
   readonly statisticsTimeZone?: () => string;
+  /**
+   * 部署提供的對話模型（第一個是部署預設；issue #240）。未提供時是一個模型
+   * （`MOCK_CHAT_MODELS`），與只設定 `Ai:Chat` 的部署相同；測試可以傳入多個模型。
+   */
+  readonly chatModels?: readonly ChatModelOptionView[];
+}
+
+/** mock 模式的部署：只有一個對話模型（扮演開發環境的 `Ai:Chat` = `Fake`／`fake-chat-dev`）。 */
+export const MOCK_CHAT_MODELS: readonly ChatModelOptionView[] = [
+  { id: 'fake-chat-dev', displayName: 'fake-chat-dev', model: 'fake-chat-dev' },
+];
+
+/** 與後端 `ForbiddenReason.OrganizationSettings` 的訊息逐字相同。 */
+export const ORGANIZATION_SETTINGS_DENIED_MESSAGE = '只有管理者可以變更組織設定。';
+
+/** 與後端 `OrganizationChatModelEndpoints.UnknownModelMessage` 逐字相同。 */
+export const UNKNOWN_CHAT_MODEL_MESSAGE = '這個模型不在部署提供的清單中，請重新載入後再選擇。';
+
+/** `409 organization-settings-conflict` 沒有帶訊息時的說明（後端的訊息優先）。 */
+export const ORGANIZATION_SETTINGS_CONFLICT_MESSAGE = '組織設定已被其他人更新過，請重新載入後再修改。';
+
+const ORGANIZATION_CHAT_MODEL_KEY = 'sme-demo:organization-chat-model';
+
+interface StoredOrganizationChatModel {
+  readonly selectedId: string | null;
+  readonly revision: number;
+  readonly lastChange: OrganizationSettingChangeView | null;
 }
 
 /** mock 模式的統計時區：扮演後端 `Statistics:TimeZone` 的預設值（`StatisticsOptions.DefaultTimeZone`）。 */
@@ -1197,6 +1230,7 @@ export class MockDemoRepository implements DemoRepository {
   private readonly acceptanceStatuses = new Map<string, AssistantAcceptanceStatus>();
   private readonly acceptancePolls = new Map<string, number>();
   private acceptanceOrdinal = 0;
+  private readonly chatModels: readonly ChatModelOptionView[];
 
   constructor(
     private readonly seed: DemoSeed = DEMO_SEED,
@@ -1209,6 +1243,7 @@ export class MockDemoRepository implements DemoRepository {
     this.viewer = options.viewer ?? (() => null);
     this.chatViewer = options.chatViewer ?? (() => this.viewer());
     this.accountsSource = options.accountsSource ?? null;
+    this.chatModels = options.chatModels ?? MOCK_CHAT_MODELS;
     this.restoreAcceptance();
   }
 
@@ -1422,7 +1457,7 @@ export class MockDemoRepository implements DemoRepository {
       const run: AssistantTestRunView = {
         id: `mock-run-${++this.acceptanceOrdinal}`, assistantId, trigger: 'manual', status: 'queued',
         rerunRequested: false, queuedAt: now, startedAt: null, completedAt: null,
-        passedCount: 0, failedCount: 0, promptVersion: 'demo', model: 'mock', minScore: 0.3,
+        passedCount: 0, failedCount: 0, promptVersion: 'demo', model: this.effectiveChatModelName(), minScore: 0.3,
       };
       const results: AssistantTestResultView[] = cases.map((item, index) => {
         const failed = item.category === 'exception';
@@ -1956,6 +1991,91 @@ export class MockDemoRepository implements DemoRepository {
       },
       () => this.publishingPermissionDenied(),
     );
+  }
+
+  getOrganizationChatModel(): Observable<RepositoryView<OrganizationChatModelView>> {
+    return this.signedIn(
+      (viewer) => this.applyScenario(this.organizationChatModelView(viewer)),
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  updateOrganizationChatModel(
+    modelId: string | null,
+    revision: number,
+  ): Observable<UpdateOrganizationChatModelResult> {
+    return this.signedIn(
+      (viewer): UpdateOrganizationChatModelResult => {
+        if (!this.isOrganizationAdmin(viewer)) return this.organizationSettingsDenied();
+        // 與後端相同的檢查順序：先看 id 在不在清單，再看 revision。
+        const chosen = modelId === null || modelId.trim() === '' ? null : this.chatModels.find((option) => option.id === modelId);
+        if (chosen === undefined) {
+          return immutableCopy({ status: 'validation-failed', message: UNKNOWN_CHAT_MODEL_MESSAGE });
+        }
+        const stored = this.storedOrganizationChatModel();
+        const nextId = chosen?.id ?? null;
+        if (nextId === stored.selectedId) return this.applyScenario(this.organizationChatModelView(viewer));
+        if (revision !== stored.revision) {
+          return immutableCopy({ status: 'conflict', message: ORGANIZATION_SETTINGS_CONFLICT_MESSAGE });
+        }
+        const actorName = this.accounts().find((account) => account.id === viewer)?.displayName ?? '已停用的帳號';
+        const record: StoredOrganizationChatModel = {
+          selectedId: nextId,
+          revision: stored.revision + 1,
+          lastChange: { actorName, at: this.now().toISOString() },
+        };
+        this.storage.setItem(ORGANIZATION_CHAT_MODEL_KEY, JSON.stringify(record));
+        return this.applyScenario(this.organizationChatModelView(viewer));
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  private organizationChatModelView(viewer: AccountId): OrganizationChatModelView {
+    const stored = this.storedOrganizationChatModel();
+    const selected = stored.selectedId === null ? undefined : this.chatModels.find((option) => option.id === stored.selectedId);
+    const deploymentDefault = this.chatModels[0] ?? null;
+    return {
+      options: this.chatModels.map((option) => ({ ...option })),
+      selectedId: stored.selectedId,
+      effective: selected ?? deploymentDefault,
+      source: stored.selectedId === null ? 'deployment-default' : selected === undefined ? 'removed' : 'selected',
+      canChange: this.isOrganizationAdmin(viewer),
+      lastChange: stored.lastChange,
+      revision: stored.revision,
+    };
+  }
+
+  /** 題組重跑記下的模型名稱：與後端相同，是重跑當下組織實際使用的模型。 */
+  private effectiveChatModelName(): string | null {
+    const stored = this.storedOrganizationChatModel();
+    const selected = stored.selectedId === null ? undefined : this.chatModels.find((option) => option.id === stored.selectedId);
+    return (selected ?? this.chatModels[0])?.model ?? null;
+  }
+
+  private storedOrganizationChatModel(): StoredOrganizationChatModel {
+    const parsed = parseJson(this.storage.getItem(ORGANIZATION_CHAT_MODEL_KEY));
+    if (!isRecord(parsed)) return { selectedId: null, revision: 0, lastChange: null };
+    const selectedId = typeof parsed['selectedId'] === 'string' ? parsed['selectedId'] : null;
+    const revision =
+      typeof parsed['revision'] === 'number' && Number.isInteger(parsed['revision']) && parsed['revision'] >= 0
+        ? parsed['revision']
+        : 0;
+    const change = parsed['lastChange'];
+    const lastChange =
+      isRecord(change) && typeof change['actorName'] === 'string' && typeof change['at'] === 'string'
+        ? { actorName: change['actorName'], at: change['at'] }
+        : null;
+    return { selectedId, revision, lastChange };
+  }
+
+  /** 決定 A：「管理者限定」是角色 `smb-admin`，不是一項權限。 */
+  private isOrganizationAdmin(viewer: AccountId): boolean {
+    return this.accounts().find((account) => account.id === viewer)?.role === 'smb-admin';
+  }
+
+  private organizationSettingsDenied(): PermissionDeniedRepositoryView {
+    return this.permissionDenied('organization-settings', ORGANIZATION_SETTINGS_DENIED_MESSAGE);
   }
 
   getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>> {

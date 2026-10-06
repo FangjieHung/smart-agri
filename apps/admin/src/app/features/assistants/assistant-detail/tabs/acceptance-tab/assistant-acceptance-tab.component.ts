@@ -20,6 +20,7 @@ import type {
   AssistantTestResultView,
   AssistantTestRunView,
 } from '../../../../../core/domain/assistant-acceptance.model';
+import { chatModelChangedSinceRun } from '../../../../../core/domain/organization-settings.model';
 import {
   pollWhile,
   repositoryResource,
@@ -83,6 +84,27 @@ export class AssistantAcceptanceTabComponent {
       return runId ? { assistantId: this.assistantId(), runId } : undefined;
     },
     stream: ({ assistantId, runId }) => this.repository.getAssistantTestRun(assistantId, runId),
+  });
+
+  /** 組織目前生效的對話模型（issue #240）；讀不到時不提示，不影響驗收頁其他內容。 */
+  private readonly chatModelResource = repositoryResource({
+    params: () => this.assistantId() || undefined,
+    stream: () => this.repository.getOrganizationChatModel(),
+  });
+
+  /**
+   * 最近一次有紀錄模型的題組重跑，用的模型與目前生效的不同時提示建議重跑（issue #240）。
+   * 有重跑排隊或進行中時不提示：那一次會用目前的模型。
+   */
+  protected readonly modelChange = computed(() => {
+    const view = this.chatModelResource.view();
+    if (view.status !== 'ready' && view.status !== 'partial-failure') return null;
+    const runs = this.runs();
+    if (runs.some((run) => run.status === 'queued' || run.status === 'running')) return null;
+    const latest = [...runs]
+      .filter((run) => run.model)
+      .sort((a, b) => b.queuedAt.localeCompare(a.queuedAt))[0];
+    return chatModelChangedSinceRun(latest?.model, view.data.effective);
   });
 
   protected readonly cases = computed<readonly AssistantTestCaseView[]>(() => {

@@ -3907,6 +3907,281 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/publishing/website": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebsiteChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateWebsiteChannelRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebsiteChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/publishing/website:publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebsiteChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/publishing/website/paused": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetWebsitePausedRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebsiteChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/publishing/website:unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WebsiteChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistant-drafts": {
         parameters: {
             query?: never;
@@ -5553,7 +5828,7 @@ export interface components {
             assistantId: string;
             assistantName: string;
             platform: components["schemas"]["PlatformSharingView"];
-            website: components["schemas"]["NotAvailablePublishingChannelView"];
+            website: components["schemas"]["WebsiteChannelView"];
             line: components["schemas"]["NotAvailablePublishingChannelView"];
         };
         AssistantSettingsView: {
@@ -6640,6 +6915,9 @@ export interface components {
         SetPlatformPausedRequest: {
             paused: boolean;
         };
+        SetWebsitePausedRequest: {
+            paused: boolean;
+        };
         /** Format: binary */
         Stream: string;
         SubmitChatFormRequest: {
@@ -6761,6 +7039,54 @@ export interface components {
         UpdatePlatformSharingRequest: {
             accountIds: null | string[];
         };
+        UpdateWebsiteChannelRequest: {
+            displayName: null | string;
+            welcomeMessage: null | string;
+            brandColor: null | string;
+            position: null | string;
+            allowedDomains: null | string[];
+            /** Format: int32 */
+            revision: number;
+        };
+        /** @enum {unknown} */
+        WebsiteBrandColor: "forest" | "ocean" | "amber" | "plum";
+        /** @enum {unknown} */
+        WebsiteChannelState: "draft" | "published" | "paused";
+        WebsiteChannelView: {
+            channel: components["schemas"]["PublishingChannelView"];
+            displayName: string;
+            welcomeMessage: string;
+            brandColor: components["schemas"]["WebsiteBrandColor"];
+            position: components["schemas"]["WebsiteLauncherPosition"];
+            allowedDomains: string[];
+            domains: components["schemas"]["WebsiteDomainView"][];
+            state: components["schemas"]["WebsiteChannelState"];
+            servingState: components["schemas"]["WebsiteServingState"];
+            servingMessage: string;
+            acceptanceStatus: components["schemas"]["AssistantAcceptanceStatus"];
+            nonOwnedKnowledgeBases: components["schemas"]["WebsiteKnowledgeBaseView"][];
+            embedCode: null | string;
+            /** Format: date-time */
+            publishedAt: null | string;
+            /** Format: int32 */
+            revision: number;
+        };
+        WebsiteDomainView: {
+            domain: string;
+            /** Format: date-time */
+            addedAt: string;
+            /** Format: date-time */
+            lastSeenAt: null | string;
+        };
+        WebsiteKnowledgeBaseView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        /** @enum {unknown} */
+        WebsiteLauncherPosition: "bottom-right" | "bottom-left";
+        /** @enum {unknown} */
+        WebsiteServingState: "not-published" | "paused" | "suspended-acceptance" | "suspended-knowledge" | "suspended-quota" | "serving";
     };
     responses: never;
     parameters: never;

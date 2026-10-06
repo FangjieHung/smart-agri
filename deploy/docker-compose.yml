@@ -73,6 +73,10 @@ services:
       Chat__FormRequests__Trigger: ${CHAT_FORM_REQUEST_TRIGGER:-Model}
       # IANA time zone whose calendar days the statistics queries and reports count in.
       Statistics__TimeZone: ${STATISTICS_TIME_ZONE:-Asia/Taipei}
+      # Address visitors' browsers reach this api at (e.g. https://assistant.example.org); the
+      # website embed code points at {PUBLIC_BASE_URL}/embed.js. Empty: no embed code, and
+      # publishing a website channel is refused (apps/api/README.md, "Website channel").
+      PublicChannels__PublicBaseUrl: ${PUBLIC_BASE_URL:-}
     volumes:
       - ./certs:/app/certs:ro
       - smartagri-dataprotection-keys:/app/keys

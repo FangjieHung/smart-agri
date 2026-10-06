@@ -2683,7 +2683,11 @@ function toPlatformSharing(platform: ApiPlatformSharing): PlatformSharingView {
   };
 }
 
-/** 官網與 LINE 在 M3 固定是 `not-available`：卡片顯示「尚未設定」加上後端的說明。 */
+/**
+ * 官網與 LINE 在 API 模式顯示 `not-available`：卡片顯示「尚未設定」加上說明。後端從 M5a #194 起
+ * 回傳真實的網站頻道（`WebsiteChannelView`），但管理介面要到 #202 才接上，所以這裡先忽略它，
+ * 官網固定顯示「將於後續版本開放」；LINE 仍用後端的佔位說明。
+ */
 function unavailableChannel(
   type: Exclude<PublishingChannelType, 'platform'>,
   platform: PublishingChannelView,
@@ -2711,7 +2715,7 @@ function toAssistantPublishing(response: ApiAssistantPublishing): AssistantPubli
     assistantId: response.assistantId as AssistantId,
     assistantName: response.assistantName,
     platform,
-    website: unavailableChannel('website', platform.channel, response.website.message || EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
+    website: unavailableChannel('website', platform.channel, EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
     line: unavailableChannel('line', platform.channel, response.line.message || EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
   };
 }

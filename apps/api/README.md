@@ -729,6 +729,22 @@ node tools/agui-contract/check-agui-stream.mjs
 node tools/agui-contract/check-agui-stream.mjs --url http://localhost:5153/api/v1/assistants/<id>/chat/runs --token <access token> --question '退貨運費由誰負擔？'
 ```
 
+## Website channel: `PublicChannels:PublicBaseUrl`
+
+The website channel (M5a, `SmartAgri.Api.Assistants.AssistantWebsiteChannelEndpoints`) is set up
+and published under `/api/v1/assistants/{id}/publishing/website` (owner + `manage-publishing`).
+Publishing needs the acceptance status `passed`, at least one allowed domain, the assistant not
+paused, and only knowledge bases the assistant's owner owns; after that, whether it actually answers
+visitors (`servingState`) is derived on every read and follows reruns without publishing again.
+
+`PublicChannels:PublicBaseUrl` is the address visitors' browsers reach this API at (e.g.
+`https://assistant.example.org`). The embed code customers paste is
+`<script src="{PublicBaseUrl}/embed.js" data-assistant="{id}" async></script>`. It is optional at
+startup (a malformed value refuses to start): without it `embedCode` is `null` and publishing a
+website channel answers `422` with `errors["public-base-url"]`. Development uses
+`http://localhost:5153` (`appsettings.Development.json`); the customer compose file reads
+`PUBLIC_BASE_URL` from `deploy/.env`.
+
 ## Retrieval preview and `KnowledgeRetriever`
 
 `KnowledgeRetriever` (Application, scoped; M2 plan Slice 9) is **the** way to search knowledge:

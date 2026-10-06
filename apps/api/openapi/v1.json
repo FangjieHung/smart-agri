@@ -3187,6 +3187,216 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/publishing/website": {
+      "get": {
+        "tags": [
+          "AssistantWebsiteChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebsiteChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "AssistantWebsiteChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWebsiteChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebsiteChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/publishing/website:publish": {
+      "post": {
+        "tags": [
+          "AssistantWebsiteChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebsiteChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/publishing/website/paused": {
+      "put": {
+        "tags": [
+          "AssistantWebsiteChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWebsitePausedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebsiteChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/publishing/website:unpublish": {
+      "post": {
+        "tags": [
+          "AssistantWebsiteChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebsiteChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/assistant-drafts": {
       "get": {
         "tags": [
@@ -5177,7 +5387,7 @@
             "$ref": "#/components/schemas/PlatformSharingView"
           },
           "website": {
-            "$ref": "#/components/schemas/NotAvailablePublishingChannelView"
+            "$ref": "#/components/schemas/WebsiteChannelView"
           },
           "line": {
             "$ref": "#/components/schemas/NotAvailablePublishingChannelView"
@@ -9433,6 +9643,17 @@
           }
         }
       },
+      "SetWebsitePausedRequest": {
+        "required": [
+          "paused"
+        ],
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          }
+        }
+      },
       "Stream": {
         "type": "string",
         "format": "binary"
@@ -9963,6 +10184,211 @@
             }
           }
         }
+      },
+      "UpdateWebsiteChannelRequest": {
+        "required": [
+          "displayName",
+          "welcomeMessage",
+          "brandColor",
+          "position",
+          "allowedDomains",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "welcomeMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "brandColor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "position": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "allowedDomains": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "WebsiteBrandColor": {
+        "enum": [
+          "forest",
+          "ocean",
+          "amber",
+          "plum"
+        ]
+      },
+      "WebsiteChannelState": {
+        "enum": [
+          "draft",
+          "published",
+          "paused"
+        ]
+      },
+      "WebsiteChannelView": {
+        "required": [
+          "channel",
+          "displayName",
+          "welcomeMessage",
+          "brandColor",
+          "position",
+          "allowedDomains",
+          "domains",
+          "state",
+          "servingState",
+          "servingMessage",
+          "acceptanceStatus",
+          "nonOwnedKnowledgeBases",
+          "embedCode",
+          "publishedAt",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/PublishingChannelView"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "welcomeMessage": {
+            "type": "string"
+          },
+          "brandColor": {
+            "$ref": "#/components/schemas/WebsiteBrandColor"
+          },
+          "position": {
+            "$ref": "#/components/schemas/WebsiteLauncherPosition"
+          },
+          "allowedDomains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebsiteDomainView"
+            }
+          },
+          "state": {
+            "$ref": "#/components/schemas/WebsiteChannelState"
+          },
+          "servingState": {
+            "$ref": "#/components/schemas/WebsiteServingState"
+          },
+          "servingMessage": {
+            "type": "string"
+          },
+          "acceptanceStatus": {
+            "$ref": "#/components/schemas/AssistantAcceptanceStatus"
+          },
+          "nonOwnedKnowledgeBases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebsiteKnowledgeBaseView"
+            }
+          },
+          "embedCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "publishedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "WebsiteDomainView": {
+        "required": [
+          "domain",
+          "addedAt",
+          "lastSeenAt"
+        ],
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastSeenAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "WebsiteKnowledgeBaseView": {
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "WebsiteLauncherPosition": {
+        "enum": [
+          "bottom-right",
+          "bottom-left"
+        ]
+      },
+      "WebsiteServingState": {
+        "enum": [
+          "not-published",
+          "paused",
+          "suspended-acceptance",
+          "suspended-knowledge",
+          "suspended-quota",
+          "serving"
+        ]
       }
     }
   },
@@ -10032,6 +10458,9 @@
     },
     {
       "name": "AssistantEndpoints"
+    },
+    {
+      "name": "AssistantWebsiteChannelEndpoints"
     },
     {
       "name": "AssistantTestCaseEndpoints"

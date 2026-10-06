@@ -121,6 +121,20 @@ jobs:
       # 不設 SEED_DEMO_KNOWLEDGE：spec 自己建立並刪除它用到的知識庫。
       - name: Migrate and seed the demo accounts
         run: dotnet run --no-build --no-launch-profile --project apps/api/src/SmartAgri.Api -- migrate
+      # 假的 LINE Messaging API（M5b #234）：API 的 Line__ApiBaseUrl 指到它，測試連線、reply、push 都不會連到
+      # LINE；line-api.cy.ts 以它的控制 API（/__control/*）設定官方帳號、讀收到的 reply／push。只用 node 內建模組。
+      - name: Start the fake LINE server in the background
+        run: |
+          nohup node tools/fake-line-server/server.mjs > "$RUNNER_TEMP/fake-line.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:5180/__control/health; then
+              echo "fake LINE server is ready"; exit 0
+            fi
+            sleep 1
+          done
+          echo "fake LINE server did not become ready" >&2
+          cat "$RUNNER_TEMP/fake-line.log" >&2
+          exit 1
       - name: Start the API in the background
         env:
           ASPNETCORE_URLS: http://localhost:5153
@@ -133,6 +147,8 @@ jobs:
           Widget__RootPath: ${{ github.workspace }}/dist/smart-agri-widget/browser
           Widget__EmbedScriptPath: ${{ github.workspace }}/apps/embed-loader/src/embed.js
           PublicChannels__PublicBaseUrl: http://localhost:5153
+          # 非官方網址只在非 Production 允許（LineOptions.Validate）；這個 job 是 Development。
+          Line__ApiBaseUrl: http://127.0.0.1:5180
         run: |
           nohup dotnet run --no-build --no-launch-profile --project apps/api/src/SmartAgri.Api \
             > "$RUNNER_TEMP/api.log" 2>&1 &
@@ -178,4 +194,5 @@ jobs:
             dist/cypress/apps/admin-e2e-api/**
             ${{ runner.temp }}/api.log
             ${{ runner.temp }}/admin.log
+            ${{ runner.temp }}/fake-line.log
           retention-days: 7

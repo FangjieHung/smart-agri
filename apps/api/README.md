@@ -1198,6 +1198,20 @@ Each organization chooses how long conversations are kept: 30, 90, 180 or 365 da
   Model invocations, handoff copies in issues, periodic reports, database records and test runs are
   never touched. The first cleanup after shortening a long-used retention may delete a lot: run the
   first change off-peak.
+- **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
+  every organization with a retention in days but no queued or running cleanup job (a job that
+  failed for good breaks its chain); the same compare-and-set keeps it from forking.
+- **`retention-cleanup`** is a one-shot subcommand that runs one organization's cleanup now (a due
+  pending value first), without touching the chain:
+
+  ```sh
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code>
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code> --as-of 2026-11-13T03:00:00+08:00   # Development/Testing only
+  ```
+
+  `--as-of` computes the cutoff (and whether a pending value is due) as of that time, for the API-mode
+  E2E; any other environment refuses it. Exit code `0` done, `1` unknown organization or the cleanup
+  failed, `2` bad arguments.
 
 ## Case groups (M7-1, #246)
 
@@ -1233,20 +1247,6 @@ are never deleted, only archived (decision G). All endpoints need an internal ac
 Account names on these and the other history screens (data managers, submission records, the
 settings' 「上次變更」, issues) come from one lookup, `AccountNames`: an account that can no longer be
 found shows as 「已停用的帳號」.
-- **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
-  every organization with a retention in days but no queued or running cleanup job (a job that
-  failed for good breaks its chain); the same compare-and-set keeps it from forking.
-- **`retention-cleanup`** is a one-shot subcommand that runs one organization's cleanup now (a due
-  pending value first), without touching the chain:
-
-  ```sh
-  dotnet SmartAgri.Api.dll retention-cleanup --organization <code>
-  dotnet SmartAgri.Api.dll retention-cleanup --organization <code> --as-of 2026-11-13T03:00:00+08:00   # Development/Testing only
-  ```
-
-  `--as-of` computes the cutoff (and whether a pending value is due) as of that time, for the API-mode
-  E2E; any other environment refuses it. Exit code `0` done, `1` unknown organization or the cleanup
-  failed, `2` bad arguments.
 
 ## Case types (M7-2, #247)
 

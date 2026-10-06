@@ -44,8 +44,11 @@ public sealed class KnowledgeReviewMigrationTests : IClassFixture<PostgresFixtur
         var versionId = Guid.CreateVersion7();
         await using (var dbContext = _postgres.CreateDbContext())
         {
-            dbContext.Organizations.Add(organization);
-            await dbContext.SaveChangesAsync(CancellationToken);
+            // Raw SQL, not EF: the model has Organizations columns (MonthlyTokenLimit, #195) that
+            // this old schema does not have yet.
+            await dbContext.Database.ExecuteSqlAsync(
+                $"""INSERT INTO "Organizations" ("Id", "Name", "Code") VALUES ({organization.Id}, {organization.Name}, {organization.Code})""",
+                CancellationToken);
         }
 
         await using (var dbContext = _postgres.CreateDbContext(organization.Id))

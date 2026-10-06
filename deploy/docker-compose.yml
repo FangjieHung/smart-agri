@@ -77,6 +77,10 @@ services:
       # website embed code points at {PUBLIC_BASE_URL}/embed.js. Empty: no embed code, and
       # publishing a website channel is refused (apps/api/README.md, "Website channel").
       PublicChannels__PublicBaseUrl: ${PUBLIC_BASE_URL:-}
+      # Chat-model tokens (input + output) an organization may use per month before its website
+      # replies are suspended, when its own limit (the `set-token-limit` command) is unset. Blank =
+      # the built-in 2,000,000 (apps/api/README.md, "Monthly token limit").
+      PublicChannels__DefaultMonthlyTokenLimit: ${DEFAULT_MONTHLY_TOKEN_LIMIT:-}
     volumes:
       - ./certs:/app/certs:ro
       - smartagri-dataprotection-keys:/app/keys

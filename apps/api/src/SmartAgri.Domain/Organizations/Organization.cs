@@ -59,6 +59,27 @@ public sealed class Organization
     public void RecordTeamPermissionsSaved(DateTimeOffset when) => TeamPermissionsSavedAt = when;
 
     /// <summary>
+    /// The most conversation-model tokens (input + output) the organization may use in a calendar
+    /// month (M5a plan §3 F), or <see langword="null"/> for the deployment default
+    /// (<c>PublicChannels:DefaultMonthlyTokenLimit</c>). <c>0</c> is allowed and means "none":
+    /// the website channel is suspended for the whole month. Set by operators only
+    /// (<c>set-token-limit</c>); no endpoint changes it.
+    /// </summary>
+    public long? MonthlyTokenLimit { get; private set; }
+
+    /// <summary>Sets <see cref="MonthlyTokenLimit"/>; <see langword="null"/> goes back to the
+    /// deployment default.</summary>
+    public void SetMonthlyTokenLimit(long? limit)
+    {
+        if (limit is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), limit, "A token limit is never negative.");
+        }
+
+        MonthlyTokenLimit = limit;
+    }
+
+    /// <summary>
     /// Trims and lower-cases a code, and rejects anything outside
     /// <c>[a-z0-9-]</c>. In particular <c>/</c> is never allowed: account user names are
     /// stored as <c>{code}/{loginName}</c>, and a <c>/</c> inside the code would make two

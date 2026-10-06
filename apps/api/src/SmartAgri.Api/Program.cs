@@ -15,6 +15,7 @@ using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Knowledge.Evaluation;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.Operations;
+using SmartAgri.Api.Organizations;
 using SmartAgri.Api.Reports;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Seeding;
@@ -47,6 +48,7 @@ builder.Services.AddOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>(
     .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.PublicChannelsOptions.SectionName))
     .ValidateOnStart();
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>, SmartAgri.Api.PublicChannels.PublicChannelsOptions.Validator>();
+builder.Services.AddOrganizationTokenUsage();
 builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.IChatDatabaseQueryRunner, SmartAgri.Api.Chat.FixedQueryChatRunner>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatDatabaseQueries>();
@@ -140,6 +142,14 @@ if (args is [SmartAgriCommands.EvalFormRequests, .. var evalFormArgs])
     return;
 }
 
+// `set-token-limit` is one-shot too, in any environment: set an organization's monthly chat-model
+// token limit (or send it back to the deployment default) and exit (M5a #195).
+if (args is [SmartAgriCommands.SetTokenLimit, .. var setTokenLimitArgs])
+{
+    Environment.ExitCode = await SetTokenLimitCommand.RunAsync(app.Services, setTokenLimitArgs, Console.Out, Console.Error);
+    return;
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -173,6 +183,7 @@ app.MapAssistantIssueEndpoints();
 app.MapAssistantHandoffEndpoints();
 app.MapAssistantAnalyticsEndpoints();
 app.MapOperationsSummaryEndpoints();
+app.MapOrganizationUsageEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();
@@ -195,6 +206,7 @@ internal static class SmartAgriCommands
     public const string EvalRetrieval = "eval-retrieval";
     public const string EvalAnswers = "eval-answers";
     public const string EvalFormRequests = "eval-form-requests";
+    public const string SetTokenLimit = "set-token-limit";
 }
 
 namespace SmartAgri.Api

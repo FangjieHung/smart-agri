@@ -4,9 +4,12 @@ using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Api.Organizations;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Knowledge;
+using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
 
@@ -348,6 +351,56 @@ public class AssistantWebsiteChannelEndpointsTests : IClassFixture<AuthHostFixtu
         body.GetProperty("line").GetProperty("status").GetString().ShouldBe("not-available");
     }
 
+    // --- Acceptance: the organization's monthly token limit (#195) -----------------------------
+
+    [Fact]
+    public async Task Reaching_the_monthly_token_limit_suspends_the_channel_and_raising_it_restores_serving_once_the_cache_expires()
+    {
+        var org = await CreateOrganizationAsync();
+        var assistantId = await PublishedAssistantAsync(org);
+        (await GetWebsiteAsync(org, assistantId)).GetProperty("servingState").GetString().ShouldBe("serving");
+
+        // 1,000 chat tokens used (an embedding call of any size adds nothing), limit lowered to 1,000.
+        await AddModelCallAsync(org, ModelInvocationPurpose.GenerateAnswer, 600, 100);
+        await AddModelCallAsync(org, ModelInvocationPurpose.TrialAnswer, 250, 50);
+        await AddModelCallAsync(org, ModelInvocationPurpose.EmbedDocument, 9_000_000, null);
+        (await RunSetTokenLimitAsync(org, "1000")).ShouldBe(SetTokenLimitCommand.ExitSuccess);
+
+        // The 30 second cache still holds the earlier "normal" answer.
+        (await GetWebsiteAsync(org, assistantId)).GetProperty("servingState").GetString().ShouldBe("serving");
+
+        _host.Clock.Advance(OrganizationTokenUsage.CacheDuration + TimeSpan.FromSeconds(1));
+        var suspended = await GetWebsiteAsync(org, assistantId);
+        suspended.GetProperty("servingState").GetString().ShouldBe("suspended-quota");
+        suspended.GetProperty("state").GetString().ShouldBe("published");
+        suspended.GetProperty("channel").GetProperty("status").GetString().ShouldBe("needs-attention");
+        var publishing = await BodyJsonAsync(await org.Admin.Spa.GetAsync($"{BasePath}/{assistantId}/publishing", org.Admin.Token));
+        publishing.GetProperty("website").GetProperty("servingState").GetString().ShouldBe("suspended-quota");
+
+        // An operator raises the limit: nothing changes until the cache expires, then it serves again.
+        (await RunSetTokenLimitAsync(org, "5000")).ShouldBe(SetTokenLimitCommand.ExitSuccess);
+        (await GetWebsiteAsync(org, assistantId)).GetProperty("servingState").GetString().ShouldBe("suspended-quota");
+
+        _host.Clock.Advance(OrganizationTokenUsage.CacheDuration + TimeSpan.FromSeconds(1));
+        var restored = await GetWebsiteAsync(org, assistantId);
+        restored.GetProperty("servingState").GetString().ShouldBe("serving");
+        restored.GetProperty("state").GetString().ShouldBe("published");
+    }
+
+    [Fact]
+    public async Task Another_organizations_usage_never_suspends_this_channel()
+    {
+        var org = await CreateOrganizationAsync();
+        var assistantId = await PublishedAssistantAsync(org);
+        var busy = await CreateOrganizationAsync("用量很大的組織");
+        await AddModelCallAsync(busy, ModelInvocationPurpose.GenerateAnswer, 50_000_000, 50_000_000);
+        (await RunSetTokenLimitAsync(busy, "1")).ShouldBe(SetTokenLimitCommand.ExitSuccess);
+
+        _host.Clock.Advance(OrganizationTokenUsage.CacheDuration + TimeSpan.FromSeconds(1));
+
+        (await GetWebsiteAsync(org, assistantId)).GetProperty("servingState").GetString().ShouldBe("serving");
+    }
+
     // --- Acceptance: another organization's assistant is indistinguishable from missing -------
 
     [Fact]
@@ -553,6 +606,19 @@ public class AssistantWebsiteChannelEndpointsTests : IClassFixture<AuthHostFixtu
 
     private Task<HttpResponseMessage> PublishAsync(TestOrganization org, Guid assistantId) =>
         org.Admin.Spa.PostAsync($"{WebsitePath(assistantId)}:publish", org.Admin.Token, new { });
+
+    private async Task AddModelCallAsync(TestOrganization org, ModelInvocationPurpose purpose, long? input, long? output)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        dbContext.ModelInvocations.Add(ModelInvocation.Record(
+            org.Organization.Id, org.AdminId, null, purpose, "fake", "fake-model", input, output, 5, succeeded: true, _host.Clock.GetUtcNow()));
+        await dbContext.SaveChangesAsync(CancellationToken);
+    }
+
+    /// <summary>The real <c>set-token-limit</c> subcommand, run against the host's services.</summary>
+    private Task<int> RunSetTokenLimitAsync(TestOrganization org, string tokens) =>
+        SetTokenLimitCommand.RunAsync(
+            _host.Factory.Services, ["--organization", org.Organization.Code, "--tokens", tokens], TextWriter.Null, TextWriter.Null, CancellationToken);
 
     private async Task<JsonElement> GetWebsiteAsync(TestOrganization org, Guid assistantId)
     {

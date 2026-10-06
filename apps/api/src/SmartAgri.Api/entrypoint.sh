@@ -9,6 +9,7 @@
 #   setup [...]                          migrate, then the one-shot `setup` subcommand
 #                                        (docker compose run --rm api setup), which
 #                                        exits when done and never starts the web server
+#   reindex / set-token-limit [...]      migrate, then that one-shot subcommand (same way)
 set -eu
 
 dotnet SmartAgri.Api.dll migrate

@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Options;
+using SmartAgri.Application.Organizations;
 
 namespace SmartAgri.Api.PublicChannels;
 
 /// <summary>
-/// Configuration section <c>PublicChannels</c> (M5a plan §3 H; the rest of the section — rate
-/// limits, trusted proxies, localhost ancestors, the default token limit — arrives with later
-/// slices).
+/// Configuration section <c>PublicChannels</c> (M5a plan §3 F and H; the rest of the section — rate
+/// limits, trusted proxies, localhost ancestors — arrives with later slices).
 /// </summary>
 public sealed class PublicChannelsOptions
 {
@@ -19,6 +19,18 @@ public sealed class PublicChannelsOptions
     /// <c>422 public-base-url</c>.
     /// </summary>
     public string? PublicBaseUrl { get; set; }
+
+    /// <summary>
+    /// The monthly chat-model token limit (input + output) of an organization whose own
+    /// <c>MonthlyTokenLimit</c> is unset. <c>0</c> suspends every such organization's website
+    /// replies. Nullable so that a blank setting (an empty <c>.env</c> value passed through compose)
+    /// binds as unset instead of failing; read <see cref="EffectiveDefaultMonthlyTokenLimit"/>.
+    /// </summary>
+    public long? DefaultMonthlyTokenLimit { get; set; }
+
+    /// <summary><see cref="DefaultMonthlyTokenLimit"/>, or 2,000,000 when unset (decision C).</summary>
+    public long EffectiveDefaultMonthlyTokenLimit =>
+        DefaultMonthlyTokenLimit ?? OrganizationTokenUsageRules.DefaultMonthlyTokenLimit;
 
     /// <summary><see cref="PublicBaseUrl"/> normalized (absolute, escaped, no trailing <c>/</c>),
     /// or <see langword="null"/> when unset or blank.</summary>
@@ -50,13 +62,26 @@ public sealed class PublicChannelsOptions
     }
 
     /// <summary>Refuses to start with a <see cref="PublicBaseUrl"/> that is set but is not an
-    /// absolute <c>http</c>/<c>https</c> URL without user info, query or fragment.</summary>
+    /// absolute <c>http</c>/<c>https</c> URL without user info, query or fragment, or a negative
+    /// <see cref="DefaultMonthlyTokenLimit"/>.</summary>
     internal sealed class Validator : IValidateOptions<PublicChannelsOptions>
     {
-        public ValidateOptionsResult Validate(string? name, PublicChannelsOptions options) =>
-            string.IsNullOrWhiteSpace(options.PublicBaseUrl) || options.ResolvedPublicBaseUrl is not null
-                ? ValidateOptionsResult.Success
-                : ValidateOptionsResult.Fail(
+        public ValidateOptionsResult Validate(string? name, PublicChannelsOptions options)
+        {
+            var failures = new List<string>();
+            if (!string.IsNullOrWhiteSpace(options.PublicBaseUrl) && options.ResolvedPublicBaseUrl is null)
+            {
+                failures.Add(
                     $"PublicChannels:PublicBaseUrl '{options.PublicBaseUrl}' must be an absolute http(s) URL such as https://assistant.example.org (no query or fragment).");
+            }
+
+            if (options.DefaultMonthlyTokenLimit < 0)
+            {
+                failures.Add(
+                    $"PublicChannels:DefaultMonthlyTokenLimit {options.DefaultMonthlyTokenLimit} must be 0 or more (tokens per month; 0 suspends website replies).");
+            }
+
+            return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+        }
     }
 }

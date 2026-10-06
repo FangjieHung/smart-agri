@@ -465,6 +465,31 @@
         }
       }
     },
+    "/api/v1/organization/usage": {
+      "get": {
+        "tags": [
+          "OrganizationUsageEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationUsageView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/chat/recent-conversations": {
       "get": {
         "tags": [
@@ -9199,6 +9224,31 @@
           }
         }
       },
+      "OrganizationUsageView": {
+        "required": [
+          "month",
+          "usedTokens",
+          "limitTokens",
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string"
+          },
+          "usedTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "limitTokens": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TokenUsageState"
+          }
+        }
+      },
       "PeriodicReportAutoDisabledView": {
         "required": [
           "disabledAt",
@@ -9794,6 +9844,13 @@
             "format": "date-time"
           }
         }
+      },
+      "TokenUsageState": {
+        "enum": [
+          "normal",
+          "near",
+          "exceeded"
+        ]
       },
       "TrialAnswerCitationView": {
         "required": [
@@ -10422,6 +10479,9 @@
     },
     {
       "name": "OperationsSummaryEndpoints"
+    },
+    {
+      "name": "OrganizationUsageEndpoints"
     },
     {
       "name": "ChatEndpoints"

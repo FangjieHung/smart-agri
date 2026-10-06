@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ProposableCaseTypesComponent } from '../../../components/proposable-case-types/proposable-case-types.component';
 import { SourceConnectionListComponent } from '../../../components/source-connection-list/source-connection-list.component';
 import { ApiSessionService } from '../../../../../core/session/api-session.service';
 import { AssistantSettingsStore } from '../../assistant-settings.store';
@@ -9,7 +10,7 @@ import { AssistantSettingsStore } from '../../assistant-settings.store';
  */
 @Component({
   selector: 'app-assistant-sources-tab',
-  imports: [SourceConnectionListComponent],
+  imports: [SourceConnectionListComponent, ProposableCaseTypesComponent],
   templateUrl: './assistant-sources-tab.component.html',
   styleUrl: '../../../components/assistant-form.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

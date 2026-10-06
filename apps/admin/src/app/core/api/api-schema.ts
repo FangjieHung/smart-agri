@@ -4033,6 +4033,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/sources/case-type/{caseTypeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    caseTypeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantSettingsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    caseTypeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantSettingsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/publishing": {
         parameters: {
             query?: never;
@@ -7131,6 +7226,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create the case an assistant proposed, with the title and description the asker confirmed (#254) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    messageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConfirmChatCaseProposalRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatMessageView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record that the asker declined an assistant's case proposal (#254) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    messageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatMessageView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/assistants/{id}/visitor-sessions": {
         parameters: {
             query?: never;
@@ -7489,6 +7715,7 @@ export interface components {
             configuration: components["schemas"]["AssistantConfigurationView"];
             knowledgeBaseIds: string[];
             databaseIds: string[];
+            caseTypeIds: string[];
             tone: components["schemas"]["AssistantTone"];
             roleInstructions: string;
             rules: components["schemas"]["AssistantAnswerRulesView"];
@@ -7798,6 +8025,22 @@ export interface components {
         };
         /** @enum {unknown} */
         ChannelServingState: "not-published" | "paused" | "suspended-acceptance" | "suspended-knowledge" | "suspended-quota" | "serving";
+        /** @enum {unknown} */
+        ChatCaseProposalStatus: "proposed" | "confirmed" | "dismissed";
+        ChatCaseProposalView: {
+            /** Format: uuid */
+            typeId: string;
+            typeName: string;
+            title: string;
+            description: string;
+            status: components["schemas"]["ChatCaseProposalStatus"];
+            available: boolean;
+            group: components["schemas"]["CaseGroupRefView"];
+            /** Format: int32 */
+            dueHours: number;
+            /** Format: uuid */
+            caseId: null | string;
+        };
         ChatCitationDetailView: {
             id: string;
             knowledgeBaseName: string;
@@ -7883,6 +8126,7 @@ export interface components {
             form: null | components["schemas"]["ChatFormRequestView"];
             receipt: null | components["schemas"]["DatabaseSubmissionReceiptView"];
             databaseQuery: null | components["schemas"]["ChatDatabaseQueryView"];
+            caseProposal: null | components["schemas"]["ChatCaseProposalView"];
         };
         ChatSuggestedPromptView: {
             id: string;
@@ -7911,6 +8155,10 @@ export interface components {
             documentName: string;
             /** Format: int32 */
             count: number;
+        };
+        ConfirmChatCaseProposalRequest: {
+            title: null | string;
+            description: null | string;
         };
         ConnectableSourceView: {
             /** Format: uuid */

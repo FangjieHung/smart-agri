@@ -40,6 +40,11 @@ export interface AssistantSettingsView {
   readonly configuration: AssistantConfigurationView;
   /** 已連接的來源，只有 id 與類型；不含來源內容。 */
   readonly sources: readonly AssistantSourceReference[];
+  /**
+   * 助理在對話中可以提議的案件類型（issue #254，決定 U）：擁有者從啟用中的類型挑，預設為空。
+   * 包含之後被停用的類型（仍列出，才能移除；重新啟用前不會提議）。
+   */
+  readonly caseTypeIds: readonly string[];
   readonly tone: AssistantTone;
   readonly roleInstructions: string;
   readonly rules: AssistantAnswerRules;
@@ -72,7 +77,8 @@ export type AssistantSettingsField =
   | 'refusalMessage'
   | 'dataWritePurpose'
   | 'periodicReport'
-  | 'sources';
+  | 'sources'
+  | 'caseTypeIds';
 
 export interface AssistantSettingsFieldError {
   readonly field: AssistantSettingsField;

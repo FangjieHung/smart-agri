@@ -58,9 +58,10 @@ public sealed class ChatMessage : IOrganizationScoped
     public static ChatMessage Assistant(
         ChatThread thread, string text, ChatReplyKind replyKind, string? notice, IReadOnlyList<string> nextSteps, DateTimeOffset now)
     {
-        if (replyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt or ChatReplyKind.DatabaseQuery)
+        if (replyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt or ChatReplyKind.DatabaseQuery
+            or ChatReplyKind.CaseProposal)
         {
-            throw new ArgumentException("Form and database query replies have their own factories.", nameof(replyKind));
+            throw new ArgumentException("Form, database query and case proposal replies have their own factories.", nameof(replyKind));
         }
 
         return new(thread, ChatMessageAuthor.Assistant, text, replyKind, notice, nextSteps, now);
@@ -108,6 +109,58 @@ public sealed class ChatMessage : IOrganizationScoped
         };
     }
 
+    /// <summary>The assistant proposing a case (M7-9, issue #254): <paramref name="proposal"/> is the
+    /// snapshot (type id, draft title and description, <see cref="ChatCaseProposalStatus.Proposed"/>). The
+    /// type is re-checked whenever the message is shown or confirmed.</summary>
+    public static ChatMessage CaseProposal(ChatThread thread, string text, ChatCaseProposalSnapshot proposal, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(proposal);
+        if (proposal.Status != ChatCaseProposalStatus.Proposed)
+        {
+            throw new ArgumentException("A new case proposal is always proposed.", nameof(proposal));
+        }
+
+        return new ChatMessage(thread, ChatMessageAuthor.Assistant, text, ChatReplyKind.CaseProposal, null, [], now)
+        {
+            CaseProposalJson = proposal.Serialize(),
+        };
+    }
+
+    /// <summary>The case proposal's snapshot; <see langword="null"/> for any other message (or an unreadable one).</summary>
+    public ChatCaseProposalSnapshot? ReadCaseProposal() =>
+        ReplyKind == ChatReplyKind.CaseProposal && CaseProposalJson is { } json ? ChatCaseProposalSnapshot.Deserialize(json) : null;
+
+    /// <summary>The asker confirmed (M7-9): the snapshot keeps exactly the title and description the asker
+    /// confirmed (already validated and trimmed) and the case created from them. Only a
+    /// <see cref="ChatCaseProposalStatus.Proposed"/> proposal may be confirmed; <see cref="CaseProposalJson"/>
+    /// is a concurrency token, so two concurrent confirmations cannot both succeed.</summary>
+    public void ConfirmCaseProposal(Guid caseId, string title, string description)
+    {
+        RequireId(caseId, nameof(caseId));
+        var proposal = OpenCaseProposal();
+        CaseProposalJson = (proposal with { Title = title, Description = description, Status = ChatCaseProposalStatus.Confirmed }).Serialize();
+        ProposedCaseId = caseId;
+    }
+
+    /// <summary>「不用了」 (M7-9): only recorded; nothing is created.</summary>
+    public void DismissCaseProposal()
+    {
+        var proposal = OpenCaseProposal();
+        CaseProposalJson = (proposal with { Status = ChatCaseProposalStatus.Dismissed }).Serialize();
+    }
+
+    private ChatCaseProposalSnapshot OpenCaseProposal()
+    {
+        var proposal = ReadCaseProposal()
+            ?? throw new InvalidOperationException("Only a case proposal message has a case proposal.");
+        if (proposal.Status != ChatCaseProposalStatus.Proposed)
+        {
+            throw new InvalidOperationException("Only a proposed case proposal may be confirmed or dismissed.");
+        }
+
+        return proposal;
+    }
+
     private static void RequireId(Guid id, string parameterName)
     {
         if (id == Guid.Empty)
@@ -147,6 +200,14 @@ public sealed class ChatMessage : IOrganizationScoped
     /// <summary>The structured view (JSON) of a <see cref="ChatReplyKind.DatabaseQuery"/> reply;
     /// <see langword="null"/> otherwise.</summary>
     public string? DatabaseQueryJson { get; private set; }
+
+    /// <summary>The snapshot (JSON, <see cref="ChatCaseProposalSnapshot"/>) of a <see cref="ChatReplyKind.CaseProposal"/>
+    /// reply (M7-9); <see langword="null"/> otherwise. A concurrency token: confirming and dismissing change it.</summary>
+    public string? CaseProposalJson { get; private set; }
+
+    /// <summary>The case a confirmed proposal created (M7-9); <see langword="null"/> otherwise. No foreign
+    /// key: cases are kept forever, but the message goes with its thread.</summary>
+    public Guid? ProposedCaseId { get; private set; }
 
     /// <summary>Set only for <see cref="ChatReplyKind.GeneralKnowledge"/>.</summary>
     public string? Notice { get; private set; }

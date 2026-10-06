@@ -21,7 +21,7 @@ export interface ChatMessageWire<TReply extends ChatReplyWire = ChatReplyWire> {
 }
 
 /**
- * 只有 admin 會收到的回覆種類（`form-request`、`submission-receipt`、`database-query`）由使用端轉換：
+ * 只有 admin 會收到的回覆種類（`form-request`、`submission-receipt`、`database-query`、`case-proposal`）由使用端轉換：
  * 它們牽涉表單、收據與數據庫的對應，不屬於共用的對話元件。回傳 `null` 代表「這個 kind 不是我處理的」，
  * 交回 lib 依通用規則轉換。
  */

@@ -751,9 +751,10 @@ public static class ChatRunEndpoints
                 [],
                 null,
                 null,
+                null,
                 null),
-            GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, [], null, null, null),
-            _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps, null, null, null),
+            GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, [], null, null, null, null),
+            _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps, null, null, null, null),
         };
         // Microseconds, like every saved timestamp (PostgreSQL's precision).
         return new ChatMessageView(messageId, "assistant", null, view, now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond)));

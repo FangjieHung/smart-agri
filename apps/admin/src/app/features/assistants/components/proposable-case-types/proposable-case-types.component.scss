@@ -1,0 +1,11 @@
+.proposable-case-types { max-inline-size: var(--reading-width); }
+.unavailable { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); color: var(--color-text-secondary); }
+.remove {
+  min-block-size: var(--target-size);
+  padding: 0 var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}

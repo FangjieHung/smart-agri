@@ -30,6 +30,7 @@ import {
   CaseSettingsRepository,
 } from './case-settings.repository';
 import { DEMO_SEED } from './demo-seed';
+import { mockChatProposedCases } from './mock-chat-cases';
 import type { PermissionDeniedRepositoryView, RepositoryView } from './demo-repository';
 import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
 
@@ -144,7 +145,7 @@ export class CasesRepository {
       const viewer = context.viewer;
       const scope = filter.scope ?? 'all';
       const status = filter.status ?? 'open';
-      const rows = this.mockCases
+      const rows = this.allMockCases()
         .filter((item) => this.mockVisible(item, context))
         .filter((item) => scope !== 'created' || item.createdBy === viewer)
         .filter(() => scope !== 'owned')
@@ -170,7 +171,7 @@ export class CasesRepository {
       );
     }
     return this.withMockContext((context) => {
-      const item = this.mockCases.find((candidate) => candidate.id === caseId);
+      const item = this.allMockCases().find((candidate) => candidate.id === caseId);
       if (!item || !this.mockVisible(item, context)) return of(CASE_DENIED);
       return of<RepositoryView<CaseDetailView>>({ status: 'ready', data: this.mockDetail(item, context) });
     });
@@ -199,6 +200,19 @@ export class CasesRepository {
       this.mockCases = [...this.mockCases, item];
       return of<CreateCaseResult>({ status: 'ready', data: this.mockDetail(item, context) });
     });
+  }
+
+  /** 範例與建立的案件，加上從對話確認建立的（issue #254，見 `mock-chat-cases.ts`）。 */
+  private allMockCases(): readonly MockCase[] {
+    return [
+      ...this.mockCases,
+      ...mockChatProposedCases().map((item): MockCase => ({
+        id: item.id, typeId: item.typeId, groupId: item.groupId, status: 'pending', origin: 'chat-proposal',
+        title: item.title, description: item.description, createdBy: item.createdBy, dueAt: item.dueAt,
+        createdAt: item.createdAt, completedAt: null,
+        thread: { assistantId: item.assistantId, threadId: item.threadId, available: true }, record: null, previousCaseId: null,
+      })),
+    ];
   }
 
   private client(): HttpClient {

@@ -6,7 +6,7 @@ namespace SmartAgri.Domain.Cases;
 /// Where a <see cref="Case"/> is (case ADR「狀態與流轉」; M7 plan §3 D): only these five.
 /// <see cref="Pending"/>, <see cref="InProgress"/> and <see cref="AwaitingInfo"/> are open;
 /// <see cref="Completed"/> and <see cref="Cancelled"/> are closed and never reopened (a new case
-/// links the old one instead). Moves only through the action table (M7-4); M7-3 only creates cases,
+/// links the old one instead). Moves only through the action table (M7-4, <c>CaseActionRules</c>); a new case is
 /// always <see cref="Pending"/>.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<CaseStatus>))]

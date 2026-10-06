@@ -70,6 +70,15 @@ describe('accessibility', () => {
       });
     }
 
+    it('has no critical or serious violations on a case\'s actions and its open form (issue #249)', () => {
+      cy.visit('/app/cases?case=case-compressor-purchase');
+      cy.get('[data-case-actions]').scrollIntoView().should('be.visible');
+      auditA11y();
+      cy.get('[data-case-action="cancel"]').click();
+      cy.get('[data-case-action-form] #case-action-text').scrollIntoView().should('be.visible');
+      auditA11y();
+    });
+
     it('has no critical or serious violations on the loading, partial failure and permission states', () => {
       cy.visit('/app/knowledge?demoScenario=loading');
       cy.get('[data-state="loading"]').should('be.visible');

@@ -157,6 +157,8 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'organization-settings',
   /** 案件功能（issue #246）：外部客戶讀取承辦組（之後的案件類型、案件）一律拒絕。 */
   'case',
+  /** 案件動作（issue #249）：看得到案件，但這個動作在這個狀態不是你能做的（例如別人受理的案件你不能完成）。 */
+  'case-action',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
   'password-change-required',
 ] as const;

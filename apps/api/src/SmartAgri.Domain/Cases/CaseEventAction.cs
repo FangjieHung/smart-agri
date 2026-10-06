@@ -3,9 +3,9 @@ using System.Text.Json.Serialization;
 namespace SmartAgri.Domain.Cases;
 
 /// <summary>
-/// What a <see cref="CaseEvent"/> records (M7 plan §4). M7-3 only writes <see cref="Created"/>; the
-/// rest are the action table's (M7-4), declared now because <see cref="Accepted"/> already decides
-/// who has been a case owner (<c>CaseVisibility</c>).
+/// What a <see cref="CaseEvent"/> records (M7 plan §4): <see cref="Created"/>, and one per action of
+/// the action table (M7-4, issue #249). <see cref="Accepted"/> also decides who has been a case owner
+/// (<c>CaseVisibility</c>).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<CaseEventAction>))]
 public enum CaseEventAction

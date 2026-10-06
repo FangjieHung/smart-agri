@@ -88,6 +88,9 @@
       @if (creating()) {
         @let errors = formErrors();
         <h2 id="case-detail-title">建立案件</h2>
+        @if (formPreviousCase(); as previous) {
+          <p class="hint" data-case-follow-up-note>接續已結案的「{{ previous.title }}」：新案件會連結舊案件。</p>
+        }
         <form class="case-form" novalidate data-case-form (submit)="$event.preventDefault(); submit()">
           <div class="control">
             <label for="case-type">案件類型</label>
@@ -215,7 +218,30 @@
                 <div><dt>建立者</dt><dd>{{ item.createdBy?.displayName ?? '系統自動建立' }}</dd></div>
                 <div><dt>來源</dt><dd>{{ originLabel(item.origin) }}</dd></div>
                 <div><dt>建立時間</dt><dd>{{ item.createdAt | date:'yyyy/MM/dd HH:mm' }}</dd></div>
+                @if (item.resolution) {
+                  <div class="case-facts__wide"><dt>處理結果</dt><dd>{{ item.resolution }}</dd></div>
+                }
+                @if (item.cancelReason) {
+                  <div class="case-facts__wide"><dt>取消原因</dt><dd>{{ item.cancelReason }}</dd></div>
+                }
               </dl>
+
+              @if (item.status === 'completed' || item.status === 'cancelled') {
+                <section class="case-section case-closed" aria-labelledby="case-closed-title">
+                  <h4 id="case-closed-title">已結案</h4>
+                  <p class="hint">已結案的案件不能重新開啟。需要繼續處理時，另開一件新案件，並連結這件案件。</p>
+                  <button class="ui-button" type="button" data-case-follow-up (click)="startFollowUp(item)">另開新案</button>
+                </section>
+              } @else {
+                <div class="case-section">
+                  <app-case-actions
+                    [detail]="detail.data"
+                    [groups]="groups()"
+                    (changed)="actionDone()"
+                    (refresh)="detailResource.reload(); listResource.reload()"
+                  />
+                </div>
+              }
 
               <section class="case-section" aria-labelledby="case-description-title">
                 <h4 id="case-description-title">說明</h4>
@@ -261,12 +287,12 @@
 
               <section class="case-section" aria-labelledby="case-history-title">
                 <h4 id="case-history-title">交接軌跡</h4>
-                <ol class="case-history">
+                <ol class="case-history" data-case-history>
                   @for (event of detail.data.events; track event.id) {
                     <li>
                       <strong>{{ event.actor?.displayName ?? '系統' }}</strong>
                       <time [attr.datetime]="event.at">{{ event.at | date:'yyyy/MM/dd HH:mm' }}</time>
-                      <span>{{ eventLabel(event) }}@if (event.toGroup) {（{{ event.toGroup.name }}）}@if (event.note) {：{{ event.note }}}</span>
+                      <span>{{ eventLabel(event) }}@if (event.action === 'transferred' && event.fromGroup && event.toGroup) {（{{ event.fromGroup.name }} → {{ event.toGroup.name }}）} @else if (event.toGroup) {（{{ event.toGroup.name }}）}@if (event.action === 'due-changed' && event.dueAt) {：新時限 {{ event.dueAt | date:'yyyy/MM/dd HH:mm' }}}@if (event.action === 'commented' && event.status) {（自動回到{{ statusLabel(event.status) }}）}@if (event.note) {：{{ event.note }}}</span>
                     </li>
                   }
                 </ol>

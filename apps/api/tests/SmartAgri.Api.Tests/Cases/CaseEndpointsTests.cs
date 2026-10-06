@@ -271,7 +271,9 @@ public class CaseEndpointsTests : IClassFixture<AuthHostFixture>
         var outsider = await SignInAsync(org, "other");
         var open = await CreateCaseAsync(internalCaller, setup.Type, setup.Equipment, "還在處理的案件");
         var closed = await CreateCaseAsync(internalCaller, setup.Type, setup.Equipment, "已完成的案件");
-        await SetStatusAsync(org, closed, "completed");
+        var member = await SignInAsync(org, "member");
+        await ActAsync(org, member, closed, "accept");
+        await ActAsync(org, member, closed, "complete", new { resolution = "已處理" });
 
         await ShouldBeLinkRefusalAsync(
             await internalCaller.Spa.PostAsync(Path, internalCaller.Token, Body(setup.Type, setup.Equipment, "另開新案", previousCaseId: open)),
@@ -294,6 +296,7 @@ public class CaseEndpointsTests : IClassFixture<AuthHostFixture>
         var admin = await SignInAsync(org, "admin");
         var internalCaller = await SignInAsync(org, "internal");
         var member = await SignInAsync(org, "member");
+        var purchaser = await SignInAsync(org, "other");
         var otherType = await CreateTypeAsync(admin, "採購申請", setup.Purchasing, 120);
 
         var inEquipment = await CreateCaseAsync(internalCaller, setup.Type, setup.Equipment, "設備組待受理");
@@ -301,8 +304,9 @@ public class CaseEndpointsTests : IClassFixture<AuthHostFixture>
         var byAdmin = await CreateCaseAsync(admin, setup.Type, setup.Purchasing, "管理者建立的");
         var ownedByMember = await CreateCaseAsync(internalCaller, setup.Type, setup.Equipment, "成員受理中");
         var byMember = await CreateCaseAsync(member, setup.Type, setup.Purchasing, "成員自己建立的");
-        await SetStatusAsync(org, completed, "completed");
-        await AcceptAsync(org, ownedByMember, org.Member.Id);
+        await ActAsync(org, purchaser, completed, "accept");
+        await ActAsync(org, purchaser, completed, "complete", new { resolution = "已採購" });
+        await ActAsync(org, member, ownedByMember, "accept");
 
         (await ListedIdsAsync(admin, Path)).ShouldBe([byMember, ownedByMember, byAdmin, inEquipment], "open cases only, newest first");
         (await ListedIdsAsync(admin, $"{Path}?status=open")).ShouldBe([byMember, ownedByMember, byAdmin, inEquipment]);
@@ -350,9 +354,8 @@ public class CaseEndpointsTests : IClassFixture<AuthHostFixture>
         var outsider = await SignInAsync(org, "other");
         var caseId = await CreateCaseAsync(internalCaller, setup.Type, setup.Equipment, "冷藏庫溫度異常");
 
-        // M7-4 writes accept and transfer; until then the rows are written as they will be.
-        await AcceptAsync(org, caseId, org.Member.Id);
-        await MoveToGroupAsync(org, caseId, setup.Purchasing);
+        await ActAsync(org, member, caseId, "accept");
+        await ActAsync(org, member, caseId, "transfer", new { groupId = setup.Purchasing });
 
         (await DetailStatusAsync(member, caseId)).ShouldBe(HttpStatusCode.OK, "a former case owner");
         (await DetailStatusAsync(outsider, caseId)).ShouldBe(HttpStatusCode.OK, "a member of the new group");
@@ -389,7 +392,7 @@ public class CaseEndpointsTests : IClassFixture<AuthHostFixture>
         {
             name = "臨時類型", description = "", defaultGroupId = temporary, defaultDueHours = 24, isActive = false,
         })).StatusCode.ShouldBe(HttpStatusCode.OK);
-        await SetStatusAsync(org, caseId, "cancelled");
+        await ActAsync(org, admin, caseId, "cancel");
         (await admin.Spa.PostAsync($"{GroupsPath}/{temporary}:archive", admin.Token, new { })).StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
@@ -564,47 +567,23 @@ public class CaseEndpointsTests : IClassFixture<AuthHostFixture>
         return thread.Id;
     }
 
-    /// <summary>Closes a case the way M7-4 will (no action exists yet).</summary>
-    private async Task SetStatusAsync(TestOrganization org, Guid caseId, string status)
+    /// <summary>Posts a case action (M7-4) with the case's current <c>eventCount</c>; it must succeed.</summary>
+    private async Task ActAsync(TestOrganization org, SignedIn caller, Guid caseId, string action, object? fields = null)
     {
-        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
-        var now = DateTimeOffset.UtcNow;
-        DateTimeOffset? completedAt = status == "completed" ? now : null;
-        DateTimeOffset? cancelledAt = status == "cancelled" ? now : null;
-        (await dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"""UPDATE "Cases" SET "Status" = {status}, "CompletedAt" = {completedAt}, "CancelledAt" = {cancelledAt} WHERE "Id" = {caseId}""",
-                CancellationToken))
-            .ShouldBe(1);
-    }
+        int eventCount;
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            eventCount = (await dbContext.Cases.AsNoTracking().SingleAsync(item => item.Id == caseId, CancellationToken)).EventCount;
+        }
 
-    /// <summary>Writes an <c>accepted</c> event and the owner, as M7-4's accept will.</summary>
-    private async Task AcceptAsync(TestOrganization org, Guid caseId, Guid ownerId)
-    {
-        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
-        var now = DateTimeOffset.UtcNow;
-        var organizationId = org.Organization.Id;
-        var eventId = Guid.CreateVersion7();
-        (await dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"""
-                 INSERT INTO "CaseEvents" ("Id", "OrganizationId", "CaseId", "Ordinal", "Action", "ActorAccountId", "At", "Status", "OwnerAccountId")
-                 VALUES ({eventId}, {organizationId}, {caseId}, 2, 'accepted', {ownerId}, {now}, 'in-progress', {ownerId})
-                 """,
-                CancellationToken))
-            .ShouldBe(1);
-        (await dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"""UPDATE "Cases" SET "Status" = 'in-progress', "OwnerAccountId" = {ownerId}, "AcceptedAt" = {now}, "EventCount" = 2 WHERE "Id" = {caseId}""",
-                CancellationToken))
-            .ShouldBe(1);
-    }
+        var body = new Dictionary<string, object?> { ["eventCount"] = eventCount };
+        foreach (var property in JsonSerializer.SerializeToElement(fields ?? new { }).EnumerateObject())
+        {
+            body[property.Name] = property.Value.Clone();
+        }
 
-    /// <summary>Moves a case to another group and clears its owner, as M7-4's transfer will.</summary>
-    private async Task MoveToGroupAsync(TestOrganization org, Guid caseId, Guid groupId)
-    {
-        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
-        (await dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"""UPDATE "Cases" SET "GroupId" = {groupId}, "OwnerAccountId" = NULL, "Status" = 'pending' WHERE "Id" = {caseId}""",
-                CancellationToken))
-            .ShouldBe(1);
+        var response = await caller.Spa.PostAsync($"{Path}/{caseId}:{action}", caller.Token, body);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, $"{action}: {await response.Content.ReadAsStringAsync(CancellationToken)}");
     }
 
     private async Task<int> CaseCountAsync(TestOrganization org)

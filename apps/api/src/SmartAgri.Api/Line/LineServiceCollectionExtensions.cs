@@ -38,7 +38,9 @@ public static class LineServiceCollectionExtensions
     /// <see cref="LineWebhookQueue"/> and the <see cref="LineWebhookProcessor"/> that drains it,
     /// <see cref="LineWebhookEventHandler"/>, the in-memory <see cref="ILineConversationHistory"/>
     /// (decision E's limits) and — unless one is registered already — the
-    /// <see cref="ILineQuestionHandler"/> that answers nothing.
+    /// <see cref="ILineQuestionHandler"/> that answers LINE questions (#232:
+    /// <see cref="LineQuestionHandler"/>, with <see cref="LineQuestionRateLimiter"/> and
+    /// <see cref="LineAnswerMetrics"/>).
     /// </summary>
     public static IServiceCollection AddLineWebhook(this IServiceCollection services)
     {
@@ -48,7 +50,9 @@ public static class LineServiceCollectionExtensions
         services.AddSingleton<ILineConversationHistory>(provider =>
             new InMemoryLineConversationHistory(provider.GetRequiredService<TimeProvider>(), LineConversationHistoryLimits.Default));
         services.AddScoped<LineWebhookEventHandler>();
-        services.TryAddScoped<ILineQuestionHandler, NoLineQuestionHandler>();
+        services.AddSingleton<LineQuestionRateLimiter>();
+        services.AddSingleton<LineAnswerMetrics>();
+        services.TryAddScoped<ILineQuestionHandler, LineQuestionHandler>();
         services.AddHostedService<LineWebhookProcessor>();
         return services;
     }

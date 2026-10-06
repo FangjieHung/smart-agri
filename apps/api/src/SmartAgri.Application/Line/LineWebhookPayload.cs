@@ -80,6 +80,10 @@ public sealed record LineEventSource(string? Type, string? UserId, string? Group
     };
 }
 
+/// <summary>A part of a message's text: <paramref name="Length"/> UTF-16 code units from
+/// <paramref name="Index"/>.</summary>
+public readonly record struct LineTextSpan(int Index, int Length);
+
 /// <summary>A <c>message</c> event's <c>message</c> (the fields used here).</summary>
 /// <param name="Type"><c>text</c>, <c>image</c>, <c>video</c>, <c>audio</c>, <c>file</c>,
 /// <c>location</c>, <c>sticker</c>, or anything newer.</param>
@@ -89,6 +93,42 @@ public sealed record LineEventSource(string? Type, string? UserId, string? Group
 public sealed record LineEventMessage(string? Id, string? Type, string? Text, bool MentionsSelf)
 {
     public bool IsText => Type == "text";
+
+    /// <summary>Where <see cref="Text"/> mentions the bot (each <c>isSelf: true</c> mentionee's
+    /// <c>index</c> and <c>length</c>, in UTF-16 code units), in text order; empty when it does not or
+    /// LINE gave no usable position.</summary>
+    public IReadOnlyList<LineTextSpan> SelfMentions { get; init; } = [];
+
+    /// <summary>
+    /// <see cref="Text"/> without the bot's own mentions (<see cref="SelfMentions"/>, e.g. 「@安心客服」),
+    /// white space around the removed parts collapsed, trimmed: the question a group member asked
+    /// (M5b plan §3 D). Other members' mentions stay. <see langword="null"/> for a non-text message.
+    /// </summary>
+    public string? QuestionText
+    {
+        get
+        {
+            if (Text is null)
+            {
+                return null;
+            }
+
+            var text = Text;
+            foreach (var span in SelfMentions.OrderByDescending(span => span.Index))
+            {
+                if (span.Index < 0 || span.Length <= 0 || span.Index + span.Length > text.Length)
+                {
+                    continue;
+                }
+
+                var before = text[..span.Index].TrimEnd();
+                var after = text[(span.Index + span.Length)..].TrimStart();
+                text = before.Length == 0 || after.Length == 0 ? before + after : before + " " + after;
+            }
+
+            return text.Trim();
+        }
+    }
 
     /// <summary>Only the type: the text is what a LINE user wrote and is never logged.</summary>
     public override string ToString() => $"{nameof(LineEventMessage)} {{ Type = {Type} }}";
@@ -144,6 +184,9 @@ public sealed record LineWebhookEvent(
                 LineWebhookPayload.String(messageElement, "type"),
                 LineWebhookPayload.String(messageElement, "type") == "text" ? LineWebhookPayload.String(messageElement, "text") : null,
                 MentionsSelf(messageElement))
+            {
+                SelfMentions = SelfMentionSpans(messageElement),
+            }
             : null;
 
         var isRedelivery = element.TryGetProperty("deliveryContext", out var delivery)
@@ -172,14 +215,32 @@ public sealed record LineWebhookEvent(
             unsent);
     }
 
-    private static bool MentionsSelf(JsonElement message)
+    private static bool MentionsSelf(JsonElement message) => SelfMentionees(message).Any();
+
+    private static IReadOnlyList<LineTextSpan> SelfMentionSpans(JsonElement message)
+    {
+        var spans = new List<LineTextSpan>();
+        foreach (var mentionee in SelfMentionees(message))
+        {
+            if (mentionee.TryGetProperty("index", out var index) && index.ValueKind == JsonValueKind.Number && index.TryGetInt32(out var start)
+                && mentionee.TryGetProperty("length", out var length) && length.ValueKind == JsonValueKind.Number && length.TryGetInt32(out var count)
+                && start >= 0 && count > 0)
+            {
+                spans.Add(new LineTextSpan(start, count));
+            }
+        }
+
+        return [.. spans.OrderBy(span => span.Index)];
+    }
+
+    private static IEnumerable<JsonElement> SelfMentionees(JsonElement message)
     {
         if (!message.TryGetProperty("mention", out var mention)
             || mention.ValueKind != JsonValueKind.Object
             || !mention.TryGetProperty("mentionees", out var mentionees)
             || mentionees.ValueKind != JsonValueKind.Array)
         {
-            return false;
+            yield break;
         }
 
         foreach (var mentionee in mentionees.EnumerateArray())
@@ -188,11 +249,9 @@ public sealed record LineWebhookEvent(
                 && mentionee.TryGetProperty("isSelf", out var isSelf)
                 && isSelf.ValueKind == JsonValueKind.True)
             {
-                return true;
+                yield return mentionee;
             }
         }
-
-        return false;
     }
 
     /// <summary>Event types handled by M5b (plan §3 D); every other type is ignored.</summary>

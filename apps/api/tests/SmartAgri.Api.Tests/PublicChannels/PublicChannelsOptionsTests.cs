@@ -170,6 +170,12 @@ public class PublicChannelsOptionsTests
             options.RateLimits.MaxConcurrentRunsPerAssistant.ShouldBe(10);
             options.RateLimits.LineWebhooksPerAssistantPerMinute.ShouldBe(1000);
             options.RateLimits.LineMaxConcurrentWebhooksPerAssistant.ShouldBe(10);
+            options.RateLimits.LineQuestionsPerUserPerMinute.ShouldBe(6);
+            options.RateLimits.LineQuestionsPerUserPerHour.ShouldBe(60);
+            options.RateLimits.LineQuestionsPerGroupPerMinute.ShouldBe(10);
+            options.RateLimits.LineQuestionsPerAssistantPerMinute.ShouldBe(120);
+            options.RateLimits.LineMaxConcurrentQuestionsPerAssistant.ShouldBe(10);
+            options.Line.ReplyDeadlineSeconds.ShouldBe(50);
             options.TrustedProxies.ShouldBeEmpty();
             Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();
         }
@@ -188,9 +194,16 @@ public class PublicChannelsOptionsTests
             ["PublicChannels:RateLimits:MaxConcurrentRunsPerAssistant"] = "8",
             ["PublicChannels:RateLimits:LineWebhooksPerAssistantPerMinute"] = "9",
             ["PublicChannels:RateLimits:LineMaxConcurrentWebhooksPerAssistant"] = "10",
+            ["PublicChannels:RateLimits:LineQuestionsPerUserPerMinute"] = "11",
+            ["PublicChannels:RateLimits:LineQuestionsPerUserPerHour"] = "12",
+            ["PublicChannels:RateLimits:LineQuestionsPerGroupPerMinute"] = "13",
+            ["PublicChannels:RateLimits:LineQuestionsPerAssistantPerMinute"] = "14",
+            ["PublicChannels:RateLimits:LineMaxConcurrentQuestionsPerAssistant"] = "15",
+            ["PublicChannels:Line:ReplyDeadlineSeconds"] = "30",
         });
 
-        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8, 9, 10]);
+        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+        options.Line.ReplyDeadline.ShouldBe(TimeSpan.FromSeconds(30));
         Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
 
@@ -203,12 +216,30 @@ public class PublicChannelsOptionsTests
     [InlineData("MaxConcurrentRunsPerAssistant", "0")]
     [InlineData("LineWebhooksPerAssistantPerMinute", "0")]
     [InlineData("LineMaxConcurrentWebhooksPerAssistant", "0")]
+    [InlineData("LineQuestionsPerUserPerMinute", "0")]
+    [InlineData("LineQuestionsPerUserPerHour", "-1")]
+    [InlineData("LineQuestionsPerGroupPerMinute", "0")]
+    [InlineData("LineQuestionsPerAssistantPerMinute", "0")]
+    [InlineData("LineMaxConcurrentQuestionsPerAssistant", "0")]
     public void A_rate_limit_below_one_fails_startup_and_says_which_setting(string name, string value)
     {
         var result = Validator("Production").Validate(null, BindSettings(new Dictionary<string, string?> { [$"PublicChannels:RateLimits:{name}"] = value }));
 
         result.Failed.ShouldBeTrue();
         result.FailureMessage.ShouldContain($"PublicChannels:RateLimits:{name} {value} must be 1 or more");
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("61")]
+    [InlineData("-5")]
+    public void A_line_reply_deadline_outside_1_to_60_seconds_fails_startup(string value)
+    {
+        var result = Validator("Production").Validate(
+            null, BindSettings(new Dictionary<string, string?> { ["PublicChannels:Line:ReplyDeadlineSeconds"] = value }));
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain($"PublicChannels:Line:ReplyDeadlineSeconds {value} must be 1 to 60");
     }
 
     [Fact]

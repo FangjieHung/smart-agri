@@ -3,6 +3,73 @@
   <h3 id="website-title">官網嵌入</h3>
   <p class="hint">設定對話按鈕的名稱、歡迎語、品牌色與位置，並限定只能嵌入在允許的網域。</p>
 
+  <section class="block block--status" aria-labelledby="website-status-title" [attr.data-serving]="view().servingState">
+    <h4 id="website-status-title">發布狀態</h4>
+    <p class="serving">
+      <span class="serving__symbol" aria-hidden="true">{{ statusMeta().symbol }}</span>
+      <strong class="serving__label">{{ statusMeta().label }}</strong>
+      <span class="serving__reason">{{ servingLabel() }}</span>
+    </p>
+    <p class="serving__detail">{{ view().channel.statusDetail }}</p>
+
+    @if (view().servingState === 'suspended-acceptance') {
+      <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'acceptance']">前往驗收題組頁處理</a></p>
+    }
+    @if (blocked()) {
+      <div class="blocked">
+        <p>下列知識庫不是助理擁有者自己的，對外發布時不能使用：</p>
+        <ul aria-label="不是擁有者自己的知識庫">
+          @for (knowledgeBase of view().nonOwnedKnowledgeBases; track knowledgeBase.id) {
+            <li>{{ knowledgeBase.name }}</li>
+          }
+        </ul>
+        <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'data-sources']">前往資料來源頁解除連接</a></p>
+      </div>
+    }
+
+    @if (publishFailures().length > 0) {
+      <div class="error-summary" role="alert" aria-labelledby="website-publish-failures-title">
+        <p id="website-publish-failures-title">{{ publishRefusedMessage() }}</p>
+        <ul>
+          @for (failure of publishFailures(); track $index) {
+            <li [attr.data-reason]="failure.reason">{{ failure.message }}</li>
+          }
+        </ul>
+        @if (hasFailure('acceptance')) {
+          <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'acceptance']">前往驗收題組頁</a></p>
+        }
+        @if (hasFailure('allowed-domains')) {
+          <p><a class="next-step" href="#website-domain-input" (click)="focusDomains($event)">前往設定允許網域</a></p>
+        }
+        @if (hasFailure('knowledge-ownership')) {
+          <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'data-sources']">前往資料來源頁解除連接</a></p>
+        }
+      </div>
+    }
+    @if (actionError()) {
+      <p class="error" role="alert">{{ actionError() }}</p>
+    }
+
+    <div class="actions">
+      @if (view().state === 'draft') {
+        <button type="button" class="ui-button" [disabled]="busy()" (click)="confirmPublish()">發布官網嵌入</button>
+      } @else {
+        <button type="button" class="secondary" [disabled]="busy()" (click)="togglePause()">
+          {{ view().state === 'paused' ? '恢復服務' : '暫停服務' }}
+        </button>
+        <button type="button" class="secondary" [disabled]="busy()" (click)="unpublish()">取消發布</button>
+      }
+    </div>
+    @if (dirty()) {
+      <p class="caption">有尚未儲存的變更；發布使用的是已儲存的設定。</p>
+    }
+    <p class="action-status" aria-live="polite">{{ actionStatus() }}</p>
+    <p class="caption" id="website-refusal-hint">
+      訪客找不到答案時，看到的是助理設定的「找不到資料時的回覆」，而且訪客端沒有轉人工按鈕。請把組織的聯絡窗口（電話、LINE、Email）寫進那段回覆。
+      <a [routerLink]="['/app/assistants', assistantId(), 'rules']">前往回答與記錄設定</a>
+    </p>
+  </section>
+
   <form class="settings" aria-label="官網外觀與網域" novalidate (submit)="save($event)">
     @if (errors().length > 0) {
       <div class="error-summary" role="alert" aria-labelledby="website-error-title">
@@ -76,7 +143,13 @@
       }
     </div>
 
-    <div class="actions"><button type="submit" class="ui-button">儲存官網設定</button></div>
+    @if (conflictMessage()) {
+      <div class="error-summary" role="alert">
+        <p>{{ conflictMessage() }}</p>
+        <button type="button" class="secondary" (click)="reload()">重新載入最新設定</button>
+      </div>
+    }
+    <div class="actions"><button type="submit" class="ui-button" [disabled]="busy()">儲存官網設定</button></div>
     <p class="save-status" aria-live="polite">{{ saveStatus() }}</p>
   </form>
 
@@ -101,13 +174,82 @@
 
   <section class="block" aria-labelledby="website-code-title">
     <h4 id="website-code-title">嵌入碼</h4>
-    <p class="caption">Demo 嵌入碼指向不存在的示範網址，不可用於正式環境。</p>
-    <pre class="embed-code" tabindex="0" aria-label="Demo 嵌入碼"><code>{{ view().embedCode }}</code></pre>
-    <div class="actions">
-      <button type="button" class="secondary" (click)="copy()">複製嵌入碼</button>
-      <button type="button" class="secondary" (click)="checkInstallation()">檢查安裝狀態</button>
-    </div>
-    <p class="copy-status" aria-live="polite">{{ copyStatus() }}</p>
-    <p class="install-status" aria-live="polite">{{ installText() }}</p>
+    @if (view().embedCode; as code) {
+      <p class="caption">把這段程式碼貼到允許網域的網頁。發布後，通過驗收的助理才會在那些網頁顯示對話按鈕；其他網站放上嵌入碼也不會顯示。</p>
+      <pre class="embed-code" tabindex="0" aria-label="嵌入碼"><code>{{ code }}</code></pre>
+      <div class="actions">
+        <button type="button" class="secondary" (click)="copy()">複製嵌入碼</button>
+      </div>
+      <p class="copy-status" aria-live="polite">{{ copyStatus() }}</p>
+    } @else {
+      <p class="caption" role="status">伺服器尚未設定對外網址，所以還沒有嵌入碼；請洽系統管理者。</p>
+    }
+  </section>
+
+  <section class="block" aria-labelledby="website-seen-title">
+    <h4 id="website-seen-title">安裝偵測</h4>
+    <p class="caption">訪客在你的網頁開啟對話視窗時，會自動回報它嵌在哪個網域；伺服器不會連到你的網站。這個時間只供參考。</p>
+    @if (installRows().length > 0) {
+      <ul class="seen-list" aria-label="各網域最後偵測到的時間">
+        @for (row of installRows(); track row.domain) {
+          <li>{{ row.text }}</li>
+        }
+      </ul>
+    } @else {
+      <p class="caption">請先設定並儲存允許嵌入的網域。</p>
+    }
   </section>
 </section>
+
+<ng-template #publishDialog>
+  <section class="publish-panel">
+    <h2 id="website-publish-title">發布官網嵌入？</h2>
+    <div id="website-publish-detail" class="publish-detail">
+      @if (blocked()) {
+        <p><strong>目前還不能發布。</strong>助理連接了不是擁有者自己的知識庫，這些知識庫的擁有者同意的是「組織內分享」，不是公開到網路上：</p>
+        <ul aria-label="不是擁有者自己的知識庫">
+          @for (knowledgeBase of view().nonOwnedKnowledgeBases; track knowledgeBase.id) {
+            <li>{{ knowledgeBase.name }}</li>
+          }
+        </ul>
+        <p>請先到資料來源頁解除連接，再回來發布。</p>
+      } @else {
+        <p>發布後，任何人在允許的網域（{{ view().allowedDomains.join('、') || '尚未設定' }}）開啟你的網頁，都能和這個助理對話。</p>
+        <p>訪客可以問到下列知識庫的內容；他們只能問知識庫，不能查資料庫或填表單，對話內容也不會保存：</p>
+        @switch (dialogKnowledge().status) {
+          @case ('loading') {
+            <p role="status">正在載入知識庫清單…</p>
+          }
+          @case ('error') {
+            <p role="alert">目前無法載入知識庫清單；發布時伺服器仍會檢查，只允許助理擁有者自己的知識庫。</p>
+          }
+          @default {
+            @if (dialogKnowledge().names.length > 0) {
+              <ul aria-label="訪客可以檢索的知識庫">
+                @for (name of dialogKnowledge().names; track name) {
+                  <li>{{ name }}</li>
+                }
+              </ul>
+            } @else {
+              <p>助理目前沒有連接任何你自己的知識庫。</p>
+            }
+          }
+        }
+        <p>找不到答案時，訪客看到的是助理的「找不到資料時的回覆」，請確認裡面已有組織的聯絡窗口。</p>
+      }
+    </div>
+    @if (dialogError()) {
+      <p class="error" role="alert">{{ dialogError() }}</p>
+    }
+    <div class="dialog-actions">
+      <button type="button" class="ui-button secondary" (click)="closeDialog()">{{ blocked() ? '關閉' : '取消' }}</button>
+      @if (blocked()) {
+        <a class="ui-button" [routerLink]="['/app/assistants', assistantId(), 'data-sources']" (click)="closeDialog()">前往資料來源頁</a>
+      } @else {
+        <button type="button" class="ui-button" [disabled]="busy()" (click)="publishConfirmed()">
+          {{ busy() ? '發布中…' : '確認發布' }}
+        </button>
+      }
+    </div>
+  </section>
+</ng-template>

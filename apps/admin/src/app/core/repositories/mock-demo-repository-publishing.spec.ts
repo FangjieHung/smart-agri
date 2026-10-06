@@ -76,7 +76,7 @@ async function setPublishingChannelPausedAs(
   return firstValueFrom(repository.setPublishingChannelPaused(assistantId, channelType, paused));
 }
 
-function dataOf<T>(result: RepositoryView<T> | { status: 'validation-failed' }): T {
+function dataOf<T>(result: RepositoryView<T> | { status: 'validation-failed' | 'conflict' | 'publish-refused' }): T {
   if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
   return result.data;
 }
@@ -178,16 +178,20 @@ describe('MockDemoRepository publishing channels', () => {
     expect(shared.channel.status).toBe('published');
   });
 
-  it('validates allowed domains and requires a new installation check after they change', async () => {
+  it('validates allowed domains, saves with the revision it read and keeps what was last seen on a kept domain', async () => {
     const repository = createRepository();
-    const view = dataOf(await publishingAs(repository, ADMIN, CUSTOMER_SERVICE));
-    expect(asConfigurable(view).website.embedCode).toContain('Demo');
-    expect(asConfigurable(view).website.embedCode).toContain('.invalid');
+    const publishing = dataOf(await publishingAs(repository, ADMIN, CUSTOMER_SERVICE));
+    const view = publishing.website;
+    expect(view.embedCode).toContain('Demo');
+    expect(view.embedCode).toContain('.invalid');
+    expect(view.revision).toBe(1);
 
-    const invalid = repository.updateWebsiteEmbed(
-      ADMIN,
-      CUSTOMER_SERVICE,
-      websiteSettings(view, { displayName: ' ', allowedDomains: ['https://shop.example.com/path'] }),
+    const invalid = await firstValueFrom(
+      repository.updateWebsiteEmbed(
+        CUSTOMER_SERVICE,
+        websiteSettings(publishing, { displayName: ' ', allowedDomains: ['https://shop.example.com/path'] }),
+        view.revision,
+      ),
     );
     expect(invalid).toMatchObject({ status: 'validation-failed' });
     if (invalid.status === 'validation-failed') {
@@ -195,21 +199,21 @@ describe('MockDemoRepository publishing channels', () => {
     }
 
     const saved = dataOf(
-      repository.updateWebsiteEmbed(
-        ADMIN,
-        CUSTOMER_SERVICE,
-        websiteSettings(view, {
-          allowedDomains: [...asConfigurable(view).website.allowedDomains, 'Blog.Anxin-Demo.Example '],
-        }),
+      await firstValueFrom(
+        repository.updateWebsiteEmbed(
+          CUSTOMER_SERVICE,
+          websiteSettings(publishing, { allowedDomains: [...view.allowedDomains, 'Blog.Anxin-Demo.Example '] }),
+          view.revision,
+        ),
       ),
     );
     expect(saved.allowedDomains).toContain('blog.anxin-demo.example');
-    expect(saved.installCheck).toBe('not-checked');
-    expect(saved.channel.status).toBe('testing');
-
-    const checked = dataOf(repository.checkWebsiteInstallation(ADMIN, CUSTOMER_SERVICE));
-    expect(checked.installCheck).toBe('detected');
-    expect(checked.channel.status).toBe('published');
+    expect(saved.revision).toBe(2);
+    expect(saved.domains.map((domain) => [domain.domain, domain.lastSeenAt !== null])).toEqual([
+      ['shop.anxin-demo.example', true],
+      ['blog.anxin-demo.example', false],
+    ]);
+    expect(saved.channel.status).toBe('published');
   });
 
   it('checks LINE fields one by one, then requires a delivered test message before activation', () => {

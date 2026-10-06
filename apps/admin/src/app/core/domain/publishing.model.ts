@@ -1,4 +1,5 @@
 import type { AccountId } from './account.model';
+import type { AssistantAcceptanceStatus } from './assistant-acceptance.model';
 import type { AssistantId } from './assistant.model';
 
 /** 三種發布管道：平台內分享、官網嵌入與 LINE。 */
@@ -105,7 +106,33 @@ export const WEBSITE_BRAND_COLORS: readonly {
   { id: 'plum', label: '梅子紫', hex: '#6b3fa0' },
 ];
 
-export type WebsiteInstallCheck = 'not-checked' | 'detected' | 'not-detected';
+/** 擁有者對網站頻道的選擇：已存設定（草稿）、已發布、擁有者暫停。 */
+export type WebsiteChannelState = 'draft' | 'published' | 'paused';
+
+/**
+ * 每次讀取時推導的「實際服務狀態」（M5a 計畫第 3 節 C），不儲存。對應管道卡的狀態（第 3 節 H）：
+ * `not-published` → `testing`、`serving` → `published`、`paused` → `paused`，
+ * 三個 `suspended-*` → `needs-attention`（附原因）。
+ */
+export type WebsiteServingState =
+  | 'not-published'
+  | 'paused'
+  | 'suspended-acceptance'
+  | 'suspended-knowledge'
+  | 'suspended-quota'
+  | 'serving';
+
+/** 允許網域與被動偵測到的最後載入時間（只供參考，不是安全判斷；沒有偵測過是 `null`）。 */
+export interface WebsiteDomainView {
+  readonly domain: string;
+  readonly lastSeenAt: string | null;
+}
+
+/** 助理連接、但不是助理擁有者自己的知識庫（決定 B：對外發布時不能使用）。 */
+export interface WebsiteKnowledgeBaseRef {
+  readonly id: string;
+  readonly name: string;
+}
 
 export interface WebsiteEmbedSettings {
   readonly displayName: string;
@@ -115,12 +142,35 @@ export interface WebsiteEmbedSettings {
   readonly allowedDomains: readonly string[];
 }
 
+/** 官網管道：API 與 mock 共用同一個形狀。 */
 export interface WebsiteEmbedView extends WebsiteEmbedSettings {
   readonly channel: PublishingChannelView;
-  /** 示範用嵌入碼，指向保留網域，不可用於正式環境。 */
-  readonly embedCode: string;
-  readonly installCheck: WebsiteInstallCheck;
-  readonly installCheckedAt: string | null;
+  readonly state: WebsiteChannelState;
+  readonly servingState: WebsiteServingState;
+  readonly acceptanceStatus: AssistantAcceptanceStatus;
+  readonly domains: readonly WebsiteDomainView[];
+  /** 連接的、不是助理擁有者自己的知識庫；有任何一個就不能發布，已發布的會被暫停。 */
+  readonly nonOwnedKnowledgeBases: readonly WebsiteKnowledgeBaseRef[];
+  /** 伺服器尚未設定對外網址時是 null。 */
+  readonly embedCode: string | null;
+  readonly publishedAt: string | null;
+  /** 儲存設定時帶回去的版本；還沒存過是 0。 */
+  readonly revision: number;
+}
+
+/** 發布閘門 `422` 的 `errors` 鍵（M5a 計畫第 3 節 C、決定 B）。 */
+export type WebsitePublishFailureReason =
+  | 'acceptance'
+  | 'allowed-domains'
+  | 'assistant-paused'
+  | 'knowledge-ownership'
+  | 'public-base-url'
+  /** 後端日後新增、前端還不認得的原因：照樣顯示訊息。 */
+  | 'other';
+
+export interface WebsitePublishFailure {
+  readonly reason: WebsitePublishFailureReason;
+  readonly message: string;
 }
 
 export const MAX_ALLOWED_DOMAINS = 5;
@@ -195,8 +245,8 @@ export interface LineSetupView extends LineSettingsInput {
 // ---------- 單一助理的發布設定 ----------
 
 /**
- * 還沒有開放的對外管道（API 模式的官網嵌入與 LINE，M3 只做組織內部分享）。`channel` 是給
- * 管道卡片用的狀態（固定「尚未設定」，說明文字就是 `message`），沒有任何可設定的欄位。
+ * 還沒有開放的對外管道（API 模式的 LINE，M5b 才做）。`channel` 是給管道卡片用的狀態
+ * （固定「尚未設定」，說明文字就是 `message`），沒有任何可設定的欄位。
  */
 export interface UnavailablePublishingChannelView {
   readonly availability: 'not-available';
@@ -204,10 +254,10 @@ export interface UnavailablePublishingChannelView {
   readonly message: string;
 }
 
-export const EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE = '官網嵌入與 LINE 對外發布將於後續版本開放。';
+export const EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE = 'LINE 對外發布將於後續版本開放。';
 
 export function isUnavailableChannel(
-  view: WebsiteEmbedView | LineSetupView | UnavailablePublishingChannelView,
+  view: LineSetupView | UnavailablePublishingChannelView,
 ): view is UnavailablePublishingChannelView {
   return 'availability' in view && view.availability === 'not-available';
 }
@@ -216,12 +266,11 @@ export interface AssistantPublishingView {
   readonly assistantId: AssistantId;
   readonly assistantName: string;
   readonly platform: PlatformSharingView;
-  readonly website: WebsiteEmbedView | UnavailablePublishingChannelView;
+  readonly website: WebsiteEmbedView;
   readonly line: LineSetupView | UnavailablePublishingChannelView;
 }
 
-/** 三個管道都可以設定的發布設定（mock 模式；API 模式的官網與 LINE 尚未開放）。 */
+/** 三個管道都可以設定的發布設定（mock 模式；API 模式的 LINE 尚未開放）。 */
 export interface ConfigurableAssistantPublishingView extends AssistantPublishingView {
-  readonly website: WebsiteEmbedView;
   readonly line: LineSetupView;
 }

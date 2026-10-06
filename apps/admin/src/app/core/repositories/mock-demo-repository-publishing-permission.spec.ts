@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { firstValueFrom } from 'rxjs';
 import type { AccountId } from '../domain/account.model';
+import type { WebsiteEmbedSettings } from '../domain/publishing.model';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
@@ -15,6 +16,14 @@ const VALID_LINE = {
   channelId: '12345' + '67890',
   channelSecret: ('abcdef' + '0123456789').repeat(2),
   accessToken: 'demo-access-token-value-that-is-long-enough-0001',
+};
+
+const WEBSITE_SETTINGS: WebsiteEmbedSettings = {
+  displayName: '安心商行線上客服',
+  welcomeMessage: '您好，我是客服助理。',
+  brandColor: 'forest',
+  position: 'bottom-right',
+  allowedDomains: ['shop.anxin-demo.example'],
 };
 
 describe('MockDemoRepository publishing permission', () => {
@@ -55,7 +64,10 @@ describe('MockDemoRepository publishing permission', () => {
     const calls = [
       await firstValueFrom(repository.getAssistantPublishing(ASSISTANT)),
       await firstValueFrom(repository.updatePlatformSharing(ASSISTANT, [])),
-      repository.checkWebsiteInstallation(ADMIN, ASSISTANT),
+      await firstValueFrom(repository.updateWebsiteEmbed(ASSISTANT, WEBSITE_SETTINGS, 1)),
+      await firstValueFrom(repository.publishWebsite(ASSISTANT)),
+      await firstValueFrom(repository.unpublishWebsite(ASSISTANT)),
+      await firstValueFrom(repository.setPublishingChannelPaused(ASSISTANT, 'website', true)),
       repository.saveLineSettings(ADMIN, ASSISTANT, VALID_LINE),
       repository.sendLineTestMessage(ADMIN, ASSISTANT),
       repository.activateLineChannel(ADMIN, ASSISTANT),

@@ -8,7 +8,6 @@ import {
   type LineSetupView,
   type PublishingChannelType,
   type UnavailablePublishingChannelView,
-  type WebsiteEmbedView,
 } from '../../../core/domain/publishing.model';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
@@ -77,16 +76,12 @@ export class AssistantPublishingComponent {
   });
   protected readonly selectedChannel = computed(() => this.view()?.[this.selectedType()].channel ?? null);
 
-  /** 官網與 LINE 在 API 模式尚未開放時是 null，畫面改顯示說明。 */
-  protected configurableWebsite(view: WebsiteEmbedView | UnavailablePublishingChannelView): WebsiteEmbedView | null {
-    return isUnavailableChannel(view) ? null : view;
-  }
-
+  /** LINE 在 API 模式尚未開放時是 null，畫面改顯示說明。 */
   protected configurableLine(view: LineSetupView | UnavailablePublishingChannelView): LineSetupView | null {
     return isUnavailableChannel(view) ? null : view;
   }
 
-  protected unavailableMessage(view: WebsiteEmbedView | LineSetupView | UnavailablePublishingChannelView): string {
+  protected unavailableMessage(view: LineSetupView | UnavailablePublishingChannelView): string {
     return isUnavailableChannel(view) ? view.message : '';
   }
 

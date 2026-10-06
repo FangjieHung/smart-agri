@@ -23,18 +23,14 @@
 
     <div class="panel">
       @if (selectedChannel(); as channel) {
-        @if (channel.status !== 'not-configured') {
+        @if (channel.status !== 'not-configured' && channel.type !== 'website') {
           <lib-setting-row [title]="channel.name" [description]="channel.statusDetail" [controlId]="'channel-enabled-' + channel.type" [toggleable]="true" [checked]="channel.status !== 'paused'" [disabled]="pausing()" (toggled)="togglePause()" />
           <p class="pause-status" aria-live="polite">{{ pauseStatus() }}</p>
         }
       }
       @switch (selectedType()) {
         @case ('website') {
-          @if (configurableWebsite(current.website); as website) {
-            <app-website-embed [assistantId]="current.assistantId" [view]="website" (changed)="refresh()" />
-          } @else {
-            <p class="channel-unavailable" role="status">{{ unavailableMessage(current.website) }}</p>
-          }
+          <app-website-embed [assistantId]="current.assistantId" [view]="current.website" (changed)="refresh()" />
         }
         @case ('line') {
           @if (configurableLine(current.line); as line) {

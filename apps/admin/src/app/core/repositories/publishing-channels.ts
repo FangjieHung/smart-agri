@@ -1,4 +1,5 @@
 import type { AccountId, AccountView } from '../domain/account.model';
+import type { AssistantAcceptanceStatus } from '../domain/assistant-acceptance.model';
 import { audienceAllowsRole, type AssistantConfigurationView } from '../domain/assistant.model';
 import {
   LINE_FIELDS,
@@ -22,6 +23,9 @@ import {
   type PublishingFieldError,
   type WebsiteEmbedSettings,
   type WebsiteEmbedView,
+  type WebsiteKnowledgeBaseRef,
+  type WebsitePublishFailure,
+  type WebsiteServingState,
 } from '../domain/publishing.model';
 import { ACCOUNT_ROLE_LABELS } from '../domain/team.model';
 import { EMPTY_LINE_SETTINGS, EXPIRED_DEMO_LINE_TOKEN, type PublishingRecord } from './demo-seed-publishing';
@@ -41,9 +45,10 @@ export function defaultPublishingRecord(
       brandColor: 'forest',
       position: 'bottom-right',
       allowedDomains: [],
-      installCheck: 'not-checked',
-      installCheckedAt: null,
-      paused: false,
+      state: 'draft',
+      publishedAt: null,
+      revision: 0,
+      lastSeenAt: {},
       updatedAt: now,
     },
     line: { ...EMPTY_LINE_SETTINGS, checked: false, enabled: false, lastTest: null, paused: false, updatedAt: now },
@@ -62,6 +67,7 @@ export function isPublishingRecord(value: unknown): value is PublishingRecord {
     Array.isArray(value['platform']['allowedAccountIds']) &&
     isObject(value['website']) &&
     Array.isArray(value['website']['allowedDomains']) &&
+    typeof value['website']['state'] === 'string' &&
     isObject(value['line']) &&
     LINE_FIELDS.every((field) => typeof (value['line'] as Record<string, unknown>)[field.id] === 'string')
   );
@@ -142,29 +148,87 @@ export function normalizePlatformAccounts(
 
 // ---------- 官網嵌入 ----------
 
-function websiteStatus(record: PublishingRecord, disconnected: boolean): [PublishingChannelStatus, string] {
-  const website = record.website;
-  if (website.paused) return ['paused', '已暫停：網站上的對話按鈕暫時隱藏，設定會保留。'];
-  if (website.allowedDomains.length === 0) return ['not-configured', '尚未設定允許嵌入的網域。'];
-  if (website.installCheck === 'detected' && disconnected) {
-    return ['needs-attention', '官網連線中斷（模擬情境）：只有官網嵌入受影響，其他管道不受影響。請確認網站後重新檢查安裝狀態。'];
-  }
-  if (website.installCheck === 'not-detected') {
-    return ['needs-attention', '在允許的網域上偵測不到嵌入碼（模擬結果），其他管道不受影響。請確認已放上嵌入碼後重新檢查。'];
-  }
-  if (website.installCheck === 'not-checked') return ['testing', '已設定允許的網域，尚未檢查安裝狀態。'];
-  return ['published', `已在 ${website.allowedDomains[0]} 偵測到安裝（模擬結果）。`];
+export const WEBSITE_CONFLICT_MESSAGE = '設定已在其他分頁被更新過，請重新載入後再修改。';
+export const WEBSITE_REFUSED_MESSAGE = '目前還不能對外發布，請先處理下列項目。';
+
+/** 實際服務狀態需要的、不在發布設定裡的資料（驗收、連接的知識庫、用量與情境）。 */
+export interface WebsiteServingContext {
+  readonly acceptanceStatus: AssistantAcceptanceStatus;
+  readonly nonOwnedKnowledgeBases: readonly WebsiteKnowledgeBaseRef[];
+  readonly quotaExceeded: boolean;
+  /** `disconnected-channel` 情境：官網管道顯示需要處理。 */
+  readonly disconnected: boolean;
 }
 
-export function demoEmbedCode(assistantId: string, position: string): string {
+/** M5a 計畫第 3 節 C 的推導順序；mock 沒有「過期」與助理暫停（暫停的是平台內管道），所以只看驗收是否 `failed`／`not-accepted`。 */
+export function websiteServingState(record: PublishingRecord, context: WebsiteServingContext): WebsiteServingState {
+  const { state, allowedDomains } = record.website;
+  if (state === 'draft' || allowedDomains.length === 0) return 'not-published';
+  if (state === 'paused') return 'paused';
+  if (context.disconnected || context.acceptanceStatus === 'failed' || context.acceptanceStatus === 'not-accepted') {
+    return 'suspended-acceptance';
+  }
+  if (context.nonOwnedKnowledgeBases.length > 0) return 'suspended-knowledge';
+  return context.quotaExceeded ? 'suspended-quota' : 'serving';
+}
+
+const NOT_PUBLISHED_DETAILS = {
+  unsaved: '尚未設定官網嵌入。',
+  noDomain: '尚未設定允許網域，目前沒有網站可以嵌入。',
+  saved: '尚未發布：設定已儲存，驗收通過後即可發布。',
+};
+
+/** 實際服務狀態 → 管道卡狀態與說明（第 3 節 H；文字比 API 的 `Describe` 精簡）。 */
+const SERVING_STATUS: Readonly<Record<Exclude<WebsiteServingState, 'not-published'>, [PublishingChannelStatus, string]>> = {
+  paused: ['paused', '已暫停：官網訪客看到「暫停服務」，設定會保留。'],
+  'suspended-acceptance': ['needs-attention', '驗收未通過，已自動暫停對外回覆；請到題組頁處理。'],
+  'suspended-knowledge': ['needs-attention', '連接了別人的知識庫，已自動暫停對外回覆；解除連接後會恢復。'],
+  'suspended-quota': ['needs-attention', '本月用量已達上限，已暫停對外回覆。'],
+  serving: ['published', '已發布，官網訪客可以使用。'],
+};
+
+function websiteStatus(
+  record: PublishingRecord,
+  serving: WebsiteServingState,
+  disconnected: boolean,
+): [PublishingChannelStatus, string] {
+  const { state, allowedDomains, revision } = record.website;
+  if (disconnected && serving === 'suspended-acceptance') {
+    return ['needs-attention', '官網連線中斷（模擬）：只有官網嵌入受影響，其他管道不受影響。'];
+  }
+  if (serving !== 'not-published') return SERVING_STATUS[serving];
+  if (state !== 'draft') return ['testing', NOT_PUBLISHED_DETAILS.noDomain];
+  return revision === 0 && allowedDomains.length === 0
+    ? ['not-configured', NOT_PUBLISHED_DETAILS.unsaved]
+    : ['testing', NOT_PUBLISHED_DETAILS.saved];
+}
+
+/** 發布閘門（與 API 的 `WebsiteChannelRules.PublishFailures` 同一組判斷與訊息；mock 沒有 `public-base-url`、`assistant-paused`）。 */
+export function websitePublishFailures(
+  record: PublishingRecord,
+  context: WebsiteServingContext,
+): readonly WebsitePublishFailure[] {
+  const failures: WebsitePublishFailure[] = [];
+  if (context.acceptanceStatus !== 'passed') {
+    failures.push({ reason: 'acceptance', message: '驗收狀態必須是「通過」才能發布；請先到題組頁讓所有題目通過。' });
+  }
+  if (record.website.allowedDomains.length === 0) {
+    failures.push({ reason: 'allowed-domains', message: '請先設定至少一個允許嵌入的網域。' });
+  }
+  for (const knowledgeBase of context.nonOwnedKnowledgeBases) {
+    failures.push({
+      reason: 'knowledge-ownership',
+      message: `「${knowledgeBase.name}」不是你自己的知識庫，對外發布時不能使用；請解除連接。`,
+    });
+  }
+  return failures;
+}
+
+/** 示範嵌入碼：網址只供畫面展示（對應 API 的 `PublicChannels:PublicBaseUrl`），不可用於正式環境。 */
+export function demoEmbedCode(assistantId: string): string {
   return [
     '<!-- Demo 嵌入碼：僅供展示，不可用於正式環境，也不會連接外部服務 -->',
-    '<script',
-    '  src="https://widget.demo.invalid/assistant.js"',
-    `  data-assistant="demo-${assistantId}"`,
-    `  data-position="${position}"`,
-    '  data-demo-only="true"',
-    '  async></script>',
+    `<script src="https://widget.demo.invalid/embed.js" data-assistant="${assistantId}" async></script>`,
   ].join('\n');
 }
 
@@ -278,11 +342,11 @@ export function trimLineSettings(input: LineSettingsInput): LineSettingsInput {
  */
 export function isExternallyPublished(
   record: PublishingRecord,
-  websiteDisconnected: boolean,
+  website: WebsiteServingContext,
 ): boolean {
-  const [website] = websiteStatus(record, websiteDisconnected);
+  const websiteServing = websiteServingState(record, website) === 'serving';
   const [line] = lineStatus(record.line, lineChecks(record.line));
-  return website === 'published' || line === 'published';
+  return websiteServing || line === 'published';
 }
 
 // ---------- 組裝 ----------
@@ -309,7 +373,7 @@ export function toAssistantPublishingView(
   assistant: AssistantConfigurationView,
   record: PublishingRecord,
   accounts: readonly AccountView[],
-  websiteDisconnected: boolean,
+  websiteContext: WebsiteServingContext,
 ): ConfigurableAssistantPublishingView {
   const platform: PlatformSharingView = {
     channel: channelView(assistant, 'platform', platformStatus(record), record.platform.updatedAt),
@@ -321,18 +385,29 @@ export function toAssistantPublishingView(
       audienceLabel: ACCOUNT_ROLE_LABELS[account.role],
     })),
   };
-  const { displayName, welcomeMessage, brandColor, position, allowedDomains, installCheck, installCheckedAt } =
+  const { displayName, welcomeMessage, brandColor, position, allowedDomains, state, publishedAt, revision, lastSeenAt } =
     record.website;
+  const servingState = websiteServingState(record, websiteContext);
   const website: WebsiteEmbedView = {
     displayName,
     welcomeMessage,
     brandColor,
     position,
     allowedDomains,
-    channel: channelView(assistant, 'website', websiteStatus(record, websiteDisconnected), record.website.updatedAt),
-    embedCode: demoEmbedCode(assistant.id, position),
-    installCheck: websiteDisconnected && installCheck === 'detected' ? 'not-detected' : installCheck,
-    installCheckedAt,
+    channel: channelView(
+      assistant,
+      'website',
+      websiteStatus(record, servingState, websiteContext.disconnected),
+      record.website.updatedAt,
+    ),
+    state,
+    servingState,
+    acceptanceStatus: websiteContext.acceptanceStatus,
+    domains: allowedDomains.map((domain) => ({ domain, lastSeenAt: lastSeenAt[domain] ?? null })),
+    nonOwnedKnowledgeBases: websiteContext.nonOwnedKnowledgeBases,
+    embedCode: demoEmbedCode(assistant.id),
+    publishedAt,
+    revision,
   };
   const checks = lineChecks(record.line);
   const { officialAccountId, channelId, channelSecret, accessToken } = record.line;

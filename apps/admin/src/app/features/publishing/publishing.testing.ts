@@ -1,4 +1,5 @@
-import { signal, type Provider } from '@angular/core';
+import { signal, type EnvironmentProviders, type Provider } from '@angular/core';
+import { provideRouter } from '@angular/router';
 import type { AccountId } from '../../core/domain/account.model';
 import type { ConfigurableAssistantPublishingView } from '../../core/domain/publishing.model';
 import { DEMO_SEED } from '../../core/repositories/demo-seed';
@@ -16,7 +17,8 @@ export function providePublishingTesting(accountId: AccountId = 'account-smb-adm
     // 發布的非同步契約（issue #81）由 repository 的 `viewer` 推導目前帳號，要與假工作階段一致。
     viewer: () => activeAccountId(),
   });
-  const providers: Provider[] = [
+  const providers: (Provider | EnvironmentProviders)[] = [
+    provideRouter([]),
     { provide: DEMO_REPOSITORY, useValue: repository },
     { provide: DemoSessionService, useValue: { activeAccountId } },
   ];

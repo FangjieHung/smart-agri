@@ -92,11 +92,124 @@ public sealed class Organization
     public string? ChatModelId { get; private set; }
 
     /// <summary>
-    /// Bumped by every change made through the organization settings APIs (the chat model here;
-    /// retention in M6-4). A settings <c>PUT</c> sends the revision it read; a different one is a
-    /// <c>409</c>, so two tabs cannot overwrite each other. Starts at <c>0</c>.
+    /// Bumped by every change made through the organization settings APIs (the chat model and the
+    /// conversation retention) and when a pending retention takes effect. A settings <c>PUT</c> sends
+    /// the revision it read; a different one is a <c>409</c>, so two tabs cannot overwrite each
+    /// other. Starts at <c>0</c>.
     /// </summary>
     public int SettingsRevision { get; private set; }
+
+    /// <summary>
+    /// How many days conversations are kept (M6 plan §3 F; one of
+    /// <see cref="OrganizationRetention.Options"/>), or <see langword="null"/> for 「永久」, the
+    /// default. A thread whose last message is older than the cutoff is deleted whole by the daily
+    /// cleanup, and so is every <c>AnswerOutcome</c> older than it (decision B).
+    /// </summary>
+    public int? RetentionDays { get; private set; }
+
+    /// <summary>
+    /// A shorter <see cref="RetentionDays"/> a manager chose, waiting out
+    /// <see cref="OrganizationRetention.BufferPeriod"/> until <see cref="PendingRetentionEffectiveAt"/>;
+    /// <see langword="null"/> when nothing is pending. Nothing is deleted under it before then.
+    /// </summary>
+    public int? PendingRetentionDays { get; private set; }
+
+    /// <summary>When <see cref="PendingRetentionDays"/> becomes <see cref="RetentionDays"/> (the first
+    /// cleanup at or after it makes the switch); set exactly when a value is pending.</summary>
+    public DateTimeOffset? PendingRetentionEffectiveAt { get; private set; }
+
+    /// <summary>
+    /// The <c>runAt</c> of the organization's next daily cleanup job, or <see langword="null"/>
+    /// while there is no cleanup chain (retention forever, nothing pending). Only ever moved with a
+    /// compare-and-set (<c>UPDATE … WHERE "RetentionCleanupNextRunAt" = @seen</c>, in the Api), so a
+    /// job delivered twice runs once and queues one next job.
+    /// </summary>
+    public DateTimeOffset? RetentionCleanupNextRunAt { get; private set; }
+
+    /// <summary>
+    /// Changes the conversation retention when <paramref name="expectedRevision"/> is
+    /// <see cref="SettingsRevision"/> (M6 plan §3 F). <paramref name="days"/> is one of
+    /// <see cref="OrganizationRetention.Options"/> or <see langword="null"/> (forever); the caller has
+    /// checked it.
+    /// <list type="bullet">
+    /// <item><b>Shorter</b> than the current retention (forever to a number included): pending until
+    /// <paramref name="now"/> + <see cref="OrganizationRetention.BufferPeriod"/>; the current value
+    /// keeps applying meanwhile. Another shorter value restarts the buffer.</item>
+    /// <item><b>Longer</b> (a number to forever included): applies at once and drops any pending
+    /// value.</item>
+    /// <item><b>The current value</b> while something is pending: drops it (「改回」).</item>
+    /// </list>
+    /// The current value with nothing pending, or the pending value again, is
+    /// <see cref="OrganizationSettingsChange.Unchanged"/> (the buffer does not restart).
+    /// </summary>
+    public OrganizationSettingsChange ChangeRetention(int? days, int expectedRevision, DateTimeOffset now)
+    {
+        if (days is { } value && !OrganizationRetention.IsOffered(value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(days), days, "Not one of the offered retention periods.");
+        }
+
+        if (expectedRevision != SettingsRevision)
+        {
+            return OrganizationSettingsChange.RevisionConflict;
+        }
+
+        if (days == RetentionDays)
+        {
+            if (PendingRetentionDays is null)
+            {
+                return OrganizationSettingsChange.Unchanged;
+            }
+
+            ClearPendingRetention();
+        }
+        else if (PendingRetentionDays is not null && days == PendingRetentionDays)
+        {
+            return OrganizationSettingsChange.Unchanged;
+        }
+        else if (OrganizationRetention.IsShorter(days, RetentionDays))
+        {
+            PendingRetentionDays = days;
+            PendingRetentionEffectiveAt = now + OrganizationRetention.BufferPeriod;
+        }
+        else
+        {
+            RetentionDays = days;
+            ClearPendingRetention();
+        }
+
+        SettingsRevision += 1;
+        return OrganizationSettingsChange.Changed;
+    }
+
+    /// <summary>
+    /// Makes a pending retention whose buffer is over (<see cref="PendingRetentionEffectiveAt"/> at or
+    /// before <paramref name="asOf"/>) the current one and bumps <see cref="SettingsRevision"/>.
+    /// Returns the retention before the switch, or <see langword="null"/> (and changes nothing) when
+    /// nothing is due.
+    /// </summary>
+    public RetentionSwitch? ApplyDueRetention(DateTimeOffset asOf)
+    {
+        if (PendingRetentionDays is not { } pending || PendingRetentionEffectiveAt is not { } effectiveAt || effectiveAt > asOf)
+        {
+            return null;
+        }
+
+        var from = RetentionDays;
+        RetentionDays = pending;
+        ClearPendingRetention();
+        SettingsRevision += 1;
+        return new RetentionSwitch(from, pending);
+    }
+
+    /// <summary>Whether the daily cleanup has anything to do: a retention in days, current or pending.</summary>
+    public bool HasRetentionLimit => RetentionDays is not null || PendingRetentionDays is not null;
+
+    private void ClearPendingRetention()
+    {
+        PendingRetentionDays = null;
+        PendingRetentionEffectiveAt = null;
+    }
 
     /// <summary>
     /// Sets <see cref="ChatModelId"/> (<see langword="null"/> or blank: the deployment default) when

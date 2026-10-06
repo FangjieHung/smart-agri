@@ -36,5 +36,9 @@ internal sealed class ChatThreadConfiguration : IEntityTypeConfiguration<ChatThr
         // (mapping §5.4, §2.4); also backs the cross-assistant "recent 10" sidebar query.
         builder.HasIndex(thread => new { thread.AccountId, thread.AssistantId, thread.LastActivityAt });
         builder.HasIndex(thread => new { thread.AccountId, thread.LastActivityAt });
+
+        // The daily retention cleanup and its preview: an organization's threads whose last message
+        // is before a cutoff (M6 plan §3 G).
+        builder.HasIndex(thread => new { thread.OrganizationId, thread.LastActivityAt });
     }
 }

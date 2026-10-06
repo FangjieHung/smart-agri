@@ -68,6 +68,7 @@ builder.Services.AddScoped<ChatFormRequestTool>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatFormRequestProposal>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatProposalStage>();
 builder.Services.AddPeriodicReports();
+builder.Services.AddConversationRetention();
 builder.AddSmartAgriAuthentication();
 builder.AddSmartAgriDataProtection();
 builder.Services.AddVisitorAuthentication();
@@ -163,6 +164,14 @@ if (args is [SmartAgriCommands.SetTokenLimit, .. var setTokenLimitArgs])
     return;
 }
 
+// `retention-cleanup` is one-shot too, in any environment: run one organization's conversation
+// cleanup now, by its retention, and exit (M6-4 #241). `--as-of` only in Development/Testing.
+if (args is [SmartAgriCommands.RetentionCleanup, .. var retentionCleanupArgs])
+{
+    Environment.ExitCode = await RetentionCleanupCommand.RunAsync(app.Services, retentionCleanupArgs, Console.Out, Console.Error);
+    return;
+}
+
 // Behind a reverse proxy: apply X-Forwarded-* only from PublicChannels:TrustedProxies, first of all,
 // so the Origin check and the rate limits see the real client, scheme and host (M5a #197).
 app.UseTrustedProxies();
@@ -210,6 +219,7 @@ app.MapAssistantAnalyticsEndpoints();
 app.MapOperationsSummaryEndpoints();
 app.MapOrganizationUsageEndpoints();
 app.MapOrganizationChatModelEndpoints();
+app.MapOrganizationRetentionEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();
@@ -236,6 +246,7 @@ internal static class SmartAgriCommands
     public const string EvalAnswers = "eval-answers";
     public const string EvalFormRequests = "eval-form-requests";
     public const string SetTokenLimit = "set-token-limit";
+    public const string RetentionCleanup = "retention-cleanup";
 }
 
 namespace SmartAgri.Api

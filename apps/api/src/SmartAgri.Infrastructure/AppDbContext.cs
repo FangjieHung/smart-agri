@@ -246,7 +246,17 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.Entity<Organization>(organization =>
         {
             organization.ToTable("Organizations", table =>
-                table.HasCheckConstraint("CK_Organizations_MonthlyTokenLimit", "\"MonthlyTokenLimit\" >= 0"));
+            {
+                table.HasCheckConstraint("CK_Organizations_MonthlyTokenLimit", "\"MonthlyTokenLimit\" >= 0");
+
+                // A pending retention always has its effective time, and only then (M6-4).
+                table.HasCheckConstraint(
+                    "CK_Organizations_PendingRetention",
+                    "(\"PendingRetentionDays\" IS NULL) = (\"PendingRetentionEffectiveAt\" IS NULL)");
+                table.HasCheckConstraint(
+                    "CK_Organizations_RetentionDays",
+                    "\"RetentionDays\" > 0 AND (\"PendingRetentionDays\" IS NULL OR \"PendingRetentionDays\" > 0)");
+            });
             organization.HasKey(o => o.Id);
             organization.Property(o => o.Id).ValueGeneratedNever();
             organization.Property(o => o.Name).HasMaxLength(Organization.NameMaxLength).IsRequired();
@@ -259,6 +269,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
             // A concurrency token, so two settings PUTs that both read the same revision cannot
             // both write: the second UPDATE matches no row and the API answers 409.
             organization.Property(o => o.SettingsRevision).IsConcurrencyToken();
+
+            // Conversation retention (M6-4). RetentionCleanupNextRunAt moves only by compare-and-set.
+            organization.Property(o => o.RetentionDays);
+            organization.Property(o => o.PendingRetentionDays);
+            organization.Property(o => o.PendingRetentionEffectiveAt);
+            organization.Property(o => o.RetentionCleanupNextRunAt);
         });
 
         // Organization-level activity log (M6 plan §3 E).

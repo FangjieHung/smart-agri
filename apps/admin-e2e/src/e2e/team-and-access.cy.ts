@@ -32,8 +32,8 @@ describe('team management and data access', () => {
     cy.get('.member').should('not.exist');
     cy.get('#permission-account-smb-admin-manage-assistants').should('not.exist');
     cy.contains('安心商行管理者').should('not.exist');
-    // 外觀設定不需要權限，仍然在。
-    cy.contains('h2', '外觀設定').should('be.visible');
+    // 外觀設定不需要權限，仍然在（「對話保存」之後已在可視範圍外，先捲過去）。
+    cy.contains('h2', '外觀設定').scrollIntoView().should('be.visible');
   });
 
   it('shows the single mock chat model to every persona without a menu (issue #240)', () => {
@@ -81,6 +81,42 @@ describe('team management and data access', () => {
       cy.get('[data-case-group="品保組"]').should('contain', '已封存');
       cy.contains('button', '取消封存「品保組」').click();
       cy.get('[data-case-group="品保組"]').should('not.contain', '已封存');
+    });
+  });
+
+  it('shortens the retention through a confirmation, shows the buffer and goes back (issue #243)', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/settings');
+    cy.get('[data-conversation-retention]').scrollIntoView().within(() => {
+      cy.contains('h2', '對話保存').should('be.visible');
+      cy.contains('已轉給專人的問答會保留在處理事項中').should('be.visible');
+      cy.get('#retention-days-select').should('have.value', 'forever').select('30 天');
+    });
+
+    cy.get('[role="dialog"]').should('be.visible').within(() => {
+      cy.contains('把保存期限縮短為 30 天？').should('be.visible');
+      cy.get('[data-retention-preview-count]').should('contain', '大約會刪除').and('contain', '串對話');
+      cy.contains('button', '縮短為 30 天').click();
+    });
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('[data-retention-pending]').scrollIntoView().should('be.visible').and('contain', '起改為 30 天');
+    cy.get('#retention-status').should('contain', '起生效');
+
+    cy.contains('[data-retention-pending] button', '改回').click();
+    cy.get('[data-retention-pending]').should('not.exist');
+    cy.get('#retention-days-select').should('have.value', 'forever');
+    cy.get('#retention-status').should('contain', '已改回 永久');
+  });
+
+  it('shows the retention read-only to a member (issue #243)', () => {
+    loginAs('內部使用者');
+    cy.visit('/app/settings');
+    cy.get('[data-conversation-retention]').scrollIntoView().within(() => {
+      cy.contains('h3', '保存期限：永久').should('be.visible');
+      cy.contains('只有管理者可以變更保存期限').should('be.visible');
+      cy.contains('已轉給專人的問答會保留在處理事項中').should('be.visible');
+      cy.get('select').should('not.exist');
+      cy.get('button').should('not.exist');
     });
   });
 

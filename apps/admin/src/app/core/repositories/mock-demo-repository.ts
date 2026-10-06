@@ -135,8 +135,12 @@ import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import type {
   ChatModelOptionView,
   OrganizationChatModelView,
+  OrganizationRetentionPendingView,
+  OrganizationRetentionPreviewView,
+  OrganizationRetentionView,
   OrganizationSettingChangeView,
 } from '../domain/organization-settings.model';
+import { isShorterRetention, RETENTION_BUFFER_DAYS } from '../domain/organization-settings.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -258,6 +262,8 @@ import type {
   UpdateKnowledgeSharingResult,
   UpdateMemberPermissionsResult,
   UpdateOrganizationChatModelResult,
+  UpdateOrganizationRetentionResult,
+  PreviewOrganizationRetentionResult,
   UpdatePlatformSharingResult,
   PublishLineResult,
   PublishWebsiteResult,
@@ -357,6 +363,70 @@ export const UNKNOWN_CHAT_MODEL_MESSAGE = '這個模型不在部署提供的清�
 export const ORGANIZATION_SETTINGS_CONFLICT_MESSAGE = '組織設定已被其他人更新過，請重新載入後再修改。';
 
 const ORGANIZATION_CHAT_MODEL_KEY = 'sme-demo:organization-chat-model';
+
+/**
+ * 組織設定共用的 revision（與後端 `Organizations.SettingsRevision` 相同：對話模型與保存期限的任何
+ * 變更、待生效的期限轉為生效，都讓它 +1）。沒有這個鍵時沿用舊版對話模型紀錄裡的 revision。
+ */
+const ORGANIZATION_SETTINGS_REVISION_KEY = 'sme-demo:organization-settings-revision';
+
+const ORGANIZATION_RETENTION_KEY = 'sme-demo:organization-retention';
+
+/** 保存期限的選項（天）；永久是 `null`。與後端 `OrganizationRetention.Options` 相同。 */
+export const MOCK_RETENTION_OPTIONS: readonly number[] = [30, 90, 180, 365];
+
+/** 與後端 `OrganizationRetentionEndpoints.UnknownDaysMessage` 逐字相同。 */
+export const UNKNOWN_RETENTION_DAYS_MESSAGE = '保存期限只能是 30、90、180、365 天或永久。';
+
+/** 待生效的期限轉為生效時，「上次變更」記的是系統（與後端相同）。 */
+export const RETENTION_SYSTEM_ACTOR_NAME = '系統';
+
+interface StoredOrganizationRetention {
+  readonly days: number | null;
+  readonly pending: OrganizationRetentionPendingView | null;
+  readonly lastChange: OrganizationSettingChangeView | null;
+}
+
+/** 曆日 `YYYY-MM-DD` 在統計時區的 00:00（UTC 時間點）；連續兩次修正，夏令時間的日子也正確。 */
+function zonedMidnight(day: string, timeZone: string): Date {
+  const [year, month, date] = day.split('-').map(Number);
+  const wallClock = Date.UTC(year, month - 1, date);
+  const format = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+  });
+  const offset = (instant: number): number => {
+    const parts = Object.fromEntries(format.formatToParts(new Date(instant)).map((part) => [part.type, part.value]));
+    const local = Date.UTC(
+      Number(parts['year']),
+      Number(parts['month']) - 1,
+      Number(parts['day']),
+      Number(parts['hour']),
+      Number(parts['minute']),
+      Number(parts['second']),
+    );
+    return local - instant;
+  };
+  const first = wallClock - offset(wallClock);
+  return new Date(wallClock - offset(first));
+}
+
+/**
+ * 保存期限 `days` 天的截止點：統計時區「今天減 `days` 天」的 00:00（與後端
+ * `RetentionCleanupRules.Cutoff` 相同）。最後一則訊息早於它的對話串會被清理。
+ */
+export function retentionCutoff(now: Date, days: number, timeZone: string): Date {
+  const today = statisticsDay(now.toISOString(), timeZone);
+  const [year, month, date] = today.split('-').map(Number);
+  const day = new Date(Date.UTC(year, month - 1, date - days)).toISOString().slice(0, 10);
+  return zonedMidnight(day, timeZone);
+}
 
 interface StoredOrganizationChatModel {
   readonly selectedId: string | null;
@@ -2015,14 +2085,13 @@ export class MockDemoRepository implements DemoRepository {
         const stored = this.storedOrganizationChatModel();
         const nextId = chosen?.id ?? null;
         if (nextId === stored.selectedId) return this.applyScenario(this.organizationChatModelView(viewer));
-        if (revision !== stored.revision) {
+        if (revision !== this.organizationSettingsRevision()) {
           return immutableCopy({ status: 'conflict', message: ORGANIZATION_SETTINGS_CONFLICT_MESSAGE });
         }
-        const actorName = this.accounts().find((account) => account.id === viewer)?.displayName ?? '已停用的帳號';
         const record: StoredOrganizationChatModel = {
           selectedId: nextId,
-          revision: stored.revision + 1,
-          lastChange: { actorName, at: this.now().toISOString() },
+          revision: this.bumpOrganizationSettingsRevision(),
+          lastChange: { actorName: this.organizationActorName(viewer), at: this.now().toISOString() },
         };
         this.storage.setItem(ORGANIZATION_CHAT_MODEL_KEY, JSON.stringify(record));
         return this.applyScenario(this.organizationChatModelView(viewer));
@@ -2042,7 +2111,7 @@ export class MockDemoRepository implements DemoRepository {
       source: stored.selectedId === null ? 'deployment-default' : selected === undefined ? 'removed' : 'selected',
       canChange: this.isOrganizationAdmin(viewer),
       lastChange: stored.lastChange,
-      revision: stored.revision,
+      revision: this.organizationSettingsRevision(),
     };
   }
 
@@ -2067,6 +2136,147 @@ export class MockDemoRepository implements DemoRepository {
         ? { actorName: change['actorName'], at: change['at'] }
         : null;
     return { selectedId, revision, lastChange };
+  }
+
+  private organizationSettingsRevision(): number {
+    const parsed = parseJson(this.storage.getItem(ORGANIZATION_SETTINGS_REVISION_KEY));
+    if (typeof parsed === 'number' && Number.isInteger(parsed) && parsed >= 0) return parsed;
+    return this.storedOrganizationChatModel().revision;
+  }
+
+  /** 讓共用的 revision +1，回傳新的值。 */
+  private bumpOrganizationSettingsRevision(): number {
+    const next = this.organizationSettingsRevision() + 1;
+    this.storage.setItem(ORGANIZATION_SETTINGS_REVISION_KEY, JSON.stringify(next));
+    return next;
+  }
+
+  private organizationActorName(viewer: AccountId): string {
+    return this.accounts().find((account) => account.id === viewer)?.displayName ?? '已停用的帳號';
+  }
+
+  getOrganizationRetention(): Observable<RepositoryView<OrganizationRetentionView>> {
+    return this.signedIn(
+      (viewer) => this.applyScenario(this.organizationRetentionView(viewer)),
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  /** 與後端相同：先檢查管理者，再檢查天數；數量是現在的清理會刪除的對話串（所有帳號、所有助理）。 */
+  previewOrganizationRetention(days: number): Observable<PreviewOrganizationRetentionResult> {
+    return this.signedIn(
+      (viewer): PreviewOrganizationRetentionResult => {
+        if (!this.isOrganizationAdmin(viewer)) return this.organizationSettingsDenied();
+        if (!MOCK_RETENTION_OPTIONS.includes(days)) {
+          return immutableCopy({ status: 'validation-failed', message: UNKNOWN_RETENTION_DAYS_MESSAGE });
+        }
+        const cutoff = retentionCutoff(this.now(), days, this.statisticsTimeZone());
+        const threadCount = this.accounts().reduce(
+          (total, account) =>
+            total +
+            this.assistants().reduce(
+              (count, assistant) =>
+                count +
+                this.storedThreads(account.id, assistant.id).filter(
+                  (thread) => Date.parse(thread.updatedAt) < cutoff.getTime(),
+                ).length,
+              0,
+            ),
+          0,
+        );
+        return this.applyScenario<OrganizationRetentionPreviewView>({
+          days,
+          threadCount,
+          cutoff: cutoff.toISOString(),
+        });
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  /** 與後端 `Organization.ChangeRetention` 相同的規則與檢查順序（天數 → revision → 有沒有改變）。 */
+  updateOrganizationRetention(
+    days: number | null,
+    revision: number,
+  ): Observable<UpdateOrganizationRetentionResult> {
+    return this.signedIn(
+      (viewer): UpdateOrganizationRetentionResult => {
+        if (!this.isOrganizationAdmin(viewer)) return this.organizationSettingsDenied();
+        if (days !== null && !MOCK_RETENTION_OPTIONS.includes(days)) {
+          return immutableCopy({ status: 'validation-failed', message: UNKNOWN_RETENTION_DAYS_MESSAGE });
+        }
+        const stored = this.storedOrganizationRetention();
+        if (revision !== this.organizationSettingsRevision()) {
+          return immutableCopy({ status: 'conflict', message: ORGANIZATION_SETTINGS_CONFLICT_MESSAGE });
+        }
+        const now = this.now();
+        let next: Pick<StoredOrganizationRetention, 'days' | 'pending'>;
+        if (days === stored.days) {
+          if (stored.pending === null) return this.applyScenario(this.organizationRetentionView(viewer));
+          next = { days: stored.days, pending: null };
+        } else if (stored.pending !== null && days === stored.pending.days) {
+          return this.applyScenario(this.organizationRetentionView(viewer));
+        } else if (isShorterRetention(days, stored.days)) {
+          const effectiveAt = new Date(now.getTime() + RETENTION_BUFFER_DAYS * 24 * 60 * 60 * 1000);
+          next = { days: stored.days, pending: { days: days as number, effectiveAt: effectiveAt.toISOString() } };
+        } else {
+          next = { days, pending: null };
+        }
+        this.bumpOrganizationSettingsRevision();
+        const record: StoredOrganizationRetention = {
+          ...next,
+          lastChange: { actorName: this.organizationActorName(viewer), at: now.toISOString() },
+        };
+        this.storage.setItem(ORGANIZATION_RETENTION_KEY, JSON.stringify(record));
+        return this.applyScenario(this.organizationRetentionView(viewer));
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  private organizationRetentionView(viewer: AccountId): OrganizationRetentionView {
+    const stored = this.storedOrganizationRetention();
+    return {
+      days: stored.days,
+      pending: stored.pending === null ? null : { ...stored.pending },
+      options: [...MOCK_RETENTION_OPTIONS],
+      canChange: this.isOrganizationAdmin(viewer),
+      lastChange: stored.lastChange === null ? null : { ...stored.lastChange },
+      revision: this.organizationSettingsRevision(),
+    };
+  }
+
+  /**
+   * 讀取保存期限；待生效的期限已到 `effectiveAt` 時，扮演每日清理把它轉為生效（「上次變更」記為
+   * 系統、revision +1），所以畫面開著時送出可能得到 conflict，與後端相同。mock 不實際刪除對話。
+   */
+  private storedOrganizationRetention(): StoredOrganizationRetention {
+    const parsed = parseJson(this.storage.getItem(ORGANIZATION_RETENTION_KEY));
+    if (!isRecord(parsed)) return { days: null, pending: null, lastChange: null };
+    const isOption = (value: unknown): value is number =>
+      typeof value === 'number' && MOCK_RETENTION_OPTIONS.includes(value);
+    const days = isOption(parsed['days']) ? parsed['days'] : null;
+    const rawPending = parsed['pending'];
+    const pending =
+      isRecord(rawPending) && isOption(rawPending['days']) && typeof rawPending['effectiveAt'] === 'string'
+        ? { days: rawPending['days'], effectiveAt: rawPending['effectiveAt'] }
+        : null;
+    const change = parsed['lastChange'];
+    const lastChange =
+      isRecord(change) && typeof change['actorName'] === 'string' && typeof change['at'] === 'string'
+        ? { actorName: change['actorName'], at: change['at'] }
+        : null;
+    if (pending !== null && Date.parse(pending.effectiveAt) <= this.now().getTime()) {
+      const applied: StoredOrganizationRetention = {
+        days: pending.days,
+        pending: null,
+        lastChange: { actorName: RETENTION_SYSTEM_ACTOR_NAME, at: pending.effectiveAt },
+      };
+      this.storage.setItem(ORGANIZATION_RETENTION_KEY, JSON.stringify(applied));
+      this.bumpOrganizationSettingsRevision();
+      return applied;
+    }
+    return { days, pending, lastChange };
   }
 
   /** 決定 A：「管理者限定」是角色 `smb-admin`，不是一項權限。 */

@@ -1,6 +1,6 @@
 import { signal, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../../../core/domain/account.model';
 import { DEMO_SEED } from '../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../core/repositories/memory-storage';
@@ -60,5 +60,66 @@ describe('SettingsPageComponent', () => {
       expect(host.querySelector('app-case-groups-panel [data-case-groups-panel]') !== null, accountId).toBe(shown);
       TestBed.resetTestingModule();
     }
+  });
+
+  it('places the conversation retention section right after the chat model section (issue #243)', async () => {
+    const { fixture, host } = render();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const order = Array.from(
+      host.querySelectorAll('app-chat-model-panel, app-conversation-retention, .appearance-settings'),
+    ).map((element) => element.tagName.toLowerCase());
+
+    expect(order).toEqual(['app-chat-model-panel', 'app-conversation-retention', 'div']);
+    const section = host.querySelector('[data-conversation-retention]');
+    expect(section?.querySelector('h2')?.textContent).toBe('對話保存');
+    expect(section?.querySelector('[data-retention-period]')).not.toBeNull();
+  });
+
+  it('lets the manager switch the chat model right after shortening the retention (shared revision, issue #243)', async () => {
+    const repository = new MockDemoRepository(DEMO_SEED, {
+      storage: createMemoryStorage(),
+      now: () => new Date('2026-10-06T13:00:00.000Z'),
+      viewer: () => 'account-smb-admin',
+      chatModels: [
+        { id: 'fake-chat-dev', displayName: '標準模型', model: 'fake-chat-dev' },
+        { id: 'second', displayName: '進階模型', model: 'fake-chat-second' },
+      ],
+    });
+    TestBed.configureTestingModule({
+      imports: [SettingsPageComponent],
+      providers: [
+        { provide: DEMO_REPOSITORY, useValue: repository },
+        { provide: DemoSessionService, useValue: { activeAccountId: signal<AccountId | null>('account-smb-admin') } },
+      ],
+    });
+    const fixture = TestBed.createComponent(SettingsPageComponent);
+    const host = fixture.nativeElement as HTMLElement;
+    const settle = async () => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+    };
+    await settle();
+    const updateModel = vi.spyOn(repository, 'updateOrganizationChatModel');
+
+    const retention = host.querySelector<HTMLSelectElement>('#retention-days-select');
+    if (!retention) throw new Error('missing retention select');
+    retention.value = '30';
+    retention.dispatchEvent(new Event('change'));
+    await settle();
+    host.querySelector<HTMLButtonElement>('[role="dialog"] .confirm-retention')?.click();
+    await settle();
+    expect(host.querySelector('[data-retention-pending]')).not.toBeNull();
+
+    const model = host.querySelector<HTMLSelectElement>('#chat-model-select');
+    if (!model) throw new Error('missing chat model select');
+    model.value = 'second';
+    model.dispatchEvent(new Event('change'));
+    await settle();
+
+    expect(updateModel).toHaveBeenCalledWith('second', 1);
+    expect(host.querySelector('#chat-model-status')?.textContent).toContain('已改用「進階模型」');
+    expect(host.querySelector('app-chat-model-panel [role="alert"]')).toBeNull();
   });
 });

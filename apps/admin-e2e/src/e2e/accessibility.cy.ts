@@ -198,6 +198,22 @@ describe('accessibility', () => {
     });
   });
 
+  describe('conversation retention confirmation (issue #243)', () => {
+    it('has no critical or serious violations with the confirmation open, and Escape returns focus', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.get('#retention-days-select').scrollIntoView().select('30 天');
+      cy.get('[role="dialog"]').should('be.visible');
+      cy.get('[data-retention-preview-count]').should('contain', '大約會刪除');
+      auditA11y();
+
+      cy.focused().type('{esc}');
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.focused().should('have.id', 'retention-days-select');
+      cy.get('#retention-days-select').should('have.value', 'forever');
+    });
+  });
+
   describe('team settings as a non-admin persona', () => {
     it('has no critical or serious violations on the refused team panel', () => {
       loginAs('內部使用者');

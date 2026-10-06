@@ -153,6 +153,8 @@ export const DEMO_SEED: DemoSeed = {
       ],
       databaseIds: ['database-orders', 'database-customer-records'],
       keepOwnConversations: true,
+      // 已發布到官網的助理，驗收已通過（官網發布閘門要求）。
+      acceptanceStatus: 'passed',
     },
     {
       id: 'assistant-internal-onboarding',

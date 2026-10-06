@@ -1,7 +1,6 @@
 import { firstValueFrom } from 'rxjs';
 import { syncValue } from './sync-value.testing';
 import { createEmptyAssistantDraft, type AssistantDraft } from '../domain/assistant-draft.model';
-import { isUnavailableChannel } from '../domain/publishing.model';
 import type { DemoKeyValueStorage } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
 import { createMemoryStorage } from './memory-storage';
@@ -137,8 +136,9 @@ describe('MockDemoRepository mock-mode storage keys (locked)', () => {
     // 官網嵌入設定（publishing）。
     const publishing = await firstValueFrom(repository.getAssistantPublishing(CUSTOMER_SERVICE));
     if (publishing.status !== 'ready') throw new Error(`expected publishing view, got ${publishing.status}`);
-    if (isUnavailableChannel(publishing.data.website)) throw new Error('expected website channel to be available');
-    repository.updateWebsiteEmbed(ADMIN, CUSTOMER_SERVICE, publishing.data.website);
+    await firstValueFrom(
+      repository.updateWebsiteEmbed(CUSTOMER_SERVICE, publishing.data.website, publishing.data.website.revision),
+    );
 
     expect(Array.from(keys).sort()).toEqual(
       [

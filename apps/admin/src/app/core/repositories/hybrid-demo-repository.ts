@@ -50,6 +50,10 @@ import {
   type PublishingChannelType,
   type PublishingChannelView,
   type UnavailablePublishingChannelView,
+  type WebsiteEmbedSettings,
+  type WebsiteEmbedView,
+  type WebsitePublishFailure,
+  type WebsitePublishFailureReason,
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import {
@@ -166,7 +170,9 @@ import {
   type UpdateKnowledgeChunkExclusionResult,
   type SaveAssistantDraftResult,
   type UpdateAssistantSettingsResult,
+  type PublishWebsiteResult,
   type UpdatePlatformSharingResult,
+  type UpdateWebsiteEmbedResult,
   type UpdateKnowledgeSharingResult,
   type UpdateMemberPermissionsResult,
   type UploadKnowledgeDocumentEvent,
@@ -235,6 +241,8 @@ type ApiAssistantPublishing = components['schemas']['AssistantPublishingView'];
 type ApiOrganizationUsage = components['schemas']['OrganizationUsageView'];
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
+type ApiWebsiteChannel = components['schemas']['WebsiteChannelView'];
+type UpdateWebsiteChannelRequest = components['schemas']['UpdateWebsiteChannelRequest'];
 type UpdatePlatformSharingRequest = components['schemas']['UpdatePlatformSharingRequest'];
 type SetPlatformPausedRequest = components['schemas']['SetPlatformPausedRequest'];
 type ApiAssistantAnalytics = components['schemas']['AssistantAnalyticsView'];
@@ -400,6 +408,10 @@ export const API_ORGANIZATION_USAGE_PATH = '/api/v1/organization/usage';
 
 export function apiAssistantPublishingPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/publishing`;
+}
+
+export function apiAssistantWebsitePath(assistantId: string): string {
+  return `${apiAssistantPublishingPath(assistantId)}/website`;
 }
 
 export function apiAssistantPlatformSharingPath(assistantId: string): string {
@@ -1040,7 +1052,7 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  // ---------- 發布（只有組織內部分享；官網與 LINE 在後續版本開放） ----------
+  // ---------- 發布（組織內部分享與官網嵌入；LINE 在 M5b 開放） ----------
 
   /**
    * 發布管道總覽：後端沒有總覽端點，所以讀自己擁有的助理，再逐一讀它的發布設定。
@@ -1118,17 +1130,67 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  /** 只有平台內管道可以暫停（暫停的就是助理本身）；官網與 LINE 尚未開放，視同沒有權限。 */
+  /**
+   * 平台內管道的暫停就是暫停助理；官網管道是 `PUT …/website/paused`（還沒發布時 `422`，以 error 傳出，
+   * 畫面顯示「目前無法變更」）；LINE 尚未開放，視同沒有權限。
+   */
   override setPublishingChannelPaused(
     assistantId: string,
     channelType: PublishingChannelType,
     paused: boolean,
   ): Observable<RepositoryView<PublishingChannelView>> {
-    if (channelType !== 'platform') return of(permissionDenied(PUBLISHING_DENIED));
+    if (channelType === 'line') return of(permissionDenied(PUBLISHING_DENIED));
 
+    const url = channelType === 'website' ? `${apiAssistantWebsitePath(assistantId)}/paused` : apiAssistantPlatformPausedPath(assistantId);
     const body: SetPlatformPausedRequest = { paused };
-    return this.http.put<ApiPublishingChannel>(apiAssistantPlatformPausedPath(assistantId), body).pipe(
-      map((response): RepositoryView<PublishingChannelView> => ({ status: 'ready', data: toPublishingChannel(response) })),
+    return this.http.put<ApiPublishingChannel | ApiWebsiteChannel>(url, body).pipe(
+      map((response): RepositoryView<PublishingChannelView> => ({
+        status: 'ready',
+        data: toPublishingChannel('channel' in response ? response.channel : response),
+      })),
+      catchError((error: unknown) => this.publishingDeniedOrThrow(error)),
+    );
+  }
+
+  /** 整份取代設定與網域；`409`（版本已不是最新）完全沒有寫入。 */
+  override updateWebsiteEmbed(
+    assistantId: string,
+    settings: WebsiteEmbedSettings,
+    revision: number,
+  ): Observable<UpdateWebsiteEmbedResult> {
+    const body: UpdateWebsiteChannelRequest = { ...settings, allowedDomains: [...settings.allowedDomains], revision };
+    return websiteView(this.http.put<ApiWebsiteChannel>(apiAssistantWebsitePath(assistantId), body)).pipe(
+      catchError((error: unknown) => {
+        if (isHttpError(error, 409)) {
+          return of<UpdateWebsiteEmbedResult>({ status: 'conflict', message: bodyMessage(error) ?? '設定已被更新，請重新載入。' });
+        }
+        if (isHttpError(error, 422)) {
+          const errors = fieldErrorsOf(error, WEBSITE_FIELDS, 'allowedDomains');
+          return of<UpdateWebsiteEmbedResult>({
+            status: 'validation-failed',
+            errors,
+            message: bodyMessage(error) ?? '還有設定需要修正。',
+          });
+        }
+        return this.publishingDeniedOrThrow(error);
+      }),
+    );
+  }
+
+  /** 發布閘門：`422 website-publish-refused` 的 `errors` 逐項轉成 `failures`，什麼都沒有寫入。 */
+  override publishWebsite(assistantId: string): Observable<PublishWebsiteResult> {
+    return websiteView(this.http.post<ApiWebsiteChannel>(`${apiAssistantWebsitePath(assistantId)}:publish`, {})).pipe(
+      catchError((error: unknown) => {
+        const failures = isHttpError(error, 422) ? publishFailuresOf(error) : [];
+        return failures.length > 0
+          ? of<PublishWebsiteResult>({ status: 'publish-refused', message: bodyMessage(error as HttpErrorResponse) ?? '無法發布，請處理下列項目。', failures })
+          : this.publishingDeniedOrThrow(error);
+      }),
+    );
+  }
+
+  override unpublishWebsite(assistantId: string): Observable<RepositoryView<WebsiteEmbedView>> {
+    return websiteView(this.http.post<ApiWebsiteChannel>(`${apiAssistantWebsitePath(assistantId)}:unpublish`, {})).pipe(
       catchError((error: unknown) => this.publishingDeniedOrThrow(error)),
     );
   }
@@ -2695,30 +2757,60 @@ function toPlatformSharing(platform: ApiPlatformSharing): PlatformSharingView {
   };
 }
 
-/**
- * 官網與 LINE 在 API 模式顯示 `not-available`：卡片顯示「尚未設定」加上說明。後端從 M5a #194 起
- * 回傳真實的網站頻道（`WebsiteChannelView`），但管理介面要到 #202 才接上，所以這裡先忽略它，
- * 官網固定顯示「將於後續版本開放」；LINE 仍用後端的佔位說明。
- */
-function unavailableChannel(
-  type: Exclude<PublishingChannelType, 'platform'>,
-  platform: PublishingChannelView,
-  message: string,
-): UnavailablePublishingChannelView {
+/** LINE 在 API 模式顯示 `not-available`：卡片顯示「尚未設定」加上說明（M5b 才開放）。 */
+function unavailableLine(platform: PublishingChannelView, message: string): UnavailablePublishingChannelView {
   return {
     availability: 'not-available',
     message,
     channel: {
-      id: `channel-${type}:${platform.assistantId}`,
+      id: `channel-line:${platform.assistantId}`,
       assistantId: platform.assistantId,
       ownerAccountId: platform.ownerAccountId,
-      name: PUBLISHING_CHANNEL_NAMES[type],
-      type,
+      name: PUBLISHING_CHANNEL_NAMES.line,
+      type: 'line',
       status: 'not-configured',
       statusDetail: message,
       updatedAt: platform.updatedAt,
     },
   };
+}
+
+/**
+ * 網站頻道：後端已經推導好實際服務狀態（`servingState`）與卡片狀態（`channel.status`），這裡原樣帶過來。
+ * 後端用 `JsonIgnore(WhenWritingNull)` 的欄位可能整個省略，所以可為 null 的欄位同時處理 `undefined`。
+ */
+function toWebsiteEmbed(website: ApiWebsiteChannel): WebsiteEmbedView {
+  return {
+    ...website,
+    channel: toPublishingChannel(website.channel),
+    domains: website.domains.map(({ domain, lastSeenAt }) => ({ domain, lastSeenAt: lastSeenAt ?? null })),
+    embedCode: website.embedCode ?? null,
+    publishedAt: website.publishedAt ?? null,
+  };
+}
+
+function websiteView(request: Observable<ApiWebsiteChannel>): Observable<RepositoryView<WebsiteEmbedView>> {
+  return request.pipe(map((response): RepositoryView<WebsiteEmbedView> => ({ status: 'ready', data: toWebsiteEmbed(response) })));
+}
+
+const WEBSITE_FIELDS = ['displayName', 'welcomeMessage', 'brandColor', 'position', 'allowedDomains'] as const;
+
+const WEBSITE_PUBLISH_REASONS: readonly WebsitePublishFailureReason[] = [
+  'acceptance',
+  'allowed-domains',
+  'assistant-paused',
+  'knowledge-ownership',
+  'public-base-url',
+];
+
+/** 發布 `422` 的 `errors` 是「原因 → 訊息陣列」；每則訊息各成一項（每個別人的知識庫一則），一則都不丟。 */
+function publishFailuresOf(error: HttpErrorResponse): WebsitePublishFailure[] {
+  const body = (error.error ?? {}) as ValidationFailedBody;
+  return Object.entries(body.errors ?? {}).flatMap(([key, messages]) =>
+    (Array.isArray(messages) ? messages : [messages])
+      .filter((message): message is string => typeof message === 'string')
+      .map((message) => ({ reason: WEBSITE_PUBLISH_REASONS.find((reason) => reason === key) ?? 'other', message })),
+  );
 }
 
 function toOrganizationUsage(response: ApiOrganizationUsage): OrganizationUsageView {
@@ -2731,8 +2823,9 @@ function toAssistantPublishing(response: ApiAssistantPublishing): AssistantPubli
     assistantId: response.assistantId as AssistantId,
     assistantName: response.assistantName,
     platform,
-    website: unavailableChannel('website', platform.channel, EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
-    line: unavailableChannel('line', platform.channel, response.line.message || EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
+    website: toWebsiteEmbed(response.website),
+    // LINE 在 M5b 才開放；舊版後端的佔位說明寫著「官網嵌入與 LINE …」，所以一律用 LINE 專屬的說明。
+    line: unavailableLine(platform.channel, EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
   };
 }
 

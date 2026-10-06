@@ -175,7 +175,7 @@ npx nx lint admin
 
 - **M2 期間存在瀏覽器 `localStorage` 裡的 mock 助理與草稿不會遷移到後端**（`sme-demo:created-assistants`、`sme-demo:assistant-drafts:*`、`sme-demo:assistant-draft:*`、`sme-demo:assistant-settings:*`、`sme-demo:publishing:*`）。切到 API 模式後，「我的助理」只會列出後端的助理，請在 API 模式重新用精靈建立（M3 計畫第 7 節已決定 4）。這些 key 仍留在瀏覽器裡，Mock 模式（GitHub Pages Demo）照常使用它們。
 - 刪除助理會連同**所有成員**與這個助理的對話紀錄一併刪除，無法復原。
-- API 模式只開放組織內部使用：精靈與設定頁不提供「外部客戶」使用對象、資料庫來源、資料庫寫入與定期回報；發布頁的官網嵌入與 LINE 顯示「對外發布將於後續版本開放」。
+- API 模式只開放組織內部使用：精靈與設定頁不提供「外部客戶」使用對象、資料庫來源、資料庫寫入與定期回報；發布頁的官網嵌入走真實 API（設定、發布閘門、暫停、取消發布、被動安裝偵測），LINE 顯示「將於後續版本開放」。
 - 知識庫的「已連接助理」在 API 模式暫不顯示（後端的知識庫回應沒有這個欄位），請到助理設定的「資料來源」頁籤查看。
 
 ### 測試現況

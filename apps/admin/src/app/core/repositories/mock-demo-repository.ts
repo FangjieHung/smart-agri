@@ -129,6 +129,7 @@ import {
   type PublishingChannelView,
   type PublishingChannelType,
   type WebsiteEmbedSettings,
+  type WebsiteEmbedView,
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import {
@@ -205,6 +206,10 @@ import {
   toAssistantPublishingView,
   trimLineSettings,
   validateWebsiteSettings,
+  WEBSITE_CONFLICT_MESSAGE,
+  WEBSITE_REFUSED_MESSAGE,
+  websitePublishFailures,
+  type WebsiteServingContext,
 } from './publishing-channels';
 import type {
   ActivateLineChannelResult,
@@ -242,6 +247,7 @@ import type {
   UpdateKnowledgeSharingResult,
   UpdateMemberPermissionsResult,
   UpdatePlatformSharingResult,
+  PublishWebsiteResult,
   UpdateWebsiteEmbedResult,
   UploadKnowledgeDocumentEvent,
   UploadKnowledgeDocumentResult,
@@ -2021,55 +2027,75 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   updateWebsiteEmbed(
-    viewerAccountId: AccountId,
     assistantId: string,
     settings: WebsiteEmbedSettings,
-  ): UpdateWebsiteEmbedResult {
-    const assistant = this.publishingTarget(viewerAccountId, assistantId);
-    if (assistant === undefined) return this.publishingPermissionDenied();
+    revision: number,
+  ): Observable<UpdateWebsiteEmbedResult> {
+    return this.signedIn(
+      (viewer) => {
+        const assistant = this.publishingTarget(viewer, assistantId);
+        if (assistant === undefined) return this.publishingPermissionDenied();
 
-    const { errors, normalized } = validateWebsiteSettings(settings);
-    if (errors.length > 0) {
-      return immutableCopy({ status: 'validation-failed', errors, message: '還有設定需要修正。' });
-    }
-    const record = this.publishingRecord(assistant);
-    const domainsChanged =
-      normalized.allowedDomains.join('\n') !== record.website.allowedDomains.join('\n');
-    this.savePublishingRecord(assistant.id, {
-      ...record,
-      website: {
-        ...record.website,
-        ...normalized,
-        installCheck: domainsChanged ? 'not-checked' : record.website.installCheck,
-        installCheckedAt: domainsChanged ? null : record.website.installCheckedAt,
-        updatedAt: this.now().toISOString(),
+        const { errors, normalized } = validateWebsiteSettings(settings);
+        if (errors.length > 0) {
+          return immutableCopy({ status: 'validation-failed', errors, message: '還有設定需要修正。' });
+        }
+        const record = this.publishingRecord(assistant);
+        if (revision !== record.website.revision) {
+          return { status: 'conflict', message: WEBSITE_CONFLICT_MESSAGE };
+        }
+        return this.saveWebsite(assistant, { ...normalized, revision: revision + 1 });
       },
-    });
-
-    return this.applyScenario(this.toPublishingView(assistant).website);
+      () => this.publishingPermissionDenied(),
+    );
   }
 
-  checkWebsiteInstallation(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): ReturnType<DemoRepository['checkWebsiteInstallation']> {
-    const assistant = this.publishingTarget(viewerAccountId, assistantId);
-    if (assistant === undefined) return this.publishingPermissionDenied();
+  publishWebsite(assistantId: string): Observable<PublishWebsiteResult> {
+    return this.signedIn(
+      (viewer) => {
+        const assistant = this.publishingTarget(viewer, assistantId);
+        if (assistant === undefined) return this.publishingPermissionDenied();
 
+        const { state, publishedAt } = this.publishingRecord(assistant).website;
+        const failures = websitePublishFailures(this.publishingRecord(assistant), this.websiteContext(assistant));
+        if (failures.length > 0) {
+          return immutableCopy({ status: 'publish-refused', message: WEBSITE_REFUSED_MESSAGE, failures });
+        }
+        return this.saveWebsite(assistant, { state: 'published', publishedAt: state === 'draft' ? this.now().toISOString() : publishedAt });
+      },
+      () => this.publishingPermissionDenied(),
+    );
+  }
+
+  unpublishWebsite(assistantId: string): Observable<RepositoryView<WebsiteEmbedView>> {
+    return this.signedIn(
+      (viewer) => {
+        const assistant = this.publishingTarget(viewer, assistantId);
+        return assistant === undefined
+          ? this.publishingPermissionDenied()
+          : this.saveWebsite(assistant, { state: 'draft', publishedAt: null });
+      },
+      () => this.publishingPermissionDenied(),
+    );
+  }
+
+  /**
+   * 合併官網記錄的欄位並儲存。網域有變時，仍留著的網域保留「最後偵測到」時間，被移除的丟掉
+   * （與 API 相同：整份取代網域，保留的網域沿用 `lastSeenAt`）。
+   */
+  private saveWebsite(
+    assistant: AssistantConfigurationView,
+    patch: Partial<PublishingRecord['website']>,
+  ): RepositoryView<WebsiteEmbedView> {
     const record = this.publishingRecord(assistant);
-    if (record.website.allowedDomains.length > 0) {
-      const now = this.now().toISOString();
-      this.savePublishingRecord(assistant.id, {
-        ...record,
-        website: {
-          ...record.website,
-          installCheck: this.scenario === 'disconnected-channel' ? 'not-detected' : 'detected',
-          installCheckedAt: now,
-          updatedAt: now,
-        },
-      });
-    }
-
+    const merged = { ...record.website, ...patch };
+    const lastSeenAt = Object.fromEntries(
+      Object.entries(merged.lastSeenAt).filter(([domain]) => merged.allowedDomains.includes(domain)),
+    );
+    this.savePublishingRecord(assistant.id, {
+      ...record,
+      website: { ...merged, lastSeenAt, updatedAt: this.now().toISOString() },
+    });
     return this.applyScenario(this.toPublishingView(assistant).website);
   }
 
@@ -2147,10 +2173,19 @@ export class MockDemoRepository implements DemoRepository {
 
     const record = this.publishingRecord(assistant);
     const updatedAt = this.now().toISOString();
-    this.savePublishingRecord(assistant.id, {
-      ...record,
-      [channelType]: { ...record[channelType], paused, updatedAt },
-    });
+    // 官網的「暫停」是頻道狀態（已發布 ↔ 已暫停）；還沒發布的沒有可暫停的服務。
+    const next: PublishingRecord =
+      channelType === 'website'
+        ? {
+            ...record,
+            website: {
+              ...record.website,
+              state: record.website.state === 'draft' ? 'draft' : paused ? 'paused' : 'published',
+              updatedAt,
+            },
+          }
+        : { ...record, [channelType]: { ...record[channelType], paused, updatedAt } };
+    this.savePublishingRecord(assistant.id, next);
 
     return this.applyScenario(this.toPublishingView(assistant)[channelType].channel);
   }
@@ -4799,10 +4834,7 @@ export class MockDemoRepository implements DemoRepository {
     const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
     if (assistant === undefined) return undefined;
 
-    return isExternallyPublished(
-      this.publishingRecord(assistant),
-      this.scenario === 'disconnected-channel',
-    )
+    return isExternallyPublished(this.publishingRecord(assistant), this.websiteContext(assistant))
       ? assistant
       : undefined;
   }
@@ -6018,7 +6050,23 @@ export class MockDemoRepository implements DemoRepository {
       assistant,
       this.publishingRecord(assistant),
       this.accounts(),
-      this.scenario === 'disconnected-channel',
+      this.websiteContext(assistant),
     );
+  }
+
+  /** 官網實際服務狀態的輸入：驗收狀態、連接的別人的知識庫（決定 B）、用量與情境。 */
+  private websiteContext(assistant: AssistantConfigurationView): WebsiteServingContext {
+    const knowledgeBases = this.knowledgeBases();
+    return {
+      acceptanceStatus: assistant.acceptanceStatus ?? 'not-accepted',
+      nonOwnedKnowledgeBases: assistant.knowledgeBaseIds.flatMap((id) => {
+        const knowledgeBase = knowledgeBases.find((candidate) => candidate.id === id);
+        return knowledgeBase !== undefined && knowledgeBase.ownerAccountId !== assistant.ownerAccountId
+          ? [{ id, name: knowledgeBase.name }]
+          : [];
+      }),
+      quotaExceeded: this.scenario === 'usage-exceeded',
+      disconnected: this.scenario === 'disconnected-channel',
+    };
   }
 }

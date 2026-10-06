@@ -235,28 +235,32 @@ describe('AssistantDetailPageComponent', () => {
     expect(settings.status).toBe('permission-denied');
   });
 
-  it('shows 對外發布將於後續版本開放 for website and LINE in API mode, without their setup forms', async () => {
+  it('shows the website setup but 將於後續版本開放 for LINE in API mode', async () => {
     class ApiLikeRepository extends MockDemoRepository {
       override getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>> {
         return super.getAssistantPublishing(assistantId).pipe(
           map((result) => {
             if (result.status !== 'ready') return result;
-            const unavailable = (type: 'website' | 'line'): UnavailablePublishingChannelView => ({
+            const unavailable: UnavailablePublishingChannelView = {
               availability: 'not-available',
-              message: '官網嵌入與 LINE 對外發布將於後續版本開放。',
-              channel: { ...result.data[type].channel, status: 'not-configured', statusDetail: '官網嵌入與 LINE 對外發布將於後續版本開放。' },
-            });
-            return { status: 'ready', data: { ...result.data, website: unavailable('website'), line: unavailable('line') } };
+              message: 'LINE 對外發布將於後續版本開放。',
+              channel: { ...result.data.line.channel, status: 'not-configured', statusDetail: 'LINE 對外發布將於後續版本開放。' },
+            };
+            return { status: 'ready', data: { ...result.data, line: unavailable } };
           }),
         );
       }
     }
     const repository = new ApiLikeRepository(DEMO_SEED, { storage: createMemoryStorage(), viewer: () => 'account-smb-admin' });
-    const { page } = await renderTab('publishing', { repository, apiMode: true, channel: 'website' });
+    const website = await renderTab('publishing', { repository, apiMode: true, channel: 'website' });
 
-    expect(page.querySelector('app-website-embed')).toBeNull();
-    expect(page.querySelector('.channel-unavailable')?.textContent).toContain('對外發布將於後續版本開放');
-    expect(page.querySelectorAll('app-assistant-publishing app-channel-card')).toHaveLength(3);
+    expect(website.page.querySelector('app-website-embed')).not.toBeNull();
+    expect(website.page.textContent).not.toContain('官網嵌入與 LINE 對外發布將於後續版本開放');
+    expect(website.page.querySelectorAll('app-assistant-publishing app-channel-card')).toHaveLength(3);
+
+    const line = await renderTab('publishing', { repository, apiMode: true, channel: 'line' });
+    expect(line.page.querySelector('app-line-setup')).toBeNull();
+    expect(line.page.querySelector('.channel-unavailable')?.textContent).toContain('LINE 對外發布將於後續版本開放');
   });
 
   it('links the test tab to the in-platform chat and shows outcome-only usage statistics in API mode', async () => {

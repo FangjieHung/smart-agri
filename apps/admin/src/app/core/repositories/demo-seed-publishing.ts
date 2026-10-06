@@ -3,8 +3,8 @@ import type { SeededAssistantId } from '../domain/assistant.model';
 import type {
   LineSettingsInput,
   LineTestResultView,
+  WebsiteChannelState,
   WebsiteEmbedSettings,
-  WebsiteInstallCheck,
 } from '../domain/publishing.model';
 
 /**
@@ -19,9 +19,12 @@ export interface PublishingRecord {
     readonly updatedAt: string;
   };
   readonly website: WebsiteEmbedSettings & {
-    readonly installCheck: WebsiteInstallCheck;
-    readonly installCheckedAt: string | null;
-    readonly paused: boolean;
+    readonly state: WebsiteChannelState;
+    readonly publishedAt: string | null;
+    /** 儲存設定時遞增（樂觀鎖）；還沒存過是 0。 */
+    readonly revision: number;
+    /** 被動偵測：網域 → 最後一次偵測到嵌入的時間（只供參考）。 */
+    readonly lastSeenAt: Readonly<Record<string, string>>;
     readonly updatedAt: string;
   };
   readonly line: LineSettingsInput & {
@@ -65,9 +68,10 @@ export const PUBLISHING_RECORDS: Readonly<Partial<Record<SeededAssistantId, Publ
       brandColor: 'forest',
       position: 'bottom-right',
       allowedDomains: ['shop.anxin-demo.example'],
-      installCheck: 'detected',
-      installCheckedAt: '2026-09-20T03:00:00.000Z',
-      paused: false,
+      state: 'published',
+      publishedAt: '2026-09-20T03:00:00.000Z',
+      revision: 1,
+      lastSeenAt: { 'shop.anxin-demo.example': '2026-10-05T06:03:00.000Z' },
       updatedAt: '2026-09-20T03:00:00.000Z',
     },
     line: {
@@ -95,9 +99,10 @@ export const PUBLISHING_RECORDS: Readonly<Partial<Record<SeededAssistantId, Publ
       brandColor: 'ocean',
       position: 'bottom-left',
       allowedDomains: ['intranet.anxin-demo.example'],
-      installCheck: 'not-checked',
-      installCheckedAt: null,
-      paused: false,
+      state: 'draft',
+      publishedAt: null,
+      revision: 1,
+      lastSeenAt: {},
       updatedAt: '2026-09-21T02:00:00.000Z',
     },
     line: {

@@ -2103,8 +2103,8 @@ function apiChannel(overrides: Partial<ApiPublishingChannel> = {}): ApiPublishin
 }
 
 /**
- * 後端 #194 起 `GET …/publishing` 的 `website` 是真實的網站頻道；這是實際 API 回應的 JSON（已發布、
- * 服務中）。管理介面要到 #202 才接上，在那之前 Hybrid 仍顯示「將於後續版本開放」。
+ * 後端 #194 起 `GET …/publishing` 的 `website` 是真實的網站頻道（#202 起管理介面也用它）；這是實際 API
+ * 回應的 JSON（已發布、服務中）。更多狀態的實際回應見 `website-channel-api.testing.ts`。
  */
 const REAL_WEBSITE_JSON = `{"channel":{"id":"channel-website:01a10f01-b5f0-7237-adba-c3b696b9ee66","assistantId":"01a10f01-b5f0-7237-adba-c3b696b9ee66","ownerAccountId":"01a10f01-b1d9-7924-b302-17b051e81481","name":"客服助理","type":"website","status":"published","statusDetail":"已發布，官網訪客可以使用。","updatedAt":"2026-10-06T02:18:52.965704+00:00"},"displayName":"安心客服","welcomeMessage":"您好，有什麼可以協助？","brandColor":"ocean","position":"bottom-right","allowedDomains":["shop.example.com"],"domains":[{"domain":"shop.example.com","addedAt":"2026-10-06T02:18:52.889215+00:00","lastSeenAt":null}],"state":"published","servingState":"serving","servingMessage":"已發布，官網訪客可以使用。","acceptanceStatus":"passed","nonOwnedKnowledgeBases":[],"embedCode":"<script src=\\"http://localhost:5153/embed.js\\" data-assistant=\\"01a10f01-b5f0-7237-adba-c3b696b9ee66\\" async></script>","publishedAt":"2026-10-06T02:18:52.965704+00:00","revision":1}`;
 
@@ -2847,7 +2847,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
 
   // ---------- 發布 ----------
 
-  it('reads publishing: the platform channel is real; website (ignored until #202) and LINE are not available yet', async () => {
+  it('reads publishing: the platform channel and the website channel are real; LINE is not available yet', async () => {
     const { repository } = setUpAssistants();
     const result = pending(repository.getAssistantPublishing(ASSISTANT_ID));
 
@@ -2866,11 +2866,18 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
       channel: { name: '組織內部分享', type: 'platform', status: 'published' },
     });
     expect(view.data.website).toMatchObject({
-      availability: 'not-available',
-      message: '官網嵌入與 LINE 對外發布將於後續版本開放。',
-      channel: { type: 'website', name: '官網嵌入', status: 'not-configured' },
+      channel: { type: 'website', name: '官網嵌入', status: 'published' },
+      state: 'published',
+      servingState: 'serving',
+      allowedDomains: ['shop.example.com'],
+      revision: 1,
     });
-    expect(view.data.line).toMatchObject({ availability: 'not-available', channel: { type: 'line', name: 'LINE' } });
+    expect('availability' in view.data.website).toBe(false);
+    expect(view.data.line).toMatchObject({
+      availability: 'not-available',
+      message: 'LINE 對外發布將於後續版本開放。',
+      channel: { type: 'line', name: 'LINE', status: 'not-configured' },
+    });
   });
 
   it('maps 403 publishing (not the owner, no manage-publishing, or missing)', async () => {
@@ -2902,7 +2909,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     expect(await result).toMatchObject({ status: 'permission-denied', reason: 'publishing' });
   });
 
-  it('pauses the platform channel with a PUT and refuses website/LINE without calling the API', async () => {
+  it('pauses the platform channel with a PUT and refuses LINE without calling the API', async () => {
     const { repository } = setUpAssistants();
     const result = pending(repository.setPublishingChannelPaused(ASSISTANT_ID, 'platform', true));
 
@@ -2936,7 +2943,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     expect(view.data[0].assistantId).toBe(ASSISTANT_ID);
     expect(view.data[0].channels.map((channel) => [channel.type, channel.status])).toEqual([
       ['platform', 'published'],
-      ['website', 'not-configured'],
+      ['website', 'published'],
       ['line', 'not-configured'],
     ]);
   });

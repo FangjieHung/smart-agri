@@ -103,6 +103,7 @@ import type {
   PublishingFieldError,
   WebsiteEmbedSettings,
   WebsiteEmbedView,
+  WebsitePublishFailure,
 } from '../domain/publishing.model';
 
 /** Demo 可切換的畫面情境；`ready` 以外都用於預覽錯誤與等待狀態。 */
@@ -476,9 +477,25 @@ export type UpdateDatabaseAccessResult =
   | RepositoryView<DatabaseAccessView>
   | DatabaseAccessValidationFailedView;
 
+/** `409 website-revision-conflict`：設定在另一個分頁被改過，這次完全沒有寫入，畫面要請使用者重新載入。 */
+export interface WebsiteConflictView {
+  readonly status: 'conflict';
+  readonly message: string;
+}
+
 export type UpdateWebsiteEmbedResult =
   | RepositoryView<WebsiteEmbedView>
-  | PublishingValidationFailedView;
+  | PublishingValidationFailedView
+  | WebsiteConflictView;
+
+/** 發布閘門 `422 website-publish-refused`：逐項列出原因，什麼都沒有寫入。 */
+export interface WebsitePublishRefusedView {
+  readonly status: 'publish-refused';
+  readonly message: string;
+  readonly failures: readonly WebsitePublishFailure[];
+}
+
+export type PublishWebsiteResult = RepositoryView<WebsiteEmbedView> | WebsitePublishRefusedView;
 
 export type ActivateLineChannelResult =
   | RepositoryView<LineSetupView>
@@ -615,8 +632,8 @@ export interface DemoRepository extends DemoScenarioController {
   listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**
    * 單一助理的三個管道設定。id 來自網址、未經驗證；不存在或非擁有者時一律回傳
-   * 相同的 `publishing` permission-denied，訊息不包含資源名稱。API 模式的官網與 LINE
-   * 是 `UnavailablePublishingChannelView`（對外發布將於後續版本開放）。
+   * 相同的 `publishing` permission-denied，訊息不包含資源名稱。API 模式的 LINE
+   * 是 `UnavailablePublishingChannelView`（M5b 才開放）。
    */
   getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>>;
   /** 指定可在平台內使用助理的帳號（整份取代）；空清單代表只有擁有者自己可以使用。 */
@@ -624,17 +641,23 @@ export interface DemoRepository extends DemoScenarioController {
     assistantId: string,
     accountIds: readonly AccountId[],
   ): Observable<UpdatePlatformSharingResult>;
-  /** 儲存官網外觀與允許網域；網域變更後需重新檢查安裝狀態。 */
+  /**
+   * 儲存官網外觀與允許網域（整份取代）。`revision` 是讀到的 `WebsiteEmbedView.revision`（還沒存過是 0）；
+   * 已經不是最新時回傳 `conflict`。API 模式走 `PUT …/publishing/website`。
+   */
   updateWebsiteEmbed(
-    viewerAccountId: AccountId,
     assistantId: string,
     settings: WebsiteEmbedSettings,
-  ): UpdateWebsiteEmbedResult;
-  /** Demo：模擬檢查允許網域上是否已安裝嵌入碼，不會連線到任何網站。 */
-  checkWebsiteInstallation(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): RepositoryView<WebsiteEmbedView>;
+    revision: number,
+  ): Observable<UpdateWebsiteEmbedResult>;
+  /**
+   * 發布官網管道（發布閘門）：驗收通過、有允許網域、助理沒有暫停、連接的知識庫都是擁有者自己的，
+   * 而且伺服器知道自己的對外網址；不符合時回傳 `publish-refused` 並列出每一項原因。
+   * 已發布的再發布不變，暫停中的會恢復。
+   */
+  publishWebsite(assistantId: string): Observable<PublishWebsiteResult>;
+  /** 取消發布：回到草稿，設定與網域都保留。 */
+  unpublishWebsite(assistantId: string): Observable<RepositoryView<WebsiteEmbedView>>;
   /** 儲存 LINE 連接資訊並逐欄檢查；儲存後需重新傳送測試訊息才能啟用。 */
   saveLineSettings(
     viewerAccountId: AccountId,

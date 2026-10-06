@@ -94,10 +94,55 @@ describe('publishing channels', () => {
       });
       cy.contains('button', '複製嵌入碼').click();
       cy.get('.copy-status').should('contain', '已複製');
-      cy.contains('button', '檢查安裝狀態').click();
-      cy.get('.install-status').should('contain', '模擬');
+      // 安裝偵測是被動的：只顯示最後一次偵測到的時間，沒有「檢查安裝狀態」按鈕。
+      cy.contains('button', '檢查安裝狀態').should('not.exist');
+      cy.get('.seen-list')
+        .should('contain', '最後一次在 shop.anxin-demo.example 偵測到')
+        .and('contain', 'blog.anxin-demo.example：尚未偵測到');
     });
     cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
+  });
+
+  it('publishes the website channel only after a confirmation that lists what visitors can ask, and can pause and unpublish it', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/assistants/assistant-customer-service/publishing?channel=website');
+    cy.get('app-website-embed').within(() => {
+      cy.get('.serving__label').should('contain', '已發布');
+      cy.get('.serving__reason').should('contain', '服務中');
+      cy.contains('button', '取消發布').click();
+      cy.get('.action-status').should('contain', '已取消發布');
+      cy.get('.serving__label').should('contain', '測試中');
+      cy.contains('button', '發布官網嵌入').click();
+    });
+    // 發布確認對話框在元件外（overlay）：列出訪客可以問到的知識庫。
+    cy.get('.publish-panel').within(() => {
+      cy.contains('訪客可以問到下列知識庫');
+      cy.contains('li', '商品使用指南');
+      cy.contains('button', '確認發布').click();
+    });
+    cy.get('.publish-panel').should('not.exist');
+    cy.get('app-website-embed').within(() => {
+      cy.get('.action-status').should('contain', '已發布官網嵌入');
+      cy.contains('button', '暫停服務').click();
+      cy.get('.serving__label').should('contain', '已暫停');
+      cy.contains('button', '恢復服務').click();
+      cy.get('.serving__label').should('contain', '已發布');
+    });
+  });
+
+  it('refuses to publish a draft whose acceptance has not passed and links to the assistant’s test-set tab', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/assistants/assistant-internal-onboarding/publishing?channel=website');
+    cy.get('app-website-embed').within(() => {
+      cy.contains('button', '發布官網嵌入').click();
+    });
+    cy.get('.publish-panel').contains('button', '確認發布').click();
+    cy.get('app-website-embed .error-summary[role="alert"]')
+      .should('contain', '驗收狀態必須是「通過」')
+      .within(() => {
+        cy.contains('a', '前往驗收題組頁').click();
+      });
+    cy.location('pathname').should('eq', '/app/assistants/assistant-internal-onboarding/acceptance');
   });
 
   it('checks LINE fields item by item, masks secrets and sends a simulated test message', () => {

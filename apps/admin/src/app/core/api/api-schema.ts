@@ -5923,6 +5923,75 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/issues/{issueId}:open-case": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    issueId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OpenCaseFromIssueRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueOpenedCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/chat/conversations/summary": {
         parameters: {
             query?: never;
@@ -8174,12 +8243,18 @@ export interface components {
             /** Format: date-time */
             savedAt: string;
         };
+        AssistantIssueCaseLinkView: {
+            /** Format: uuid */
+            caseId: string;
+            canOpen: boolean;
+        };
         AssistantIssueDetailView: {
             issue: components["schemas"]["AssistantIssueView"];
             events: components["schemas"]["AssistantIssueEventView"][];
+            linkedCase: null | components["schemas"]["AssistantIssueCaseLinkView"];
         };
         /** @enum {unknown} */
-        AssistantIssueEventAction: "created" | "assigned" | "status-changed" | "commented" | "due-date-changed";
+        AssistantIssueEventAction: "created" | "assigned" | "status-changed" | "commented" | "due-date-changed" | "case-opened";
         AssistantIssueEventView: {
             /** Format: uuid */
             id: string;
@@ -8197,6 +8272,13 @@ export interface components {
             /** Format: date-time */
             dueAt: null | string;
         };
+        AssistantIssueOpenedCaseView: {
+            /** Format: uuid */
+            caseId: string;
+            issue: components["schemas"]["AssistantIssueDetailView"];
+        };
+        /** @enum {unknown} */
+        AssistantIssueResolutionKind: "fixed" | "not-assistant-issue" | null;
         /** @enum {unknown} */
         AssistantIssueSource: "test-failure" | "handoff";
         /** @enum {unknown} */
@@ -8245,6 +8327,9 @@ export interface components {
             viewerIsAssistantOwner: boolean;
             viewerIsAssignee: boolean;
             handoffUnverified: boolean;
+            resolutionKind: null | components["schemas"]["AssistantIssueResolutionKind"];
+            /** Format: uuid */
+            linkedCaseId: null | string;
         };
         /** @enum {unknown} */
         AssistantKnowledgeScope: "company-data-only" | "allow-general-knowledge";
@@ -9528,6 +9613,16 @@ export interface components {
             organization: components["schemas"]["MeOrganization"];
             passwordChangeRequired: boolean;
             statisticsTimeZone: string;
+        };
+        OpenCaseFromIssueRequest: {
+            /** Format: uuid */
+            typeId: null | string;
+            /** Format: uuid */
+            groupId: null | string;
+            /** Format: date-time */
+            dueAt: null | string;
+            title: null | string;
+            description: null | string;
         };
         OperationsSummaryView: {
             /** Format: date */

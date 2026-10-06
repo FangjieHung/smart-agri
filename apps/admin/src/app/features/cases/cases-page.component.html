@@ -248,7 +248,7 @@
                 <p class="case-description">{{ item.description || '沒有填寫說明。' }}</p>
               </section>
 
-              @if (links.record || links.thread || links.previousCase) {
+              @if (links.record || links.thread || links.assistantIssue || links.previousCase) {
                 <section class="case-section" aria-labelledby="case-links-title">
                   <h4 id="case-links-title">連結</h4>
                   <ul class="case-links">
@@ -268,6 +268,16 @@
                           <span>對話：</span><a [routerLink]="['/app/chat', thread.assistantId, thread.threadId]">開啟對話</a>
                         } @else {
                           <span>{{ threadUnavailableText }}</span>
+                        }
+                      </li>
+                    }
+                    @if (links.assistantIssue; as source) {
+                      <li data-case-link="issue">
+                        @if (source.canOpen) {
+                          <span>來源處理事項：</span>
+                          <a [routerLink]="['/app/issues']" [queryParams]="{ issue: source.issueId }">開啟處理事項</a>
+                        } @else {
+                          <span>{{ issueUnavailableText }}</span>
                         }
                       </li>
                     }

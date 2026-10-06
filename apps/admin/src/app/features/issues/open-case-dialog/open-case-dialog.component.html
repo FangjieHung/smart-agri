@@ -1,0 +1,114 @@
+@let fieldErrors = errors();
+<app-confirm-dialog
+  name="open-case"
+  heading="另開案件"
+  [detail]="detail"
+  [headingLevel]="2"
+  [confirmLabel]="saving() ? '建立中…' : '建立案件並結案'"
+  confirmClass="confirm-open-case"
+  [busy]="saving()"
+  (cancelled)="cancel()"
+  (confirmed)="submit()"
+>
+  <form class="open-case-form" novalidate data-issue-open-case-form (submit)="$event.preventDefault(); submit()">
+    <div class="control">
+      <label for="issue-case-type">案件類型</label>
+      <select
+        id="issue-case-type"
+        [attr.aria-invalid]="fieldErrors.typeId ? 'true' : null"
+        [attr.aria-describedby]="fieldErrors.typeId ? 'issue-case-type-error' : null"
+        [disabled]="saving()"
+        (change)="setField('typeId', $any($event.target).value)"
+      >
+        <option value="" [selected]="typeId() === ''">請選擇</option>
+        @for (type of types(); track type.id) {
+          <option [value]="type.id" [selected]="type.id === typeId()">{{ type.name }}</option>
+        }
+      </select>
+      @if (selectedType(); as type) {
+        <p class="hint">預設由「{{ type.defaultGroup.name }}」處理，時限 {{ formatDueHours(type.defaultDueHours) }}；可以修改。</p>
+      } @else if (types().length === 0) {
+        <p class="hint">目前沒有啟用中的案件類型，請管理者先在「團隊與設定」建立。</p>
+      }
+      @if (fieldErrors.typeId) {
+        <p id="issue-case-type-error" class="field-error">{{ fieldErrors.typeId }}</p>
+      }
+    </div>
+
+    <div class="control">
+      <label for="issue-case-group">承辦組</label>
+      <select
+        id="issue-case-group"
+        [attr.aria-invalid]="fieldErrors.groupId ? 'true' : null"
+        [attr.aria-describedby]="fieldErrors.groupId ? 'issue-case-group-error' : null"
+        [disabled]="saving()"
+        (change)="setField('groupId', $any($event.target).value)"
+      >
+        <option value="" [selected]="groupId() === ''">請選擇</option>
+        @for (group of groups(); track group.id) {
+          <option [value]="group.id" [selected]="group.id === groupId()">{{ group.name }}</option>
+        }
+      </select>
+      @if (fieldErrors.groupId) {
+        <p id="issue-case-group-error" class="field-error">{{ fieldErrors.groupId }}</p>
+      }
+    </div>
+
+    <div class="control">
+      <label for="issue-case-due">處理時限</label>
+      <input
+        id="issue-case-due"
+        type="datetime-local"
+        [value]="dueAt()"
+        [disabled]="saving()"
+        [attr.aria-invalid]="fieldErrors.dueAt || dueInPast() ? 'true' : null"
+        [attr.aria-describedby]="fieldErrors.dueAt || dueInPast() ? 'issue-case-due-error' : null"
+        (input)="setField('dueAt', $any($event.target).value)"
+      />
+      @if (fieldErrors.dueAt) {
+        <p id="issue-case-due-error" class="field-error">{{ fieldErrors.dueAt }}</p>
+      } @else if (dueInPast()) {
+        <p id="issue-case-due-error" class="field-error">{{ dueInPastMessage }}</p>
+      }
+    </div>
+
+    <div class="control">
+      <label for="issue-case-title">標題</label>
+      <input
+        id="issue-case-title"
+        type="text"
+        autocomplete="off"
+        [attr.maxlength]="titleMaxLength"
+        [value]="title()"
+        [disabled]="saving()"
+        [attr.aria-invalid]="fieldErrors.title ? 'true' : null"
+        [attr.aria-describedby]="fieldErrors.title ? 'issue-case-title-error' : null"
+        (input)="setField('title', $any($event.target).value)"
+      />
+      @if (fieldErrors.title) {
+        <p id="issue-case-title-error" class="field-error">{{ fieldErrors.title }}</p>
+      }
+    </div>
+
+    <div class="control">
+      <label for="issue-case-description">說明</label>
+      <textarea
+        id="issue-case-description"
+        rows="4"
+        [attr.maxlength]="descriptionMaxLength"
+        [value]="description()"
+        [disabled]="saving()"
+        [attr.aria-invalid]="fieldErrors.description ? 'true' : null"
+        [attr.aria-describedby]="fieldErrors.description ? 'issue-case-description-error' : 'issue-case-description-hint'"
+        (input)="setField('description', $any($event.target).value)"
+      ></textarea>
+      <p id="issue-case-description-hint" class="hint">已帶入處理事項的問題副本；案件不會帶入助理的回覆。</p>
+      @if (fieldErrors.description) {
+        <p id="issue-case-description-error" class="field-error">{{ fieldErrors.description }}</p>
+      }
+    </div>
+  </form>
+  @if (message()) {
+    <p class="open-case-message" role="alert">{{ message() }}</p>
+  }
+</app-confirm-dialog>

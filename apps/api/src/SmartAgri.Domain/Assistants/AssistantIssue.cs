@@ -78,6 +78,15 @@ public sealed class AssistantIssue : IOrganizationScoped
     /// <summary>The note given when it was last resolved; cleared when reopened.</summary>
     public string? ResolutionNote { get; private set; }
 
+    /// <summary>How it was last resolved (M7-7); <see langword="null"/> unless
+    /// <see cref="AssistantIssueStatus.Resolved"/>, cleared when reopened.</summary>
+    public AssistantIssueResolutionKind? ResolutionKind { get; private set; }
+
+    /// <summary>The case opened from it (「另開案件」, M7-7): set with
+    /// <see cref="AssistantIssueResolutionKind.NotAssistantIssue"/>, cleared when reopened. The case
+    /// keeps its own link back (<c>Case.AssistantIssueId</c>) either way.</summary>
+    public Guid? LinkedCaseId { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
@@ -234,16 +243,45 @@ public sealed class AssistantIssue : IOrganizationScoped
         {
             ResolvedAt = now;
             ResolutionNote = NormalizeNote(note);
+            ResolutionKind = AssistantIssueResolutionKind.Fixed;
         }
         else
         {
             ResolvedAt = null;
             ResolutionNote = null;
+            ResolutionKind = null;
         }
+
+        LinkedCaseId = null;
 
         var changed = Record(AssistantIssueEventAction.StatusChanged, actorAccountId, now, note);
         changed.Status = status;
         return changed;
+    }
+
+    /// <summary>
+    /// 「另開案件」 (M7 plan §3 G, decision N; issue #252): resolves the issue as
+    /// <see cref="AssistantIssueResolutionKind.NotAssistantIssue"/> linked to
+    /// <paramref name="caseId"/> and returns the <see cref="AssistantIssueEventAction.CaseOpened"/>
+    /// event. The caller creates the case and saves all of it in one <c>SaveChanges</c>; a resolved
+    /// issue cannot open a case.
+    /// </summary>
+    public AssistantIssueEvent OpenCase(Guid caseId, Guid actorAccountId, DateTimeOffset now)
+    {
+        RequireId(caseId, nameof(caseId));
+        if (Status == AssistantIssueStatus.Resolved)
+        {
+            throw new InvalidOperationException("A resolved issue cannot open a case.");
+        }
+
+        Status = AssistantIssueStatus.Resolved;
+        ResolvedAt = now;
+        ResolutionNote = null;
+        ResolutionKind = AssistantIssueResolutionKind.NotAssistantIssue;
+        LinkedCaseId = caseId;
+        var opened = Record(AssistantIssueEventAction.CaseOpened, actorAccountId, now, note: null);
+        opened.Status = Status;
+        return opened;
     }
 
     /// <summary>Adds a note without changing anything else.</summary>

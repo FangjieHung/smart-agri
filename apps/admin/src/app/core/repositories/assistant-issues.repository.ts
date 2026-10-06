@@ -1,19 +1,26 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { catchError, defer, map, of, throwError, type Observable } from 'rxjs';
-import type {
-  AssistantIssueActionResult,
-  AssistantIssueDetailView,
-  AssistantIssueFilters,
-  AssistantIssueSummaryView,
-  AssistantIssueView,
-  CreateAssistantIssueRequest,
-  UpdateAssistantIssueRequest,
+import {
+  ISSUE_CASE_ALREADY_OPENED_MESSAGE,
+  ISSUE_CHANGED_MESSAGE,
+  type AssistantIssueActionResult,
+  type AssistantIssueDetailView,
+  type AssistantIssueFilters,
+  type AssistantIssueOpenedCaseView,
+  type AssistantIssueSummaryView,
+  type AssistantIssueView,
+  type CreateAssistantIssueRequest,
+  type OpenCaseField,
+  type OpenCaseFromIssueRequest,
+  type OpenCaseFromIssueResult,
+  type UpdateAssistantIssueRequest,
 } from '../domain/assistant-issue.model';
 import type { AssistantTestResultView } from '../domain/assistant-acceptance.model';
 import { DemoSessionService } from '../session/demo-session.service';
 import { DEMO_SEED } from './demo-seed';
 import type { RepositoryView } from './demo-repository';
+import { checkMockOpenCaseFields, mockIssueCases, recordMockIssueCase, type MockOpenCaseOptions } from './mock-issue-cases';
 import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
 
 export const API_ISSUES_PATH = '/api/v1/issues';
@@ -50,6 +57,7 @@ interface ForwardedAssistantIssueView {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly resolvedAt: string | null;
+  readonly resolutionKind?: AssistantIssueView['resolutionKind'];
 }
 
 export function apiAssistantHandoffsPath(assistantId: string): string {
@@ -59,6 +67,13 @@ export function apiAssistantHandoffsPath(assistantId: string): string {
 export function apiIssuePath(issueId: string): string {
   return `${API_ISSUES_PATH}/${encodeURIComponent(issueId)}`;
 }
+
+/** 「另開案件」（issue #252）。 */
+export function apiIssueOpenCasePath(issueId: string): string {
+  return `${apiIssuePath(issueId)}:open-case`;
+}
+
+const OPEN_CASE_FIELDS: readonly OpenCaseField[] = ['typeId', 'groupId', 'dueAt', 'title', 'description'];
 
 export function apiAssistantIssuesPath(assistantId: string): string {
   return `/api/v1/assistants/${encodeURIComponent(assistantId)}/issues`;
@@ -79,7 +94,7 @@ export class AssistantIssuesRepository {
   private readonly apiMode = inject(API_DEMO_REPOSITORY_FACTORY) !== null;
   private readonly http = inject(HttpClient, { optional: true });
   private readonly session = inject(DemoSessionService);
-  private readonly mockDetails = new Map<string, AssistantIssueDetailView>();
+  private readonly mockDetails = new Map<string, Omit<AssistantIssueDetailView, 'linkedCase'>>();
   private readonly mockOwners = new Map<string, string | null>();
 
   list(filters: AssistantIssueFilters = {}): Observable<RepositoryView<readonly AssistantIssueView[]>> {
@@ -135,7 +150,9 @@ export class AssistantIssuesRepository {
     if (this.apiMode) {
       return this.client().get<AssistantIssueDetailView | { issue: ForwardedAssistantIssueView; events: [] }>(apiIssuePath(issueId)).pipe(
         map((data) => ({ status: 'ready' as const, data: {
-          ...data, issue: this.normalizeIssue(data.issue),
+          events: data.events, issue: this.normalizeIssue(data.issue),
+          // 轉交人只看得到狀態與結果（不含案件連結）。
+          linkedCase: 'linkedCase' in data ? data.linkedCase : null,
         } })),
         catchError((error: unknown) => this.readError<AssistantIssueDetailView>(error)),
       );
@@ -144,11 +161,7 @@ export class AssistantIssuesRepository {
       const detail = this.mockDetails.get(issueId);
       const accountId = this.session.activeAccountId();
       return of(detail && this.mockVisible(detail.issue, accountId)
-        ? { status: 'ready' as const, data: { ...detail, issue: {
-          ...detail.issue,
-          viewerIsAssistantOwner: this.mockOwners.get(issueId) === accountId,
-          viewerIsAssignee: detail.issue.assigneeAccountId === accountId,
-        } } } : ISSUE_DENIED);
+        ? { status: 'ready' as const, data: this.mockDetail(issueId, detail, accountId) } : ISSUE_DENIED);
     });
   }
 
@@ -174,7 +187,7 @@ export class AssistantIssuesRepository {
         answer: context?.result.answerText ?? null,
         resolutionNote: null, createdAt: now, updatedAt: now, resolvedAt: null,
         viewerIsAssistantOwner: true, viewerIsAssignee: request.assigneeAccountId === accountId,
-        handoffUnverified: false,
+        handoffUnverified: false, resolutionKind: null, linkedCaseId: null,
       };
       this.mockDetails.set(id, { issue, events: [] });
       this.mockOwners.set(id, accountId);
@@ -204,7 +217,7 @@ export class AssistantIssuesRepository {
         question: context.question, answer: context.answer, resolutionNote: null,
         createdAt: now, updatedAt: now, resolvedAt: null,
         viewerIsAssistantOwner: owner === accountId, viewerIsAssignee: false,
-        handoffUnverified: context.historyMode === 'not-saved',
+        handoffUnverified: context.historyMode === 'not-saved', resolutionKind: null, linkedCaseId: null,
       };
       this.mockDetails.set(id, { issue, events: [{
         id: crypto.randomUUID(), action: 'created', actorAccountId: accountId,
@@ -228,14 +241,19 @@ export class AssistantIssuesRepository {
       const accountId = this.session.activeAccountId();
       if (!current || (this.mockOwners.get(issueId) !== accountId && current.issue.assigneeAccountId !== accountId)) return of(ISSUE_DENIED);
       const now = new Date().toISOString();
+      const status = request.status === 'open' || request.status === 'in-progress' || request.status === 'resolved'
+        ? request.status : current.issue.status;
+      const statusChanged = status !== current.issue.status;
       const issue: AssistantIssueView = {
         ...current.issue,
         assigneeAccountId: request.unassign ? null : request.assigneeAccountId ?? current.issue.assigneeAccountId,
         dueAt: request.clearDueAt ? null : request.dueAt ?? current.issue.dueAt,
-        status: request.status === 'open' || request.status === 'in-progress' || request.status === 'resolved'
-          ? request.status : current.issue.status,
-        resolutionNote: request.status === 'resolved' ? request.note ?? current.issue.resolutionNote : current.issue.resolutionNote,
-        resolvedAt: request.status === 'resolved' ? now : current.issue.resolvedAt,
+        status,
+        // 與後端相同：解決時記下結案方式（助理已修正），重開時清空結案方式與案件連結。
+        resolutionNote: !statusChanged ? current.issue.resolutionNote : status === 'resolved' ? request.note?.trim() || null : null,
+        resolvedAt: !statusChanged ? current.issue.resolvedAt : status === 'resolved' ? now : null,
+        resolutionKind: !statusChanged ? current.issue.resolutionKind : status === 'resolved' ? 'fixed' : null,
+        linkedCaseId: statusChanged ? null : current.issue.linkedCaseId,
         updatedAt: now,
       };
       const events = [...current.events];
@@ -254,8 +272,77 @@ export class AssistantIssuesRepository {
       }
       const detail = { issue, events };
       this.mockDetails.set(issueId, detail);
-      return of({ status: 'ready' as const, data: detail });
+      return of({ status: 'ready' as const, data: this.mockDetail(issueId, detail, accountId) });
     });
+  }
+
+  /**
+   * 「另開案件」（issue #252）：建立案件、處理事項以「非助理問題」結案並互相連結，全部一起成功或都不寫入。
+   * `options` 只給純 Demo 模式：對話框選得到的類型與承辦組（mock 以它判斷停用與封存）。
+   */
+  openCase(issueId: string, request: OpenCaseFromIssueRequest, options: MockOpenCaseOptions): Observable<OpenCaseFromIssueResult> {
+    if (this.apiMode) {
+      return this.client().post<AssistantIssueOpenedCaseView>(apiIssueOpenCasePath(issueId), request).pipe(
+        map((data): OpenCaseFromIssueResult => ({ status: 'ready', data })),
+        catchError((error: unknown) => this.openCaseError(error)),
+      );
+    }
+    return defer(() => {
+      const current = this.mockDetails.get(issueId);
+      const accountId = this.session.activeAccountId();
+      const role = DEMO_SEED.accounts.find((account) => account.id === accountId)?.role;
+      if (!current || !accountId || role === 'external-customer'
+        || (this.mockOwners.get(issueId) !== accountId && current.issue.assigneeAccountId !== accountId)) {
+        return of<OpenCaseFromIssueResult>(ISSUE_DENIED);
+      }
+      const existing = mockIssueCases().find((item) => item.issueId === issueId);
+      if (existing) {
+        return of<OpenCaseFromIssueResult>({
+          status: 'conflict', reason: 'case-already-opened', message: ISSUE_CASE_ALREADY_OPENED_MESSAGE, caseId: existing.id,
+        });
+      }
+      if (current.issue.status === 'resolved') {
+        return of<OpenCaseFromIssueResult>({ status: 'conflict', reason: 'issue-changed', message: ISSUE_CHANGED_MESSAGE });
+      }
+      const checked = checkMockOpenCaseFields(request, options, new Date());
+      if ('fieldErrors' in checked) return of<OpenCaseFromIssueResult>({ status: 'validation-failed', ...checked });
+
+      const now = new Date().toISOString();
+      const caseId = crypto.randomUUID();
+      recordMockIssueCase({ id: caseId, issueId, ...checked, createdBy: accountId, createdAt: now });
+      const actorDisplayName = DEMO_SEED.accounts.find((account) => account.id === accountId)?.displayName ?? '目前帳號';
+      const detail = {
+        issue: {
+          ...current.issue, status: 'resolved' as const, resolvedAt: now, resolutionNote: null,
+          resolutionKind: 'not-assistant-issue' as const, linkedCaseId: caseId, updatedAt: now,
+        },
+        events: [...current.events, {
+          id: crypto.randomUUID(), action: 'case-opened' as const, actorAccountId: accountId, actorDisplayName,
+          at: now, note: null, assigneeAccountId: null, assigneeDisplayName: null, status: 'resolved' as const, dueAt: null,
+        }],
+      };
+      this.mockDetails.set(issueId, detail);
+      return of<OpenCaseFromIssueResult>({ status: 'ready', data: { caseId, issue: this.mockDetail(issueId, detail, accountId) } });
+    });
+  }
+
+  /** mock 的詳情：檢視者旗標，以及另開的案件（建立者與管理者打得開，其他人看不到）。 */
+  private mockDetail(
+    issueId: string, detail: Omit<AssistantIssueDetailView, 'linkedCase'>, accountId: string | null,
+  ): AssistantIssueDetailView {
+    const linked = detail.issue.linkedCaseId ? mockIssueCases().find((item) => item.id === detail.issue.linkedCaseId) : undefined;
+    const role = DEMO_SEED.accounts.find((account) => account.id === accountId)?.role;
+    return {
+      ...detail,
+      issue: {
+        ...detail.issue,
+        viewerIsAssistantOwner: this.mockOwners.get(issueId) === accountId,
+        viewerIsAssignee: detail.issue.assigneeAccountId === accountId,
+      },
+      linkedCase: detail.issue.linkedCaseId
+        ? { caseId: detail.issue.linkedCaseId, canOpen: role === 'smb-admin' || linked?.createdBy === accountId }
+        : null,
+    };
   }
 
   private client(): HttpClient {
@@ -273,7 +360,7 @@ export class AssistantIssuesRepository {
       dueAt: null, testRunId: null, testResultId: null, testFailureReason: null,
       question: null, answer: null,
       viewerIsAssistantOwner: false, viewerIsAssignee: false,
-      handoffUnverified: false,
+      handoffUnverified: false, resolutionKind: issue.resolutionKind ?? null, linkedCaseId: null,
     };
   }
 
@@ -288,6 +375,33 @@ export class AssistantIssuesRepository {
   private readError<T>(error: unknown): Observable<RepositoryView<T>> {
     if (error instanceof HttpErrorResponse && (error.status === 403 || error.status === 404)) {
       return of(ISSUE_DENIED);
+    }
+    return throwError(() => error);
+  }
+
+  /** `403`／`404` 是 permission-denied、`409` 是 conflict（帶既有案件的 `caseId`）、`422` 帶欄位錯誤。 */
+  private openCaseError(error: unknown): Observable<OpenCaseFromIssueResult> {
+    if (!(error instanceof HttpErrorResponse)) return throwError(() => error);
+    const body = error.error && typeof error.error === 'object' ? error.error as Record<string, unknown> : {};
+    const reason = typeof body['reason'] === 'string' ? body['reason'] : null;
+    const message = typeof body['message'] === 'string' ? body['message'] : null;
+    if (error.status === 403 || error.status === 404) {
+      return of({ status: 'permission-denied', reason: reason ?? ISSUE_DENIED.reason, message: message ?? ISSUE_DENIED.message });
+    }
+    if (error.status === 409) {
+      return of({
+        status: 'conflict', reason: reason ?? 'issue-changed', message: message ?? ISSUE_CHANGED_MESSAGE,
+        ...(typeof body['caseId'] === 'string' ? { caseId: body['caseId'] } : {}),
+      });
+    }
+    if (error.status === 422) {
+      const errors = body['errors'] && typeof body['errors'] === 'object' ? body['errors'] as Record<string, unknown> : {};
+      const fieldErrors: Partial<Record<OpenCaseField, string>> = {};
+      for (const field of OPEN_CASE_FIELDS) {
+        const messages = errors[field];
+        if (Array.isArray(messages) && typeof messages[0] === 'string') fieldErrors[field] = messages[0];
+      }
+      return of({ status: 'validation-failed', reason, message: message ?? Object.values(fieldErrors)[0] ?? '', fieldErrors });
     }
     return throwError(() => error);
   }

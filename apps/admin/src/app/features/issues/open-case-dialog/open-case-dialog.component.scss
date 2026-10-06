@@ -1,0 +1,26 @@
+// 對話框比一般確認框寬，放得下表單（確認框在宿主上讀這個變數）。
+:host { display: contents; --confirm-dialog-inline-size: 36rem; }
+
+// 投影進確認框的內容（帶著本元件的 _ngcontent 屬性，所以這裡的規則套得到）。
+.open-case-form {
+  display: grid;
+  gap: var(--space-3);
+  max-block-size: min(60vh, 32rem);
+  overflow-y: auto;
+  padding-inline-end: var(--space-1);
+}
+.control { display: grid; gap: var(--space-1); min-width: 0; }
+label { font-weight: 600; }
+select, input, textarea {
+  inline-size: 100%;
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+}
+select:focus-visible, input:focus-visible, textarea:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+.hint { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); line-height: var(--line-height-body); }
+.field-error, .open-case-message { margin: 0; color: var(--color-error); font-size: var(--font-size-caption); font-weight: 600; }

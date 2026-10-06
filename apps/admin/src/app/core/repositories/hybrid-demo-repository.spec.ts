@@ -2102,8 +2102,15 @@ function apiChannel(overrides: Partial<ApiPublishingChannel> = {}): ApiPublishin
   };
 }
 
+/**
+ * 後端 #194 起 `GET …/publishing` 的 `website` 是真實的網站頻道；這是實際 API 回應的 JSON（已發布、
+ * 服務中）。管理介面要到 #202 才接上，在那之前 Hybrid 仍顯示「將於後續版本開放」。
+ */
+const REAL_WEBSITE_JSON = `{"channel":{"id":"channel-website:01a10f01-b5f0-7237-adba-c3b696b9ee66","assistantId":"01a10f01-b5f0-7237-adba-c3b696b9ee66","ownerAccountId":"01a10f01-b1d9-7924-b302-17b051e81481","name":"客服助理","type":"website","status":"published","statusDetail":"已發布，官網訪客可以使用。","updatedAt":"2026-10-06T02:18:52.965704+00:00"},"displayName":"安心客服","welcomeMessage":"您好，有什麼可以協助？","brandColor":"ocean","position":"bottom-right","allowedDomains":["shop.example.com"],"domains":[{"domain":"shop.example.com","addedAt":"2026-10-06T02:18:52.889215+00:00","lastSeenAt":null}],"state":"published","servingState":"serving","servingMessage":"已發布，官網訪客可以使用。","acceptanceStatus":"passed","nonOwnedKnowledgeBases":[],"embedCode":"<script src=\\"http://localhost:5153/embed.js\\" data-assistant=\\"01a10f01-b5f0-7237-adba-c3b696b9ee66\\" async></script>","publishedAt":"2026-10-06T02:18:52.965704+00:00","revision":1}`;
+
 function apiPublishing(overrides: Partial<ApiAssistantPublishing> = {}): ApiAssistantPublishing {
   const notAvailable = { status: 'not-available', message: '官網嵌入與 LINE 對外發布將於後續版本開放。' };
+  const website = JSON.parse(REAL_WEBSITE_JSON) as ApiAssistantPublishing['website'];
   return {
     assistantId: ASSISTANT_ID,
     assistantName: '門市問答助理',
@@ -2116,7 +2123,7 @@ function apiPublishing(overrides: Partial<ApiAssistantPublishing> = {}): ApiAssi
         { id: CUSTOMER_ID, displayName: '安心商行客戶' },
       ],
     },
-    website: notAvailable,
+    website,
     line: notAvailable,
     ...overrides,
   };
@@ -2840,7 +2847,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
 
   // ---------- 發布 ----------
 
-  it('reads publishing: the platform channel is real, website and LINE are not available yet', async () => {
+  it('reads publishing: the platform channel is real; website (ignored until #202) and LINE are not available yet', async () => {
     const { repository } = setUpAssistants();
     const result = pending(repository.getAssistantPublishing(ASSISTANT_ID));
 

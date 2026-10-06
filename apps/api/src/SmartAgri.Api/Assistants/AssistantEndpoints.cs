@@ -11,6 +11,7 @@ using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Knowledge.Embeddings;
+using SmartAgri.Application.Organizations;
 using SmartAgri.Application.Reports;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
@@ -887,6 +888,7 @@ public static class AssistantEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         IOptions<PublicChannelsOptions> publicChannels,
+        OrganizationTokenUsage tokenUsage,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
@@ -902,7 +904,7 @@ public static class AssistantEndpoints
 
         var allowedAccountIds = await SharedAccountIdsAsync(dbContext, assistant.Id, cancellationToken);
         var platform = await ToPlatformSharingAsync(dbContext, assistant, allowedAccountIds, cancellationToken);
-        var website = await AssistantWebsiteChannelEndpoints.ViewAsync(dbContext, assistant, publicChannels.Value, cancellationToken);
+        var website = await AssistantWebsiteChannelEndpoints.ViewAsync(dbContext, assistant, publicChannels.Value, tokenUsage, cancellationToken);
         return Results.Ok(new AssistantPublishingView(assistant.Id, assistant.Name, platform, website, NotYetAvailable));
     }
 

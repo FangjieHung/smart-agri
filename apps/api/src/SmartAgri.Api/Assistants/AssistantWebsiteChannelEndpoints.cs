@@ -5,8 +5,10 @@ using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Assistants;
@@ -140,6 +142,7 @@ public static class AssistantWebsiteChannelEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         IOptions<PublicChannelsOptions> options,
+        OrganizationTokenUsage tokenUsage,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
@@ -153,7 +156,7 @@ public static class AssistantWebsiteChannelEndpoints
             return ApiErrors.NotFound(ForbiddenReason.Publishing);
         }
 
-        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, cancellationToken));
+        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
     }
 
     /// <summary>
@@ -168,6 +171,7 @@ public static class AssistantWebsiteChannelEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         IOptions<PublicChannelsOptions> options,
+        OrganizationTokenUsage tokenUsage,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -223,7 +227,7 @@ public static class AssistantWebsiteChannelEndpoints
             .Select(domain => new AssistantWebsiteDomain(channel, domain, now)));
 
         await dbContext.SaveChangesAsync(cancellationToken);
-        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, cancellationToken));
+        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
     }
 
     /// <summary>
@@ -239,6 +243,7 @@ public static class AssistantWebsiteChannelEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         IOptions<PublicChannelsOptions> options,
+        OrganizationTokenUsage tokenUsage,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -277,7 +282,7 @@ public static class AssistantWebsiteChannelEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, cancellationToken));
+        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
     }
 
     /// <summary>
@@ -290,6 +295,7 @@ public static class AssistantWebsiteChannelEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         IOptions<PublicChannelsOptions> options,
+        OrganizationTokenUsage tokenUsage,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -320,7 +326,7 @@ public static class AssistantWebsiteChannelEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, cancellationToken));
+        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
     }
 
     /// <summary>Back to a draft, keeping every setting and domain; a draft (or a channel never
@@ -330,6 +336,7 @@ public static class AssistantWebsiteChannelEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         IOptions<PublicChannelsOptions> options,
+        OrganizationTokenUsage tokenUsage,
         TimeProvider clock,
         CancellationToken cancellationToken)
     {
@@ -351,16 +358,21 @@ public static class AssistantWebsiteChannelEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, cancellationToken));
+        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
     }
 
     /// <summary>
     /// The website channel as it stands now, its serving state derived on this read
     /// (<see cref="WebsiteChannelServing.Evaluate"/>). Also <c>GET …/publishing</c>'s
-    /// <c>website</c>. The monthly quota is not wired yet (M5a Slice 3): never exceeded here.
+    /// <c>website</c>. The monthly token limit (#195) is read through <paramref name="tokenUsage"/>
+    /// (cached 30 seconds), so an organization at its limit shows <c>suspended-quota</c>.
     /// </summary>
     internal static async Task<WebsiteChannelView> ViewAsync(
-        AppDbContext dbContext, Assistant assistant, PublicChannelsOptions options, CancellationToken cancellationToken)
+        AppDbContext dbContext,
+        Assistant assistant,
+        PublicChannelsOptions options,
+        OrganizationTokenUsage tokenUsage,
+        CancellationToken cancellationToken)
     {
         var channel = await dbContext.AssistantWebsiteChannels
             .AsNoTracking()
@@ -375,8 +387,11 @@ public static class AssistantWebsiteChannelEndpoints
         var acceptance = await AcceptanceAsync(dbContext, assistant.Id, cancellationToken);
         var nonOwned = await NonOwnedKnowledgeBasesAsync(dbContext, assistant, cancellationToken);
 
+        var usage = await tokenUsage.GetAsync(assistant.OrganizationId, cancellationToken);
+
         var serving = WebsiteChannelServing.Evaluate(new WebsiteChannelServingInput(
-            channel?.State, domains.Count, assistant.Status, acceptance, nonOwned.Count));
+            channel?.State, domains.Count, assistant.Status, acceptance, nonOwned.Count,
+            QuotaExceeded: usage.State == TokenUsageState.Exceeded));
         var settings = channel is null
             ? WebsiteChannelRules.Defaults(assistant.Name)
             : new WebsiteChannelSettings(channel.DisplayName, channel.WelcomeMessage, channel.BrandColor, channel.Position, []);

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Shouldly;
 using SmartAgri.Api.PublicChannels;
 
@@ -48,5 +49,64 @@ public class PublicChannelsOptionsTests
 
         options.EmbedCode(AssistantId).ShouldBeNull();
         new PublicChannelsOptions.Validator().Validate(null, options).Failed.ShouldBeTrue();
+    }
+
+    // --- DefaultMonthlyTokenLimit (#195) ---------------------------------------------------------
+
+    [Fact]
+    public void The_default_monthly_token_limit_is_two_million()
+    {
+        new PublicChannelsOptions().EffectiveDefaultMonthlyTokenLimit.ShouldBe(2_000_000);
+        Bind(null).EffectiveDefaultMonthlyTokenLimit.ShouldBe(2_000_000);
+    }
+
+    [Fact]
+    public void A_blank_setting_binds_as_unset_like_an_empty_env_value_in_compose()
+    {
+        // deploy/docker-compose.yml passes DEFAULT_MONTHLY_TOKEN_LIMIT as "${DEFAULT_MONTHLY_TOKEN_LIMIT:-}".
+        var options = Bind("");
+
+        options.DefaultMonthlyTokenLimit.ShouldBeNull();
+        options.EffectiveDefaultMonthlyTokenLimit.ShouldBe(2_000_000);
+        new PublicChannelsOptions.Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("0", 0L)]
+    [InlineData("5000000", 5_000_000L)]
+    public void A_configured_limit_is_bound(string value, long expected)
+    {
+        var options = Bind(value);
+
+        options.EffectiveDefaultMonthlyTokenLimit.ShouldBe(expected);
+        new PublicChannelsOptions.Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_negative_limit_fails_startup_and_says_which_setting()
+    {
+        var result = new PublicChannelsOptions.Validator().Validate(null, Bind("-1"));
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain("PublicChannels:DefaultMonthlyTokenLimit");
+    }
+
+    [Fact]
+    public void A_non_numeric_limit_fails_binding_so_startup_is_refused()
+    {
+        Should.Throw<InvalidOperationException>(() => Bind("lots"));
+    }
+
+    private static PublicChannelsOptions Bind(string? limit)
+    {
+        var settings = new Dictionary<string, string?>();
+        if (limit is not null)
+        {
+            settings["PublicChannels:DefaultMonthlyTokenLimit"] = limit;
+        }
+
+        return new ConfigurationBuilder().AddInMemoryCollection(settings).Build()
+            .GetSection(PublicChannelsOptions.SectionName)
+            .Get<PublicChannelsOptions>(binder => binder.ErrorOnUnknownConfiguration = false) ?? new PublicChannelsOptions();
     }
 }

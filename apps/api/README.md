@@ -745,6 +745,42 @@ website channel answers `422` with `errors["public-base-url"]`. Development uses
 `http://localhost:5153` (`appsettings.Development.json`); the customer compose file reads
 `PUBLIC_BASE_URL` from `deploy/.env`.
 
+## Monthly token limit: `set-token-limit`
+
+Every organization has a monthly budget of chat-model tokens (M5a #195;
+`SmartAgri.Application.Organizations.OrganizationTokenUsage`). When it is used up, every website
+channel of the organization is `suspended-quota` (replies stop; internal use is never blocked) until
+next month or until the limit is raised. There is no settings screen: operators set it.
+
+- **The limit**: `Organization.MonthlyTokenLimit`, or, when that is unset, the deployment default
+  `PublicChannels:DefaultMonthlyTokenLimit` (2,000,000; `DEFAULT_MONTHLY_TOKEN_LIMIT` in
+  `deploy/.env`, blank = the built-in value; a negative value refuses to start). `0` means no
+  replies at all.
+- **What counts**: the sum of `InputTokens + OutputTokens` of the organization's `ModelInvocations`
+  in the current calendar month **of `Statistics:TimeZone`** (midnight on the 1st to midnight on the
+  1st), over the chat-model purposes only: conversations, wizard trial answers, acceptance reruns,
+  form-request decisions, database-query tool selection and report summaries — also the internal
+  ones, because the cost is the organization's as a whole. Embedding calls (`embed-document`,
+  `embed-query`) never count; a call whose provider reported no usage (`null`) counts as 0, never
+  estimated. A reply that finishes after the check can push usage slightly past the limit.
+- **State**: `normal` under 80% of the limit, `near` from 80%, `exceeded` from 100% (which suspends
+  the website channel). The sum uses the `(OrganizationId, At)` index and is cached per organization
+  for 30 seconds, so a changed limit (or new usage) is seen by a running Api within 30 seconds.
+- **`GET /api/v1/organization/usage`** (signed in, `manage-publishing`; otherwise `403`) returns
+  `{ month: "YYYY-MM", usedTokens, limitTokens, state }`.
+- **`set-token-limit`** is a one-shot subcommand like `migrate` and `reindex`, and works in any
+  environment (also inside the Production container):
+
+  ```sh
+  dotnet SmartAgri.Api.dll set-token-limit --organization <code> --tokens 5000000
+  dotnet SmartAgri.Api.dll set-token-limit --organization <code> --tokens default   # back to the deployment default
+  # customer deploy: docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api set-token-limit --organization <code> --tokens 5000000
+  ```
+
+  `<code>` is the organization code used at login. Exit code `0` done, `1` unknown organization (or
+  the write failed — nothing is written), `2` bad arguments (`--tokens` must be `0`, a positive
+  integer, or `default`).
+
 ## Retrieval preview and `KnowledgeRetriever`
 
 `KnowledgeRetriever` (Application, scoped; M2 plan Slice 9) is **the** way to search knowledge:

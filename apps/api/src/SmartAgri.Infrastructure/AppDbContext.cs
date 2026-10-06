@@ -237,13 +237,15 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
         modelBuilder.Entity<Organization>(organization =>
         {
-            organization.ToTable("Organizations");
+            organization.ToTable("Organizations", table =>
+                table.HasCheckConstraint("CK_Organizations_MonthlyTokenLimit", "\"MonthlyTokenLimit\" >= 0"));
             organization.HasKey(o => o.Id);
             organization.Property(o => o.Id).ValueGeneratedNever();
             organization.Property(o => o.Name).HasMaxLength(Organization.NameMaxLength).IsRequired();
             organization.Property(o => o.Code).HasMaxLength(Organization.CodeMaxLength).IsRequired();
             organization.HasIndex(o => o.Code).IsUnique();
             organization.Property(o => o.TeamPermissionsSavedAt);
+            organization.Property(o => o.MonthlyTokenLimit);
         });
 
         modelBuilder.Entity<Account>(account =>

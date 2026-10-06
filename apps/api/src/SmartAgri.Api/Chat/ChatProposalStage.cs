@@ -74,9 +74,11 @@ internal sealed class ChatProposalStage
     private readonly IReadOnlyList<IChatProposal> _proposals;
     private readonly IOptions<ChatFormRequestOptions> _triggerOptions;
 
-    public ChatProposalStage(ChatFormRequestProposal formRequest, IOptions<ChatFormRequestOptions> triggerOptions)
+    public ChatProposalStage(
+        ChatFormRequestProposal formRequest, ChatCaseProposal caseProposal, IOptions<ChatFormRequestOptions> triggerOptions)
     {
-        _proposals = [formRequest];
+        // Decision L: the form request first, then the case proposal (M7-9).
+        _proposals = [formRequest, caseProposal];
         _triggerOptions = triggerOptions;
     }
 
@@ -167,7 +169,7 @@ internal sealed class ChatFormRequestProposal(AssistantFormRequests formRequests
                 Guid.CreateVersion7(),
                 "assistant",
                 null,
-                new ChatReplyView("form-request", Text, [], null, [], form, null, null),
+                new ChatReplyView("form-request", Text, [], null, [], form, null, null, null),
                 now);
     }
 }

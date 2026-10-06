@@ -30,6 +30,7 @@ import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { StatusBadgeComponent, type StatusTone } from '../../../shared/ui/status-badge/status-badge.component';
 import { DatabaseAccessComponent } from '../database-access/database-access.component';
+import { DatabaseAutoCaseComponent } from '../database-auto-case/database-auto-case.component';
 import { FormDesignerComponent, type FormDesignerFailure } from '../form-designer/form-designer.component';
 import { FormTrialComponent } from '../form-designer/form-trial/form-trial.component';
 import { DatabaseReportsComponent } from '../database-reports/database-reports.component';
@@ -70,6 +71,7 @@ const ASSISTANT_STATUS: Record<AssistantStatus, { readonly label: string; readon
     StatePanelComponent,
     StatusBadgeComponent,
     DatabaseAccessComponent,
+    DatabaseAutoCaseComponent,
     FormDesignerComponent,
     FormTrialComponent,
     DatabaseReportsComponent,
@@ -155,6 +157,11 @@ export class DatabaseDetailPageComponent {
   /** 收集紀錄讀取失敗（5xx、連線中斷）後重試；與「沒有紀錄」分開顯示。 */
   protected reloadTracking(): void {
     this.trackingResource.reload();
+  }
+
+  /** 送出後自動開案的提示人數依「目前可讀紀錄的人」計算；資料管理者變更後跟著重新讀取。 */
+  protected readerKey(detail: DatabaseDetailView): string {
+    return detail.access.effectiveReaders.map((reader) => reader.id).join(',');
   }
 
   protected updatedAt(iso: string): string {

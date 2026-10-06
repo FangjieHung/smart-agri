@@ -22,6 +22,7 @@ import {
   CASE_TYPE_REQUIRED_MESSAGE,
   caseEventLabel,
   caseOriginLabel,
+  caseCreatedByText,
   caseRecordStateLabel,
   caseStatusLabel,
   isCaseOverdue,
@@ -73,6 +74,7 @@ export class CasesPageComponent {
   protected readonly statusLabel = caseStatusLabel;
   protected readonly originLabel = caseOriginLabel;
   protected readonly recordStateLabel = caseRecordStateLabel;
+  protected readonly createdByText = caseCreatedByText;
   protected readonly formatDueHours = formatDueHours;
 
   /**

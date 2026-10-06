@@ -16,5 +16,12 @@
     @if (store.fieldError('sources'); as sourcesError) {
       <p class="error" role="alert">{{ sourcesError }}</p>
     }
+
+    <app-proposable-case-types
+      [selected]="settings.caseTypeIds"
+      [busy]="store.busy()"
+      [error]="store.fieldError('caseTypeIds')"
+      (toggled)="store.toggleCaseType($event)"
+    />
   </div>
 }

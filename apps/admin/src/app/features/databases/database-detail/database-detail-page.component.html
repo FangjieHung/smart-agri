@@ -132,6 +132,7 @@
             [access]="detail.access"
             (changed)="reload()"
           />
+          <app-database-auto-case [databaseId]="detail.summary.id" [readerKey]="readerKey(detail)" />
         }
         @default {
           @let records = tracking();

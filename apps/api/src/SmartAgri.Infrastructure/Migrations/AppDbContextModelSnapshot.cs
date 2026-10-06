@@ -408,6 +408,32 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("Assistants", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantCaseType", b =>
+                {
+                    b.Property<Guid>("AssistantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CaseTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("AssistantId", "CaseTypeId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AssistantId", "OrganizationId");
+
+                    b.HasIndex("CaseTypeId", "OrganizationId");
+
+                    b.ToTable("AssistantCaseTypes", (string)null);
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantDatabase", b =>
                 {
                     b.Property<Guid>("AssistantId")
@@ -1464,6 +1490,11 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<int>("Author")
                         .HasColumnType("integer");
 
+                    b.Property<string>("CaseProposalJson")
+                        .IsConcurrencyToken()
+                        .HasColumnType("text")
+                        .HasColumnName("CaseProposal");
+
                     b.Property<string>("ClientMessageId")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -1487,6 +1518,9 @@ namespace SmartAgri.Infrastructure.Migrations
 
                     b.Property<Guid>("OrganizationId")
                         .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProposedCaseId")
                         .HasColumnType("uuid");
 
                     b.Property<int?>("ReplyKind")
@@ -1636,6 +1670,9 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("ArchivedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("AutoCaseTypeId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1667,6 +1704,8 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AutoCaseTypeId", "OrganizationId");
 
                     b.HasIndex("OwnerAccountId", "OrganizationId");
 
@@ -2841,6 +2880,29 @@ namespace SmartAgri.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantCaseType", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)
+                        .WithMany()
+                        .HasForeignKey("AssistantId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Cases.CaseType", null)
+                        .WithMany()
+                        .HasForeignKey("CaseTypeId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Assistants.AssistantDatabase", b =>
                 {
                     b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
@@ -3315,6 +3377,12 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Cases.CaseType", null)
+                        .WithMany()
+                        .HasForeignKey("AutoCaseTypeId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
                         .WithMany()

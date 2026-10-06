@@ -63,6 +63,7 @@ import type {
   ChatFormSubmission,
   ChatFormSubmissionResultView,
   ChatFormView,
+  ChatMessageView,
   ChatThreadListView,
   ChatThreadSummaryView,
   ConversationId,
@@ -426,6 +427,34 @@ export type ReviewChatFormResult =
  * 這個資料庫、分享或權限被收回；`conflict`：表單已改版或提交編號已用在別的內容。任何非
  * `ready` 的結果都沒有建立紀錄。
  */
+/** 確認案件提議時送出的內容（issue #254）：案件只保存這兩項。 */
+export interface ChatCaseProposalConfirmation {
+  readonly title: string;
+  readonly description: string;
+}
+
+/**
+ * 確認被拒絕（`422`）：`reason` 是後端的原因（`case-type-not-proposable`、`case-group-archived`；欄位錯誤是 null），
+ * `fieldErrors` 是標題與說明各自的第一則錯誤。沒有建立任何東西。
+ */
+export interface ChatCaseProposalValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly reason: string | null;
+  readonly message: string;
+  readonly fieldErrors: Readonly<Partial<Record<'title' | 'description', string>>>;
+}
+
+/** 這則提議已經確認或選了「不用了」（`409 case-proposal-closed`）。 */
+export interface ChatCaseProposalConflictView {
+  readonly status: 'conflict';
+  readonly message: string;
+}
+
+export type ChatCaseProposalResult =
+  | RepositoryView<ChatMessageView>
+  | ChatCaseProposalValidationFailedView
+  | ChatCaseProposalConflictView;
+
 export type SubmitChatFormResult =
   | RepositoryView<ChatFormSubmissionResultView>
   | DatabaseFieldsValidationFailedView
@@ -666,6 +695,16 @@ export interface DemoRepository extends DemoScenarioController {
     assistantId: string,
     source: AssistantSourceReference,
     connected: boolean,
+  ): Observable<UpdateAssistantSettingsResult>;
+  /**
+   * 加入或移除一個「可提議的案件類型」（issue #254，決定 U；API 是
+   * `PUT`／`DELETE .../sources/case-type/{id}`）：只有擁有者，只能加入啟用中的類型（否則 validation-failed，
+   * `caseTypeIds` 欄位）。移除不在清單上的類型什麼都不變。
+   */
+  setAssistantCaseType(
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
   ): Observable<UpdateAssistantSettingsResult>;
   /**
    * 刪除助理，連同**所有成員**與它的對話紀錄（M3 計畫決定 G）；無法復原。
@@ -1248,6 +1287,24 @@ export interface DemoRepository extends DemoScenarioController {
     formId: DatabaseId,
     threadId?: string,
   ): Observable<RepositoryView<null>>;
+  /**
+   * 確認助理提議的案件（issue #254，API 是 `POST .../chat/case-proposals/{messageId}:confirm`）：以使用者確認
+   * （可修改）的標題與說明建立案件，連結這個對話串；`ready` 帶回這則提議更新後的樣子（已建立、案件 id）。
+   * 欄位錯誤或類型已停用、已不在助理的清單上是 validation-failed；已確認或已選「不用了」是 conflict。
+   * 不是自己的對話是 `chat-thread`，外部客戶是 `case`。5xx 與連線中斷以 error 傳出，案件沒有建立。
+   */
+  confirmChatCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation,
+  ): Observable<ChatCaseProposalResult>;
+  /** 「不用了」（issue #254，`:dismiss`）：只記下來，不建立案件；已處理過是 conflict。 */
+  dismissChatCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+  ): Observable<ChatCaseProposalResult>;
 }
 
 export const DEMO_SECURITY_NOTICE =

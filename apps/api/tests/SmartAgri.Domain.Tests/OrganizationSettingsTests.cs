@@ -82,6 +82,7 @@ public class OrganizationSettingsTests
         WireNames<OrganizationActivityAction>.All.ShouldBe(
             [
                 "chat-model-changed", "retention-changed", "retention-change-cancelled", "retention-took-effect", "retention-cleanup",
+                "conversations-purged",
                 "case-group-created", "case-group-renamed", "case-group-archived", "case-group-unarchived",
             ]);
     }

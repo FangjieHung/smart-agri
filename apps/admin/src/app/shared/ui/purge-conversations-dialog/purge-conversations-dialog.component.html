@@ -1,0 +1,24 @@
+<app-confirm-dialog
+  name="purge"
+  [heading]="heading()"
+  [detail]="detail()"
+  [headingLevel]="headingLevel()"
+  [confirmLabel]="busy() ? '刪除中…' : '立即刪除'"
+  confirmClass="confirm-purge"
+  [busy]="busy()"
+  [confirmDisabled]="!acknowledged()"
+  (cancelled)="cancelled.emit()"
+  (confirmed)="confirm()"
+>
+  <p class="purge-confirm__note" data-purge-issues-note>{{ issuesNote }}</p>
+  <label class="purge-confirm__acknowledge">
+    <input
+      id="purge-acknowledge"
+      type="checkbox"
+      [checked]="acknowledged()"
+      [disabled]="busy()"
+      (change)="acknowledge($event)"
+    />
+    <span>{{ acknowledgement }}</span>
+  </label>
+</app-confirm-dialog>

@@ -321,7 +321,14 @@ describe('AssistantDetailPageComponent', () => {
     expect((page.querySelector('#scope-general') as HTMLInputElement).checked).toBe(true);
     (page.querySelector('#scope-strict') as HTMLInputElement).click();
     flush();
+    // 管理者在開關旁看到已保存的對話數與「立即刪除」（issue #242）；沒有對話時停用。
+    expect(page.querySelector('[data-kept-conversations-count]')?.textContent).toContain('目前已保存 0 串對話');
+    expect(page.querySelector<HTMLButtonElement>('.kept-conversations__purge')?.disabled).toBe(true);
     (page.querySelector('#keep-conversations') as HTMLInputElement).click();
+    flush();
+    // 關閉前先確認，寫明已保存的對話不會刪除。
+    expect(page.querySelector('[role="dialog"] .confirm-detail')?.textContent).toContain('已保存的對話不會刪除');
+    (page.querySelector('.confirm-keep-off') as HTMLButtonElement).click();
     flush();
 
     const reopened = await renderTab('rules', { storage });

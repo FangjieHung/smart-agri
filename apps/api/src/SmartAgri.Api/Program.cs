@@ -221,6 +221,7 @@ app.MapOperationsSummaryEndpoints();
 app.MapOrganizationUsageEndpoints();
 app.MapOrganizationChatModelEndpoints();
 app.MapOrganizationRetentionEndpoints();
+app.MapConversationPurgeEndpoints();
 app.MapCaseGroupEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();

@@ -195,7 +195,8 @@ public sealed class PublicChannelsOptions
 
 /// <summary>
 /// <c>PublicChannels:RateLimits</c> (M5a plan §3 E and decision C): how often the visitor API
-/// (<c>/api/v1/public/*</c>) answers before it refuses with <c>429</c> and <c>Retry-After</c>. The
+/// (<c>/api/v1/public/*</c>) answers before it refuses with <c>429</c> and <c>Retry-After</c>; from
+/// M5b (plan §3 F) also the LINE webhook's limits, named <c>Line*</c>. The
 /// counters live in this process's memory (one API container per deployment; several instances would
 /// each count on their own). Every value is a count of at least 1; the window is part of the name.
 /// </summary>
@@ -222,6 +223,15 @@ public sealed class PublicRateLimitOptions
     /// <summary>Replies one assistant may be generating at the same time, for all visitors. Default 10.</summary>
     public int MaxConcurrentRunsPerAssistant { get; set; } = 10;
 
+    /// <summary>LINE webhook requests one assistant's URL accepts per minute (M5b #231; sliding window,
+    /// checked before the body is read or the signature verified, so forged requests cost little).
+    /// Beyond it: <c>429</c>. Default 1,000.</summary>
+    public int LineWebhooksPerAssistantPerMinute { get; set; } = 1000;
+
+    /// <summary>LINE webhook deliveries of one assistant the background processor handles at the
+    /// same time (M5b #231, decision E); the others wait in the queue. Default 10.</summary>
+    public int LineMaxConcurrentWebhooksPerAssistant { get; set; } = 10;
+
     internal IEnumerable<(string Name, int Value)> Values()
     {
         yield return (nameof(SessionsPerIpPerMinute), SessionsPerIpPerMinute);
@@ -230,5 +240,7 @@ public sealed class PublicRateLimitOptions
         yield return (nameof(RunsPerIpPerMinute), RunsPerIpPerMinute);
         yield return (nameof(RunsPerAssistantPerMinute), RunsPerAssistantPerMinute);
         yield return (nameof(MaxConcurrentRunsPerAssistant), MaxConcurrentRunsPerAssistant);
+        yield return (nameof(LineWebhooksPerAssistantPerMinute), LineWebhooksPerAssistantPerMinute);
+        yield return (nameof(LineMaxConcurrentWebhooksPerAssistant), LineMaxConcurrentWebhooksPerAssistant);
     }
 }

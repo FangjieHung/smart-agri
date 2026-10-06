@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using SmartAgri.Application.Line;
 using SmartAgri.Infrastructure.Line;
@@ -29,6 +30,26 @@ public static class LineServiceCollectionExtensions
                 http.Timeout = LineMessagingClient.Timeout;
             })
             .RemoveAllLoggers();
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the webhook's processing (M5b #231, plan §3 C–E): <see cref="LineWebhookDeduplicator"/>,
+    /// <see cref="LineWebhookQueue"/> and the <see cref="LineWebhookProcessor"/> that drains it,
+    /// <see cref="LineWebhookEventHandler"/>, the in-memory <see cref="ILineConversationHistory"/>
+    /// (decision E's limits) and — unless one is registered already — the
+    /// <see cref="ILineQuestionHandler"/> that answers nothing.
+    /// </summary>
+    public static IServiceCollection AddLineWebhook(this IServiceCollection services)
+    {
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton(provider => new LineWebhookDeduplicator(provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<LineWebhookQueue>();
+        services.AddSingleton<ILineConversationHistory>(provider =>
+            new InMemoryLineConversationHistory(provider.GetRequiredService<TimeProvider>(), LineConversationHistoryLimits.Default));
+        services.AddScoped<LineWebhookEventHandler>();
+        services.TryAddScoped<ILineQuestionHandler, NoLineQuestionHandler>();
+        services.AddHostedService<LineWebhookProcessor>();
         return services;
     }
 

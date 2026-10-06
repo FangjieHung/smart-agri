@@ -97,7 +97,8 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// events, same saving rules, plus one <c>CUSTOM smartagri.form-check</c> (empty value; #171) right
 /// before the selection call — after <c>TEXT_MESSAGE_START</c> and after a statistics query that did
 /// not answer — so the client can show that it is checking for a form. Keyword mode and assistants
-/// without a form target never send it.
+/// without a form target never send it. Since M7-8 the form request is the first proposal of the
+/// <see cref="ChatProposalStage"/> (find, decide by the trigger, compose and save), unchanged.
 /// </para>
 /// <para>
 /// <b>Database queries</b> (M4 #149, <see cref="ChatDatabaseQueries"/>). When the question asks for a
@@ -108,7 +109,7 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// composed from the result (the model never sees it). Same events and saving rules; the reply is
 /// saved as a snapshot (<c>ChatMessages.DatabaseQuery</c>), re-checked whenever it is read, never
 /// handed off, and replaced by a placeholder in the history later model calls see. Precedence:
-/// a database query first, then the form request, then the answer pipeline — so 「本月回報了幾筆？」
+/// a database query first, then the proposal stage (the form request), then the answer pipeline — so 「本月回報了幾筆？」
 /// is a query while 「我要回報」 is a form; a question the model decides not to query (no tool call)
 /// falls through to the form request or the answer. A model failure here ends the stream with
 /// <c>RUN_ERROR chat-unavailable</c>, as in the answer pipeline.
@@ -132,7 +133,8 @@ public static class ChatRunEndpoints
     /// </summary>
     public const string FormCheckEventName = "smartagri.form-check";
 
-    private static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
+    /// <summary><see cref="FormCheckEventName"/>'s value.</summary>
+    internal static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
 
     /// <summary><c>RUN_ERROR</c>'s code for a failure that is not a model/embedding one.</summary>
     public const string InternalErrorCode = "internal-error";
@@ -174,10 +176,8 @@ public static class ChatRunEndpoints
         RequestAccountPermissions permissions,
         IAnswerKnowledgeBases knowledgeBases,
         GroundedAnswerService answers,
-        AssistantFormRequests formRequests,
+        ChatProposalStage proposals,
         ChatDatabaseQueries databaseQueries,
-        ChatFormRequestTool formTool,
-        IOptions<ChatFormRequestOptions> formOptions,
         ChatRunLocks locks,
         ChatModelCatalog chatModels,
         EmbeddingProvider embeddingProvider,
@@ -299,20 +299,10 @@ public static class ChatRunEndpoints
                 }
             }
 
-            // The form tool (#148): re-authorized on this request, never cached. Keyword mode decides
-            // here; model mode (#164) only finds the form to offer and lets the model decide in the run.
-            ChatFormRequestView? formRequest = null;
-            FormSelection? formSelection = null;
-            if (formOptions.Value.TriggerKind == ChatFormRequestTrigger.Model)
-            {
-                formSelection = await formRequests.FormRequestAsync(assistant, null, cancellationToken) is { } offered
-                    ? new FormSelection(formTool, assistant, offered)
-                    : null;
-            }
-            else if (AssistantFormRequestRules.AsksForForm(question.Value))
-            {
-                formRequest = await formRequests.FormRequestAsync(assistant, null, cancellationToken);
-            }
+            // The proposal stage (M7-8), step 1: what this request may be offered (the form tool, #148),
+            // re-authorized on this request, never cached. Keyword mode decides here; model mode (#164)
+            // only finds what to offer and lets the model decide in the run.
+            var proposalCandidates = await proposals.FindAsync(assistant, viewerId, question.Value, cancellationToken);
 
             // The query tools (#149): offered only for a statistics question, scoped to this request.
             var queryScope = DatabaseQueryTools.AsksForStatistics(question.Value)
@@ -332,8 +322,7 @@ public static class ChatRunEndpoints
                 thread,
                 ThreadIdForEvents(thread, input),
                 string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId,
-                formRequest,
-                formSelection,
+                proposalCandidates,
                 databaseQueries,
                 queryScope);
 
@@ -463,10 +452,6 @@ public static class ChatRunEndpoints
         await Task.CompletedTask;
     }
 
-    /// <summary>Model mode's form decision (#164), made in the run: the tool, the assistant and the
-    /// form authorized for this request.</summary>
-    private sealed record FormSelection(ChatFormRequestTool Tool, Assistant Assistant, ChatFormRequestView Offered);
-
     /// <summary>One run's state while it streams.</summary>
     private sealed class ChatRun(
         AppDbContext dbContext,
@@ -479,8 +464,7 @@ public static class ChatRunEndpoints
         ChatThread? thread,
         string threadIdForEvents,
         string runId,
-        ChatFormRequestView? formRequest,
-        FormSelection? formSelection,
+        IReadOnlyList<ChatProposalCandidate> proposalCandidates,
         ChatDatabaseQueries databaseQueries,
         ChatDatabaseQueryScope? queryScope)
     {
@@ -541,27 +525,26 @@ public static class ChatRunEndpoints
                 }
             }
 
-            var form = formRequest;
-            if (formSelection is not null)
+            // The proposal stage (M7-8), steps 2 and 3, in precedence order: the first proposal decided
+            // ends the run with its server-built reply (no model call in keyword mode).
+            foreach (var candidate in proposalCandidates)
             {
-                // #171: the client shows its "checking" state only on this event, and hides it at the
-                // first answer text or the form request (also after a keyword fallback).
-                yield return new CustomEvent { Name = FormCheckEventName, Value = EmptyObject };
+                foreach (var beforeDecision in candidate.BeforeDecision)
+                {
+                    yield return beforeDecision;
+                }
 
-                // Model mode (#164): the model decides; the server re-authorizes and builds the form.
-                form = await formSelection.Tool.SelectAsync(
-                    formSelection.Assistant, formSelection.Offered, request.Question, askerId, cancellationToken);
-            }
+                if (await candidate.DecideAsync(cancellationToken) is not { } proposal)
+                {
+                    continue;
+                }
 
-            if (form is not null)
-            {
-                // The form tool's reply: fixed text, the server's form (no model call in keyword mode).
-                yield return new TextMessageContentEvent { MessageId = streamMessageId, Delta = AssistantFormRequestRules.FormRequestText };
+                yield return new TextMessageContentEvent { MessageId = streamMessageId, Delta = proposal.Text };
                 yield return new TextMessageEndEvent { MessageId = streamMessageId };
-                var formView = thread is not null
-                    ? await SaveFormRequestAsync(thread, form, cancellationToken)
-                    : TransientFormRequest(form);
-                foreach (var finalEvent in FinalEvents(formView))
+                var proposalView = thread is not null
+                    ? await SaveProposalAsync(thread, proposal, cancellationToken)
+                    : proposal.Transient(MicrosecondNow());
+                foreach (var finalEvent in FinalEvents(proposalView))
                 {
                     yield return finalEvent;
                 }
@@ -674,15 +657,15 @@ public static class ChatRunEndpoints
             yield return new RunFinishedEvent { ThreadId = threadIdForEvents, RunId = runId };
         }
 
-        /// <summary>Saves a form request (only the database id; the form is re-read and
-        /// re-authorized whenever it is shown) and returns it exactly as <c>GET chat</c> will.</summary>
-        private async Task<ChatMessageView> SaveFormRequestAsync(
-            ChatThread savedThread, ChatFormRequestView form, CancellationToken cancellationToken)
+        /// <summary>Saves a proposal's reply (a form request saves only the database id; the form is
+        /// re-read and re-authorized whenever it is shown) and returns it exactly as <c>GET chat</c> will.</summary>
+        private async Task<ChatMessageView> SaveProposalAsync(
+            ChatThread savedThread, ChatProposalReply proposal, CancellationToken cancellationToken)
         {
-            var message = ChatMessage.FormRequest(savedThread, AssistantFormRequestRules.FormRequestText, form.Id, clock.GetUtcNow());
+            var message = proposal.CreateMessage(savedThread, clock.GetUtcNow());
             dbContext.ChatMessages.Add(message);
             await dbContext.SaveChangesAsync(cancellationToken);
-            return ChatEndpoints.ToMessageView(message, [], form);
+            return proposal.ToView(message);
         }
 
         /// <summary>Saves a query answer (its text and the structured snapshot) and returns it exactly
@@ -696,14 +679,6 @@ public static class ChatRunEndpoints
             await dbContext.SaveChangesAsync(cancellationToken);
             return ChatEndpoints.ToMessageView(message, [], query: query);
         }
-
-        private ChatMessageView TransientFormRequest(ChatFormRequestView form) =>
-            new(
-                Guid.CreateVersion7(),
-                "assistant",
-                null,
-                new ChatReplyView("form-request", AssistantFormRequestRules.FormRequestText, [], null, [], form, null, null),
-                MicrosecondNow());
 
         private DateTimeOffset MicrosecondNow()
         {

@@ -168,6 +168,8 @@ public class PublicChannelsOptionsTests
             options.RateLimits.RunsPerIpPerMinute.ShouldBe(20);
             options.RateLimits.RunsPerAssistantPerMinute.ShouldBe(120);
             options.RateLimits.MaxConcurrentRunsPerAssistant.ShouldBe(10);
+            options.RateLimits.LineWebhooksPerAssistantPerMinute.ShouldBe(1000);
+            options.RateLimits.LineMaxConcurrentWebhooksPerAssistant.ShouldBe(10);
             options.TrustedProxies.ShouldBeEmpty();
             Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();
         }
@@ -184,9 +186,11 @@ public class PublicChannelsOptionsTests
             ["PublicChannels:RateLimits:RunsPerIpPerMinute"] = "6",
             ["PublicChannels:RateLimits:RunsPerAssistantPerMinute"] = "7",
             ["PublicChannels:RateLimits:MaxConcurrentRunsPerAssistant"] = "8",
+            ["PublicChannels:RateLimits:LineWebhooksPerAssistantPerMinute"] = "9",
+            ["PublicChannels:RateLimits:LineMaxConcurrentWebhooksPerAssistant"] = "10",
         });
 
-        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8]);
+        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8, 9, 10]);
         Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
 
@@ -197,6 +201,8 @@ public class PublicChannelsOptionsTests
     [InlineData("RunsPerIpPerMinute", "-5")]
     [InlineData("RunsPerAssistantPerMinute", "0")]
     [InlineData("MaxConcurrentRunsPerAssistant", "0")]
+    [InlineData("LineWebhooksPerAssistantPerMinute", "0")]
+    [InlineData("LineMaxConcurrentWebhooksPerAssistant", "0")]
     public void A_rate_limit_below_one_fails_startup_and_says_which_setting(string name, string value)
     {
         var result = Validator("Production").Validate(null, BindSettings(new Dictionary<string, string?> { [$"PublicChannels:RateLimits:{name}"] = value }));

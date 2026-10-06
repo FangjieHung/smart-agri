@@ -507,6 +507,34 @@ public static class AssistantLineChannelEndpoints
     }
 
     /// <summary>
+    /// Whether the assistant's LINE channel answers LINE users right now — the same derivation as
+    /// <see cref="ViewAsync"/> — for the LINE webhook processor (M5b #231), which asks on every
+    /// delivery. Reads under the current organization: the assistant's.
+    /// </summary>
+    internal static async Task<(ChannelServingState State, AssistantLineChannel? Channel)> ServingStateAsync(
+        AppDbContext dbContext,
+        Assistant assistant,
+        OrganizationTokenUsage tokenUsage,
+        CancellationToken cancellationToken)
+    {
+        var channel = await dbContext.AssistantLineChannels
+            .AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.AssistantId == assistant.Id, cancellationToken);
+        var acceptance = await AssistantWebsiteChannelEndpoints.AcceptanceAsync(dbContext, assistant.Id, cancellationToken);
+        var nonOwned = await AssistantWebsiteChannelEndpoints.NonOwnedKnowledgeBasesAsync(dbContext, assistant, cancellationToken);
+        var usage = await tokenUsage.GetAsync(assistant.OrganizationId, cancellationToken);
+
+        var serving = LineChannelServing.Evaluate(new LineChannelServingInput(
+            channel?.State,
+            channel?.ConnectionChecksPassed ?? false,
+            assistant.Status,
+            acceptance,
+            nonOwned.Count,
+            QuotaExceeded: usage.State == TokenUsageState.Exceeded));
+        return (serving, channel);
+    }
+
+    /// <summary>
     /// The LINE channel as it stands now, its serving state derived on this read
     /// (<see cref="LineChannelServing.Evaluate"/>: the website channel's conditions, with "every
     /// connection check passed" in place of "has an allowed domain"). Also <c>GET …/publishing</c>'s

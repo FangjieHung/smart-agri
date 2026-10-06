@@ -44,6 +44,29 @@ public partial class AssistantWireNameTests
         frontendUnion.ShouldContain("paused");
     }
 
+    [Fact]
+    public void Website_brand_colors_match_the_frontend_union()
+    {
+        AssertMatchesFrontendUnion<WebsiteBrandColor>(
+            "publishing.model.ts", "WebsiteBrandColor", ["forest", "ocean", "amber", "plum"]);
+    }
+
+    [Fact]
+    public void Website_launcher_positions_match_the_frontend_union()
+    {
+        AssertMatchesFrontendUnion<WebsiteLauncherPosition>(
+            "publishing.model.ts", "WebsiteLauncherPosition", ["bottom-right", "bottom-left"]);
+    }
+
+    [Fact]
+    public void Website_channel_and_serving_states_have_the_plans_wire_names()
+    {
+        // M5a plan §3 C; no frontend union yet (the admin maps them in #202).
+        WireNames<WebsiteChannelState>.All.ShouldBe(["draft", "published", "paused"]);
+        WireNames<WebsiteServingState>.All.ShouldBe(
+            ["not-published", "paused", "suspended-acceptance", "suspended-knowledge", "suspended-quota", "serving"]);
+    }
+
     private static void AssertMatchesFrontendUnion<TEnum>(string fileName, string unionName, string[] expected)
         where TEnum : struct, Enum
     {

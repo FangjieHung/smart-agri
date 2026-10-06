@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Knowledge;
+using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Reports;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
@@ -32,10 +34,11 @@ namespace SmartAgri.Api.Assistants;
 //   only (AssistantUseAccess.UsableBy), not audience/role;
 // - minScore is a backend-only field (grounded-answers ADR), not in the frontend model, and
 //   is not exposed by this slice's PATCH endpoint;
-// - AssistantPublishingView.website / .line are NotAvailablePublishingChannelView, not the
-//   frontend's full WebsiteEmbedView / LineSetupView: those channels are not implemented until
-//   a later milestone (M3 plan §5 Slice 3: "網站嵌入與 LINE 在 API 模式顯示「對外發布將於後續版本
-//   開放」"), so there is no embed code, webhook URL or field-level state to report yet.
+// - AssistantPublishingView.website is the real WebsiteChannelView since M5a #194
+//   (AssistantWebsiteChannelEndpoints; its differences from the frontend's WebsiteEmbedView are
+//   listed there); .line is still NotAvailablePublishingChannelView, not the frontend's full
+//   LineSetupView: LINE is not implemented until M5b, so there is no webhook URL or field-level
+//   state to report yet.
 
 /// <summary>One row of <c>GET /api/v1/assistants</c> (the caller's own assistants).</summary>
 /// <param name="ViewerCanManage">Whether the caller may open, change or delete it
@@ -92,7 +95,7 @@ public sealed record PlatformSharingView(
     IReadOnlyList<Guid> AllowedAccountIds,
     IReadOnlyList<PlatformShareTargetView> Candidates);
 
-/// <summary>A channel M3 does not implement yet (website embed, LINE): fixed
+/// <summary>A channel not implemented yet (LINE, until M5b): fixed
 /// <c>"not-available"</c> status and an explanatory message, in place of the frontend's full
 /// per-channel view (see the class-level comment on why the shape differs).</summary>
 public sealed record NotAvailablePublishingChannelView(string Status, string Message);
@@ -102,7 +105,7 @@ public sealed record AssistantPublishingView(
     Guid AssistantId,
     string AssistantName,
     PlatformSharingView Platform,
-    NotAvailablePublishingChannelView Website,
+    WebsiteChannelView Website,
     NotAvailablePublishingChannelView Line);
 
 /// <summary><c>PUT /api/v1/assistants/{id}/publishing/platform</c> request: the full set of
@@ -284,8 +287,8 @@ public static class AssistantEndpoints
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
-        // Publishing (M3 plan, Slice 3): S+OWN+MP. Website and LINE are not implemented yet
-        // (M3 plan §5 Slice 3), so only the platform channel has real read/write endpoints.
+        // Publishing (M3 plan, Slice 3): S+OWN+MP. The website channel's own endpoints are
+        // AssistantWebsiteChannelEndpoints (M5a #194); LINE is not implemented yet (M5b).
         assistants.MapGet("/{id:guid}/publishing", GetPublishingAsync)
             .RequirePermission(AccountPermission.ManagePublishing, ForbiddenReason.Publishing)
             .Produces<AssistantPublishingView>(StatusCodes.Status200OK)
@@ -876,12 +879,14 @@ public static class AssistantEndpoints
             "這個知識庫無法連接到這個助理，或已不存在。",
             field: "sources");
 
-    /// <summary>Platform sharing's real data, plus fixed <c>not-available</c> placeholders for
-    /// website and LINE (M3 plan §5 Slice 3).</summary>
+    /// <summary>Platform sharing's and the website channel's real data (the latter since M5a
+    /// #194, <see cref="AssistantWebsiteChannelEndpoints.ViewAsync"/>), plus a fixed
+    /// <c>not-available</c> placeholder for LINE (M5b).</summary>
     internal static async Task<IResult> GetPublishingAsync(
         Guid id,
         HttpContext httpContext,
         AppDbContext dbContext,
+        IOptions<PublicChannelsOptions> publicChannels,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
@@ -897,7 +902,8 @@ public static class AssistantEndpoints
 
         var allowedAccountIds = await SharedAccountIdsAsync(dbContext, assistant.Id, cancellationToken);
         var platform = await ToPlatformSharingAsync(dbContext, assistant, allowedAccountIds, cancellationToken);
-        return Results.Ok(new AssistantPublishingView(assistant.Id, assistant.Name, platform, NotYetAvailable, NotYetAvailable));
+        var website = await AssistantWebsiteChannelEndpoints.ViewAsync(dbContext, assistant, publicChannels.Value, cancellationToken);
+        return Results.Ok(new AssistantPublishingView(assistant.Id, assistant.Name, platform, website, NotYetAvailable));
     }
 
     /// <summary>

@@ -8,7 +8,7 @@ import {
   viewChild,
   type AfterViewInit,
 } from '@angular/core';
-import type { ChatCitationView } from '../../../core/domain/conversation.model';
+import type { ChatCitationView } from '../chat-view.model';
 
 /**
  * 引用來源抽屜：手機為底部面板、桌機為右側抽屜。

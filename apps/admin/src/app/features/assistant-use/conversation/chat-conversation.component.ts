@@ -19,6 +19,13 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
+import {
+  ChatMessageComponent,
+  CitationDrawerComponent,
+  StreamingReplyComponent,
+  type CitationRequest,
+  type WithdrawRequest,
+} from '@smart-agri/chat';
 import { finalize, map, type Subscription } from 'rxjs';
 import { CHAT_RUNNER, type ChatHistoryEntry, type ChatRunError, type ChatRunEvent } from '../../../core/chat/chat-runner';
 import { isVisitorId, type ChatViewerId } from '../../../core/domain/account.model';
@@ -41,17 +48,10 @@ import { AnonymousVisitorService } from '../../../core/session/anonymous-visitor
 import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
-import { CitationDrawerComponent } from '../citation-drawer/citation-drawer.component';
 import { ConsentConfirmationComponent } from '../consent-confirmation/consent-confirmation.component';
 import { FormCheckStatusComponent } from '../form-check-status/form-check-status.component';
 import { FormEntryComponent } from '../form-entry/form-entry.component';
 import { InlineFormComponent } from '../inline-form/inline-form.component';
-import { StreamingReplyComponent } from '../streaming-reply/streaming-reply.component';
-import {
-  ChatMessageComponent,
-  type CitationRequest,
-  type WithdrawRequest,
-} from '../message/chat-message.component';
 
 /**
  * 表單是從哪裡開啟的（issue #171）：對話中跳出的表單請求（關閉時記錄一筆關閉事件、訊息改成已關閉），

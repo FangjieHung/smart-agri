@@ -124,4 +124,18 @@ public class AssistantWebsiteChannelTests
         Should.Throw<ArgumentException>(() => new AssistantWebsiteDomain(channel, "Shop.example.com", T0));
         Should.Throw<ArgumentException>(() => new AssistantWebsiteDomain(channel, " ", T0));
     }
+
+    [Fact]
+    public void Being_seen_moves_last_seen_forward_only()
+    {
+        var domain = new AssistantWebsiteDomain(NewChannel(), "shop.example.com", T0);
+
+        domain.MarkSeen(T0.AddMinutes(5)).ShouldBeTrue();
+        domain.LastSeenAt.ShouldBe(T0.AddMinutes(5));
+        domain.MarkSeen(T0.AddMinutes(1)).ShouldBeFalse();
+        domain.MarkSeen(T0.AddMinutes(5)).ShouldBeFalse();
+        domain.LastSeenAt.ShouldBe(T0.AddMinutes(5));
+        domain.MarkSeen(T0.AddMinutes(9)).ShouldBeTrue();
+        domain.LastSeenAt.ShouldBe(T0.AddMinutes(9));
+    }
 }

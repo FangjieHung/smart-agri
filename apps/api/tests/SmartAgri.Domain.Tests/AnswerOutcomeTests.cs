@@ -49,6 +49,12 @@ public class AnswerOutcomeTests
     }
 
     [Fact]
+    public void Channels_have_the_plans_wire_names()
+    {
+        WireNames<AnswerOutcomeChannel>.All.ShouldBe(["chat", "trial", "test-run", "website"]);
+    }
+
+    [Fact]
     public void Cited_document_ids_are_de_duplicated()
     {
         var documentId = Guid.CreateVersion7();

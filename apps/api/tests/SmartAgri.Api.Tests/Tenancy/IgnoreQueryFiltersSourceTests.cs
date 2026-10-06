@@ -8,9 +8,11 @@ namespace SmartAgri.Api.Tests.Tenancy;
 /// step. No database needed.
 /// <list type="bullet">
 /// <item>Turning the organization filter off: only when looking up an account for sign-in
-/// (<c>AccountLookup</c>) and when the page embedded in a customer's website looks up its
-/// assistant's website channel (<c>PublicWebsiteChannelLookup</c>, which returns nothing but the
-/// channel's state and allowed domains).</item>
+/// (<c>AccountLookup</c>), an assistant's organization for an anonymous website visitor's
+/// session (<c>PublicAssistantLookup</c>, M5a #196, which returns nothing but the organization id),
+/// and when the page embedded in a customer's website looks up its assistant's website channel
+/// (<c>PublicWebsiteChannelLookup</c>, M5a #201, which returns nothing but the channel's state and
+/// allowed domains) — all before any organization exists.</item>
 /// <item>Raw SQL, which neither the filter nor the write guard sees: only claiming
 /// background jobs across organizations (<c>JobClaimer</c>, M2 plan §3).</item>
 /// <item>Acting for a background job's organization: only the job runner.</item>
@@ -29,16 +31,15 @@ public class IgnoreQueryFiltersSourceTests
         ["FromSql", "SqlQuery", "ExecuteSql", "NpgsqlCommand", "NpgsqlBatch", "CreateCommand", "GetDbConnection"];
 
     [Fact]
-    public void IgnoreQueryFilters_appears_only_in_AccountLookup_and_PublicWebsiteChannelLookup()
+    public void IgnoreQueryFilters_appears_only_in_AccountLookup_PublicAssistantLookup_and_PublicWebsiteChannelLookup()
     {
-        var occurrences = Occurrences(Token);
-
-        occurrences
+        Occurrences(Token)
             .Select(occurrence => occurrence[..occurrence.LastIndexOf(':')])
             .Order(StringComparer.Ordinal)
             .ShouldBe(
                 [
                     "SmartAgri.Infrastructure/Accounts/AccountLookup.cs",
+                    "SmartAgri.Infrastructure/Assistants/PublicAssistantLookup.cs",
                     "SmartAgri.Infrastructure/Assistants/PublicWebsiteChannelLookup.cs",
                     "SmartAgri.Infrastructure/Assistants/PublicWebsiteChannelLookup.cs",
                 ]);

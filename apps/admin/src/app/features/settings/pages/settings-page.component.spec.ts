@@ -47,6 +47,21 @@ describe('SettingsPageComponent', () => {
     expect(host.querySelector('app-chat-model-panel')?.textContent).toContain('目前使用：fake-chat-dev');
   });
 
+  it('shows the case groups section to the manager only (issue #246)', async () => {
+    for (const [accountId, shown] of [
+      ['account-smb-admin', true],
+      ['account-internal-employee', false],
+      ['account-external-customer', false],
+    ] as const) {
+      const { fixture, host } = render(accountId);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('app-case-groups-panel [data-case-groups-panel]') !== null, accountId).toBe(shown);
+      TestBed.resetTestingModule();
+    }
+  });
+
   it('places the conversation retention section right after the chat model section (issue #243)', async () => {
     const { fixture, host } = render();
     await fixture.whenStable();

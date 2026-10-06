@@ -49,6 +49,41 @@ describe('team management and data access', () => {
     }
   });
 
+  it('lets only the manager manage case groups, with internal accounts as the only members (issue #246)', () => {
+    loginAs('內部使用者');
+    cy.visit('/app/settings');
+    cy.contains('h2', '外觀設定').should('exist');
+    cy.get('[data-case-groups-panel]').should('not.exist');
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/settings');
+    cy.get('[data-case-groups-panel]').scrollIntoView().within(() => {
+      cy.contains('h2', '承辦組').should('be.visible');
+      cy.get('[data-case-group="舊倉儲組"]').should('contain', '已封存');
+
+      cy.get('#case-group-new-name').type('品保組');
+      cy.contains('button', '建立承辦組').click();
+      cy.get('[role="status"]').should('contain', '已建立承辦組「品保組」。');
+
+      cy.contains('button', '編輯「品保組」的成員').click();
+      cy.get('[data-case-group-members-editor]').within(() => {
+        cy.get('label').should('have.length', 2);
+        cy.contains('外部客戶').should('not.exist');
+        cy.contains('label', '安心商行客服同仁').click();
+        cy.contains('button', '儲存成員').click();
+      });
+      cy.get('[data-case-group="品保組"]').should('contain', '成員：安心商行客服同仁');
+
+      cy.contains('button', '「品保組」的成員異動').click();
+      cy.get('[data-case-group-history]').should('contain', '加入了 安心商行客服同仁');
+
+      cy.contains('button', '封存「品保組」').click();
+      cy.get('[data-case-group="品保組"]').should('contain', '已封存');
+      cy.contains('button', '取消封存「品保組」').click();
+      cy.get('[data-case-group="品保組"]').should('not.contain', '已封存');
+    });
+  });
+
   it('shortens the retention through a confirmation, shows the buffer and goes back (issue #243)', () => {
     loginAs('SMB 管理者');
     cy.visit('/app/settings');

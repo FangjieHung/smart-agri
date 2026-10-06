@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Errors;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
@@ -21,8 +22,6 @@ public static class OrganizationSettings
     public const string RevisionConflictReason = "organization-settings-conflict";
 
     public const string RevisionConflictMessage = "組織設定已在其他分頁或由其他管理者更新過，請重新載入後再修改。";
-
-    internal const string RemovedAccountName = "已停用的帳號";
 
     internal const string SystemActorName = "系統";
 
@@ -65,11 +64,6 @@ public static class OrganizationSettings
             return new OrganizationSettingChangeView(SystemActorName, last.At);
         }
 
-        var name = await dbContext.Accounts
-            .AsNoTracking()
-            .Where(account => account.Id == actorId)
-            .Select(account => account.DisplayName)
-            .SingleOrDefaultAsync(cancellationToken);
-        return new OrganizationSettingChangeView(name ?? RemovedAccountName, last.At);
+        return new OrganizationSettingChangeView(await AccountNames.NameOfAsync(dbContext, actorId, cancellationToken), last.At);
     }
 }

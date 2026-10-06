@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Accounts;
 using SmartAgri.Application.Databases;
 using SmartAgri.Application.Validation;
 using SmartAgri.Domain.Databases;
@@ -92,8 +93,6 @@ public abstract record DatabaseSubmissionOutcome
 /// </remarks>
 public sealed class DatabaseSubmissionService
 {
-    private const string RemovedAccountName = "已停用的帳號";
-
     private const string NoRecordsMessage = "目前只有 0 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。";
 
     private readonly AppDbContext _dbContext;
@@ -335,7 +334,7 @@ public sealed class DatabaseSubmissionService
                     .ToList();
                 var name = own.Count > 0
                     ? own[0].Submitter.DisplayName
-                    : names.GetValueOrDefault(subjectId, RemovedAccountName);
+                    : names.NameOf(subjectId);
                 var latest = own.Select(record => record.SubmittedAt).Concat(trails.Select(trail => trail.SubmittedAt)).Max();
                 return (Latest: latest, View: new DatabaseTrackedSubjectView(
                     new DatabaseAccountView(subjectId, name),
@@ -483,15 +482,13 @@ public sealed class DatabaseSubmissionService
             .ThenBy(designation => designation.AccountId)
             .Select(designation => designation.AccountId)
             .ToList();
-        var names = await _dbContext.Accounts.AsNoTracking()
-            .Where(account => readers.Contains(account.Id))
-            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
+        var names = await AccountNames.LoadAsync(_dbContext, readers, cancellationToken);
 
         return DatabaseSubmissionRules.TermsFor(
             organizationName,
             database.Name,
             purpose ?? database.Purpose,
-            [.. readers.Select(id => names.GetValueOrDefault(id, RemovedAccountName))]);
+            [.. readers.Select(id => names.NameOf(id))]);
     }
 
     private static bool IsKeyConflict(DbUpdateException exception) =>
@@ -514,24 +511,19 @@ public sealed class DatabaseSubmissionService
             submission.WithdrawnAt);
 
     private static DatabaseSubmittedRecordView ToRecordView(
-        DatabaseSubmission submission, IReadOnlyDictionary<Guid, string> names, IEnumerable<DatabaseSubmissionEntry> entries) =>
+        DatabaseSubmission submission, AccountNameLookup names, IEnumerable<DatabaseSubmissionEntry> entries) =>
         new(
             submission.Id,
             submission.ReceiptNumber,
             submission.SubmittedAt,
             submission.Source,
             new DatabaseAccountView(
-                submission.SubmittedByAccountId, names.GetValueOrDefault(submission.SubmittedByAccountId, RemovedAccountName)),
+                submission.SubmittedByAccountId, names.NameOf(submission.SubmittedByAccountId)),
             submission.FormVersionNumber,
             ToEntryViews(entries));
 
-    private async Task<Dictionary<Guid, string>> NamesAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken)
-    {
-        var ids = accountIds.Distinct().ToList();
-        return await _dbContext.Accounts.AsNoTracking()
-            .Where(account => ids.Contains(account.Id))
-            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
-    }
+    private Task<AccountNameLookup> NamesAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken) =>
+        AccountNames.LoadAsync(_dbContext, accountIds, cancellationToken);
 
     private static List<DatabaseSubmissionEntryView> ToEntryViews(IEnumerable<DatabaseSubmissionEntry> entries) =>
         [.. entries.OrderBy(entry => entry.Position)

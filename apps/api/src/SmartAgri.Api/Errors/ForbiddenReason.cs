@@ -236,6 +236,17 @@ public sealed class ForbiddenReason
         "只有管理者可以變更組織設定。");
 
     /// <summary>
+    /// The case features (M7 plan §3 common rules; issue #246) are for the organization's own people
+    /// only: an external customer gets this from every <c>/api/v1/case-groups</c> (and later
+    /// <c>/api/v1/case-types</c>, <c>/api/v1/cases</c>) endpoint. Not resource-specific — nothing's
+    /// existence is revealed — so its message names the rule. M7-3 adds the "not found or not
+    /// visible" case message under the same wire name.
+    /// </summary>
+    public static readonly ForbiddenReason CaseFeature = new(
+        "case",
+        "案件功能只開放組織內部帳號使用。");
+
+    /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason
     /// (see <c>PermissionPolicies.RequirePermission</c>, which always declares one). Not
     /// part of the frontend union on purpose, so it shows up in review and in the UI as a

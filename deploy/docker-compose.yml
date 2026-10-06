@@ -81,6 +81,10 @@ services:
       # replies are suspended, when its own limit (the `set-token-limit` command) is unset. Blank =
       # the built-in 2,000,000 (apps/api/README.md, "Monthly token limit").
       PublicChannels__DefaultMonthlyTokenLimit: ${DEFAULT_MONTHLY_TOKEN_LIMIT:-}
+      # IP addresses / CIDR networks of the reverse proxy in front of this api, comma separated (e.g.
+      # 172.18.0.0/16,10.0.0.5). Only requests from them have X-Forwarded-* applied; blank = ignored, and
+      # every visitor behind a proxy then shares one rate-limit IP (apps/api/README.md, "Behind a reverse proxy").
+      PublicChannels__TrustedProxies__0: ${TRUSTED_PROXIES:-}
     volumes:
       - ./certs:/app/certs:ro
       - smartagri-dataprotection-keys:/app/keys

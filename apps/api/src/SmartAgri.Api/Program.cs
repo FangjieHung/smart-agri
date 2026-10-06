@@ -66,6 +66,8 @@ builder.Services.AddPeriodicReports();
 builder.AddSmartAgriAuthentication();
 builder.AddSmartAgriDataProtection();
 builder.Services.AddVisitorAuthentication();
+builder.Services.AddPublicRateLimiting();
+builder.Services.AddTrustedProxies();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
 // Numbers are JSON numbers only. ASP.NET Core's web defaults also accept "12" for an int,
@@ -156,11 +158,18 @@ if (args is [SmartAgriCommands.SetTokenLimit, .. var setTokenLimitArgs])
     return;
 }
 
+// Behind a reverse proxy: apply X-Forwarded-* only from PublicChannels:TrustedProxies, first of all,
+// so the Origin check and the rate limits see the real client, scheme and host (M5a #197).
+app.UseTrustedProxies();
+
 // The visitor API answers only its own chat window (M5a #196): any other Origin is refused
 // before authentication. No CORS policy is registered anywhere.
 app.UsePublicOriginGuard();
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Rate limits of the visitor API only (M5a #197); after authorization, which knows the visitor.
+app.UseRateLimiter();
 
 app.MapGet("/health/live", () => Results.Ok()).AllowAnonymous().ExcludeFromDescription();
 

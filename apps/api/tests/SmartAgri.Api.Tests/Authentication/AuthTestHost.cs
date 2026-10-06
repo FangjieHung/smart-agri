@@ -146,6 +146,19 @@ public class AuthHostFixture : IAsyncLifetime
             // Conversations answer with a scripted, reproducible fake, no network (M3 Slice 4).
             builder.UseSetting("Ai:Chat:Provider", "Fake");
             builder.UseSetting("Ai:Chat:Model", ChatModel);
+
+            // The visitor API's rate limits (#197) count real time per process, and the tests of a class
+            // share this one host and one (absent) client address: out of the way here, so only tests
+            // of the limits themselves (their own host with tiny counts) can ever see a 429.
+            foreach (var name in new[]
+                     {
+                         "SessionsPerIpPerMinute", "RunsPerVisitorPerMinute", "RunsPerVisitorPerHour",
+                         "RunsPerIpPerMinute", "RunsPerAssistantPerMinute", "MaxConcurrentRunsPerAssistant",
+                     })
+            {
+                builder.UseSetting($"PublicChannels:RateLimits:{name}", "1000000");
+            }
+
             builder.ConfigureServices(services => services.AddSingleton(_clock).AddProtectedProbeEndpoint());
         }
     }

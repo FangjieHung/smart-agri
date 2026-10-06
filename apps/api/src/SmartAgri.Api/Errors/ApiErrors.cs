@@ -19,9 +19,10 @@ namespace SmartAgri.Api.Errors;
 /// <item><term><c>422</c></term><description>ProblemDetails + <c>message</c> +
 /// <c>errors</c>; plus a <c>reason</c> when the frontend has to tell refusals of the same
 /// field apart (<see cref="WithReason"/>).</description></item>
-/// <item><term><c>409</c>, <c>413</c>, <c>415</c>, <c>503</c></term><description>ProblemDetails +
+/// <item><term><c>409</c>, <c>413</c>, <c>415</c>, <c>429</c>, <c>503</c></term><description>ProblemDetails +
 /// <c>reason</c> + <c>message</c> (<see cref="WithReason"/>). <c>503</c> is a dependency the
-/// request needs being unavailable (the embedding model): try again later.</description></item>
+/// request needs being unavailable (the embedding model): try again later; <c>429</c> is the visitor
+/// API's rate limit (<see cref="RateLimited"/>, with <c>Retry-After</c>).</description></item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -49,8 +50,19 @@ public static class ApiErrors
         [StatusCodes.Status413PayloadTooLarge] = ("https://tools.ietf.org/html/rfc9110#section-15.5.14", "Content Too Large"),
         [StatusCodes.Status415UnsupportedMediaType] = ("https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type"),
         [StatusCodes.Status422UnprocessableEntity] = ("https://tools.ietf.org/html/rfc9110#section-15.5.21", "Unprocessable Content"),
+        [StatusCodes.Status429TooManyRequests] = ("https://tools.ietf.org/html/rfc6585#section-4", "Too Many Requests"),
         [StatusCodes.Status503ServiceUnavailable] = ("https://tools.ietf.org/html/rfc9110#section-15.6.4", "Service Unavailable"),
     };
+
+    /// <summary>The wire name of <see cref="RateLimited"/>.</summary>
+    public const string RateLimitedReason = "rate-limited";
+
+    /// <summary>
+    /// <c>429</c> from the visitor API's rate limiter (M5a plan §3 E): <c>reason: "rate-limited"</c>.
+    /// The caller adds <c>Retry-After</c> (seconds); the body is the same for every partition.
+    /// </summary>
+    public static IResult RateLimited() =>
+        WithReason(StatusCodes.Status429TooManyRequests, RateLimitedReason, "問題太頻繁了，請稍後再試。");
 
     /// <summary><c>401</c> with no body.</summary>
     public static IResult Unauthorized() => Results.Unauthorized();
@@ -101,7 +113,7 @@ public static class ApiErrors
 
     /// <summary>
     /// A refusal the caller can understand and act on: <paramref name="statusCode"/> (409,
-    /// 413, 415, 422 or 503) with a machine-readable <paramref name="reason"/> (kebab-case, for
+    /// 413, 415, 422, 429 or 503) with a machine-readable <paramref name="reason"/> (kebab-case, for
     /// the frontend to switch on) and a <paramref name="message"/> to show as is. A
     /// <c>422</c> also names <paramref name="field"/> in <c>errors</c>, like
     /// <see cref="ValidationFailed(string, IReadOnlyDictionary{string, string[]})"/>, so a

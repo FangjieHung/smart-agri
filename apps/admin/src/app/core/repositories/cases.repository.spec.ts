@@ -3,7 +3,15 @@ import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 import type { AccountId } from '../domain/account.model';
-import { CASE_DUE_IN_PAST_MESSAGE, CASE_TITLE_REQUIRED_MESSAGE, CASE_TYPE_INACTIVE_MESSAGE, type CreateCaseRequest } from '../domain/case.model';
+import {
+  CASE_ACTION_DENIED_MESSAGE,
+  CASE_CHANGED_MESSAGE,
+  CASE_DUE_IN_PAST_MESSAGE,
+  CASE_RESOLUTION_REQUIRED_MESSAGE,
+  CASE_TITLE_REQUIRED_MESSAGE,
+  CASE_TYPE_INACTIVE_MESSAGE,
+  type CreateCaseRequest,
+} from '../domain/case.model';
 import { DemoSessionService } from '../session/demo-session.service';
 import { CASE_FEATURE_DENIED_MESSAGE, CASE_TYPE_GROUP_ARCHIVED_MESSAGE } from './case-settings.repository';
 import { CasesRepository } from './cases.repository';
@@ -105,5 +113,64 @@ describe('CasesRepository (mock)', () => {
     });
     const next = ready(await firstValueFrom(repository.create(request({ previousCaseId: 'case-irrigation-done' }))));
     expect(next.links.previousCase).toEqual({ caseId: 'case-irrigation-done', canOpen: true });
+  });
+
+  it('accepts, transfers and completes like the API: the former owner keeps seeing the case, and each action is one event', async () => {
+    const { repository, activeAccountId } = mockRepository();
+    const first = ready(await firstValueFrom(repository.get('case-cold-room')));
+    expect(first.allowedActions).toEqual(['accept', 'cancel', 'comment']);
+    expect(first.cancelReasonRequired).toBe(false);
+
+    const accepted = ready(await firstValueFrom(repository.act('case-cold-room', 'accept', { eventCount: 1 })));
+    expect(accepted.case).toMatchObject({ status: 'in-progress', owner: { id: 'account-internal-employee' }, eventCount: 2 });
+    expect(await firstValueFrom(repository.act('case-cold-room', 'accept', { eventCount: 1 })))
+      .toEqual({ status: 'changed', message: CASE_CHANGED_MESSAGE });
+    expect(await firstValueFrom(repository.act('case-cold-room', 'complete', { eventCount: 2, resolution: ' ' }))).toMatchObject({
+      status: 'validation-failed', reason: 'resolution-required', fieldErrors: { resolution: CASE_RESOLUTION_REQUIRED_MESSAGE },
+    });
+    expect(await firstValueFrom(repository.act('case-cold-room', 'transfer', { eventCount: 2, groupId: 'case-group-equipment' }))).toMatchObject({
+      status: 'validation-failed', reason: 'case-group-unchanged',
+    });
+
+    const moved = ready(await firstValueFrom(repository.act('case-cold-room', 'transfer', { eventCount: 2, groupId: 'case-group-purchasing', note: '需要採購' })));
+    expect(moved.case).toMatchObject({ status: 'pending', owner: null, group: { id: 'case-group-purchasing' } });
+    expect(moved.allowedActions).toEqual(['cancel', 'comment']);
+    expect(moved.events.at(-1)).toMatchObject({ action: 'transferred', fromGroup: { name: '設備組' }, toGroup: { name: '採購組' }, note: '需要採購' });
+
+    // 管理者是採購組成員：受理、要求補件；建立者補充後自動回到處理中；管理者完成。
+    activeAccountId.set('account-smb-admin');
+    ready(await firstValueFrom(repository.act('case-cold-room', 'accept', { eventCount: 3 })));
+    ready(await firstValueFrom(repository.act('case-cold-room', 'request-info', { eventCount: 4, note: '請補照片' })));
+    activeAccountId.set('account-internal-employee');
+    expect(await firstValueFrom(repository.act('case-cold-room', 'complete', { eventCount: 5, resolution: '已修好' })))
+      .toEqual({ status: 'permission-denied', reason: 'case-action', message: CASE_ACTION_DENIED_MESSAGE });
+    const answered = ready(await firstValueFrom(repository.act('case-cold-room', 'comment', { eventCount: 5, note: '照片已上傳' })));
+    expect(answered.case.status).toBe('in-progress');
+    activeAccountId.set('account-smb-admin');
+    const done = ready(await firstValueFrom(repository.act('case-cold-room', 'complete', { eventCount: 6, resolution: '已更換溫控器' })));
+    expect(done.case).toMatchObject({ status: 'completed', resolution: '已更換溫控器' });
+    expect(done.allowedActions).toEqual([]);
+    expect(done.events.map((event) => [event.action, event.actor?.displayName])).toEqual([
+      ['created', '安心商行客服同仁'],
+      ['accepted', '安心商行客服同仁'],
+      ['transferred', '安心商行客服同仁'],
+      ['accepted', '安心商行管理者'],
+      ['info-requested', '安心商行管理者'],
+      ['commented', '安心商行客服同仁'],
+      ['completed', '安心商行管理者'],
+    ]);
+    expect(await firstValueFrom(repository.act('case-cold-room', 'comment', { eventCount: 7, note: '再補充' })))
+      .toEqual({ status: 'changed', message: CASE_CHANGED_MESSAGE });
+  });
+
+  it('refuses a due time in the past without writing anything', async () => {
+    const { repository } = mockRepository();
+    ready(await firstValueFrom(repository.act('case-cold-room', 'accept', { eventCount: 1 })));
+    expect(await firstValueFrom(repository.act('case-cold-room', 'set-due', { eventCount: 2, dueAt: new Date(Date.now() - 60_000).toISOString() })))
+      .toMatchObject({ status: 'validation-failed', reason: 'due-in-past', fieldErrors: { dueAt: CASE_DUE_IN_PAST_MESSAGE } });
+    expect(ready(await firstValueFrom(repository.get('case-cold-room'))).case.eventCount).toBe(2);
+    const due = new Date(Date.now() + 86_400_000).toISOString();
+    const changed = ready(await firstValueFrom(repository.act('case-cold-room', 'set-due', { eventCount: 2, dueAt: due })));
+    expect(changed.case.dueAt).toBe(due);
   });
 });

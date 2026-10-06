@@ -129,6 +129,15 @@ describe('responsive layout', () => {
         expectNoHorizontalOverflow('/app/settings（展開案件類型）', PHONE[0]);
       });
 
+      it('fits a case\'s actions and the expanded transfer form (issue #249)', () => {
+        cy.visit('/app/cases?case=case-compressor-purchase');
+        cy.get('[data-case-action="transfer"]').scrollIntoView().click();
+        cy.get('[data-case-action-form] #case-action-group').should('exist');
+        cy.window().its('innerWidth').should('eq', PHONE[0]);
+        cy.contains('button', '確認轉組').should('exist').scrollIntoView().should('be.visible');
+        expectNoHorizontalOverflow('/app/cases（展開轉組表單）', PHONE[0]);
+      });
+
       it('switches the shell to the mobile header and drawer', () => {
         cy.visit('/app/home');
 

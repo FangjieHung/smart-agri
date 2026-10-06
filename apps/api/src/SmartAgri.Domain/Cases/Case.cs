@@ -205,6 +205,186 @@ public sealed class Case : IOrganizationScoped
         return (created, createdEvent);
     }
 
+    // --- The action table (M7 plan §3 D, issue #249) ---------------------------------------------
+    // Each method checks only the case's own state (open, the right status, the fields' shape) and
+    // throws when it is wrong: who may act, the eventCount the screen showed and the target group's
+    // existence are the application's (CaseActionRules, the endpoints). Each writes exactly one event.
+
+    /// <summary>受理: 待受理 → 處理中; <paramref name="accountId"/> becomes the case owner (and keeps seeing
+    /// the case forever, <c>CaseVisibility</c>: the event records <see cref="CaseEvent.OwnerAccountId"/>).</summary>
+    public CaseEvent Accept(Guid accountId, DateTimeOffset now)
+    {
+        RequireStatus(CaseStatus.Pending);
+        RequireId(accountId);
+        Status = CaseStatus.InProgress;
+        OwnerAccountId = accountId;
+        AcceptedAt = now;
+        var accepted = Record(CaseEventAction.Accepted, accountId, now, note: null);
+        accepted.Status = Status;
+        accepted.OwnerAccountId = accountId;
+        return accepted;
+    }
+
+    /// <summary>待補件: 處理中 → 待補件, with what is needed (required). The due time keeps running.</summary>
+    public CaseEvent RequestInfo(Guid actorAccountId, string note, DateTimeOffset now)
+    {
+        RequireStatus(CaseStatus.InProgress);
+        var requested = Record(CaseEventAction.InfoRequested, actorAccountId, now, CheckedText(note, required: true, nameof(note)));
+        Status = CaseStatus.AwaitingInfo;
+        requested.Status = Status;
+        return requested;
+    }
+
+    /// <summary>繼續處理 (decision J): 待補件 → 處理中, e.g. the creator answered by phone; the note is optional.</summary>
+    public CaseEvent Resume(Guid actorAccountId, string? note, DateTimeOffset now)
+    {
+        RequireStatus(CaseStatus.AwaitingInfo);
+        var resumed = Record(CaseEventAction.Resumed, actorAccountId, now, CheckedText(note, required: false, nameof(note)));
+        Status = CaseStatus.InProgress;
+        resumed.Status = Status;
+        return resumed;
+    }
+
+    /// <summary>補充: a note on an open case. With <paramref name="resumes"/> (the creator answering a
+    /// 待補件 request) the case also goes back to 處理中, recorded on this one event.</summary>
+    public CaseEvent Comment(Guid actorAccountId, string note, bool resumes, DateTimeOffset now)
+    {
+        RequireOpen();
+        if (resumes && Status != CaseStatus.AwaitingInfo)
+        {
+            throw new InvalidOperationException("Only a comment on a case awaiting information resumes it.");
+        }
+
+        var commented = Record(CaseEventAction.Commented, actorAccountId, now, CheckedText(note, required: true, nameof(note)));
+        if (resumes)
+        {
+            Status = CaseStatus.InProgress;
+            commented.Status = Status;
+        }
+
+        return commented;
+    }
+
+    /// <summary>完成: 處理中 or 待補件 → 已完成 with the case owner's 處理結果 (required).</summary>
+    public CaseEvent Complete(Guid actorAccountId, string resolution, DateTimeOffset now)
+    {
+        if (Status is not (CaseStatus.InProgress or CaseStatus.AwaitingInfo))
+        {
+            throw new InvalidOperationException($"A case in {Status} cannot be completed.");
+        }
+
+        var checkedResolution = CheckedText(resolution, required: true, nameof(resolution))!;
+        var completed = Record(CaseEventAction.Completed, actorAccountId, now, checkedResolution);
+        Status = CaseStatus.Completed;
+        Resolution = checkedResolution;
+        CompletedAt = now;
+        completed.Status = Status;
+        return completed;
+    }
+
+    /// <summary>取消: any open case → 已取消. Whether a reason is required depends on who cancels
+    /// (the creator before acceptance may leave it out, <c>CaseActionRules</c>).</summary>
+    public CaseEvent Cancel(Guid actorAccountId, string? reason, DateTimeOffset now)
+    {
+        RequireOpen();
+        var checkedReason = CheckedText(reason, required: false, nameof(reason));
+        var cancelled = Record(CaseEventAction.Cancelled, actorAccountId, now, checkedReason);
+        Status = CaseStatus.Cancelled;
+        CancelReason = checkedReason;
+        CancelledAt = now;
+        cancelled.Status = Status;
+        return cancelled;
+    }
+
+    /// <summary>轉組: to another, not archived group of the same organization → 待受理, and the case owner
+    /// is cleared (the former owner keeps seeing it through the earlier <c>accepted</c> event).</summary>
+    public CaseEvent Transfer(Guid actorAccountId, CaseGroup to, string? note, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(to);
+        RequireOpen();
+        if (to.OrganizationId != OrganizationId)
+        {
+            throw new ArgumentException("A case moves only to a group of its own organization.", nameof(to));
+        }
+
+        if (to.IsArchived)
+        {
+            throw new InvalidOperationException("A case cannot move to an archived group.");
+        }
+
+        if (to.Id == GroupId)
+        {
+            throw new InvalidOperationException("A transfer moves the case to another group.");
+        }
+
+        var from = GroupId;
+        var transferred = Record(CaseEventAction.Transferred, actorAccountId, now, CheckedText(note, required: false, nameof(note)));
+        GroupId = to.Id;
+        OwnerAccountId = null;
+        Status = CaseStatus.Pending;
+        transferred.Status = Status;
+        transferred.FromGroupId = from;
+        transferred.ToGroupId = to.Id;
+        return transferred;
+    }
+
+    /// <summary>調整時限: a new due time on an open case, never earlier than now (decision H).</summary>
+    public CaseEvent SetDue(Guid actorAccountId, DateTimeOffset dueAt, string? note, DateTimeOffset now)
+    {
+        RequireOpen();
+        if (dueAt < now)
+        {
+            throw new ArgumentOutOfRangeException(nameof(dueAt), dueAt, "A due time cannot be earlier than now.");
+        }
+
+        var changed = Record(CaseEventAction.DueChanged, actorAccountId, now, CheckedText(note, required: false, nameof(note)));
+        DueAt = dueAt;
+        changed.DueAt = dueAt;
+        return changed;
+    }
+
+    private void RequireOpen()
+    {
+        if (!Status.IsOpen())
+        {
+            throw new InvalidOperationException("A closed case is never changed again (open a new case instead).");
+        }
+    }
+
+    private void RequireStatus(CaseStatus expected)
+    {
+        if (Status != expected)
+        {
+            throw new InvalidOperationException($"This action needs a case in {expected}, not {Status}.");
+        }
+    }
+
+    private static void RequireId(Guid id)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException("An id must not be empty.", nameof(id));
+        }
+    }
+
+    /// <summary>A note, resolution or reason: trimmed, at most <see cref="CaseEvent.NoteMaxLength"/>;
+    /// <see langword="null"/> when blank and not required.</summary>
+    private static string? CheckedText(string? text, bool required, string parameterName)
+    {
+        var trimmed = text?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+        {
+            return required ? throw new ArgumentException("This text is required.", parameterName) : null;
+        }
+
+        if (trimmed.Length > CaseEvent.NoteMaxLength)
+        {
+            throw new ArgumentException($"At most {CaseEvent.NoteMaxLength} characters.", parameterName);
+        }
+
+        return trimmed;
+    }
+
     /// <summary>Numbers and returns the next event; every change (M7-4) goes through here.</summary>
     private CaseEvent Record(CaseEventAction action, Guid? actorAccountId, DateTimeOffset now, string? note)
     {

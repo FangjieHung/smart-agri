@@ -7,7 +7,7 @@ import { toDateTimeLocalValue } from '../../core/domain/case-due-time';
 import type { CaseDetailView, CaseSummaryView } from '../../core/domain/case.model';
 import type { CaseGroupListView, CaseTypeListView } from '../../core/domain/case-settings.model';
 import { CaseSettingsRepository } from '../../core/repositories/case-settings.repository';
-import { CasesRepository, type CreateCaseResult } from '../../core/repositories/cases.repository';
+import { CasesRepository, type CaseActionResult, type CreateCaseResult } from '../../core/repositories/cases.repository';
 import type { RepositoryView } from '../../core/repositories/demo-repository';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { CasesPageComponent } from './cases-page.component';
@@ -19,8 +19,10 @@ const summary: CaseSummaryView = {
   dueAt: '2026-10-09T01:00:00Z', createdAt: '2026-10-06T01:00:00Z', updatedAt: '2026-10-06T01:00:00Z',
 };
 
-function detail(links: Partial<CaseDetailView['links']> = {}): CaseDetailView {
+function detail(links: Partial<CaseDetailView['links']> = {}, overrides: Partial<Omit<CaseDetailView, 'links'>> = {}): CaseDetailView {
   return {
+    allowedActions: ['accept'],
+    cancelReasonRequired: true,
     case: {
       ...summary, description: '二號冷藏庫維持在 9 度。', resolution: null, cancelReason: null,
       acceptedAt: null, completedAt: null, cancelledAt: null, eventCount: 1,
@@ -31,6 +33,7 @@ function detail(links: Partial<CaseDetailView['links']> = {}): CaseDetailView {
       dueAt: '2026-10-09T01:00:00Z',
     }],
     links: { record: null, thread: null, assistantIssue: null, previousCase: null, ...links },
+    ...overrides,
   };
 }
 
@@ -55,6 +58,7 @@ async function setup(options: {
   list?: Observable<RepositoryView<readonly CaseSummaryView[]>>;
   get?: Observable<RepositoryView<CaseDetailView>>;
   create?: Observable<CreateCaseResult>;
+  act?: Observable<CaseActionResult>;
   url?: string;
   settle?: boolean;
 } = {}) {
@@ -63,6 +67,7 @@ async function setup(options: {
     list: vi.fn(() => options.list ?? of({ status: 'ready' as const, data: [summary] })),
     get: vi.fn(() => options.get ?? of({ status: 'ready' as const, data: detail() })),
     create: vi.fn(() => options.create ?? of({ status: 'ready' as const, data: detail() } as CreateCaseResult)),
+    act: vi.fn(() => options.act ?? of({ status: 'ready' as const, data: detail() } as CaseActionResult)),
   };
   await TestBed.configureTestingModule({
     imports: [CasesPageComponent],
@@ -230,5 +235,76 @@ describe('CasesPageComponent', () => {
     element<HTMLFormElement>(fixture, '[data-case-form]').dispatchEvent(new Event('submit'));
     fixture.detectChanges();
     expect(element(fixture, '#case-type-error').textContent).toContain('這個案件類型已停用或不存在');
+  });
+
+  it('shows only the actions the API allows, sends the shown eventCount and reloads the detail and the list', async () => {
+    const { fixture, repo } = await setup({ url: '/app/cases?case=case-1' });
+    const buttons = [...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('[data-case-action]')];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['受理']);
+    const gets = repo.get.mock.calls.length;
+    const lists = repo.list.mock.calls.length;
+
+    buttons[0].click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(repo.act).toHaveBeenCalledWith('case-1', 'accept', { eventCount: 1 });
+    expect(repo.get.mock.calls.length).toBeGreaterThan(gets);
+    expect(repo.list.mock.calls.length).toBeGreaterThan(lists);
+  });
+
+  it('shows a closed case without actions and opens a new case from it, linked to the old one', async () => {
+    const closed = detail({}, { allowedActions: [], cancelReasonRequired: true });
+    const completedCase = { ...closed.case, status: 'completed' as const, resolution: '已更換軸承。', completedAt: '2026-10-07T01:00:00Z' };
+    const { fixture, repo } = await setup({
+      url: '/app/cases?case=case-1',
+      get: of({ status: 'ready', data: { ...closed, case: completedCase } }),
+    });
+    expect(fixture.nativeElement.querySelector('[data-case-actions]')).toBeNull();
+    expect(text(fixture)).toContain('已更換軸承。');
+
+    element<HTMLButtonElement>(fixture, '[data-case-follow-up]').click();
+    fixture.detectChanges();
+    expect(element(fixture, '[data-case-follow-up-note]').textContent).toContain('冷藏庫溫度降不下來');
+    expect(element<HTMLSelectElement>(fixture, '#case-type').value).toBe('type-1');
+    expect(element<HTMLInputElement>(fixture, '#case-title').value).toBe('冷藏庫溫度降不下來');
+
+    element<HTMLFormElement>(fixture, '[data-case-form]').dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({
+      typeId: 'type-1', groupId: 'group-1', title: '冷藏庫溫度降不下來', previousCaseId: 'case-1',
+    }));
+  });
+
+  it('shows who did what and when on the timeline, a transfer with both groups', async () => {
+    const base = detail();
+    const { fixture } = await setup({
+      url: '/app/cases?case=case-1',
+      get: of({
+        status: 'ready',
+        data: {
+          ...base,
+          events: [
+            ...base.events,
+            {
+              id: 'event-2', ordinal: 2, action: 'accepted', actor: { id: 'account-2', displayName: '阿明' }, at: '2026-10-06T02:00:00Z',
+              note: null, status: 'in-progress', owner: { id: 'account-2', displayName: '阿明' }, fromGroup: null, toGroup: null, dueAt: null,
+            },
+            {
+              id: 'event-3', ordinal: 3, action: 'transferred', actor: { id: 'account-2', displayName: '阿明' }, at: '2026-10-06T03:00:00Z',
+              note: '需要採購零件', status: 'pending', owner: null,
+              fromGroup: { id: 'group-1', name: '設備組', archived: false }, toGroup: { id: 'group-2', name: '採購組', archived: false }, dueAt: null,
+            },
+          ],
+        },
+      }),
+    });
+    const items = [...(fixture.nativeElement as HTMLElement).querySelectorAll('[data-case-history] li')].map((item) => item.textContent?.replace(/\s+/g, ' ').trim());
+    expect(items[1]).toContain('阿明');
+    expect(items[1]).toContain('受理');
+    expect(items[2]).toContain('轉組（設備組 → 採購組）：需要採購零件');
+    const times = [...(fixture.nativeElement as HTMLElement).querySelectorAll('[data-case-history] time')].map((time) => time.getAttribute('datetime'));
+    expect(times).toEqual(['2026-10-06T01:00:00Z', '2026-10-06T02:00:00Z', '2026-10-06T03:00:00Z']);
   });
 });

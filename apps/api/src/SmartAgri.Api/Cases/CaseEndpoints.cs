@@ -115,8 +115,17 @@ public sealed record CaseLinksView(
     CaseIssueLinkView? AssistantIssue,
     CasePreviousLinkView? PreviousCase);
 
-/// <summary><c>GET /api/v1/cases/{id}</c> (and <c>POST</c>'s response).</summary>
-public sealed record CaseDetailView(CaseView Case, IReadOnlyList<CaseEventView> Events, CaseLinksView Links);
+/// <summary><c>GET /api/v1/cases/{id}</c> (and the response of creating and of every action).</summary>
+/// <param name="AllowedActions">What <b>you</b> may do now (<c>CaseActionRules</c>), so the screen shows
+/// only those; empty for a closed case (only 「另開新案」 remains).</param>
+/// <param name="CancelReasonRequired">Whether <c>:cancel</c> needs a reason from you (not from the
+/// creator before acceptance).</param>
+public sealed record CaseDetailView(
+    CaseView Case,
+    IReadOnlyList<CaseEventView> Events,
+    CaseLinksView Links,
+    IReadOnlyList<CaseAction> AllowedActions,
+    bool CancelReasonRequired);
 
 /// <summary><c>POST /api/v1/cases</c>. The type fills in the group and the due time on the screen;
 /// both may be changed. Each link is optional; a pair is both set or both absent.</summary>
@@ -146,8 +155,7 @@ public sealed record CreateCaseRequest(
 /// decision H), the type (<c>422 case-type-inactive</c>, also for an unknown or foreign id), the group
 /// (<c>422 case-group-not-found</c> / <c>case-group-archived</c>) and each link — the record must be one
 /// the caller may read now, the thread the caller's own, the previous case visible and closed —
-/// otherwise <c>422 link-not-available</c>. Only the <c>created</c> event exists so far; M7-4 adds the
-/// actions (and <c>eventCount</c> checks) on top of <see cref="Case"/>'s event numbering.
+/// otherwise <c>422 link-not-available</c>. The actions (M7-4) are <see cref="CaseActionEndpoints"/>.
 /// </para>
 /// <para>
 /// No response ever carries conversation text: a thread link is only its ids and <c>canOpen</c>.
@@ -200,6 +208,7 @@ public static class CaseEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden);
 
+        cases.MapCaseActionEndpoints();
         return endpoints;
     }
 
@@ -418,9 +427,9 @@ public static class CaseEndpoints
     }
 
     /// <summary>The one <c>403 case</c>: external customer, unknown id, another organization's, not visible.</summary>
-    private static IResult Denied() => ApiErrors.Forbidden(ForbiddenReason.CaseFeature);
+    internal static IResult Denied() => ApiErrors.Forbidden(ForbiddenReason.CaseFeature);
 
-    private static IResult Refuse(string reason, string message, string field) =>
+    internal static IResult Refuse(string reason, string message, string field) =>
         ApiErrors.WithReason(StatusCodes.Status422UnprocessableEntity, reason, message, field: field);
 
     private static async Task<IResult?> LinkRefusalAsync(
@@ -462,7 +471,7 @@ public static class CaseEndpoints
         return null;
     }
 
-    private static async Task<CaseDetailView> DetailAsync(
+    internal static async Task<CaseDetailView> DetailAsync(
         HttpContext httpContext,
         AppDbContext dbContext,
         RequestAccountPermissions permissions,
@@ -509,7 +518,28 @@ public static class CaseEndpoints
             caseEvent.ToGroupId is { } to ? names.Group(to) : null,
             caseEvent.DueAt));
 
-        return new CaseDetailView(view, eventViews, await LinksAsync(httpContext, dbContext, permissions, caller, item, cancellationToken));
+        var actor = await ActorAsync(dbContext, caller, item, cancellationToken);
+        return new CaseDetailView(
+            view,
+            eventViews,
+            await LinksAsync(httpContext, dbContext, permissions, caller, item, cancellationToken),
+            CaseActionRules.Allowed(item.Status, actor),
+            CaseActionRules.CancelReasonRequired(item.Status, actor));
+    }
+
+    /// <summary>How <paramref name="caller"/> stands to <paramref name="item"/> now (its current group's
+    /// membership read from the database).</summary>
+    internal static async Task<CaseActor> ActorAsync(AppDbContext dbContext, CaseCaller caller, Case item, CancellationToken cancellationToken)
+    {
+        var groupId = item.GroupId;
+        var callerId = caller.Id;
+        var isMember = await dbContext.CaseGroupMembers.AsNoTracking()
+            .AnyAsync(member => member.GroupId == groupId && member.AccountId == callerId, cancellationToken);
+        return new CaseActor(
+            IsCreator: item.CreatedByAccountId == callerId,
+            IsOwner: item.OwnerAccountId == callerId,
+            IsGroupMember: isMember,
+            IsManager: caller.IsManager);
     }
 
     /// <summary>Each link's state as of this request; never anything the linked row holds.</summary>

@@ -50,6 +50,63 @@ public static class CaseRules
 
     public const string ThreadPairMessage = "連結對話時，請同時提供助理與對話。";
 
+    // --- The actions (M7-4, issue #249) --------------------------------------------------------
+
+    public const string EventCountField = "eventCount";
+
+    public const string NoteField = "note";
+
+    public const string ResolutionField = "resolution";
+
+    public const string ReasonField = "reason";
+
+    /// <summary><c>422</c> reason: <c>:request-info</c> or a comment without its note.</summary>
+    public const string NoteRequiredReason = "note-required";
+
+    /// <summary><c>422</c> reason: <c>:complete</c> without a 處理結果.</summary>
+    public const string ResolutionRequiredReason = "resolution-required";
+
+    /// <summary><c>422</c> reason: <c>:cancel</c> without the reason it needs (<c>CaseActionRules.CancelReasonRequired</c>).</summary>
+    public const string ReasonRequiredReason = "reason-required";
+
+    public const string EventCountRequiredMessage = "缺少畫面上的案件版本（eventCount），請重新整理後再試。";
+
+    public const string RequestInfoNoteRequiredMessage = "請說明需要補充哪些資料。";
+
+    public const string CommentRequiredMessage = "請輸入補充內容。";
+
+    public const string ResolutionRequiredMessage = "請填寫處理結果。";
+
+    public const string ReasonRequiredMessage = "請填寫取消原因。";
+
+    public const string TextTooLongMessage = "請在 2,000 個字以內。";
+
+    /// <summary>The shape of an action's request that needs no case: <paramref name="eventCount"/> is
+    /// present and each text is at most <see cref="CaseEvent.NoteMaxLength"/> once trimmed. Whether a
+    /// text is <b>required</b> depends on the case and the caller, so it is checked after
+    /// <c>CaseActionRules</c> (its own <c>422</c> reason).</summary>
+    public static IReadOnlyList<ValidationFailure> ValidateAction(int? eventCount, params (string Field, string? Text)[] texts)
+    {
+        var failures = new List<ValidationFailure>();
+        if (eventCount is null)
+        {
+            failures.Add(new ValidationFailure(EventCountField, EventCountRequiredMessage));
+        }
+
+        foreach (var (field, text) in texts)
+        {
+            if (Trimmed(text) is { Length: > CaseEvent.NoteMaxLength })
+            {
+                failures.Add(new ValidationFailure(field, TextTooLongMessage));
+            }
+        }
+
+        return failures;
+    }
+
+    /// <summary>A note, resolution or reason trimmed, or <see langword="null"/> when blank.</summary>
+    public static string? Trimmed(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
     /// <summary>Every field failure at once (a form shows each under its field), or the normalized fields.</summary>
     public static ValidationResult<CaseCreateFields> ValidateCreate(
         Guid? typeId,

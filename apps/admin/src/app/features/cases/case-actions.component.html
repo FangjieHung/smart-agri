@@ -1,0 +1,91 @@
+@let error = fieldError();
+<section class="case-actions" data-case-actions aria-labelledby="case-actions-title">
+  <h4 id="case-actions-title">處理這件案件</h4>
+  @if (actions().length === 0) {
+    <p class="hint">你目前沒有可以對這件案件做的動作。</p>
+  } @else {
+    <div class="case-actions__buttons">
+      @for (action of actions(); track action) {
+        <button
+          type="button"
+          class="ui-button"
+          [class.ui-button--secondary]="action !== 'accept' && action !== 'complete'"
+          [attr.data-case-action]="action"
+          [attr.aria-pressed]="active() === action"
+          [disabled]="saving()"
+          (click)="choose(action)"
+        >{{ actionLabel(action) }}</button>
+      }
+    </div>
+  }
+
+  @if (form(); as current) {
+    <form class="case-action-form" novalidate data-case-action-form (submit)="$event.preventDefault(); submit()">
+      <h5>{{ actionLabel(active()!) }}</h5>
+      @if (active() === 'transfer') {
+        <div class="control">
+          <label for="case-action-group">轉給哪個承辦組</label>
+          <select
+            id="case-action-group"
+            [attr.aria-invalid]="error?.field === 'groupId' ? 'true' : null"
+            [attr.aria-describedby]="error?.field === 'groupId' ? 'case-action-group-error' : null"
+            (change)="setGroup($any($event.target).value)"
+          >
+            <option value="" [selected]="groupId() === ''">請選擇</option>
+            @for (group of targetGroups(); track group.id) {
+              <option [value]="group.id" [selected]="group.id === groupId()">{{ group.name }}</option>
+            }
+          </select>
+          <p class="hint small">轉組後回到待受理，由新的承辦組受理；你仍然看得到這件案件。</p>
+          @if (error?.field === 'groupId') {
+            <p id="case-action-group-error" class="field-error">{{ error?.message }}</p>
+          }
+        </div>
+      }
+      @if (active() === 'set-due') {
+        <div class="control">
+          <label for="case-action-due">新的處理時限</label>
+          <input
+            id="case-action-due"
+            type="datetime-local"
+            [value]="dueAt()"
+            [attr.aria-invalid]="error?.field === 'dueAt' || dueInPast() ? 'true' : null"
+            [attr.aria-describedby]="error?.field === 'dueAt' || dueInPast() ? 'case-action-due-error' : null"
+            (input)="setDue($any($event.target).value)"
+          />
+          @if (error?.field === 'dueAt') {
+            <p id="case-action-due-error" class="field-error">{{ error?.message }}</p>
+          } @else if (dueInPast()) {
+            <p id="case-action-due-error" class="field-error">{{ dueInPastMessage }}</p>
+          }
+        </div>
+      }
+      <div class="control">
+        <label for="case-action-text">{{ current.textLabel }}@if (active() === 'cancel' && !textRequired()) {（選填）}</label>
+        <textarea
+          id="case-action-text"
+          rows="3"
+          [attr.maxlength]="noteMaxLength"
+          [value]="text()"
+          [attr.aria-invalid]="error?.field === 'text' ? 'true' : null"
+          [attr.aria-describedby]="error?.field === 'text' ? 'case-action-text-error' : null"
+          (input)="setText($any($event.target).value)"
+        ></textarea>
+        @if (error?.field === 'text') {
+          <p id="case-action-text-error" class="field-error">{{ error?.message }}</p>
+        }
+      </div>
+      <div class="case-action-form__buttons">
+        <button class="ui-button" type="submit" [disabled]="saving()">{{ saving() ? '送出中…' : current.submitLabel }}</button>
+        <button class="ui-button ui-button--secondary" type="button" (click)="close()">返回</button>
+      </div>
+    </form>
+  }
+
+  <div class="case-actions__feedback" role="status" aria-live="polite">
+    <p data-case-action-message>{{ message() }}</p>
+    @if (stale()) {
+      <button class="ui-button ui-button--secondary" type="button" data-case-action-reload (click)="reload()">重新整理</button>
+    }
+  </div>
+</section>

@@ -248,6 +248,16 @@ public sealed class ForbiddenReason
         "你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。");
 
     /// <summary>
+    /// An action on a case the caller <b>can</b> see, in a status where the action exists, but not for
+    /// this caller (M7 plan §3 D, decision I; issue #249): e.g. a group member completing a case someone
+    /// else accepted, or the creator cancelling after acceptance (<c>CaseActionRules</c>). Unlike
+    /// <see cref="CaseFeature"/> this reveals nothing new — the caller already sees the case.
+    /// </summary>
+    public static readonly ForbiddenReason CaseAction = new(
+        "case-action",
+        "你不能對這件案件執行這個動作。");
+
+    /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason
     /// (see <c>PermissionPolicies.RequirePermission</c>, which always declares one). Not
     /// part of the frontend union on purpose, so it shows up in review and in the UI as a

@@ -30,8 +30,10 @@ Every entity implementing `IOrganizationScoped` (Domain) is isolated automatical
   throws `CrossOrganizationWriteException` (before any SQL is sent) for any add, change
   or delete of another organization's row, or of any scoped row with no organization.
   `OrganizationId` is also a concurrency token, so updates/deletes by key match on it.
-- **Turning the filter off** is allowed in one place only, `AccountLookup` (sign-in
-  lookup by organization code + login name); a source-scanning test enforces this.
+- **Turning the filter off** is allowed in two places only, both before any organization
+  exists for the request: `AccountLookup` (sign-in lookup by organization code + login name)
+  and `PublicAssistantLookup` (an anonymous website visitor's session finding the assistant's
+  organization id, nothing else; M5a #196); a source-scanning test enforces this.
 - **Raw SQL** (which neither the filter nor the write guard sees) is allowed in one place
   only, `JobClaimer` (claiming background jobs across organizations, see below); the
   same source-scanning test class enforces this.
@@ -745,6 +747,64 @@ website channel answers `422` with `errors["public-base-url"]`. Development uses
 `http://localhost:5153` (`appsettings.Development.json`); the customer compose file reads
 `PUBLIC_BASE_URL` from `deploy/.env`.
 
+## Website visitors: `/api/v1/public/*`
+
+Anonymous visitors of a customer's website chat with a published assistant through the chat window
+(`apps/widget`) the API itself serves (M5a plan §3 B and D, #196; `SmartAgri.Api.PublicChannels`).
+Visitors only ask knowledge-base questions: nothing they say is stored, and form requests, database
+queries and handoffs are not on this path at all (an architecture test checks the handlers' types).
+
+- **`POST /api/v1/public/assistants/{id}/visitor-sessions`** (anonymous; any credential is ignored),
+  body `{ "host": "<embedding page origin>" | null }`. While the assistant's website channel is
+  `serving` — re-derived on every request (`AssistantWebsiteChannelEndpoints.ServingStateAsync`; only
+  the monthly usage is cached, 30 s) — it answers `201 { token, expiresAt, assistant: { displayName,
+  welcomeMessage, brandColor, showCitations } }` with `Cache-Control: no-store`. Every other case (no
+  such assistant or not a GUID, not published, no allowed domain, paused, suspended for acceptance,
+  knowledge ownership or quota) gets the same `403 { reason: "public-assistant" }`, byte for byte.
+  When `host` is an `https://` origin on the default port whose host is an allowed domain, that
+  domain's `lastSeenAt` becomes now (passive installation detection; information only).
+- **The token** (`VisitorTokens`) is Data Protection–protected (`ITimeLimitedDataProtector`, purpose
+  `SmartAgri.PublicChannels.VisitorToken.v1`, the deployment key ring of `DataProtection:KeysPath`)
+  `{ visitorId, assistantId, organizationId, issuedAt, expiresAt }`, valid **12 hours**. `visitorId`
+  is a fresh random GUID per session, never written anywhere. Losing or replacing the key ring
+  invalidates every visitor token (the widget simply starts a new session).
+- **`Authorization: Visitor <token>`** is its own authentication scheme (`VisitorAuthentication`):
+  the principal has `visitor_id`, `org_id` and `assistant_id` claims and no `sub`, so
+  `ClaimsOrganizationContext` acts for the assistant's organization (filters, write guard and
+  model-call recording unchanged) while no account endpoint ever accepts it. `/api/v1/public/*`
+  authenticates **only** this scheme: a member's bearer token there is `401`, and a visitor token on
+  any member endpoint is `401` too.
+- **`POST /api/v1/public/assistants/{id}/chat/runs`** (`VisitorChatRunEndpoints`): the member
+  endpoint's `RunAgentInput` → AG-UI SSE, answered by `GroundedAnswerService` alone. Earlier turns
+  come from `messages` (at most 20, `user`/`assistant` text only); no thread or message is ever
+  written, whatever `keepConversations` says. Events are `RUN_STARTED` → `TEXT_MESSAGE_*` →
+  `CUSTOM smartagri.reply` → `RUN_FINISHED` (or `RUN_ERROR`); never `smartagri.thread` or
+  `smartagri.form-check`. When the assistant hides citations, the reply carries none. The model call
+  is recorded as purpose `public-answer` with `AccountId = null` (it counts toward the monthly
+  limit), the outcome as channel `website`. Before the stream: `401` (no, invalid or expired token),
+  `403 public-assistant` (token for another assistant, or not serving now), `422` (question blank or
+  over 2,000 characters), `503 chat-not-configured`/`embedding-not-configured`, `409
+  chat-run-in-progress` (this visitor already has a reply running; in-memory, per process).
+- **Same origin only, no CORS.** `PublicOriginGuard` answers `403 { reason: "public-origin" }`
+  before authentication to any `/api/v1/public/*` request whose `Origin` is not the API's own (the
+  request's scheme, host and port, or `PublicChannels:PublicBaseUrl`'s — set it when a reverse proxy
+  terminates TLS). Requests without `Origin` pass: this is a browser boundary, not abuse protection
+  (rate limits arrive with Slice 5). No CORS policy is registered, so cross-origin browser calls also
+  fail their preflight.
+- **Protocol check**: `tools/agui-contract/fixtures/visitor-*.sse` are recorded by
+  `VisitorEndpointsTests.The_recorded_visitor_streams_match_the_fixtures_the_ag_ui_client_check_parses`
+  and parsed by `check-agui-stream.mjs` like the member fixtures (re-record with
+  `UPDATE_AGUI_FIXTURES=1 dotnet test apps/api/tests/SmartAgri.Api.Tests --filter-method '*The_recorded_visitor_streams_match*'`;
+  `--visitor` sends the token with the `Visitor` scheme against a running Api).
+
+```bash
+# start a session, then ask (same machine, so no Origin header is involved)
+curl -s -X POST http://localhost:5153/api/v1/public/assistants/<id>/visitor-sessions \
+  -H 'Content-Type: application/json' -d '{"host":"https://shop.example.com"}'
+node tools/agui-contract/check-agui-stream.mjs --visitor \
+  --url http://localhost:5153/api/v1/public/assistants/<id>/chat/runs --token <token> --question '退貨運費由誰負擔？'
+```
+
 ## Monthly token limit: `set-token-limit`
 
 Every organization has a monthly budget of chat-model tokens (M5a #195;
@@ -759,7 +819,8 @@ next month or until the limit is raised. There is no settings screen: operators 
 - **What counts**: the sum of `InputTokens + OutputTokens` of the organization's `ModelInvocations`
   in the current calendar month **of `Statistics:TimeZone`** (midnight on the 1st to midnight on the
   1st), over the chat-model purposes only: conversations, wizard trial answers, acceptance reruns,
-  form-request decisions, database-query tool selection and report summaries — also the internal
+  form-request decisions, database-query tool selection, report summaries and website visitors'
+  answers (`public-answer`) — also the internal
   ones, because the cost is the organization's as a whole. Embedding calls (`embed-document`,
   `embed-query`) never count; a call whose provider reported no usage (`null`) counts as 0, never
   estimated. A reply that finishes after the check can push usage slightly past the limit.

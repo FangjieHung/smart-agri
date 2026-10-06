@@ -5683,6 +5683,138 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/assistants/{id}/visitor-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an anonymous website visitor session
+         * @description Anonymous; any credential is ignored. 201 while the assistant's website channel is serving; otherwise (unknown id, not published, paused, suspended) the same 403 public-assistant, byte for byte. Body { host }: the embedding page's origin, used only for passive installation detection.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateVisitorSessionRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VisitorSessionView"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/assistants/{id}/chat/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer one website visitor's question as an AG-UI event stream
+         * @description Authorization: Visitor <token>. Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch); earlier turns come from messages (at most 20) and nothing is saved. 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply, RUN_FINISHED or RUN_ERROR); see VisitorChatRunEndpoints' remarks.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RunAgentInput"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": string;
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Service Unavailable */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6171,6 +6303,9 @@ export interface components {
         CreateMemberResponse: {
             member: components["schemas"]["TeamMemberResponse"];
             oneTimePassword: string;
+        };
+        CreateVisitorSessionRequest: {
+            host: null | string;
         };
         DatabaseAccessCandidateView: {
             /** Format: uuid */
@@ -7106,6 +7241,18 @@ export interface components {
             allowedDomains: null | string[];
             /** Format: int32 */
             revision: number;
+        };
+        VisitorAssistantView: {
+            displayName: string;
+            welcomeMessage: string;
+            brandColor: components["schemas"]["WebsiteBrandColor"];
+            showCitations: boolean;
+        };
+        VisitorSessionView: {
+            token: string;
+            /** Format: date-time */
+            expiresAt: string;
+            assistant: components["schemas"]["VisitorAssistantView"];
         };
         /** @enum {unknown} */
         WebsiteBrandColor: "forest" | "ocean" | "amber" | "plum";

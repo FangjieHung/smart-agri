@@ -54,4 +54,17 @@ public sealed class AssistantWebsiteDomain : IOrganizationScoped
     /// never a security decision.
     /// </summary>
     public DateTimeOffset? LastSeenAt { get; private set; }
+
+    /// <summary>Records that a visitor's chat window reported being embedded on this domain at
+    /// <paramref name="at"/> (M5a #196). Never moves backwards; returns whether it changed.</summary>
+    public bool MarkSeen(DateTimeOffset at)
+    {
+        if (LastSeenAt is { } seen && seen >= at)
+        {
+            return false;
+        }
+
+        LastSeenAt = at;
+        return true;
+    }
 }

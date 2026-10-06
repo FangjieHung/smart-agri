@@ -51,6 +51,6 @@ public class ModelInvocationTests
     [Fact]
     public void Purposes_have_the_plans_wire_names()
     {
-        WireNames<ModelInvocationPurpose>.All.ShouldBe(["embed-document", "embed-query", "generate-answer", "trial-answer", "assistant-test", "database-query", "generate-report-summary", "form-request"]);
+        WireNames<ModelInvocationPurpose>.All.ShouldBe(["embed-document", "embed-query", "generate-answer", "trial-answer", "assistant-test", "database-query", "generate-report-summary", "form-request", "public-answer"]);
     }
 }

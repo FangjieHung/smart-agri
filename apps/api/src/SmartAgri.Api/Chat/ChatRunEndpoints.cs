@@ -328,6 +328,7 @@ public static class ChatRunEndpoints
                 loggerFactory.CreateLogger(typeof(ChatRunEndpoints).FullName!),
                 new GroundedAnswerRequest(
                     GroundedAnswerProfile.For(assistant, connected), question.Value, history, viewerId, assistant.Id),
+                viewerId,
                 thread,
                 ThreadIdForEvents(thread, input),
                 string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId,
@@ -348,7 +349,7 @@ public static class ChatRunEndpoints
     /// <summary>The request body as AG-UI's own JSON contract (<see cref="AGUIJsonSerializerContext"/>,
     /// not the API's JSON options), or <see langword="null"/> when it is not one — which then
     /// fails as "no question" (<c>422</c>) after the access checks.</summary>
-    private static async Task<RunAgentInput?> ReadInputAsync(HttpRequest request, CancellationToken cancellationToken)
+    internal static async Task<RunAgentInput?> ReadInputAsync(HttpRequest request, CancellationToken cancellationToken)
     {
         try
         {
@@ -366,7 +367,7 @@ public static class ChatRunEndpoints
 
     /// <summary>The last <c>user</c> message's text (the question), its AG-UI message id
     /// (ticket #105 — a retry's dedupe key, not yet validated), and the messages before it.</summary>
-    private static (string? Question, string? MessageId, IReadOnlyList<AGUIMessage> Earlier) SplitQuestion(RunAgentInput? input)
+    internal static (string? Question, string? MessageId, IReadOnlyList<AGUIMessage> Earlier) SplitQuestion(RunAgentInput? input)
     {
         var messages = input?.Messages ?? [];
         for (var index = messages.Count - 1; index >= 0; index--)
@@ -383,7 +384,7 @@ public static class ChatRunEndpoints
     /// <summary>An unsaved conversation's context: the client's earlier <c>user</c> and
     /// <c>assistant</c> messages as plain text. Every other role (system, developer, tool, …) is
     /// dropped — a client never gets to add instructions — and so is anything but text.</summary>
-    private static IReadOnlyList<ConversationTurn> ClientHistory(IReadOnlyList<AGUIMessage> earlier) =>
+    internal static IReadOnlyList<ConversationTurn> ClientHistory(IReadOnlyList<AGUIMessage> earlier) =>
     [
         .. earlier
             .TakeLast(ClientHistoryMaxMessages)
@@ -474,6 +475,7 @@ public static class ChatRunEndpoints
         JsonSerializerOptions jsonOptions,
         ILogger logger,
         GroundedAnswerRequest request,
+        Guid askerId,
         ChatThread? thread,
         string threadIdForEvents,
         string runId,
@@ -504,7 +506,7 @@ public static class ChatRunEndpoints
                 try
                 {
                     query = await databaseQueries.AnswerAsync(
-                        queryScope, request.Question, request.AccountId, request.AssistantId!.Value, cancellationToken);
+                        queryScope, request.Question, askerId, request.AssistantId!.Value, cancellationToken);
                 }
                 catch (ChatGenerationException exception)
                 {
@@ -548,7 +550,7 @@ public static class ChatRunEndpoints
 
                 // Model mode (#164): the model decides; the server re-authorizes and builds the form.
                 form = await formSelection.Tool.SelectAsync(
-                    formSelection.Assistant, formSelection.Offered, request.Question, request.AccountId, cancellationToken);
+                    formSelection.Assistant, formSelection.Offered, request.Question, askerId, cancellationToken);
             }
 
             if (form is not null)
@@ -738,37 +740,8 @@ public static class ChatRunEndpoints
             return ChatEndpoints.ToMessageView(message, citations);
         }
 
-        /// <summary>An unsaved reply, shaped exactly like a saved one. Its id and citation ids
-        /// are not stored anywhere, so the citation-detail endpoint cannot resolve them: an
-        /// unsaved conversation shows citations from the excerpt alone.</summary>
-        private ChatMessageView Transient(GroundedReply reply)
-        {
-            var messageId = Guid.CreateVersion7();
-            var view = reply.Kind switch
-            {
-                GroundedReplyKind.CompanyData => new ChatReplyView(
-                    "company-data",
-                    reply.Text,
-                    [
-                        .. reply.Citations.Select(citation => new ChatCitationView(
-                            ChatEndpoints.CitationId(messageId, citation.Ordinal),
-                            citation.KnowledgeBaseName,
-                            citation.DocumentName,
-                            citation.Excerpt,
-                            ChatEndpoints.UpdatedLabel(citation.VersionEffectiveFrom))),
-                    ],
-                    null,
-                    [],
-                    null,
-                    null,
-                    null),
-                GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, [], null, null, null),
-                _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps, null, null, null),
-            };
-            // Microseconds, like every saved timestamp (PostgreSQL's precision).
-            var now = clock.GetUtcNow();
-            return new ChatMessageView(messageId, "assistant", null, view, now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond)));
-        }
+        /// <summary>An unsaved reply (<see cref="TransientReplyView"/>).</summary>
+        private ChatMessageView Transient(GroundedReply reply) => TransientReplyView(reply, clock.GetUtcNow());
 
         private static ChatReplyKind ToReplyKind(GroundedReplyKind kind) => kind switch
         {
@@ -777,5 +750,37 @@ public static class ChatRunEndpoints
             GroundedReplyKind.NoResult => ChatReplyKind.NoResult,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown reply kind."),
         };
+    }
+
+    /// <summary>An unsaved reply, shaped exactly like a saved one (<c>smartagri.reply</c> of a
+    /// conversation that is not kept, and of every website visitor's run, #196). Its id and citation
+    /// ids are not stored anywhere, so the citation-detail endpoint cannot resolve them: an unsaved
+    /// conversation shows citations from the excerpt alone.</summary>
+    internal static ChatMessageView TransientReplyView(GroundedReply reply, DateTimeOffset now)
+    {
+        var messageId = Guid.CreateVersion7();
+        var view = reply.Kind switch
+        {
+            GroundedReplyKind.CompanyData => new ChatReplyView(
+                "company-data",
+                reply.Text,
+                [
+                    .. reply.Citations.Select(citation => new ChatCitationView(
+                        ChatEndpoints.CitationId(messageId, citation.Ordinal),
+                        citation.KnowledgeBaseName,
+                        citation.DocumentName,
+                        citation.Excerpt,
+                        ChatEndpoints.UpdatedLabel(citation.VersionEffectiveFrom))),
+                ],
+                null,
+                [],
+                null,
+                null,
+                null),
+            GroundedReplyKind.GeneralKnowledge => new ChatReplyView("general-knowledge", reply.Text, [], reply.Notice, [], null, null, null),
+            _ => new ChatReplyView("no-result", reply.Text, [], null, reply.NextSteps, null, null, null),
+        };
+        // Microseconds, like every saved timestamp (PostgreSQL's precision).
+        return new ChatMessageView(messageId, "assistant", null, view, now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond)));
     }
 }

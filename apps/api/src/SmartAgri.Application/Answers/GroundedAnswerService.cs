@@ -387,6 +387,7 @@ public sealed class GroundedAnswerService
         ModelInvocationPurpose.GenerateAnswer => AnswerOutcomeChannel.Chat,
         ModelInvocationPurpose.TrialAnswer => AnswerOutcomeChannel.Trial,
         ModelInvocationPurpose.AssistantTest => AnswerOutcomeChannel.TestRun,
+        ModelInvocationPurpose.PublicAnswer => AnswerOutcomeChannel.Website,
         _ => throw new ArgumentOutOfRangeException(
             nameof(purpose), purpose, "This purpose has no answer-outcome channel yet."),
     };

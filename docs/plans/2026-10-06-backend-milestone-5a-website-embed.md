@@ -81,8 +81,8 @@
 - **`libs/chat`（新增，`@smart-agri/chat`）**：從 admin 抽出兩邊共用的部分：訊息呈現、串流中的回覆、引用清單與引用內容、AG-UI 事件解析（`AgUiChatRunner` 的核心，去掉對 `hybrid-demo-repository.ts` 的依賴）。表單、同意、轉人工、對話串清單仍留在 admin。元件只吃 CSS 變數，widget 自己提供一份精簡的 token 檔，品牌色由發布設定覆寫。
 - **由 API 提供 widget**：`frame-ancestors` 要依每個助理的允許網域動態產生，靜態主機做不到；客戶 compose 也只有 API 一個對外服務。API 的 Dockerfile 加一個 Node stage 建置 widget，把產出放進 API 的靜態檔目錄。widget 與訪客 API 同源，所以訪客 API **完全不需要 CORS**。
 - **預算**（寫進 `apps/widget/project.json`，CI 的 production build 會檢查）：
-  - widget 初始 bundle：warning 120 kB、error 150 kB；
-  - `@ag-ui/client` 照 admin 的作法在送出第一個問題時才動態載入，這個 chunk 另外量測、寫進 PR；
+  - widget 初始 bundle：warning 210 kB、error 240 kB（未壓縮）。原訂 120／150 kB 達不到：Angular 空的 zoneless app 就有 96 kB；#199 實測 195.89 kB（gzip 55 kB），負責人 2026-10-06 決定放寬；
+  - `@ag-ui/client` 照 admin 的作法在送出第一個問題時才動態載入，這個 chunk 另外量測、寫進 PR（#199 實測 552 kB，gzip 93 kB；先照現狀使用，上線後首題太慢再改手寫解析器）；
   - `embed.js`：≤ 5 kB（未壓縮），由單元測試檢查檔案大小。
   若 Slice 8 量到 `@ag-ui/client` 的 chunk 過大，退路是用 repo 既有的 `tools/agui-contract` 檢查一個手寫的 SSE 解析器；這個決定在 Slice 8 的 PR 中提出，不預先做。
 - **載入器與 widget 的契約**（iframe 網址與 `host` 參數、postMessage 訊息類型與來源檢查、注入的元素 id／class）：見 [`apps/embed-loader/README.md`](../../apps/embed-loader/README.md)。
@@ -282,7 +282,7 @@ ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值�
 
 #### Slice 6｜由 API 提供 widget 與 `embed.js`
 - **內容：**
-  - `GET /use/{assistantId}`：widget 的 `index.html`，依第 3 節 B 送出 `frame-ancestors` 與其他安全標頭（`default-src 'self'`、`Referrer-Policy`、`X-Content-Type-Options`）；未發布時的統一畫面。widget 的建置要關掉會產生 inline 事件處理器的 critical CSS 內嵌，否則與 CSP 衝突。
+  - `GET /use/{assistantId}`：widget 的 `index.html`，依第 3 節 B 送出 `frame-ancestors` 與其他安全標頭（`default-src 'self'`、`Referrer-Policy`、`X-Content-Type-Options`）。Angular 會在執行時插入元件的 `<style>`，只有 `default-src 'self'` 會讓畫面完全沒有樣式，所以樣式要另外允許：以每次回應產生的 nonce 配合 Angular 的 `ngCspNonce`（`style-src 'self' 'nonce-…'`）；script 維持只允許 `'self'`。未發布時的統一畫面。widget 的建置要關掉會產生 inline 事件處理器的 critical CSS 內嵌，否則與 CSP 衝突。
   - `/widget/*` 靜態資源（含雜湊的檔案長期快取）與 `/embed.js`（短期快取）。
   - `PublicChannels:PublicBaseUrl`、`AllowLocalhostAncestors`、`Widget:RootPath`。
   - API Dockerfile 加 Node stage 建置 widget；`.dockerignore` 同步。

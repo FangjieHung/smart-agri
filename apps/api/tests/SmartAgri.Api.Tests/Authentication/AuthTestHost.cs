@@ -64,9 +64,15 @@ public class AuthHostFixture : IAsyncLifetime
             await dbContext.Database.MigrateAsync();
         }
 
-        _factory = new AuthApiFactory(_postgres.ConnectionString, Clock, Line);
+        _factory = new AuthApiFactory(_postgres.ConnectionString, Clock, Line, ConfigureServices);
         await using var scope = _factory.Services.CreateAsyncScope();
         (await scope.ServiceProvider.GetRequiredService<AdminSpaClientRegistrar>().EnsureAsync()).ShouldBeTrue();
+    }
+
+    /// <summary>Lets a derived fixture add or replace services of its host (e.g. a test double); runs
+    /// after the Api's own registrations, so the last registration wins.</summary>
+    protected virtual void ConfigureServices(IServiceCollection services)
+    {
     }
 
     public virtual async ValueTask DisposeAsync()
@@ -126,12 +132,14 @@ public class AuthHostFixture : IAsyncLifetime
         private readonly string _connectionString;
         private readonly TimeProvider _clock;
         private readonly FakeLineServer _line;
+        private readonly Action<IServiceCollection> _configureServices;
 
-        public AuthApiFactory(string connectionString, TimeProvider clock, FakeLineServer line)
+        public AuthApiFactory(string connectionString, TimeProvider clock, FakeLineServer line, Action<IServiceCollection> configureServices)
         {
             _connectionString = connectionString;
             _clock = clock;
             _line = line;
+            _configureServices = configureServices;
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -160,6 +168,7 @@ public class AuthHostFixture : IAsyncLifetime
                      {
                          "SessionsPerIpPerMinute", "RunsPerVisitorPerMinute", "RunsPerVisitorPerHour",
                          "RunsPerIpPerMinute", "RunsPerAssistantPerMinute", "MaxConcurrentRunsPerAssistant",
+                         "LineWebhooksPerAssistantPerMinute", "LineMaxConcurrentWebhooksPerAssistant",
                      })
             {
                 builder.UseSetting($"PublicChannels:RateLimits:{name}", "1000000");
@@ -171,6 +180,8 @@ public class AuthHostFixture : IAsyncLifetime
 
                 // Every LINE call goes to the fake LINE server, never to api.line.me (M5b #230).
                 services.AddHttpClient(LineMessagingClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => _line);
+
+                _configureServices(services);
             });
         }
     }

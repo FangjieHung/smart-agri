@@ -1,0 +1,172 @@
+@if (view(); as data) {
+  <section class="case-types-panel" aria-labelledby="case-types-title" data-case-types-panel>
+    <div>
+      <p class="ui-text-caption">案件</p>
+      <h2 id="case-types-title" class="ui-text-subtitle">案件類型</h2>
+    </div>
+    <p class="hint">
+      建立案件時先選類型，承辦組與處理時限會依類型預先帶入。說明會在助理提議開案時用來判斷類型。類型不能刪除，不再使用時請停用。
+    </p>
+
+    @if (isCreating()) {
+      <ng-container [ngTemplateOutlet]="typeForm" [ngTemplateOutletContext]="{ $implicit: null }" />
+    } @else {
+      <div class="actions">
+        <button type="button" class="ui-button" (click)="startCreate()">新增案件類型</button>
+      </div>
+    }
+
+    <ul class="type-list">
+      @for (type of data.types; track type.id) {
+        <li class="type" [class.is-inactive]="!type.isActive" [attr.data-case-type]="type.name">
+          <div class="type__identity">
+            <p class="type__name">
+              {{ type.name }}
+              @if (!type.isActive) {
+                <span class="type__tag">已停用</span>
+              }
+            </p>
+            @if (type.description) {
+              <p class="type__description">{{ type.description }}</p>
+            }
+            <p class="type__defaults">
+              預設承辦組：{{ type.defaultGroup.name }}@if (type.defaultGroup.archived) {（已封存）}
+              ・預設處理時限：{{ formatDue(type.defaultDueHours) }}
+            </p>
+          </div>
+
+          @if (isEditing(type)) {
+            <ng-container [ngTemplateOutlet]="typeForm" [ngTemplateOutletContext]="{ $implicit: type }" />
+          } @else {
+            <div class="actions">
+              <button type="button" class="ui-button secondary" (click)="startEdit(type)">編輯「{{ type.name }}」</button>
+              @if (type.isActive) {
+                <button type="button" class="ui-button secondary" [disabled]="saving()" (click)="setActive(type, false)">
+                  停用「{{ type.name }}」
+                </button>
+              } @else {
+                <button type="button" class="ui-button secondary" [disabled]="saving()" (click)="setActive(type, true)">
+                  重新啟用「{{ type.name }}」
+                </button>
+              }
+            </div>
+          }
+        </li>
+      } @empty {
+        <li class="hint">還沒有案件類型。</li>
+      }
+    </ul>
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+    <p class="feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+  </section>
+}
+
+<ng-template #typeForm let-type>
+  @let errors = fieldErrors();
+  <form class="editor" novalidate (submit)="save($event)" data-case-type-form>
+    <p class="editor__title">{{ type ? '編輯「' + type.name + '」' : '新增案件類型' }}</p>
+
+    <div class="control">
+      <label for="case-type-name">名稱</label>
+      <input
+        id="case-type-name"
+        type="text"
+        autocomplete="off"
+        [attr.maxlength]="nameMaxLength"
+        [value]="draft().name"
+        [attr.aria-invalid]="errors.name ? 'true' : null"
+        [attr.aria-describedby]="errors.name ? 'case-type-name-error' : null"
+        (input)="onText('name', $event)"
+      />
+      @if (errors.name) {
+        <p id="case-type-name-error" class="field-error">{{ errors.name }}</p>
+      }
+    </div>
+
+    <div class="control">
+      <label for="case-type-description">說明（選填）</label>
+      <textarea
+        id="case-type-description"
+        rows="3"
+        [attr.maxlength]="descriptionMaxLength"
+        [value]="draft().description"
+        [attr.aria-invalid]="errors.description ? 'true' : null"
+        [attr.aria-describedby]="errors.description ? 'case-type-description-hint case-type-description-error' : 'case-type-description-hint'"
+        (input)="onText('description', $event)"
+      ></textarea>
+      <p id="case-type-description-hint" class="hint small">
+        寫下這類案件的範圍，助理提議開案時會參考。{{ draft().description.length }}／{{ descriptionMaxLength }} 字
+      </p>
+      @if (errors.description) {
+        <p id="case-type-description-error" class="field-error">{{ errors.description }}</p>
+      }
+    </div>
+
+    <div class="control">
+      <label for="case-type-group">預設承辦組</label>
+      <select
+        id="case-type-group"
+        [attr.aria-invalid]="errors.defaultGroupId ? 'true' : null"
+        [attr.aria-describedby]="errors.defaultGroupId ? 'case-type-group-error' : null"
+        (change)="onGroup($event)"
+      >
+        @if (draft().groupId === '') {
+          <option value="" selected>請選擇</option>
+        }
+        @for (option of groupOptions(); track option.id) {
+          <option [value]="option.id" [selected]="option.id === draft().groupId">{{ option.label }}</option>
+        }
+      </select>
+      @if (groupOptions().length === 0) {
+        <p class="hint small">還沒有可以選的承辦組，請先在上方建立承辦組。</p>
+      }
+      @if (errors.defaultGroupId) {
+        <p id="case-type-group-error" class="field-error">{{ errors.defaultGroupId }}</p>
+      }
+    </div>
+
+    <fieldset class="due">
+      <legend>預設處理時限</legend>
+      <div class="due__inputs">
+        <div class="control">
+          <label for="case-type-due" class="visually-hidden">處理時限的數字</label>
+          <input
+            id="case-type-due"
+            type="text"
+            inputmode="numeric"
+            autocomplete="off"
+            [value]="draft().dueValue"
+            [attr.aria-invalid]="errors.defaultDueHours ? 'true' : null"
+            [attr.aria-describedby]="errors.defaultDueHours ? 'case-type-due-hint case-type-due-error' : 'case-type-due-hint'"
+            (input)="onText('dueValue', $event)"
+          />
+        </div>
+        <div class="control">
+          <label for="case-type-due-unit" class="visually-hidden">處理時限的單位</label>
+          <select id="case-type-due-unit" (change)="onUnit($event)">
+            @for (unit of dueUnits; track unit) {
+              <option [value]="unit" [selected]="unit === draft().dueUnit">{{ dueUnitLabels[unit] }}</option>
+            }
+          </select>
+        </div>
+      </div>
+      <p id="case-type-due-hint" class="hint small">{{ dueHint() }}</p>
+      @if (errors.defaultDueHours) {
+        <p id="case-type-due-error" class="field-error">{{ errors.defaultDueHours }}</p>
+      }
+    </fieldset>
+
+    <div class="choice">
+      <input id="case-type-active" type="checkbox" [checked]="draft().isActive" (change)="onActive($event)" />
+      <label for="case-type-active">啟用中（可以用來建立新案件）</label>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="ui-button" [disabled]="saving()">{{ type ? '儲存案件類型' : '建立案件類型' }}</button>
+      <button type="button" class="ui-button secondary" (click)="cancel()">取消</button>
+    </div>
+  </form>
+</ng-template>

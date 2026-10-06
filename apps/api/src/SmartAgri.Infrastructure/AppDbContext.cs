@@ -195,6 +195,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Append-only history of case group member additions and removals (M7-1).</summary>
     public DbSet<CaseGroupMemberChange> CaseGroupMemberChanges => Set<CaseGroupMemberChange>();
 
+    /// <summary>案件類型 (M7 plan §3 B; #247): never deleted, only deactivated.</summary>
+    public DbSet<CaseType> CaseTypes => Set<CaseType>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -367,6 +370,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new CaseGroupConfiguration());
         modelBuilder.ApplyConfiguration(new CaseGroupMemberConfiguration());
         modelBuilder.ApplyConfiguration(new CaseGroupMemberChangeConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseTypeConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

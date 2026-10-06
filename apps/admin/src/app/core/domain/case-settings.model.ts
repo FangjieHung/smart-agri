@@ -20,3 +20,27 @@ export type CaseGroupListView = components['schemas']['CaseGroupListView'];
 
 /** 成員異動歷史的一筆：每個加入或移除各一筆，最新的在前。 */
 export type CaseGroupMemberChangeView = components['schemas']['CaseGroupMemberChangeView'];
+
+/** 案件類型的預設承辦組：`archived` 只會出現在停用的類型上（啟用中類型的預設承辦組不能封存）。 */
+export type CaseTypeGroupView = components['schemas']['CaseTypeGroupView'];
+
+/**
+ * 一個案件類型（M7 計畫第 3 節 B，issue #247）：說明（助理提議開案時靠它判斷）、預設承辦組、
+ * 預設處理時限（小時，1–2,160，以日曆時間計算）。只能停用、不能刪除；停用的類型不能用來建立新案件。
+ */
+export type CaseTypeView = components['schemas']['CaseTypeView'];
+
+/**
+ * `GET /api/v1/case-types`：內部帳號都讀得到啟用中的類型（建立案件時要選）；`includeInactive=true`
+ * 只對管理者有效。外部客戶是 `403 case`。
+ */
+export type CaseTypeListView = components['schemas']['CaseTypeListView'];
+
+/** 建立與修改案件類型時送出的欄位（每次都送完整內容）。 */
+export interface CaseTypeInput {
+  readonly name: string;
+  readonly description: string;
+  readonly defaultGroupId: string;
+  readonly defaultDueHours: number;
+  readonly isActive: boolean;
+}

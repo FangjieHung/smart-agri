@@ -27,6 +27,11 @@ export default [
               sourceTag: 'scope:chat',
               onlyDependOnLibsWithTags: ['scope:chat'],
             },
+            {
+              // apps/widget（嵌在客戶網站的訪客視窗）只能用 libs/chat：不帶 Material、theme-pack、ui。
+              sourceTag: 'scope:widget',
+              onlyDependOnLibsWithTags: ['scope:chat'],
+            },
           ],
         },
       ],

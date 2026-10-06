@@ -8,12 +8,13 @@
   cdkTrapFocus
   (keydown.escape)="closed.emit()"
 >
-  <header>
+  <!-- 不用 <header>：在 role="dialog" 裡 axe 會把它當成第二個 banner 地標（頁面本身的標題列已經是）。 -->
+  <div class="drawer-header">
     <h2 id="citation-drawer-title">引用來源</h2>
     <button #closeButton type="button" class="drawer-close" (click)="closed.emit()">
       關閉<span class="visually-hidden">引用來源</span>
     </button>
-  </header>
+  </div>
   <p id="citation-drawer-hint" class="hint">這則回答參考了以下組織資料的原文片段。</p>
   <ol class="citations">
     @for (citation of citations(); track citation.id) {

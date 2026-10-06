@@ -1,0 +1,40 @@
+// 訪客視窗的 token：`libs/chat/README.md`「What the host must provide」列的每個變數，加上視窗自己用的。
+// 品牌色（--color-accent 與衍生值）由 `applyBrandColor()` 依發布設定在執行期覆寫，這裡是預設（森林綠）。
+:root {
+  color-scheme: light;
+
+  // libs/chat 需要的變數
+  --color-surface: #fff;
+  --color-surface-muted: #f3f5f6;
+  --color-text: #1c2733;
+  --color-text-secondary: #526170;
+  --color-accent: #1f6f5c;
+  --color-accent-soft: color-mix(in srgb, var(--color-accent) 10%, #fff);
+  --color-on-accent: #fff;
+  --color-success: #276749;
+  --color-warning: #8a5300;
+  --border-default: 1px solid var(--color-border);
+  --shadow-subtle: 0 1px 2px rgb(28 39 51 / 8%);
+  --focus-ring: 3px solid var(--color-focus);
+  --focus-offset: 2px;
+  --font-size-caption: 0.875rem;
+  --font-size-heading: 1.125rem;
+  --line-height-body: 1.6;
+  --line-height-heading: 1.3;
+  --radius-container: 12px;
+  --radius-control: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --target-size: 44px;
+
+  // 視窗自己用的
+  --color-background: #f6f7f8;
+  --color-border: #d5dce2;
+  --color-error: #b42318;
+  --color-focus: var(--color-accent);
+  --font-body: system-ui, -apple-system, BlinkMacSystemFont, 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+  --font-size-body: 0.9375rem;
+}

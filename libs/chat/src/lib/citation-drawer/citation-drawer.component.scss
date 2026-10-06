@@ -16,7 +16,7 @@
   box-shadow: var(--shadow-subtle);
 }
 
-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.drawer-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 h2, p, ol, blockquote { margin: 0; }
 h2 { font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
 .hint, .updated { color: var(--color-text-secondary); font-size: var(--font-size-caption); }

@@ -1,4 +1,4 @@
-import { A11yModule } from '@angular/cdk/a11y';
+import { CdkTrapFocus } from '@angular/cdk/a11y';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -16,7 +16,7 @@ import type { ChatCitationView } from '../chat-view.model';
  */
 @Component({
   selector: 'app-citation-drawer',
-  imports: [A11yModule],
+  imports: [CdkTrapFocus],
   templateUrl: './citation-drawer.component.html',
   styleUrl: './citation-drawer.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

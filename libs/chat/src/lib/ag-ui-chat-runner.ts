@@ -20,7 +20,12 @@ export function apiChatRunsPath(assistantId: string): string {
 
 export interface AgUiChatRunnerDeps {
   /** 目前的 access token；`HttpAgent` 用 `fetch`，不經過 Angular 的 bearer 攔截器。 */
-  readonly accessToken: () => string | null;
+  readonly accessToken?: () => string | null;
+  /**
+   * 完整的 `Authorization` 標頭值（例如訪客視窗的 `Visitor <token>`）；有給時優先於 `accessToken`
+   * （`accessToken` 只會被包成 `Bearer <token>`）。回傳 `null` 代表不帶標頭。
+   */
+  readonly authorizationHeader?: () => string | null;
   /** `401`：與 `unauthorizedInterceptor` 相同，結束工作階段並回登入頁。 */
   readonly onUnauthorized: () => void;
   /** 測試用：換掉 `HttpAgent` 的 fetch。 */
@@ -110,12 +115,12 @@ export class AgUiChatRunner implements ChatRunner {
       load()
         .then(({ HttpAgent: Agent }) => {
           if (closed) return undefined;
-          const token = this.deps.accessToken();
+          const authorization = this.authorization();
           agent = new Agent({
             url: (this.deps.runsPath ?? apiChatRunsPath)(request.assistantId),
             // 必須明確設定：省略時 HttpAgent 會自產 uuid，後端回 403 chat-thread。
             threadId: request.threadId ?? '',
-            headers: token === null ? {} : { Authorization: `Bearer ${token}` },
+            headers: authorization === null ? {} : { Authorization: authorization },
             initialMessages: runMessages(request),
             ...(this.deps.fetch === undefined ? {} : { fetch: this.deps.fetch }),
           });
@@ -141,6 +146,12 @@ export class AgUiChatRunner implements ChatRunner {
         if (!finishedNaturally) agent?.abortRun();
       };
     });
+  }
+
+  private authorization(): string | null {
+    if (this.deps.authorizationHeader !== undefined) return this.deps.authorizationHeader();
+    const token = this.deps.accessToken?.() ?? null;
+    return token === null ? null : `Bearer ${token}`;
   }
 
   private toRunError(error: unknown): ChatRunError {

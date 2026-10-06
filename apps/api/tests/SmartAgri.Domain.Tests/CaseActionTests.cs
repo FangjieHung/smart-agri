@@ -124,6 +124,23 @@ public class CaseActionTests
     }
 
     [Fact]
+    public void The_operations_command_may_move_the_due_time_into_the_past_with_an_event_that_has_no_actor()
+    {
+        var (item, _, _) = NewCase();
+        var past = Now.AddHours(-1);
+
+        var changed = item.SetDueByOperations(past, Now.AddMinutes(1));
+
+        (item.DueAt, item.EventCount, item.UpdatedAt, item.Status).ShouldBe((past, 2, Now.AddMinutes(1), CaseStatus.Pending));
+        (changed.Ordinal, changed.Action, changed.ActorAccountId, changed.DueAt, changed.Note, changed.Status)
+            .ShouldBe((2, CaseEventAction.DueChanged, (Guid?)null, (DateTimeOffset?)past, (string?)null, (CaseStatus?)null));
+
+        item.Cancel(Creator, null, Now);
+        Should.Throw<InvalidOperationException>(() => item.SetDueByOperations(past, Now), "a closed case is never changed");
+        item.EventCount.ShouldBe(3);
+    }
+
+    [Fact]
     public void A_closed_case_refuses_every_action()
     {
         var (completed, _, purchasing) = NewCase();

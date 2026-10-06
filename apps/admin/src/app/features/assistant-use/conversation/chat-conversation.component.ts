@@ -1,4 +1,3 @@
-import { A11yModule } from '@angular/cdk/a11y';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import {
   ChangeDetectionStrategy,
@@ -47,6 +46,7 @@ import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { AnonymousVisitorService } from '../../../core/session/anonymous-visitor.service';
 import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
+import { ConfirmDialogComponent } from '../../../shared/ui/confirm-dialog/confirm-dialog.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { ConsentConfirmationComponent } from '../consent-confirmation/consent-confirmation.component';
 import { FormCheckStatusComponent } from '../form-check-status/form-check-status.component';
@@ -141,7 +141,7 @@ interface HandoffExchange {
 @Component({
   selector: 'app-chat-conversation',
   imports: [
-    A11yModule,
+    ConfirmDialogComponent,
     RouterLink,
     StatePanelComponent,
     ChatMessageComponent,
@@ -287,17 +287,11 @@ export class ChatConversationComponent {
 
   private readonly log = viewChild<ElementRef<HTMLElement>>('log');
   private readonly composerInput = viewChild<ElementRef<HTMLInputElement>>('composerInput');
-  private readonly withdrawCancelButton = viewChild<ElementRef<HTMLButtonElement>>('withdrawCancelButton');
-  private readonly handoffCancelButton = viewChild<ElementRef<HTMLButtonElement>>('handoffCancelButton');
   private readonly stopButton = viewChild<ElementRef<HTMLButtonElement>>('stopButton');
-  private readonly leaveCancelButton = viewChild<ElementRef<HTMLButtonElement>>('leaveCancelButton');
   private readonly formSlot = viewChild<ElementRef<HTMLElement>>('formSlot');
 
   constructor() {
-    // 確認對話框一出現就把焦點帶到「取消」，與對話紀錄側欄的刪除確認一致。
-    effect(() => this.withdrawCancelButton()?.nativeElement.focus());
-    effect(() => this.handoffCancelButton()?.nativeElement.focus());
-    effect(() => this.leaveCancelButton()?.nativeElement.focus());
+    // 確認對話框（ConfirmDialogComponent）一出現就自己把焦點帶到「取消」，與對話紀錄側欄的刪除確認一致。
     // 換帳號、助理或對話時，進行中的回答不再屬於畫面上的對話：直接取消。
     effect(() => {
       this.scope();

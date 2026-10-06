@@ -22,6 +22,7 @@ import {
   CASE_TYPE_REQUIRED_MESSAGE,
   caseEventLabel,
   caseOriginLabel,
+  caseCreatedByText,
   caseRecordStateLabel,
   caseStatusLabel,
   isCaseOverdue,
@@ -70,6 +71,7 @@ export class CasesPageComponent {
   protected readonly statusLabel = caseStatusLabel;
   protected readonly originLabel = caseOriginLabel;
   protected readonly recordStateLabel = caseRecordStateLabel;
+  protected readonly createdByText = caseCreatedByText;
   protected readonly formatDueHours = formatDueHours;
 
   /** 篩選的初始值可以從網址帶入（首頁「案件」卡片，issue #250）：`?scope=owned&overdue=true` 等。 */

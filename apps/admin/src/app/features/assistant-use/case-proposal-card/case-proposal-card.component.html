@@ -1,0 +1,73 @@
+@let current = proposal();
+<section class="case-proposal" [attr.data-state]="state()" [attr.aria-labelledby]="fieldId('heading')">
+  <p class="heading" [id]="fieldId('heading')">建議開案{{ current ? '：' + current.typeName : '' }}</p>
+  @if (current) {
+    <dl class="facts">
+      <div><dt>案件類型</dt><dd>{{ current.typeName }}</dd></div>
+      <div><dt>承辦組</dt><dd>{{ current.group.name }}</dd></div>
+      <div><dt>處理時限</dt><dd>{{ dueLabel() }}（從建立時起算）</dd></div>
+    </dl>
+  }
+  @switch (state()) {
+    @case ('editable') {
+      <form class="fields" (submit)="submit($event)">
+        <div class="field">
+          <label [for]="fieldId('title')">案件標題</label>
+          <input
+            type="text"
+            [id]="fieldId('title')"
+            [value]="title()"
+            [attr.maxlength]="titleMaxLength"
+            [attr.aria-invalid]="fieldErrors().title ? 'true' : null"
+            [attr.aria-describedby]="fieldErrors().title ? fieldId('title-error') : null"
+            (input)="updateTitle($event)"
+          />
+          @if (fieldErrors().title; as message) {
+            <p class="field-error" [id]="fieldId('title-error')">{{ message }}</p>
+          }
+        </div>
+        <div class="field">
+          <label [for]="fieldId('description')">說明（選填）</label>
+          <textarea
+            rows="3"
+            [id]="fieldId('description')"
+            [value]="description()"
+            [attr.maxlength]="descriptionMaxLength"
+            [attr.aria-invalid]="fieldErrors().description ? 'true' : null"
+            [attr.aria-describedby]="fieldErrors().description ? fieldId('description-error') : fieldId('description-hint')"
+            (input)="updateDescription($event)"
+          ></textarea>
+          @if (fieldErrors().description; as message) {
+            <p class="field-error" [id]="fieldId('description-error')">{{ message }}</p>
+          } @else {
+            <p class="hint" [id]="fieldId('description-hint')">案件只保存你確認的標題與說明，並連結這段對話；不會複製對話內容。</p>
+          }
+        </div>
+        @if (error()) {
+          <p class="card-error" role="alert">{{ error() }}</p>
+        }
+        <div class="actions">
+          <button type="submit" class="confirm-case" [disabled]="busy()" aria-haspopup="dialog">建立案件</button>
+          <button type="button" class="dismiss-case" [disabled]="busy()" (click)="dismissed.emit()">不用了</button>
+        </div>
+      </form>
+    }
+    @case ('unavailable') {
+      <p class="notice unavailable">無法建立：這個案件類型已停用，或助理已不再提議這個類型。需要時請在案件頁手動建立。</p>
+    }
+    @case ('confirmed') {
+      <p class="done">
+        已建立案件「{{ current?.title }}」。
+        @if (current?.caseId; as caseId) {
+          <a [routerLink]="['/app/cases']" [queryParams]="{ case: caseId }">查看案件</a>
+        }
+      </p>
+    }
+    @case ('dismissed') {
+      <p class="notice dismissed">已選擇不用了，沒有建立案件。</p>
+    }
+    @case ('missing') {
+      <p class="notice unavailable">這個提議目前無法顯示。</p>
+    }
+  }
+</section>

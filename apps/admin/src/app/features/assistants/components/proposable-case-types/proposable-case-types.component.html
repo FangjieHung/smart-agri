@@ -1,0 +1,38 @@
+<fieldset class="group proposable-case-types">
+  <legend>可提議的案件類型</legend>
+  <p class="hint">
+    勾選後，組織內部同仁在對話中描述需要後續處理的事（例如報修、申請）時，助理會提議開一件這類案件；使用者確認標題與說明後才會建立。外部客戶與官網、LINE 訪客不會收到提議。
+  </p>
+  @if (loading()) {
+    <p class="hint" role="status">正在讀取案件類型…</p>
+  } @else if (types(); as list) {
+    @if (list.length === 0 && unavailable().length === 0) {
+      <p class="hint">組織還沒有啟用中的案件類型，請管理者先到「設定」建立。</p>
+    }
+    @for (type of list; track type.id) {
+      <label class="check">
+        <input
+          type="checkbox"
+          [checked]="isSelected(type.id)"
+          [disabled]="busy()"
+          (change)="toggled.emit(type.id)"
+        />
+        <span>
+          {{ type.name }}
+          <small>承辦組：{{ type.defaultGroup.name }}・處理時限 {{ dueLabel(type.defaultDueHours) }}{{ type.description ? '・' + type.description : '' }}</small>
+        </span>
+      </label>
+    }
+    @for (missing of unavailable(); track missing.id) {
+      <p class="unavailable">
+        <span>已停用的案件類型（不會提議）</span>
+        <button type="button" class="remove" [disabled]="busy()" (click)="toggled.emit(missing.id)">移除</button>
+      </p>
+    }
+  } @else {
+    <p class="hint">目前無法讀取案件類型。</p>
+  }
+  @if (error(); as message) {
+    <p class="error" role="alert">{{ message }}</p>
+  }
+</fieldset>

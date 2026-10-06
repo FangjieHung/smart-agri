@@ -44,3 +44,15 @@ export interface CaseTypeInput {
   readonly defaultDueHours: number;
   readonly isActive: boolean;
 }
+
+/**
+ * 數據庫「送出後自動開案」可選的一個案件類型（issue #255，M7 計畫第 3 節 I）：啟用中的類型、它的預設
+ * 承辦組，以及承辦組中有幾人無法讀取這個數據庫的紀錄（案件看得到，不代表讀得到紀錄）。
+ */
+export type DatabaseAutoCaseOptionView = components['schemas']['DatabaseAutoCaseOptionView'];
+
+/**
+ * `GET`／`PUT /api/v1/databases/{id}/auto-case`（只有管理者，其他人是 `403 organization-settings`）：
+ * `caseTypeId` 是目前的設定（`null` 是不開案），`options` 是所有啟用中的類型。
+ */
+export type DatabaseAutoCaseView = components['schemas']['DatabaseAutoCaseView'];

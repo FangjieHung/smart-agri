@@ -3,6 +3,7 @@ using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Application.Cases;
+using SmartAgri.Application.Validation;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Cases;
 using SmartAgri.Domain.Organizations;
@@ -57,7 +58,8 @@ public sealed record CaseTypeRequest(
 /// case-group-archived</c>; an unknown or foreign id is <c>422 case-group-not-found</c>). An inactive
 /// type whose group was archived later may keep it while it stays inactive; reactivating it needs a
 /// group in use. The other side is in <see cref="CaseGroupEndpoints"/>: a group that is an active
-/// type's default cannot be archived (<c>422 case-group-in-use</c>).
+/// type's default cannot be archived (<c>422 case-group-in-use</c>). A type some database opens cases
+/// of cannot be deactivated (<c>422 case-type-in-use</c>, M7-10), naming the databases.
 /// </para>
 /// <para>
 /// Creating and changing each write one <see cref="OrganizationActivity"/> in the same save
@@ -81,6 +83,12 @@ public static class CaseTypeEndpoints
     public const string GroupNotFoundReason = "case-group-not-found";
 
     public const string GroupNotFoundMessage = "找不到這個承辦組，請重新選擇。";
+
+    /// <summary>Deactivating a type that a database opens cases of (M7-10, decision O).</summary>
+    public const string InUseReason = "case-type-in-use";
+
+    /// <summary>The field of a <c>case-type-in-use</c> refusal: the databases that use the type.</summary>
+    public const string InUseField = "databases";
 
     public static IEndpointRouteBuilder MapCaseTypeEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -243,6 +251,12 @@ public static class CaseTypeEndpoints
             return GroupArchived();
         }
 
+        if (type.IsActive && !value.IsActive
+            && await DatabaseNamesUsingAsync(dbContext, type.Id, cancellationToken) is { Count: > 0 } databaseNames)
+        {
+            return InUse(type.Name, databaseNames);
+        }
+
         var now = clock.GetUtcNow();
         var changed = type.Update(value.Name, value.Description, group, value.DefaultDueHours, value.IsActive, now);
         if (changed.Count > 0)
@@ -275,6 +289,27 @@ public static class CaseTypeEndpoints
             .OrderBy(type => type.CreatedAt).ThenBy(type => type.Id)
             .Select(type => type.Name)
             .ToListAsync(cancellationToken);
+
+    /// <summary>The names of the databases (in use or archived) whose submissions open cases of
+    /// <paramref name="typeId"/>, in the order they were created: what keeps the type from being
+    /// deactivated (M7-10).</summary>
+    internal static Task<List<string>> DatabaseNamesUsingAsync(AppDbContext dbContext, Guid typeId, CancellationToken cancellationToken) =>
+        dbContext.Databases.AsNoTracking()
+            .Where(database => database.AutoCaseTypeId == typeId)
+            .OrderBy(database => database.CreatedAt).ThenBy(database => database.Id)
+            .Select(database => database.Name)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// <c>422 case-type-in-use</c> under <see cref="InUseField"/>, naming each database, e.g.
+    /// 「設備故障報修」是數據庫「客戶資料庫」送出後自動開案的類型……
+    /// </summary>
+    private static IResult InUse(string typeName, IReadOnlyList<string> databaseNames)
+    {
+        var message = $"「{typeName}」是數據庫{string.Join("、", databaseNames.Select(name => $"「{name}」"))}送出後自動開案的類型。"
+            + "請先在這些數據庫改選其他類型或關閉自動開案，再停用。";
+        return ApiErrors.Refused(InUseReason, message, [new ValidationFailure(InUseField, message)]);
+    }
 
     /// <summary>The same bytes as a non-manager's <c>403</c>.</summary>
     private static IResult NotFound() => ApiErrors.NotFound(ForbiddenReason.OrganizationSettings);

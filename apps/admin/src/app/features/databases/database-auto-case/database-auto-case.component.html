@@ -1,0 +1,40 @@
+@if (view(); as current) {
+  <form class="auto-case" aria-labelledby="auto-case-title" novalidate data-database-auto-case (submit)="save($event)">
+    <h3 id="auto-case-title">送出後自動開案</h3>
+    <p class="hint">
+      選一個案件類型後，這個數據庫每收到一筆新紀錄，就會自動建立一件該類型的案件，交給類型的預設承辦組，處理時限依類型。
+      案件的標題是「數據庫名稱：新紀錄」，說明固定為「{{ descriptionText }}」，<strong>不會複製紀錄內容</strong>；
+      送出的人（包括外部客戶）也看不到這件案件。只有管理者可以變更這個設定。
+    </p>
+
+    <div class="control">
+      <label for="auto-case-type">自動建立的案件類型</label>
+      <select id="auto-case-type" (change)="select($event)" [disabled]="saving()">
+        <option value="" [selected]="selected() === ''">不自動開案</option>
+        @for (option of current.options; track option.id) {
+          <option [value]="option.id" [selected]="option.id === selected()">{{ optionLabel(option) }}</option>
+        }
+      </select>
+      @if (current.options.length === 0) {
+        <small>目前沒有啟用中的案件類型，請先到系統設定的「案件類型」建立。</small>
+      }
+    </div>
+
+    @if (selectedOption(); as option) {
+      <p class="read-hint" [class.read-hint--warning]="option.unreadableMemberCount > 0 || option.memberCount === 0" role="note" data-auto-case-read-hint>
+        {{ readHint(option) }}
+      </p>
+    }
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+
+    <div class="actions">
+      <button type="submit" class="ui-button" [disabled]="saving() || unchanged()">
+        {{ saving() ? '儲存中…' : '儲存自動開案設定' }}
+      </button>
+    </div>
+    <p class="feedback" aria-live="polite">{{ feedback() }}</p>
+  </form>
+}

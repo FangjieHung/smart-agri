@@ -42,6 +42,9 @@ namespace SmartAgri.Api.Chat;
 //   figures) in ChatReplyView.databaseQuery, null for every other kind. A saved one is the snapshot
 //   of the numbers as answered; it is shown again only while the asker may still query that database
 //   through this assistant, otherwise it reads back as not-available (text and view).
+// - case-proposal (M7-9 #254) carries ChatCaseProposalView in ChatReplyView.caseProposal, null for every
+//   other kind: the saved snapshot (type id, title, description, status, case id) with the type re-read
+//   now (name, group, handling time, and whether it can still be confirmed).
 
 /// <summary>One citation a <c>company-data</c> reply shows inline.</summary>
 public sealed record ChatCitationView(string Id, string KnowledgeBaseName, string DocumentName, string Excerpt, string UpdatedLabel);
@@ -54,7 +57,8 @@ public sealed record ChatCitationView(string Id, string KnowledgeBaseName, strin
 /// only for <c>form-request</c> (and <see langword="null"/> there too once the form is no longer
 /// available: disconnected, revoked or no longer the assistant's form); <see cref="Receipt"/> only
 /// for <c>submission-receipt</c>, read from the submission for its submitter (M4 #148);
-/// <see cref="DatabaseQuery"/> only for <c>database-query</c> (M4 #149).
+/// <see cref="DatabaseQuery"/> only for <c>database-query</c> (M4 #149); <see cref="CaseProposal"/> only
+/// for <c>case-proposal</c> (M7-9 #254; <see langword="null"/> there too when the snapshot cannot be read).
 /// </summary>
 public sealed record ChatReplyView(
     string Kind,
@@ -64,7 +68,8 @@ public sealed record ChatReplyView(
     IReadOnlyList<string> NextSteps,
     ChatFormRequestView? Form,
     DatabaseSubmissionReceiptView? Receipt,
-    ChatDatabaseQueryView? DatabaseQuery);
+    ChatDatabaseQueryView? DatabaseQuery,
+    ChatCaseProposalView? CaseProposal);
 
 /// <summary>One turn. <see cref="Text"/> is set for <c>author: "account"</c>,
 /// <see cref="Reply"/> for <c>author: "assistant"</c> — never both. Both are always present in
@@ -556,12 +561,16 @@ public static class ChatEndpoints
             ? await databaseQueries.VisibleDatabaseIdsAsync(assistant, viewerId, cancellationToken)
             : new HashSet<Guid>();
 
+        // Case proposals (M7-9): the type is re-checked now (still active, still on the assistant's list).
+        var proposals = await ChatCaseProposals.ViewsAsync(dbContext, assistant.Id, messages, cancellationToken);
+
         return [.. messages.Select(message => ToMessageView(
             message,
             citationsByMessage.TryGetValue(message.Id, out var found) ? found : [],
             message.ReplyKind == ChatReplyKind.FormRequest && message.FormDatabaseId is { } formId ? forms[formId] : null,
             message.ReplyKind == ChatReplyKind.SubmissionReceipt && message.SubmissionId is { } receiptId ? receipts[receiptId] : null,
-            message.ReplyKind == ChatReplyKind.DatabaseQuery ? SavedQueryAnswer(message, visibleDatabases) : null))];
+            message.ReplyKind == ChatReplyKind.DatabaseQuery ? SavedQueryAnswer(message, visibleDatabases) : null,
+            proposals.GetValueOrDefault(message.Id)))];
     }
 
     /// <summary>A saved query answer as the asker may see it now: the snapshot while its database
@@ -579,33 +588,36 @@ public static class ChatEndpoints
         IReadOnlyList<ChatMessageCitation> citations,
         ChatFormRequestView? form = null,
         DatabaseSubmissionReceiptView? receipt = null,
-        ChatDatabaseQueryAnswer? query = null) =>
+        ChatDatabaseQueryAnswer? query = null,
+        ChatCaseProposalView? caseProposal = null) =>
         message.Author == ChatMessageAuthor.Account
             ? new ChatMessageView(message.Id, "account", message.Text, null, message.CreatedAt)
-            : new ChatMessageView(message.Id, "assistant", null, ToReplyView(message, citations, form, receipt, query), message.CreatedAt);
+            : new ChatMessageView(message.Id, "assistant", null, ToReplyView(message, citations, form, receipt, query, caseProposal), message.CreatedAt);
 
     private static ChatReplyView ToReplyView(
         ChatMessage message,
         IReadOnlyList<ChatMessageCitation> citations,
         ChatFormRequestView? form,
         DatabaseSubmissionReceiptView? receipt,
-        ChatDatabaseQueryAnswer? query) =>
+        ChatDatabaseQueryAnswer? query,
+        ChatCaseProposalView? caseProposal) =>
         message.ReplyKind switch
         {
             ChatReplyKind.CompanyData => new ChatReplyView(
-                "company-data", message.Text, [.. citations.Select(ToCitationView)], null, [], null, null, null),
+                "company-data", message.Text, [.. citations.Select(ToCitationView)], null, [], null, null, null, null),
             ChatReplyKind.GeneralKnowledge => new ChatReplyView(
-                "general-knowledge", message.Text, [], message.Notice, [], null, null, null),
+                "general-knowledge", message.Text, [], message.Notice, [], null, null, null, null),
             ChatReplyKind.NoResult => new ChatReplyView(
-                "no-result", message.Text, [], null, message.NextSteps, null, null, null),
-            ChatReplyKind.FormRequest => new ChatReplyView("form-request", message.Text, [], null, [], form, null, null),
-            ChatReplyKind.SubmissionReceipt => new ChatReplyView("submission-receipt", message.Text, [], null, [], null, receipt, null),
+                "no-result", message.Text, [], null, message.NextSteps, null, null, null, null),
+            ChatReplyKind.FormRequest => new ChatReplyView("form-request", message.Text, [], null, [], form, null, null, null),
+            ChatReplyKind.SubmissionReceipt => new ChatReplyView("submission-receipt", message.Text, [], null, [], null, receipt, null, null),
             ChatReplyKind.DatabaseQuery => QueryReplyView(query ?? DatabaseQueryTools.NotAvailable()),
+            ChatReplyKind.CaseProposal => new ChatReplyView("case-proposal", message.Text, [], null, [], null, null, null, caseProposal),
             _ => throw new InvalidOperationException("An assistant message must have a reply kind."),
         };
 
     internal static ChatReplyView QueryReplyView(ChatDatabaseQueryAnswer answer) =>
-        new("database-query", answer.Text, [], null, [], null, null, answer.View);
+        new("database-query", answer.Text, [], null, [], null, null, answer.View, null);
 
     internal static ChatCitationView ToCitationView(ChatMessageCitation citation) =>
         new(CitationId(citation), citation.KnowledgeBaseName, citation.DocumentName, citation.Excerpt, UpdatedLabel(citation.VersionEffectiveFrom));

@@ -25,10 +25,11 @@ import {
   type CitationRequest,
   type WithdrawRequest,
 } from '@smart-agri/chat';
-import { finalize, map, type Subscription } from 'rxjs';
+import { finalize, map, type Observable, type Subscription } from 'rxjs';
 import { CHAT_RUNNER, type ChatHistoryEntry, type ChatRunError, type ChatRunEvent } from '../../../core/chat/chat-runner';
 import { isVisitorId, type ChatViewerId } from '../../../core/domain/account.model';
 import type {
+  ChatCaseProposalView,
   ChatCitationView,
   ChatFormView,
   ChatMessageView,
@@ -42,12 +43,16 @@ import type {
 } from '../../../core/domain/database.model';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { AssistantIssuesRepository, type CreateAssistantHandoffRequest } from '../../../core/repositories/assistant-issues.repository';
+import type { ChatCaseProposalConfirmation, ChatCaseProposalResult } from '../../../core/repositories/demo-repository';
+import { formatDueHours } from '../../../core/domain/case-due-time';
+import { CASE_PROPOSAL_FAILED_MESSAGE } from '../../../core/domain/case-proposal';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { AnonymousVisitorService } from '../../../core/session/anonymous-visitor.service';
 import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
 import { ConfirmDialogComponent } from '../../../shared/ui/confirm-dialog/confirm-dialog.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
+import { CaseProposalCardComponent } from '../case-proposal-card/case-proposal-card.component';
 import { ConsentConfirmationComponent } from '../consent-confirmation/consent-confirmation.component';
 import { FormCheckStatusComponent } from '../form-check-status/form-check-status.component';
 import { FormEntryComponent } from '../form-entry/form-entry.component';
@@ -124,6 +129,15 @@ type RunState =
 
 const IDLE: RunState = { phase: 'idle' };
 
+/** 等待確認的案件提議（issue #254）：確認視窗顯示的內容。 */
+interface PendingCaseProposal {
+  readonly messageId: string;
+  readonly confirmation: ChatCaseProposalConfirmation;
+  readonly typeName: string;
+  readonly groupName: string;
+  readonly dueLabel: string;
+}
+
 interface HandoffExchange {
   readonly questionId: string;
   readonly answerId: string;
@@ -151,6 +165,7 @@ interface HandoffExchange {
     StreamingReplyComponent,
     FormCheckStatusComponent,
     FormEntryComponent,
+    CaseProposalCardComponent,
   ],
   templateUrl: './chat-conversation.component.html',
   styleUrl: './chat-conversation.component.scss',
@@ -269,6 +284,14 @@ export class ChatConversationComponent {
   protected readonly handoffBusy = linkedSignal({ source: this.scope, computation: () => false });
   protected readonly handoffError = linkedSignal({ source: this.scope, computation: () => '' });
   protected readonly handoffIssueId = linkedSignal<string, string | null>({ source: this.scope, computation: () => null });
+  /** 助理提議開案（issue #254）：等待確認視窗、送出中的訊息 id、每張卡片的錯誤。 */
+  protected readonly pendingCase = linkedSignal<string, PendingCaseProposal | null>({ source: this.scope, computation: () => null });
+  protected readonly caseBusy = linkedSignal<string, string | null>({ source: this.scope, computation: () => null });
+  protected readonly caseErrors = linkedSignal<string, Readonly<Record<string, string>>>({ source: this.scope, computation: () => ({}) });
+  protected readonly caseFieldErrors = linkedSignal<string, Readonly<Record<string, Readonly<Partial<Record<'title' | 'description', string>>>>>>({
+    source: this.scope,
+    computation: () => ({}),
+  });
 
   /**
    * 串流完成（或停止）後不重新讀取，直接接在讀回的訊息後面：不保存對話的助理在 API
@@ -456,7 +479,7 @@ export class ChatConversationComponent {
     return messages.flatMap((message): ChatHistoryEntry[] => {
       if (message.author === 'account') return [{ role: 'user', content: message.text }];
       const kind = message.reply.kind;
-      if (kind === 'form-request' || kind === 'submission-receipt' || kind === 'database-query') return [];
+      if (kind === 'form-request' || kind === 'submission-receipt' || kind === 'database-query' || kind === 'case-proposal') return [];
       return [{ role: 'assistant', content: message.reply.text }];
     });
   }
@@ -762,7 +785,9 @@ export class ChatConversationComponent {
     if (this.anonymous() || !chat || message.author !== 'assistant'
       || message.reply.kind === 'form-request' || message.reply.kind === 'submission-receipt'
       // 查詢回答的數字來自只有提問者能讀的紀錄，不轉給處理人（issue #149，伺服器同樣拒絕）。
-      || message.reply.kind === 'database-query') return null;
+      || message.reply.kind === 'database-query'
+      // 開案提議不是回答，在對話裡確認或選「不用了」（issue #254，伺服器同樣拒絕轉交）。
+      || message.reply.kind === 'case-proposal') return null;
     const messages = [...chat.messages, ...this.local().map((entry) => entry.message)];
     const index = messages.findIndex((entry) => entry.id === message.id);
     const question = messages[index - 1];
@@ -806,6 +831,85 @@ export class ChatConversationComponent {
       },
       error: () => this.handoffError.set('目前無法轉交，請稍後再試。'),
     });
+  }
+
+  protected isCaseProposal(message: ChatMessageView): boolean {
+    return message.author === 'assistant' && message.reply.kind === 'case-proposal';
+  }
+
+  protected caseProposal(message: ChatMessageView): ChatCaseProposalView | null {
+    return message.author === 'assistant' && message.reply.kind === 'case-proposal' ? message.reply.proposal : null;
+  }
+
+  /** 「建立案件」：先開確認視窗，顯示會建立的內容（類型、承辦組、時限、標題與說明）。 */
+  protected askCaseConfirm(message: ChatMessageView, confirmation: ChatCaseProposalConfirmation): void {
+    const proposal = this.caseProposal(message);
+    if (proposal === null || this.caseBusy() !== null) return;
+    this.setCaseError(message.id, '', {});
+    this.pendingCase.set({
+      messageId: message.id,
+      confirmation: { title: confirmation.title.trim(), description: confirmation.description.trim() },
+      typeName: proposal.typeName,
+      groupName: proposal.group.name,
+      dueLabel: formatDueHours(proposal.dueHours),
+    });
+  }
+
+  protected cancelCaseConfirm(): void {
+    if (this.caseBusy() !== null) return;
+    this.pendingCase.set(null);
+  }
+
+  protected confirmCase(): void {
+    const pending = this.pendingCase();
+    const viewerId = this.viewerId();
+    if (pending === null || viewerId === null || this.caseBusy() !== null) return;
+    this.settleCase(
+      pending.messageId,
+      this.repository.confirmChatCaseProposal(viewerId, this.assistantId(), pending.messageId, pending.confirmation),
+      '已建立案件。',
+    );
+  }
+
+  /** 「不用了」：只記下來，不建立案件。 */
+  protected dismissCase(message: ChatMessageView): void {
+    const viewerId = this.viewerId();
+    if (viewerId === null || this.caseBusy() !== null) return;
+    this.setCaseError(message.id, '', {});
+    this.settleCase(message.id, this.repository.dismissChatCaseProposal(viewerId, this.assistantId(), message.id), '已選擇不用了，沒有建立案件。');
+  }
+
+  private settleCase(messageId: string, request: Observable<ChatCaseProposalResult>, done: string): void {
+    this.caseBusy.set(messageId);
+    request.pipe(finalize(() => this.caseBusy.set(null)), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (result) => {
+        this.pendingCase.set(null);
+        if (result.status === 'ready' || result.status === 'partial-failure') {
+          this.runStatus.set(done);
+          this.chatResource.reload();
+          this.composerInput()?.nativeElement.focus();
+          return;
+        }
+        if (result.status === 'loading') return;
+        if (result.status === 'validation-failed') {
+          this.setCaseError(messageId, result.reason === null ? '' : result.message, result.fieldErrors);
+          // 類型已停用或已不在清單上：重新讀取，卡片改成「無法建立」。
+          if (result.reason !== null) this.chatResource.reload();
+          return;
+        }
+        this.setCaseError(messageId, result.message, {});
+        if (result.status === 'conflict') this.chatResource.reload();
+      },
+      error: () => {
+        this.pendingCase.set(null);
+        this.setCaseError(messageId, CASE_PROPOSAL_FAILED_MESSAGE, {});
+      },
+    });
+  }
+
+  private setCaseError(messageId: string, message: string, fieldErrors: Readonly<Partial<Record<'title' | 'description', string>>>): void {
+    this.caseErrors.update((errors) => ({ ...errors, [messageId]: message }));
+    this.caseFieldErrors.update((errors) => ({ ...errors, [messageId]: fieldErrors }));
   }
 
   /** 拒絕畫面的標題：訪客與帳號的字不同，但兩邊都不揭露助理名稱或是否存在。 */

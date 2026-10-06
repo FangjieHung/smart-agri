@@ -117,6 +117,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Databases connected to assistants (M4 #148).</summary>
     public DbSet<AssistantDatabase> AssistantDatabases => Set<AssistantDatabase>();
 
+    /// <summary>The case types each assistant may propose in a conversation (M7-9, #254).</summary>
+    public DbSet<AssistantCaseType> AssistantCaseTypes => Set<AssistantCaseType>();
+
     /// <summary>In-progress wizard drafts, one or more per account (M3 plan §3, §4; #72).</summary>
     public DbSet<AssistantDraft> AssistantDrafts => Set<AssistantDraft>();
 
@@ -379,6 +382,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new CaseTypeConfiguration());
         modelBuilder.ApplyConfiguration(new CaseConfiguration());
         modelBuilder.ApplyConfiguration(new CaseEventConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantCaseTypeConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

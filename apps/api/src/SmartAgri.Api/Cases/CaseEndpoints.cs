@@ -107,7 +107,9 @@ public enum CaseRecordLinkState
 
 /// <summary>The linked database record: its state for everyone who sees the case, and whether
 /// <b>you</b> may read it (the case's visibility never widens the record's, case ADR).</summary>
-public sealed record CaseRecordLinkView(Guid DatabaseId, Guid SubmissionId, CaseRecordLinkState State, bool CanRead);
+/// <param name="DatabaseName">The database's current name (「由數據庫「X」自動建立」, M7-10) — never anything
+/// the record holds; <see langword="null"/> (sent as <c>null</c>) when the database cannot be found.</param>
+public sealed record CaseRecordLinkView(Guid DatabaseId, Guid SubmissionId, CaseRecordLinkState State, bool CanRead, string? DatabaseName);
 
 /// <summary>The linked conversation: only whether you can open it (yours, and not deleted by
 /// retention). Never its title or any of its text.</summary>
@@ -617,7 +619,11 @@ public static class CaseEndpoints
                 : found.WithdrawnAt is null ? CaseRecordLinkState.Available : CaseRecordLinkState.Withdrawn;
             var canRead = state == CaseRecordLinkState.Available
                 && await DatabaseRecordReaders.CanReadAsync(dbContext, permissions, caller.Id, databaseId, cancellationToken);
-            record = new CaseRecordLinkView(databaseId, submissionId, state, canRead);
+            var databaseName = await dbContext.Databases.AsNoTracking()
+                .Where(database => database.Id == databaseId)
+                .Select(database => database.Name)
+                .SingleOrDefaultAsync(cancellationToken);
+            record = new CaseRecordLinkView(databaseId, submissionId, state, canRead, databaseName);
         }
 
         CaseThreadLinkView? thread = null;

@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Cases;
 using SmartAgri.Application.Reports;
 
 namespace SmartAgri.Infrastructure.Ai;
@@ -31,7 +32,10 @@ namespace SmartAgri.Infrastructure.Ai;
 /// the form tool (M4 #164), it calls it with the first offered form when the question contains
 /// <see cref="FakeChatDirectives.FormRequest"/>, never with <see cref="FakeChatDirectives.NoForm"/>,
 /// and otherwise exactly when the keyword gate (<see cref="AssistantFormRequestRules.AsksForForm"/>)
-/// would — so the model path is deterministic and, without directives, matches keyword mode.
+/// would — so the model path is deterministic and, without directives, matches keyword mode. The case
+/// tool (M7-9 #254) works the same way with <see cref="FakeChatDirectives.CaseProposal"/> /
+/// <see cref="FakeChatDirectives.NoCase"/> and <see cref="CaseProposalRules.AsksForCase"/>: the first
+/// offered type, a title 「模型草擬：…」 from the question and a fixed description.
 /// </para>
 /// <para>
 /// Streaming always splits the answer into at least two chunks, and — whenever the answer
@@ -244,6 +248,21 @@ internal static class FakeToolChoice
                     [AssistantFormRequestRules.FormIdParameter] = FirstEnum(formTool.JsonSchema.GetProperty("properties"), AssistantFormRequestRules.FormIdParameter),
                 })])
                 : new ChatMessage(ChatRole.Assistant, "不需要表單。");
+        }
+
+        if (tools.FirstOrDefault(tool => tool.Name == CaseProposalRules.ToolName) is { } caseTool)
+        {
+            var wantsCase = !question.Contains(FakeChatDirectives.NoCase, StringComparison.Ordinal)
+                && (question.Contains(FakeChatDirectives.CaseProposal, StringComparison.Ordinal) || CaseProposalRules.AsksForCase(question));
+            var draft = question.Replace(FakeChatDirectives.CaseProposal, string.Empty, StringComparison.Ordinal).Trim();
+            return wantsCase
+                ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, caseTool.Name, new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    [CaseProposalRules.TypeIdParameter] = FirstEnum(caseTool.JsonSchema.GetProperty("properties"), CaseProposalRules.TypeIdParameter),
+                    [CaseProposalRules.TitleParameter] = $"模型草擬：{draft}",
+                    [CaseProposalRules.DescriptionParameter] = "由模型依問題草擬的說明。",
+                })])
+                : new ChatMessage(ChatRole.Assistant, "不需要開案。");
         }
 
         if (question.Contains(FakeChatDirectives.NoQuery, StringComparison.Ordinal))

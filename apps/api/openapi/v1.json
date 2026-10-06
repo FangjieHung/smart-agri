@@ -2855,6 +2855,89 @@
         }
       }
     },
+    "/api/v1/databases/{id}/auto-case": {
+      "get": {
+        "tags": [
+          "DatabaseAutoCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseAutoCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "DatabaseAutoCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDatabaseAutoCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseAutoCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants": {
       "get": {
         "tags": [
@@ -3222,6 +3305,95 @@
           },
           "422": {
             "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/sources/case-type/{caseTypeId}": {
+      "put": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "caseTypeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSettingsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "caseTypeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSettingsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -6164,6 +6336,117 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:confirm": {
+      "post": {
+        "tags": [
+          "ChatCaseProposalEndpoints"
+        ],
+        "summary": "Create the case an assistant proposed, with the title and description the asker confirmed (#254)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmChatCaseProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatMessageView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:dismiss": {
+      "post": {
+        "tags": [
+          "ChatCaseProposalEndpoints"
+        ],
+        "summary": "Record that the asker declined an assistant's case proposal (#254)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatMessageView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
     "/api/v1/public/assistants/{id}/visitor-sessions": {
       "post": {
         "tags": [
@@ -7083,6 +7366,7 @@
           "configuration",
           "knowledgeBaseIds",
           "databaseIds",
+          "caseTypeIds",
           "tone",
           "roleInstructions",
           "rules",
@@ -7101,6 +7385,13 @@
             }
           },
           "databaseIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "caseTypeIds": {
             "type": "array",
             "items": {
               "type": "string",
@@ -8077,7 +8368,8 @@
           "databaseId",
           "submissionId",
           "state",
-          "canRead"
+          "canRead",
+          "databaseName"
         ],
         "type": "object",
         "properties": {
@@ -8094,6 +8386,12 @@
           },
           "canRead": {
             "type": "boolean"
+          },
+          "databaseName": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -8484,6 +8782,62 @@
           "serving"
         ]
       },
+      "ChatCaseProposalStatus": {
+        "enum": [
+          "proposed",
+          "confirmed",
+          "dismissed"
+        ]
+      },
+      "ChatCaseProposalView": {
+        "required": [
+          "typeId",
+          "typeName",
+          "title",
+          "description",
+          "status",
+          "available",
+          "group",
+          "dueHours",
+          "caseId"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeName": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatCaseProposalStatus"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseGroupRefView"
+          },
+          "dueHours": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "caseId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "ChatCitationDetailView": {
         "required": [
           "id",
@@ -8822,7 +9176,8 @@
           "nextSteps",
           "form",
           "receipt",
-          "databaseQuery"
+          "databaseQuery",
+          "caseProposal"
         ],
         "type": "object",
         "properties": {
@@ -8877,6 +9232,16 @@
               },
               {
                 "$ref": "#/components/schemas/ChatDatabaseQueryView"
+              }
+            ]
+          },
+          "caseProposal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatCaseProposalView"
               }
             ]
           }
@@ -8990,6 +9355,27 @@
             "format": "int32"
           },
           "resolution": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ConfirmChatCaseProposalRequest": {
+        "required": [
+          "title",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
             "type": [
               "null",
               "string"
@@ -9495,6 +9881,68 @@
           },
           "displayName": {
             "type": "string"
+          }
+        }
+      },
+      "DatabaseAutoCaseOptionView": {
+        "required": [
+          "id",
+          "name",
+          "group",
+          "defaultDueHours",
+          "memberCount",
+          "unreadableMemberCount"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseTypeGroupView"
+          },
+          "defaultDueHours": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unreadableMemberCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DatabaseAutoCaseView": {
+        "required": [
+          "databaseId",
+          "caseTypeId",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "caseTypeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseAutoCaseOptionView"
+            }
           }
         }
       },
@@ -13310,6 +13758,21 @@
           }
         }
       },
+      "UpdateDatabaseAutoCaseRequest": {
+        "required": [
+          "caseTypeId"
+        ],
+        "type": "object",
+        "properties": {
+          "caseTypeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "UpdateKnowledgeBaseRequest": {
         "type": "object",
         "properties": {
@@ -13807,6 +14270,9 @@
       "name": "DatabaseReportEndpoints"
     },
     {
+      "name": "DatabaseAutoCaseEndpoints"
+    },
+    {
       "name": "AssistantEndpoints"
     },
     {
@@ -13832,6 +14298,9 @@
     },
     {
       "name": "CaseActionEndpoints"
+    },
+    {
+      "name": "ChatCaseProposalEndpoints"
     },
     {
       "name": "VisitorSessionEndpoints"

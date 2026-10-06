@@ -183,7 +183,7 @@ describe('CasesPageComponent', () => {
         status: 'ready',
         data: detail({
           thread: { assistantId: 'assistant-1', threadId: 'thread-1', canOpen: false },
-          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'withdrawn', canRead: false },
+          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'withdrawn', canRead: false, databaseName: '客戶資料庫' },
         }),
       }),
     });
@@ -208,12 +208,31 @@ describe('CasesPageComponent', () => {
         status: 'ready',
         data: detail({
           thread: { assistantId: 'assistant-1', threadId: 'thread-1', canOpen: true },
-          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'available', canRead: true },
+          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'available', canRead: true, databaseName: '客戶資料庫' },
         }),
       }),
     });
     expect(element(fixture, '[data-case-link="thread"] a').getAttribute('href')).toBe('/app/chat/assistant-1/thread-1');
     expect(element(fixture, '[data-case-link="record"] a').getAttribute('href')).toBe('/app/databases/database-1/records');
+  });
+
+  it('shows a case opened by a database submission as created by that database, without a person, and a withdrawn record', async () => {
+    const base = detail({ record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'withdrawn', canRead: false, databaseName: '客戶資料庫' } });
+    const { fixture } = await setup({
+      url: '/app/cases?case=case-1',
+      get: of({
+        status: 'ready',
+        data: {
+          ...base,
+          case: { ...base.case, origin: 'database-submission', createdBy: null, title: '客戶資料庫：新紀錄' },
+          events: base.events.map((event) => ({ ...event, actor: null })),
+        },
+      }),
+    });
+    expect(element(fixture, '[data-case-created-by]').textContent?.trim()).toBe('由數據庫「客戶資料庫」自動建立');
+    expect(element(fixture, '[data-case-link="record"]').textContent).toContain('紀錄已撤回');
+    expect(element(fixture, '[data-case-link="record"]').querySelector('a')).toBeNull();
+    expect(element(fixture, '[data-case-history]').textContent).toContain('系統');
   });
 
   it('shows a case it may not see as permission denied', async () => {

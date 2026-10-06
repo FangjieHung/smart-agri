@@ -32,6 +32,7 @@ import {
   type CaseEventView,
   type CaseListFilter,
   type CaseOrigin,
+  type CaseRecordLinkState,
   type CaseStatus,
   type CaseSummaryView,
   type CreateCaseRequest,
@@ -45,6 +46,7 @@ import {
   CaseSettingsRepository,
 } from './case-settings.repository';
 import { DEMO_SEED } from './demo-seed';
+import { mockChatProposedCases } from './mock-chat-cases';
 import type { PermissionDeniedRepositoryView, RepositoryView } from './demo-repository';
 import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
 
@@ -134,7 +136,8 @@ interface MockCase {
   readonly origin: CaseOrigin;
   readonly title: string;
   readonly description: string;
-  readonly createdBy: AccountId;
+  /** 數據庫送出後自動開的案件沒有建立者（決定 M）。 */
+  readonly createdBy: AccountId | null;
   owner: AccountId | null;
   dueAt: string;
   readonly createdAt: string;
@@ -146,14 +149,23 @@ interface MockCase {
   cancelReason: string | null;
   /** 連結的對話；`available: false` 模擬對話已被保存期限刪除。 */
   readonly thread: { readonly assistantId: string; readonly threadId: string; readonly available: boolean } | null;
-  readonly record: { readonly databaseId: string; readonly submissionId: string } | null;
+  /** 連結的數據庫紀錄與它目前的狀態（`withdrawn` 模擬送出者已撤回）。 */
+  readonly record: {
+    readonly databaseId: string;
+    readonly submissionId: string;
+    readonly databaseName: string;
+    readonly state: CaseRecordLinkState;
+  } | null;
   readonly previousCaseId: string | null;
   /** 交接軌跡，舊的在前；`eventCount` 就是它的長度。 */
   events: MockEvent[];
 }
 
 type MockSeed = Pick<MockCase, 'id' | 'typeId' | 'groupId' | 'title' | 'description' | 'createdBy' | 'dueAt' | 'createdAt' | 'thread' | 'record'>
-  & { readonly completed?: { readonly by: AccountId; readonly acceptedAt: string; readonly at: string; readonly resolution: string } };
+  & {
+    readonly origin?: CaseOrigin;
+    readonly completed?: { readonly by: AccountId; readonly acceptedAt: string; readonly at: string; readonly resolution: string };
+  };
 
 /**
  * mock 的範例案件（只放在這個檔案，不加進 `demo-seed.ts`：後端有測試會讀它）。承辦組與類型沿用
@@ -171,7 +183,16 @@ const MOCK_SEEDS: readonly MockSeed[] = [
     id: 'case-compressor-purchase', typeId: 'case-type-equipment-repair', groupId: 'case-group-purchasing',
     title: '採購備用壓縮機', description: '維修廠商建議備一台壓縮機，請採購組詢價。',
     createdBy: 'account-smb-admin', dueAt: '2026-10-12T01:00:00.000Z', createdAt: '2026-10-06T03:00:00.000Z',
-    thread: null, record: { databaseId: 'database-customer-records', submissionId: 'submission-mock-compressor' },
+    thread: null,
+    record: { databaseId: 'database-customer-records', submissionId: 'submission-mock-compressor', databaseName: '客戶資料庫', state: 'available' },
+  },
+  {
+    // 數據庫送出後自動開的案件（issue #255）：沒有建立者、不含紀錄內容；送出者之後撤回了紀錄。
+    id: 'case-auto-customer-record', typeId: 'case-type-equipment-repair', groupId: 'case-group-equipment',
+    title: '客戶資料庫：新紀錄', description: '由數據庫送出自動建立，內容請開啟紀錄查看。', origin: 'database-submission',
+    createdBy: null, dueAt: '2026-10-08T02:00:00.000Z', createdAt: '2026-10-05T02:00:00.000Z',
+    thread: null,
+    record: { databaseId: 'database-customer-records', submissionId: 'submission-mock-withdrawn', databaseName: '客戶資料庫', state: 'withdrawn' },
   },
   {
     // 逾期提示（issue #250）：一直待受理、時限已過，設備組成員（客服同仁）的側欄數字因此至少是 1。
@@ -191,7 +212,7 @@ const MOCK_SEEDS: readonly MockSeed[] = [
 
 function seedCase(seed: MockSeed): MockCase {
   const item: MockCase = {
-    id: seed.id, typeId: seed.typeId, groupId: seed.groupId, status: 'pending', origin: 'manual', title: seed.title,
+    id: seed.id, typeId: seed.typeId, groupId: seed.groupId, status: 'pending', origin: seed.origin ?? 'manual', title: seed.title,
     description: seed.description, createdBy: seed.createdBy, owner: null, dueAt: seed.dueAt, createdAt: seed.createdAt,
     updatedAt: seed.createdAt, acceptedAt: null, completedAt: null, cancelledAt: null, resolution: null, cancelReason: null,
     thread: seed.thread, record: seed.record, previousCaseId: null, events: [],
@@ -261,7 +282,7 @@ export class CasesRepository {
       const scope = filter.scope ?? 'all';
       const status = filter.status ?? 'open';
       const now = new Date();
-      const rows = this.mockCases
+      const rows = this.allMockCases()
         .filter((item) => this.mockVisible(item, context))
         .filter((item) => scope !== 'created' || item.createdBy === viewer)
         .filter((item) => scope !== 'owned' || item.owner === viewer)
@@ -318,7 +339,7 @@ export class CasesRepository {
       );
     }
     return this.withMockContext((context) => {
-      const item = this.mockCases.find((candidate) => candidate.id === caseId);
+      const item = this.allMockCases().find((candidate) => candidate.id === caseId);
       if (!item || !this.mockVisible(item, context)) return of(CASE_DENIED);
       return of<RepositoryView<CaseDetailView>>({ status: 'ready', data: this.mockDetail(item, context) });
     });
@@ -349,6 +370,21 @@ export class CasesRepository {
       this.mockCases = [...this.mockCases, item];
       return of<CreateCaseResult>({ status: 'ready', data: this.mockDetail(item, context) });
     });
+  }
+
+  /** 範例與建立的案件，加上從對話確認建立的（issue #254，見 `mock-chat-cases.ts`）。 */
+  private allMockCases(): readonly MockCase[] {
+    return [
+      ...this.mockCases,
+      ...mockChatProposedCases().map((item): MockCase => ({
+        ...seedCase({
+          id: item.id, typeId: item.typeId, groupId: item.groupId, title: item.title, description: item.description,
+          createdBy: item.createdBy, dueAt: item.dueAt, createdAt: item.createdAt,
+          thread: { assistantId: item.assistantId, threadId: item.threadId, available: true }, record: null,
+        }),
+        origin: 'chat-proposal',
+      })),
+    ];
   }
 
   /**
@@ -550,7 +586,7 @@ export class CasesRepository {
       origin: item.origin,
       type: this.mockType(item.typeId, context),
       group: this.mockGroup(item.groupId, context),
-      createdBy: this.mockAccount(item.createdBy),
+      createdBy: item.createdBy ? this.mockAccount(item.createdBy) : null,
       owner: item.owner ? this.mockAccount(item.owner) : null,
       dueAt: item.dueAt,
       createdAt: item.createdAt,
@@ -583,9 +619,11 @@ export class CasesRepository {
       cancelReasonRequired: cancelReasonRequired(item.status, actor),
       links: {
         record: item.record && {
-          ...item.record,
-          state: 'available',
-          canRead: context.role === 'smb-admin',
+          databaseId: item.record.databaseId,
+          submissionId: item.record.submissionId,
+          state: item.record.state,
+          canRead: item.record.state === 'available' && context.role === 'smb-admin',
+          databaseName: item.record.databaseName,
         },
         thread: item.thread && {
           assistantId: item.thread.assistantId,

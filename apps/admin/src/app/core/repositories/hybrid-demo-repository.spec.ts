@@ -1427,13 +1427,14 @@ type ApiReply = NonNullable<ApiChatMessageView['reply']>;
  * 其餘一律是 null（後端照樣送出這些鍵）。
  */
 function apiAssistantMessage(
-  reply: Omit<ApiReply, 'form' | 'receipt' | 'databaseQuery'> & Partial<Pick<ApiReply, 'form' | 'receipt' | 'databaseQuery'>>,
+  reply: Omit<ApiReply, 'form' | 'receipt' | 'databaseQuery' | 'caseProposal'>
+    & Partial<Pick<ApiReply, 'form' | 'receipt' | 'databaseQuery' | 'caseProposal'>>,
 ): ApiChatMessageView {
   return {
     id: '0199a000-0000-7000-8000-0000000000d2',
     author: 'assistant',
     text: null,
-    reply: { form: null, receipt: null, databaseQuery: null, ...reply },
+    reply: { form: null, receipt: null, databaseQuery: null, caseProposal: null, ...reply },
     createdAt: '2026-09-27T01:00:01+00:00',
   };
 }
@@ -2060,6 +2061,7 @@ function apiSettings(overrides: Partial<ApiAssistantSettings> = {}): ApiAssistan
     configuration: apiConfiguration(),
     knowledgeBaseIds: [KB_ID],
     databaseIds: [],
+    caseTypeIds: [],
     tone: 'professional',
     roleInstructions: '請用門市用語回答。',
     rules: {

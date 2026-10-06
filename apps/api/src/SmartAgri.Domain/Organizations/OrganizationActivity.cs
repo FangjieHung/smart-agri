@@ -193,6 +193,31 @@ public sealed class OrganizationActivity : IOrganizationScoped
 
         return Record(organizationId, OrganizationActivityAction.CaseTypeUpdated, actorAccountId, at, new { id = typeId, name, changed, isActive });
     }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.DatabaseAutoCaseChanged"/>: detail <c>{ "databaseId",
+    /// "databaseName", "from", "to" }</c>, where <c>from</c> and <c>to</c> are <c>{ "id", "name" }</c> of a
+    /// case type, or <see langword="null"/> when submissions opened (or now open) no case. Nothing of any
+    /// record is part of it.
+    /// </summary>
+    public static OrganizationActivity DatabaseAutoCaseChanged(
+        Guid organizationId,
+        Guid actorAccountId,
+        DateTimeOffset at,
+        Guid databaseId,
+        string databaseName,
+        AutoCaseTypeRef? from,
+        AutoCaseTypeRef? to)
+    {
+        if (from == to)
+        {
+            throw new ArgumentException("A change is recorded only when the type changed.", nameof(to));
+        }
+
+        return Record(
+            organizationId, OrganizationActivityAction.DatabaseAutoCaseChanged, actorAccountId, at,
+            new { databaseId, databaseName, from, to });
+    }
 }
 
 /// <summary>One side of a <see cref="OrganizationActivityAction.ChatModelChanged"/> detail.</summary>
@@ -200,3 +225,7 @@ public sealed class OrganizationActivity : IOrganizationScoped
 /// for the deployment default.</param>
 /// <param name="DisplayName">The model's name in the deployment's list at the time.</param>
 public sealed record ChatModelChoice(string? Id, string? DisplayName);
+
+/// <summary>A case type as a <see cref="OrganizationActivityAction.DatabaseAutoCaseChanged"/> detail
+/// names it: <c>{ "id", "name" }</c> (its name at the time).</summary>
+public sealed record AutoCaseTypeRef(Guid Id, string Name);

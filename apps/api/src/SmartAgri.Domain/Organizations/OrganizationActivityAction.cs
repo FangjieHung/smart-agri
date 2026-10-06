@@ -5,7 +5,7 @@ namespace SmartAgri.Domain.Organizations;
 /// <summary>
 /// What an <see cref="OrganizationActivity"/> row records. Stored as the wire name (not the number),
 /// so members can be reordered safely. Later slices add theirs here (M7-1: case groups; M7-2:
-/// case types).
+/// case types; M7-10: a database's auto case).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrganizationActivityAction>))]
 public enum OrganizationActivityAction
@@ -74,4 +74,11 @@ public enum OrganizationActivityAction
     /// (<see cref="OrganizationActivity.CaseTypeUpdated"/>).</summary>
     [JsonStringEnumMemberName("case-type-updated")]
     CaseTypeUpdated,
+
+    /// <summary>A manager turned a database's 送出後自動開案 on, off or to another case type (M7-10,
+    /// issue #255). Detail: <c>databaseId</c>, <c>databaseName</c>, <c>from</c> and <c>to</c>, each
+    /// <c>{ id, name }</c> of a case type or <see langword="null"/> for off
+    /// (<see cref="OrganizationActivity.DatabaseAutoCaseChanged"/>).</summary>
+    [JsonStringEnumMemberName("database-auto-case-changed")]
+    DatabaseAutoCaseChanged,
 }

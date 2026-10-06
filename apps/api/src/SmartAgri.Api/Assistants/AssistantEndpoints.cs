@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using SmartAgri.Api.Ai;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.Cases;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.PublicChannels;
@@ -137,6 +138,9 @@ public sealed record AssistantAnswerRulesView(
 /// </summary>
 /// <param name="DatabaseIds">Connected databases (M4 #148), oldest connection first — including
 /// one whose owner may no longer use it (still shown, so it can be disconnected; it is not used).</param>
+/// <param name="CaseTypeIds">The case types the assistant may propose in a conversation (M7-9 #254), oldest
+/// choice first — including a type deactivated since (still shown, so it can be removed; it is not proposed
+/// until reactivated). Empty by default.</param>
 /// <param name="PeriodicReportAutoDisabled">Set when the periodic report schedule stopped itself after
 /// consecutive skipped periods (#179); <see langword="null"/> otherwise (also with no schedule). While set,
 /// <c>rules.periodicReport</c> still shows the configured frequency; naming a frequency in a <c>PATCH</c>
@@ -145,6 +149,7 @@ public sealed record AssistantSettingsView(
     AssistantConfigurationView Configuration,
     IReadOnlyList<Guid> KnowledgeBaseIds,
     IReadOnlyList<Guid> DatabaseIds,
+    IReadOnlyList<Guid> CaseTypeIds,
     AssistantTone Tone,
     string RoleInstructions,
     AssistantAnswerRulesView Rules,
@@ -282,6 +287,21 @@ public static class AssistantEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        // Case types the assistant may propose (M7-9 #254; decision U): the owner chooses among the active
+        // types, like databases. A plain-string id, so a malformed one is this endpoint's own 422 / no-op.
+        assistants.MapPut("/{id:guid}/sources/case-type/{caseTypeId}", ConnectCaseTypeAsync)
+            .RequirePermission(AccountPermission.ManageAssistants, ForbiddenReason.AssistantConfiguration)
+            .Produces<AssistantSettingsView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        assistants.MapDelete("/{id:guid}/sources/case-type/{caseTypeId}", DisconnectCaseTypeAsync)
+            .RequirePermission(AccountPermission.ManageAssistants, ForbiddenReason.AssistantConfiguration)
+            .Produces<AssistantSettingsView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
 
         // Publishing (M3 plan, Slice 3): S+OWN+MP. The website channel's own endpoints are
         // AssistantWebsiteChannelEndpoints (M5a #194); LINE is not implemented yet (M5b).
@@ -851,6 +871,79 @@ public static class AssistantEndpoints
         return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
     }
 
+    /// <summary>
+    /// Adds a case type the assistant may propose (M7-9, decision U): any <b>active</b> type of the
+    /// organization; no manager approval. An inactive, unknown, foreign or malformed id is the same
+    /// <c>422 case-type-inactive</c>. Idempotent. Each proposal re-checks that the type is still active.
+    /// </summary>
+    internal static async Task<IResult> ConnectCaseTypeAsync(
+        Guid id,
+        string caseTypeId,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await FindManageableAsync(dbContext.Assistants, id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantConfiguration);
+        }
+
+        if (!Guid.TryParse(caseTypeId, out var parsedId)
+            || await CaseTypeEndpoints.FindActiveAsync(dbContext, parsedId, cancellationToken) is not { } type)
+        {
+            return ApiErrors.WithReason(
+                StatusCodes.Status422UnprocessableEntity, CaseEndpoints.TypeInactiveReason, CaseEndpoints.TypeInactiveMessage, field: "caseTypeIds");
+        }
+
+        var already = await dbContext.AssistantCaseTypes
+            .AnyAsync(link => link.AssistantId == assistant.Id && link.CaseTypeId == type.Id, cancellationToken);
+        if (!already)
+        {
+            dbContext.AssistantCaseTypes.Add(new AssistantCaseType(assistant, type, clock.GetUtcNow()));
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
+    }
+
+    /// <summary>Removes a case type from the assistant's list (active or not); one not on it, or a
+    /// malformed id, is a no-op. Proposals already shown read back as 「無法建立」.</summary>
+    internal static async Task<IResult> DisconnectCaseTypeAsync(
+        Guid id,
+        string caseTypeId,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await FindManageableAsync(dbContext.Assistants, id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.AssistantConfiguration);
+        }
+
+        if (Guid.TryParse(caseTypeId, out var parsedId)
+            && await dbContext.AssistantCaseTypes.SingleOrDefaultAsync(
+                link => link.AssistantId == assistant.Id && link.CaseTypeId == parsedId, cancellationToken) is { } target)
+        {
+            dbContext.AssistantCaseTypes.Remove(target);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
+        return Results.Ok(await SettingsAsync(dbContext, assistant, callerId, cancellationToken));
+    }
+
     private static Task<int> ConnectedDatabaseCountAsync(AppDbContext dbContext, Guid assistantId, CancellationToken cancellationToken) =>
         dbContext.AssistantDatabases.CountAsync(link => link.AssistantId == assistantId, cancellationToken);
 
@@ -1190,10 +1283,17 @@ public static class AssistantEndpoints
             .OrderBy(link => link.ConnectedAt)
             .ThenBy(link => link.DatabaseId)
             .ToListAsync(cancellationToken);
+        var caseTypeIds = await dbContext.AssistantCaseTypes
+            .AsNoTracking()
+            .Where(link => link.AssistantId == assistant.Id)
+            .OrderBy(link => link.CreatedAt)
+            .ThenBy(link => link.CaseTypeId)
+            .Select(link => link.CaseTypeId)
+            .ToListAsync(cancellationToken);
         var acceptance = await AcceptanceStatusesAsync(dbContext, [assistant.Id], cancellationToken);
         var report = await dbContext.ReportSchedules.AsNoTracking()
             .SingleOrDefaultAsync(schedule => schedule.AssistantId == assistant.Id, cancellationToken);
-        return ToSettings(assistant, viewerId, knowledgeBaseIds, databases, acceptance[assistant.Id], report);
+        return ToSettings(assistant, viewerId, knowledgeBaseIds, databases, caseTypeIds, acceptance[assistant.Id], report);
     }
 
     private static AssistantConfigurationView ToConfiguration(
@@ -1217,6 +1317,7 @@ public static class AssistantEndpoints
         Guid viewerId,
         IReadOnlyList<Guid> knowledgeBaseIds,
         IReadOnlyList<AssistantDatabase> databases,
+        IReadOnlyList<Guid> caseTypeIds,
         AssistantAcceptanceStatus acceptanceStatus,
         ReportSchedule? schedule)
     {
@@ -1225,6 +1326,7 @@ public static class AssistantEndpoints
             ToConfiguration(assistant, viewerId, acceptanceStatus),
             knowledgeBaseIds,
             [.. databases.Select(link => link.DatabaseId)],
+            caseTypeIds,
             assistant.Tone,
             assistant.RoleInstructions,
             new AssistantAnswerRulesView(

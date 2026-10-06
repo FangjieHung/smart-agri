@@ -228,6 +228,7 @@ app.MapConversationPurgeEndpoints();
 app.MapCaseGroupEndpoints();
 app.MapCaseTypeEndpoints();
 app.MapCaseEndpoints();
+app.MapCaseStatisticsEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();

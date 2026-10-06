@@ -175,6 +175,40 @@ describe('cases', () => {
     cy.get('[data-home-cases]').should('not.exist');
     cy.get('.app-sidenav a[href="/app/cases"]').should('exist').find('.nav-count').should('not.exist');
   });
+
+  /**
+   * 瓶頸統計（issue #251）：只有管理者有這個分頁；每個數字點開的清單件數與該格相同。數字取決於今天的日期
+   * （範例案件會陸續逾期，完成的範例會離開最近 30 天），所以比對「格子＝清單件數」，不寫死件數。
+   */
+  it('shows the manager the bottleneck statistics, each number opening a list of the same length', () => {
+    cy.visit('/app/cases?view=statistics');
+    cy.get('[data-cases-tab]').should('not.exist');
+    cy.get('[data-case-statistics]').should('not.exist');
+    cy.contains('.case-item', '冷藏庫溫度降不下來').should('be.visible');
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/cases');
+    cy.get('[data-cases-tab="statistics"]').click();
+    cy.location('search').should('eq', '?view=statistics');
+    cy.get('[data-case-statistics]').should('contain.text', '日期以 UTC 計算');
+    cy.get('[data-case-statistics-period]').should('contain.text', '（UTC）');
+    // 採購組只有一件未結案、沒有完成件數：平均處理時間是「—」。
+    cy.contains('[data-case-statistics-row]', '採購組').find('[data-case-statistics-average]').should('have.text', '—');
+
+    for (const measure of ['open', 'overdue', 'completed', 'cancelled'] as const) {
+      cy.visit('/app/cases?view=statistics');
+      cy.contains('[data-case-statistics-row]', '設備組').find(`[data-case-statistics-link="${measure}"]`).then(($link) => {
+        const expected = Number($link.text().trim());
+        cy.wrap($link).click();
+        cy.location('search').should('contain', 'typeId=case-type-equipment-repair').and('contain', 'groupId=case-group-equipment');
+        cy.get('[data-case-statistics]').should('not.exist');
+        listedCount().should('eq', expected);
+      });
+    }
+    cy.get('[data-case-closed-range]').should('contain.text', '完成或取消的案件');
+    cy.get('[data-cases-tab="statistics"]').click();
+    cy.get('[data-case-statistics]').should('be.visible');
+  });
 });
 
 /** 清單讀完後的件數（沒有符合的案件時是 0）。 */

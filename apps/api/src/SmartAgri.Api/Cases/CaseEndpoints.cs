@@ -1,11 +1,13 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
+using SmartAgri.Api.Answers;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Databases;
 using SmartAgri.Api.Errors;
+using SmartAgri.Application.Answers;
 using SmartAgri.Application.Cases;
 using SmartAgri.Application.Chat;
 using SmartAgri.Domain;
@@ -301,8 +303,12 @@ public static class CaseEndpoints
     /// The cases the caller can see, newest first, not paged (decision Q). <c>scope</c> narrows them
     /// (<see cref="Scopes"/>); <c>status</c> defaults to <c>open</c>; <c>typeId</c> and <c>groupId</c>
     /// filter by the current type and group; <c>overdue=true</c> keeps only the overdue ones
-    /// (<see cref="CaseAttention.Overdue"/>, issue #250; left out or <c>false</c> filters nothing). An
-    /// unknown <c>scope</c> or <c>status</c> is <c>422</c>.
+    /// (<see cref="CaseAttention.Overdue"/>, issue #250; left out or <c>false</c> filters nothing).
+    /// <c>closedFrom</c>/<c>closedTo</c> (issue #251, the bottleneck statistics' drill-down) keep only the
+    /// cases completed or cancelled within that range — an <see cref="AnswerAnalyticsRange"/> like the
+    /// statistics' own (<see cref="CaseStatistics.ClosedWithin"/>), so with <c>status=completed</c> or
+    /// <c>status=cancelled</c> the list is exactly a row's number. An unknown <c>scope</c> or <c>status</c>
+    /// is <c>422</c>, an invalid range <c>422 invalid-date-range</c>.
     /// </summary>
     internal static async Task<IResult> ListAsync(
         string? scope,
@@ -310,6 +316,8 @@ public static class CaseEndpoints
         Guid? typeId,
         Guid? groupId,
         bool? overdue,
+        DateOnly? closedFrom,
+        DateOnly? closedTo,
         HttpContext httpContext,
         AppDbContext dbContext,
         RequestAccountRole roles,
@@ -348,6 +356,17 @@ public static class CaseEndpoints
             return ApiErrors.ValidationFailed(message, new Dictionary<string, string[]> { ["status"] = [message] });
         }
 
+        AnswerAnalyticsRange? closedRange = null;
+        if (closedFrom is not null || closedTo is not null)
+        {
+            (closedRange, var rangeError) = AnswerAnalyticsRange.Resolve(closedFrom, closedTo, clock.GetUtcNow());
+            if (closedRange is null)
+            {
+                return ApiErrors.WithReason(
+                    StatusCodes.Status422UnprocessableEntity, AssistantAnalyticsEndpoints.InvalidDateRangeReason, rangeError!, field: "closedTo");
+            }
+        }
+
         var callerId = caller.Id;
         var query = Visible(dbContext, caller);
         query = resolvedScope switch
@@ -361,6 +380,11 @@ public static class CaseEndpoints
         if (overdue == true)
         {
             query = query.Where(CaseAttention.Overdue(clock.GetUtcNow()));
+        }
+
+        if (closedRange is not null)
+        {
+            query = query.Where(CaseStatistics.ClosedWithin(closedRange.FromUtc, closedRange.ToExclusiveUtc));
         }
 
         if (statuses is not null)

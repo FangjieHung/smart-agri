@@ -1015,6 +1015,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cases/statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseStatisticsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/recent-conversations": {
         parameters: {
             query?: never;
@@ -6749,6 +6808,8 @@ export interface paths {
                     typeId?: string;
                     groupId?: string;
                     overdue?: boolean;
+                    closedFrom?: string;
+                    closedTo?: string;
                 };
                 header?: never;
                 path?: never;
@@ -8744,6 +8805,27 @@ export interface components {
             state: components["schemas"]["CaseRecordLinkState"];
             canRead: boolean;
             databaseName: null | string;
+        };
+        CaseStatisticsRowView: {
+            type: components["schemas"]["CaseTypeRefView"];
+            group: components["schemas"]["CaseGroupRefView"];
+            /** Format: int32 */
+            openCount: number;
+            /** Format: int32 */
+            overdueCount: number;
+            /** Format: int32 */
+            completedCount: number;
+            /** Format: int32 */
+            cancelledCount: number;
+            /** Format: double */
+            averageHandlingHours: null | number;
+        };
+        CaseStatisticsView: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            rows: components["schemas"]["CaseStatisticsRowView"][];
         };
         /** @enum {unknown} */
         CaseStatus: "pending" | "in-progress" | "awaiting-info" | "completed" | "cancelled";

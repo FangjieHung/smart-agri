@@ -4,10 +4,10 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { NEVER, of, type Observable } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import { toDateTimeLocalValue } from '../../core/domain/case-due-time';
-import type { CaseDetailView, CaseSummaryView } from '../../core/domain/case.model';
+import type { CaseDetailView, CaseStatisticsView, CaseSummaryView } from '../../core/domain/case.model';
 import type { CaseGroupListView, CaseTypeListView } from '../../core/domain/case-settings.model';
 import { CaseSettingsRepository } from '../../core/repositories/case-settings.repository';
-import { CasesRepository, type CaseActionResult, type CreateCaseResult } from '../../core/repositories/cases.repository';
+import { CasesRepository, type CaseActionResult, type CaseStatisticsResult, type CreateCaseResult } from '../../core/repositories/cases.repository';
 import type { RepositoryView } from '../../core/repositories/demo-repository';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { CasesPageComponent } from './cases-page.component';
@@ -54,11 +54,28 @@ const GROUPS: CaseGroupListView = {
   ],
 };
 
+const STATISTICS: CaseStatisticsView = {
+  from: '2026-09-07',
+  to: '2026-10-06',
+  rows: [
+    {
+      type: { id: 'type-1', name: '設備故障報修' }, group: { id: 'group-2', name: '採購組', archived: false },
+      openCount: 0, overdueCount: 0, completedCount: 1, cancelledCount: 1, averageHandlingHours: 28,
+    },
+    {
+      type: { id: 'type-old', name: '舊的類型' }, group: { id: 'group-old', name: '舊的承辦組', archived: true },
+      openCount: 2, overdueCount: 1, completedCount: 0, cancelledCount: 0, averageHandlingHours: null,
+    },
+  ],
+};
+
 async function setup(options: {
   list?: Observable<RepositoryView<readonly CaseSummaryView[]>>;
   get?: Observable<RepositoryView<CaseDetailView>>;
   create?: Observable<CreateCaseResult>;
   act?: Observable<CaseActionResult>;
+  statistics?: Observable<CaseStatisticsResult>;
+  manager?: boolean;
   url?: string;
   settle?: boolean;
 } = {}) {
@@ -68,6 +85,8 @@ async function setup(options: {
     get: vi.fn(() => options.get ?? of({ status: 'ready' as const, data: detail() })),
     create: vi.fn(() => options.create ?? of({ status: 'ready' as const, data: detail() } as CreateCaseResult)),
     act: vi.fn(() => options.act ?? of({ status: 'ready' as const, data: detail() } as CaseActionResult)),
+    statistics: vi.fn(() => options.statistics ?? of<CaseStatisticsResult>({ status: 'ready', data: STATISTICS })),
+    viewerIsManager: vi.fn(() => options.manager ?? false),
   };
   await TestBed.configureTestingModule({
     imports: [CasesPageComponent],
@@ -377,5 +396,102 @@ describe('CasesPageComponent', () => {
     expect(items[2]).toContain('轉組（設備組 → 採購組）：需要採購零件');
     const times = [...(fixture.nativeElement as HTMLElement).querySelectorAll('[data-case-history] time')].map((time) => time.getAttribute('datetime'));
     expect(times).toEqual(['2026-10-06T01:00:00Z', '2026-10-06T02:00:00Z', '2026-10-06T03:00:00Z']);
+  });
+
+  describe('瓶頸統計 (issue #251)', () => {
+    it('has no statistics tab for anyone but the manager, even with ?view=statistics', async () => {
+      const { fixture, repo } = await setup({ url: '/app/cases?view=statistics' });
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-cases-tab]')).toBeNull();
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-case-statistics]')).toBeNull();
+      expect(text(fixture)).toContain('冷藏庫溫度降不下來');
+      expect(repo.statistics).not.toHaveBeenCalled();
+    });
+
+    it('shows the manager the rows by type and group, 「—」 without completions and the UTC note', async () => {
+      const { fixture, repo } = await setup({ url: '/app/cases?view=statistics', manager: true });
+      expect(element(fixture, '[data-cases-tab="statistics"]').getAttribute('aria-current')).toBe('page');
+      expect(repo.statistics).toHaveBeenLastCalledWith({ from: undefined, to: undefined });
+      expect(repo.list).not.toHaveBeenCalled();
+      expect(element(fixture, '[data-case-statistics-period]').textContent).toContain('2026-09-07 至 2026-10-06（UTC）');
+      expect(text(fixture)).toContain('日期以 UTC 計算');
+      const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('[data-case-statistics-row]')]
+        .map((row) => [...row.querySelectorAll('th, td')].map((cell) => (cell.textContent ?? '').trim()));
+      expect(rows).toEqual([
+        ['設備故障報修', '採購組', '0', '0', '1', '1', '28.0 小時'],
+        ['舊的類型', '舊的承辦組（已封存）', '2', '1', '0', '0', '—'],
+      ]);
+      const overdue = element<HTMLAnchorElement>(fixture, '[data-group-id="group-old"] [data-case-statistics-link="overdue"]');
+      expect(overdue.getAttribute('href')).toBe('/app/cases?scope=all&typeId=type-old&groupId=group-old&status=open&overdue=true');
+      expect(overdue.getAttribute('aria-label')).toBe('1 件，舊的類型・舊的承辦組的逾期案件，開啟清單');
+      expect(element(fixture, '[data-group-id="group-2"] [data-case-statistics-link="completed"]').getAttribute('href'))
+        .toBe('/app/cases?scope=all&typeId=type-1&groupId=group-2&status=completed&closedFrom=2026-09-07&closedTo=2026-10-06');
+    });
+
+    it('opens a number as the filtered list, keeps the filter when a case is selected, and clears the range', async () => {
+      const { fixture, repo, router } = await setup({ url: '/app/cases?view=statistics', manager: true });
+      element<HTMLAnchorElement>(fixture, '[data-group-id="group-2"] [data-case-statistics-link="cancelled"]').click();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(router.url).toBe('/app/cases?scope=all&typeId=type-1&groupId=group-2&status=cancelled&closedFrom=2026-09-07&closedTo=2026-10-06');
+      expect(repo.list).toHaveBeenLastCalledWith({
+        scope: 'all', status: 'cancelled', typeId: 'type-1', groupId: 'group-2', closedFrom: '2026-09-07', closedTo: '2026-10-06',
+      });
+      expect((fixture.nativeElement as HTMLElement).querySelector('[data-case-statistics]')).toBeNull();
+      expect(element(fixture, '[data-case-closed-range]').textContent).toContain('只列 2026-09-07 至 2026-10-06（UTC）完成或取消的案件');
+      expect(element(fixture, '[data-cases-tab="list"]').getAttribute('aria-current')).toBe('page');
+
+      // A type the select does not offer (inactive) still shows as chosen.
+      const old = await setup({ url: '/app/cases?typeId=type-old&groupId=group-old&status=open&overdue=true', manager: true });
+      const selects = (old.fixture.nativeElement as HTMLElement).querySelectorAll<HTMLSelectElement>('.cases-filters select');
+      expect([selects[2].selectedOptions[0]?.textContent, selects[3].selectedOptions[0]?.textContent]).toEqual(['已停用的類型', '已封存的承辦組']);
+      expect(old.repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'open', typeId: 'type-old', groupId: 'group-old', overdue: true });
+
+      // Changing a filter by hand and then selecting a case (only `case` changes) keeps the hand-picked filter.
+      const statusSelect = selects[1];
+      statusSelect.value = 'closed';
+      statusSelect.dispatchEvent(new Event('change'));
+      old.fixture.detectChanges();
+      element<HTMLButtonElement>(old.fixture, '.case-item').click();
+      await old.fixture.whenStable();
+      old.fixture.detectChanges();
+      expect(old.router.url).toContain('case=case-1');
+      expect(old.repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'closed', typeId: 'type-old', groupId: 'group-old', overdue: true });
+
+      const closed = await setup({ url: '/app/cases?status=completed&closedFrom=2026-09-07&closedTo=2026-10-06', manager: true });
+      closed.fixture.debugElement.nativeElement.querySelector('[data-case-closed-range] button').click();
+      closed.fixture.detectChanges();
+      await closed.fixture.whenStable();
+      expect(closed.repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'completed', typeId: undefined, groupId: undefined });
+      expect((closed.fixture.nativeElement as HTMLElement).querySelector('[data-case-closed-range]')).toBeNull();
+    });
+
+    it('applies a date range through the address, refuses an invalid one before sending, and shows a 403 as permission denied', async () => {
+      const { fixture, repo, router } = await setup({ url: '/app/cases?view=statistics', manager: true });
+      change(fixture, '[data-case-statistics-from]', '2026-10-06', 'input');
+      change(fixture, '[data-case-statistics-to]', '2026-10-01', 'input');
+      element<HTMLFormElement>(fixture, '[data-case-statistics-range]').dispatchEvent(new Event('submit'));
+      fixture.detectChanges();
+      expect(text(fixture)).toContain('起始日期必須不晚於結束日期。');
+      expect(router.url).toBe('/app/cases?view=statistics');
+
+      change(fixture, '[data-case-statistics-to]', '2026-10-06', 'input');
+      element<HTMLFormElement>(fixture, '[data-case-statistics-range]').dispatchEvent(new Event('submit'));
+      await fixture.whenStable();
+      fixture.detectChanges();
+      expect(router.url).toBe('/app/cases?view=statistics&from=2026-10-06&to=2026-10-06');
+      expect(repo.statistics).toHaveBeenLastCalledWith({ from: '2026-10-06', to: '2026-10-06' });
+
+      const invalid = await setup({ url: '/app/cases?view=statistics&from=2026-10-06&to=2026-01-01', manager: true });
+      expect(text(invalid.fixture)).toContain('期間不正確');
+      expect(invalid.repo.statistics).not.toHaveBeenCalled();
+
+      const denied = await setup({
+        url: '/app/cases?view=statistics',
+        manager: true,
+        statistics: of<CaseStatisticsResult>({ status: 'permission-denied', reason: 'organization-settings', message: '只有管理者可以變更組織設定。' }),
+      });
+      expect(text(denied.fixture)).toContain('無法查看瓶頸統計');
+      expect(text(denied.fixture)).toContain('只有管理者可以變更組織設定。');
+    });
   });
 });

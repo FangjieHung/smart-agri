@@ -24,7 +24,9 @@ import {
   CASE_TYPE_INACTIVE_MESSAGE,
   CASE_TYPE_REQUIRED_MESSAGE,
   OPEN_CASE_STATUSES,
+  addUtcDays,
   isCaseOverdue,
+  resolveCaseStatisticsRange,
   type CaseAction,
   type CaseAttentionView,
   type CaseDetailView,
@@ -33,6 +35,9 @@ import {
   type CaseListFilter,
   type CaseOrigin,
   type CaseRecordLinkState,
+  type CaseStatisticsRange,
+  type CaseStatisticsRowView,
+  type CaseStatisticsView,
   type CaseStatus,
   type CaseSummaryView,
   type CreateCaseRequest,
@@ -41,6 +46,7 @@ import type { CaseGroupView, CaseTypeView } from '../domain/case-settings.model'
 import { DemoSessionService } from '../session/demo-session.service';
 import {
   CASE_FEATURE_DENIED_MESSAGE,
+  CASE_SETTINGS_ADMIN_DENIED_MESSAGE,
   CASE_TYPE_GROUP_ARCHIVED_MESSAGE,
   CASE_TYPE_GROUP_NOT_FOUND_MESSAGE,
   CaseSettingsRepository,
@@ -55,6 +61,9 @@ export const API_CASES_PATH = '/api/v1/cases';
 
 /** 逾期提示（issue #250）。 */
 export const API_CASE_ATTENTION_PATH = `${API_CASES_PATH}/attention`;
+
+/** 瓶頸統計（issue #251）。 */
+export const API_CASE_STATISTICS_PATH = `${API_CASES_PATH}/statistics`;
 
 export function apiCasePath(caseId: string): string {
   return `${API_CASES_PATH}/${encodeURIComponent(caseId)}`;
@@ -108,6 +117,9 @@ export interface CaseChangedView {
 
 /** `403 case`（看不到）、`403 case-action`（不是你能做的）、`409`、`422`，或成功後的詳情。 */
 export type CaseActionResult = RepositoryView<CaseDetailView> | CaseValidationFailedView | CaseChangedView;
+
+/** 非管理者是 `403 organization-settings`；期間錯誤是 validation-failed（`422 invalid-date-range`）。 */
+export type CaseStatisticsResult = RepositoryView<CaseStatisticsView> | CaseValidationFailedView;
 
 /** 看不到、不存在、別的組織、外部客戶：後端一律是同一個 `403 case`。 */
 const CASE_DENIED: PermissionDeniedRepositoryView = {
@@ -270,7 +282,7 @@ export class CasesRepository {
   list(filter: CaseListFilter = {}): Observable<RepositoryView<readonly CaseSummaryView[]>> {
     if (this.apiMode) {
       let params = new HttpParams();
-      for (const key of ['scope', 'status', 'typeId', 'groupId'] as const) {
+      for (const key of ['scope', 'status', 'typeId', 'groupId', 'closedFrom', 'closedTo'] as const) {
         const value = filter[key];
         if (value) params = params.set(key, value);
       }
@@ -285,6 +297,9 @@ export class CasesRepository {
       const scope = filter.scope ?? 'all';
       const status = filter.status ?? 'open';
       const now = new Date();
+      const closed = filter.closedFrom || filter.closedTo ? resolveCaseStatisticsRange(filter.closedFrom, filter.closedTo, now) : null;
+      // 與 API 的 `422 invalid-date-range` 相同：只有手動改壞網址才會發生，清單顯示錯誤狀態。
+      if (closed && 'message' in closed) return throwError(() => new Error(closed.message));
       const rows = this.allMockCases()
         .filter((item) => this.mockVisible(item, context))
         .filter((item) => scope !== 'created' || item.createdBy === viewer)
@@ -297,6 +312,7 @@ export class CasesRepository {
         .filter((item) => !filter.typeId || item.typeId === filter.typeId)
         .filter((item) => !filter.groupId || item.groupId === filter.groupId)
         .filter((item) => !filter.overdue || isCaseOverdue(item, now))
+        .filter((item) => !closed || closedWithin(item, closed))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map((item) => this.mockSummary(item, context));
       return of<RepositoryView<readonly CaseSummaryView[]>>({ status: 'ready', data: rows });
@@ -317,7 +333,7 @@ export class CasesRepository {
     }
     return this.withMockContext((context) => {
       const now = new Date();
-      const visible = this.mockCases.filter((item) => this.mockVisible(item, context));
+      const visible = this.allMockCases().filter((item) => this.mockVisible(item, context));
       const owned = visible.filter((item) => item.owner === context.viewer && isCaseOverdue(item, now)).length;
       const pending = visible.filter((item) => item.status === 'pending' && this.mockIsMember(item.groupId, context));
       const groupPending = pending.filter((item) => isCaseOverdue(item, now)).length;
@@ -331,6 +347,44 @@ export class CasesRepository {
         },
       });
     });
+  }
+
+  /**
+   * 瓶頸統計（issue #251）：只有管理者，其他人（含外部客戶）是 `403 organization-settings`。與後端
+   * `CaseStatistics` 相同：未結案與逾期（`isCaseOverdue`，與 M7-5 同一個判斷）看現在；完成與取消看期間
+   * （UTC 日）；平均處理時間是建立 → 完成，只算期間內完成的，歸到完成時的承辦組（結案後不能轉組）。
+   */
+  statistics(range: Partial<CaseStatisticsRange> = {}): Observable<CaseStatisticsResult> {
+    if (this.apiMode) {
+      let params = new HttpParams();
+      if (range.from) params = params.set('from', range.from);
+      if (range.to) params = params.set('to', range.to);
+      return this.client().get<CaseStatisticsView>(API_CASE_STATISTICS_PATH, { params }).pipe(
+        map((data): CaseStatisticsResult => ({ status: 'ready', data })),
+        catchError((error: unknown) => {
+          if (error instanceof HttpErrorResponse && error.status === 422) return of(validationFailed(error));
+          return this.denied<CaseStatisticsView>(error);
+        }),
+      );
+    }
+    return defer(() => {
+      if (!this.viewerIsManager()) return of<CaseStatisticsResult>(STATISTICS_DENIED);
+      const now = new Date();
+      const resolved = resolveCaseStatisticsRange(range.from, range.to, now);
+      if ('message' in resolved) {
+        return of<CaseStatisticsResult>({ status: 'validation-failed', reason: 'invalid-date-range', message: resolved.message, fieldErrors: {} });
+      }
+      return this.withMockContext<CaseStatisticsResult>((context) => of<CaseStatisticsResult>({
+        status: 'ready',
+        data: { from: resolved.from, to: resolved.to, rows: this.mockStatisticsRows(resolved, now, context) },
+      }));
+    });
+  }
+
+  /** 決定 A：管理者是角色 `smb-admin`（API 模式的登入者也對應到同角色的 Demo 身分）。只用來決定要不要顯示統計分頁。 */
+  viewerIsManager(): boolean {
+    const viewer = this.session.activeAccountId();
+    return DEMO_SEED.accounts.find((account) => account.id === viewer)?.role === 'smb-admin';
   }
 
   /** 案件、事件與連結；看不到時是 `403 case`。 */
@@ -437,13 +491,13 @@ export class CasesRepository {
     return this.http;
   }
 
-  /** `403`：後端帶的原因（`case`、`case-action`、`password-change-required`）照用；其他狀態照常拋出。 */
+  /** `403`：後端帶的原因（`case`、`case-action`、`organization-settings`、`password-change-required`）照用；其他狀態照常拋出。 */
   private denied<T>(error: unknown): Observable<RepositoryView<T>> {
     if (!(error instanceof HttpErrorResponse) || error.status !== 403) return throwError(() => error);
     const body = error.error && typeof error.error === 'object' ? error.error as Record<string, unknown> : {};
     const reason = body['reason'];
     const message = typeof body['message'] === 'string' ? body['message'] : CASE_DENIED.message;
-    if (reason === 'case' || reason === 'case-action' || reason === 'password-change-required') {
+    if (reason === 'case' || reason === 'case-action' || reason === 'organization-settings' || reason === 'password-change-required') {
       return of({ status: 'permission-denied', reason, message });
     }
     return of(CASE_DENIED);
@@ -601,6 +655,36 @@ export class CasesRepository {
     };
   }
 
+  /** 一列一個（類型, 承辦組）；什麼都沒有的組合沒有列。依類型名稱、承辦組名稱排序（與後端相同）。 */
+  private mockStatisticsRows(range: CaseStatisticsRange, now: Date, context: MockContext): CaseStatisticsRowView[] {
+    const rows = new Map<string, { typeId: string; groupId: string; open: number; overdue: number; cancelled: number; hours: number[] }>();
+    const row = (item: MockCase) => {
+      const key = `${item.typeId}|${item.groupId}`;
+      const found = rows.get(key) ?? { typeId: item.typeId, groupId: item.groupId, open: 0, overdue: 0, cancelled: 0, hours: [] };
+      rows.set(key, found);
+      return found;
+    };
+    for (const item of this.allMockCases()) {
+      if (OPEN_CASE_STATUSES.includes(item.status)) row(item).open += 1;
+      if (isCaseOverdue(item, now)) row(item).overdue += 1;
+      if (item.status === 'completed' && item.completedAt && inRange(item.completedAt, range)) {
+        row(item).hours.push((Date.parse(item.completedAt) - Date.parse(item.createdAt)) / 3_600_000);
+      }
+      if (item.status === 'cancelled' && item.cancelledAt && inRange(item.cancelledAt, range)) row(item).cancelled += 1;
+    }
+    return [...rows.values()]
+      .map((entry): CaseStatisticsRowView => ({
+        type: this.mockType(entry.typeId, context),
+        group: this.mockGroup(entry.groupId, context),
+        openCount: entry.open,
+        overdueCount: entry.overdue,
+        completedCount: entry.hours.length,
+        cancelledCount: entry.cancelled,
+        averageHandlingHours: entry.hours.length === 0 ? null : entry.hours.reduce((sum, hours) => sum + hours, 0) / entry.hours.length,
+      }))
+      .sort((a, b) => compareOrdinal(a.type.name, b.type.name) || compareOrdinal(a.group.name, b.group.name));
+  }
+
   private mockSummary(item: MockCase, context: MockContext): CaseSummaryView {
     return {
       id: item.id,
@@ -683,6 +767,30 @@ interface MockContext {
   readonly role: AccountRole;
   readonly groups: readonly CaseGroupView[];
   readonly types: readonly CaseTypeView[];
+}
+
+/** 統計只給管理者：與後端 `RequireOrganizationAdmin(organization-settings)` 相同的拒絕。 */
+const STATISTICS_DENIED: PermissionDeniedRepositoryView = {
+  status: 'permission-denied',
+  reason: 'organization-settings',
+  message: CASE_SETTINGS_ADMIN_DENIED_MESSAGE,
+};
+
+/** 時間落在期間內：`[from 00:00Z, to 隔天 00:00Z)`。 */
+function inRange(at: string, range: CaseStatisticsRange): boolean {
+  const time = Date.parse(at);
+  return time >= Date.parse(`${range.from}T00:00:00Z`) && time < Date.parse(`${addUtcDays(range.to, 1)}T00:00:00Z`);
+}
+
+/** 與後端 `CaseStatistics.ClosedWithin` 相同：期間內完成或取消。 */
+function closedWithin(item: MockCase, range: CaseStatisticsRange): boolean {
+  return (item.status === 'completed' && item.completedAt !== null && inRange(item.completedAt, range))
+    || (item.status === 'cancelled' && item.cancelledAt !== null && inRange(item.cancelledAt, range));
+}
+
+/** 與後端 `StringComparer.Ordinal` 相同的排序。 */
+function compareOrdinal(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function changed(error: HttpErrorResponse): CaseChangedView {

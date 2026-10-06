@@ -1,5 +1,34 @@
 :host { display: block; }
 
+.cases-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.cases-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+.cases-tabs a[aria-current='page'] { border-color: var(--color-accent); color: var(--color-accent); }
+
+.cases-closed-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-secondary);
+}
+
 .cases-layout {
   display: grid;
   grid-template-columns: minmax(18rem, 0.9fr) minmax(0, 1.5fr);

@@ -82,6 +82,9 @@ describe('App', () => {
       .compileComponents();
 
     const fixture = TestBed.createComponent(App);
+    // 換頁時的逾期數字（#250）會動態 import 首頁的 chunk；這裡的測試不看它，換成不做事，免得 import 在
+    // 測試環境拆掉之後才完成（vitest 的 EnvironmentTeardownError）。要看它的測試自己再換成 spy。
+    (fixture.componentInstance as unknown as { refreshCaseOverdueCount: (url: string) => void }).refreshCaseOverdueCount = () => undefined;
     fixture.detectChanges();
     return fixture;
   }

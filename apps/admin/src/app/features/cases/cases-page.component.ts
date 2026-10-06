@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router, RouterLink, type ParamMap } from '@angular/router';
 import { finalize, map } from 'rxjs';
 import {
   dueAtFromHours,
@@ -41,6 +41,7 @@ import { DemoSessionService } from '../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../shared/ui/state-panel/state-panel.component';
 import { CaseActionsComponent } from './case-actions.component';
+import { CaseStatisticsComponent } from './case-statistics.component';
 
 type FormField = Extract<CaseField, 'typeId' | 'groupId' | 'dueAt' | 'title' | 'description'>;
 
@@ -48,11 +49,13 @@ type FormField = Extract<CaseField, 'typeId' | 'groupId' | 'dueAt' | 'title' | '
  * 案件頁（issue #248；M7 計畫第 3 節 J）：清單＋詳情，以 `?case=<id>` 選取（比照 `/app/issues`），
  * 以及「建立案件」表單：選類型 → 帶入承辦組與時限（可修改），時限早於現在時送出前就提示。
  * 連結到紀錄與對話串只顯示「能不能開啟」，從不顯示對話內容。詳情依身分與狀態只顯示能做的動作
- * （`CaseActionsComponent`，issue #249）與交接軌跡；已結案的案件只剩「另開新案」。只透過 lazy 路由載入。
+ * （`CaseActionsComponent`，issue #249）與交接軌跡；已結案的案件只剩「另開新案」。管理者另有「瓶頸統計」
+ * 分頁（`?view=statistics`，`CaseStatisticsComponent`，issue #251），從統計點開的數字以網址參數帶入清單篩選。
+ * 只透過 lazy 路由載入。
  */
 @Component({
   selector: 'app-cases-page',
-  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent, CaseActionsComponent],
+  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent, CaseActionsComponent, CaseStatisticsComponent],
   templateUrl: './cases-page.component.html',
   styleUrl: './cases-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -76,17 +79,42 @@ export class CasesPageComponent {
   protected readonly createdByText = caseCreatedByText;
   protected readonly formatDueHours = formatDueHours;
 
-  /** 篩選的初始值可以從網址帶入（首頁「案件」卡片，issue #250）：`?scope=owned&overdue=true` 等。 */
-  protected readonly scope = signal<CaseListScope>(queryScope(this.route.snapshot.queryParamMap.get('scope')));
-  protected readonly status = signal<CaseListStatus>(queryStatus(this.route.snapshot.queryParamMap.get('status')));
+  /**
+   * 篩選可以從網址帶入（首頁「案件」卡片，issue #250；瓶頸統計點開的數字，issue #251）：
+   * `?scope=&status=&overdue=&typeId=&groupId=&closedFrom=&closedTo=`。網址的這些參數改變時才套用，
+   * 所以選取案件（只改 `case`）不會蓋掉使用者之後自己改的篩選。
+   */
+  protected readonly scope = signal<CaseListScope>('all');
+  protected readonly status = signal<CaseListStatus>('open');
   protected readonly typeFilter = signal('');
   protected readonly groupFilter = signal('');
-  protected readonly overdueOnly = signal(this.route.snapshot.queryParamMap.get('overdue') === 'true');
+  protected readonly overdueOnly = signal(false);
+  /** 只列這段期間（UTC 日）完成或取消的案件：只從統計點開時才有，畫面提供「清除」。 */
+  protected readonly closedFrom = signal('');
+  protected readonly closedTo = signal('');
+
+  /** 管理者才有「瓶頸統計」分頁；其他人帶著 `?view=statistics` 進來也只看到清單。 */
+  protected readonly isManager = computed(() => this.session.activeAccountId() !== null && this.cases.viewerIsManager());
+  private readonly viewParam = toSignal(this.route.queryParamMap.pipe(map((params) => params.get('view'))), {
+    initialValue: this.route.snapshot.queryParamMap.get('view'),
+  });
+  protected readonly showStatistics = computed(() => this.viewParam() === 'statistics' && this.isManager());
 
   protected readonly selectedId = toSignal(this.route.queryParamMap.pipe(map((params) => params.get('case'))), {
     initialValue: this.route.snapshot.queryParamMap.get('case'),
   });
   protected readonly creating = signal(false);
+
+  constructor() {
+    // 只比對篩選參數（不用 rxjs 的 distinctUntilChanged：初始 bundle 的共用 chunk 會因此多一個匯出）。
+    let applied: string | null = null;
+    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
+      const key = filterKey(params);
+      if (key === applied) return;
+      applied = key;
+      this.applyFilters(params);
+    });
+  }
 
   // 建立案件表單
   protected readonly formTypeId = signal('');
@@ -100,13 +128,14 @@ export class CasesPageComponent {
   /** 「另開新案」接續的舊案件（建立時以 `previousCaseId` 連結）。 */
   protected readonly formPreviousCase = signal<Pick<CaseView, 'id' | 'title'> | null>(null);
 
+  /** 統計分頁顯示時不讀清單。 */
   protected readonly listResource = repositoryResource({
     params: () => {
       const accountId = this.session.activeAccountId();
-      return accountId
+      return accountId && !this.showStatistics()
         ? {
           accountId, scope: this.scope(), status: this.status(), typeId: this.typeFilter(), groupId: this.groupFilter(),
-          overdue: this.overdueOnly(),
+          overdue: this.overdueOnly(), closedFrom: this.closedFrom(), closedTo: this.closedTo(),
         }
         : undefined;
     },
@@ -116,6 +145,8 @@ export class CasesPageComponent {
       typeId: params.typeId || undefined,
       groupId: params.groupId || undefined,
       ...(params.overdue ? { overdue: true } : {}),
+      ...(params.closedFrom ? { closedFrom: params.closedFrom } : {}),
+      ...(params.closedTo ? { closedTo: params.closedTo } : {}),
     }),
   });
   protected readonly listView = this.listResource.view;
@@ -155,6 +186,21 @@ export class CasesPageComponent {
     const due = fromDateTimeLocalValue(this.formDueAt());
     return due !== null && isDueInPast(due, new Date());
   });
+
+  /** 篩選選項裡沒有的類型（已停用）與承辦組（已封存）：從統計點開時仍顯示為已選取。 */
+  protected readonly unlistedType = computed(() => {
+    const id = this.typeFilter();
+    return id !== '' && !this.types().some((type) => type.id === id);
+  });
+  protected readonly unlistedGroup = computed(() => {
+    const id = this.groupFilter();
+    return id !== '' && !this.groups().some((group) => group.id === id);
+  });
+
+  protected clearClosedRange(): void {
+    this.closedFrom.set('');
+    this.closedTo.set('');
+  }
 
   /** 清單上的「已逾期」：與後端 `CaseAttention.Overdue` 相同的判斷，以畫面讀取時的時間計算。 */
   protected isOverdue(item: CaseSummaryView): boolean {
@@ -265,6 +311,16 @@ export class CasesPageComponent {
     return caseEventLabel(event.action);
   }
 
+  private applyFilters(params: ParamMap): void {
+    this.scope.set(queryScope(params.get('scope')));
+    this.status.set(queryStatus(params.get('status')));
+    this.typeFilter.set(params.get('typeId') ?? '');
+    this.groupFilter.set(params.get('groupId') ?? '');
+    this.overdueOnly.set(params.get('overdue') === 'true');
+    this.closedFrom.set(params.get('closedFrom') ?? '');
+    this.closedTo.set(params.get('closedTo') ?? '');
+  }
+
   private clearError(field: FormField): void {
     if (!this.formErrors()[field]) return;
     const next = { ...this.formErrors() };
@@ -274,6 +330,13 @@ export class CasesPageComponent {
 }
 
 const SCOPES: readonly CaseListScope[] = ['all', 'created', 'owned', 'my-groups'];
+
+/** 網址裡屬於清單篩選的參數（不含 `case`、`view`）。 */
+const FILTER_PARAMS = ['scope', 'status', 'typeId', 'groupId', 'overdue', 'closedFrom', 'closedTo'] as const;
+
+function filterKey(params: ParamMap): string {
+  return FILTER_PARAMS.map((name) => params.get(name) ?? '').join('&');
+}
 
 function queryScope(value: string | null): CaseListScope {
   return SCOPES.find((scope) => scope === value) ?? 'all';

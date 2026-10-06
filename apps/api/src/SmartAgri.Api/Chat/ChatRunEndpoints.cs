@@ -179,7 +179,7 @@ public static class ChatRunEndpoints
         ChatProposalStage proposals,
         ChatDatabaseQueries databaseQueries,
         ChatRunLocks locks,
-        ChatClientProvider chatProvider,
+        ChatModelCatalog chatModels,
         EmbeddingProvider embeddingProvider,
         TimeProvider clock,
         IOptions<JsonOptions> jsonOptions,
@@ -233,7 +233,7 @@ public static class ChatRunEndpoints
         // RunAgentInput user-message id; an invalid or absent one just means "always save".
         var clientMessageId = ChatRunRules.ValidateClientMessageId(questionMessageId);
 
-        if (!chatProvider.IsConfigured)
+        if (!chatModels.IsConfigured)
         {
             return ChatErrors.ToApiResult(new ChatGenerationException(providerNotConfigured: true));
         }

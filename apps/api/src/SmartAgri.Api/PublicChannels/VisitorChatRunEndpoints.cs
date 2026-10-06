@@ -74,7 +74,7 @@ public static class VisitorChatRunEndpoints
         IAnswerKnowledgeBases knowledgeBases,
         GroundedAnswerService answers,
         [FromKeyedServices(VisitorAuthentication.RunLocksKey)] ChatRunLocks locks,
-        ChatClientProvider chatProvider,
+        ChatModelCatalog chatModels,
         EmbeddingProvider embeddingProvider,
         TimeProvider clock,
         IOptions<JsonOptions> jsonOptions,
@@ -116,7 +116,7 @@ public static class VisitorChatRunEndpoints
             return ApiErrors.ValidationFailed(question.Failures);
         }
 
-        if (!chatProvider.IsConfigured)
+        if (!chatModels.IsConfigured)
         {
             return ChatErrors.ToApiResult(new ChatGenerationException(providerNotConfigured: true));
         }

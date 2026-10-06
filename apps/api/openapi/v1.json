@@ -684,6 +684,52 @@
         }
       }
     },
+    "/api/v1/cases/statistics": {
+      "get": {
+        "tags": [
+          "CaseStatisticsEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseStatisticsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/chat/recent-conversations": {
       "get": {
         "tags": [
@@ -5200,6 +5246,22 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "closedFrom",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "closedTo",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
           }
         ],
         "responses": {
@@ -8094,6 +8156,73 @@
           },
           "canRead": {
             "type": "boolean"
+          }
+        }
+      },
+      "CaseStatisticsRowView": {
+        "required": [
+          "type",
+          "group",
+          "openCount",
+          "overdueCount",
+          "completedCount",
+          "cancelledCount",
+          "averageHandlingHours"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/CaseTypeRefView"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseGroupRefView"
+          },
+          "openCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "overdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cancelledCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageHandlingHours": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "CaseStatisticsView": {
+        "required": [
+          "from",
+          "to",
+          "rows"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseStatisticsRowView"
+            }
           }
         }
       },
@@ -13772,6 +13901,9 @@
     },
     {
       "name": "ConversationPurgeEndpoints"
+    },
+    {
+      "name": "CaseStatisticsEndpoints"
     },
     {
       "name": "ChatEndpoints"

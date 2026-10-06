@@ -5,6 +5,21 @@
     description="追蹤需要有人接手的事情：選擇案件類型建立案件，由承辦組受理與處理。"
   />
 
+  @if (isManager()) {
+    <nav class="cases-tabs" aria-label="案件頁面">
+      <a routerLink="/app/cases" data-cases-tab="list" [attr.aria-current]="showStatistics() ? null : 'page'">案件清單</a>
+      <a
+        routerLink="/app/cases"
+        [queryParams]="{ view: 'statistics' }"
+        data-cases-tab="statistics"
+        [attr.aria-current]="showStatistics() ? 'page' : null"
+      >瓶頸統計</a>
+    </nav>
+  }
+
+  @if (showStatistics()) {
+    <app-case-statistics />
+  } @else {
   <div class="cases-layout">
     <section class="cases-list" aria-labelledby="cases-list-title">
       <div class="cases-list__head">
@@ -39,6 +54,9 @@
           案件類型
           <select [value]="typeFilter()" (change)="typeFilter.set($any($event.target).value)">
             <option value="">全部類型</option>
+            @if (unlistedType()) {
+              <option [value]="typeFilter()" selected>已停用的類型</option>
+            }
             @for (type of types(); track type.id) {
               <option [value]="type.id">{{ type.name }}</option>
             }
@@ -48,6 +66,9 @@
           承辦組
           <select [value]="groupFilter()" (change)="groupFilter.set($any($event.target).value)">
             <option value="">全部承辦組</option>
+            @if (unlistedGroup()) {
+              <option [value]="groupFilter()" selected>已封存的承辦組</option>
+            }
             @for (group of groups(); track group.id) {
               <option [value]="group.id">{{ group.name }}</option>
             }
@@ -58,6 +79,12 @@
           只看逾期
         </label>
       </div>
+      @if (closedFrom() || closedTo()) {
+        <p class="cases-closed-range" data-case-closed-range>
+          <span>只列 {{ closedFrom() || '（預設）' }} 至 {{ closedTo() || '今天' }}（UTC）完成或取消的案件</span>
+          <button class="case-links__button" type="button" (click)="clearClosedRange()">清除期間</button>
+        </p>
+      }
 
       @if (list.status === 'loading') {
         <app-state-panel state="loading" title="正在載入案件" />
@@ -307,4 +334,5 @@
       }
     </section>
   </div>
+  }
 </section>

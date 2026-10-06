@@ -23,6 +23,7 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/channels', '助理發布設定'],
   ['/app/assistants/assistant-customer-service/publishing?channel=line', '測試連線'],
   ['/app/cases', '建立案件'],
+  ['/app/cases?view=statistics', '套用'],
   ['/app/settings', '團隊與權限'],
 ];
 

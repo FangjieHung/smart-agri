@@ -126,7 +126,8 @@ public class TokenKeyStartupTests : IClassFixture<WebApplicationFactory<Program>
             .UseSetting("Authentication:SigningCertificatePath", options.SigningCertificatePath)
             .UseSetting("Authentication:SigningCertificatePassword", options.SigningCertificatePassword)
             .UseSetting("Authentication:EncryptionCertificatePath", options.EncryptionCertificatePath)
-            .UseSetting("Authentication:EncryptionCertificatePassword", options.EncryptionCertificatePassword));
+            .UseSetting("Authentication:EncryptionCertificatePassword", options.EncryptionCertificatePassword)
+            .ConfigureDataProtection(_directory));
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/health/live", TestContext.Current.CancellationToken);

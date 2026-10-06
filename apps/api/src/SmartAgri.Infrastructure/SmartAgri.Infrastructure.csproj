@@ -7,10 +7,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- IDataProtectionProvider for DataProtectionSecretProtector (M5a Slice 1). Part of the
+         shared framework, not a NuGet package: the Api already runs on it. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" />
     <PackageReference Include="OpenIddict.EntityFrameworkCore" />
-    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" />
     <!-- Text extraction (M2 Slice 6): PdfPig (Apache-2.0) for PDF, Open XML SDK (MIT) for
          DOCX/XLSX, per the assistant-access ADR. Infrastructure only (M2 plan §3). -->
     <PackageReference Include="PdfPig" />

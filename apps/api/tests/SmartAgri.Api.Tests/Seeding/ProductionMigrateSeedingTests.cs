@@ -62,6 +62,7 @@ public class ProductionMigrateSeedingTests : IAsyncLifetime, IDisposable
             builder.UseSetting("Authentication:SigningCertificatePassword", CertificatePassword);
             builder.UseSetting("Authentication:EncryptionCertificatePath", WritePfx("encryption", X509KeyUsageFlags.KeyEncipherment));
             builder.UseSetting("Authentication:EncryptionCertificatePassword", CertificatePassword);
+            DataProtectionTestSettings.Use(builder, _certificateDirectory);
             // Deliberately NOT setting SEED_DEMO_PASSWORD: a Production deployment has no
             // reason to, and DevelopmentSeeder must never be reachable there regardless.
         });

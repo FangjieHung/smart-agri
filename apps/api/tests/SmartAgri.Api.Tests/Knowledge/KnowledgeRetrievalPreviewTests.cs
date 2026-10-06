@@ -32,6 +32,10 @@ namespace SmartAgri.Api.Tests.Knowledge;
 [Trait("Category", TestCategories.Docker)]
 public sealed class KnowledgeRetrievalPreviewTests : IClassFixture<KnowledgeRetrievalPreviewTests.RetrievalHostFixture>
 {
+    /// <summary><c>Retrieval:MinScore</c> in <c>appsettings.Development.json</c>, the environment the
+    /// test host runs in: the <c>Fake</c> model's scale, not the calibrated default (#192).</summary>
+    private const double DevelopmentMinScore = 0.3;
+
     private const string BasePath = "/api/v1/knowledge-bases";
     private const string ReturnQuestion = "收到商品幾天內可退貨？";
     private const string UnrelatedQuestion = "營業時間是幾點？";
@@ -65,7 +69,7 @@ public sealed class KnowledgeRetrievalPreviewTests : IClassFixture<KnowledgeRetr
         preview.Passages.ShouldAllBe(passage => passage.VersionNumber == 2 && passage.VersionState == "effective");
         preview.Passages.Skip(1).Select(passage => passage.LocationLabel).ShouldBe(["第 1 頁", "第 3 頁"], ignoreOrder: true, "then the other pages, at 0.1");
         preview.Passages.Select(passage => passage.Score).ShouldBeInOrder(SortDirection.Descending);
-        (preview.Threshold, preview.BelowThreshold).ShouldBe((KnowledgeRetrievalSettings.DefaultMinScore, false), "Retrieval:MinScore from appsettings.json");
+        (preview.Threshold, preview.BelowThreshold).ShouldBe((DevelopmentMinScore, false), "Retrieval:MinScore from appsettings.Development.json");
 
         var withPending = await PreviewAsync(owner, ReturnQuestion, includePending: true);
 
@@ -90,9 +94,9 @@ public sealed class KnowledgeRetrievalPreviewTests : IClassFixture<KnowledgeRetr
         var preview = await PreviewAsync(owner, UnrelatedQuestion);
 
         preview.BelowThreshold.ShouldBeTrue();
-        preview.Threshold.ShouldBe(KnowledgeRetrievalSettings.DefaultMinScore);
+        preview.Threshold.ShouldBe(DevelopmentMinScore);
         preview.Passages.Count.ShouldBe(KnowledgeRetrievalSettings.DefaultTop, "Retrieval:Top from appsettings.json");
-        preview.Passages.ShouldAllBe(passage => passage.Score < KnowledgeRetrievalSettings.DefaultMinScore);
+        preview.Passages.ShouldAllBe(passage => passage.Score < DevelopmentMinScore);
         preview.Passages[0].Score.ShouldBe(0.16, 1e-4, "page 2 is still the nearest");
         preview.Passages.Select(passage => passage.Score).ShouldBeInOrder(SortDirection.Descending);
 

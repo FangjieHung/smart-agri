@@ -28,6 +28,38 @@ public class PublicRateLimitingTests
     }
 
     [Fact]
+    public void The_line_webhook_is_limited_per_assistant_in_the_url_before_anything_else_runs()
+    {
+        using var limiter = PublicRateLimiting.CreateLimiter(new PublicRateLimitOptions { LineWebhooksPerAssistantPerMinute = 2 });
+        var first = Guid.NewGuid().ToString();
+        var second = Guid.NewGuid().ToString();
+
+        Acquire(limiter, first).ShouldBeTrue();
+        Acquire(limiter, first.ToUpperInvariant()).ShouldBeTrue("the same GUID however it is written");
+        Acquire(limiter, first).ShouldBeFalse();
+        Acquire(limiter, second).ShouldBeTrue("each assistant has its own budget");
+
+        // Every value that is not a GUID shares one partition.
+        Acquire(limiter, "not-an-id").ShouldBeTrue();
+        Acquire(limiter, "also-not").ShouldBeTrue();
+        Acquire(limiter, "still-not").ShouldBeFalse();
+
+        // Other endpoints are not counted against it, nor is a request without the marker.
+        var unmarked = new DefaultHttpContext();
+        unmarked.Request.RouteValues["assistantId"] = first;
+        limiter.AttemptAcquire(unmarked).IsAcquired.ShouldBeTrue();
+
+        static bool Acquire(System.Threading.RateLimiting.PartitionedRateLimiter<HttpContext> limiter, string assistantId)
+        {
+            var context = new DefaultHttpContext();
+            context.SetEndpoint(new Endpoint(
+                null, new EndpointMetadataCollection(new PublicRateLimitMarker(PublicRateLimitedEndpoint.LineWebhook)), "line-webhook"));
+            context.Request.RouteValues["assistantId"] = assistantId;
+            return limiter.AttemptAcquire(context).IsAcquired;
+        }
+    }
+
+    [Fact]
     public async Task The_429_body_is_one_fixed_problem_whichever_partition_refused()
     {
         var context = new DefaultHttpContext();

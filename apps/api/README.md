@@ -821,6 +821,8 @@ queries and handoffs are not on this path at all (an architecture test checks th
   | `RunsPerIpPerMinute` | client IP, `chat/runs` | sliding window, 1 minute | 20 |
   | `RunsPerAssistantPerMinute` | `assistant_id` claim, `chat/runs` | sliding window, 1 minute | 120 |
   | `MaxConcurrentRunsPerAssistant` | `assistant_id` claim, `chat/runs` | replies being generated at once | 10 |
+  | `LineWebhooksPerAssistantPerMinute` | assistant id in the URL, LINE webhook (M5b #231) | sliding window, 1 minute | 1,000 |
+  | `LineMaxConcurrentWebhooksPerAssistant` | assistant, LINE webhook processor (not a `429`: the rest wait in the queue) | deliveries handled at once | 10 |
 
   The limiter runs after authorization (a missing or invalid visitor token is already `401` and costs
   nothing) and after the origin check (a foreign `Origin` is `403` and uses no permit). Narrowest
@@ -949,8 +951,8 @@ else's assistant all get the same `403 publishing`): `GET`, `PUT` (settings; `re
   (case-insensitive, `@` optional); the bot's user id is stored; (2) `webhook-endpoint` —
   `PUT /v2/bot/channel/webhook/endpoint` sets LINE's webhook URL to `webhookUrl` (the owner does not
   paste it into the LINE Developers Console); (3) `webhook-test` — `POST /v2/bot/channel/webhook/test`:
-  LINE sends a signed test event to that URL (it passes only once the webhook endpoint of #231 is
-  deployed and reachable over public HTTPS). A failed check marks the ones after it `skipped`. LINE
+  LINE sends a signed test event to that URL (it passes once the webhook endpoint, see the next
+  section, is reachable over public HTTPS). A failed check marks the ones after it `skipped`. LINE
   failing is **never an HTTP error** here: the answer is `200` with the channel view, whose `checks`
   carry each result and a message in Traditional Chinese (a rejected token, another account's token,
   LINE's `429`, a timeout, a webhook URL LINE refuses, a wrong channel secret…). LINE allows 60
@@ -974,6 +976,58 @@ else's assistant all get the same `403 publishing`): `GET`, `PUT` (settings; `re
   API's base address, default `https://api.line.me`. Tests point it (or the client's handler) at a fake
   LINE server (`tests/SmartAgri.Api.Tests/Infrastructure/FakeLineServer.cs`). **Production refuses to
   start with any other value**, since the channel access tokens are sent there.
+
+## LINE webhook: `POST /api/v1/line/webhook/{assistantId}` (M5b)
+
+Where LINE delivers an assistant's LINE channel events (M5b #231;
+`SmartAgri.Api.Line.LineWebhookEndpoints`). The connection test sets it as the channel's webhook URL
+(`webhookUrl` above). Anonymous — any credential is ignored — and outside the visitor API, so no
+same-origin check (LINE sends no `Origin`). Not in the OpenAPI document: it is LINE's contract, and
+the admin never calls it.
+
+- **Order of checks.** (1) Rate limit per assistant id in the URL
+  (`PublicChannels:RateLimits:LineWebhooksPerAssistantPerMinute`, default 1,000, sliding minute;
+  beyond it `429`), before the body is read, so a flood of forged requests costs little; (2) the raw
+  body is read, at most 1 MB (else `413`), before any JSON parsing; (3) the assistant's organization is
+  found (`PublicAssistantLookup`, no new place that turns the organization filter off) and its LINE
+  channel read; (4) the channel secret is decrypted and `x-line-signature` checked:
+  base64(HMAC-SHA256(channel secret, raw body bytes)), compared in constant time.
+- **One refusal.** No such assistant (or not a GUID), no LINE channel, a secret that cannot be
+  decrypted (key ring changed: re-enter it; logged as a warning), a missing, malformed or wrong
+  signature: always the same bodiless `401`, byte for byte. The HMAC is computed on every path (with
+  a random key when there is no secret).
+- **Then `200`, bodiless, at once.** Also for no events (Console's "Verify" and LINE's webhook test
+  send `{"destination":"U…","events":[]}`), for a draft channel (its connection test must pass before
+  it can be enabled), and when `destination` is not the bot user id stored by the connection test (or
+  none is stored yet): those events are **ignored** — a valid signature means LINE sent them, and a
+  non-2xx answer would only make LINE redeliver. A signed body that is not a JSON object is `400`.
+- **At least once → deduplicated.** LINE may deliver an event more than once (redelivery, with
+  `deliveryContext.isRedelivery: true`, or network retries) with the same `webhookEventId`; ids
+  accepted in the last 10 minutes are dropped (`LineWebhookDeduplicator`, in memory, at most 100,000).
+- **In-process queue.** Accepted events go to a bounded `System.Threading.Channels` queue (1,000
+  deliveries; when full, a delivery is dropped and logged) drained by `LineWebhookProcessor`, a
+  `BackgroundService`: each delivery in its own scope acting for the assistant's organization, at most
+  `PublicChannels:RateLimits:LineMaxConcurrentWebhooksPerAssistant` (default 10) per assistant and 64
+  in all at once, its events in LINE's order. Not the PostgreSQL job queue: its polling and retries do
+  not fit a reply token that lasts about a minute. **Single instance**: the queue, the deduplication
+  and the conversation history live in this process's memory (like the visitor rate limits); a restart
+  loses queued events, whose reply tokens would have expired anyway, and several API instances would
+  each keep their own.
+- **What each event does** (`LineWebhookEventHandler`; plan §3 D): `follow`/`join` — the channel's
+  welcome message as a reply, only while the channel is `serving` (a draft, paused or suspended channel
+  greets nobody); a non-text `message` — 「目前只能回答文字問題。」 in a one-to-one chat while serving,
+  nothing in a group or room; a text `message` of a published or paused channel —
+  `ILineQuestionHandler` (this slice registers one that answers nothing; LINE questions, #232, replace
+  it); `unfollow`/`leave` — the chat's remembered conversation is forgotten; `unsend` — that message
+  (and the answer to it) is forgotten; anything else (`postback`, `memberJoined`, `messageEdited`,
+  unknown types) is ignored without an error; an event in `standby` mode never gets a reply. A reply
+  token is used at most once; a LINE failure is logged (event type, outcome, status,
+  `x-line-request-id`) and dropped, never retried.
+- **Conversation history** (`ILineConversationHistory`, `InMemoryLineConversationHistory`): per
+  assistant and chat (user, group or room id), the newest 20 messages, forgotten after 30 minutes
+  without activity, at most 10,000 conversations (least recently used first). Memory only.
+- **Nothing from LINE is stored or logged**: no message, user/group id or token goes to the database
+  (the channel row is only read) or to a log line.
 
 ## Monthly token limit: `set-token-limit`
 

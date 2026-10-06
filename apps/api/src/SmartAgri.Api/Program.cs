@@ -52,6 +52,7 @@ builder.Services.AddOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>(
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>, SmartAgri.Api.PublicChannels.PublicChannelsOptions.Validator>();
 builder.Services.AddOrganizationTokenUsage();
 builder.Services.AddLineMessaging(builder.Configuration);
+builder.Services.AddLineWebhook();
 builder.Services.AddOptions<SmartAgri.Api.PublicChannels.WidgetOptions>()
     .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.WidgetOptions.SectionName));
 builder.Services.AddSingleton<SmartAgri.Api.PublicChannels.WidgetIndexTemplate>();
@@ -170,7 +171,8 @@ app.UsePublicOriginGuard();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Rate limits of the visitor API only (M5a #197); after authorization, which knows the visitor.
+// Rate limits of the visitor API (M5a #197) and the LINE webhook (M5b #231) only; after
+// authorization, which knows the visitor.
 app.UseRateLimiter();
 
 app.MapGet("/health/live", () => Results.Ok()).AllowAnonymous().ExcludeFromDescription();
@@ -210,6 +212,7 @@ app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();
 app.MapVisitorEndpoints();
 app.MapWidgetEndpoints();
+app.MapLineWebhookEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

@@ -61,16 +61,17 @@ describe('CasesRepository statistics (mock, issue #251)', () => {
     const view = ready(await firstValueFrom(repository.statistics()));
     expect([view.from, view.to]).toEqual(['2026-09-08', '2026-10-07']);
     // 「灌溉馬達異音」10/1 02:00 建立、10/2 06:00 完成：28 小時。「溫室感測器離線」待受理且已逾期。
+    // 「客戶資料庫：新紀錄」（issue #255，數據庫送出後自動開案）也在設備組待受理，10/8 才到時限。
     expect(summary(view)).toEqual([
       ['採購組', 1, 0, 0, 0, null],
-      ['設備組', 2, 1, 1, 0, 28],
+      ['設備組', 3, 1, 1, 0, 28],
     ]);
 
     // 只含完成那一天的期間；完成之後的那一天沒有完成件數。
     expect(summary(ready(await firstValueFrom(repository.statistics({ from: '2026-10-02', to: '2026-10-02' })))))
-      .toEqual([['採購組', 1, 0, 0, 0, null], ['設備組', 2, 1, 1, 0, 28]]);
+      .toEqual([['採購組', 1, 0, 0, 0, null], ['設備組', 3, 1, 1, 0, 28]]);
     expect(summary(ready(await firstValueFrom(repository.statistics({ from: '2026-10-03', to: '2026-10-07' })))))
-      .toEqual([['採購組', 1, 0, 0, 0, null], ['設備組', 2, 1, 0, 0, null]]);
+      .toEqual([['採購組', 1, 0, 0, 0, null], ['設備組', 3, 1, 0, 0, null]]);
 
     expect(await firstValueFrom(repository.statistics({ from: '2026-10-07', to: '2026-10-01' })))
       .toEqual({ status: 'validation-failed', reason: 'invalid-date-range', message: '起始日期必須不晚於結束日期。', fieldErrors: {} });
@@ -94,7 +95,7 @@ describe('CasesRepository statistics (mock, issue #251)', () => {
     const view = ready(await firstValueFrom(repository.statistics()));
     expect(summary(view)).toEqual([
       ['採購組', 0, 0, 1, 1, 24],
-      ['設備組', 1, 1, 1, 0, 28],
+      ['設備組', 2, 1, 1, 0, 28],
     ]);
 
     for (const row of view.rows) {

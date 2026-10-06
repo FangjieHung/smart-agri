@@ -10,7 +10,9 @@ namespace SmartAgri.Domain.Chat;
 /// assistant asking the member to fill in a connected database's form) and
 /// <see cref="SubmissionReceipt"/> (the receipt of a consented submission). M4 #149 adds
 /// <see cref="DatabaseQuery"/>: the answer of a fixed statistics query the model chose, composed by
-/// the server from the query's result (never the answer pipeline's). Stored as integers,
+/// the server from the query's result (never the answer pipeline's). M7-9 (#254) adds
+/// <see cref="CaseProposal"/>: the assistant proposing a case the asker confirms (or not); the text is
+/// the server's. Stored as integers,
 /// so new members only ever go at the end.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<ChatReplyKind>))]
@@ -33,4 +35,7 @@ public enum ChatReplyKind
 
     [JsonStringEnumMemberName("database-query")]
     DatabaseQuery,
+
+    [JsonStringEnumMemberName("case-proposal")]
+    CaseProposal,
 }

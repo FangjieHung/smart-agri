@@ -162,6 +162,26 @@ export interface ChatDatabaseQueryView {
   readonly message: string | null;
 }
 
+/** 案件提議的狀態（issue #254）：等待確認、已建立案件、使用者選了「不用了」。 */
+export type ChatCaseProposalStatus = 'proposed' | 'confirmed' | 'dismissed';
+
+/**
+ * 助理提議開案（issue #254）：保存的快照（類型、標題、說明、狀態、確認後的案件）加上類型「現在」的名稱、
+ * 預設承辦組與處理時限。`available` 是現在還能不能確認（類型仍啟用、仍在助理的清單上）；不能時卡片顯示
+ * 「無法建立」。卡片只在 admin 的對話元件渲染，lib 只顯示文字與標籤。
+ */
+export interface ChatCaseProposalView {
+  readonly typeId: string;
+  readonly typeName: string;
+  readonly title: string;
+  readonly description: string;
+  readonly status: ChatCaseProposalStatus;
+  readonly available: boolean;
+  readonly group: { readonly id: string; readonly name: string; readonly archived: boolean };
+  readonly dueHours: number;
+  readonly caseId: string | null;
+}
+
 export type ChatReplyView =
   | {
       readonly kind: 'company-data';
@@ -213,6 +233,15 @@ export type ChatReplyView =
       readonly kind: 'database-query';
       readonly text: string;
       readonly query: ChatDatabaseQueryView;
+    }
+  | {
+      /**
+       * 助理提議開一件案件（issue #254），只有 admin 的組織內部帳號會收到；確認（可修改標題與說明）後才建立。
+       * null：快照無法讀取（不會發生在新訊息上）。
+       */
+      readonly kind: 'case-proposal';
+      readonly text: string;
+      readonly proposal: ChatCaseProposalView | null;
     };
 
 export type ChatReplyKind = ChatReplyView['kind'];
@@ -228,6 +257,7 @@ export const REPLY_KIND_LABELS: Readonly<Record<ChatReplyKind, string>> = {
   'form-request': '需要填寫資料',
   'submission-receipt': '資料已送出',
   'database-query': '數據庫查詢',
+  'case-proposal': '建議開案',
 };
 
 export type ChatMessageView =

@@ -42,6 +42,10 @@ internal sealed class ChatMessageConfiguration : IEntityTypeConfiguration<ChatMe
         // M4 #149: a database query reply's structured view, read back whole.
         builder.Property(message => message.DatabaseQueryJson).HasColumnName("DatabaseQuery").HasColumnType("jsonb");
 
+        // M7-9 (#254): a case proposal's snapshot, read back whole. Plain text (not jsonb) so the
+        // concurrency check compares exactly what was read: two confirmations cannot both succeed.
+        builder.Property(message => message.CaseProposalJson).HasColumnName("CaseProposal").IsConcurrencyToken();
+
         builder.HasOne<ChatThread>()
             .WithMany()
             .HasForeignKey(message => new { message.ThreadId, message.OrganizationId })

@@ -115,6 +115,14 @@ export class WidgetStore {
     if (run.phase === 'failed') this.ask(run.question, run.clientMessageId);
   }
 
+  /**
+   * 「目前暫停服務」之後再試：回到可以輸入的狀態（沒送出的問題仍在輸入框），下一個問題由伺服器重新判斷。
+   * 擁有者恢復頻道後，已經開著視窗的訪客不必重新整理整個頁面（#205 實機驗收發現）。
+   */
+  resumeAfterPause(): void {
+    if (this.phase() === 'paused') this.phase.set('ready');
+  }
+
   private async openSession(): Promise<void> {
     this.phase.set('initialising');
     const result = await this.createSession();

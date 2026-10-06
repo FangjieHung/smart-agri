@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting.Internal;
 using Shouldly;
 using SmartAgri.Api.PublicChannels;
+using SmartAgri.Domain.Assistants;
 
 namespace SmartAgri.Api.Tests.PublicChannels;
 
@@ -36,6 +37,17 @@ public class PublicChannelsOptionsTests
         options.EmbedCode(AssistantId).ShouldBe(
             $"<script src=\"{expectedBase}/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" async></script>");
         Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_bottom_left_launcher_is_written_into_the_embed_code_because_the_loader_reads_it_from_the_page()
+    {
+        var options = new PublicChannelsOptions { PublicBaseUrl = "https://assistant.example.org" };
+
+        options.EmbedCode(AssistantId, WebsiteLauncherPosition.BottomLeft).ShouldBe(
+            "<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" data-position=\"left\" async></script>");
+        options.EmbedCode(AssistantId, WebsiteLauncherPosition.BottomRight).ShouldBe(
+            "<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" async></script>");
     }
 
     [Theory]

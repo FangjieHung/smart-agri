@@ -53,4 +53,10 @@ public enum ModelInvocationPurpose
     /// token limit like every chat-model call.</summary>
     [JsonStringEnumMemberName("public-answer")]
     PublicAnswer,
+
+    /// <summary>Generating a grounded answer for a LINE user (M5b #232, the LINE webhook's background
+    /// processor): same pipeline as <see cref="PublicAnswer"/>, recorded without an account (and without
+    /// any LINE id) and counted toward the monthly token limit like every chat-model call.</summary>
+    [JsonStringEnumMemberName("line-answer")]
+    LineAnswer,
 }

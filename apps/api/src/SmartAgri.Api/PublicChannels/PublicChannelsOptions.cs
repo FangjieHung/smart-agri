@@ -45,6 +45,12 @@ public sealed class PublicChannelsOptions
     public PublicRateLimitOptions RateLimits { get; set; } = new();
 
     /// <summary>
+    /// LINE answers (M5b #232, plan §3 D): see <see cref="PublicLineOptions"/>. Optional; every value
+    /// has a default.
+    /// </summary>
+    public PublicLineOptions Line { get; set; } = new();
+
+    /// <summary>
     /// Reverse proxies (IP addresses or CIDR networks, e.g. <c>10.0.0.0/8</c>) whose
     /// <c>X-Forwarded-For</c>, <c>X-Forwarded-Proto</c> and <c>X-Forwarded-Host</c> are believed
     /// (plan §3 E). Only when this is non-empty are those headers applied, and only when the request
@@ -157,6 +163,16 @@ public sealed class PublicChannelsOptions
 
             AddRateLimitFailures(options.RateLimits, failures);
 
+            if (options.Line is null)
+            {
+                failures.Add("PublicChannels:Line must not be null.");
+            }
+            else if (options.Line.ReplyDeadlineSeconds is < PublicLineOptions.MinReplyDeadlineSeconds or > PublicLineOptions.MaxReplyDeadlineSeconds)
+            {
+                failures.Add(
+                    $"PublicChannels:Line:ReplyDeadlineSeconds {options.Line.ReplyDeadlineSeconds} must be {PublicLineOptions.MinReplyDeadlineSeconds} to {PublicLineOptions.MaxReplyDeadlineSeconds} (a LINE reply token lasts about a minute).");
+            }
+
             var (_, _, invalidProxies) = options.ParseTrustedProxies();
             foreach (var entry in invalidProxies)
             {
@@ -232,6 +248,25 @@ public sealed class PublicRateLimitOptions
     /// same time (M5b #231, decision E); the others wait in the queue. Default 10.</summary>
     public int LineMaxConcurrentWebhooksPerAssistant { get; set; } = 10;
 
+    /// <summary>Questions one LINE user may ask an assistant per minute in a one-to-one chat (M5b #232,
+    /// decision E; sliding window). Beyond it the user gets 「問題太頻繁了，請稍後再試」 once per window
+    /// and no answer. Default 6.</summary>
+    public int LineQuestionsPerUserPerMinute { get; set; } = 6;
+
+    /// <summary>The same per hour (sliding window, the second layer). Default 60.</summary>
+    public int LineQuestionsPerUserPerHour { get; set; } = 60;
+
+    /// <summary>Questions one LINE group or room may ask an assistant per minute, all members together
+    /// (sliding window). Default 10.</summary>
+    public int LineQuestionsPerGroupPerMinute { get; set; } = 10;
+
+    /// <summary>LINE questions one assistant may be asked per minute, all chats together (sliding
+    /// window). Default 120.</summary>
+    public int LineQuestionsPerAssistantPerMinute { get; set; } = 120;
+
+    /// <summary>LINE answers one assistant may be generating at the same time. Default 10.</summary>
+    public int LineMaxConcurrentQuestionsPerAssistant { get; set; } = 10;
+
     internal IEnumerable<(string Name, int Value)> Values()
     {
         yield return (nameof(SessionsPerIpPerMinute), SessionsPerIpPerMinute);
@@ -242,5 +277,28 @@ public sealed class PublicRateLimitOptions
         yield return (nameof(MaxConcurrentRunsPerAssistant), MaxConcurrentRunsPerAssistant);
         yield return (nameof(LineWebhooksPerAssistantPerMinute), LineWebhooksPerAssistantPerMinute);
         yield return (nameof(LineMaxConcurrentWebhooksPerAssistant), LineMaxConcurrentWebhooksPerAssistant);
+        yield return (nameof(LineQuestionsPerUserPerMinute), LineQuestionsPerUserPerMinute);
+        yield return (nameof(LineQuestionsPerUserPerHour), LineQuestionsPerUserPerHour);
+        yield return (nameof(LineQuestionsPerGroupPerMinute), LineQuestionsPerGroupPerMinute);
+        yield return (nameof(LineQuestionsPerAssistantPerMinute), LineQuestionsPerAssistantPerMinute);
+        yield return (nameof(LineMaxConcurrentQuestionsPerAssistant), LineMaxConcurrentQuestionsPerAssistant);
     }
+}
+
+/// <summary><c>PublicChannels:Line</c> (M5b #232): how LINE answers are delivered.</summary>
+public sealed class PublicLineOptions
+{
+    public const int MinReplyDeadlineSeconds = 1;
+    public const int MaxReplyDeadlineSeconds = 60;
+
+    /// <summary>
+    /// Seconds from receiving a LINE event within which an answer is sent with the event's reply token
+    /// (free; LINE keeps it valid for about a minute). An answer ready later — or whose reply LINE
+    /// refuses as an expired or invalid token — is pushed in a one-to-one chat (counted against the LINE
+    /// account's monthly quota, and on the channel's 「本月補送次數」) and dropped in a group or room
+    /// (decision A). 1 to 60; default 50 (decision E).
+    /// </summary>
+    public int ReplyDeadlineSeconds { get; set; } = 50;
+
+    public TimeSpan ReplyDeadline => TimeSpan.FromSeconds(ReplyDeadlineSeconds);
 }

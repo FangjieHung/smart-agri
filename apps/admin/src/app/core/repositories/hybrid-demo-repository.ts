@@ -2824,7 +2824,7 @@ function toAssistantPublishing(response: ApiAssistantPublishing): AssistantPubli
     assistantName: response.assistantName,
     platform,
     website: toWebsiteEmbed(response.website),
-    // LINE 在 M5b 才開放；舊版後端的佔位說明寫著「官網嵌入與 LINE …」，所以一律用 LINE 專屬的說明。
+    // 後端 #229 起 `line` 是真實的 LINE 頻道，但 LINE 設定頁在 #233 才改用 API；在那之前一律顯示「將於後續版本開放」。
     line: unavailableLine(platform.channel, EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
   };
 }

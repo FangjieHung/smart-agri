@@ -15,3 +15,4 @@
 
 - 部署說明需包含加密金鑰的存放與備份方式；金鑰遺失時，已存的機敏設定需重新輸入。
 - 金鑰環存放在檔案系統（客戶部署為 compose volume），並以憑證加密；位置與憑證由部署設定提供，Production 缺少時拒絕啟動（2026-10-06，[M5a 計畫](../plans/2026-10-06-backend-milestone-5a-website-embed.md)第 3 節 G）。網站嵌入的訪客憑證也使用同一個金鑰環。
+- 第一個使用只寫欄位的是 LINE 頻道的 Channel Secret 與 Channel Access Token（[M5b 計畫](../plans/2026-10-06-backend-milestone-5b-line.md) §3 A）：更新時空值表示不變更，任何憑證變更都會清除連線測試結果。

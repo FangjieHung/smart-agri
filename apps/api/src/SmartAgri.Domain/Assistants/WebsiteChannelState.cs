@@ -5,7 +5,7 @@ namespace SmartAgri.Domain.Assistants;
 /// <summary>
 /// The website channel's state as its owner set it (M5a plan §3 C): saved settings that are not
 /// published yet, published, or paused by the owner. Whether it actually answers visitors right
-/// now is derived on every read (<see cref="WebsiteServingState"/>), never stored.
+/// now is derived on every read (<see cref="ChannelServingState"/>), never stored.
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<WebsiteChannelState>))]
 public enum WebsiteChannelState
@@ -14,7 +14,7 @@ public enum WebsiteChannelState
     [JsonStringEnumMemberName("draft")]
     Draft,
 
-    /// <summary>Published by the owner; answers visitors while <see cref="WebsiteServingState.Serving"/>.</summary>
+    /// <summary>Published by the owner; answers visitors while <see cref="ChannelServingState.Serving"/>.</summary>
     [JsonStringEnumMemberName("published")]
     Published,
 

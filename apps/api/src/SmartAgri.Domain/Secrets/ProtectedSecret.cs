@@ -15,8 +15,8 @@ namespace SmartAgri.Domain.Secrets;
 /// </para>
 /// <para>
 /// A table that stores one maps it as an EF Core complex property (three columns: ciphertext,
-/// last four, set-at). No table does yet (M5b's LINE credentials are the first), so there is no
-/// mapping or migration here.
+/// last four, set-at). The first is <c>AssistantLineChannels</c> (M5b #229; see
+/// <c>AssistantLineChannelConfiguration</c>).
 /// </para>
 /// </remarks>
 public sealed record ProtectedSecret

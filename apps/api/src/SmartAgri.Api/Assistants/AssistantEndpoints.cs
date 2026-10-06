@@ -37,9 +37,9 @@ namespace SmartAgri.Api.Assistants;
 //   is not exposed by this slice's PATCH endpoint;
 // - AssistantPublishingView.website is the real WebsiteChannelView since M5a #194
 //   (AssistantWebsiteChannelEndpoints; its differences from the frontend's WebsiteEmbedView are
-//   listed there); .line is still NotAvailablePublishingChannelView, not the frontend's full
-//   LineSetupView: LINE is not implemented until M5b, so there is no webhook URL or field-level
-//   state to report yet.
+//   listed there); .line is the real LineChannelView since M5b #229
+//   (AssistantLineChannelEndpoints; its differences from the frontend's LineSetupView — write-only
+//   credentials, connection checks instead of per-field checks — are listed there).
 
 /// <summary>One row of <c>GET /api/v1/assistants</c> (the caller's own assistants).</summary>
 /// <param name="ViewerCanManage">Whether the caller may open, change or delete it
@@ -96,18 +96,13 @@ public sealed record PlatformSharingView(
     IReadOnlyList<Guid> AllowedAccountIds,
     IReadOnlyList<PlatformShareTargetView> Candidates);
 
-/// <summary>A channel not implemented yet (LINE, until M5b): fixed
-/// <c>"not-available"</c> status and an explanatory message, in place of the frontend's full
-/// per-channel view (see the class-level comment on why the shape differs).</summary>
-public sealed record NotAvailablePublishingChannelView(string Status, string Message);
-
 /// <summary><c>GET /api/v1/assistants/{id}/publishing</c> response.</summary>
 public sealed record AssistantPublishingView(
     Guid AssistantId,
     string AssistantName,
     PlatformSharingView Platform,
     WebsiteChannelView Website,
-    NotAvailablePublishingChannelView Line);
+    LineChannelView Line);
 
 /// <summary><c>PUT /api/v1/assistants/{id}/publishing/platform</c> request: the full set of
 /// accounts to share with (not a delta). Plain strings, like
@@ -905,7 +900,8 @@ public static class AssistantEndpoints
         var allowedAccountIds = await SharedAccountIdsAsync(dbContext, assistant.Id, cancellationToken);
         var platform = await ToPlatformSharingAsync(dbContext, assistant, allowedAccountIds, cancellationToken);
         var website = await AssistantWebsiteChannelEndpoints.ViewAsync(dbContext, assistant, publicChannels.Value, tokenUsage, cancellationToken);
-        return Results.Ok(new AssistantPublishingView(assistant.Id, assistant.Name, platform, website, NotYetAvailable));
+        var line = await AssistantLineChannelEndpoints.ViewAsync(dbContext, assistant, publicChannels.Value, tokenUsage, cancellationToken);
+        return Results.Ok(new AssistantPublishingView(assistant.Id, assistant.Name, platform, website, line));
     }
 
     /// <summary>
@@ -1062,9 +1058,6 @@ public static class AssistantEndpoints
 
         return Results.Ok(AssistantDraftEndpoints.ToTrialAnswerResponse(result, knowledgeBaseNames));
     }
-
-    private static readonly NotAvailablePublishingChannelView NotYetAvailable = new(
-        "not-available", "LINE 對外發布將於後續版本開放。");
 
     private static Task<List<Guid>> SharedAccountIdsAsync(AppDbContext dbContext, Guid assistantId, CancellationToken cancellationToken) =>
         dbContext.AssistantShares

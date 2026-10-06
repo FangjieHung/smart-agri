@@ -40,7 +40,7 @@ namespace SmartAgri.Api.PublicChannels;
 /// <b>Refusals before the stream</b>, in this order: <c>401</c> (no, an invalid or an expired
 /// visitor token; bodiless); <c>403 public-assistant</c> — the token's assistant is not the route's,
 /// the assistant no longer exists, or its website channel is not
-/// <see cref="WebsiteServingState.Serving"/> right now (re-derived on every question; byte-identical
+/// <see cref="ChannelServingState.Serving"/> right now (re-derived on every question; byte-identical
 /// to the session endpoint's refusal); <c>422</c> (no question, blank, or over
 /// <see cref="ChatRunRules.QuestionMaxLength"/> characters, as for members); <c>503
 /// chat-not-configured</c> / <c>503 embedding-not-configured</c>; <c>409 chat-run-in-progress</c>
@@ -104,7 +104,7 @@ public static class VisitorChatRunEndpoints
         }
 
         var (serving, _) = await AssistantWebsiteChannelEndpoints.ServingStateAsync(dbContext, assistant, tokenUsage, cancellationToken);
-        if (serving != WebsiteServingState.Serving)
+        if (serving != ChannelServingState.Serving)
         {
             return VisitorSessionEndpoints.Refused();
         }

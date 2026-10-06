@@ -27,7 +27,7 @@ public sealed record VisitorSessionView(string Token, DateTimeOffset ExpiresAt, 
 /// <summary>
 /// Starts an anonymous website visitor's session (M5a plan §3 D, issue #196). Anonymous: any
 /// credential sent with it is ignored. While the assistant's website channel is
-/// <see cref="WebsiteServingState.Serving"/> (derived now, never cached beyond the monthly-usage
+/// <see cref="ChannelServingState.Serving"/> (derived now, never cached beyond the monthly-usage
 /// cache) it answers <c>201</c> with a new <see cref="VisitorTokens"/> token; in every other case —
 /// no such assistant (or not even a GUID), not published, paused, suspended for any reason — the very
 /// same <c>403 public-assistant</c>, byte for byte.
@@ -93,7 +93,7 @@ public static class VisitorSessionEndpoints
         }
 
         var (serving, channel) = await AssistantWebsiteChannelEndpoints.ServingStateAsync(dbContext, assistant, tokenUsage, cancellationToken);
-        if (serving != WebsiteServingState.Serving || channel is null)
+        if (serving != ChannelServingState.Serving || channel is null)
         {
             return Refused();
         }

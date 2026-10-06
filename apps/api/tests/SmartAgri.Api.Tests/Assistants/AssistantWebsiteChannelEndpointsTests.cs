@@ -348,7 +348,8 @@ public class AssistantWebsiteChannelEndpointsTests : IClassFixture<AuthHostFixtu
         var website = body.GetProperty("website");
         website.GetProperty("servingState").GetString().ShouldBe("serving");
         website.GetProperty("allowedDomains").EnumerateArray().Select(item => item.GetString()).ShouldBe(["shop.example.com"]);
-        body.GetProperty("line").GetProperty("status").GetString().ShouldBe("not-available");
+        // The real LINE channel since M5b #229 (AssistantLineChannelEndpointsTests); never saved here.
+        body.GetProperty("line").GetProperty("channel").GetProperty("status").GetString().ShouldBe("not-configured");
     }
 
     // --- Acceptance: the organization's monthly token limit (#195) -----------------------------

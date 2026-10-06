@@ -52,7 +52,7 @@ public sealed record WebsiteChannelView(
     IReadOnlyList<string> AllowedDomains,
     IReadOnlyList<WebsiteDomainView> Domains,
     WebsiteChannelState State,
-    WebsiteServingState ServingState,
+    ChannelServingState ServingState,
     string ServingMessage,
     AssistantAcceptanceStatus AcceptanceStatus,
     IReadOnlyList<WebsiteKnowledgeBaseView> NonOwnedKnowledgeBases,
@@ -429,7 +429,7 @@ public static class AssistantWebsiteChannelEndpoints
     /// ownership, monthly token limit), for the visitor API (M5a #196), which asks on every session and
     /// every question. Reads under the current organization: the assistant's.
     /// </summary>
-    internal static async Task<(WebsiteServingState State, AssistantWebsiteChannel? Channel)> ServingStateAsync(
+    internal static async Task<(ChannelServingState State, AssistantWebsiteChannel? Channel)> ServingStateAsync(
         AppDbContext dbContext,
         Assistant assistant,
         OrganizationTokenUsage tokenUsage,
@@ -452,31 +452,31 @@ public static class AssistantWebsiteChannelEndpoints
 
     /// <summary>The channel card's status (M5a plan §3 H's mapping) and the sentence shown with it.</summary>
     private static (string Status, string Message) Describe(
-        AssistantWebsiteChannel? channel, WebsiteServingState serving, AssistantStatus assistantStatus) =>
+        AssistantWebsiteChannel? channel, ChannelServingState serving, AssistantStatus assistantStatus) =>
         serving switch
         {
-            WebsiteServingState.NotPublished when channel is null =>
+            ChannelServingState.NotPublished when channel is null =>
                 ("not-configured", "尚未設定官網嵌入。"),
-            WebsiteServingState.NotPublished when channel.State != WebsiteChannelState.Draft =>
+            ChannelServingState.NotPublished when channel.State != WebsiteChannelState.Draft =>
                 ("testing", "允許網域清單是空的，目前沒有任何網站可以嵌入；請新增網域。"),
-            WebsiteServingState.NotPublished =>
+            ChannelServingState.NotPublished =>
                 ("testing", "尚未發布：設定已儲存，驗收通過後即可發布。"),
-            WebsiteServingState.Paused when assistantStatus == AssistantStatus.Paused =>
+            ChannelServingState.Paused when assistantStatus == AssistantStatus.Paused =>
                 ("paused", "助理已暫停，官網訪客目前看到「暫停服務」；恢復助理後即可繼續使用。"),
-            WebsiteServingState.Paused =>
+            ChannelServingState.Paused =>
                 ("paused", "已暫停：官網訪客目前看到「暫停服務」，設定會保留。"),
-            WebsiteServingState.SuspendedAcceptance =>
+            ChannelServingState.SuspendedAcceptance =>
                 ("needs-attention", "驗收未通過，已自動暫停對外回覆；請到題組頁處理，重跑通過後會自動恢復。"),
-            WebsiteServingState.SuspendedKnowledge =>
+            ChannelServingState.SuspendedKnowledge =>
                 ("needs-attention", "連接了不是助理擁有者自己的知識庫，已自動暫停對外回覆；解除連接這些知識庫後會自動恢復。"),
-            WebsiteServingState.SuspendedQuota =>
+            ChannelServingState.SuspendedQuota =>
                 ("needs-attention", "本月用量已達上限，已暫停對外回覆；下個月或調高上限後會自動恢復。"),
             _ => ("published", "已發布，官網訪客可以使用。"),
         };
 
     /// <summary><see cref="AssistantAcceptanceRules.Summarize"/> over the assistant's kept runs (the
     /// same inputs as <c>AssistantEndpoints.AcceptanceStatusesAsync</c>).</summary>
-    private static async Task<AssistantAcceptanceSummary> AcceptanceAsync(
+    internal static async Task<AssistantAcceptanceSummary> AcceptanceAsync(
         AppDbContext dbContext, Guid assistantId, CancellationToken cancellationToken)
     {
         var hasTestCases = await dbContext.AssistantTestCases
@@ -491,7 +491,7 @@ public static class AssistantWebsiteChannelEndpoints
 
     /// <summary>Connected knowledge bases whose owner is not the assistant's (decision B), oldest
     /// connection first.</summary>
-    private static Task<List<WebsiteKnowledgeBaseRef>> NonOwnedKnowledgeBasesAsync(
+    internal static Task<List<WebsiteKnowledgeBaseRef>> NonOwnedKnowledgeBasesAsync(
         AppDbContext dbContext, Assistant assistant, CancellationToken cancellationToken) =>
         dbContext.AssistantKnowledgeBases
             .AsNoTracking()
@@ -515,7 +515,7 @@ public static class AssistantWebsiteChannelEndpoints
 
     /// <summary>The assistant if the caller may manage it; <see langword="null"/> alike when it does
     /// not exist, belongs to another organization (query filter) or to someone else.</summary>
-    private static Task<Assistant?> FindManageableAsync(
+    internal static Task<Assistant?> FindManageableAsync(
         IQueryable<Assistant> assistants, Guid id, Guid callerId, CancellationToken cancellationToken) =>
         assistants
             .Where(AssistantAccess.ManageableBy(callerId))

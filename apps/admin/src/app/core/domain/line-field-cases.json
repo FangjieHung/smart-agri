@@ -1,0 +1,272 @@
+{
+  "description": "LINE connection-field validation cases shared by the frontend mock's lineChecks() over trimLineSettings() (apps/admin/src/app/core/repositories/publishing-channels.line-fields.spec.ts) and the API's LineChannelRules.ValidateField (apps/api/tests/SmartAgri.Application.Tests/Assistants/LineChannelRulesTests.cs). Both run every case; change the rule in both places. 'value' is what the user typed; 'error' null means valid, and then 'normalized' (trimmed) is what is stored.",
+  "cases": [
+    {
+      "name": "official account id",
+      "field": "officialAccountId",
+      "value": "@anxin-demo",
+      "error": null,
+      "normalized": "@anxin-demo"
+    },
+    {
+      "name": "official account id: trimmed, upper case, dot and underscore",
+      "field": "officialAccountId",
+      "value": "  @Anxin.Demo_1  ",
+      "error": null,
+      "normalized": "@Anxin.Demo_1"
+    },
+    {
+      "name": "official account id: 3 characters after @",
+      "field": "officialAccountId",
+      "value": "@abc",
+      "error": null,
+      "normalized": "@abc"
+    },
+    {
+      "name": "official account id: 20 characters after @",
+      "field": "officialAccountId",
+      "value": "@aaaaaaaaaaaaaaaaaaaa",
+      "error": null,
+      "normalized": "@aaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "official account id: trailing newline is trimmed",
+      "field": "officialAccountId",
+      "value": "@anxin-demo\n",
+      "error": null,
+      "normalized": "@anxin-demo"
+    },
+    {
+      "name": "official account id: JavaScript trim() removes NBSP and BOM",
+      "field": "officialAccountId",
+      "value": "\u00a0@anxin-demo\ufeff",
+      "error": null,
+      "normalized": "@anxin-demo"
+    },
+    {
+      "name": "official account id: 2 characters after @",
+      "field": "officialAccountId",
+      "value": "@ab",
+      "error": "官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。"
+    },
+    {
+      "name": "official account id: 21 characters after @",
+      "field": "officialAccountId",
+      "value": "@aaaaaaaaaaaaaaaaaaaaa",
+      "error": "官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。"
+    },
+    {
+      "name": "official account id: no @",
+      "field": "officialAccountId",
+      "value": "anxin-demo",
+      "error": "官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。"
+    },
+    {
+      "name": "official account id: inner space",
+      "field": "officialAccountId",
+      "value": "@anxin demo",
+      "error": "官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。"
+    },
+    {
+      "name": "official account id: not ASCII",
+      "field": "officialAccountId",
+      "value": "@安心商行示範",
+      "error": "官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。"
+    },
+    {
+      "name": "official account id: Kelvin sign is not k (no Unicode case folding)",
+      "field": "officialAccountId",
+      "value": "@Kelvin",
+      "error": "官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。"
+    },
+    {
+      "name": "official account id: long s is not s (no Unicode case folding)",
+      "field": "officialAccountId",
+      "value": "@ſhop",
+      "error": "官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。"
+    },
+    {
+      "name": "official account id: empty",
+      "field": "officialAccountId",
+      "value": "",
+      "error": "請填寫 官方帳號 ID。"
+    },
+    {
+      "name": "official account id: only spaces",
+      "field": "officialAccountId",
+      "value": "   ",
+      "error": "請填寫 官方帳號 ID。"
+    },
+    {
+      "name": "channel id",
+      "field": "channelId",
+      "value": "1650000000",
+      "error": null,
+      "normalized": "1650000000"
+    },
+    {
+      "name": "channel id: trimmed",
+      "field": "channelId",
+      "value": " 1650000000 ",
+      "error": null,
+      "normalized": "1650000000"
+    },
+    {
+      "name": "channel id: 9 digits",
+      "field": "channelId",
+      "value": "165000000",
+      "error": "Channel ID應為 10 位數字。"
+    },
+    {
+      "name": "channel id: 11 digits",
+      "field": "channelId",
+      "value": "16500000000",
+      "error": "Channel ID應為 10 位數字。"
+    },
+    {
+      "name": "channel id: a letter",
+      "field": "channelId",
+      "value": "165000000a",
+      "error": "Channel ID應為 10 位數字。"
+    },
+    {
+      "name": "channel id: full-width digits are not \\d",
+      "field": "channelId",
+      "value": "１６５０００００００",
+      "error": "Channel ID應為 10 位數字。"
+    },
+    {
+      "name": "channel id: Arabic-Indic digits are not \\d",
+      "field": "channelId",
+      "value": "١٦٥٠٠٠٠٠٠٠",
+      "error": "Channel ID應為 10 位數字。"
+    },
+    {
+      "name": "channel id: empty",
+      "field": "channelId",
+      "value": "",
+      "error": "請填寫 Channel ID。"
+    },
+    {
+      "name": "channel secret",
+      "field": "channelSecret",
+      "value": "ffffffffffffffffffffffffffffffff",
+      "error": null,
+      "normalized": "ffffffffffffffffffffffffffffffff"
+    },
+    {
+      "name": "channel secret: upper case",
+      "field": "channelSecret",
+      "value": "FFFFFFFFFFFFFFFF0000000000000000",
+      "error": null,
+      "normalized": "FFFFFFFFFFFFFFFF0000000000000000"
+    },
+    {
+      "name": "channel secret: trimmed",
+      "field": "channelSecret",
+      "value": "\teeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ",
+      "error": null,
+      "normalized": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    {
+      "name": "channel secret: 31 characters",
+      "field": "channelSecret",
+      "value": "fffffffffffffffffffffffffffffff",
+      "error": "Channel secret應為 32 個英數字（0–9、a–f）。"
+    },
+    {
+      "name": "channel secret: 33 characters",
+      "field": "channelSecret",
+      "value": "fffffffffffffffffffffffffffffffff",
+      "error": "Channel secret應為 32 個英數字（0–9、a–f）。"
+    },
+    {
+      "name": "channel secret: not hexadecimal",
+      "field": "channelSecret",
+      "value": "gggggggggggggggggggggggggggggggg",
+      "error": "Channel secret應為 32 個英數字（0–9、a–f）。"
+    },
+    {
+      "name": "channel secret: inner space",
+      "field": "channelSecret",
+      "value": "ffffffffffffffff ffffffffffffffff",
+      "error": "Channel secret應為 32 個英數字（0–9、a–f）。"
+    },
+    {
+      "name": "channel secret: empty",
+      "field": "channelSecret",
+      "value": "",
+      "error": "請填寫 Channel secret。"
+    },
+    {
+      "name": "access token: 40 characters",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "error": null,
+      "normalized": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "name": "access token: base64 punctuation",
+      "field": "accessToken",
+      "value": "abc+/=abc+/=abc+/=abc+/=abc+/=abc+/=abc+/=",
+      "error": null,
+      "normalized": "abc+/=abc+/=abc+/=abc+/=abc+/=abc+/=abc+/="
+    },
+    {
+      "name": "access token: trimmed",
+      "field": "accessToken",
+      "value": "  AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+      "error": null,
+      "normalized": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "name": "access token: U+0085 is not JavaScript white space",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAA\u0085AAAAAAAAAAAAAAAAAAAA",
+      "error": null,
+      "normalized": "AAAAAAAAAAAAAAAAAAAA\u0085AAAAAAAAAAAAAAAAAAAA"
+    },
+    {
+      "name": "access token: 39 characters",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "error": "Channel access token至少 40 個字元且不含空白。"
+    },
+    {
+      "name": "access token: 39 characters once NBSP is trimmed",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\u00a0",
+      "error": "Channel access token至少 40 個字元且不含空白。"
+    },
+    {
+      "name": "access token: inner space",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAA AAAAAAAAAAAAAAAAAAAA",
+      "error": "Channel access token至少 40 個字元且不含空白。"
+    },
+    {
+      "name": "access token: ideographic space",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAA\u3000AAAAAAAAAAAAAAAAAAAA",
+      "error": "Channel access token至少 40 個字元且不含空白。"
+    },
+    {
+      "name": "access token: BOM is JavaScript white space",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAA\ufeffAAAAAAAAAAAAAAAAAAAA",
+      "error": "Channel access token至少 40 個字元且不含空白。"
+    },
+    {
+      "name": "access token: line separator",
+      "field": "accessToken",
+      "value": "AAAAAAAAAAAAAAAAAAAA\u2028AAAAAAAAAAAAAAAAAAAA",
+      "error": "Channel access token至少 40 個字元且不含空白。"
+    },
+    {
+      "name": "access token: empty",
+      "field": "accessToken",
+      "value": "",
+      "error": "請填寫 Channel access token。"
+    }
+  ]
+}

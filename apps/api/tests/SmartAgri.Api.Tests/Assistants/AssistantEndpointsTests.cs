@@ -440,10 +440,10 @@ public class AssistantEndpointsTests : IClassFixture<AuthHostFixture>
         (await UsableIdsAsync(internalEmployee)).ShouldContain(assistantId, "resumed");
     }
 
-    // --- GET publishing: real platform and website data, fixed not-available line --------
+    // --- GET publishing: real platform, website and line data ----------------------------
 
     [Fact]
-    public async Task Get_publishing_returns_real_platform_and_website_data_and_not_available_line()
+    public async Task Get_publishing_returns_real_platform_website_and_line_data()
     {
         var org = await CreateOrganizationAsync();
         var admin = await SignInAsync(org, "admin");
@@ -468,7 +468,10 @@ public class AssistantEndpointsTests : IClassFixture<AuthHostFixture>
         var website = body.GetProperty("website");
         website.GetProperty("servingState").GetString().ShouldBe("not-published");
         website.GetProperty("channel").GetProperty("status").GetString().ShouldBe("not-configured");
-        body.GetProperty("line").GetProperty("status").GetString().ShouldBe("not-available");
+        // The LINE channel's own behaviour: AssistantLineChannelEndpointsTests (#229).
+        var line = body.GetProperty("line");
+        line.GetProperty("servingState").GetString().ShouldBe("not-published");
+        line.GetProperty("channel").GetProperty("status").GetString().ShouldBe("not-configured");
     }
 
     // --- Acceptance: another organization's assistant is indistinguishable from missing --

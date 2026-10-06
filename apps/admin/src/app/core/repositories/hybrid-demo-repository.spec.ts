@@ -2108,9 +2108,15 @@ function apiChannel(overrides: Partial<ApiPublishingChannel> = {}): ApiPublishin
  */
 const REAL_WEBSITE_JSON = `{"channel":{"id":"channel-website:01a10f01-b5f0-7237-adba-c3b696b9ee66","assistantId":"01a10f01-b5f0-7237-adba-c3b696b9ee66","ownerAccountId":"01a10f01-b1d9-7924-b302-17b051e81481","name":"客服助理","type":"website","status":"published","statusDetail":"已發布，官網訪客可以使用。","updatedAt":"2026-10-06T02:18:52.965704+00:00"},"displayName":"安心客服","welcomeMessage":"您好，有什麼可以協助？","brandColor":"ocean","position":"bottom-right","allowedDomains":["shop.example.com"],"domains":[{"domain":"shop.example.com","addedAt":"2026-10-06T02:18:52.889215+00:00","lastSeenAt":null}],"state":"published","servingState":"serving","servingMessage":"已發布，官網訪客可以使用。","acceptanceStatus":"passed","nonOwnedKnowledgeBases":[],"embedCode":"<script src=\\"http://localhost:5153/embed.js\\" data-assistant=\\"01a10f01-b5f0-7237-adba-c3b696b9ee66\\" async></script>","publishedAt":"2026-10-06T02:18:52.965704+00:00","revision":1}`;
 
+/**
+ * 後端 #229 起 `GET …/publishing` 的 `line` 是真實的 LINE 頻道（憑證只回「已設定」與末四碼）；這是實際 API
+ * 回應的 JSON（已儲存、尚未測試連線）。管理介面在 #233 前仍顯示「LINE 對外發布將於後續版本開放」，不讀這份資料。
+ */
+const REAL_LINE_JSON = `{"channel":{"id":"channel-line:01a1104a-1ac0-7f9a-80e8-fec6e1ec8924","assistantId":"01a1104a-1ac0-7f9a-80e8-fec6e1ec8924","ownerAccountId":"01a1104a-12c3-700b-93b2-e396560b4d8c","name":"客服助理","type":"line","status":"testing","statusDetail":"連接資訊已儲存，請測試連線；三項檢查都通過、驗收通過後即可啟用。","updatedAt":"2026-10-06T08:17:34.50845+00:00"},"officialAccountId":"@anxin-demo","channelId":"1650000000","welcomeMessage":"您好！歡迎加入。","channelSecret":{"configured":true,"lastFour":"aaa1","updatedAt":"2026-10-06T08:17:34.50845+00:00"},"accessToken":{"configured":true,"lastFour":"tok1","updatedAt":"2026-10-06T08:17:34.50845+00:00"},"webhookUrl":"http://localhost:5153/api/v1/line/webhook/01a1104a-1ac0-7f9a-80e8-fec6e1ec8924","checks":[{"check":"access-token","label":"Channel access token 與官方帳號","state":"pending","message":"尚未測試。"},{"check":"webhook-endpoint","label":"設定 Webhook 網址","state":"pending","message":"尚未測試。"},{"check":"webhook-test","label":"Webhook 連線測試","state":"pending","message":"尚未測試。"}],"connectionCheckedAt":null,"state":"draft","servingState":"not-published","servingMessage":"連接資訊已儲存，請測試連線；三項檢查都通過、驗收通過後即可啟用。","acceptanceStatus":"passed","nonOwnedKnowledgeBases":[],"publishedAt":null,"pushFallbackCount":0,"revision":1}`;
+
 function apiPublishing(overrides: Partial<ApiAssistantPublishing> = {}): ApiAssistantPublishing {
-  const notAvailable = { status: 'not-available', message: '官網嵌入與 LINE 對外發布將於後續版本開放。' };
   const website = JSON.parse(REAL_WEBSITE_JSON) as ApiAssistantPublishing['website'];
+  const line = JSON.parse(REAL_LINE_JSON) as ApiAssistantPublishing['line'];
   return {
     assistantId: ASSISTANT_ID,
     assistantName: '門市問答助理',
@@ -2124,7 +2130,7 @@ function apiPublishing(overrides: Partial<ApiAssistantPublishing> = {}): ApiAssi
       ],
     },
     website,
-    line: notAvailable,
+    line,
     ...overrides,
   };
 }

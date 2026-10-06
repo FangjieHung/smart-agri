@@ -194,6 +194,7 @@ app.MapDatabaseQueryEndpoints();
 app.MapDatabaseReportEndpoints();
 app.MapAssistantEndpoints();
 app.MapAssistantWebsiteChannelEndpoints();
+app.MapAssistantLineChannelEndpoints();
 app.MapAssistantDraftEndpoints();
 app.MapAssistantTestCaseEndpoints();
 app.MapAssistantTestRunEndpoints();

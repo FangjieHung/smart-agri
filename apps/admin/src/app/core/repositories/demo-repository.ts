@@ -91,6 +91,7 @@ import type {
 import type { Observable } from 'rxjs';
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type { TeamMemberView, TeamView } from '../domain/team.model';
+import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import type {
   AssistantChannelsView,
   AssistantPublishingView,
@@ -113,6 +114,9 @@ export const DEMO_SCENARIOS = [
   'disconnected-channel',
   // 對話（issue #80）：串流完的回答沒有通過引用驗證，整則換成「查無資料」。
   'answer-rejected',
+  // 每月用量提示（issue #203）：預設示範是接近上限；這兩個改看「未達提示門檻」與「已超過上限」。
+  'usage-normal',
+  'usage-exceeded',
 ] as const;
 
 export type DemoScenario = (typeof DEMO_SCENARIOS)[number];
@@ -602,6 +606,11 @@ export interface DemoRepository extends DemoScenarioController {
   getOperationsSummary(): Observable<RepositoryView<OperationsSummaryView>>;
   /** 目前帳號可以設定發布的助理的所有管道（每個助理固定三個）。 */
   listPublishingChannels(): Observable<RepositoryView<readonly PublishingChannelView[]>>;
+  /**
+   * 組織本月的 token 用量（M5a 計畫第 3 節 F）。沒有 `manage-publishing` 的帳號回傳
+   * `publishing` permission-denied，畫面當成「不顯示」而不是錯誤。
+   */
+  getOrganizationUsage(): Observable<RepositoryView<OrganizationUsageView>>;
   /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */
   listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**

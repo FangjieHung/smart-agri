@@ -51,6 +51,7 @@ import {
   type PublishingChannelView,
   type UnavailablePublishingChannelView,
 } from '../domain/publishing.model';
+import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -231,6 +232,7 @@ type ApiTrialAnswerCitation = components['schemas']['TrialAnswerCitationView'];
 type ApiTrialAnswerPassage = components['schemas']['TrialAnswerPassageView'];
 type ApiConnectableSource = components['schemas']['ConnectableSourceView'];
 type ApiAssistantPublishing = components['schemas']['AssistantPublishingView'];
+type ApiOrganizationUsage = components['schemas']['OrganizationUsageView'];
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
 type UpdatePlatformSharingRequest = components['schemas']['UpdatePlatformSharingRequest'];
@@ -393,6 +395,8 @@ export function apiAssistantDatabaseSourcePath(assistantId: string, databaseId: 
 export function apiAssistantChatFormPath(assistantId: string, databaseId: string): string {
   return `${apiAssistantPath(assistantId)}/chat/forms/${encodeURIComponent(databaseId)}`;
 }
+
+export const API_ORGANIZATION_USAGE_PATH = '/api/v1/organization/usage';
 
 export function apiAssistantPublishingPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/publishing`;
@@ -1081,6 +1085,14 @@ export class HybridDemoRepository extends MockDemoRepository {
           ? { status: 'ready', data: result.data.flatMap((entry) => entry.channels) }
           : result,
       ),
+    );
+  }
+
+  /** `403`（沒有 `manage-publishing`）是「不顯示」，不是錯誤；其他失敗照常拋出由畫面顯示錯誤。 */
+  override getOrganizationUsage(): Observable<RepositoryView<OrganizationUsageView>> {
+    return this.http.get<ApiOrganizationUsage>(API_ORGANIZATION_USAGE_PATH).pipe(
+      map((response): RepositoryView<OrganizationUsageView> => ({ status: 'ready', data: toOrganizationUsage(response) })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, PUBLISHING_DENIED)),
     );
   }
 
@@ -2707,6 +2719,10 @@ function unavailableChannel(
       updatedAt: platform.updatedAt,
     },
   };
+}
+
+function toOrganizationUsage(response: ApiOrganizationUsage): OrganizationUsageView {
+  return { month: response.month, usedTokens: response.usedTokens, limitTokens: response.limitTokens, state: response.state };
 }
 
 function toAssistantPublishing(response: ApiAssistantPublishing): AssistantPublishingView {

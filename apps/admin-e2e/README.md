@@ -41,12 +41,21 @@ API 模式的 spec 不會自己啟動任何伺服器，要先準備好資料庫�
    `website-embed-api.cy.ts` 會開 API 提供的訪客對話視窗 `/use/{id}`，所以先建置 widget，再讓 API 指到產出
    （沒有建置時 `/use/{id}` 一律 `503`）：
 
+   `org-settings-api.cy.ts` 要第二個可選的對話模型（Fake 的 `fake-chat-second`，id `second`）。
+   **先在沒有 `Ai__Chat__Models__*` 的 shell 裡建置，再以 `--no-build` 啟動**：建置時產生 OpenAPI 文件的那一步不是
+   Development，讀不到 `appsettings.Development.json` 的 `Ai:Chat`，看到 `Ai:Chat:Models` 就會因為缺少預設模型而失敗
+   （CI 也是先 `dotnet build`，只在啟動 API 的那一步設定這些變數）。
+
    ```sh
    npx nx build widget --configuration=production
+   dotnet build apps/api/src/SmartAgri.Api
    Widget__RootPath="$PWD/dist/smart-agri-widget/browser" \
    Widget__EmbedScriptPath="$PWD/apps/embed-loader/src/embed.js" \
    Line__ApiBaseUrl=http://127.0.0.1:5180 \
-   dotnet run --project apps/api/src/SmartAgri.Api
+   Ai__Chat__Models__0__Provider=Fake \
+   Ai__Chat__Models__0__Model=fake-chat-second \
+   Ai__Chat__Models__0__Id=second \
+   dotnet run --no-build --project apps/api/src/SmartAgri.Api
    ```
 
    `Line__ApiBaseUrl` 讓 LINE 的呼叫都送到上一步的假伺服器（Production 只接受 `https://api.line.me`，
@@ -54,8 +63,12 @@ API 模式的 spec 不會自己啟動任何伺服器，要先準備好資料庫�
    `appsettings.Development.json` 已設成 `http://localhost:5153`；換埠時一起改（見下方）。
 
    `website-embed-api.cy.ts` 也會用 `cy.exec` 執行 `dotnet run --no-build --project ../api/src/SmartAgri.Api -- set-token-limit`
-   暫時調整 安心商行 的用量上限（最後恢復成 `default`），所以跑 Cypress 的 shell 要能連到同一個資料庫
-   （換資料庫時一樣設定 `ConnectionStrings__Default`）。
+   暫時調整 安心商行 的用量上限（最後恢復成 `default`）；`org-settings-api.cy.ts` 同樣以 `cy.exec` 執行
+   `retention-cleanup --organization control --as-of <38 天後>`（`--as-of` 只在 Development／Testing 可用，
+   launch profile 就是 Development）。所以跑 Cypress 的 shell 要能連到同一個資料庫
+   （換資料庫時一樣設定 `ConnectionStrings__Default`），API 也要先建置過（`--no-build`）。
+   `org-settings-api.cy.ts` 只在 對照組織（`control`）改模型、保存期限與刪除對話，最後恢復成預設；
+   安心商行 的設定與對話不受影響。
 
 5. **admin**（4200，`apps/admin/proxy.api.json` 把 `/api`、`/connect`、`/.well-known` 轉給 5153）：
 

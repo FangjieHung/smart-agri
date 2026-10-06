@@ -43,7 +43,7 @@ describe('publishing channels', () => {
       // 管道名稱已從「平台內分享」改成「組織內部分享」，呼應「組織建立的／組織資料」的用詞。
       cy.contains('app-channel-card', '組織內部分享').should('contain', '已發布');
       cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
-      cy.contains('app-channel-card', 'LINE').should('contain', '需要處理').and('contain', '其他管道不受影響');
+      cy.contains('app-channel-card', 'LINE').should('contain', '需要處理').and('contain', '連線測試未通過');
     });
     cy.contains('section.assistant-channels', '內部教育訓練助理').within(() => {
       cy.get('app-channel-card').should('have.length', 3);
@@ -145,42 +145,101 @@ describe('publishing channels', () => {
     cy.location('pathname').should('eq', '/app/assistants/assistant-internal-onboarding/acceptance');
   });
 
-  it('checks LINE fields item by item, masks secrets and sends a simulated test message', () => {
+  it('shows credentials as 已設定・末四碼 only, replaces the token, tests the connection and enables the channel', () => {
     loginAs('SMB 管理者');
     cy.visit('/app/assistants/assistant-customer-service/publishing?channel=line');
     // 每一步都重新查詢 app-line-setup：儲存／測試／啟用都會讓面板重新渲染，
     // 長 within() 會讓後續指令跑在舊的（已從 DOM 卸下的）節點上，偶發失敗。
     inLineSetup(() => {
-      cy.get('#line-accessToken').should('have.attr', 'type', 'password');
-      cy.get('#line-channelSecret').should('have.attr', 'type', 'password');
-      cy.get('button[aria-controls="line-accessToken"]').click();
-    });
-    inLineSetup(() => {
-      cy.get('button[aria-controls="line-accessToken"]').should('have.attr', 'aria-pressed', 'true');
-      cy.get('#line-accessToken').should('have.attr', 'type', 'text');
+      // 憑證只寫不讀：只有「已設定・末四碼」與「更換」，沒有輸入框，也沒有「顯示」切換。
+      cy.get('#line-channelSecret-status').should('contain', '已設定・末四碼');
+      cy.get('#line-accessToken-status').should('contain', '已設定・末四碼 0000');
+      cy.get('#line-channelSecret').should('not.exist');
+      cy.get('#line-accessToken').should('not.exist');
+      cy.contains('button', '顯示').should('not.exist');
+      cy.get('app-line-setup').should('not.contain.text', VALID_TOKEN);
 
+      // 示範資料：Token 已失效，最近一次測試連線第一項未通過、後兩項略過；頻道還在啟用狀態但不會服務。
+      cy.get('.checklist li').should('have.length', 3);
       cy.contains('.checklist li', 'Channel access token').should('have.attr', 'data-state', 'failed');
-      cy.get('.error-summary').should('contain', 'Channel access token');
-      cy.contains('button', '傳送測試訊息').should('be.disabled');
+      cy.contains('.checklist li', '設定 Webhook 網址').should('have.attr', 'data-state', 'skipped');
+      cy.contains('.serving__label', '需要處理').should('be.visible');
+      cy.get('#line-webhook-url').should('contain', '/line/assistant-customer-service');
+      cy.contains('本月補送次數').should('contain', '3');
 
+      cy.get('#line-accessToken-replace').click();
+    });
+    inLineSetup(() => {
       // 打完字先確認欄位真的收到完整內容，再送出；否則掉字會讓下一個斷言誤報。
-      cy.get('#line-accessToken').clear().type(VALID_TOKEN).should('have.value', VALID_TOKEN);
-      cy.contains('button', '儲存並檢查').click();
+      cy.get('#line-accessToken').should('have.attr', 'type', 'password').and('have.value', '');
+      cy.get('#line-accessToken').type(VALID_TOKEN).should('have.value', VALID_TOKEN);
+      cy.contains('button', '儲存').click();
     });
     inLineSetup(() => {
-      cy.get('.checklist li[data-state="passed"]').should('have.length', 4);
-      cy.get('.error-summary').should('not.exist');
-      cy.contains('button', '傳送測試訊息').click();
+      cy.get('.feedback').should('contain', '已儲存');
+      // 更換憑證後測試結果清掉、已啟用的頻道退回草稿，要重新測試。
+      cy.get('.checklist li[data-state="pending"]').should('have.length', 3);
+      cy.get('#line-accessToken-status').should('contain', `末四碼 ${VALID_TOKEN.slice(-4)}`);
+      cy.get('app-line-setup').should('not.contain.text', VALID_TOKEN);
+      cy.contains('button', '測試連線').click();
     });
     inLineSetup(() => {
-      cy.get('.test-result').should('contain', '測試訊息已送達').and('contain', '模擬');
-      cy.contains('button', '確認啟用').click();
+      cy.get('.checklist li[data-state="passed"]').should('have.length', 3);
+      cy.get('[role="status"]').should('contain', '三項檢查都通過');
+      cy.contains('.block--status button', '啟用').click();
     });
     inLineSetup(() => {
-      cy.contains('LINE 管道已啟用').should('be.visible');
+      cy.contains('已啟用 LINE 頻道').should('be.visible');
+      cy.contains('.serving__reason', '服務中').should('be.visible');
     });
     cy.contains('app-channel-card', 'LINE').should('contain', '已發布');
     cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
+
+    // 暫停、恢復與取消啟用都是 LINE 自己的操作，不影響其他管道。
+    inLineSetup(() => {
+      cy.contains('button', '暫停服務').click();
+    });
+    inLineSetup(() => {
+      cy.contains('已暫停 LINE').should('be.visible');
+      cy.contains('.serving__reason', '擁有者暫停中').should('be.visible');
+      cy.contains('button', '恢復服務').click();
+    });
+    inLineSetup(() => {
+      cy.contains('.serving__reason', '服務中').should('be.visible');
+      cy.contains('button', '取消啟用').click();
+    });
+    inLineSetup(() => {
+      cy.contains('已取消啟用').should('be.visible');
+      cy.contains('.serving__reason', '尚未啟用').should('be.visible');
+    });
+    cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
+  });
+
+  it('refuses enabling an untested, unaccepted LINE channel and lists both reasons with a way to fix each', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/assistants/assistant-internal-onboarding/publishing?channel=line');
+    inLineSetup(() => {
+      cy.contains('button', '測試連線').should('be.disabled');
+      cy.get('#line-officialAccountId').type('@anxin-demo').should('have.value', '@anxin-demo');
+      cy.get('#line-channelId').type('1650000000').should('have.value', '1650000000');
+      cy.get('#line-channelSecret').type('0123456789abcdef'.repeat(2));
+      cy.get('#line-accessToken').type(VALID_TOKEN).should('have.value', VALID_TOKEN);
+      cy.contains('button', '儲存').click();
+    });
+    inLineSetup(() => {
+      cy.get('.feedback').should('contain', '已儲存');
+      cy.contains('button', '測試連線').should('be.enabled');
+      cy.contains('.block--status button', '啟用').click();
+    });
+    inLineSetup(() => {
+      cy.get('.error-summary[role="alert"]')
+        .should('contain', '請先測試連線')
+        .and('contain', '驗收狀態必須是「通過」')
+        .within(() => {
+          cy.contains('a', '前往驗收題組頁').click();
+        });
+    });
+    cy.location('pathname').should('eq', '/app/assistants/assistant-internal-onboarding/acceptance');
   });
 
   it('makes the ticked accounts decide who can open the assistant, and keeps their conversations', () => {

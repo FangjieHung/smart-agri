@@ -95,6 +95,14 @@ describe('accessibility', () => {
 
     it('points the LINE error summary at the field that needs fixing', () => {
       cy.visit('/app/assistants/assistant-customer-service/publishing?channel=line');
+      // 憑證只寫不讀：已設定時只有狀態與「更換」；按「更換」才出現（並聚焦）空的輸入框。
+      cy.get('#line-accessToken-status').should('contain.text', '已設定・末四碼');
+      auditA11y('app-line-setup');
+      cy.get('#line-accessToken-replace').click();
+      cy.focused().should('have.id', 'line-accessToken');
+
+      cy.get('#line-accessToken').type('short').should('have.value', 'short');
+      cy.contains('app-line-setup button', '儲存').click();
       cy.get('app-line-setup .error-summary')
         .scrollIntoView()
         .should('be.visible')

@@ -2,16 +2,21 @@
 // Parses POST /api/v1/assistants/{id}/chat/runs output with @ag-ui/client — the same
 // HttpAgent the admin app uses (M3 plan Slice 7/10; ticket #77) — to prove the backend's
 // AG-UI stream is one the JavaScript client accepts: event order, ids, CUSTOM events, RUN_ERROR.
+// Also the website visitor endpoint POST /api/v1/public/assistants/{id}/chat/runs (M5a #196),
+// which the widget parses with the same client: visitor-*.sse, where smartagri.reply must be the
+// only CUSTOM event (no smartagri.thread, no smartagri.form-check).
 //
 // Usage:
 //   node tools/agui-contract/check-agui-stream.mjs
 //       Checks every recorded stream in tools/agui-contract/fixtures/ (CI runs this). The
-//       fixtures are recorded from the real endpoint by the Api integration test
-//       ChatRunEndpointsTests.The_recorded_streams_match_the_fixtures_the_ag_ui_client_check_parses,
-//       which fails whenever the endpoint's output drifts from them (re-record with
+//       fixtures are recorded from the real endpoints by the Api integration tests
+//       ChatRunEndpointsTests.The_recorded_streams_match_the_fixtures_the_ag_ui_client_check_parses and
+//       VisitorEndpointsTests.The_recorded_visitor_streams_match_the_fixtures_the_ag_ui_client_check_parses,
+//       which fail whenever an endpoint's output drifts from them (re-record with
 //       UPDATE_AGUI_FIXTURES=1, then rerun this script).
-//   node tools/agui-contract/check-agui-stream.mjs --url <runs-endpoint> --token <bearer> --question <text>
-//       Runs one question against a running Api instead (manual check).
+//   node tools/agui-contract/check-agui-stream.mjs --url <runs-endpoint> --token <token> [--visitor] --question <text>
+//       Runs one question against a running Api instead (manual check). --visitor sends the token as
+//       `Authorization: Visitor <token>` (from POST …/public/assistants/{id}/visitor-sessions) instead of Bearer.
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,12 +25,15 @@ import { HttpAgent } from '@ag-ui/client';
 
 const REPLY_EVENT = 'smartagri.reply';
 const THREAD_EVENT = 'smartagri.thread';
+const FORM_CHECK_EVENT = 'smartagri.form-check';
 
 /** What each recorded fixture must parse into. */
 const EXPECTATIONS = {
   'company-data-saved.sse': { outcome: 'finished', replyKind: 'company-data', thread: true },
   'no-result-unsaved.sse': { outcome: 'finished', replyKind: 'no-result', thread: false },
   'fail-midway.sse': { outcome: 'error', errorCode: 'chat-unavailable' },
+  'visitor-company-data.sse': { outcome: 'finished', replyKind: 'company-data', thread: false, onlyReply: true },
+  'visitor-no-result.sse': { outcome: 'finished', replyKind: 'no-result', thread: false, onlyReply: true },
 };
 
 /** Runs @ag-ui/client's HttpAgent over one response and records what it saw. */
@@ -64,6 +72,10 @@ function check(name, seen, expected) {
     const names = seen.custom.map((event) => event.name);
     expect(names[0] === REPLY_EVENT, `first CUSTOM event is ${names[0]}, not ${REPLY_EVENT}`);
     expect(names.includes(THREAD_EVENT) === expected.thread, `${THREAD_EVENT} ${expected.thread ? 'missing' : 'unexpected'}`);
+    if (expected.onlyReply) {
+      expect(names.length === 1, `a visitor stream has only ${REPLY_EVENT}, got ${names.join(', ')}`);
+      expect(!names.includes(FORM_CHECK_EVENT), `${FORM_CHECK_EVENT} in a visitor stream`);
+    }
     const reply = seen.custom.find((event) => event.name === REPLY_EVENT)?.value;
     expect(typeof reply?.id === 'string' && reply.author === 'assistant', 'smartagri.reply is not a ChatMessageView');
     expect(reply?.reply?.kind === expected.replyKind, `reply kind ${reply?.reply?.kind}, not ${expected.replyKind}`);
@@ -116,9 +128,10 @@ async function checkFixtures() {
   return ok;
 }
 
-async function checkLive({ url, token, question }) {
+async function checkLive({ url, token, question, visitor }) {
+  const scheme = visitor ? 'Visitor' : 'Bearer';
   const seen = await parseWithClient(
-    (target, init) => fetch(url, { ...init, headers: { ...init.headers, authorization: `Bearer ${token}` } }),
+    (target, init) => fetch(url, { ...init, headers: { ...init.headers, authorization: `${scheme} ${token}` } }),
     { question },
   );
   const finished = seen.types.at(-1) === 'RUN_FINISHED';
@@ -126,12 +139,16 @@ async function checkLive({ url, token, question }) {
   return check(
     url,
     seen,
-    finished ? { outcome: 'finished', replyKind: kind, thread: seen.custom.some((event) => event.name === THREAD_EVENT) } : { outcome: 'error', errorCode: seen.errors[0]?.code },
+    finished
+      ? { outcome: 'finished', replyKind: kind, thread: seen.custom.some((event) => event.name === THREAD_EVENT), onlyReply: visitor }
+      : { outcome: 'error', errorCode: seen.errors[0]?.code },
   );
 }
 
-const { values } = parseArgs({ options: { url: { type: 'string' }, token: { type: 'string' }, question: { type: 'string' } } });
+const { values } = parseArgs({
+  options: { url: { type: 'string' }, token: { type: 'string' }, question: { type: 'string' }, visitor: { type: 'boolean' } },
+});
 const ok = values.url
-  ? await checkLive({ url: values.url, token: values.token ?? '', question: values.question ?? '你好' })
+  ? await checkLive({ url: values.url, token: values.token ?? '', question: values.question ?? '你好', visitor: values.visitor === true })
   : await checkFixtures();
 process.exit(ok ? 0 : 1);

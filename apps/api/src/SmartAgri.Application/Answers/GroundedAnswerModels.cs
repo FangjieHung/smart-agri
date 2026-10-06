@@ -80,19 +80,21 @@ public sealed record ConversationTurn(ConversationAuthor Author, string Text);
 /// <param name="History">Earlier turns, oldest first. Only the newest ones that fit
 /// <see cref="GroundedAnswerPrompt.HistoryMaxCharacters"/> reach the model; the last
 /// <see cref="ConversationAuthor.Account"/> turn also joins the retrieval query (M3 plan §7 D).</param>
-/// <param name="AccountId">Who asked: recorded on every model call it causes.</param>
+/// <param name="AccountId">Who asked: recorded on every model call it causes;
+/// <see langword="null"/> for an anonymous website visitor (M5a #196), who is never recorded.</param>
 /// <param name="AssistantId">For which assistant; <see langword="null"/> for a draft's trial
 /// answer.</param>
 /// <param name="Purpose">What the resulting model call is attributed as
 /// (<see cref="Ai.ModelInvocationAttribution"/>); <see cref="ModelInvocationPurpose.GenerateAnswer"/>
 /// for an assistant conversation, <see cref="ModelInvocationPurpose.TrialAnswer"/> for a wizard
-/// trial question (#78). Defaults to <see cref="ModelInvocationPurpose.GenerateAnswer"/> so
+/// trial question (#78), <see cref="ModelInvocationPurpose.PublicAnswer"/> for a website visitor
+/// (#196). Defaults to <see cref="ModelInvocationPurpose.GenerateAnswer"/> so
 /// existing callers are unaffected.</param>
 public sealed record GroundedAnswerRequest(
     GroundedAnswerProfile Profile,
     string Question,
     IReadOnlyList<ConversationTurn> History,
-    Guid AccountId,
+    Guid? AccountId,
     Guid? AssistantId,
     ModelInvocationPurpose Purpose = ModelInvocationPurpose.GenerateAnswer);
 
@@ -234,6 +236,14 @@ public sealed record GroundedReply(
     [
         "換個說法再問一次，或把問題問得更具體一些。",
         "仍然找不到時，請聯絡這個助理的管理者補充相關資料。",
+    ];
+
+    /// <summary>What a website visitor's <c>no-result</c> reply suggests instead (M5a): the
+    /// second step above is for staff, and a visitor cannot reach the assistant's manager — the
+    /// owner puts the organization's contact details in the assistant's refusal message.</summary>
+    public static IReadOnlyList<string> VisitorNoResultNextSteps { get; } =
+    [
+        "換個說法再問一次，或把問題問得更具體一些。",
     ];
 
     internal static GroundedReply CompanyData(string text, IReadOnlyList<GroundedCitation> citations) =>

@@ -4658,6 +4658,106 @@
           }
         }
       }
+    },
+    "/api/v1/public/assistants/{id}/visitor-sessions": {
+      "post": {
+        "tags": [
+          "VisitorSessionEndpoints"
+        ],
+        "summary": "Start an anonymous website visitor session",
+        "description": "Anonymous; any credential is ignored. 201 while the assistant's website channel is serving; otherwise (unknown id, not published, paused, suspended) the same 403 public-assistant, byte for byte. Body { host }: the embedding page's origin, used only for passive installation detection.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVisitorSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisitorSessionView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/public/assistants/{id}/chat/runs": {
+      "post": {
+        "tags": [
+          "VisitorChatRunEndpoints"
+        ],
+        "summary": "Answer one website visitor's question as an AG-UI event stream",
+        "description": "Authorization: Visitor <token>. Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch); earlier turns come from messages (at most 20) and nothing is saved. 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply, RUN_FINISHED or RUN_ERROR); see VisitorChatRunEndpoints' remarks.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunAgentInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6662,6 +6762,20 @@
           },
           "oneTimePassword": {
             "type": "string"
+          }
+        }
+      },
+      "CreateVisitorSessionRequest": {
+        "required": [
+          "host"
+        ],
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -10292,6 +10406,49 @@
           }
         }
       },
+      "VisitorAssistantView": {
+        "required": [
+          "displayName",
+          "welcomeMessage",
+          "brandColor",
+          "showCitations"
+        ],
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "welcomeMessage": {
+            "type": "string"
+          },
+          "brandColor": {
+            "$ref": "#/components/schemas/WebsiteBrandColor"
+          },
+          "showCitations": {
+            "type": "boolean"
+          }
+        }
+      },
+      "VisitorSessionView": {
+        "required": [
+          "token",
+          "expiresAt",
+          "assistant"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "assistant": {
+            "$ref": "#/components/schemas/VisitorAssistantView"
+          }
+        }
+      },
       "WebsiteBrandColor": {
         "enum": [
           "forest",
@@ -10527,6 +10684,12 @@
     },
     {
       "name": "AssistantTestRunEndpoints"
+    },
+    {
+      "name": "VisitorSessionEndpoints"
+    },
+    {
+      "name": "VisitorChatRunEndpoints"
     }
   ]
 }

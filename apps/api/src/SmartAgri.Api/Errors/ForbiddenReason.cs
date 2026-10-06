@@ -205,6 +205,26 @@ public sealed class ForbiddenReason
         "只有可管理助理的帳號可以查看營運追蹤。");
 
     /// <summary>
+    /// The website channel's visitor API (M5a #196, plan §3 D): the assistant does not exist, its
+    /// website channel is not answering visitors right now (not published, paused, or suspended for
+    /// acceptance, knowledge ownership or quota), or the visitor token was issued for another
+    /// assistant. Same bytes in every case, so a visitor learns nothing about which; the widget shows
+    /// 「這個對話視窗目前無法使用」 or 「目前暫停服務」.
+    /// </summary>
+    public static readonly ForbiddenReason PublicAssistant = new(
+        "public-assistant",
+        "這個對話視窗目前無法使用。");
+
+    /// <summary>
+    /// A visitor API request whose <c>Origin</c> is not the API's own (M5a plan §3 B): the visitor
+    /// API serves only the chat window the API itself hosts, never a page on another site. No CORS
+    /// policy is registered either, so a browser refuses such a call before it is sent.
+    /// </summary>
+    public static readonly ForbiddenReason PublicOrigin = new(
+        "public-origin",
+        "這個網址只接受官網對話視窗本身的請求。");
+
+    /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason
     /// (see <c>PermissionPolicies.RequirePermission</c>, which always declares one). Not
     /// part of the frontend union on purpose, so it shows up in review and in the UI as a

@@ -22,4 +22,10 @@ public enum AnswerOutcomeChannel
     /// <c>ModelInvocationPurpose.AssistantTest</c>).</summary>
     [JsonStringEnumMemberName("test-run")]
     TestRun,
+
+    /// <summary>An anonymous visitor's question on the assistant's website channel (M5a #196,
+    /// <c>ModelInvocationPurpose.PublicAnswer</c>). Like every outcome, it stores no content and no
+    /// visitor.</summary>
+    [JsonStringEnumMemberName("website")]
+    Website,
 }

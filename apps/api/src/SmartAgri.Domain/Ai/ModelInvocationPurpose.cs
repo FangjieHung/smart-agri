@@ -46,4 +46,11 @@ public enum ModelInvocationPurpose
     /// the model only chooses among the forms the server offers; the server builds the form.</summary>
     [JsonStringEnumMemberName("form-request")]
     FormRequest,
+
+    /// <summary>Generating a grounded answer for an anonymous website visitor (M5a #196,
+    /// <c>POST /api/v1/public/assistants/{id}/chat/runs</c>): same pipeline as
+    /// <see cref="GenerateAnswer"/>, recorded without an account and counted toward the monthly
+    /// token limit like every chat-model call.</summary>
+    [JsonStringEnumMemberName("public-answer")]
+    PublicAnswer,
 }

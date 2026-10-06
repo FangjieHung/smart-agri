@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Cases;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Persistence;
 
@@ -21,9 +22,25 @@ internal sealed class AssistantIssueConfiguration : IEntityTypeConfiguration<Ass
 {
     public void Configure(EntityTypeBuilder<AssistantIssue> builder)
     {
-        builder.ToTable("AssistantIssues", table => table.HasCheckConstraint(
-            "CK_AssistantIssues_ResolvedAt",
-            $"(\"Status\" = '{WireNames<AssistantIssueStatus>.ToWire(AssistantIssueStatus.Resolved)}') = (\"ResolvedAt\" IS NOT NULL)"));
+        var resolved = WireNames<AssistantIssueStatus>.ToWire(AssistantIssueStatus.Resolved);
+        var notAssistantIssue = WireNames<AssistantIssueResolutionKind>.ToWire(AssistantIssueResolutionKind.NotAssistantIssue);
+        builder.ToTable("AssistantIssues", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_AssistantIssues_ResolvedAt",
+                $"(\"Status\" = '{resolved}') = (\"ResolvedAt\" IS NOT NULL)");
+
+            // M7-7: a resolved issue always says how; an unresolved one never does.
+            table.HasCheckConstraint(
+                "CK_AssistantIssues_ResolutionKind",
+                $"(\"Status\" = '{resolved}') = (\"ResolutionKind\" IS NOT NULL)");
+
+            // Only a 「非助理問題」 resolution links a case, and it always does (COALESCE: a NULL
+            // comparison would pass any CHECK).
+            table.HasCheckConstraint(
+                "CK_AssistantIssues_LinkedCaseId",
+                $"COALESCE(\"ResolutionKind\" = '{notAssistantIssue}', FALSE) = (\"LinkedCaseId\" IS NOT NULL)");
+        });
         builder.HasKey(issue => issue.Id);
         builder.Property(issue => issue.Id).ValueGeneratedNever();
         builder.Property(issue => issue.Source)
@@ -43,6 +60,12 @@ internal sealed class AssistantIssueConfiguration : IEntityTypeConfiguration<Ass
             .HasMaxLength(32);
         builder.Property(issue => issue.QuestionSnapshot).HasMaxLength(AssistantTestCase.QuestionMaxLength);
         builder.Property(issue => issue.ResolutionNote).HasMaxLength(AssistantIssueEvent.NoteMaxLength);
+        builder.Property(issue => issue.ResolutionKind)
+            .HasConversion(
+                new ValueConverter<AssistantIssueResolutionKind?, string?>(
+                    kind => kind.HasValue ? WireNames<AssistantIssueResolutionKind>.ToWire(kind.Value) : null,
+                    name => name == null ? (AssistantIssueResolutionKind?)null : WireNames<AssistantIssueResolutionKind>.Parse(name)))
+            .HasMaxLength(32);
         builder.Property(issue => issue.EventCount).IsConcurrencyToken();
 
         // Target of the composite foreign key from AssistantIssueEvents.
@@ -70,6 +93,15 @@ internal sealed class AssistantIssueConfiguration : IEntityTypeConfiguration<Ass
             .WithMany()
             .HasForeignKey(issue => new { issue.ReporterAccountId, issue.OrganizationId })
             .HasPrincipalKey(account => new { account.Id, account.OrganizationId })
+            .IsRequired(false)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        // M7-7: the case opened from the issue — a same-organization composite foreign key (cases are
+        // never deleted). The case's own link back is a plain id (the issue goes with its assistant).
+        builder.HasOne<Case>()
+            .WithMany()
+            .HasForeignKey(issue => new { issue.LinkedCaseId, issue.OrganizationId })
+            .HasPrincipalKey(item => new { item.Id, item.OrganizationId })
             .IsRequired(false)
             .OnDelete(DeleteBehavior.Restrict);
     }

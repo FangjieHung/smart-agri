@@ -137,6 +137,8 @@ export const CASE_DUE_REQUIRED_MESSAGE = '請填寫處理時限。';
 export const CASE_DUE_IN_PAST_MESSAGE = '時限不能早於現在。';
 export const CASE_TYPE_INACTIVE_MESSAGE = '這個案件類型已停用或不存在，請選擇其他類型。';
 export const CASE_THREAD_UNAVAILABLE_TEXT = '這個對話無法開啟';
+/** 案件從處理事項另開（issue #252），但你不是那個處理事項的擁有者或負責人。 */
+export const CASE_ISSUE_UNAVAILABLE_TEXT = '來源處理事項：你沒有開啟它的權限';
 
 const CASE_ACTION_LABELS: Readonly<Record<CaseAction, string>> = {
   accept: '受理',

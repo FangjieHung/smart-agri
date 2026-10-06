@@ -15,6 +15,7 @@ import {
   CASE_DUE_IN_PAST_MESSAGE,
   CASE_DUE_REQUIRED_MESSAGE,
   CASE_GROUP_REQUIRED_MESSAGE,
+  CASE_ISSUE_UNAVAILABLE_TEXT,
   CASE_STATUSES,
   CASE_THREAD_UNAVAILABLE_TEXT,
   CASE_TITLE_MAX_LENGTH,
@@ -70,6 +71,7 @@ export class CasesPageComponent {
   protected readonly titleMaxLength = CASE_TITLE_MAX_LENGTH;
   protected readonly descriptionMaxLength = CASE_DESCRIPTION_MAX_LENGTH;
   protected readonly threadUnavailableText = CASE_THREAD_UNAVAILABLE_TEXT;
+  protected readonly issueUnavailableText = CASE_ISSUE_UNAVAILABLE_TEXT;
   protected readonly dueInPastMessage = CASE_DUE_IN_PAST_MESSAGE;
   protected readonly statusLabel = caseStatusLabel;
   protected readonly originLabel = caseOriginLabel;

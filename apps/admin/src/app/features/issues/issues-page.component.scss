@@ -76,6 +76,10 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .issue-edit__check { display: flex; align-items: center; font-weight: 400; }
 .issue-edit__check input { width: auto; min-height: 0; }
 .issue-edit__note { grid-column: 1 / -1; }
+.issue-edit__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.issue-case-notice { margin-top: var(--space-4); font-weight: 600; overflow-wrap: anywhere; }
+.issue-case-notice a { margin-inline-start: var(--space-2); }
+#issue-detail-title:focus { outline: none; }
 .issue-history ol { padding-inline-start: var(--space-6); }
 .issue-history li { margin-block: var(--space-3); }
 .issue-history time { margin-inline: var(--space-2); color: var(--color-text-secondary); }

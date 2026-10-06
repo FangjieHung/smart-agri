@@ -98,7 +98,8 @@ internal sealed class CaseConfiguration : IEntityTypeConfiguration<Case>
         // The links are read back by id (M7-9's thread, M7-10's record, M7-7's issue).
         builder.HasIndex(item => item.ThreadId);
         builder.HasIndex(item => item.SubmissionId);
-        builder.HasIndex(item => item.AssistantIssueId);
+        // M7-7: one case per 處理事項, ever (a second 「另開案件」 is 409 with this one's id).
+        builder.HasIndex(item => item.AssistantIssueId).IsUnique();
     }
 }
 

@@ -235,6 +235,22 @@ describe('CasesPageComponent', () => {
     expect(element(fixture, '[data-case-link="record"] a').getAttribute('href')).toBe('/app/databases/database-1/records');
   });
 
+  it('shows the source issue of a case opened from one, as a link only when you may open the issue (issue #252)', async () => {
+    const openable = await setup({
+      url: '/app/cases?case=case-1',
+      get: of({ status: 'ready', data: detail({ assistantIssue: { issueId: 'issue-7', canOpen: true } }) }),
+    });
+    expect(element(openable.fixture, '[data-case-link="issue"] a').getAttribute('href')).toBe('/app/issues?issue=issue-7');
+    expect(text(openable.fixture)).toContain('來源處理事項');
+
+    const hidden = await setup({
+      url: '/app/cases?case=case-1',
+      get: of({ status: 'ready', data: detail({ assistantIssue: { issueId: 'issue-7', canOpen: false } }) }),
+    });
+    expect(element(hidden.fixture, '[data-case-link="issue"]').querySelector('a')).toBeNull();
+    expect(element(hidden.fixture, '[data-case-link="issue"]').textContent).toContain('你沒有開啟它的權限');
+  });
+
   it('shows a case opened by a database submission as created by that database, without a person, and a withdrawn record', async () => {
     const base = detail({ record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'withdrawn', canRead: false, databaseName: '客戶資料庫' } });
     const { fixture } = await setup({

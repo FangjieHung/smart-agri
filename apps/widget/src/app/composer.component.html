@@ -1,0 +1,23 @@
+<form class="composer" novalidate (submit)="send($event)">
+  <label class="visually-hidden" for="question">輸入你的問題</label>
+  <textarea
+    #field
+    id="question"
+    name="question"
+    rows="2"
+    autocomplete="off"
+    placeholder="輸入你的問題"
+    aria-describedby="question-hint"
+    [attr.maxlength]="max"
+    [value]="value()"
+    (input)="onInput($event)"
+    (keydown.enter)="onEnter($event)"
+  ></textarea>
+  <button type="submit" class="send" [disabled]="!canSend()">送出</button>
+  <p id="question-hint" class="hint">
+    按 Enter 送出，Shift + Enter 換行。
+    @if (showCount()) {
+      <span class="count">還可輸入 {{ remaining() }} 字。</span>
+    }
+  </p>
+</form>

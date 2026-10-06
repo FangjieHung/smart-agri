@@ -1,0 +1,147 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  block-size: 100dvh;
+  background: var(--color-background);
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.title {
+  margin: 0;
+  min-inline-size: 0;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  overflow-wrap: anywhere;
+}
+
+.close {
+  flex: none;
+  min-block-size: var(--target-size);
+  min-inline-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-on-accent);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-on-accent);
+  font-weight: 700;
+  cursor: pointer;
+
+  // 標題列是品牌色底：焦點框改用白色才看得見。
+  &:focus-visible {
+    outline: 3px solid var(--color-on-accent);
+    outline-offset: 2px;
+  }
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-block-size: 0;
+  padding: var(--space-3);
+}
+
+.state {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  margin: auto;
+  padding: var(--space-6);
+  text-align: center;
+  overflow-wrap: anywhere;
+
+  p {
+    margin: 0;
+  }
+}
+
+.log {
+  flex: 1;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.welcome {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-container);
+  background: var(--color-accent-soft);
+  overflow-wrap: anywhere;
+}
+
+.messages {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-error {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-3);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  color: var(--color-error);
+
+  p {
+    margin: 0;
+  }
+
+  .countdown {
+    color: var(--color-text-secondary);
+  }
+}
+
+.countdown {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.retry,
+.action {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 700;
+  cursor: pointer;
+
+  &:disabled {
+    border-color: var(--color-border);
+    color: var(--color-text-secondary);
+    cursor: not-allowed;
+  }
+}
+
+.paused {
+  flex: none;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  text-align: center;
+}
+
+.composer {
+  flex: none;
+}

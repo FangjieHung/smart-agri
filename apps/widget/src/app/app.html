@@ -1,0 +1,91 @@
+<header class="header">
+  <h1 class="title">{{ store.displayName() }}</h1>
+  <button type="button" class="close" aria-label="關閉對話視窗" (click)="close()">關閉</button>
+</header>
+
+<main class="main">
+  @switch (store.phase()) {
+    @case ('initialising') {
+      <p class="state" role="status">正在連線…</p>
+    }
+    @case ('unavailable') {
+      <p class="state" role="status">{{ unavailableText }}</p>
+    }
+    @case ('session-rate-limited') {
+      <div class="state">
+        <p role="alert">請求太頻繁了，請稍後再試。</p>
+        @if (store.countdown(); as seconds) {
+          <p class="countdown">請等候 {{ formatCountdown(seconds) }}。</p>
+        }
+        <button type="button" class="action" [disabled]="store.countdown() !== null" (click)="store.retrySession()">重試</button>
+      </div>
+    }
+    @case ('session-failed') {
+      <div class="state">
+        <p role="alert">無法連線，請檢查網路後再試一次。</p>
+        <button type="button" class="action" (click)="store.retrySession()">重試</button>
+      </div>
+    }
+    @default {
+      <!-- 串流期間整個紀錄 aria-busy：報讀器不逐字朗讀，完成時最終回覆以新增項目朗讀一次。 -->
+      <div
+        #log
+        class="log"
+        role="log"
+        tabindex="0"
+        aria-live="polite"
+        aria-relevant="additions"
+        aria-label="對話內容"
+        [attr.aria-busy]="store.run().phase === 'streaming' ? 'true' : null"
+      >
+        @if (store.assistant()?.welcomeMessage; as welcome) {
+          <p class="welcome">{{ welcome }}</p>
+        }
+        <ol class="messages">
+          @for (message of store.messages(); track message.id) {
+            <li>
+              <app-chat-message [message]="message" (openCitations)="openCitations($event)" />
+            </li>
+          }
+          @if (store.pendingQuestion(); as question) {
+            <li><app-chat-message [message]="question" /></li>
+          }
+          @let run = store.run();
+          @if (run.phase === 'streaming') {
+            <li class="streaming" aria-busy="true">
+              <app-streaming-reply [text]="run.text" />
+            </li>
+          } @else if (run.phase === 'failed') {
+            <li>
+              <div class="run-error">
+                <p role="alert">{{ failureText(run.failure) }}</p>
+                @if (run.failure.kind === 'rate-limited' && store.countdown(); as seconds) {
+                  <p class="countdown">請等候 {{ formatCountdown(seconds) }}後再試。</p>
+                }
+                @if (canRetry(run.failure)) {
+                  <button type="button" class="retry" [disabled]="store.countdown() !== null" (click)="store.retry()">重試</button>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      </div>
+      <p class="visually-hidden" role="status">{{ store.run().phase === 'streaming' ? '助理正在回答' : '' }}</p>
+
+      @if (store.phase() === 'paused') {
+        <p class="paused" role="status">{{ pausedText }}</p>
+      } @else {
+        <app-composer
+          class="composer"
+          [(value)]="store.draft"
+          [sendDisabled]="!store.canAsk()"
+          (submitted)="store.ask($event)"
+        />
+      }
+    }
+  }
+</main>
+
+@if (drawer(); as current) {
+  <app-citation-drawer [citations]="current.citations" (closed)="closeDrawer()" />
+}

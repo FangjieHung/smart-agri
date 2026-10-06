@@ -51,4 +51,16 @@ describe('ChannelOverviewPageComponent', () => {
     expect(page.textContent).toContain('目前沒有可設定發布管道的助理');
     expect(page.textContent).not.toContain('客服助理');
   });
+  it('shows this month\'s usage above the channels for an account with manage-publishing (issue #203)', async () => {
+    const { providers } = providePublishingTesting('account-smb-admin');
+    TestBed.configureTestingModule({ imports: [ChannelOverviewPageComponent], providers: [provideRouter([]), ...providers] });
+    const fixture = TestBed.createComponent(ChannelOverviewPageComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const usage = (fixture.nativeElement as HTMLElement).querySelector('app-usage-notice section.usage');
+    expect(usage?.textContent).toContain('864,300 / 1,000,000 tokens');
+    expect(usage?.getAttribute('data-state')).toBe('near');
+  });
 });

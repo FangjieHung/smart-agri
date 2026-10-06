@@ -7,10 +7,11 @@ import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { AssistantPermissionsService } from '../../core/session/assistant-permissions.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
+import { UsageNoticeComponent } from '../publishing/usage-notice/usage-notice.component';
 
 @Component({
   selector: 'app-home-page',
-  imports: [RouterLink, PageHeaderComponent],
+  imports: [RouterLink, PageHeaderComponent, UsageNoticeComponent],
   templateUrl: './home-page.component.html',
   styleUrl: './home-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

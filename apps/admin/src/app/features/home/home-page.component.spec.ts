@@ -7,6 +7,7 @@ import { DEMO_SEED } from '../../core/repositories/demo-seed';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import type { AccountId } from '../../core/domain/account.model';
+import type { DemoScenario } from '../../core/repositories/demo-repository';
 import { HomePageComponent } from './home-page.component';
 
 /** mock 的非同步契約由 `viewer` 推導目前帳號，要與假工作階段一致。 */
@@ -145,5 +146,44 @@ describe('HomePageComponent', () => {
     const primaryCard = page.querySelector('.home-card--primary');
     expect(primaryCard?.querySelector('a')).toBeNull();
     expect(primaryCard?.textContent).toContain('聯絡管理者');
+  });
+  describe('monthly usage banner (issue #203)', () => {
+    async function renderFor(account: AccountId, scenario?: DemoScenario): Promise<HTMLElement> {
+      const repository = mockRepository(account);
+      if (scenario !== undefined) repository.setScenario(scenario);
+      await TestBed.configureTestingModule({
+        imports: [HomePageComponent],
+        providers: [
+          provideRouter([]),
+          { provide: DEMO_REPOSITORY, useValue: repository },
+          { provide: DemoSessionService, useValue: { activeAccountId: () => account } },
+        ],
+      }).compileComponents();
+      const fixture = TestBed.createComponent(HomePageComponent);
+      await render(fixture);
+      return fixture.nativeElement as HTMLElement;
+    }
+
+    it('shows the near banner to an account with manage-publishing', async () => {
+      const page = await renderFor('account-smb-admin');
+
+      expect(page.querySelector('.usage--banner[role="status"]')?.textContent).toContain('接近上限');
+    });
+
+    it('shows the exceeded banner, and nothing when usage is normal', async () => {
+      const exceeded = await renderFor('account-smb-admin', 'usage-exceeded');
+      expect(exceeded.querySelector('.usage--banner')?.textContent).toContain('對外回覆已暫停');
+
+      TestBed.resetTestingModule();
+      const normal = await renderFor('account-smb-admin', 'usage-normal');
+      expect(normal.querySelector('.usage--banner')).toBeNull();
+    });
+
+    it('shows no banner to an account without manage-publishing', async () => {
+      const page = await renderFor('account-internal-employee');
+
+      expect(page.querySelector('.usage--banner')).toBeNull();
+      expect(page.textContent).not.toContain('接近上限');
+    });
   });
 });

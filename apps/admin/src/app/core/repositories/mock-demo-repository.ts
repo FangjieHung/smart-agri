@@ -130,6 +130,7 @@ import {
   type PublishingChannelType,
   type WebsiteEmbedSettings,
 } from '../domain/publishing.model';
+import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -954,6 +955,8 @@ const DATABASE_REPORT_DENIED_MESSAGE = '找不到這份報表，或你沒有查�
 
 /** mock 回溯產生的報表數：最近完成的幾個期間（週報 4 份、月報 3 份）。 */
 const MOCK_REPORT_PERIODS: Readonly<Record<DatabaseReportFrequency, number>> = { weekly: 4, monthly: 3 };
+/** Demo 的每月 token 上限（issue #203）：預設示範用量 864,300 是 86%，顯示「接近上限」。 */
+const MOCK_MONTHLY_TOKEN_LIMIT = 1_000_000;
 /** Demo 只有一個組織；與 API 的接收單位「組織名稱（資料庫名稱）」同一個寫法。 */
 const DEMO_ORGANIZATION_NAME = '安心商行';
 /** 與後端 `ForbiddenReason.AuthorizedForm`／`SubmissionReceipt` 逐字相同。 */
@@ -1923,6 +1926,20 @@ export class MockDemoRepository implements DemoRepository {
     return this.signedIn(
       (viewer) => this.listChannelOverviewSync(viewer),
       () => this.applyScenario([]),
+    );
+  }
+
+  getOrganizationUsage(): Observable<RepositoryView<OrganizationUsageView>> {
+    return this.signedIn(
+      (viewer) => {
+        const allowed = this.accounts().find((account) => account.id === viewer)?.permissions.includes('manage-publishing');
+        if (allowed !== true) return this.publishingPermissionDenied();
+        const month = this.now().toLocaleDateString('sv-SE', { timeZone: MOCK_STATISTICS_TIME_ZONE, year: 'numeric', month: '2-digit' });
+        const usedTokens = this.scenario === 'usage-normal' ? 420_000 : this.scenario === 'usage-exceeded' ? 1_036_400 : 864_300;
+        const state = usedTokens >= MOCK_MONTHLY_TOKEN_LIMIT ? 'exceeded' : usedTokens * 5 >= MOCK_MONTHLY_TOKEN_LIMIT * 4 ? 'near' : 'normal';
+        return this.applyScenario<OrganizationUsageView>({ month, usedTokens, limitTokens: MOCK_MONTHLY_TOKEN_LIMIT, state });
+      },
+      () => this.publishingPermissionDenied(),
     );
   }
 

@@ -28,4 +28,9 @@ public enum AnswerOutcomeChannel
     /// visitor.</summary>
     [JsonStringEnumMemberName("website")]
     Website,
+
+    /// <summary>A LINE user's question on the assistant's LINE channel (M5b #232,
+    /// <c>ModelInvocationPurpose.LineAnswer</c>). No content and no LINE id.</summary>
+    [JsonStringEnumMemberName("line")]
+    Line,
 }

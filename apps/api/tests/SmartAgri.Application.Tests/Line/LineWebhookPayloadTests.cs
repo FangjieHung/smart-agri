@@ -46,6 +46,48 @@ public class LineWebhookPayloadTests
         message.Id.ShouldBe("468789577898262530");
         message.Text.ShouldBe("@安心客服 退貨期限？");
         message.MentionsSelf.ShouldBeTrue();
+        message.SelfMentions.ShouldBe([new LineTextSpan(0, 5)]);
+        message.QuestionText.ShouldBe("退貨期限？");
+    }
+
+    [Theory]
+    [InlineData("@安心客服 退貨期限？", """[{"index":0,"length":5,"type":"user","isSelf":true}]""", "退貨期限？")]
+    [InlineData("請問 @安心客服 退貨期限？", """[{"index":3,"length":5,"type":"user","isSelf":true}]""", "請問 退貨期限？")]
+    [InlineData("退貨期限？@安心客服", """[{"index":5,"length":5,"type":"user","isSelf":true}]""", "退貨期限？")]
+    // Another member's mention stays; only the bot's is removed.
+    [InlineData("@小明 @安心客服 運費誰付？", """[{"index":0,"length":3,"type":"user","userId":"Uxm"},{"index":4,"length":5,"type":"user","isSelf":true}]""", "@小明 運費誰付？")]
+    // The bot mentioned twice, listed out of order.
+    [InlineData("@安心客服 營業時間？ @安心客服", """[{"index":12,"length":5,"type":"user","isSelf":true},{"index":0,"length":5,"type":"user","isSelf":true}]""", "營業時間？")]
+    // A span outside the text, or without a position, removes nothing.
+    [InlineData("營業時間？", """[{"index":40,"length":5,"type":"user","isSelf":true}]""", "營業時間？")]
+    [InlineData("@安心客服 營業時間？", """[{"type":"user","isSelf":true}]""", "@安心客服 營業時間？")]
+    // A surrogate pair before the mention: positions are UTF-16 code units.
+    [InlineData("🍎 @安心客服 價格？", """[{"index":3,"length":5,"type":"user","isSelf":true}]""", "🍎 價格？")]
+    public void The_question_is_the_text_without_the_bots_own_mentions(string text, string mentionees, string expected)
+    {
+        var payload = Parse(
+            """{"events":[{"type":"message","source":{"type":"group","groupId":"Cg"},"message":{"id":"1","type":"text","text":"""
+            + System.Text.Json.JsonSerializer.Serialize(text) + ""","mention":{"mentionees":""" + mentionees + "}}}]}")
+            .ShouldNotBeNull();
+
+        var message = payload.Events.ShouldHaveSingleItem().Message.ShouldNotBeNull();
+        message.MentionsSelf.ShouldBeTrue();
+        message.QuestionText.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void A_mention_only_message_has_an_empty_question_and_a_one_to_one_text_is_its_own_question()
+    {
+        var payload = Parse("""
+            {"events":[
+              {"type":"message","source":{"type":"group","groupId":"Cg"},"message":{"id":"1","type":"text","text":"@安心客服","mention":{"mentionees":[{"index":0,"length":5,"type":"user","isSelf":true}]}}},
+              {"type":"message","source":{"type":"user","userId":"Uu"},"message":{"id":"2","type":"text","text":"  退貨期限？  "}}
+            ]}
+            """).ShouldNotBeNull();
+
+        payload.Events[0].Message!.QuestionText.ShouldBe(string.Empty);
+        payload.Events[1].Message!.MentionsSelf.ShouldBeFalse();
+        payload.Events[1].Message!.QuestionText.ShouldBe("退貨期限？");
     }
 
     [Fact]

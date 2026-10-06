@@ -27,8 +27,9 @@ public static class OrganizationTokenUsageRules
     /// <summary>
     /// Every <see cref="ModelInvocationPurpose"/> that is a chat-model call and so counts toward the
     /// limit (decision E): the organization's own conversations, trial answers, acceptance reruns,
-    /// form-request decisions, database-query tool selection, report summaries and website visitors'
-    /// answers — not only the public channel's, because the cost is the organization's as a whole.
+    /// form-request decisions, database-query tool selection, report summaries, website visitors' and
+    /// LINE users' answers (M5b #232) — not only the public channels', because the cost is the
+    /// organization's as a whole.
     /// </summary>
     public static readonly IReadOnlyList<ModelInvocationPurpose> CountedPurposes =
     [
@@ -39,6 +40,7 @@ public static class OrganizationTokenUsageRules
         ModelInvocationPurpose.GenerateReportSummary,
         ModelInvocationPurpose.FormRequest,
         ModelInvocationPurpose.PublicAnswer,
+        ModelInvocationPurpose.LineAnswer,
     ];
 
     /// <summary>The embedding-model purposes, which never count. A new

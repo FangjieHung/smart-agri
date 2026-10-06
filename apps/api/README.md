@@ -838,6 +838,15 @@ queries and handoffs are not on this path at all (an architecture test checks th
   | `MaxConcurrentRunsPerAssistant` | `assistant_id` claim, `chat/runs` | replies being generated at once | 10 |
   | `LineWebhooksPerAssistantPerMinute` | assistant id in the URL, LINE webhook (M5b #231) | sliding window, 1 minute | 1,000 |
   | `LineMaxConcurrentWebhooksPerAssistant` | assistant, LINE webhook processor (not a `429`: the rest wait in the queue) | deliveries handled at once | 10 |
+  | `LineQuestionsPerUserPerMinute` | assistant + LINE user, one-to-one LINE questions (M5b #232) | sliding window, 1 minute | 6 |
+  | `LineQuestionsPerUserPerHour` | assistant + LINE user, one-to-one LINE questions | sliding window, 1 hour | 60 |
+  | `LineQuestionsPerGroupPerMinute` | assistant + group or room, LINE questions | sliding window, 1 minute | 10 |
+  | `LineQuestionsPerAssistantPerMinute` | assistant, all LINE questions | sliding window, 1 minute | 120 |
+  | `LineMaxConcurrentQuestionsPerAssistant` | assistant, LINE answers being generated | answers at once | 10 |
+
+  The `LineQuestions*` limits are not HTTP limits (LINE's servers send every request, so there is no
+  client to partition by): the background processor applies them per question and answers a refused
+  one with 「問題太頻繁了，請稍後再試」, see "LINE answers" below.
 
   The limiter runs after authorization (a missing or invalid visitor token is already `401` and costs
   nothing) and after the origin check (a foreign `Origin` is `403` and uses no permit). Narrowest
@@ -1032,8 +1041,7 @@ the admin never calls it.
   welcome message as a reply, only while the channel is `serving` (a draft, paused or suspended channel
   greets nobody); a non-text `message` — 「目前只能回答文字問題。」 in a one-to-one chat while serving,
   nothing in a group or room; a text `message` of a published or paused channel —
-  `ILineQuestionHandler` (this slice registers one that answers nothing; LINE questions, #232, replace
-  it); `unfollow`/`leave` — the chat's remembered conversation is forgotten; `unsend` — that message
+  `ILineQuestionHandler` (`LineQuestionHandler`, see "LINE answers" below); `unfollow`/`leave` — the chat's remembered conversation is forgotten; `unsend` — that message
   (and the answer to it) is forgotten; anything else (`postback`, `memberJoined`, `messageEdited`,
   unknown types) is ignored without an error; an event in `standby` mode never gets a reply. A reply
   token is used at most once; a LINE failure is logged (event type, outcome, status,
@@ -1042,7 +1050,50 @@ the admin never calls it.
   assistant and chat (user, group or room id), the newest 20 messages, forgotten after 30 minutes
   without activity, at most 10,000 conversations (least recently used first). Memory only.
 - **Nothing from LINE is stored or logged**: no message, user/group id or token goes to the database
-  (the channel row is only read) or to a log line.
+  or to a log line (the channel row is only written for the push counter, see below).
+
+## LINE answers (M5b #232)
+
+A text message to a published or paused LINE channel is answered by `SmartAgri.Api.Line.LineQuestionHandler`
+(plan §3 D–G), in the webhook processor's scope for the assistant's organization — so the
+organization's chat model, knowledge and monthly token limit apply. Per question, in order:
+
+1. **Who is asked.** One-to-one: every text. Group or room: only a message whose
+   `message.mention.mentionees[]` has `isSelf: true`; the bot's mention (its `index`/`length`) is
+   removed from the question. Anything else, or a mention with no question, gets nothing.
+2. **Serving state, again.** Not `serving` (paused, acceptance not passed, knowledge not owned, monthly
+   tokens used up…) → the reply 「目前暫停服務」, no model call.
+3. **Rate limits** (`PublicChannels:RateLimits:LineQuestions*`, table above; `LineQuestionRateLimiter`,
+   in memory). Refused → 「問題太頻繁了，請稍後再試」 once per partition and window (for an
+   assistant-wide limit: to the first chat refused), then silence; no model call. A question over 2,000
+   characters gets 「問題請在 2000 個字以內。」.
+4. **「輸入中」** (`POST /v2/bot/chat/loading/start`, one-to-one only — LINE refuses it in groups), for
+   the reply deadline rounded up to 5 seconds (50 by default); the answer's arrival ends it.
+5. **The answer**: `GroundedAnswerService.AnswerAsync` with the chat's remembered turns (newest 20,
+   forgotten after 30 idle minutes, `unsend` removes one), recorded as model call purpose
+   `line-answer` (counted toward the monthly limit) with no account and outcome channel `line` — no
+   LINE id in either. A model or embedding failure replies 「目前無法回答，請稍後再試。」.
+6. **The messages** (`SmartAgri.Application.Line.LineAnswerMessages`), plain text only (LINE renders
+   no Markdown): the answer with each citation run written 「（來源 1、2）」 (removed when the assistant
+   hides its sources), cut at 5,000 UTF-16 code units with 「…」; a `general-knowledge` answer ends
+   with its notice; a `no-result` is the refusal message and the visitor's next step (never "contact
+   the manager"). When the assistant shows citations, a second message: a Flex carousel, one bubble
+   per cited document (at most 5) with its citation numbers, knowledge base, document and an excerpt of
+   at most 200 characters; `altText` 「參考來源：文件 A、文件 B」 (at most 1,500). Over LINE's 30 KB per
+   bubble or 50 KB per carousel, the excerpts shrink first, then bubbles go from the end.
+7. **Delivery.** Measured from receiving the webhook request: within
+   `PublicChannels:Line:ReplyDeadlineSeconds` (default 50, 1 to 60) a reply (free; the token is used
+   once). Past it — or when LINE refuses the reply token (`400`) — a one-to-one answer is **pushed**
+   (counted against the LINE account's monthly message quota) and counted on the channel row
+   (`PushFallbackMonth`/`PushFallbackCount`, 「本月補送次數」 in `GET …/publishing/line`, one atomic
+   `UPDATE`); a group's or room's is **dropped** (decision A: a push costs one message per member). Any
+   other LINE failure, `429` included, is logged (outcome, status, `x-line-request-id`) and dropped,
+   never retried. Only a delivered answer is remembered for the next question.
+
+Nothing is written to `ChatThreads`/`ChatMessages`. Metrics (meter `SmartAgri`, no content):
+`smartagri.line.answer.duration` (seconds from the event, tagged `delivery` = `reply`/`push`/`dropped`
+and `chat` = `one-to-one`/`group`), `smartagri.line.push_fallbacks` and `smartagri.line.rate_limited`
+(tagged `limit`).
 
 ## Monthly token limit: `set-token-limit`
 

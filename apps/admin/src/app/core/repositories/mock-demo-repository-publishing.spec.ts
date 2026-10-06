@@ -2,7 +2,6 @@ import { firstValueFrom } from 'rxjs';
 import type { AccountId } from '../domain/account.model';
 import type {
   AssistantPublishingView,
-  ConfigurableAssistantPublishingView,
   LineSettingsInput,
   PublishingChannelStatus,
   PublishingChannelType,
@@ -16,11 +15,11 @@ import { MockDemoRepository } from './mock-demo-repository';
 
 const ADMIN: AccountId = 'account-smb-admin';
 const CUSTOMER_SERVICE = 'assistant-customer-service';
-const ONBOARDING = 'assistant-internal-onboarding';
 // 沿用種子資料裡同一組假 channelId/channelSecret（已是組合出來的假值，見 demo-seed-publishing.ts）。
 const VALID_LINE: LineSettingsInput = {
   officialAccountId: '@anxin-demo',
   channelId: DEMO_LINE_CHANNEL_ID,
+  welcomeMessage: '您好！歡迎加入。',
   channelSecret: DEMO_LINE_CHANNEL_SECRET,
   accessToken: 'demo-token-not-for-production-0123456789abcdefghij',
 };
@@ -89,17 +88,8 @@ function statusesOf(view: AssistantPublishingView): Record<string, PublishingCha
   };
 }
 
-/**
- * mock 模式一律回傳完整的 `WebsiteEmbedView`／`LineSetupView`（官網與 LINE 的
- * `UnavailablePublishingChannelView` 只在 API 模式出現），所以在讀取可設定欄位時
- * 安全地窄化成 `ConfigurableAssistantPublishingView`。
- */
-function asConfigurable(view: AssistantPublishingView): ConfigurableAssistantPublishingView {
-  return view as ConfigurableAssistantPublishingView;
-}
-
 function websiteSettings(view: AssistantPublishingView, patch: Partial<WebsiteEmbedSettings> = {}): WebsiteEmbedSettings {
-  const { displayName, welcomeMessage, brandColor, position, allowedDomains } = asConfigurable(view).website;
+  const { displayName, welcomeMessage, brandColor, position, allowedDomains } = view.website;
   return { displayName, welcomeMessage, brandColor, position, allowedDomains, ...patch };
 }
 
@@ -120,10 +110,8 @@ describe('MockDemoRepository publishing channels', () => {
     const view = dataOf(await publishingAs(createRepository(), ADMIN, CUSTOMER_SERVICE));
 
     expect(statusesOf(view)).toEqual({ platform: 'published', website: 'published', line: 'needs-attention' });
-    expect(view.line.channel.statusDetail).toContain('其他管道不受影響');
-    expect(asConfigurable(view).line.checks.find((check) => check.field === 'accessToken')).toMatchObject({
-      state: 'failed',
-    });
+    expect(view.line.channel.statusDetail).toContain('連線測試未通過');
+    expect(view.line.checks.find((check) => check.check === 'access-token')).toMatchObject({ state: 'failed' });
   });
 
   it('marks only the website channel when the disconnected-channel scenario is active', async () => {
@@ -152,7 +140,8 @@ describe('MockDemoRepository publishing channels', () => {
     ).toMatchObject({
       status: 'permission-denied',
     });
-    expect(repository.saveLineSettings('account-internal-employee', CUSTOMER_SERVICE, VALID_LINE)).toMatchObject({
+    boxOf(repository).current = 'account-internal-employee';
+    expect(await firstValueFrom(repository.saveLineSettings(CUSTOMER_SERVICE, VALID_LINE, 1))).toMatchObject({
       status: 'permission-denied',
     });
   });
@@ -216,37 +205,6 @@ describe('MockDemoRepository publishing channels', () => {
     expect(saved.channel.status).toBe('published');
   });
 
-  it('checks LINE fields one by one, then requires a delivered test message before activation', () => {
-    const repository = createRepository();
-    const partial = dataOf(
-      repository.saveLineSettings(ADMIN, ONBOARDING, { ...VALID_LINE, channelId: '123', channelSecret: '' }),
-    );
-    expect(partial.checks.map((check) => [check.field, check.state])).toEqual([
-      ['officialAccountId', 'passed'],
-      ['channelId', 'failed'],
-      ['channelSecret', 'failed'],
-      ['accessToken', 'passed'],
-    ]);
-    expect(partial.channel.status).toBe('needs-attention');
-    expect(partial.canSendTest).toBe(false);
-
-    const blocked = dataOf(repository.sendLineTestMessage(ADMIN, ONBOARDING));
-    expect(blocked.lastTest?.outcome).toBe('failed');
-    expect(repository.activateLineChannel(ADMIN, ONBOARDING)).toMatchObject({ status: 'validation-failed' });
-
-    const valid = dataOf(repository.saveLineSettings(ADMIN, ONBOARDING, VALID_LINE));
-    expect(valid.checks.every((check) => check.state === 'passed')).toBe(true);
-    expect(valid.channel.status).toBe('testing');
-
-    const tested = dataOf(repository.sendLineTestMessage(ADMIN, ONBOARDING));
-    expect(tested.lastTest).toMatchObject({ outcome: 'delivered' });
-    expect(tested.lastTest?.message).toContain('模擬');
-    expect(tested.canActivate).toBe(true);
-
-    const activated = dataOf(repository.activateLineChannel(ADMIN, ONBOARDING));
-    expect(activated.channel.status).toBe('published');
-  });
-
   it('pauses and resumes one channel without touching the others and keeps changes per account storage', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);
@@ -277,6 +235,6 @@ describe('MockDemoRepository publishing channels', () => {
 
     const view = dataOf(await publishingAs(repository, ADMIN, 'assistant-created-1'));
     expect(statusesOf(view)).toEqual({ platform: 'not-configured', website: 'not-configured', line: 'not-configured' });
-    expect(asConfigurable(view).line.checks.every((check) => check.state === 'pending')).toBe(true);
+    expect(view.line.checks.every((check) => check.state === 'pending')).toBe(true);
   });
 });

@@ -1,7 +1,7 @@
 import { signal, type EnvironmentProviders, type Provider } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import type { AccountId } from '../../core/domain/account.model';
-import type { ConfigurableAssistantPublishingView } from '../../core/domain/publishing.model';
+import type { AssistantPublishingView } from '../../core/domain/publishing.model';
 import { DEMO_SEED } from '../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../core/repositories/memory-storage';
 import { MockDemoRepository } from '../../core/repositories/mock-demo-repository';
@@ -30,11 +30,11 @@ export function providePublishingTesting(accountId: AccountId = 'account-smb-adm
  * 透過 repository 取得助理發布設定，避免元件測試直接讀取 seed。mock 的 Observable 是
  * `defer(of)`，訂閱當下就同步送出，所以這裡可以同步取值。
  */
-export function publishingOf(repository: MockDemoRepository, assistantId: string): ConfigurableAssistantPublishingView {
-  let view: ConfigurableAssistantPublishingView | null = null;
+export function publishingOf(repository: MockDemoRepository, assistantId: string): AssistantPublishingView {
+  let view: AssistantPublishingView | null = null;
   repository.getAssistantPublishing(assistantId).subscribe((result) => {
     if (result.status !== 'ready') throw new Error(`expected ready, got ${result.status}`);
-    view = result.data as ConfigurableAssistantPublishingView;
+    view = result.data as AssistantPublishingView;
   });
   if (view === null) throw new Error('expected a synchronous mock result');
   return view;

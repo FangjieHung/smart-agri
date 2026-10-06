@@ -200,11 +200,14 @@ export function validateAllowedDomain(raw: string, existing: readonly string[]):
 
 export type LineField = 'officialAccountId' | 'channelId' | 'channelSecret' | 'accessToken';
 
+/** 儲存時可能被指出錯誤的欄位：四個連接欄位與歡迎訊息。 */
+export type LineErrorField = LineField | 'welcomeMessage';
+
 export interface LineFieldDefinition {
   readonly id: LineField;
   readonly label: string;
   readonly hint: string;
-  /** 敏感欄位預設遮蔽。 */
+  /** 憑證欄位只寫不讀：已設定時只顯示「已設定・末四碼」，要改就「更換」。 */
   readonly sensitive: boolean;
 }
 
@@ -215,62 +218,96 @@ export const LINE_FIELDS: readonly LineFieldDefinition[] = [
   { id: 'accessToken', label: 'Channel access token', hint: '至少 40 個字元，不含空白。', sensitive: true },
 ];
 
-export type LineSettingsInput = Readonly<Record<LineField, string>>;
+export const MAX_LINE_WELCOME_LENGTH = 120;
 
-export type LineCheckState = 'pending' | 'passed' | 'failed';
+/**
+ * 儲存 LINE 設定的輸入。`channelSecret`、`accessToken` 是只寫的：省略或空字串表示「不變更」，
+ * 有值才取代（第一次儲存兩個都必填）。
+ */
+export interface LineSettingsInput {
+  readonly officialAccountId: string;
+  readonly channelId: string;
+  readonly welcomeMessage: string;
+  readonly channelSecret?: string;
+  readonly accessToken?: string;
+}
 
-export interface LineFieldCheckView {
-  readonly field: LineField;
+/** 憑證的狀態：只有「是否設定」與末四碼，前端任何地方都拿不到原文。 */
+export interface SecretStatusView {
+  readonly configured: boolean;
+  readonly lastFour: string | null;
+  readonly updatedAt: string | null;
+}
+
+/** 擁有者對 LINE 頻道的選擇：草稿、已啟用、擁有者暫停。 */
+export type LineChannelState = 'draft' | 'published' | 'paused';
+
+export type LineConnectionCheckKind = 'access-token' | 'webhook-endpoint' | 'webhook-test';
+
+export type LineConnectionCheckState = 'pending' | 'passed' | 'failed' | 'skipped';
+
+/** 「測試連線」的三項檢查之一；`label` 與 `message` 都是伺服器給的繁體中文。 */
+export interface LineConnectionCheckView {
+  readonly check: LineConnectionCheckKind;
   readonly label: string;
-  readonly state: LineCheckState;
+  readonly state: LineConnectionCheckState;
   readonly message: string;
 }
 
-export interface LineTestResultView {
-  readonly outcome: 'delivered' | 'failed';
-  readonly message: string;
-  readonly testedAt: string;
-}
-
-export interface LineSetupView extends LineSettingsInput {
+/** LINE 頻道：API 與 mock 共用同一個形狀；Secret 與 Token 只有狀態，沒有原文。 */
+export interface LineSetupView {
   readonly channel: PublishingChannelView;
-  /** 示範用 webhook 網址，指向保留網域。 */
-  readonly webhookUrl: string;
-  readonly checks: readonly LineFieldCheckView[];
-  readonly lastTest: LineTestResultView | null;
-  readonly canSendTest: boolean;
-  readonly canActivate: boolean;
+  readonly officialAccountId: string;
+  readonly channelId: string;
+  readonly welcomeMessage: string;
+  readonly channelSecret: SecretStatusView;
+  readonly accessToken: SecretStatusView;
+  /** 伺服器實際的 Webhook 網址（測試連線時由系統設定到 LINE）；伺服器沒有對外網址時是 null。 */
+  readonly webhookUrl: string | null;
+  /** 固定三項、依序：Token 與官方帳號、設定 Webhook 網址、Webhook 連線測試。 */
+  readonly checks: readonly LineConnectionCheckView[];
+  readonly connectionCheckedAt: string | null;
+  readonly state: LineChannelState;
+  /** 與官網管道同一組推導的實際服務狀態（「三項檢查都通過」取代「有允許網域」）。 */
+  readonly servingState: WebsiteServingState;
+  readonly acceptanceStatus: AssistantAcceptanceStatus;
+  readonly nonOwnedKnowledgeBases: readonly WebsiteKnowledgeBaseRef[];
+  readonly publishedAt: string | null;
+  /** 本月以 push 補送（而不是 reply）的回答數。 */
+  readonly pushFallbackCount: number;
+  /** 儲存設定時帶回去的版本；還沒存過是 0。 */
+  readonly revision: number;
+}
+
+/** 啟用閘門 `422` 的 `errors` 鍵（M5b 計畫第 3 節 B）。 */
+export type LinePublishFailureReason =
+  | 'connection'
+  | 'acceptance'
+  | 'assistant-paused'
+  | 'knowledge-ownership'
+  | 'public-base-url'
+  /** 後端日後新增、前端還不認得的原因：照樣顯示訊息。 */
+  | 'other';
+
+export interface LinePublishFailure {
+  readonly reason: LinePublishFailureReason;
+  readonly message: string;
+}
+
+/** 「測試連線」被伺服器自己的前提拒絕（`422 line-test-refused`）的原因：還沒儲存設定、沒有對外網址。 */
+export type LineTestRefusalReason = 'settings' | 'public-base-url' | 'other';
+
+export interface LineTestRefusal {
+  readonly reason: LineTestRefusalReason;
+  readonly message: string;
 }
 
 // ---------- 單一助理的發布設定 ----------
-
-/**
- * 還沒有開放的對外管道（API 模式的 LINE，M5b 才做）。`channel` 是給管道卡片用的狀態
- * （固定「尚未設定」，說明文字就是 `message`），沒有任何可設定的欄位。
- */
-export interface UnavailablePublishingChannelView {
-  readonly availability: 'not-available';
-  readonly channel: PublishingChannelView;
-  readonly message: string;
-}
-
-export const EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE = 'LINE 對外發布將於後續版本開放。';
-
-export function isUnavailableChannel(
-  view: LineSetupView | UnavailablePublishingChannelView,
-): view is UnavailablePublishingChannelView {
-  return 'availability' in view && view.availability === 'not-available';
-}
 
 export interface AssistantPublishingView {
   readonly assistantId: AssistantId;
   readonly assistantName: string;
   readonly platform: PlatformSharingView;
   readonly website: WebsiteEmbedView;
-  readonly line: LineSetupView | UnavailablePublishingChannelView;
-}
-
-/** 三個管道都可以設定的發布設定（mock 模式；API 模式的 LINE 尚未開放）。 */
-export interface ConfigurableAssistantPublishingView extends AssistantPublishingView {
   readonly line: LineSetupView;
 }

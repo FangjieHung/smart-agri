@@ -8,7 +8,8 @@ namespace SmartAgri.Api.Tests.Tenancy;
 /// step. No database needed.
 /// <list type="bullet">
 /// <item>Turning the organization filter off: only when looking up an account for sign-in
-/// (<c>AccountLookup</c>).</item>
+/// (<c>AccountLookup</c>), and an assistant's organization for an anonymous website visitor's
+/// session (<c>PublicAssistantLookup</c>, M5a #196) — both before any organization exists.</item>
 /// <item>Raw SQL, which neither the filter nor the write guard sees: only claiming
 /// background jobs across organizations (<c>JobClaimer</c>, M2 plan §3).</item>
 /// <item>Acting for a background job's organization: only the job runner.</item>
@@ -27,11 +28,16 @@ public class IgnoreQueryFiltersSourceTests
         ["FromSql", "SqlQuery", "ExecuteSql", "NpgsqlCommand", "NpgsqlBatch", "CreateCommand", "GetDbConnection"];
 
     [Fact]
-    public void IgnoreQueryFilters_appears_only_in_AccountLookup()
+    public void IgnoreQueryFilters_appears_only_in_AccountLookup_and_PublicAssistantLookup()
     {
         Occurrences(Token)
-            .ShouldHaveSingleItem()
-            .ShouldStartWith("SmartAgri.Infrastructure/Accounts/AccountLookup.cs:");
+            .Select(occurrence => occurrence[..occurrence.LastIndexOf(':')])
+            .ShouldBe(
+                [
+                    "SmartAgri.Infrastructure/Accounts/AccountLookup.cs",
+                    "SmartAgri.Infrastructure/Assistants/PublicAssistantLookup.cs",
+                ],
+                ignoreOrder: true);
     }
 
     [Fact]

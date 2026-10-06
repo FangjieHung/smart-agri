@@ -423,6 +423,33 @@ public static class AssistantWebsiteChannelEndpoints
             channel?.Revision ?? 0);
     }
 
+    /// <summary>
+    /// Whether the assistant's website channel answers visitors right now — the same derivation as
+    /// <see cref="ViewAsync"/> (channel state, allowed domains, assistant status, acceptance, knowledge
+    /// ownership, monthly token limit), for the visitor API (M5a #196), which asks on every session and
+    /// every question. Reads under the current organization: the assistant's.
+    /// </summary>
+    internal static async Task<(WebsiteServingState State, AssistantWebsiteChannel? Channel)> ServingStateAsync(
+        AppDbContext dbContext,
+        Assistant assistant,
+        OrganizationTokenUsage tokenUsage,
+        CancellationToken cancellationToken)
+    {
+        var channel = await dbContext.AssistantWebsiteChannels
+            .AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.AssistantId == assistant.Id, cancellationToken);
+        var domainCount = await dbContext.AssistantWebsiteDomains
+            .CountAsync(domain => domain.AssistantId == assistant.Id, cancellationToken);
+        var acceptance = await AcceptanceAsync(dbContext, assistant.Id, cancellationToken);
+        var nonOwned = await NonOwnedKnowledgeBasesAsync(dbContext, assistant, cancellationToken);
+        var usage = await tokenUsage.GetAsync(assistant.OrganizationId, cancellationToken);
+
+        var serving = WebsiteChannelServing.Evaluate(new WebsiteChannelServingInput(
+            channel?.State, domainCount, assistant.Status, acceptance, nonOwned.Count,
+            QuotaExceeded: usage.State == TokenUsageState.Exceeded));
+        return (serving, channel);
+    }
+
     /// <summary>The channel card's status (M5a plan §3 H's mapping) and the sentence shown with it.</summary>
     private static (string Status, string Message) Describe(
         AssistantWebsiteChannel? channel, WebsiteServingState serving, AssistantStatus assistantStatus) =>

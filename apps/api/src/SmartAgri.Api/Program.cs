@@ -16,6 +16,7 @@ using SmartAgri.Api.Knowledge.Evaluation;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.Operations;
 using SmartAgri.Api.Organizations;
+using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Reports;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Seeding;
@@ -60,6 +61,7 @@ builder.Services.AddScoped<ChatFormRequestTool>();
 builder.Services.AddPeriodicReports();
 builder.AddSmartAgriAuthentication();
 builder.AddSmartAgriDataProtection();
+builder.Services.AddVisitorAuthentication();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
 // Numbers are JSON numbers only. ASP.NET Core's web defaults also accept "12" for an int,
@@ -150,6 +152,9 @@ if (args is [SmartAgriCommands.SetTokenLimit, .. var setTokenLimitArgs])
     return;
 }
 
+// The visitor API answers only its own chat window (M5a #196): any other Origin is refused
+// before authentication. No CORS policy is registered anywhere.
+app.UsePublicOriginGuard();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -187,6 +192,7 @@ app.MapOrganizationUsageEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();
+app.MapVisitorEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

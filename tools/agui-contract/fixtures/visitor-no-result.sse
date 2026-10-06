@@ -1,0 +1,12 @@
+data: {"type":"RUN_STARTED","threadId":"00000000-0000-0000-0000-000000000001","runId":"run-2"}
+
+data: {"type":"TEXT_MESSAGE_START","messageId":"00000000-0000-0000-0000-000000000002","role":"assistant"}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"00000000-0000-0000-0000-000000000002","delta":"\u76EE\u524D\u7684\u8CC7\u6599\u4E2D\u627E\u4E0D\u5230\u9019\u500B\u554F\u984C\u7684\u7B54\u6848\u3002"}
+
+data: {"type":"TEXT_MESSAGE_END","messageId":"00000000-0000-0000-0000-000000000002"}
+
+data: {"type":"CUSTOM","name":"smartagri.reply","value":{"id":"00000000-0000-0000-0000-000000000003","author":"assistant","text":null,"reply":{"kind":"no-result","text":"\u76EE\u524D\u7684\u8CC7\u6599\u4E2D\u627E\u4E0D\u5230\u9019\u500B\u554F\u984C\u7684\u7B54\u6848\u3002","citations":[],"notice":null,"nextSteps":["\u63DB\u500B\u8AAA\u6CD5\u518D\u554F\u4E00\u6B21\uFF0C\u6216\u628A\u554F\u984C\u554F\u5F97\u66F4\u5177\u9AD4\u4E00\u4E9B\u3002","\u4ECD\u7136\u627E\u4E0D\u5230\u6642\uFF0C\u8ACB\u806F\u7D61\u9019\u500B\u52A9\u7406\u7684\u7BA1\u7406\u8005\u88DC\u5145\u76F8\u95DC\u8CC7\u6599\u3002"],"form":null,"receipt":null,"databaseQuery":null},"createdAt":"2026-01-01T00:00:00Z"}}
+
+data: {"type":"RUN_FINISHED","threadId":"00000000-0000-0000-0000-000000000001","runId":"run-2"}
+

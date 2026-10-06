@@ -3,14 +3,16 @@ using System.Text.Json.Serialization;
 namespace SmartAgri.Domain.Assistants;
 
 /// <summary>
-/// Whether the website channel answers visitors right now (M5a plan §3 C's table, checked in
-/// this order): derived on every read by <c>WebsiteChannelServing.Evaluate</c>, never stored.
+/// Whether a public channel — the website channel or the LINE channel — answers right now (M5a plan
+/// §3 C's table, checked in this order; generalized for both channels by M5b plan §4): derived on
+/// every read by <c>ChannelServing.Evaluate</c>, never stored. Named <c>WebsiteServingState</c>
+/// until M5b #229; the wire names did not change.
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<WebsiteServingState>))]
-public enum WebsiteServingState
+[JsonConverter(typeof(JsonStringEnumConverter<ChannelServingState>))]
+public enum ChannelServingState
 {
-    /// <summary>The channel is not <see cref="WebsiteChannelState.Published"/> (nor paused), or it
-    /// has no allowed domain.</summary>
+    /// <summary>The channel is not published (nor paused), or not usable: a website channel without
+    /// an allowed domain, a LINE channel whose connection test has not passed all its checks.</summary>
     [JsonStringEnumMemberName("not-published")]
     NotPublished,
 

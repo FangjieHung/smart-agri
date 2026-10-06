@@ -3422,6 +3422,177 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/publishing/line": {
+      "get": {
+        "tags": [
+          "AssistantLineChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "AssistantLineChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLineChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/publishing/line/paused": {
+      "put": {
+        "tags": [
+          "AssistantLineChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetLinePausedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/publishing/line:unpublish": {
+      "post": {
+        "tags": [
+          "AssistantLineChannelEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineChannelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/assistant-drafts": {
       "get": {
         "tags": [
@@ -5521,7 +5692,7 @@
             "$ref": "#/components/schemas/WebsiteChannelView"
           },
           "line": {
-            "$ref": "#/components/schemas/NotAvailablePublishingChannelView"
+            "$ref": "#/components/schemas/LineChannelView"
           }
         }
       },
@@ -6009,6 +6180,16 @@
             ]
           }
         }
+      },
+      "ChannelServingState": {
+        "enum": [
+          "not-published",
+          "paused",
+          "suspended-acceptance",
+          "suspended-knowledge",
+          "suspended-quota",
+          "serving"
+        ]
       },
       "ChatCitationDetailView": {
         "required": [
@@ -9192,6 +9373,145 @@
           }
         }
       },
+      "LineChannelState": {
+        "enum": [
+          "draft",
+          "published",
+          "paused"
+        ]
+      },
+      "LineChannelView": {
+        "required": [
+          "channel",
+          "officialAccountId",
+          "channelId",
+          "welcomeMessage",
+          "channelSecret",
+          "accessToken",
+          "webhookUrl",
+          "checks",
+          "connectionCheckedAt",
+          "state",
+          "servingState",
+          "servingMessage",
+          "acceptanceStatus",
+          "nonOwnedKnowledgeBases",
+          "publishedAt",
+          "pushFallbackCount",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/PublishingChannelView"
+          },
+          "officialAccountId": {
+            "type": "string"
+          },
+          "channelId": {
+            "type": "string"
+          },
+          "welcomeMessage": {
+            "type": "string"
+          },
+          "channelSecret": {
+            "$ref": "#/components/schemas/SecretStatusView"
+          },
+          "accessToken": {
+            "$ref": "#/components/schemas/SecretStatusView"
+          },
+          "webhookUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LineConnectionCheckView"
+            }
+          },
+          "connectionCheckedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LineChannelState"
+          },
+          "servingState": {
+            "$ref": "#/components/schemas/ChannelServingState"
+          },
+          "servingMessage": {
+            "type": "string"
+          },
+          "acceptanceStatus": {
+            "$ref": "#/components/schemas/AssistantAcceptanceStatus"
+          },
+          "nonOwnedKnowledgeBases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebsiteKnowledgeBaseView"
+            }
+          },
+          "publishedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "pushFallbackCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "LineConnectionCheckKind": {
+        "enum": [
+          "access-token",
+          "webhook-endpoint",
+          "webhook-test"
+        ]
+      },
+      "LineConnectionCheckState": {
+        "enum": [
+          "pending",
+          "passed",
+          "failed",
+          "skipped"
+        ]
+      },
+      "LineConnectionCheckView": {
+        "required": [
+          "check",
+          "label",
+          "state",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "check": {
+            "$ref": "#/components/schemas/LineConnectionCheckKind"
+          },
+          "label": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LineConnectionCheckState"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
       "LoginOptionsResponse": {
         "required": [
           "organizationCodeRequired"
@@ -9282,21 +9602,6 @@
             "type": "boolean"
           },
           "statisticsTimeZone": {
-            "type": "string"
-          }
-        }
-      },
-      "NotAvailablePublishingChannelView": {
-        "required": [
-          "status",
-          "message"
-        ],
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string"
-          },
-          "message": {
             "type": "string"
           }
         }
@@ -9799,6 +10104,43 @@
             "items": {
               "$ref": "#/components/schemas/DatabaseFieldDraft"
             }
+          }
+        }
+      },
+      "SecretStatusView": {
+        "required": [
+          "configured",
+          "lastFour",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "lastFour": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "SetLinePausedRequest": {
+        "required": [
+          "paused"
+        ],
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": "boolean"
           }
         }
       },
@@ -10328,6 +10670,51 @@
           }
         }
       },
+      "UpdateLineChannelRequest": {
+        "required": [
+          "officialAccountId",
+          "channelId",
+          "welcomeMessage",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "officialAccountId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "channelId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "welcomeMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "channelSecret": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "accessToken": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "UpdateMemberPermissionsRequest": {
         "required": [
           "permissions"
@@ -10521,7 +10908,7 @@
             "$ref": "#/components/schemas/WebsiteChannelState"
           },
           "servingState": {
-            "$ref": "#/components/schemas/WebsiteServingState"
+            "$ref": "#/components/schemas/ChannelServingState"
           },
           "servingMessage": {
             "type": "string"
@@ -10599,16 +10986,6 @@
           "bottom-right",
           "bottom-left"
         ]
-      },
-      "WebsiteServingState": {
-        "enum": [
-          "not-published",
-          "paused",
-          "suspended-acceptance",
-          "suspended-knowledge",
-          "suspended-quota",
-          "serving"
-        ]
       }
     }
   },
@@ -10684,6 +11061,9 @@
     },
     {
       "name": "AssistantWebsiteChannelEndpoints"
+    },
+    {
+      "name": "AssistantLineChannelEndpoints"
     },
     {
       "name": "AssistantTestCaseEndpoints"

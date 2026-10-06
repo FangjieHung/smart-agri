@@ -2824,7 +2824,7 @@ function toAssistantPublishing(response: ApiAssistantPublishing): AssistantPubli
     assistantName: response.assistantName,
     platform,
     website: toWebsiteEmbed(response.website),
-    // 後端 LINE 佔位說明還寫著「官網嵌入與 LINE …」（M3 的文字）；官網已開放，所以用 LINE 專屬的說明。
+    // LINE 在 M5b 才開放；舊版後端的佔位說明寫著「官網嵌入與 LINE …」，所以一律用 LINE 專屬的說明。
     line: unavailableLine(platform.channel, EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
   };
 }

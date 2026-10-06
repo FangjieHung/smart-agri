@@ -1064,7 +1064,7 @@ public static class AssistantEndpoints
     }
 
     private static readonly NotAvailablePublishingChannelView NotYetAvailable = new(
-        "not-available", "官網嵌入與 LINE 對外發布將於後續版本開放。");
+        "not-available", "LINE 對外發布將於後續版本開放。");
 
     private static Task<List<Guid>> SharedAccountIdsAsync(AppDbContext dbContext, Guid assistantId, CancellationToken cancellationToken) =>
         dbContext.AssistantShares

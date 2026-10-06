@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SmartAgri.Api.Databases;
 using SmartAgri.Application.Organizations;
+using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Observability;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
@@ -94,23 +95,12 @@ public sealed class RetentionCleanupService
         }
 
         var cutoff = RetentionCleanupRules.Cutoff(asOf, days, _timeZone);
-        var batches = 0;
-        var threadCount = await DeleteInBatchesAsync(
-            () => _dbContext.ChatThreads
-                .Where(thread => thread.LastActivityAt < cutoff)
-                .OrderBy(thread => thread.LastActivityAt)
-                .Take(BatchSize)
-                .ExecuteDeleteAsync(cancellationToken),
-            count => batches += count,
-            cancellationToken);
-        var answerOutcomeCount = await DeleteInBatchesAsync(
-            () => _dbContext.AnswerOutcomes
-                .Where(outcome => outcome.At < cutoff)
-                .OrderBy(outcome => outcome.At)
-                .Take(BatchSize)
-                .ExecuteDeleteAsync(cancellationToken),
-            count => batches += count,
-            cancellationToken);
+        var threads = await DeleteThreadsInBatchesAsync(
+            _dbContext.ChatThreads.Where(thread => thread.LastActivityAt < cutoff), cancellationToken);
+        var answerOutcomes = await DeleteInBatchesAsync(
+            _dbContext.AnswerOutcomes.Where(outcome => outcome.At < cutoff).OrderBy(outcome => outcome.At), cancellationToken);
+        var (threadCount, answerOutcomeCount) = (threads.Count, answerOutcomes.Count);
+        var batches = threads.Batches + answerOutcomes.Batches;
 
         if (threadCount + answerOutcomeCount > 0)
         {
@@ -155,30 +145,49 @@ public sealed class RetentionCleanupService
         }
     }
 
-    /// <summary>One delete statement per round, in its own transaction, until a round deletes less
-    /// than a full batch.</summary>
-    private async Task<int> DeleteInBatchesAsync(
-        Func<Task<int>> deleteBatch, Action<int> countBatches, CancellationToken cancellationToken)
+    /// <summary>
+    /// Deletes the <paramref name="threads"/> — the cleanup's expired ones, or an assistant's for an
+    /// immediate purge (M6-5, <see cref="ConversationPurgeEndpoints"/>) — whole, oldest activity
+    /// first, in batches of <see cref="BatchSize"/> (each its own transaction, §3 G step 6). The
+    /// database cascades to their messages and citations; nothing else is touched (answer outcomes,
+    /// handoff copies in issues). The query runs under the organization filter like every other.
+    /// </summary>
+    public Task<BatchedDeletion> DeleteThreadsInBatchesAsync(IQueryable<ChatThread> threads, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(threads);
+        return DeleteInBatchesAsync(threads.OrderBy(thread => thread.LastActivityAt), cancellationToken);
+    }
+
+    /// <summary>One delete statement (the first <see cref="BatchSize"/> of <paramref name="rows"/>)
+    /// per round, in its own transaction, until a round deletes less than a full batch.</summary>
+    private async Task<BatchedDeletion> DeleteInBatchesAsync<T>(IOrderedQueryable<T> rows, CancellationToken cancellationToken)
+        where T : class
     {
         var total = 0;
+        var batches = 0;
         while (true)
         {
             int deleted;
             await using (var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken))
             {
-                deleted = await deleteBatch();
+                deleted = await rows.Take(BatchSize).ExecuteDeleteAsync(cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
             }
 
-            countBatches(1);
+            batches++;
             total += deleted;
             if (deleted < BatchSize)
             {
-                return total;
+                return new BatchedDeletion(total, batches);
             }
         }
     }
 }
+
+/// <summary>What <see cref="RetentionCleanupService.DeleteThreadsInBatchesAsync"/> deleted.</summary>
+/// <param name="Count">Rows deleted.</param>
+/// <param name="Batches">Delete statements run, each its own transaction (at least one).</param>
+public sealed record BatchedDeletion(int Count, int Batches);
 
 /// <summary>
 /// The cleanup's counters on the application's meter (<see cref="SmartAgriMeter"/>): runs, and

@@ -136,6 +136,21 @@ public sealed class OrganizationActivity : IOrganizationScoped
             new { days, cutoff, threadCount, answerOutcomeCount });
     }
 
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.ConversationsPurged"/>: detail <c>{ "assistantId",
+    /// "assistantName", "threadCount" }</c> — the assistant (its name at the time) and how many
+    /// threads were deleted; written for every purge, also one that found nothing to delete.
+    /// </summary>
+    public static OrganizationActivity ConversationsPurged(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid assistantId, string assistantName, int threadCount)
+    {
+        ArgumentNullException.ThrowIfNull(assistantName);
+        ArgumentOutOfRangeException.ThrowIfNegative(threadCount);
+        return Record(
+            organizationId, OrganizationActivityAction.ConversationsPurged, actorAccountId, at,
+            new { assistantId, assistantName, threadCount });
+    }
+
     /// <summary><see cref="OrganizationActivityAction.CaseGroupCreated"/>: detail <c>{ "id", "name" }</c>.</summary>
     public static OrganizationActivity CaseGroupCreated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid groupId, string name) =>
         Record(organizationId, OrganizationActivityAction.CaseGroupCreated, actorAccountId, at, new { id = groupId, name });

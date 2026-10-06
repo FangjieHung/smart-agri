@@ -133,8 +133,11 @@ import {
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import type {
+  AssistantConversationPurgeView,
+  AssistantConversationSummaryView,
   ChatModelOptionView,
   OrganizationChatModelView,
+  OrganizationRetentionAssistantView,
   OrganizationRetentionPendingView,
   OrganizationRetentionPreviewView,
   OrganizationRetentionView,
@@ -2232,6 +2235,80 @@ export class MockDemoRepository implements DemoRepository {
       },
       () => this.organizationSettingsDenied(),
     );
+  }
+
+  /** 與後端相同：只有管理者；組織內每個助理一列（所有帳號的對話），只有數字。 */
+  listRetentionAssistants(): Observable<RepositoryView<readonly OrganizationRetentionAssistantView[]>> {
+    return this.signedIn(
+      (viewer): RepositoryView<readonly OrganizationRetentionAssistantView[]> => {
+        if (!this.isOrganizationAdmin(viewer)) return this.organizationSettingsDenied();
+        return this.applyScenario(
+          this.assistants().map((assistant): OrganizationRetentionAssistantView => ({
+            assistantId: assistant.id,
+            assistantName: assistant.name,
+            keepConversations: this.keepsConversations(assistant),
+            ...this.savedConversationCounts(assistant.id),
+          })),
+        );
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  /** 管理者讀得到任何助理；其他人要能管理助理、而且是擁有者（與 `GET …/settings` 相同）。 */
+  getAssistantConversationSummary(assistantId: string): Observable<RepositoryView<AssistantConversationSummaryView>> {
+    return this.signedIn(
+      (viewer): RepositoryView<AssistantConversationSummaryView> => {
+        const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
+        const isAdmin = this.isOrganizationAdmin(viewer);
+        const readable =
+          assistant !== undefined &&
+          (isAdmin || (this.canManageAssistants(viewer) && assistant.ownerAccountId === viewer));
+        if (!readable) return this.assistantSettingsPermissionDenied();
+        const { threadCount, accountCount } = this.savedConversationCounts(assistant.id);
+        return this.applyScenario({ threadCount, accountCount, canPurge: isAdmin });
+      },
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  /** 只有管理者：刪掉每個帳號在這個助理上已保存的對話（訪客的暫存對話不在其中）。 */
+  purgeAssistantConversations(assistantId: string): Observable<RepositoryView<AssistantConversationPurgeView>> {
+    return this.signedIn(
+      (viewer): RepositoryView<AssistantConversationPurgeView> => {
+        const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
+        if (!this.isOrganizationAdmin(viewer) || assistant === undefined) return this.organizationSettingsDenied();
+        let deletedThreadCount = 0;
+        for (const account of this.accounts()) {
+          const threads = this.storedThreads(account.id, assistant.id);
+          if (threads.length === 0) continue;
+          deletedThreadCount += threads.length;
+          this.storage.removeItem(this.chatKey(account.id, assistant.id));
+        }
+        return this.applyScenario({ deletedThreadCount });
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  private savedConversationCounts(
+    assistantId: AssistantId,
+  ): Pick<OrganizationRetentionAssistantView, 'threadCount' | 'accountCount' | 'lastActivityAt'> {
+    let threadCount = 0;
+    let accountCount = 0;
+    let lastActivityAt: string | null = null;
+    for (const account of this.accounts()) {
+      const threads = this.storedThreads(account.id, assistantId);
+      if (threads.length === 0) continue;
+      threadCount += threads.length;
+      accountCount += 1;
+      for (const thread of threads) {
+        if (lastActivityAt === null || Date.parse(thread.updatedAt) > Date.parse(lastActivityAt)) {
+          lastActivityAt = thread.updatedAt;
+        }
+      }
+    }
+    return { threadCount, accountCount, lastActivityAt };
   }
 
   private organizationRetentionView(viewer: AccountId): OrganizationRetentionView {

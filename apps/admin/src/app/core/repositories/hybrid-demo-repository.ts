@@ -58,7 +58,13 @@ import {
   type WebsitePublishFailureReason,
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
-import type { OrganizationChatModelView, OrganizationRetentionView } from '../domain/organization-settings.model';
+import type {
+  AssistantConversationPurgeView,
+  AssistantConversationSummaryView,
+  OrganizationChatModelView,
+  OrganizationRetentionAssistantView,
+  OrganizationRetentionView,
+} from '../domain/organization-settings.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -257,6 +263,9 @@ type UpdateOrganizationChatModelRequest = components['schemas']['UpdateOrganizat
 type ApiOrganizationRetention = components['schemas']['OrganizationRetentionView'];
 type ApiOrganizationRetentionPreview = components['schemas']['OrganizationRetentionPreviewView'];
 type UpdateOrganizationRetentionRequest = components['schemas']['UpdateOrganizationRetentionRequest'];
+type ApiOrganizationRetentionAssistant = components['schemas']['OrganizationRetentionAssistantView'];
+type ApiAssistantConversationSummary = components['schemas']['AssistantConversationSummaryView'];
+type ApiAssistantConversationPurge = components['schemas']['AssistantConversationPurgeView'];
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
 type ApiWebsiteChannel = components['schemas']['WebsiteChannelView'];
@@ -435,6 +444,19 @@ export const API_ORGANIZATION_RETENTION_PATH = '/api/v1/organization/retention';
 
 /** 保存期限的預覽（管理者）：`?days=N`。 */
 export const API_ORGANIZATION_RETENTION_PREVIEW_PATH = `${API_ORGANIZATION_RETENTION_PATH}/preview`;
+
+/** 各助理已保存的對話（管理者，issue #242）。 */
+export const API_ORGANIZATION_RETENTION_ASSISTANTS_PATH = `${API_ORGANIZATION_RETENTION_PATH}/assistants`;
+
+/** 單一助理已保存的對話串數與成員數（管理者或擁有者）。 */
+export function apiAssistantConversationSummaryPath(assistantId: string): string {
+  return `${apiAssistantPath(assistantId)}/chat/conversations/summary`;
+}
+
+/** 立即刪除單一助理所有成員已保存的對話（管理者）。 */
+export function apiAssistantConversationPurgePath(assistantId: string): string {
+  return `${apiAssistantPath(assistantId)}/chat/conversations:purge`;
+}
 
 export function apiAssistantPublishingPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/publishing`;
@@ -1230,6 +1252,50 @@ export class HybridDemoRepository extends MockDemoRepository {
         }
         return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
       }),
+    );
+  }
+
+  /** 非管理者是 `403 organization-settings` → permission-denied（畫面不顯示清單）。 */
+  override listRetentionAssistants(): Observable<RepositoryView<readonly OrganizationRetentionAssistantView[]>> {
+    return this.http.get<ApiOrganizationRetentionAssistant[]>(API_ORGANIZATION_RETENTION_ASSISTANTS_PATH).pipe(
+      map((response): RepositoryView<readonly OrganizationRetentionAssistantView[]> => ({
+        status: 'ready',
+        data: response.map((row) => ({
+          assistantId: row.assistantId,
+          assistantName: row.assistantName,
+          keepConversations: row.keepConversations,
+          threadCount: row.threadCount,
+          accountCount: row.accountCount,
+          lastActivityAt: row.lastActivityAt ?? null,
+        })),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED)),
+    );
+  }
+
+  /** 不是管理者也不是擁有者、或 id 不存在：`403 assistant-configuration` → permission-denied。 */
+  override getAssistantConversationSummary(
+    assistantId: string,
+  ): Observable<RepositoryView<AssistantConversationSummaryView>> {
+    return this.http.get<ApiAssistantConversationSummary>(apiAssistantConversationSummaryPath(assistantId)).pipe(
+      map((response): RepositoryView<AssistantConversationSummaryView> => ({
+        status: 'ready',
+        data: { threadCount: response.threadCount, accountCount: response.accountCount, canPurge: response.canPurge },
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)),
+    );
+  }
+
+  /** 非管理者（含擁有者）、不存在或別的組織的助理：`403 organization-settings` → permission-denied。 */
+  override purgeAssistantConversations(
+    assistantId: string,
+  ): Observable<RepositoryView<AssistantConversationPurgeView>> {
+    return this.http.post<ApiAssistantConversationPurge>(apiAssistantConversationPurgePath(assistantId), {}).pipe(
+      map((response): RepositoryView<AssistantConversationPurgeView> => ({
+        status: 'ready',
+        data: { deletedThreadCount: response.deletedThreadCount },
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED)),
     );
   }
 

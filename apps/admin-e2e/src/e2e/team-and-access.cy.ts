@@ -108,6 +108,35 @@ describe('team management and data access', () => {
     cy.get('#retention-status').should('contain', '已改回 永久');
   });
 
+  it('purges an assistant\'s saved conversations from the settings list only after the acknowledgement (issue #242)', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/chat/assistant-customer-service');
+    cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+    cy.get('form.composer button[type="submit"]').click();
+    cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+
+    cy.visit('/app/settings');
+    cy.get('[data-assistant-row="assistant-customer-service"]').scrollIntoView().within(() => {
+      cy.contains('客服助理').should('be.visible');
+      cy.get('[data-keep-state]').should('contain', '開啟');
+      cy.get('[data-thread-count]').should('contain', '已保存 1 串對話（1 位成員）');
+      cy.get('[data-last-activity]').should('contain', '最後活動：20');
+      cy.contains('button', '立即刪除').click();
+    });
+
+    cy.get('[role="dialog"]').should('be.visible').within(() => {
+      cy.contains('立即刪除「客服助理」已保存的對話？').should('be.visible');
+      cy.get('.confirm-detail').should('contain', '1 位成員').and('contain', '1 串對話');
+      cy.get('[data-purge-issues-note]').should('contain', '已轉給專人的問答會保留在處理事項中');
+      cy.get('.confirm-purge').should('be.disabled');
+      cy.get('#purge-acknowledge').check();
+      cy.get('.confirm-purge').should('be.enabled').click();
+    });
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('[data-purge-status]').should('contain', '已刪除「客服助理」的 1 串對話');
+    cy.get('[data-assistant-row="assistant-customer-service"] [data-thread-count]').should('contain', '已保存 0 串對話');
+  });
+
   it('shows the retention read-only to a member (issue #243)', () => {
     loginAs('內部使用者');
     cy.visit('/app/settings');

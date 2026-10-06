@@ -656,6 +656,34 @@
         }
       }
     },
+    "/api/v1/organization/retention/assistants": {
+      "get": {
+        "tags": [
+          "ConversationPurgeEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationRetentionAssistantView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/chat/recent-conversations": {
       "get": {
         "tags": [
@@ -4618,6 +4646,78 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/chat/conversations/summary": {
+      "get": {
+        "tags": [
+          "ConversationPurgeEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/conversations:purge": {
+      "post": {
+        "tags": [
+          "ConversationPurgeEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationPurgeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
     "/api/v1/case-groups": {
       "get": {
         "tags": [
@@ -5961,6 +6061,39 @@
           },
           "acceptanceStatus": {
             "$ref": "#/components/schemas/AssistantAcceptanceStatus"
+          }
+        }
+      },
+      "AssistantConversationPurgeView": {
+        "required": [
+          "deletedThreadCount"
+        ],
+        "type": "object",
+        "properties": {
+          "deletedThreadCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AssistantConversationSummaryView": {
+        "required": [
+          "threadCount",
+          "accountCount",
+          "canPurge"
+        ],
+        "type": "object",
+        "properties": {
+          "threadCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accountCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "canPurge": {
+            "type": "boolean"
           }
         }
       },
@@ -10656,6 +10789,44 @@
           }
         }
       },
+      "OrganizationRetentionAssistantView": {
+        "required": [
+          "assistantId",
+          "assistantName",
+          "keepConversations",
+          "threadCount",
+          "accountCount",
+          "lastActivityAt"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "keepConversations": {
+            "type": "boolean"
+          },
+          "threadCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accountCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastActivityAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
       "OrganizationRetentionPendingView": {
         "required": [
           "days",
@@ -12201,6 +12372,9 @@
     },
     {
       "name": "OrganizationRetentionEndpoints"
+    },
+    {
+      "name": "ConversationPurgeEndpoints"
     },
     {
       "name": "ChatEndpoints"

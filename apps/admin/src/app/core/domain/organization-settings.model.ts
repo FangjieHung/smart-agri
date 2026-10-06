@@ -60,3 +60,25 @@ export function isShorterRetention(next: number | null, current: number | null):
   if (next === null) return false;
   return current === null || next < current;
 }
+
+/**
+ * 系統設定「對話保存」的各助理清單（`GET /api/v1/organization/retention/assistants`，只有管理者；
+ * issue #242，M6 計畫第 3 節 H）：每個助理已保存的對話串數、成員數、最後活動時間（沒有對話時是
+ * `null`）與「保留使用者自己的對話紀錄」開關。只有數字，不含任何對話內容。
+ */
+export type OrganizationRetentionAssistantView = components['schemas']['OrganizationRetentionAssistantView'];
+
+/**
+ * 單一助理已保存的對話串數與成員數（`GET …/chat/conversations/summary`）：管理者，或讀得到這個助理
+ * 設定的人（擁有者）。`canPurge` 是「呼叫者是管理者」：只有管理者能立即刪除。
+ */
+export type AssistantConversationSummaryView = components['schemas']['AssistantConversationSummaryView'];
+
+/** 立即刪除（`POST …/chat/conversations:purge`，只有管理者）實際刪除的串數。 */
+export type AssistantConversationPurgeView = components['schemas']['AssistantConversationPurgeView'];
+
+/**
+ * 處理事項的問答副本不受保存期限與立即刪除影響（M6 計畫第 3 節 G、H）。保存期限與立即刪除的說明
+ * 都由這句開頭，各自接上自己的後半句。
+ */
+export const HANDOFF_COPIES_KEPT = '已轉給專人的問答會保留在處理事項中';

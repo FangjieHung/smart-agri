@@ -214,6 +214,28 @@ describe('accessibility', () => {
     });
   });
 
+  describe('purge confirmation (issue #242)', () => {
+    it('has no critical or serious violations with the confirmation open, and Escape returns focus to the row', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/chat/assistant-customer-service');
+      cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+      cy.get('form.composer button[type="submit"]').click();
+      cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+
+      cy.visit('/app/settings');
+      cy.get('[data-assistant-row="assistant-customer-service"] button').scrollIntoView().click();
+      cy.get('[role="dialog"]')
+        .should('have.attr', 'aria-modal', 'true')
+        .and('have.attr', 'aria-labelledby');
+      cy.focused().should('have.class', 'confirm-cancel');
+      auditA11y();
+
+      cy.focused().type('{esc}');
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.focused().should('have.attr', 'data-assistant-id', 'assistant-customer-service');
+    });
+  });
+
   describe('team settings as a non-admin persona', () => {
     it('has no critical or serious violations on the refused team panel', () => {
       loginAs('內部使用者');

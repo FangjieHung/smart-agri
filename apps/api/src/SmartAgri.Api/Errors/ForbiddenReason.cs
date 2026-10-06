@@ -225,6 +225,17 @@ public sealed class ForbiddenReason
         "這個網址只接受官網對話視窗本身的請求。");
 
     /// <summary>
+    /// Changing an organization-level setting (M6 plan §3 C, decision A: the chat model, later
+    /// retention and M7's case teams and types) without being the organization's manager — the
+    /// role <c>smb-admin</c>, read from the database on every request
+    /// (<c>OrganizationAdminPolicy.RequireOrganizationAdmin</c>). Same bytes whether the caller is
+    /// not a manager, the resource does not exist or belongs to another organization.
+    /// </summary>
+    public static readonly ForbiddenReason OrganizationSettings = new(
+        "organization-settings",
+        "只有管理者可以變更組織設定。");
+
+    /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason
     /// (see <c>PermissionPolicies.RequirePermission</c>, which always declares one). Not
     /// part of the frontend union on purpose, so it shows up in review and in the UI as a

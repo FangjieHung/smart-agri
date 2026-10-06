@@ -79,6 +79,55 @@ public sealed class Organization
         MonthlyTokenLimit = limit;
     }
 
+    /// <summary>Maximum length of <see cref="ChatModelId"/>.</summary>
+    public const int ChatModelIdMaxLength = 64;
+
+    /// <summary>
+    /// The id of the chat model the organization chose from the deployment's list
+    /// (<c>Ai:Chat</c> and <c>Ai:Chat:Models</c>, M6 plan §3 A–D), or <see langword="null"/> for the
+    /// deployment default. No foreign key: the list is deployment configuration, so an id the
+    /// operator later removes stays here and the organization falls back to the default
+    /// (<c>source: removed</c>) until a manager chooses again.
+    /// </summary>
+    public string? ChatModelId { get; private set; }
+
+    /// <summary>
+    /// Bumped by every change made through the organization settings APIs (the chat model here;
+    /// retention in M6-4). A settings <c>PUT</c> sends the revision it read; a different one is a
+    /// <c>409</c>, so two tabs cannot overwrite each other. Starts at <c>0</c>.
+    /// </summary>
+    public int SettingsRevision { get; private set; }
+
+    /// <summary>
+    /// Sets <see cref="ChatModelId"/> (<see langword="null"/> or blank: the deployment default) when
+    /// <paramref name="expectedRevision"/> is <see cref="SettingsRevision"/>. The caller has already
+    /// checked the id against the deployment's list and passes its canonical spelling. The same
+    /// value again is <see cref="OrganizationSettingsChange.Unchanged"/>: nothing changes, not even
+    /// the revision.
+    /// </summary>
+    public OrganizationSettingsChange ChangeChatModel(string? chatModelId, int expectedRevision)
+    {
+        var normalized = string.IsNullOrWhiteSpace(chatModelId) ? null : chatModelId.Trim();
+        if (normalized is { Length: > ChatModelIdMaxLength })
+        {
+            throw new ArgumentException($"A chat model id is at most {ChatModelIdMaxLength} characters.", nameof(chatModelId));
+        }
+
+        if (expectedRevision != SettingsRevision)
+        {
+            return OrganizationSettingsChange.RevisionConflict;
+        }
+
+        if (string.Equals(normalized, ChatModelId, StringComparison.Ordinal))
+        {
+            return OrganizationSettingsChange.Unchanged;
+        }
+
+        ChatModelId = normalized;
+        SettingsRevision += 1;
+        return OrganizationSettingsChange.Changed;
+    }
+
     /// <summary>
     /// Trims and lower-cases a code, and rejects anything outside
     /// <c>[a-z0-9-]</c>. In particular <c>/</c> is never allowed: account user names are

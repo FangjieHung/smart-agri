@@ -79,6 +79,7 @@ public class OrganizationModelTests
                 typeof(BackgroundJob),
                 typeof(ModelInvocation),
                 typeof(AnswerOutcome),
+                typeof(OrganizationActivity),
             ],
             ignoreOrder: true);
         dbContext.Model.FindEntityType(typeof(Organization)).ShouldNotBeNull();

@@ -650,9 +650,31 @@ same id (ids default to the model name, so two entries of one model need their o
 every rule above per entry (`Fake` only in Development/Testing, keys, endpoints). The startup log
 lists each model's id, provider and model (never a key). `ChatModelCatalog` holds them;
 `IOrganizationChatModelResolver` (scoped) says which one the scope's organization uses, and the
-scoped `IChatClient` sends every call there and records that model in `ModelInvocations`. Until
-organizations can choose (M6-2), every organization gets the deployment default. The evaluation
-commands (`eval-answers`, `eval-form-requests`) always use the deployment default.
+scoped `IChatClient` sends every call there and records that model in `ModelInvocations`. The
+resolver reads the organization's `ChatModelId` once per scope (M6-2), so a manager's change
+applies to the next answer, test run or report; an id the deployment no longer offers falls back
+to the default (`source: removed`) until the manager chooses again. The evaluation commands
+(`eval-answers`, `eval-form-requests`) always use the deployment default.
+
+**Choosing the organization's model (M6-2, #239).**
+
+- **`GET /api/v1/organization/chat-model`** (any signed-in account of the organization) returns
+  `{ options: [{ id, displayName, model }], selectedId, effective, source, canChange, lastChange,
+  revision }`. `options` never carries a key, endpoint or provider settings; `effective` is `null`
+  only when the deployment has no chat model; `source` is `selected`, `deployment-default` or
+  `removed`; `canChange` is whether the caller is the manager; `lastChange` is
+  `{ actorName, at }` (「已停用的帳號」 when the account can no longer be found).
+- **`PUT /api/v1/organization/chat-model`** `{ modelId, revision }` — manager only: anyone else gets
+  `403 organization-settings`. `modelId: null` goes back to the deployment default; an id not in
+  `options` is `422` (`errors.modelId`); a stale `revision` is `409 organization-settings-conflict`;
+  the same value again is `200` without writing anything. A change bumps
+  `Organizations.SettingsRevision` and writes one `OrganizationActivities` row
+  (`chat-model-changed`, detail `{ from: { id, displayName }, to: { id, displayName } }`).
+- **The manager check** (`RequireOrganizationAdmin(ForbiddenReason)`, `Authorization/OrganizationAdmin.cs`)
+  is the role `smb-admin`, read from `Accounts` on every request — never from the token's `role`
+  claim — so changing a role in the database takes effect with the same access token. It is a role,
+  not a permission: `manage-assistants` holders who are not managers cannot change organization
+  settings. Code that only needs to know asks the scoped `RequestAccountRole`.
 
 - **`Fake`** (`FakeChatClient`) is a scripted, reproducible answer generator, no model and no
   network. It reads the highest `[n]` passage number anywhere in the messages it is given and

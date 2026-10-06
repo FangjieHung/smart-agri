@@ -150,6 +150,27 @@ public sealed class OrganizationActivity : IOrganizationScoped
             organizationId, OrganizationActivityAction.ConversationsPurged, actorAccountId, at,
             new { assistantId, assistantName, threadCount });
     }
+
+    /// <summary><see cref="OrganizationActivityAction.CaseGroupCreated"/>: detail <c>{ "id", "name" }</c>.</summary>
+    public static OrganizationActivity CaseGroupCreated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid groupId, string name) =>
+        Record(organizationId, OrganizationActivityAction.CaseGroupCreated, actorAccountId, at, new { id = groupId, name });
+
+    /// <summary><see cref="OrganizationActivityAction.CaseGroupRenamed"/>: detail <c>{ "id", "name",
+    /// "previousName" }</c>.</summary>
+    public static OrganizationActivity CaseGroupRenamed(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid groupId, string name, string previousName) =>
+        Record(organizationId, OrganizationActivityAction.CaseGroupRenamed, actorAccountId, at, new { id = groupId, name, previousName });
+
+    /// <summary><see cref="OrganizationActivityAction.CaseGroupArchived"/> or
+    /// <see cref="OrganizationActivityAction.CaseGroupUnarchived"/>: detail <c>{ "id", "name" }</c>.</summary>
+    public static OrganizationActivity CaseGroupArchiveChanged(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid groupId, string name, bool archived) =>
+        Record(
+            organizationId,
+            archived ? OrganizationActivityAction.CaseGroupArchived : OrganizationActivityAction.CaseGroupUnarchived,
+            actorAccountId,
+            at,
+            new { id = groupId, name });
 }
 
 /// <summary>One side of a <see cref="OrganizationActivityAction.ChatModelChanged"/> detail.</summary>

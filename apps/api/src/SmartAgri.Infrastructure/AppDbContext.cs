@@ -7,6 +7,7 @@ using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Cases;
 using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Jobs;
@@ -18,6 +19,7 @@ using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Ai;
 using SmartAgri.Infrastructure.Answers;
 using SmartAgri.Infrastructure.Assistants;
+using SmartAgri.Infrastructure.Cases;
 using SmartAgri.Infrastructure.Chat;
 using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
@@ -183,6 +185,15 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
     /// <summary>Snapshots of periodic reports: statistics apart from the AI summary (M4, #150).</summary>
     public DbSet<DatabaseReport> DatabaseReports => Set<DatabaseReport>();
+
+    /// <summary>承辦組 (M7 plan §3 A; #246): never deleted, only archived.</summary>
+    public DbSet<CaseGroup> CaseGroups => Set<CaseGroup>();
+
+    /// <summary>Each case group's current members (M7-1).</summary>
+    public DbSet<CaseGroupMember> CaseGroupMembers => Set<CaseGroupMember>();
+
+    /// <summary>Append-only history of case group member additions and removals (M7-1).</summary>
+    public DbSet<CaseGroupMemberChange> CaseGroupMemberChanges => Set<CaseGroupMemberChange>();
 
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
@@ -351,6 +362,11 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // Periodic reports (M4, #150).
         modelBuilder.ApplyConfiguration(new ReportScheduleConfiguration());
         modelBuilder.ApplyConfiguration(new DatabaseReportConfiguration());
+
+        // Case groups (M7 plan §3 A, §4; #246).
+        modelBuilder.ApplyConfiguration(new CaseGroupConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseGroupMemberConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseGroupMemberChangeConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

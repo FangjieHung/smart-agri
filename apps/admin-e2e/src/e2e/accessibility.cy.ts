@@ -255,6 +255,18 @@ describe('accessibility', () => {
     });
   });
 
+  describe('case group member editor and history expanded (issue #246)', () => {
+    it('has no critical or serious violations with the editor and the history rendered', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '編輯「設備組」的成員').scrollIntoView().click();
+      cy.get('[data-case-group-members-editor] input[type="checkbox"]').should('have.length', 2);
+      cy.contains('button', '「採購組」的成員異動').click();
+      cy.get('[data-case-group-history]').should('contain', '加入了 安心商行管理者');
+      auditA11y();
+    });
+  });
+
   describe('embedded chat as an anonymous visitor', () => {
     it('has no critical or serious violations without any demo persona', () => {
       cy.visit('/use/assistant-customer-service');

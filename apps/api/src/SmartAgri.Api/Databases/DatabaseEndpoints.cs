@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
@@ -607,8 +608,6 @@ public static class DatabaseEndpoints
 
     private const string UnknownAccountMessage = "有不認得的帳號，這次指定沒有儲存。";
 
-    private const string RemovedAccountName = "已停用的帳號";
-
     private static IResult DataManagersInvalid(string message) =>
         ApiErrors.ValidationFailed(message, new Dictionary<string, string[]> { ["dataManagerAccountIds"] = [message] });
 
@@ -651,8 +650,8 @@ public static class DatabaseEndpoints
             .Where(account => nameIds.Contains(account.Id) || isOwner)
             .Select(account => new { account.Id, account.DisplayName, account.Role })
             .ToListAsync(cancellationToken);
-        DatabaseAccountView Named(Guid accountId) => new(
-            accountId, accounts.FirstOrDefault(account => account.Id == accountId)?.DisplayName ?? RemovedAccountName);
+        var names = AccountNameLookup.From(accounts.ToDictionary(account => account.Id, account => account.DisplayName));
+        DatabaseAccountView Named(Guid accountId) => new(accountId, names.NameOf(accountId));
 
         var readerIds = await DatabaseRecordReaders.EffectiveReaderIdsAsync(dbContext, database.Id, cancellationToken);
         var viewerIsDataManager = designations.Any(designation => designation.AccountId == viewerId);

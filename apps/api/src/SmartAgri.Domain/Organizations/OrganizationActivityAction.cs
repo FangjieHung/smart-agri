@@ -4,8 +4,8 @@ namespace SmartAgri.Domain.Organizations;
 
 /// <summary>
 /// What an <see cref="OrganizationActivity"/> row records. Stored as the wire name (not the number),
-/// so members can be reordered safely. Later slices add theirs here (M7: case teams and case
-/// types).
+/// so members can be reordered safely. Later slices add theirs here (M7-1: case groups; M7-2:
+/// case types).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrganizationActivityAction>))]
 public enum OrganizationActivityAction
@@ -43,4 +43,23 @@ public enum OrganizationActivityAction
     /// said. The members are not notified.</summary>
     [JsonStringEnumMemberName("conversations-purged")]
     ConversationsPurged,
+
+    /// <summary>A manager created a case group (承辦組, M7-1). Detail: <c>id</c>, <c>name</c>
+    /// (<see cref="OrganizationActivity.CaseGroupCreated"/>).</summary>
+    [JsonStringEnumMemberName("case-group-created")]
+    CaseGroupCreated,
+
+    /// <summary>A manager renamed a case group (M7-1). Detail: <c>id</c>, <c>name</c> (the new one),
+    /// <c>previousName</c>.</summary>
+    [JsonStringEnumMemberName("case-group-renamed")]
+    CaseGroupRenamed,
+
+    /// <summary>A manager archived a case group (M7-1). Detail: <c>id</c>, <c>name</c>.</summary>
+    [JsonStringEnumMemberName("case-group-archived")]
+    CaseGroupArchived,
+
+    /// <summary>A manager put an archived case group back in use (M7-1). Detail: <c>id</c>,
+    /// <c>name</c>.</summary>
+    [JsonStringEnumMemberName("case-group-unarchived")]
+    CaseGroupUnarchived,
 }

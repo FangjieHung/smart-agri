@@ -70,6 +70,13 @@ API 模式的 spec 不會自己啟動任何伺服器，要先準備好資料庫�
    `org-settings-api.cy.ts` 只在 對照組織（`control`）改模型、保存期限與刪除對話，最後恢復成預設；
    安心商行 的設定與對話不受影響。
 
+   `cases-api.cy.ts`（M7 #256）同樣以 `cy.exec` 執行
+   `case-set-due --organization control --case <id> --due <一小時前>` 製造逾期案件（API 不接受早於現在的時限；
+   這個子指令只在 Development／Testing 可用，其他環境拒絕並以非 0 結束）。它全部在 對照組織 進行：管理者新增
+   四位內部同仁（登入名稱、承辦組、案件類型都帶這次執行的後綴；新同仁第一次登入時把密碼設成 `SEED_DEMO_PASSWORD`），
+   所以 安心商行 不受影響，側欄數字與瓶頸統計也都是這次自己的件數。帳號、承辦組、類型與案件不能刪除，
+   本機重跑會累積在 對照組織；最後只刪掉助理與知識庫、封存數據庫。
+
 5. **admin**（4200，`apps/admin/proxy.api.json` 把 `/api`、`/connect`、`/.well-known` 轉給 5153）：
 
    ```sh
@@ -96,6 +103,12 @@ API 模式的 spec 不會自己啟動任何伺服器，要先準備好資料庫�
 - proxy 目標寫在 `apps/admin/proxy.api.json`：複製一份改成新的 API 埠，以
   `npx nx run admin:serve:api --port=4210 --proxy-config=<複製的檔案>` 啟動。
 - spec：`ADMIN_E2E_API_BASE_URL=http://localhost:4210 npx nx run admin-e2e:e2e-api`。
+- 用 `cy.exec` 跑子指令的 spec（`website-embed-api`、`org-settings-api`、`cases-api`）：跑 Cypress 的 shell 也要有
+  同一個 `ConnectionStrings__Default`（臨時資料庫記得 `create extension vector`）。例如 #256 在本機用 API 5264、
+  admin 4302、資料庫 `e2e_m7_256`：`migrate` 時設 `Authentication__AdminSpa__Origins__0=http://localhost:4302`，
+  API 以 `dotnet run --no-build --no-launch-profile --project apps/api/src/SmartAgri.Api --urls http://localhost:5264`
+  （加上 CI `e2e-api` job 那一步的環境變數）啟動，spec 以
+  `ADMIN_E2E_API_BASE_URL=http://localhost:4302 ADMIN_E2E_API_URL=http://localhost:5264` 執行。
 
 ## CI 的測試密碼
 

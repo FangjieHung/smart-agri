@@ -185,6 +185,15 @@ if (args is [SmartAgriCommands.RetentionCleanup, .. var retentionCleanupArgs])
     return;
 }
 
+// `case-set-due` is one-shot too, Development/Testing only: move one open case's due time (also into
+// the past, which the API refuses) with an actor-less due-changed event, and exit (M7-11 #256). The
+// API-mode E2E runs it to make a case overdue.
+if (args is [SmartAgriCommands.CaseSetDue, .. var caseSetDueArgs])
+{
+    Environment.ExitCode = await CaseSetDueCommand.RunAsync(app.Services, caseSetDueArgs, Console.Out, Console.Error);
+    return;
+}
+
 // Behind a reverse proxy: apply X-Forwarded-* only from PublicChannels:TrustedProxies, first of all,
 // so the Origin check and the rate limits see the real client, scheme and host (M5a #197).
 app.UseTrustedProxies();
@@ -268,6 +277,7 @@ internal static class SmartAgriCommands
     public const string EvalCaseProposals = "eval-case-proposals";
     public const string SetTokenLimit = "set-token-limit";
     public const string RetentionCleanup = "retention-cleanup";
+    public const string CaseSetDue = "case-set-due";
 }
 
 namespace SmartAgri.Api

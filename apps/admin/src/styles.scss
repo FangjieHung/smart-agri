@@ -8,6 +8,16 @@
 @use './styles/utilities';
 @use './styles/chat-handoff';
 
+// Tailwind 4 會自動掃描整個 repo 找 class 名稱；後端程式碼、部署檔與文件裡的英文字（例如
+// "key ring"）會被當成 class，替 admin 產生用不到的 CSS（`.ring` 就多了 1.7 kB）。
+// 只讓 admin 與 libs 的原始碼產生 class。
+@source not "../../api";
+@source not "../../admin-e2e";
+@source not "../../embed-loader";
+@source not "../../../docs";
+@source not "../../../deploy";
+@source not "../../../tools";
+
 /* ============================================================
    Angular Material：主題（色彩/造型 token 由
    src/styles/color-themes/verdant/_tokens.scss 與

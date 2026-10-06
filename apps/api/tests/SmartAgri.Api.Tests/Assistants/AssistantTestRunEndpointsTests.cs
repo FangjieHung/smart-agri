@@ -26,7 +26,7 @@ namespace SmartAgri.Api.Tests.Assistants;
 /// are written to overlap one document's text heavily.
 /// </summary>
 [Trait("Category", TestCategories.Docker)]
-public sealed class AssistantTestRunEndpointsTests : IClassFixture<AuthHostFixture>
+public sealed partial class AssistantTestRunEndpointsTests : IClassFixture<AuthHostFixture>
 {
     private const string Password = "TestRun-Endpoint-Pass-1!";
     private const string ReturnClause = "收到商品後七天內可申請退貨，退貨運費由買家負擔。";

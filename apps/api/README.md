@@ -638,6 +638,21 @@ Configuration (section `Ai:Chat`; as environment variables `Ai__Chat__Provider`,
 | `MaxOutputTokens` | (provider default) | Applied to every call that does not set its own, through `ChatClientBuilder.ConfigureOptions` (the full `Microsoft.Extensions.AI` package — the only thing Infrastructure needs it for). |
 | `TimeoutSeconds` | (client default) | Applied to the OpenAI client's `NetworkTimeout`. |
 | `ReasoningEffort` | (provider default) | `None`, `Low`, `Medium`, `High` or `ExtraHigh`; applied to every call that does not set its own (`ChatOptions.Reasoning`). Some reasoning models refuse function tools on Chat Completions unless it is `None` (M4 #164: `gpt-6-luna` answers HTTP 400), which would break the #149 query tools and the #164 form tool. |
+| `Id` | `Model` | The model's id in the list below (what an organization's choice is stored as, M6). Letters, digits, `-`, `_`, `.`, at most 64; a single `Ai:Chat` keeps any model name as its id. |
+| `DisplayName` | `Model` | The name people see in the settings. |
+| `Models` | (none) | More chat models the deployment offers (`Ai:Chat:Models:0:Provider`, … / `Ai__Chat__Models__0__Provider`, …), each with all the keys above. |
+
+**More than one model (M6-1, #238).** `Ai:Chat` itself is the **deployment default**;
+`Ai:Chat:Models` lists the others, each with its own provider, key, `MaxOutputTokens`,
+`ReasoningEffort` and `TimeoutSeconds`. An entry with a blank `Provider` is a placeholder and is
+skipped. With any other entry, startup refuses a blank `Ai:Chat:Provider`, two entries with the
+same id (ids default to the model name, so two entries of one model need their own `Id`), and
+every rule above per entry (`Fake` only in Development/Testing, keys, endpoints). The startup log
+lists each model's id, provider and model (never a key). `ChatModelCatalog` holds them;
+`IOrganizationChatModelResolver` (scoped) says which one the scope's organization uses, and the
+scoped `IChatClient` sends every call there and records that model in `ModelInvocations`. Until
+organizations can choose (M6-2), every organization gets the deployment default. The evaluation
+commands (`eval-answers`, `eval-form-requests`) always use the deployment default.
 
 - **`Fake`** (`FakeChatClient`) is a scripted, reproducible answer generator, no model and no
   network. It reads the highest `[n]` passage number anywhere in the messages it is given and

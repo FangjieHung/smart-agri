@@ -7,7 +7,7 @@
 - 預設使用 ASP.NET Core Identity，帳號與密碼存在本系統資料庫。
 - 登入憑證由自架的 OpenIddict（Apache-2.0）核發，不依賴任何雲端身分服務。
 - 個別組織可選擇改接自己的 OIDC 單一登入或內部 AD。
-- 匿名訪客（網站嵌入、`/use/:assistantId`）與 LINE 使用者走獨立的身分流程，不建立一般登入帳號。
+- 匿名訪客（網站嵌入、`/use/:assistantId`）與 LINE 使用者走獨立的身分流程，不建立一般登入帳號。網站訪客以 Data Protection 簽發的短期訪客憑證識別（M5a #196）；LINE 使用者由 Webhook 的簽章確認來源，以「助理＋聊天對象 id」區分前文，兩者都不建立帳號，也不寫入資料庫（M5b）。
 - 前端 Demo 的三組固定帳號與密碼 `1234` 不進入正式後端。
 - 帳號名稱只需在同一組織內唯一；登入時以「組織代碼＋帳號名稱＋密碼」識別。部署內只有一個組織時可省略組織代碼。Identity 內部的 `UserName` 存成「組織代碼/帳號名稱」組合值，以沿用 Identity 的全域唯一索引，畫面與 API 只顯示帳號名稱。
 - 前端把 access token 存在分頁的 sessionStorage，30 分鐘到期即重新登入，暫不發 refresh token。

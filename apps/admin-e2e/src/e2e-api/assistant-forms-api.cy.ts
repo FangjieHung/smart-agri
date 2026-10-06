@@ -126,6 +126,9 @@ describe('assistant forms against the real API', () => {
     // 數據庫詳情列出這個助理。
     cy.then(() => cy.visit(`/app/databases/${databaseId}/assistants`));
     cy.get('.assistant-list').should('contain', assistantName);
+    // 清單的「連接的助理」欄（#188）：同一個助理名稱，不再是「將於後續版本開放」。
+    cy.then(() => cy.visit('/app/databases'));
+    cy.contains('lib-data-table tbody tr', databaseName).should('contain', assistantName).and('not.contain', '將於後續版本開放');
 
     cy.then(() => cy.visit(`/app/assistants/${assistantId}/publishing?channel=platform`));
     cy.get('app-platform-sharing').within(() => {

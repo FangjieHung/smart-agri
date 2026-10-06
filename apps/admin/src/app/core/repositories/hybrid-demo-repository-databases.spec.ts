@@ -223,6 +223,70 @@ describe('HybridDemoRepository databases (issue #142)', () => {
     expect(outcome).toMatchObject({ status: 'ready', data: [{ name: '門市客戶', recordCount: null, subjectCount: null }] });
   });
 
+  describe('connected assistants (#188)', () => {
+    // 後端只列呼叫者自己的助理（`DatabaseConnectedAssistants.ForAsync`，#148）；前端照單全收、不推斷權限。
+    // 下面三份是後端的真實回應（2026-10-06，API 整合測試主機）：管理者擁有「客戶資料庫」並連接了助理
+    // 「客服小幫手」，另一位管理者被指定為資料管理者；「合作夥伴資料庫」沒有連接任何助理。
+    const REAL_OWNER_LIST_WITH_ASSISTANT_JSON = `[{"id":"01a10ed1-dbc2-7284-8b68-2c4501fe5bc9","name":"客戶資料庫","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10ed1-d5ed-7783-b965-338ac131e967","displayName":"表單商行管理者"},"createdAt":"2026-10-06T01:26:36.737845+00:00","updatedAt":"2026-10-06T01:26:36.737845+00:00","viewerCanManage":true,"archivedAt":null,"connectedAssistantNames":["客服小幫手"]},{"id":"01a10ed1-dbf3-7a8d-9032-8dc5fd9d29fa","name":"合作夥伴資料庫","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10ed1-d642-782a-be36-62260b04acb5","displayName":"表單商行第二位管理者"},"createdAt":"2026-10-06T01:26:36.787946+00:00","updatedAt":"2026-10-06T01:26:36.787946+00:00","viewerCanManage":false,"archivedAt":null,"connectedAssistantNames":[],"recordCount":0,"subjectCount":0}]`;
+    const REAL_MANAGER_LIST_JSON = `[{"id":"01a10ed1-dbc2-7284-8b68-2c4501fe5bc9","name":"客戶資料庫","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10ed1-d5ed-7783-b965-338ac131e967","displayName":"表單商行管理者"},"createdAt":"2026-10-06T01:26:36.737845+00:00","updatedAt":"2026-10-06T01:26:36.737845+00:00","viewerCanManage":false,"archivedAt":null,"connectedAssistantNames":[],"recordCount":0,"subjectCount":0},{"id":"01a10ed1-dbf3-7a8d-9032-8dc5fd9d29fa","name":"合作夥伴資料庫","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10ed1-d642-782a-be36-62260b04acb5","displayName":"表單商行第二位管理者"},"createdAt":"2026-10-06T01:26:36.787946+00:00","updatedAt":"2026-10-06T01:26:36.787946+00:00","viewerCanManage":true,"archivedAt":null,"connectedAssistantNames":[],"recordCount":0,"subjectCount":0}]`;
+    const REAL_OWNER_DETAIL_WITH_ASSISTANT_JSON = `{"summary":{"id":"01a10ed1-dbc2-7284-8b68-2c4501fe5bc9","name":"客戶資料庫","purpose":"整理客戶聯絡方式與類型，方便後續服務。","templateId":"template-customer-profile","templateName":"客戶基本資料","fieldCount":4,"formVersion":1,"owner":{"id":"01a10ed1-d5ed-7783-b965-338ac131e967","displayName":"表單商行管理者"},"createdAt":"2026-10-06T01:26:36.737845+00:00","updatedAt":"2026-10-06T01:26:36.737845+00:00","viewerCanManage":true,"archivedAt":null,"connectedAssistantNames":["客服小幫手"]},"form":{"id":"01a10ed1-dbc3-743e-982e-6ec38845b372","versionNumber":1,"createdAt":"2026-10-06T01:26:36.737845+00:00","fields":[{"id":"field-customer-name","label":"客戶姓名","type":"text","required":true,"options":[],"scale":null,"unit":""},{"id":"field-phone","label":"聯絡電話","type":"text","required":false,"options":[],"scale":null,"unit":""},{"id":"field-first-visit","label":"首次來店日期","type":"date","required":false,"options":[],"scale":null,"unit":""},{"id":"field-customer-type","label":"客戶類型","type":"single-choice","required":true,"options":["個人","企業"],"scale":null,"unit":""}]},"access":{"owner":{"id":"01a10ed1-d5ed-7783-b965-338ac131e967","displayName":"表單商行管理者"},"dataManagers":[{"account":{"id":"01a10ed1-d642-782a-be36-62260b04acb5","displayName":"表單商行第二位管理者"},"hasReadPermission":true,"assignedAt":"2026-10-06T01:26:36.867401+00:00","assignedBy":{"id":"01a10ed1-d5ed-7783-b965-338ac131e967","displayName":"表單商行管理者"}}],"effectiveReaders":[{"id":"01a10ed1-d642-782a-be36-62260b04acb5","displayName":"表單商行第二位管理者"}],"viewerIsDataManager":false,"viewerCanReadRecords":false,"viewerCanManageAccess":true,"candidates":[{"id":"01a10ed1-d642-782a-be36-62260b04acb5","displayName":"表單商行第二位管理者","role":"smb-admin","hasReadPermission":true},{"id":"01a10ed1-d5ed-7783-b965-338ac131e967","displayName":"表單商行管理者","role":"smb-admin","hasReadPermission":true},{"id":"01a10ed1-d666-749c-aaf9-4d217326389e","displayName":"表單商行客服同仁","role":"internal-employee","hasReadPermission":true},{"id":"01a10ed1-d68a-7ccb-90da-ad84969ac987","displayName":"表單商行成員","role":"internal-employee","hasReadPermission":false}],"lastChange":{"changedAt":"2026-10-06T01:26:36.867401+00:00","changedBy":{"id":"01a10ed1-d5ed-7783-b965-338ac131e967","displayName":"表單商行管理者"}}},"connectedAssistants":[{"id":"01a10ed1-dc4c-728c-acf4-b9b378edf1ea","name":"客服小幫手","status":"ready"}]}`;
+
+    it('lists the connected assistant of the real owner list, and the empty state for the database without one', async () => {
+      const { repository, controller } = setUp();
+      const result = firstValueFrom(repository.listDatabaseSummaries());
+      controller.expectOne({ method: 'GET', url: API_DATABASES_PATH }).flush(JSON.parse(REAL_OWNER_LIST_WITH_ASSISTANT_JSON));
+
+      const outcome = await result;
+      if (outcome.status !== 'ready') throw new Error(`expected ready, got ${outcome.status}`);
+      expect(outcome.data.map((item) => [item.name, item.connectedAssistantNames])).toEqual([
+        ['客戶資料庫', ['客服小幫手']],
+        ['合作夥伴資料庫', []],
+      ]);
+    });
+
+    it('shows no names to a data manager, because the backend names only the viewer’s own assistants', async () => {
+      const { repository, controller } = setUp();
+      const result = firstValueFrom(repository.listDatabaseSummaries());
+      controller.expectOne({ method: 'GET', url: API_DATABASES_PATH }).flush(JSON.parse(REAL_MANAGER_LIST_JSON));
+
+      const outcome = await result;
+      if (outcome.status !== 'ready') throw new Error(`expected ready, got ${outcome.status}`);
+      expect(outcome.data.map((item) => item.connectedAssistantNames)).toEqual([[], []]);
+    });
+
+    it('tolerates a list whose key is missing or null (still the empty state)', async () => {
+      const { repository, controller } = setUp();
+      for (const value of [undefined, null]) {
+        const wire = JSON.parse(REAL_OWNER_LIST_WITH_ASSISTANT_JSON) as Record<string, unknown>[];
+        wire[0] = { ...wire[0], connectedAssistantNames: value };
+        const result = firstValueFrom(repository.listDatabaseSummaries());
+        controller.expectOne({ method: 'GET', url: API_DATABASES_PATH }).flush(wire);
+        expect(await result).toMatchObject({ status: 'ready', data: [{ connectedAssistantNames: [] }, {}] });
+      }
+    });
+
+    it('maps the real detail’s connected assistant with its status, and tolerates a missing or null list', async () => {
+      const { repository, controller } = setUp();
+      const parsed = JSON.parse(REAL_OWNER_DETAIL_WITH_ASSISTANT_JSON) as components['schemas']['DatabaseDetailView'];
+      const detailPath = apiDatabasePath(parsed.summary.id);
+
+      const connected = firstValueFrom(repository.getDatabaseDetail(parsed.summary.id));
+      controller.expectOne({ method: 'GET', url: detailPath }).flush(JSON.parse(REAL_OWNER_DETAIL_WITH_ASSISTANT_JSON));
+      const detail = await connected;
+      if (detail.status !== 'ready') throw new Error(`expected ready, got ${detail.status}`);
+      expect(detail.data.connectedAssistants).toEqual([
+        { id: '01a10ed1-dc4c-728c-acf4-b9b378edf1ea', name: '客服小幫手', status: 'ready' },
+      ]);
+      expect(detail.data.summary.connectedAssistantNames).toEqual(['客服小幫手']);
+
+      for (const value of [undefined, null]) {
+        const result = firstValueFrom(repository.getDatabaseDetail(parsed.summary.id));
+        controller.expectOne({ method: 'GET', url: detailPath }).flush({ ...parsed, connectedAssistants: value });
+        expect(await result).toMatchObject({ status: 'ready', data: { connectedAssistants: [] } });
+      }
+    });
+  });
+
   it('creates through the API, not the mock: the request carries the template and name, and mock storage stays empty', async () => {
     const { repository, controller, written } = setUp();
     const result = firstValueFrom(

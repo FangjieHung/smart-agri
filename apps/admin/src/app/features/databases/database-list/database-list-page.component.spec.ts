@@ -3,9 +3,10 @@ import { vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { of, throwError } from 'rxjs';
+import { map, of, throwError } from 'rxjs';
 import type { AccountId } from '../../../core/domain/account.model';
 import type { MockDemoRepository } from '../../../core/repositories/mock-demo-repository';
+import { ApiSessionService } from '../../../core/session/api-session.service';
 import { provideDatabaseTesting } from '../databases.testing';
 import { DatabaseListPageComponent } from './database-list-page.component';
 
@@ -16,12 +17,14 @@ async function openList(
   accountId: AccountId = 'account-smb-admin',
   /** 在畫面建立前替換 repository 的行為（例如模擬讀取或儲存失敗）。 */
   arrange: (repository: MockDemoRepository) => void = () => undefined,
+  apiMode = false,
 ) {
   const testing = provideDatabaseTesting(accountId);
   arrange(testing.repository);
   TestBed.configureTestingModule({
     providers: [
       ...testing.providers,
+      ...(apiMode ? [{ provide: ApiSessionService, useValue: { apiMode: true } }] : []),
       provideRouter([
         { path: 'app/databases', component: DatabaseListPageComponent },
         { path: 'app/databases/:id/:tab', component: DetailStubComponent },
@@ -69,6 +72,38 @@ describe('DatabaseListPageComponent', () => {
     expect(customer?.textContent).toContain('客服助理');
     expect(customer?.textContent).toContain('安心商行管理者');
     expect(Array.from(page().querySelectorAll('lib-data-table thead th')).map((th) => th.textContent?.trim())).toContain('擁有者');
+  });
+
+  it('shows the assistants the repository returns in API mode too, with the same empty state as mock (#188)', async () => {
+    const { page } = await openList(
+      'account-smb-admin',
+      (repository) => {
+        const real = repository.listDatabaseSummaries.bind(repository);
+        vi.spyOn(repository, 'listDatabaseSummaries').mockImplementation((...args) =>
+          real(...args).pipe(
+            map((outcome) =>
+              outcome.status === 'ready'
+                ? {
+                    ...outcome,
+                    data: outcome.data.map((item) => ({
+                      ...item,
+                      connectedAssistantNames: item.name === '客戶資料庫' ? ['客服助理', '門市小幫手'] : [],
+                    })),
+                  }
+                : outcome,
+            ),
+          ),
+        );
+      },
+      true,
+    );
+    const rows = Array.from(page().querySelectorAll('lib-data-table tbody tr'));
+    const connected = rows.find((row) => row.textContent?.includes('客戶資料庫'));
+    const empty = rows.find((row) => !row.textContent?.includes('客戶資料庫'));
+
+    expect(connected?.textContent).toContain('客服助理、門市小幫手');
+    expect(empty?.textContent).toContain('尚未連接');
+    expect(page().textContent).not.toContain('將於後續版本開放');
   });
 
   it('keeps the dialog and the typed name when saving fails, and creates on retry', async () => {

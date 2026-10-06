@@ -12,14 +12,16 @@ namespace SmartAgri.Application.Knowledge.Retrieval;
 public sealed record KnowledgeRetrievalSettings(double MinScore, int Top)
 {
     /// <summary>
-    /// A <b>placeholder</b>, not a calibrated value: the retrieval evaluation (M2 Slice 16,
-    /// #50) measures it for the chosen embedding model and replaces it, in
-    /// <c>appsettings.json</c> and here. Similarities are model-specific: 0.3 is in the range
-    /// where OpenAI's <c>text-embedding-3</c> models separate related from unrelated text, but
-    /// e.g. the e5 family scores almost everything above 0.7, so a deployment that changes model
-    /// must set its own.
+    /// Calibrated for OpenAI's <c>text-embedding-3-small</c> by the retrieval evaluation
+    /// (<c>docs/evals/2026-10-06-retrieval-text-embedding-3-small.md</c>, #191/#192): the
+    /// suggested threshold, judging 32 of 34 questions correctly (it misses one answerable
+    /// question scoring 0.379 and one should-find-nothing question scoring 0.458). Kept equal to
+    /// <c>appsettings.json</c>. Similarities are model-specific — the e5 family scores almost
+    /// everything above 0.7, and the <c>Fake</c> model the Development environment uses scores a
+    /// matching passage around 0.32, so <c>appsettings.Development.json</c> sets 0.3 — and a
+    /// deployment that changes model must set its own.
     /// </summary>
-    public const double DefaultMinScore = 0.3;
+    public const double DefaultMinScore = 0.406;
 
     /// <summary>Five passages: what the evaluation's "top-5 hit rate" measures, and enough
     /// context for an answer without drowning it.</summary>

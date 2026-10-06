@@ -744,7 +744,7 @@ Configuration (section `Retrieval`; written out in `appsettings.json`, override 
 
 | Key | Default | |
 | --- | --- | --- |
-| `MinScore` | `0.3` | The relevance threshold, a cosine similarity of 0–1. **A placeholder** until the retrieval evaluation (M2 Slice 16) calibrates it for the chosen model; it depends on the model (OpenAI's `text-embedding-3` models separate related text around here, the e5 family scores almost everything above 0.7), so set it again when `Ai:Embedding:Model` changes. The `Fake` model scores the fixture's matching page at about 0.32 and unrelated text below 0.1. M3 will let an assistant tune its own. |
+| `MinScore` | `0.406` | The relevance threshold, a cosine similarity of 0–1. **Calibrated for OpenAI `text-embedding-3-small`** by the retrieval evaluation (`docs/evals/2026-10-06-retrieval-text-embedding-3-small.md`, #192). It depends on the model (the e5 family scores almost everything above 0.7), so set it again when `Ai:Embedding:Model` changes. `appsettings.Development.json` sets `0.3`, because the `Fake` model scores the fixture's matching page at about 0.32 and unrelated text below 0.1 — so with a real model in Development, also set `Retrieval__MinScore`. An assistant can tune its own. |
 | `Top` | `5` | Passages per search when the caller does not say, 1–20. |
 
 ## Evaluating retrieval: `eval-retrieval`
@@ -823,11 +823,10 @@ suggested threshold (or a value justified from the report) as `Retrieval:MinScor
 `appsettings.json` **and** `KnowledgeRetrievalSettings.DefaultMinScore` (`RetrievalOptionsTests`
 fails when they differ), and commit the report under `docs/evals/`.
 
-> **Deferred to the end of M2** (#50; docs/plans/2026-09-26-m2-owner-action-items.md, items 3
-> and 4): the OpenAI run with a committed report, the local-model run and its comparison with
-> OpenAI, the hit@5 ≥ 90% check, and the `Retrieval:MinScore` calibration all wait for the
-> owner's API key and consent to run a local model. Until then `Retrieval:MinScore` 0.3 stays a
-> placeholder, and only the `Fake` run is verified.
+> **Calibrated** (#191/#192, 2026-10-06): the OpenAI run is committed as
+> `docs/evals/2026-10-06-retrieval-text-embedding-3-small.md` (hit@5 27/27), and `Retrieval:MinScore`
+> is its suggested 0.406. The local-model run and its comparison with OpenAI wait for a fully
+> on-premises customer (M5 handoff §3.4).
 
 ## Evaluating answers: `eval-answers`
 

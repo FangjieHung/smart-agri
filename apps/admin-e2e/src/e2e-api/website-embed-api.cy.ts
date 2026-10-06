@@ -235,7 +235,8 @@ describe('website embedding from publishing to a visitor conversation (API mode)
     visitAsSameVisitor();
     cy.get('[role="log"] article[data-kind="company-data"]').should('have.length', 1);
     askVisitor(GROUNDED_QUESTION);
-    cy.contains('p.paused', '目前暫停服務', { timeout: 20000 }).should('be.visible');
+    cy.contains('.paused', '目前暫停服務', { timeout: 20000 }).should('be.visible');
+    cy.contains('.paused button', '再試一次').should('be.visible');
     cy.get('textarea#question').should('not.exist');
   });
 
@@ -260,7 +261,8 @@ describe('website embedding from publishing to a visitor conversation (API mode)
   it('tells the visitor the service is paused while the quota is exceeded', () => {
     visitAsSameVisitor();
     askVisitor(GROUNDED_QUESTION);
-    cy.contains('p.paused', '目前暫停服務', { timeout: 20000 }).should('be.visible');
+    cy.contains('.paused', '目前暫停服務', { timeout: 20000 }).should('be.visible');
+    cy.contains('.paused button', '再試一次').should('be.visible');
   });
 
   it('restores the token limit and removes its assistant and knowledge base', () => {

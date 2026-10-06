@@ -8,11 +8,12 @@ import { EmptyStateComponent } from '../../../shared/ui/empty-state/empty-state.
 import { PageHeaderComponent } from '../../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.component';
 import { ChannelCardComponent } from '../channel-card/channel-card.component';
+import { UsageNoticeComponent } from '../usage-notice/usage-notice.component';
 
 /** 發布管道總覽：每個助理固定三張管道卡，單一管道故障只標記在該卡片。 */
 @Component({
   selector: 'app-channel-overview-page',
-  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, EmptyStateComponent, ChannelCardComponent],
+  imports: [RouterLink, PageHeaderComponent, StatePanelComponent, EmptyStateComponent, ChannelCardComponent, UsageNoticeComponent],
   templateUrl: './channel-overview-page.component.html',
   styleUrl: './channel-overview-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,

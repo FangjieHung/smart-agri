@@ -1,0 +1,38 @@
+@let usage = data();
+@if (variant() === 'banner') {
+  @if (usage && usage.state !== 'normal') {
+    <div class="usage usage--banner" [attr.data-state]="usage.state" role="status">
+      <p class="usage__text">
+        <strong class="usage__state"><span aria-hidden="true">{{ meta().symbol }}</span> {{ meta().label }}</strong>
+        @if (usage.state === 'exceeded') {
+          本月用量 {{ amounts() }}（{{ percent() }}%），已超過上限。官網與 LINE 等對外回覆已暫停，組織內部使用不受影響。
+        } @else {
+          本月用量 {{ amounts() }}（{{ percent() }}%）。達到 100% 時，官網與 LINE 等對外回覆會暫停，組織內部使用不受影響。
+        }
+      </p>
+      <a routerLink="/app/channels">查看發布管道</a>
+    </div>
+  }
+} @else if (usage) {
+  <section class="usage usage--summary" [attr.data-state]="usage.state" aria-label="本月用量">
+    <p class="usage__head">
+      <strong>{{ usage.month }} 本月用量</strong>
+      <span class="usage__badge"><span aria-hidden="true">{{ meta().symbol }}</span> {{ meta().label }}</span>
+    </p>
+    <p class="usage__numbers">已使用 {{ amounts() }}（{{ percent() }}%）</p>
+    <div class="usage__bar" aria-hidden="true"><span [style.inline-size]="barWidth()"></span></div>
+    @switch (usage.state) {
+      @case ('exceeded') {
+        <p class="usage__note">已超過上限，官網與 LINE 等對外回覆已暫停；組織內部使用不受影響。下個月自動恢復，或請營運端調高上限。</p>
+      }
+      @case ('near') {
+        <p class="usage__note">已接近上限，達到 100% 時官網與 LINE 等對外回覆會暫停；組織內部使用不受影響。</p>
+      }
+      @default {
+        <p class="usage__note">這是整個組織對話模型的合計用量；達到上限時，對外回覆會暫停，組織內部使用不受影響。</p>
+      }
+    }
+  </section>
+} @else if (failed()) {
+  <p class="usage__error" role="status">目前無法載入本月用量，請稍後重新整理頁面。</p>
+}

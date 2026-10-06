@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + set-token-limit subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -178,12 +178,15 @@ is not.
 time as far as you can: the database holds ciphertext that only these keys can open. For example:
 
 ```sh
-docker run --rm -v smartagri-dataprotection-keys:/keys:ro -v "$PWD":/backup alpine \
+docker run --rm -v smartagri_smartagri-dataprotection-keys:/keys:ro -v "$PWD":/backup alpine \
   tar czf /backup/dataprotection-keys.tgz -C /keys .
 ```
 
-(The compose project name is `smartagri`, so the volume is `smartagri_smartagri-dataprotection-keys`
-under its default naming: check `docker volume ls`.) Keys are rotated automatically every 90 days;
+(The compose file's project name is `smartagri` and the volume is declared as
+`smartagri-dataprotection-keys`, so Docker's volume name is `smartagri_smartagri-dataprotection-keys`
+— `docker compose -f deploy/docker-compose.yml --env-file deploy/.env config --volumes` shows the
+declared name, `docker volume ls` the real one. Use the real one: `-v smartagri-dataprotection-keys:...`
+would silently create and back up a new, empty volume.) Keys are rotated automatically every 90 days;
 the old ones stay in the directory and keep decrypting old data, so never delete files from it.
 
 **If the keys or the certificate are lost** the data is not recoverable: every stored secret
@@ -735,6 +738,11 @@ node tools/agui-contract/check-agui-stream.mjs --url http://localhost:5153/api/v
 
 ## Website channel: `PublicChannels:PublicBaseUrl`
 
+The operator's walk-through for putting an assistant on a customer's website (HTTPS and the reverse
+proxy, `deploy/.env`, key-ring backup, `set-token-limit`, the owner's publishing steps and why the
+browser-side limits are not protection against scripts) is [`deploy/README.md`](../../deploy/README.md)
+(Traditional Chinese); this section and the ones below are the reference for each setting.
+
 The website channel (M5a, `SmartAgri.Api.Assistants.AssistantWebsiteChannelEndpoints`) is set up
 and published under `/api/v1/assistants/{id}/publishing/website` (owner + `manage-publishing`).
 Publishing needs the acceptance status `passed`, at least one allowed domain, the assistant not
@@ -1267,6 +1275,9 @@ connection; without 安心商行 and its `admin` (no `SEED_DEMO_PASSWORD`) it lo
 nothing.
 
 ## Running the customer-deploy compose file end to end
+
+Operators: [`deploy/README.md`](../../deploy/README.md) is the step-by-step guide (certificates,
+`deploy/.env`, reverse proxy, backups, publishing); the commands below are the shortest path.
 
 ```sh
 cp deploy/.env.example deploy/.env   # then set a real POSTGRES_PASSWORD

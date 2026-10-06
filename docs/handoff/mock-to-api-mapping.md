@@ -234,18 +234,36 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 深度：`tasks-6-10-backend-handoff.md` 第 6 節。**每個助理固定三個管道，不能新增或刪除**（契約註解 `demo-repository.ts:342`、`:346`）。
 
+**API 模式狀態（M5a #194–#202，2026-10-06）**：平台內與**官網**管道已走 API（Hybrid 覆寫），**LINE 仍是 mock／「將於後續版本開放」，留到 M5b**。下表「建議 endpoint」欄對已實作的方法寫的是**實際的 endpoint**（見 `apps/api/openapi/v1.json`），而且契約已經與原本的 mock 版不同：多了 `publishWebsite`、`unpublishWebsite`、`getOrganizationUsage` 三個方法，`checkWebsiteInstallation` 已**移除**（見下）。細節見表後的「官網管道（M5a）」。
+
 | 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `listPublishingChannels(viewer)` `:343-345` | `GET /api/v1/publishing/channels` | `S` | `200` `PublishingChannelView[]` | `429` | `401`／`5xx` | `features/assistants/assistant-list/assistant-list-page.component.ts:31` |
-| `listChannelOverview(viewer)` `:347-349` | `GET /api/v1/publishing/overview` | `S` | `200` `AssistantChannelsView[]` | `429` | `401`／`5xx` | `features/publishing/channel-overview/channel-overview-page.component.ts:26` |
-| `getAssistantPublishing(viewer, assistantId)` `:354-357` | `GET /api/v1/assistants/{id}/publishing` | `S+OWN+MP` | `200` `AssistantPublishingView` | `429` | `401`／`403 publishing`／`5xx` | `features/publishing/assistant-publishing/assistant-publishing.component.ts:49` |
-| `updatePlatformSharing(viewer, assistantId, accountIds)` `:359-363` | `PUT /api/v1/assistants/{id}/publishing/platform` | `S+OWN+MP` | `200` `PlatformSharingView` | `422` `PublishingFieldError[]`／`409`／`429` | `401`／`403 publishing`／`5xx` | `features/publishing/platform-sharing/platform-sharing.component.ts:41` |
-| `updateWebsiteEmbed(viewer, assistantId, settings)` `:365-369` | `PUT /api/v1/assistants/{id}/publishing/website` | `S+OWN+MP` | `200` `WebsiteEmbedView`（網域變更**會重置安裝檢查**） | `422` `PublishingFieldError[]`（網域格式）／`409`／`429` | `401`／`403 publishing`／`5xx` | `features/publishing/website-embed/website-embed.component.ts:135` |
-| `checkWebsiteInstallation(viewer, assistantId)` `:371-374` | `POST /api/v1/assistants/{id}/publishing/website:check-installation` | `S+OWN+MP` | `200` `WebsiteEmbedView` | `429`；外部網站無回應時**必須是成功回應 + `installCheck: 'not-detected'`**，不是 `5xx` | `401`／`403 publishing`／`5xx` | `website-embed.component.ts:155` |
-| `saveLineSettings(viewer, assistantId, input)` `:376-380` | `PUT /api/v1/assistants/{id}/publishing/line` | `S+OWN+MP` | `200` `LineSetupView`（**會重置測試與啟用狀態**） | 逐欄錯誤寫在 `LineSetupView` 內而非 `422`（見下方註） | `401`／`403 publishing`／`5xx` | `features/publishing/line-setup/line-setup.component.ts:88` |
-| `sendLineTestMessage(viewer, assistantId)` `:382-385` | `POST /api/v1/assistants/{id}/publishing/line:test` | `S+OWN+MP` | `200` `LineSetupView`（結果寫在 `lastTest`） | `429`；**LINE 端失敗要回成功 + `lastTest` 失敗紀錄**，不是 `5xx` | `401`／`403 publishing`／`5xx` | `line-setup.component.ts:102` |
-| `activateLineChannel(viewer, assistantId)` `:387-390` | `POST /api/v1/assistants/{id}/publishing/line:activate` | `S+OWN+MP` | `200` `LineSetupView` | `422` `PublishingFieldError[]`（**未通過測試就啟用**） | `401`／`403 publishing`／`5xx` | `line-setup.component.ts:109` |
-| `setPublishingChannelPaused(viewer, assistantId, type, paused)` `:392-397` | `PUT /api/v1/assistants/{id}/publishing/{type}/paused` | `S+OWN+MP` | `200` `PublishingChannelView`（**只影響這一個管道**） | `409`／`429` | `401`／`403 publishing`／`5xx` | `assistant-publishing.component.ts:74` |
+| `listPublishingChannels(viewer)` `:343-345` | **已實作（無專屬 endpoint）**：後端沒有總覽端點，Hybrid 讀 `GET /api/v1/assistants` 後逐一讀 `GET /api/v1/assistants/{id}/publishing`，展平三個管道；被拒（`403`）的助理略過 | `S` | `200` `PublishingChannelView[]` | `429` | `401`／`5xx` | `features/assistants/assistant-list/assistant-list-page.component.ts:31` |
+| `listChannelOverview(viewer)` `:347-349` | **已實作（無專屬 endpoint）**：同上，每個助理一筆 `AssistantChannelsView` | `S` | `200` `AssistantChannelsView[]` | `429` | `401`／`5xx` | `features/publishing/channel-overview/channel-overview-page.component.ts:26` |
+| `getAssistantPublishing(viewer, assistantId)` `:354-357` | **已實作** `GET /api/v1/assistants/{id}/publishing`（平台內、官網完整，LINE 是「尚未開放」的佔位） | `S+OWN+MP` | `200` `AssistantPublishingView` | `429` | `401`／`403 publishing`／`5xx` | `features/publishing/assistant-publishing/assistant-publishing.component.ts:49` |
+| `updatePlatformSharing(viewer, assistantId, accountIds)` `:359-363` | **已實作** `PUT /api/v1/assistants/{id}/publishing/platform` | `S+OWN+MP` | `200` `PlatformSharingView` | `422` `PublishingFieldError[]`／`409`／`429` | `401`／`403 publishing`／`5xx` | `features/publishing/platform-sharing/platform-sharing.component.ts:41` |
+| `updateWebsiteEmbed(viewer, assistantId, settings, revision)` `:365-369` | **已實作** `PUT /api/v1/assistants/{id}/publishing/website`（整份取代；`revision` 不是最新時 `409`→`conflict`） | `S+OWN+MP` | `200` `WebsiteEmbedView`（被移除的網域連同它的 `lastSeenAt` 一起消失） | `422` `PublishingFieldError[]`（網域格式）／`409`／`429` | `401`／`403 publishing`／`5xx` | `features/publishing/website-embed/website-embed.component.ts:135` |
+| ~~`checkWebsiteInstallation(viewer, assistantId)`~~ **已移除（M5a）** | ~~`POST …/publishing/website:check-installation`~~ 不做：改成被動的 `lastSeenAt`（見下） | — | — | — | — | 原 `website-embed.component.ts:155`；畫面改為顯示「安裝偵測」清單 |
+| `saveLineSettings(viewer, assistantId, input)` `:376-380` **（未實作，M5b）** | `PUT /api/v1/assistants/{id}/publishing/line` | `S+OWN+MP` | `200` `LineSetupView`（**會重置測試與啟用狀態**） | 逐欄錯誤寫在 `LineSetupView` 內而非 `422`（見下方註） | `401`／`403 publishing`／`5xx` | `features/publishing/line-setup/line-setup.component.ts:88` |
+| `sendLineTestMessage(viewer, assistantId)` `:382-385` **（未實作，M5b）** | `POST /api/v1/assistants/{id}/publishing/line:test` | `S+OWN+MP` | `200` `LineSetupView`（結果寫在 `lastTest`） | `429`；**LINE 端失敗要回成功 + `lastTest` 失敗紀錄**，不是 `5xx` | `401`／`403 publishing`／`5xx` | `line-setup.component.ts:102` |
+| `activateLineChannel(viewer, assistantId)` `:387-390` **（未實作，M5b）** | `POST /api/v1/assistants/{id}/publishing/line:activate` | `S+OWN+MP` | `200` `LineSetupView` | `422` `PublishingFieldError[]`（**未通過測試就啟用**） | `401`／`403 publishing`／`5xx` | `line-setup.component.ts:109` |
+| `setPublishingChannelPaused(viewer, assistantId, type, paused)` `:392-397` | **已實作（platform、website）** `PUT /api/v1/assistants/{id}/publishing/platform/paused` 與 `PUT /api/v1/assistants/{id}/publishing/website/paused`（`type=line` 仍未實作） | `S+OWN+MP` | `200` `PublishingChannelView`（**只影響這一個管道**） | `409`／`429` | `401`／`403 publishing`／`5xx` | `assistant-publishing.component.ts:74` |
+
+**官網管道（M5a）**——契約新增與實際的 endpoint（`AssistantWebsiteChannelEndpoints`，皆 `S+OWN+MP`，非擁有者與不存在同一個 `403 publishing`）：
+
+| 方法 | endpoint | 回應與錯誤 |
+| --- | --- | --- |
+| `getAssistantPublishing`（官網部分） | `GET /api/v1/assistants/{id}/publishing/website` | `200` 官網頻道：設定、狀態 `draft`／`published`／`paused`、**實際服務狀態** `servingState`（`not-published`／`paused`／`suspended-acceptance`／`suspended-knowledge`／`suspended-quota`／`serving`，每次讀取即時推導、不儲存）、`embedCode`、各網域的 `lastSeenAt`、驗收狀態與擋住發布的知識庫 |
+| `updateWebsiteEmbed` | `PUT …/publishing/website` | `200`；`422` 欄位錯誤（網域格式、最多 5 個）；`409 website-revision-conflict`（`revision` 不是最新） |
+| `publishWebsite`（**新增**） | `POST …/publishing/website:publish` | `200`；`422 website-publish-refused`，`errors` 逐項列出 `acceptance`（驗收現在必須是 `passed`）、`allowed-domains`、`assistant-paused`、`knowledge-ownership`、`public-base-url`，什麼都沒寫入（前端轉成 `PublishWebsiteResult.failures`） |
+| `setPublishingChannelPaused(…, 'website', …)` | `PUT …/publishing/website/paused` | `200`；尚未發布（或從未儲存）時 `422 website-not-published` |
+| `unpublishWebsite`（**新增**） | `POST …/publishing/website:unpublish` | `200`，回到 `draft` |
+| `getOrganizationUsage`（**新增**） | `GET /api/v1/organization/usage` | `200 { month, usedTokens, limitTokens, state }`（`normal`／`near`／`exceeded`）；`403` 沒有 `manage-publishing`＝畫面不顯示 |
+
+- **`checkWebsiteInstallation` 移除、改被動偵測**：原本的「檢查安裝」暗示伺服器去抓客戶網頁；地端可能連不到外網、也有 SSRF 風險。現在訪客視窗建立工作階段時帶上嵌入頁面的 `location.origin`，伺服器若它屬於允許網域（`https`、預設連接埠）就更新該網域的 `lastSeenAt`，admin 顯示「最後一次在 shop.example.com 偵測到」。這個值只供參考，不是安全判斷；外部網站無回應不再是一種後端狀態。
+- **狀態對應**（契約型別 `PublishingChannelStatus` 不變）：`draft`→`testing`、`serving`→`published`、`suspended-*`→`needs-attention`（附原因與處理連結）、`paused`→`paused`。mock 已同步改成同樣的原因欄位，兩種模式共用型別。
+- **嵌入碼**：`<script src="{PUBLIC_BASE_URL}/embed.js" data-assistant="{id}" async></script>`；`PublicChannels:PublicBaseUrl` 沒設定時 `embedCode` 為 `null`、發布回 `422`。部署與營運面見 `deploy/README.md`。
+- 官網訪客端（`/api/v1/public/*`、`/use/{id}`）不是 `DemoRepository` 的方法，見 `route-screen-matrix.md` 第 5.2 節。
 
 `saveLineSettings` 的回傳型別是 `RepositoryView<LineSetupView>`（`demo-repository.ts:380`），**不是** `...Result` union——逐欄錯誤是包在 `LineSetupView` 裡回傳的，不走 `validation-failed`。只有 `activateLineChannel` 才有獨立的 `ActivateLineChannelResult`（`:242-244`）。後端若改成 `422`，`line-setup.component.ts:88` 的分支要一起改。
 
@@ -354,7 +372,7 @@ apps/admin/src/app/core/repositories/tokens.ts:7-26
 | `discardAssistantDraft` 回傳 `void` | `demo-repository.ts:417` | 改成 `RepositoryView<void>`，才能表達 `403` |
 | `DemoScenarioController` 被 `DemoRepository` extends | `demo-repository.ts:258` | 正式建置移除 |
 | `DemoKeyValueStorage` | `demo-repository.ts:247-250` | HTTP adapter 不需要；草稿若要離線編輯可沿用同樣 key 格式 |
-| LINE 憑證原文回傳 | `LineSetupView` | 改成只回末四碼與「是否已設定」，見 `tasks-6-10-backend-handoff.md` 第 8 節第 10 點 |
+| LINE 憑證原文回傳 | `LineSetupView` | 改成只回末四碼與「是否已設定」，見 `tasks-6-10-backend-handoff.md` 第 8 節第 10 點。**基礎建設已在 M5a 備好**：後端有「只寫不讀」的機敏設定型別（`ProtectedSecret`／`ISecretProtector`，Data Protection 金鑰環加密）與檢視型別 `SecretStatusView { configured, lastFour, updatedAt }`，沒有任何端點能讀回明文；第一個實際使用的欄位是 M5b 的 LINE Channel Secret／Access Token，到時 `LineSetupView` 改用這個形狀。M5a 本身沒有欄位使用它 |
 
 ### 4.3 同步 → 非同步：具體會壞掉什麼
 

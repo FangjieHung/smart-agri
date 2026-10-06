@@ -1,0 +1,280 @@
+@let list = listView();
+<section class="workspace-page">
+  <app-page-header
+    title="案件"
+    description="追蹤需要有人接手的事情：選擇案件類型建立案件，由承辦組受理與處理。"
+  />
+
+  <div class="cases-layout">
+    <section class="cases-list" aria-labelledby="cases-list-title">
+      <div class="cases-list__head">
+        <h2 id="cases-list-title">案件清單</h2>
+        <div class="cases-list__actions">
+          <button class="ui-button" type="button" data-case-create (click)="startCreate()">建立案件</button>
+          <button class="ui-button ui-button--secondary" type="button" (click)="listResource.reload()">重新整理</button>
+        </div>
+      </div>
+      <div class="cases-filters">
+        <label>
+          顯示範圍
+          <select [value]="scope()" (change)="scope.set($any($event.target).value)">
+            <option value="all">我看得到的全部</option>
+            <option value="created">我建立的</option>
+            <option value="owned">我負責的</option>
+            <option value="my-groups">我的承辦組</option>
+          </select>
+        </label>
+        <label>
+          狀態
+          <select [value]="status()" (change)="status.set($any($event.target).value)">
+            <option value="open">未結案</option>
+            <option value="closed">已結案</option>
+            <option value="all">全部狀態</option>
+            @for (option of statuses; track option) {
+              <option [value]="option">{{ statusLabel(option) }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          案件類型
+          <select [value]="typeFilter()" (change)="typeFilter.set($any($event.target).value)">
+            <option value="">全部類型</option>
+            @for (type of types(); track type.id) {
+              <option [value]="type.id">{{ type.name }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          承辦組
+          <select [value]="groupFilter()" (change)="groupFilter.set($any($event.target).value)">
+            <option value="">全部承辦組</option>
+            @for (group of groups(); track group.id) {
+              <option [value]="group.id">{{ group.name }}</option>
+            }
+          </select>
+        </label>
+      </div>
+
+      @if (list.status === 'loading') {
+        <app-state-panel state="loading" title="正在載入案件" />
+      } @else if (list.status === 'error') {
+        <app-state-panel state="error" title="目前無法載入案件" recoveryLabel="重試" (recover)="listResource.reload()" />
+      } @else if (list.status === 'permission-denied') {
+        <app-state-panel state="permission-denied" title="無法查看案件" [description]="list.message" />
+      } @else if (list.data.length === 0) {
+        <app-state-panel state="empty" title="目前沒有符合條件的案件" description="可切換範圍或狀態，或建立一件新的案件。" />
+      } @else {
+        <ul class="case-items">
+          @for (item of list.data; track item.id) {
+            <li>
+              <button
+                type="button"
+                class="case-item"
+                [class.case-item--selected]="!creating() && selectedId() === item.id"
+                [attr.aria-pressed]="!creating() && selectedId() === item.id"
+                (click)="select(item)"
+              >
+                <span class="case-item__top"><strong>{{ item.title }}</strong><span class="case-status">{{ statusLabel(item.status) }}</span></span>
+                <span>{{ item.type.name }} · {{ item.group.name }}</span>
+                <span>時限 {{ item.dueAt | date:'yyyy/MM/dd HH:mm' }}</span>
+              </button>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
+    <section class="cases-detail" aria-labelledby="case-detail-title">
+      @if (creating()) {
+        @let errors = formErrors();
+        <h2 id="case-detail-title">建立案件</h2>
+        <form class="case-form" novalidate data-case-form (submit)="$event.preventDefault(); submit()">
+          <div class="control">
+            <label for="case-type">案件類型</label>
+            <select
+              id="case-type"
+              [attr.aria-invalid]="errors.typeId ? 'true' : null"
+              [attr.aria-describedby]="errors.typeId ? 'case-type-error' : null"
+              (change)="setField('typeId', $any($event.target).value)"
+            >
+              <option value="" [selected]="formTypeId() === ''">請選擇</option>
+              @for (type of types(); track type.id) {
+                <option [value]="type.id" [selected]="type.id === formTypeId()">{{ type.name }}</option>
+              }
+            </select>
+            @if (selectedType(); as type) {
+              <p class="hint small">預設由「{{ type.defaultGroup.name }}」處理，時限 {{ formatDueHours(type.defaultDueHours) }}；可以修改。</p>
+            } @else if (types().length === 0) {
+              <p class="hint small">目前沒有啟用中的案件類型，請管理者先在「團隊與設定」建立。</p>
+            }
+            @if (errors.typeId) {
+              <p id="case-type-error" class="field-error">{{ errors.typeId }}</p>
+            }
+          </div>
+
+          <div class="control">
+            <label for="case-group">承辦組</label>
+            <select
+              id="case-group"
+              [attr.aria-invalid]="errors.groupId ? 'true' : null"
+              [attr.aria-describedby]="errors.groupId ? 'case-group-error' : null"
+              (change)="setField('groupId', $any($event.target).value)"
+            >
+              <option value="" [selected]="formGroupId() === ''">請選擇</option>
+              @for (group of groups(); track group.id) {
+                <option [value]="group.id" [selected]="group.id === formGroupId()">{{ group.name }}</option>
+              }
+            </select>
+            @if (errors.groupId) {
+              <p id="case-group-error" class="field-error">{{ errors.groupId }}</p>
+            }
+          </div>
+
+          <div class="control">
+            <label for="case-due">處理時限</label>
+            <input
+              id="case-due"
+              type="datetime-local"
+              [value]="formDueAt()"
+              [attr.aria-invalid]="errors.dueAt || dueInPast() ? 'true' : null"
+              [attr.aria-describedby]="errors.dueAt || dueInPast() ? 'case-due-error' : null"
+              (input)="setField('dueAt', $any($event.target).value)"
+            />
+            @if (errors.dueAt) {
+              <p id="case-due-error" class="field-error">{{ errors.dueAt }}</p>
+            } @else if (dueInPast()) {
+              <p id="case-due-error" class="field-error">{{ dueInPastMessage }}</p>
+            }
+          </div>
+
+          <div class="control control--wide">
+            <label for="case-title">標題</label>
+            <input
+              id="case-title"
+              type="text"
+              autocomplete="off"
+              [attr.maxlength]="titleMaxLength"
+              [value]="formTitle()"
+              [attr.aria-invalid]="errors.title ? 'true' : null"
+              [attr.aria-describedby]="errors.title ? 'case-title-error' : null"
+              (input)="setField('title', $any($event.target).value)"
+            />
+            @if (errors.title) {
+              <p id="case-title-error" class="field-error">{{ errors.title }}</p>
+            }
+          </div>
+
+          <div class="control control--wide">
+            <label for="case-description">說明（選填）</label>
+            <textarea
+              id="case-description"
+              rows="4"
+              [attr.maxlength]="descriptionMaxLength"
+              [value]="formDescription()"
+              [attr.aria-invalid]="errors.description ? 'true' : null"
+              [attr.aria-describedby]="errors.description ? 'case-description-hint case-description-error' : 'case-description-hint'"
+              (input)="setField('description', $any($event.target).value)"
+            ></textarea>
+            <p id="case-description-hint" class="hint small">{{ formDescription().length }}／{{ descriptionMaxLength }} 字</p>
+            @if (errors.description) {
+              <p id="case-description-error" class="field-error">{{ errors.description }}</p>
+            }
+          </div>
+
+          <div class="case-form__actions">
+            <button class="ui-button" type="submit" [disabled]="saving()">{{ saving() ? '建立中…' : '建立案件' }}</button>
+            <button class="ui-button ui-button--secondary" type="button" (click)="cancelCreate()">取消</button>
+          </div>
+          <p class="feedback" role="status" aria-live="polite">{{ formMessage() }}</p>
+        </form>
+      } @else {
+        <h2 id="case-detail-title">案件詳情</h2>
+        @if (!selectedId()) {
+          <app-state-panel state="empty" title="選擇一件案件" description="從左側清單選擇，即可查看內容與交接軌跡。" />
+        } @else {
+          @let detail = detailView();
+          @if (detail.status === 'loading') {
+            <app-state-panel state="loading" title="正在載入案件詳情" />
+          } @else if (detail.status === 'error') {
+            <app-state-panel state="error" title="目前無法載入案件詳情" recoveryLabel="重試" (recover)="detailResource.reload()" />
+          } @else if (detail.status === 'permission-denied') {
+            <app-state-panel state="permission-denied" title="無法查看這件案件" [description]="detail.message" />
+          } @else {
+            @let item = detail.data.case;
+            @let links = detail.data.links;
+            <article class="case-detail" data-case-detail>
+              <div class="case-detail__head">
+                <h3>{{ item.title }}</h3>
+                <span class="case-status">{{ statusLabel(item.status) }}</span>
+              </div>
+              <dl class="case-facts">
+                <div><dt>案件類型</dt><dd>{{ item.type.name }}</dd></div>
+                <div><dt>承辦組</dt><dd>{{ item.group.name }}@if (item.group.archived) {（已封存）}</dd></div>
+                <div><dt>案件負責人</dt><dd>{{ item.owner?.displayName ?? '尚未受理' }}</dd></div>
+                <div><dt>處理時限</dt><dd>{{ item.dueAt | date:'yyyy/MM/dd HH:mm' }}</dd></div>
+                <div><dt>建立者</dt><dd>{{ item.createdBy?.displayName ?? '系統自動建立' }}</dd></div>
+                <div><dt>來源</dt><dd>{{ originLabel(item.origin) }}</dd></div>
+                <div><dt>建立時間</dt><dd>{{ item.createdAt | date:'yyyy/MM/dd HH:mm' }}</dd></div>
+              </dl>
+
+              <section class="case-section" aria-labelledby="case-description-title">
+                <h4 id="case-description-title">說明</h4>
+                <p class="case-description">{{ item.description || '沒有填寫說明。' }}</p>
+              </section>
+
+              @if (links.record || links.thread || links.previousCase) {
+                <section class="case-section" aria-labelledby="case-links-title">
+                  <h4 id="case-links-title">連結</h4>
+                  <ul class="case-links">
+                    @if (links.record; as record) {
+                      <li data-case-link="record">
+                        <span>數據庫紀錄：{{ recordStateLabel(record.state) }}</span>
+                        @if (record.canRead) {
+                          <a [routerLink]="['/app/databases', record.databaseId, 'records']">開啟紀錄</a>
+                        } @else if (record.state === 'available') {
+                          <span class="case-links__note">你沒有讀取這筆紀錄的權限。</span>
+                        }
+                      </li>
+                    }
+                    @if (links.thread; as thread) {
+                      <li data-case-link="thread">
+                        @if (thread.canOpen) {
+                          <span>對話：</span><a [routerLink]="['/app/chat', thread.assistantId, thread.threadId]">開啟對話</a>
+                        } @else {
+                          <span>{{ threadUnavailableText }}</span>
+                        }
+                      </li>
+                    }
+                    @if (links.previousCase; as previous) {
+                      <li data-case-link="previous">
+                        @if (previous.canOpen) {
+                          <span>接續的舊案件：</span>
+                          <button class="case-links__button" type="button" (click)="select({ id: previous.caseId })">開啟舊案件</button>
+                        } @else {
+                          <span>接續的舊案件無法開啟</span>
+                        }
+                      </li>
+                    }
+                  </ul>
+                </section>
+              }
+
+              <section class="case-section" aria-labelledby="case-history-title">
+                <h4 id="case-history-title">交接軌跡</h4>
+                <ol class="case-history">
+                  @for (event of detail.data.events; track event.id) {
+                    <li>
+                      <strong>{{ event.actor?.displayName ?? '系統' }}</strong>
+                      <time [attr.datetime]="event.at">{{ event.at | date:'yyyy/MM/dd HH:mm' }}</time>
+                      <span>{{ eventLabel(event) }}@if (event.toGroup) {（{{ event.toGroup.name }}）}@if (event.note) {：{{ event.note }}}</span>
+                    </li>
+                  }
+                </ol>
+              </section>
+            </article>
+          }
+        }
+      }
+    </section>
+  </div>
+</section>

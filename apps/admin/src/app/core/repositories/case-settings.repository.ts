@@ -36,8 +36,8 @@ export function apiCaseTypePath(typeId: string): string {
 
 /** 與後端 `ForbiddenReason.OrganizationSettings` 相同：不是管理者、不存在、別的組織，一律這句。 */
 export const CASE_SETTINGS_ADMIN_DENIED_MESSAGE = '只有管理者可以變更組織設定。';
-/** 與後端 `ForbiddenReason.CaseFeature` 相同：外部客戶讀取承辦組。 */
-export const CASE_FEATURE_DENIED_MESSAGE = '案件功能只開放組織內部帳號使用。';
+/** 與後端 `ForbiddenReason.CaseFeature` 相同：外部客戶，以及看不到、不存在或別的組織的案件（issue #248），一律這句。 */
+export const CASE_FEATURE_DENIED_MESSAGE = '你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。';
 export const CASE_GROUP_NAME_REQUIRED_MESSAGE = '請輸入承辦組名稱。';
 export const CASE_GROUP_NAME_MAX_LENGTH = 40;
 export const CASE_GROUP_NAME_TOO_LONG_MESSAGE = `承辦組名稱請在 ${CASE_GROUP_NAME_MAX_LENGTH} 個字以內。`;

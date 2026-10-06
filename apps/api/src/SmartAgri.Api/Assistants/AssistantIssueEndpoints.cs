@@ -498,6 +498,16 @@ public static class AssistantIssueEndpoints
     /// <c>manage-assistants</c>) and those assigned to it (with
     /// <c>handle-assistant-issues</c>). The organization filter already hides every other
     /// organization's.</summary>
+    /// <summary>Whether <paramref name="callerId"/> could open issue <paramref name="issueId"/> now (the
+    /// same rule as <c>GET /api/v1/issues/{id}</c>): a case's link to its issue (M7 plan §3 C) only
+    /// says this, never what the issue holds.</summary>
+    internal static async Task<bool> CanOpenAsync(
+        HttpContext httpContext, AppDbContext dbContext, Guid callerId, Guid issueId, CancellationToken cancellationToken)
+    {
+        var (canManage, canHandle) = await PermissionsAsync(httpContext, callerId, cancellationToken);
+        return await Visible(dbContext, callerId, canManage, canHandle).AnyAsync(issue => issue.Id == issueId, cancellationToken);
+    }
+
     private static IQueryable<AssistantIssue> Visible(AppDbContext dbContext, Guid callerId, bool canManage, bool canHandle)
     {
         var ownedAssistantIds = dbContext.Assistants.Where(AssistantAccess.ManageableBy(callerId)).Select(assistant => assistant.Id);

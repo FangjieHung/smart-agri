@@ -36,3 +36,28 @@ export function dueInputFromHours(hours: number): { readonly value: string; read
 export function formatDueHours(hours: number): string {
   return hours % HOURS_PER_DAY === 0 ? `${hours / HOURS_PER_DAY} 天` : `${hours} 小時`;
 }
+
+/**
+ * 建立案件時依類型帶入的時限（issue #248）：現在加上類型的預設處理時限（小時，日曆時間）。
+ */
+export function dueAtFromHours(now: Date, hours: number): Date {
+  return new Date(now.getTime() + hours * 60 * 60 * 1000);
+}
+
+/** `<input type="datetime-local">` 的值（本地時間，到分鐘）：`2026-10-09T09:00`。 */
+export function toDateTimeLocalValue(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** `datetime-local` 的值換回時間；空白或格式不對時是 `null`。 */
+export function fromDateTimeLocalValue(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value.trim())) return null;
+  const date = new Date(value.trim());
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** 決定 H：時限不能早於現在（與後端 `CaseRules.IsDueInPast` 相同，等於現在可以）。 */
+export function isDueInPast(due: Date, now: Date): boolean {
+  return due.getTime() < now.getTime();
+}

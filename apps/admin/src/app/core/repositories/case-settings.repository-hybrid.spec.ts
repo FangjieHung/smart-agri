@@ -44,7 +44,9 @@ const INTERNAL_LIST_JSON = `{"groups":[{"id":"01a1115f-3aa7-72a8-b3b0-d6f28cbedb
 /** internal-create-403: HTTP 403. */
 const INTERNAL_CREATE_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"organization-settings","message":"只有管理者可以變更組織設定。"}`;
 /** external-get-403: HTTP 403. */
-const EXTERNAL_LIST_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"case","message":"案件功能只開放組織內部帳號使用。"}`;
+// Re-recorded 2026-10-07 (issue #248, `scratchpad/248/record.py`, same setup): `403 case` now also
+// answers a case that does not exist or is not visible, so its message covers both.
+const EXTERNAL_LIST_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"case","message":"你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。"}`;
 
 // Recorded 2026-10-06 from the real API (issue #247): `dotnet run` of this branch on port 5262 against
 // a throw-away PostgreSQL database (migrated, development seed `anxin`), signed in as `admin`,
@@ -76,7 +78,9 @@ const TYPES_INTERNAL_JSON = `{"types":[{"id":"01a111b6-e24b-70ab-a136-327c19c1c4
 /** internal-type-create-403: HTTP 403. */
 const TYPE_INTERNAL_CREATE_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"organization-settings","message":"只有管理者可以變更組織設定。"}`;
 /** external-types-403: HTTP 403. */
-const TYPES_EXTERNAL_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"case","message":"案件功能只開放組織內部帳號使用。"}`;
+// Re-recorded 2026-10-07 (issue #248, `scratchpad/248/record.py`, same setup): `403 case` now also
+// answers a case that does not exist or is not visible, so its message covers both.
+const TYPES_EXTERNAL_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"case","message":"你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。"}`;
 
 const GROUP_ID = '01a1115f-3aa7-72a8-b3b0-d6f28cbedbac';
 const ARCHIVED_ID = '01a1115f-3aef-7491-969e-cb1638c0462c';
@@ -134,7 +138,7 @@ describe('CaseSettingsRepository (API mode, recorded responses)', () => {
 
     const list = firstValueFrom(repository.listCaseGroups());
     flushError(http, API_CASE_GROUPS_PATH, 403, 'Forbidden', EXTERNAL_LIST_403_JSON);
-    expect(await list).toEqual({ status: 'permission-denied', reason: 'case', message: '案件功能只開放組織內部帳號使用。' });
+    expect(await list).toEqual({ status: 'permission-denied', reason: 'case', message: '你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。' });
 
     const create = firstValueFrom(repository.createCaseGroup('品保組'));
     flushError(http, API_CASE_GROUPS_PATH, 403, 'Forbidden', INTERNAL_CREATE_403_JSON);
@@ -264,7 +268,7 @@ describe('CaseSettingsRepository case types (API mode, recorded responses, issue
 
     const list = firstValueFrom(repository.listCaseTypes());
     flushError(http, API_CASE_TYPES_PATH, 403, 'Forbidden', TYPES_EXTERNAL_403_JSON);
-    expect(await list).toEqual({ status: 'permission-denied', reason: 'case', message: '案件功能只開放組織內部帳號使用。' });
+    expect(await list).toEqual({ status: 'permission-denied', reason: 'case', message: '你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。' });
 
     const create = firstValueFrom(repository.createCaseType({
       name: '品保', description: '', defaultGroupId: EQUIPMENT_GROUP_ID, defaultDueHours: 24, isActive: true,

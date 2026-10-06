@@ -440,10 +440,10 @@ public class AssistantEndpointsTests : IClassFixture<AuthHostFixture>
         (await UsableIdsAsync(internalEmployee)).ShouldContain(assistantId, "resumed");
     }
 
-    // --- GET publishing: real platform data, fixed not-available website/line ------------
+    // --- GET publishing: real platform and website data, fixed not-available line --------
 
     [Fact]
-    public async Task Get_publishing_returns_real_platform_data_and_not_available_website_and_line()
+    public async Task Get_publishing_returns_real_platform_and_website_data_and_not_available_line()
     {
         var org = await CreateOrganizationAsync();
         var admin = await SignInAsync(org, "admin");
@@ -464,7 +464,10 @@ public class AssistantEndpointsTests : IClassFixture<AuthHostFixture>
         platform.GetProperty("candidates").EnumerateArray().Select(item => item.GetProperty("id").GetGuid())
             .ShouldNotContain(org.Admin.Id, "the owner is never their own share candidate");
 
-        body.GetProperty("website").GetProperty("status").GetString().ShouldBe("not-available");
+        // The website channel's own behaviour: AssistantWebsiteChannelEndpointsTests (#194).
+        var website = body.GetProperty("website");
+        website.GetProperty("servingState").GetString().ShouldBe("not-published");
+        website.GetProperty("channel").GetProperty("status").GetString().ShouldBe("not-configured");
         body.GetProperty("line").GetProperty("status").GetString().ShouldBe("not-available");
     }
 

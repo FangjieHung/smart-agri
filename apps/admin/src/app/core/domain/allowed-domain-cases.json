@@ -1,0 +1,222 @@
+{
+  "description": "Allowed-domain validation cases shared by the frontend's validateAllowedDomain() (publishing.model.spec.ts, next to this file) and the API's WebsiteChannelRules.ValidateDomain (apps/api/tests/SmartAgri.Application.Tests/Assistants/WebsiteChannelRulesTests.cs). Both run every case; change the rule in both places. 'existing' is already normalized; 'error' null means valid, and then 'normalized' is what is stored.",
+  "cases": [
+    {
+      "name": "plain host",
+      "raw": "shop.example.com",
+      "existing": [],
+      "error": null,
+      "normalized": "shop.example.com"
+    },
+    {
+      "name": "trimmed and lower-cased",
+      "raw": "  Shop.EXAMPLE.com\n",
+      "existing": [],
+      "error": null,
+      "normalized": "shop.example.com"
+    },
+    {
+      "name": "two-letter TLD and digits",
+      "raw": "www.farm-2.com.tw",
+      "existing": [],
+      "error": null,
+      "normalized": "www.farm-2.com.tw"
+    },
+    {
+      "name": "punycode label",
+      "raw": "xn--fiq228c.tw",
+      "existing": [],
+      "error": null,
+      "normalized": "xn--fiq228c.tw"
+    },
+    {
+      "name": "63-character label",
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com",
+      "existing": [],
+      "error": null,
+      "normalized": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com"
+    },
+    {
+      "name": "253 characters",
+      "raw": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com",
+      "existing": [],
+      "error": null,
+      "normalized": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com"
+    },
+    {
+      "name": "empty",
+      "raw": "",
+      "existing": [],
+      "error": "請輸入網域，例如 shop.example.com。"
+    },
+    {
+      "name": "blank",
+      "raw": "   ",
+      "existing": [],
+      "error": "請輸入網域，例如 shop.example.com。"
+    },
+    {
+      "name": "https scheme",
+      "raw": "https://shop.example.com",
+      "existing": [],
+      "error": "只需要填網域，不要包含 https:// 或路徑，例如 shop.example.com。"
+    },
+    {
+      "name": "upper-case scheme",
+      "raw": "HTTP://shop.example.com",
+      "existing": [],
+      "error": "只需要填網域，不要包含 https:// 或路徑，例如 shop.example.com。"
+    },
+    {
+      "name": "other scheme",
+      "raw": "ftp://shop.example.com",
+      "existing": [],
+      "error": "只需要填網域，不要包含 https:// 或路徑，例如 shop.example.com。"
+    },
+    {
+      "name": "path",
+      "raw": "shop.example.com/chat",
+      "existing": [],
+      "error": "只需要填網域，不要包含 https:// 或路徑，例如 shop.example.com。"
+    },
+    {
+      "name": "trailing slash",
+      "raw": "shop.example.com/",
+      "existing": [],
+      "error": "只需要填網域，不要包含 https:// 或路徑，例如 shop.example.com。"
+    },
+    {
+      "name": "port",
+      "raw": "shop.example.com:8080",
+      "existing": [],
+      "error": "「shop.example.com:8080」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "wildcard",
+      "raw": "*.example.com",
+      "existing": [],
+      "error": "「*.example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "no dot",
+      "raw": "localhost",
+      "existing": [],
+      "error": "「localhost」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "IPv4 address",
+      "raw": "192.168.0.1",
+      "existing": [],
+      "error": "「192.168.0.1」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "one-letter TLD",
+      "raw": "example.c",
+      "existing": [],
+      "error": "「example.c」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "label starts with hyphen",
+      "raw": "-shop.example.com",
+      "existing": [],
+      "error": "「-shop.example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "label ends with hyphen",
+      "raw": "shop-.example.com",
+      "existing": [],
+      "error": "「shop-.example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "empty label",
+      "raw": "shop..example.com",
+      "existing": [],
+      "error": "「shop..example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "trailing dot",
+      "raw": "shop.example.com.",
+      "existing": [],
+      "error": "「shop.example.com.」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "underscore",
+      "raw": "shop_1.example.com",
+      "existing": [],
+      "error": "「shop_1.example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "non-ASCII host",
+      "raw": "農場.tw",
+      "existing": [],
+      "error": "「農場.tw」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "space inside",
+      "raw": "shop example.com",
+      "existing": [],
+      "error": "「shop example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "e-mail style",
+      "raw": "mailto:shop@example.com",
+      "existing": [],
+      "error": "「mailto:shop@example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "64-character label",
+      "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com",
+      "existing": [],
+      "error": "「aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "254 characters",
+      "raw": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com",
+      "existing": [],
+      "error": "「bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.com」不是有效的網域，例如 shop.example.com。"
+    },
+    {
+      "name": "already listed",
+      "raw": "shop.example.com",
+      "existing": ["shop.example.com"],
+      "error": "「shop.example.com」已在允許清單中。"
+    },
+    {
+      "name": "already listed in another case",
+      "raw": "SHOP.example.com",
+      "existing": ["shop.example.com"],
+      "error": "「shop.example.com」已在允許清單中。"
+    },
+    {
+      "name": "sixth domain",
+      "raw": "f.example.com",
+      "existing": [
+        "a.example.com",
+        "b.example.com",
+        "c.example.com",
+        "d.example.com",
+        "e.example.com"
+      ],
+      "error": "最多可設定 5 個網域。"
+    },
+    {
+      "name": "duplicate is reported before the limit",
+      "raw": "a.example.com",
+      "existing": [
+        "a.example.com",
+        "b.example.com",
+        "c.example.com",
+        "d.example.com",
+        "e.example.com"
+      ],
+      "error": "「a.example.com」已在允許清單中。"
+    },
+    {
+      "name": "fifth domain",
+      "raw": "e.example.com",
+      "existing": ["a.example.com", "b.example.com", "c.example.com", "d.example.com"],
+      "error": null,
+      "normalized": "e.example.com"
+    }
+  ]
+}

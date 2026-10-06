@@ -132,6 +132,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>An account an assistant is shared with — "平台內分享" (M3 plan §4/§5 Slice 3).</summary>
     public DbSet<AssistantShare> AssistantShares => Set<AssistantShare>();
 
+    /// <summary>An assistant's website embedding channel, at most one each (M5a plan §4; #194).</summary>
+    public DbSet<AssistantWebsiteChannel> AssistantWebsiteChannels => Set<AssistantWebsiteChannel>();
+
+    /// <summary>The host names allowed to embed an assistant's website channel (M5a plan §4; #194).</summary>
+    public DbSet<AssistantWebsiteDomain> AssistantWebsiteDomains => Set<AssistantWebsiteDomain>();
+
     /// <summary>One account's private conversation with one assistant (M3 plan §4; #76).</summary>
     public DbSet<ChatThread> ChatThreads => Set<ChatThread>();
 
@@ -285,6 +291,8 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new AssistantDatabaseConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantDraftConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantShareConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantWebsiteChannelConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantWebsiteDomainConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestCaseConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestRunConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestResultConfiguration());

@@ -10,6 +10,12 @@ public sealed record AssistantTestRunSnapshot(
     DateTimeOffset QueuedAt,
     int FailedCount);
 
+/// <summary>An acceptance status together with whether the latest completed run passed every
+/// case (<see cref="AssistantAcceptanceRules.Summarize"/>).</summary>
+/// <param name="LatestCompletedRunPassed"><see langword="null"/> when no run has completed (or
+/// the assistant has no test case).</param>
+public sealed record AssistantAcceptanceSummary(AssistantAcceptanceStatus Status, bool? LatestCompletedRunPassed);
+
 /// <summary>
 /// Derives <see cref="AssistantAcceptanceStatus"/> (M3.5 plan §3's table; issue #125) from the
 /// assistant's kept test runs.
@@ -34,12 +40,21 @@ public sealed record AssistantTestRunSnapshot(
 /// </remarks>
 public static class AssistantAcceptanceRules
 {
-    public static AssistantAcceptanceStatus Derive(bool hasTestCases, IEnumerable<AssistantTestRunSnapshot> runs)
+    public static AssistantAcceptanceStatus Derive(bool hasTestCases, IEnumerable<AssistantTestRunSnapshot> runs) =>
+        Summarize(hasTestCases, runs).Status;
+
+    /// <summary>
+    /// <see cref="Derive"/>'s status plus whether the latest completed run passed every case
+    /// (M5a plan §3 C: an <see cref="AssistantAcceptanceStatus.Outdated"/> assistant keeps
+    /// answering visitors only if it did). <see cref="AssistantAcceptanceSummary.LatestCompletedRunPassed"/>
+    /// is <see langword="null"/> when no run has completed, or without test cases.
+    /// </summary>
+    public static AssistantAcceptanceSummary Summarize(bool hasTestCases, IEnumerable<AssistantTestRunSnapshot> runs)
     {
         ArgumentNullException.ThrowIfNull(runs);
         if (!hasTestCases)
         {
-            return AssistantAcceptanceStatus.NotAccepted;
+            return new AssistantAcceptanceSummary(AssistantAcceptanceStatus.NotAccepted, null);
         }
 
         var all = runs.ToList();
@@ -49,19 +64,21 @@ public static class AssistantAcceptanceRules
             .FirstOrDefault();
         if (latestCompleted is null)
         {
-            return AssistantAcceptanceStatus.NotAccepted;
+            return new AssistantAcceptanceSummary(AssistantAcceptanceStatus.NotAccepted, null);
         }
 
+        var latestPassed = latestCompleted.FailedCount == 0;
         var changedSince = all.Any(run =>
             run.QueuedAt > latestCompleted.QueuedAt
             && run.Status != AssistantTestRunStatus.Completed
             && (IsAutomatic(run.Trigger) || (run.RerunTrigger is { } rerun && IsAutomatic(rerun))));
         if (changedSince)
         {
-            return AssistantAcceptanceStatus.Outdated;
+            return new AssistantAcceptanceSummary(AssistantAcceptanceStatus.Outdated, latestPassed);
         }
 
-        return latestCompleted.FailedCount > 0 ? AssistantAcceptanceStatus.Failed : AssistantAcceptanceStatus.Passed;
+        return new AssistantAcceptanceSummary(
+            latestPassed ? AssistantAcceptanceStatus.Passed : AssistantAcceptanceStatus.Failed, latestPassed);
     }
 
     private static bool IsAutomatic(AssistantTestRunTrigger trigger) => trigger != AssistantTestRunTrigger.Manual;

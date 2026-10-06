@@ -42,6 +42,10 @@ builder.Services.AddOptions<StatisticsOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<StatisticsOptions>, StatisticsOptions.Validator>();
 builder.Services.AddScoped<DatabaseFixedQueryService>();
+builder.Services.AddOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>()
+    .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.PublicChannelsOptions.SectionName))
+    .ValidateOnStart();
+builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>, SmartAgri.Api.PublicChannels.PublicChannelsOptions.Validator>();
 builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.IChatDatabaseQueryRunner, SmartAgri.Api.Chat.FixedQueryChatRunner>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatDatabaseQueries>();
@@ -159,6 +163,7 @@ app.MapDatabaseSubmissionEndpoints();
 app.MapDatabaseQueryEndpoints();
 app.MapDatabaseReportEndpoints();
 app.MapAssistantEndpoints();
+app.MapAssistantWebsiteChannelEndpoints();
 app.MapAssistantDraftEndpoints();
 app.MapAssistantTestCaseEndpoints();
 app.MapAssistantTestRunEndpoints();

@@ -6,7 +6,13 @@ import { firstValueFrom } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 import type { AccountId } from '../domain/account.model';
 import { DemoSessionService } from '../session/demo-session.service';
-import { API_CASE_GROUPS_PATH, apiCaseGroupPath, CaseSettingsRepository } from './case-settings.repository';
+import {
+  API_CASE_GROUPS_PATH,
+  API_CASE_TYPES_PATH,
+  apiCaseGroupPath,
+  apiCaseTypePath,
+  CaseSettingsRepository,
+} from './case-settings.repository';
 import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
 
 // Recorded 2026-10-06 from the real API (issue #246): `dotnet run` of this branch on port 5262 against
@@ -39,6 +45,38 @@ const INTERNAL_LIST_JSON = `{"groups":[{"id":"01a1115f-3aa7-72a8-b3b0-d6f28cbedb
 const INTERNAL_CREATE_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"organization-settings","message":"只有管理者可以變更組織設定。"}`;
 /** external-get-403: HTTP 403. */
 const EXTERNAL_LIST_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"case","message":"案件功能只開放組織內部帳號使用。"}`;
+
+// Recorded 2026-10-06 from the real API (issue #247): `dotnet run` of this branch on port 5262 against
+// a throw-away PostgreSQL database (migrated, development seed `anxin`), signed in as `admin`,
+// `internal` and `customer` through /connect/authorize + /connect/token, by `scratchpad/247/record.py`
+// (groups 設備組 and 舊倉儲組 created first; 舊倉儲組 archived after the inactive type was created).
+// The bodies are pasted unchanged; never edit them to match the types.
+/** admin-type-create: HTTP 201. */
+const TYPE_CREATE_JSON = `{"id":"01a111b6-e24b-70ab-a136-327c19c1c4ea","name":"設備故障報修","description":"冷藏庫、溫控或灌溉設備故障，需要派人到場檢修。","defaultGroup":{"id":"01a111b6-e205-784b-a3a9-142961e382b3","name":"設備組","archived":false},"defaultDueHours":72,"isActive":true,"createdAt":"2026-10-06T14:56:00.587364+00:00","updatedAt":"2026-10-06T14:56:00.587364+00:00"}`;
+/** admin-type-create-inactive: HTTP 201. */
+const TYPE_CREATE_INACTIVE_JSON = `{"id":"01a111b6-e25a-7bb2-b69c-e4fadaf1bbe9","name":"倉儲盤點差異","description":"盤點數量與系統不符。","defaultGroup":{"id":"01a111b6-e240-7559-9e2c-471249068406","name":"舊倉儲組","archived":false},"defaultDueHours":36,"isActive":false,"createdAt":"2026-10-06T14:56:00.602576+00:00","updatedAt":"2026-10-06T14:56:00.602576+00:00"}`;
+/** admin-type-create-taken-422: HTTP 422. */
+const TYPE_TAKEN_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"reason":"case-type-name-taken","message":"已經有同名的案件類型，請換一個名稱。","errors":{"name":["已經有同名的案件類型，請換一個名稱。"]}}`;
+/** admin-type-create-invalid-422: HTTP 422. */
+const TYPE_INVALID_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"請輸入案件類型名稱。","errors":{"defaultDueHours":["預設處理時限請在 1 到 2,160 小時（90 天）之間。"],"description":["說明請在 500 個字以內。"],"name":["請輸入案件類型名稱。"]}}`;
+/** admin-type-create-2161-422: HTTP 422. */
+const TYPE_2161_HOURS_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"預設處理時限請在 1 到 2,160 小時（90 天）之間。","errors":{"defaultDueHours":["預設處理時限請在 1 到 2,160 小時（90 天）之間。"]}}`;
+/** admin-type-create-archived-group-422: HTTP 422. */
+const TYPE_ARCHIVED_GROUP_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"reason":"case-group-archived","message":"這個承辦組已封存，請選擇其他承辦組。","errors":{"defaultGroupId":["這個承辦組已封存，請選擇其他承辦組。"]}}`;
+/** admin-group-archive-in-use-422: HTTP 422. */
+const GROUP_IN_USE_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"reason":"case-group-in-use","message":"「設備組」是啟用中的案件類型「設備故障報修」的預設承辦組。請先替這些類型換一個承辦組，或停用它們，再封存。","errors":{"caseTypes":["「設備組」是啟用中的案件類型「設備故障報修」的預設承辦組。請先替這些類型換一個承辦組，或停用它們，再封存。"]}}`;
+/** admin-type-update: HTTP 200. */
+const TYPE_UPDATE_JSON = `{"id":"01a111b6-e24b-70ab-a136-327c19c1c4ea","name":"設備故障報修","description":"冷藏庫、溫控或灌溉設備故障，需要派人到場檢修。","defaultGroup":{"id":"01a111b6-e205-784b-a3a9-142961e382b3","name":"設備組","archived":false},"defaultDueHours":48,"isActive":true,"createdAt":"2026-10-06T14:56:00.587364+00:00","updatedAt":"2026-10-06T14:56:00.634659+00:00"}`;
+/** admin-type-reactivate-archived-422: HTTP 422. */
+const TYPE_REACTIVATE_ARCHIVED_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"reason":"case-group-archived","message":"這個承辦組已封存，請選擇其他承辦組。","errors":{"defaultGroupId":["這個承辦組已封存，請選擇其他承辦組。"]}}`;
+/** admin-types-all: HTTP 200. */
+const TYPES_ADMIN_ALL_JSON = `{"types":[{"id":"01a111b6-e24b-70ab-a136-327c19c1c4ea","name":"設備故障報修","description":"冷藏庫、溫控或灌溉設備故障，需要派人到場檢修。","defaultGroup":{"id":"01a111b6-e205-784b-a3a9-142961e382b3","name":"設備組","archived":false},"defaultDueHours":48,"isActive":true,"createdAt":"2026-10-06T14:56:00.587364+00:00","updatedAt":"2026-10-06T14:56:00.634659+00:00"},{"id":"01a111b6-e25a-7bb2-b69c-e4fadaf1bbe9","name":"倉儲盤點差異","description":"盤點數量與系統不符。","defaultGroup":{"id":"01a111b6-e240-7559-9e2c-471249068406","name":"舊倉儲組","archived":true},"defaultDueHours":36,"isActive":false,"createdAt":"2026-10-06T14:56:00.602576+00:00","updatedAt":"2026-10-06T14:56:00.602576+00:00"}],"canManage":true}`;
+/** internal-types: HTTP 200. */
+const TYPES_INTERNAL_JSON = `{"types":[{"id":"01a111b6-e24b-70ab-a136-327c19c1c4ea","name":"設備故障報修","description":"冷藏庫、溫控或灌溉設備故障，需要派人到場檢修。","defaultGroup":{"id":"01a111b6-e205-784b-a3a9-142961e382b3","name":"設備組","archived":false},"defaultDueHours":48,"isActive":true,"createdAt":"2026-10-06T14:56:00.587364+00:00","updatedAt":"2026-10-06T14:56:00.634659+00:00"}],"canManage":false}`;
+/** internal-type-create-403: HTTP 403. */
+const TYPE_INTERNAL_CREATE_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"organization-settings","message":"只有管理者可以變更組織設定。"}`;
+/** external-types-403: HTTP 403. */
+const TYPES_EXTERNAL_403_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"case","message":"案件功能只開放組織內部帳號使用。"}`;
 
 const GROUP_ID = '01a1115f-3aa7-72a8-b3b0-d6f28cbedbac';
 const ARCHIVED_ID = '01a1115f-3aef-7491-969e-cb1638c0462c';
@@ -186,6 +224,130 @@ describe('CaseSettingsRepository (API mode, recorded responses)', () => {
     const broken = firstValueFrom(repository.listCaseGroups());
     http.expectOne(API_CASE_GROUPS_PATH).flush('', { status: 500, statusText: 'Server Error' });
     await expect(broken).rejects.toMatchObject({ status: 500 });
+    http.verify();
+  });
+});
+
+const REPAIR_TYPE_ID = '01a111b6-e24b-70ab-a136-327c19c1c4ea';
+const STOCKTAKE_TYPE_ID = '01a111b6-e25a-7bb2-b69c-e4fadaf1bbe9';
+const EQUIPMENT_GROUP_ID = '01a111b6-e205-784b-a3a9-142961e382b3';
+const WAREHOUSE_GROUP_ID = '01a111b6-e240-7559-9e2c-471249068406';
+const REPAIR_DESCRIPTION = '冷藏庫、溫控或灌溉設備故障，需要派人到場檢修。';
+
+describe('CaseSettingsRepository case types (API mode, recorded responses, issue #247)', () => {
+  it('reads the manager\'s list with inactive types, and an employee\'s active types only', async () => {
+    const { repository, http } = apiRepository();
+
+    const admin = firstValueFrom(repository.listCaseTypes({ includeInactive: true }));
+    const adminRequest = http.expectOne((request) => request.url === API_CASE_TYPES_PATH);
+    expect(adminRequest.request.params.get('includeInactive')).toBe('true');
+    adminRequest.flush(JSON.parse(TYPES_ADMIN_ALL_JSON));
+    const adminView = await admin;
+    if (adminView.status !== 'ready') throw new Error(adminView.status);
+    expect(adminView.data.canManage).toBe(true);
+    expect(adminView.data.types.map((type) => [type.name, type.isActive, type.defaultGroup.name, type.defaultGroup.archived, type.defaultDueHours]))
+      .toEqual([['設備故障報修', true, '設備組', false, 48], ['倉儲盤點差異', false, '舊倉儲組', true, 36]]);
+
+    const member = firstValueFrom(repository.listCaseTypes());
+    const memberRequest = http.expectOne((request) => request.url === API_CASE_TYPES_PATH);
+    expect(memberRequest.request.params.has('includeInactive')).toBe(false);
+    memberRequest.flush(JSON.parse(TYPES_INTERNAL_JSON));
+    const memberView = await member;
+    if (memberView.status !== 'ready') throw new Error(memberView.status);
+    expect([memberView.data.canManage, memberView.data.types.map((type) => type.id)]).toEqual([false, [REPAIR_TYPE_ID]]);
+    expect(memberView.data.types[0].defaultGroup).toEqual({ id: EQUIPMENT_GROUP_ID, name: '設備組', archived: false });
+    http.verify();
+  });
+
+  it('turns an external customer\'s 403 case and an employee\'s 403 organization-settings into permission-denied', async () => {
+    const { repository, http } = apiRepository();
+
+    const list = firstValueFrom(repository.listCaseTypes());
+    flushError(http, API_CASE_TYPES_PATH, 403, 'Forbidden', TYPES_EXTERNAL_403_JSON);
+    expect(await list).toEqual({ status: 'permission-denied', reason: 'case', message: '案件功能只開放組織內部帳號使用。' });
+
+    const create = firstValueFrom(repository.createCaseType({
+      name: '品保', description: '', defaultGroupId: EQUIPMENT_GROUP_ID, defaultDueHours: 24, isActive: true,
+    }));
+    flushError(http, API_CASE_TYPES_PATH, 403, 'Forbidden', TYPE_INTERNAL_CREATE_403_JSON);
+    expect(await create).toEqual({ status: 'permission-denied', reason: 'organization-settings', message: '只有管理者可以變更組織設定。' });
+    http.verify();
+  });
+
+  it('creates and updates a type with every field, in hours', async () => {
+    const { repository, http } = apiRepository();
+    const input = {
+      name: '設備故障報修', description: REPAIR_DESCRIPTION, defaultGroupId: EQUIPMENT_GROUP_ID, defaultDueHours: 72, isActive: true,
+    };
+
+    const created = firstValueFrom(repository.createCaseType(input));
+    const createRequest = http.expectOne(API_CASE_TYPES_PATH);
+    expect([createRequest.request.method, createRequest.request.body]).toEqual(['POST', input]);
+    createRequest.flush(JSON.parse(TYPE_CREATE_JSON), { status: 201, statusText: 'Created' });
+    expect(await created).toMatchObject({ status: 'ready', data: { id: REPAIR_TYPE_ID, defaultDueHours: 72, isActive: true } });
+
+    const inactive = firstValueFrom(repository.createCaseType({
+      name: '倉儲盤點差異', description: '盤點數量與系統不符。', defaultGroupId: WAREHOUSE_GROUP_ID, defaultDueHours: 36, isActive: false,
+    }));
+    http.expectOne(API_CASE_TYPES_PATH).flush(JSON.parse(TYPE_CREATE_INACTIVE_JSON), { status: 201, statusText: 'Created' });
+    expect(await inactive).toMatchObject({ status: 'ready', data: { id: STOCKTAKE_TYPE_ID, isActive: false } });
+
+    const updated = firstValueFrom(repository.updateCaseType(REPAIR_TYPE_ID, { ...input, defaultDueHours: 48 }));
+    const updateRequest = http.expectOne(apiCaseTypePath(REPAIR_TYPE_ID));
+    expect([updateRequest.request.method, updateRequest.request.body.defaultDueHours]).toEqual(['PUT', 48]);
+    updateRequest.flush(JSON.parse(TYPE_UPDATE_JSON));
+    expect(await updated).toMatchObject({ status: 'ready', data: { defaultDueHours: 48, updatedAt: '2026-10-06T14:56:00.634659+00:00' } });
+    http.verify();
+  });
+
+  it('shows every field error, the 2,161-hour limit, a taken name and an archived group as validation-failed', async () => {
+    const { repository, http } = apiRepository();
+    const input = { name: '急件', description: '', defaultGroupId: EQUIPMENT_GROUP_ID, defaultDueHours: 24, isActive: true };
+
+    const invalid = firstValueFrom(repository.createCaseType({ ...input, name: '  ', description: '說'.repeat(501), defaultDueHours: 0 }));
+    flushError(http, API_CASE_TYPES_PATH, 422, 'Unprocessable Content', TYPE_INVALID_422_JSON);
+    expect(await invalid).toEqual({
+      status: 'validation-failed',
+      message: '請輸入案件類型名稱。',
+      fieldErrors: {
+        name: '請輸入案件類型名稱。',
+        description: '說明請在 500 個字以內。',
+        defaultDueHours: '預設處理時限請在 1 到 2,160 小時（90 天）之間。',
+      },
+    });
+
+    const tooLong = firstValueFrom(repository.createCaseType({ ...input, defaultDueHours: 2161 }));
+    flushError(http, API_CASE_TYPES_PATH, 422, 'Unprocessable Content', TYPE_2161_HOURS_422_JSON);
+    expect(await tooLong).toMatchObject({ fieldErrors: { defaultDueHours: '預設處理時限請在 1 到 2,160 小時（90 天）之間。' } });
+
+    const taken = firstValueFrom(repository.createCaseType({ ...input, name: '設備故障報修' }));
+    flushError(http, API_CASE_TYPES_PATH, 422, 'Unprocessable Content', TYPE_TAKEN_422_JSON);
+    expect(await taken).toEqual({
+      status: 'validation-failed', message: '已經有同名的案件類型，請換一個名稱。', fieldErrors: { name: '已經有同名的案件類型，請換一個名稱。' },
+    });
+
+    const archived = firstValueFrom(repository.createCaseType({ ...input, defaultGroupId: WAREHOUSE_GROUP_ID }));
+    flushError(http, API_CASE_TYPES_PATH, 422, 'Unprocessable Content', TYPE_ARCHIVED_GROUP_422_JSON);
+    expect(await archived).toMatchObject({ fieldErrors: { defaultGroupId: '這個承辦組已封存，請選擇其他承辦組。' } });
+
+    const reactivate = firstValueFrom(repository.updateCaseType(STOCKTAKE_TYPE_ID, {
+      name: '倉儲盤點差異', description: '盤點數量與系統不符。', defaultGroupId: WAREHOUSE_GROUP_ID, defaultDueHours: 36, isActive: true,
+    }));
+    flushError(http, apiCaseTypePath(STOCKTAKE_TYPE_ID), 422, 'Unprocessable Content', TYPE_REACTIVATE_ARCHIVED_422_JSON);
+    expect(await reactivate).toMatchObject({ status: 'validation-failed', fieldErrors: { defaultGroupId: '這個承辦組已封存，請選擇其他承辦組。' } });
+    http.verify();
+  });
+
+  it('refuses to archive the default group of an active type with the server\'s message naming the type', async () => {
+    const { repository, http } = apiRepository();
+
+    const archived = firstValueFrom(repository.setCaseGroupArchived(EQUIPMENT_GROUP_ID, true));
+    flushError(http, `${apiCaseGroupPath(EQUIPMENT_GROUP_ID)}:archive`, 422, 'Unprocessable Content', GROUP_IN_USE_422_JSON);
+
+    expect(await archived).toEqual({
+      status: 'validation-failed',
+      message: '「設備組」是啟用中的案件類型「設備故障報修」的預設承辦組。請先替這些類型換一個承辦組，或停用它們，再封存。',
+    });
     http.verify();
   });
 });

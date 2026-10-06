@@ -122,4 +122,22 @@ describe('SettingsPageComponent', () => {
     expect(host.querySelector('#chat-model-status')?.textContent).toContain('已改用「進階模型」');
     expect(host.querySelector('app-chat-model-panel [role="alert"]')).toBeNull();
   });
+
+  it('shows the case types section right after the case groups, to the manager only (issue #247)', async () => {
+    for (const [accountId, shown] of [
+      ['account-smb-admin', true],
+      ['account-internal-employee', false],
+      ['account-external-customer', false],
+    ] as const) {
+      const { fixture, host } = render(accountId);
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      expect(host.querySelector('app-case-types-panel [data-case-types-panel]') !== null, accountId).toBe(shown);
+      const order = Array.from(host.querySelectorAll('app-case-groups-panel, app-case-types-panel, .appearance-settings'))
+        .map((element) => element.tagName.toLowerCase());
+      expect(order).toEqual(['app-case-groups-panel', 'app-case-types-panel', 'div']);
+      TestBed.resetTestingModule();
+    }
+  });
 });

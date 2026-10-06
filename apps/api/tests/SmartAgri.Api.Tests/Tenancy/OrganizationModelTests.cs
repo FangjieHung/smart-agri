@@ -77,7 +77,7 @@ public class OrganizationModelTests
                 typeof(SmartAgri.Domain.Databases.DatabaseSubmission), typeof(SmartAgri.Domain.Databases.DatabaseSubmissionEntry),
                 typeof(SmartAgri.Domain.Reports.ReportSchedule), typeof(SmartAgri.Domain.Reports.DatabaseReport),
                 typeof(SmartAgri.Domain.Cases.CaseGroup), typeof(SmartAgri.Domain.Cases.CaseGroupMember),
-                typeof(SmartAgri.Domain.Cases.CaseGroupMemberChange),
+                typeof(SmartAgri.Domain.Cases.CaseGroupMemberChange), typeof(SmartAgri.Domain.Cases.CaseType),
                 typeof(BackgroundJob),
                 typeof(ModelInvocation),
                 typeof(AnswerOutcome),

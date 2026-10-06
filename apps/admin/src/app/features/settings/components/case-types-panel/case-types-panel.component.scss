@@ -1,0 +1,82 @@
+:host { display: block; }
+
+.case-types-panel { display: grid; gap: var(--space-4); min-inline-size: 0; }
+h2, p { margin: 0; }
+.hint { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.hint.small { font-size: var(--font-size-caption); }
+.error { color: var(--color-error); font-weight: 700; }
+.field-error { color: var(--color-error); font-size: var(--font-size-caption); font-weight: 600; }
+.feedback { color: var(--color-success); font-weight: 600; }
+.feedback:empty { display: none; }
+
+.control { position: relative; display: grid; gap: var(--space-1); min-inline-size: 0; }
+.control label { font-weight: 600; }
+.control input,
+.control select,
+.control textarea {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: max(16px, 1em);
+  min-inline-size: 0;
+}
+.control textarea { resize: vertical; line-height: var(--line-height-body); }
+.control [aria-invalid='true'] { border-color: var(--color-error); }
+
+.type-list { display: grid; gap: var(--space-3); margin: 0; padding: 0; list-style: none; }
+.type {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  min-inline-size: 0;
+}
+.type.is-inactive { background: var(--color-background); }
+.type__identity { display: grid; gap: var(--space-1); min-inline-size: 0; }
+.type__name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-weight: 700; overflow-wrap: anywhere; }
+.type__tag {
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--color-surface-muted, var(--color-background));
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: 600;
+}
+.type__description { line-height: var(--line-height-body); overflow-wrap: anywhere; white-space: pre-line; }
+.type__defaults { color: var(--color-text-secondary); font-size: var(--font-size-caption); line-height: var(--line-height-body); overflow-wrap: anywhere; }
+
+.editor {
+  display: grid;
+  gap: var(--space-3);
+  min-inline-size: 0;
+  padding: var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+.type .editor { padding: 0; border: 0; }
+.editor__title { font-weight: 700; overflow-wrap: anywhere; }
+
+fieldset.due { display: grid; gap: var(--space-1); min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+legend { float: left; inline-size: 100%; margin-block-end: var(--space-1); padding: 0; font-weight: 600; }
+.due__inputs { display: flex; flex-wrap: wrap; gap: var(--space-2); min-inline-size: 0; }
+.due__inputs .control:first-child { flex: 0 1 8rem; }
+.due__inputs .control:last-child { flex: 0 1 7rem; }
+
+.choice { display: flex; align-items: center; gap: var(--space-3); min-block-size: var(--target-size); }
+.choice input { inline-size: 1.25rem; block-size: 1.25rem; margin: 0; accent-color: var(--color-accent); }
+.choice label { cursor: pointer; }
+
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ui-button.secondary { background: var(--color-surface); color: var(--color-accent); }
+
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}

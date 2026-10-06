@@ -83,6 +83,7 @@ public class OrganizationSettingsTests
             [
                 "chat-model-changed", "retention-changed", "retention-change-cancelled", "retention-took-effect", "retention-cleanup",
                 "case-group-created", "case-group-renamed", "case-group-archived", "case-group-unarchived",
+                "case-type-created", "case-type-updated",
             ]);
     }
 

@@ -245,6 +245,18 @@ describe('accessibility', () => {
     });
   });
 
+  describe('case type form expanded (issue #247)', () => {
+    it('has no critical or serious violations with the form and a field error rendered', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '新增案件類型').scrollIntoView().click();
+      cy.get('#case-type-due').clear().type('0');
+      cy.contains('button', '建立案件類型').click();
+      cy.get('#case-type-due-error').should('exist');
+      auditA11y();
+    });
+  });
+
   describe('embedded chat as an anonymous visitor', () => {
     it('has no critical or serious violations without any demo persona', () => {
       cy.visit('/use/assistant-customer-service');

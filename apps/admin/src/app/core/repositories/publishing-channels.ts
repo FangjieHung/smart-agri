@@ -3,6 +3,7 @@ import type { AssistantAcceptanceStatus } from '../domain/assistant-acceptance.m
 import { audienceAllowsRole, type AssistantConfigurationView } from '../domain/assistant.model';
 import {
   LINE_FIELDS,
+  MAX_LINE_WELCOME_LENGTH,
   MAX_WEBSITE_NAME_LENGTH,
   MAX_WELCOME_LENGTH,
   PUBLISHING_CHANNEL_NAMES,
@@ -10,12 +11,12 @@ import {
   WEBSITE_LAUNCHER_POSITIONS,
   normalizeDomain,
   validateAllowedDomain,
-  type ConfigurableAssistantPublishingView,
+  type AssistantPublishingView,
+  type LineConnectionCheckView,
   type LineField,
-  type LineFieldCheckView,
+  type LinePublishFailure,
   type LineSettingsInput,
   type LineSetupView,
-  type LineTestResultView,
   type PlatformSharingView,
   type PublishingChannelStatus,
   type PublishingChannelType,
@@ -28,7 +29,14 @@ import {
   type WebsiteServingState,
 } from '../domain/publishing.model';
 import { ACCOUNT_ROLE_LABELS } from '../domain/team.model';
-import { EMPTY_LINE_SETTINGS, EXPIRED_DEMO_LINE_TOKEN, type PublishingRecord } from './demo-seed-publishing';
+import {
+  emptyLineRecord,
+  EXPIRED_DEMO_LINE_TOKEN,
+  LINE_CHECK_LABELS,
+  LINE_CHECK_SKIPPED_MESSAGE,
+  secretStatusOf,
+  type PublishingRecord,
+} from './demo-seed-publishing';
 
 /** 發布管道的純函式：由保存狀態推導統一狀態、說明文字與畫面資料，不連接任何外部服務。 */
 
@@ -51,7 +59,7 @@ export function defaultPublishingRecord(
       lastSeenAt: {},
       updatedAt: now,
     },
-    line: { ...EMPTY_LINE_SETTINGS, checked: false, enabled: false, lastTest: null, paused: false, updatedAt: now },
+    line: emptyLineRecord(now),
   };
 }
 
@@ -69,8 +77,47 @@ export function isPublishingRecord(value: unknown): value is PublishingRecord {
     Array.isArray(value['website']['allowedDomains']) &&
     typeof value['website']['state'] === 'string' &&
     isObject(value['line']) &&
-    LINE_FIELDS.every((field) => typeof (value['line'] as Record<string, unknown>)[field.id] === 'string')
+    typeof value['line']['officialAccountId'] === 'string'
   );
+}
+
+/**
+ * 讀回保存的記錄：舊版（#233 前）的 LINE 欄位把 Secret 與 Token 的原文存在瀏覽器裡，
+ * 這裡轉成只有「已設定」與末四碼的新形狀（原文就此丟掉，連線測試結果要重測）；已經是新形狀的原樣回傳。
+ * 回傳的第二個值表示有轉換過，呼叫端要把轉換後的記錄寫回去。
+ */
+export function upgradePublishingRecord(record: PublishingRecord): readonly [PublishingRecord, boolean] {
+  const line = record.line as unknown as Record<string, unknown>;
+  if (typeof line['channelSecret'] !== 'string' || typeof line['accessToken'] !== 'string') return [record, false];
+
+  const old = line as unknown as {
+    officialAccountId: string;
+    channelId: string;
+    channelSecret: string;
+    accessToken: string;
+    enabled?: boolean;
+    paused?: boolean;
+    updatedAt: string;
+  };
+  const updatedAt = old.updatedAt;
+  const base = emptyLineRecord(updatedAt);
+  const saved = old.officialAccountId.length > 0 || old.channelId.length > 0;
+  return [
+    {
+      ...record,
+      line: {
+        ...base,
+        officialAccountId: old.officialAccountId,
+        channelId: old.channelId,
+        channelSecret: old.channelSecret.length > 0 ? secretStatusOf(old.channelSecret, updatedAt) : base.channelSecret,
+        accessToken: old.accessToken.length > 0 ? secretStatusOf(old.accessToken, updatedAt) : base.accessToken,
+        tokenExpired: old.accessToken === EXPIRED_DEMO_LINE_TOKEN,
+        state: old.enabled !== true ? 'draft' : old.paused === true ? 'paused' : 'published',
+        revision: saved ? 1 : 0,
+      },
+    },
+    true,
+  ];
 }
 
 // ---------- 平台內分享 ----------
@@ -276,59 +323,226 @@ const LINE_PATTERNS: Readonly<Record<LineField, { readonly pattern: RegExp; read
   accessToken: { pattern: /^\S{40,}$/, message: '至少 40 個字元且不含空白。' },
 };
 
-export function lineChecks(line: PublishingRecord['line']): readonly LineFieldCheckView[] {
-  return LINE_FIELDS.map(({ id, label }): LineFieldCheckView => {
-    if (!line.checked) return { field: id, label, state: 'pending', message: '尚未檢查。' };
-    const value = line[id];
-    if (value.length === 0) return { field: id, label, state: 'failed', message: `請填寫 ${label}。` };
-    const rule = LINE_PATTERNS[id];
-    if (!rule.pattern.test(value)) return { field: id, label, state: 'failed', message: `${label}${rule.message}` };
-    if (id === 'accessToken' && value === EXPIRED_DEMO_LINE_TOKEN) {
-      return { field: id, label, state: 'failed', message: '此權杖已失效（模擬結果），請重新發行後貼上新的權杖。' };
-    }
-    return { field: id, label, state: 'passed', message: '通過檢查（模擬）。' };
-  });
+export const LINE_CONFLICT_MESSAGE = 'LINE 頻道的設定已在其他分頁被更新過，請重新載入後再修改。';
+export const LINE_PUBLISH_REFUSED_MESSAGE = '目前還不能啟用 LINE 頻道，請先處理下列項目。';
+export const LINE_TEST_SETTINGS_MESSAGE = '請先填寫並儲存 LINE 官方帳號的連接資訊，再測試連線。';
+export const LINE_TEST_REFUSED_MESSAGE = '目前還不能測試連線，請先處理下列項目。';
+
+const LINE_CONNECTION_NOT_PASSED_MESSAGE =
+  '請先測試連線，三項檢查（Token 與官方帳號、Webhook 網址、Webhook 連線測試）都通過後才能啟用。';
+
+/** 與 API 的 `LineChannelRules.Normalize` 相同：JavaScript 的 `trim()`。 */
+export function trimLineValue(raw: string): string {
+  return raw.trim();
 }
 
-function lineStatus(line: PublishingRecord['line'], checks: readonly LineFieldCheckView[]): [PublishingChannelStatus, string] {
-  const failed = checks.filter((check) => check.state === 'failed').length;
-  if (line.paused) return ['paused', '已暫停：LINE 使用者暫時收不到助理回覆，設定會保留。'];
-  if (!line.checked && LINE_FIELDS.every((field) => line[field.id].length === 0)) {
+/** 一個連接欄位的格式檢查（與 API 的 `LineChannelRules.ValidateField` 同規則與訊息）；通過時回傳 null。 */
+export function validateLineField(field: LineField, raw: string): string | null {
+  const label = LINE_FIELDS.find((candidate) => candidate.id === field)?.label ?? field;
+  const value = trimLineValue(raw);
+  if (value.length === 0) return `請填寫 ${label}。`;
+  const rule = LINE_PATTERNS[field];
+  return rule.pattern.test(value) ? null : `${label}${rule.message}`;
+}
+
+/**
+ * 驗證並正規化 LINE 設定（與 API 的 `LineChannelRules.ForUpdate` 同規則）：官方帳號 ID、Channel ID 與歡迎訊息一定要填；
+ * Secret 與 Token 空白表示「不變更」，只有還沒設定過時才必填。錯誤依畫面欄位順序排列。
+ */
+export function validateLineSettings(
+  input: LineSettingsInput,
+  stored: Pick<PublishingRecord['line'], 'channelSecret' | 'accessToken'>,
+): {
+  readonly errors: readonly PublishingFieldError[];
+  readonly normalized: Required<LineSettingsInput>;
+} {
+  const errors: PublishingFieldError[] = [];
+  const check = (field: LineField, raw: string) => {
+    const message = validateLineField(field, raw);
+    if (message !== null) errors.push({ field, message });
+  };
+  check('officialAccountId', input.officialAccountId);
+  check('channelId', input.channelId);
+  const channelSecret = trimLineValue(input.channelSecret ?? '');
+  if (channelSecret.length > 0 || !stored.channelSecret.configured) check('channelSecret', channelSecret);
+  const accessToken = trimLineValue(input.accessToken ?? '');
+  if (accessToken.length > 0 || !stored.accessToken.configured) check('accessToken', accessToken);
+  const welcomeMessage = trimLineValue(input.welcomeMessage);
+  if (welcomeMessage.length === 0) errors.push({ field: 'welcomeMessage', message: '請填寫歡迎訊息。' });
+  else if (welcomeMessage.length > MAX_LINE_WELCOME_LENGTH) {
+    errors.push({ field: 'welcomeMessage', message: `歡迎訊息請在 ${MAX_LINE_WELCOME_LENGTH} 個字以內。` });
+  }
+
+  return {
+    errors,
+    normalized: {
+      officialAccountId: trimLineValue(input.officialAccountId),
+      channelId: trimLineValue(input.channelId),
+      welcomeMessage,
+      channelSecret,
+      accessToken,
+    },
+  };
+}
+
+/**
+ * 儲存設定後的記錄：憑證只留狀態（原文在這裡就丟掉）；官方帳號 ID、Channel ID 或憑證有變，
+ * 清除連線測試結果，已啟用的退回草稿（與 API 的 `TryApplySettings` 相同）；只改歡迎訊息不影響。
+ */
+export function applyLineSettings(
+  line: PublishingRecord['line'],
+  settings: Required<LineSettingsInput>,
+  now: string,
+): PublishingRecord['line'] {
+  const newSecret = settings.channelSecret.length > 0;
+  const newToken = settings.accessToken.length > 0;
+  const connectionChanged =
+    line.revision === 0 ||
+    settings.officialAccountId !== line.officialAccountId ||
+    settings.channelId !== line.channelId ||
+    newSecret ||
+    newToken;
+  return {
+    ...line,
+    officialAccountId: settings.officialAccountId,
+    channelId: settings.channelId,
+    welcomeMessage: settings.welcomeMessage,
+    channelSecret: newSecret ? secretStatusOf(settings.channelSecret, now) : line.channelSecret,
+    accessToken: newToken ? secretStatusOf(settings.accessToken, now) : line.accessToken,
+    tokenExpired: newToken ? settings.accessToken === EXPIRED_DEMO_LINE_TOKEN : line.tokenExpired,
+    ...(connectionChanged
+      ? {
+          checks: [],
+          checkedAt: null,
+          state: 'draft' as const,
+          publishedAt: null,
+        }
+      : {}),
+    revision: line.revision + 1,
+    updatedAt: now,
+  };
+}
+
+const LINE_CHECK_KINDS = ['access-token', 'webhook-endpoint', 'webhook-test'] as const;
+
+/** 畫面上的三項檢查：沒有測試結果時都是 `pending`。 */
+export function lineConnectionChecks(line: PublishingRecord['line']): readonly LineConnectionCheckView[] {
+  return LINE_CHECK_KINDS.map((check): LineConnectionCheckView =>
+    line.checks.find((stored) => stored.check === check) ?? {
+      check,
+      label: LINE_CHECK_LABELS[check],
+      state: 'pending',
+      message: '尚未測試。',
+    },
+  );
+}
+
+export function lineChecksPassed(line: PublishingRecord['line']): boolean {
+  return line.checks.length === LINE_CHECK_KINDS.length && line.checks.every((check) => check.state === 'passed');
+}
+
+/**
+ * 模擬「測試連線」（決定 B）：不會連接 LINE。Token 是已失效的示範權杖時第一項未通過、後兩項略過；
+ * 其餘三項通過。訊息與 API 同樣是繁體中文，註明是模擬結果。
+ */
+export function simulateLineConnectionTest(line: PublishingRecord['line'], webhookUrl: string): readonly LineConnectionCheckView[] {
+  const label = LINE_CHECK_LABELS;
+  if (line.tokenExpired) {
+    return [
+      {
+        check: 'access-token',
+        label: label['access-token'],
+        state: 'failed',
+        message:
+          'LINE 不接受這個 Channel access token（此權杖已失效，模擬結果）；請重新發行長效型 Token，重新填寫後儲存。',
+      },
+      { check: 'webhook-endpoint', label: label['webhook-endpoint'], state: 'skipped', message: LINE_CHECK_SKIPPED_MESSAGE },
+      { check: 'webhook-test', label: label['webhook-test'], state: 'skipped', message: LINE_CHECK_SKIPPED_MESSAGE },
+    ];
+  }
+  return [
+    {
+      check: 'access-token',
+      label: label['access-token'],
+      state: 'passed',
+      message: `Token 有效，屬於官方帳號 ${line.officialAccountId}（模擬結果，未實際連接 LINE）。`,
+    },
+    {
+      check: 'webhook-endpoint',
+      label: label['webhook-endpoint'],
+      state: 'passed',
+      message: `已將 LINE 的 Webhook 網址設為 ${webhookUrl}（模擬）。`,
+    },
+    {
+      check: 'webhook-test',
+      label: label['webhook-test'],
+      state: 'passed',
+      message: 'LINE 送出的測試事件已送達，伺服器以 Channel secret 驗證簽章通過（模擬）。',
+    },
+  ];
+}
+
+/** LINE 的實際服務狀態：與官網同一組推導，「三項檢查都通過」取代「有允許網域」（M5b 計畫第 4 節）。 */
+export function lineServingState(line: PublishingRecord['line'], context: WebsiteServingContext): WebsiteServingState {
+  if (line.state === 'draft' || !lineChecksPassed(line)) return 'not-published';
+  if (line.state === 'paused') return 'paused';
+  if (context.acceptanceStatus === 'failed' || context.acceptanceStatus === 'not-accepted') return 'suspended-acceptance';
+  if (context.nonOwnedKnowledgeBases.length > 0) return 'suspended-knowledge';
+  return context.quotaExceeded ? 'suspended-quota' : 'serving';
+}
+
+/** 實際服務狀態 → 管道卡狀態與說明（與 API 的 `Describe` 同一套文字）。 */
+function lineStatus(line: PublishingRecord['line'], serving: WebsiteServingState): [PublishingChannelStatus, string] {
+  switch (serving) {
+    case 'paused':
+      return ['paused', '已暫停：LINE 使用者目前會收到「暫停服務」，設定會保留。'];
+    case 'suspended-acceptance':
+      return ['needs-attention', '驗收未通過，已自動暫停 LINE 回覆；請到題組頁處理，重跑通過後會自動恢復。'];
+    case 'suspended-knowledge':
+      return ['needs-attention', '連接了不是助理擁有者自己的知識庫，已自動暫停 LINE 回覆；解除連接這些知識庫後會自動恢復。'];
+    case 'suspended-quota':
+      return ['needs-attention', '本月用量已達上限，已暫停 LINE 回覆；下個月或調高上限後會自動恢復。'];
+    case 'serving':
+      return ['published', `${line.officialAccountId} 已啟用，可在 LINE 對話中使用。`];
+    default:
+      break;
+  }
+  if (line.revision === 0 && line.officialAccountId.length === 0) {
     return ['not-configured', '尚未填寫 LINE 官方帳號連接資訊。'];
   }
-  if (failed > 0) return ['needs-attention', `${failed} 個欄位未通過檢查，LINE 使用者可能收不到回覆；其他管道不受影響。`];
-  if (!line.checked) return ['testing', '連接資訊尚未檢查，請先儲存並檢查。'];
-  if (line.enabled) return ['published', `${line.officialAccountId} 已啟用（模擬），可在 LINE 對話中使用。`];
-  return ['testing', '欄位已通過檢查，傳送測試訊息並確認後即可啟用。'];
-}
-
-export function canSendLineTest(line: PublishingRecord['line']): boolean {
-  return line.checked && !line.paused && lineChecks(line).every((check) => check.state === 'passed');
-}
-
-export function lineTestResult(line: PublishingRecord['line'], testedAt: string): LineTestResultView {
-  if (line.paused) return { outcome: 'failed', message: '管道已暫停，恢復後才能傳送測試訊息。', testedAt };
-  if (!canSendLineTest(line)) {
-    return { outcome: 'failed', message: '請先讓所有欄位通過檢查，再傳送測試訊息。', testedAt };
+  if (line.state !== 'draft') {
+    return ['needs-attention', '連線測試未通過，LINE 使用者目前收不到回覆；請依檢查結果修正後重新測試連線。'];
   }
-  return {
-    outcome: 'delivered',
-    message: `測試訊息已送達 ${line.officialAccountId}（模擬結果，未實際連接 LINE）。`,
-    testedAt,
-  };
+  if (line.checks.length === 0) return ['testing', '連接資訊已儲存，請測試連線；三項檢查都通過、驗收通過後即可啟用。'];
+  if (!lineChecksPassed(line)) return ['needs-attention', '連線測試未通過，請依檢查結果修正後重新測試連線。'];
+  return ['testing', '連線測試已通過，驗收通過後即可啟用。'];
 }
 
-export function canActivateLine(line: PublishingRecord['line']): boolean {
-  return canSendLineTest(line) && !line.enabled && line.lastTest?.outcome === 'delivered';
+/** 啟用閘門（與 API 的 `LineChannelRules.PublishFailures` 同一組判斷與訊息；mock 沒有 `assistant-paused`、`public-base-url`）。 */
+export function linePublishFailures(
+  line: PublishingRecord['line'],
+  context: WebsiteServingContext,
+): readonly LinePublishFailure[] {
+  const failures: LinePublishFailure[] = [];
+  if (!lineChecksPassed(line)) failures.push({ reason: 'connection', message: LINE_CONNECTION_NOT_PASSED_MESSAGE });
+  if (context.acceptanceStatus !== 'passed') {
+    failures.push({
+      reason: 'acceptance',
+      message: '驗收狀態必須是「通過」才能對外發布；請先到題組頁執行驗收並讓所有題目通過。',
+    });
+  }
+  for (const knowledgeBase of context.nonOwnedKnowledgeBases) {
+    failures.push({
+      reason: 'knowledge-ownership',
+      message: `「${knowledgeBase.name}」不是助理擁有者自己的知識庫，對外發布時不能使用；請解除連接後再發布。`,
+    });
+  }
+  return failures;
 }
 
-export function trimLineSettings(input: LineSettingsInput): LineSettingsInput {
-  return {
-    officialAccountId: input.officialAccountId.trim(),
-    channelId: input.channelId.trim(),
-    channelSecret: input.channelSecret.trim(),
-    accessToken: input.accessToken.trim(),
-  };
+/** 示範 Webhook 網址，指向保留網域，只供畫面展示。 */
+export function demoLineWebhookUrl(assistantId: string): string {
+  return `https://webhook.demo.invalid/line/${assistantId}`;
 }
 
 // ---------- 對外開放判斷 ----------
@@ -345,8 +559,7 @@ export function isExternallyPublished(
   website: WebsiteServingContext,
 ): boolean {
   const websiteServing = websiteServingState(record, website) === 'serving';
-  const [line] = lineStatus(record.line, lineChecks(record.line));
-  return websiteServing || line === 'published';
+  return websiteServing || lineServingState(record.line, website) === 'serving';
 }
 
 // ---------- 組裝 ----------
@@ -374,7 +587,7 @@ export function toAssistantPublishingView(
   record: PublishingRecord,
   accounts: readonly AccountView[],
   websiteContext: WebsiteServingContext,
-): ConfigurableAssistantPublishingView {
+): AssistantPublishingView {
   const platform: PlatformSharingView = {
     channel: channelView(assistant, 'platform', platformStatus(record), record.platform.updatedAt),
     usagePath: `/use/${assistant.id}`,
@@ -409,19 +622,24 @@ export function toAssistantPublishingView(
     publishedAt,
     revision,
   };
-  const checks = lineChecks(record.line);
-  const { officialAccountId, channelId, channelSecret, accessToken } = record.line;
+  const lineServing = lineServingState(record.line, websiteContext);
   const line: LineSetupView = {
-    officialAccountId,
-    channelId,
-    channelSecret,
-    accessToken,
-    channel: channelView(assistant, 'line', lineStatus(record.line, checks), record.line.updatedAt),
-    webhookUrl: `https://webhook.demo.invalid/line/${assistant.id}`,
-    checks,
-    lastTest: record.line.lastTest,
-    canSendTest: canSendLineTest(record.line),
-    canActivate: canActivateLine(record.line),
+    channel: channelView(assistant, 'line', lineStatus(record.line, lineServing), record.line.updatedAt),
+    officialAccountId: record.line.officialAccountId,
+    channelId: record.line.channelId,
+    welcomeMessage: record.line.welcomeMessage,
+    channelSecret: record.line.channelSecret,
+    accessToken: record.line.accessToken,
+    webhookUrl: demoLineWebhookUrl(assistant.id),
+    checks: lineConnectionChecks(record.line),
+    connectionCheckedAt: record.line.checkedAt,
+    state: record.line.state,
+    servingState: lineServing,
+    acceptanceStatus: websiteContext.acceptanceStatus,
+    nonOwnedKnowledgeBases: websiteContext.nonOwnedKnowledgeBases,
+    publishedAt: record.line.publishedAt,
+    pushFallbackCount: record.line.pushFallbackCount,
+    revision: record.line.revision,
   };
 
   return { assistantId: assistant.id, assistantName: assistant.name, platform, website, line };

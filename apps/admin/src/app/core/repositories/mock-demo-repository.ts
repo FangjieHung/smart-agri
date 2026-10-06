@@ -124,8 +124,8 @@ import {
   PUBLISHING_CHANNEL_TYPES,
   type AssistantChannelsView,
   type AssistantPublishingView,
-  type ConfigurableAssistantPublishingView,
   type LineSettingsInput,
+  type LineSetupView,
   type PublishingChannelView,
   type PublishingChannelType,
   type WebsiteEmbedSettings,
@@ -195,16 +195,23 @@ import type {
 import { createMemoryStorage } from './memory-storage';
 import type { PublishingRecord } from './demo-seed-publishing';
 import {
-  canActivateLine,
+  applyLineSettings,
   canManagePublishing,
   canOpenInPlatform,
   defaultPublishingRecord,
+  demoLineWebhookUrl,
   isExternallyPublished,
   isPublishingRecord,
-  lineTestResult,
+  LINE_CONFLICT_MESSAGE,
+  LINE_PUBLISH_REFUSED_MESSAGE,
+  LINE_TEST_REFUSED_MESSAGE,
+  LINE_TEST_SETTINGS_MESSAGE,
+  linePublishFailures,
   normalizePlatformAccounts,
+  simulateLineConnectionTest,
   toAssistantPublishingView,
-  trimLineSettings,
+  upgradePublishingRecord,
+  validateLineSettings,
   validateWebsiteSettings,
   WEBSITE_CONFLICT_MESSAGE,
   WEBSITE_REFUSED_MESSAGE,
@@ -212,7 +219,6 @@ import {
   type WebsiteServingContext,
 } from './publishing-channels';
 import type {
-  ActivateLineChannelResult,
   ApproveKnowledgeVersionsResult,
   CreateAssistantResult,
   CreateDatabaseResult,
@@ -247,7 +253,10 @@ import type {
   UpdateKnowledgeSharingResult,
   UpdateMemberPermissionsResult,
   UpdatePlatformSharingResult,
+  PublishLineResult,
   PublishWebsiteResult,
+  TestLineConnectionResult,
+  UpdateLineChannelResult,
   UpdateWebsiteEmbedResult,
   UploadKnowledgeDocumentEvent,
   UploadKnowledgeDocumentResult,
@@ -2100,63 +2109,95 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   saveLineSettings(
-    viewerAccountId: AccountId,
     assistantId: string,
     input: LineSettingsInput,
-  ): ReturnType<DemoRepository['saveLineSettings']> {
-    const assistant = this.publishingTarget(viewerAccountId, assistantId);
-    if (assistant === undefined) return this.publishingPermissionDenied();
+    revision: number,
+  ): Observable<UpdateLineChannelResult> {
+    return this.signedIn(
+      (viewer) => {
+        const assistant = this.publishingTarget(viewer, assistantId);
+        if (assistant === undefined) return this.publishingPermissionDenied();
 
-    const record = this.publishingRecord(assistant);
-    this.savePublishingRecord(assistant.id, {
-      ...record,
-      line: {
-        ...record.line,
-        ...trimLineSettings(input),
-        checked: true,
-        enabled: false,
-        lastTest: null,
-        updatedAt: this.now().toISOString(),
+        const { line } = this.publishingRecord(assistant);
+        const { errors, normalized } = validateLineSettings(input, line);
+        if (errors.length > 0) {
+          return immutableCopy({ status: 'validation-failed', errors, message: '還有設定需要修正。' });
+        }
+        if (revision !== line.revision) return { status: 'conflict', message: LINE_CONFLICT_MESSAGE };
+        return this.saveLine(assistant, applyLineSettings(line, normalized, this.now().toISOString()));
       },
-    });
-
-    return this.applyScenario(this.toPublishingView(assistant).line);
+      () => this.publishingPermissionDenied(),
+    );
   }
 
-  sendLineTestMessage(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): ReturnType<DemoRepository['sendLineTestMessage']> {
-    const assistant = this.publishingTarget(viewerAccountId, assistantId);
-    if (assistant === undefined) return this.publishingPermissionDenied();
+  testLineConnection(assistantId: string): Observable<TestLineConnectionResult> {
+    return this.signedIn(
+      (viewer) => {
+        const assistant = this.publishingTarget(viewer, assistantId);
+        if (assistant === undefined) return this.publishingPermissionDenied();
 
-    const record = this.publishingRecord(assistant);
-    const now = this.now().toISOString();
-    this.savePublishingRecord(assistant.id, {
-      ...record,
-      line: { ...record.line, lastTest: lineTestResult(record.line, now), updatedAt: now },
-    });
-
-    return this.applyScenario(this.toPublishingView(assistant).line);
+        const { line } = this.publishingRecord(assistant);
+        if (line.revision === 0) {
+          return immutableCopy({
+            status: 'test-refused',
+            message: LINE_TEST_REFUSED_MESSAGE,
+            failures: [{ reason: 'settings', message: LINE_TEST_SETTINGS_MESSAGE }],
+          });
+        }
+        const now = this.now().toISOString();
+        return this.saveLine(assistant, {
+          ...line,
+          checks: simulateLineConnectionTest(line, demoLineWebhookUrl(assistant.id)),
+          checkedAt: now,
+          updatedAt: now,
+        });
+      },
+      () => this.publishingPermissionDenied(),
+    );
   }
 
-  activateLineChannel(viewerAccountId: AccountId, assistantId: string): ActivateLineChannelResult {
-    const assistant = this.publishingTarget(viewerAccountId, assistantId);
-    if (assistant === undefined) return this.publishingPermissionDenied();
+  publishLine(assistantId: string): Observable<PublishLineResult> {
+    return this.signedIn(
+      (viewer) => {
+        const assistant = this.publishingTarget(viewer, assistantId);
+        if (assistant === undefined) return this.publishingPermissionDenied();
 
+        const { line } = this.publishingRecord(assistant);
+        const failures = linePublishFailures(line, this.websiteContext(assistant));
+        if (failures.length > 0) {
+          return immutableCopy({ status: 'publish-refused', message: LINE_PUBLISH_REFUSED_MESSAGE, failures });
+        }
+        const now = this.now().toISOString();
+        return this.saveLine(assistant, {
+          ...line,
+          state: 'published',
+          publishedAt: line.state === 'draft' ? now : line.publishedAt,
+          updatedAt: now,
+        });
+      },
+      () => this.publishingPermissionDenied(),
+    );
+  }
+
+  unpublishLine(assistantId: string): Observable<RepositoryView<LineSetupView>> {
+    return this.signedIn(
+      (viewer) => {
+        const assistant = this.publishingTarget(viewer, assistantId);
+        if (assistant === undefined) return this.publishingPermissionDenied();
+
+        const { line } = this.publishingRecord(assistant);
+        return this.saveLine(assistant, { ...line, state: 'draft', publishedAt: null, updatedAt: this.now().toISOString() });
+      },
+      () => this.publishingPermissionDenied(),
+    );
+  }
+
+  private saveLine(
+    assistant: AssistantConfigurationView,
+    line: PublishingRecord['line'],
+  ): RepositoryView<LineSetupView> {
     const record = this.publishingRecord(assistant);
-    if (!canActivateLine(record.line)) {
-      return immutableCopy({
-        status: 'validation-failed',
-        errors: [{ field: 'line', message: '請先讓所有欄位通過檢查並確認測試訊息送達，再啟用。' }],
-        message: 'LINE 管道尚未完成測試。',
-      });
-    }
-    this.savePublishingRecord(assistant.id, {
-      ...record,
-      line: { ...record.line, enabled: true, updatedAt: this.now().toISOString() },
-    });
-
+    this.savePublishingRecord(assistant.id, { ...record, line });
     return this.applyScenario(this.toPublishingView(assistant).line);
   }
 
@@ -2173,7 +2214,7 @@ export class MockDemoRepository implements DemoRepository {
 
     const record = this.publishingRecord(assistant);
     const updatedAt = this.now().toISOString();
-    // 官網的「暫停」是頻道狀態（已發布 ↔ 已暫停）；還沒發布的沒有可暫停的服務。
+    // 官網與 LINE 的「暫停」是頻道狀態（已發布 ↔ 已暫停）；還沒發布的沒有可暫停的服務。
     const next: PublishingRecord =
       channelType === 'website'
         ? {
@@ -2184,7 +2225,16 @@ export class MockDemoRepository implements DemoRepository {
               updatedAt,
             },
           }
-        : { ...record, [channelType]: { ...record[channelType], paused, updatedAt } };
+        : channelType === 'line'
+          ? {
+              ...record,
+              line: {
+                ...record.line,
+                state: record.line.state === 'draft' ? 'draft' : paused ? 'paused' : 'published',
+                updatedAt,
+              },
+            }
+          : { ...record, platform: { ...record.platform, paused, updatedAt } };
     this.savePublishingRecord(assistant.id, next);
 
     return this.applyScenario(this.toPublishingView(assistant)[channelType].channel);
@@ -6033,7 +6083,12 @@ export class MockDemoRepository implements DemoRepository {
 
   private publishingRecord(assistant: AssistantConfigurationView): PublishingRecord {
     const stored = parseJson(this.storage.getItem(PUBLISHING_KEY_PREFIX + assistant.id));
-    if (isPublishingRecord(stored)) return stored;
+    if (isPublishingRecord(stored)) {
+      // 舊版把 LINE 的 Secret 與 Token 原文存在瀏覽器裡：轉成只有狀態的新形狀，並立刻寫回去把原文蓋掉。
+      const [record, upgraded] = upgradePublishingRecord(stored);
+      if (upgraded) this.savePublishingRecord(assistant.id, record);
+      return record;
+    }
 
     return (
       this.seed.publishingRecords[assistant.id] ??
@@ -6045,7 +6100,7 @@ export class MockDemoRepository implements DemoRepository {
     this.storage.setItem(PUBLISHING_KEY_PREFIX + assistantId, JSON.stringify(record));
   }
 
-  private toPublishingView(assistant: AssistantConfigurationView): ConfigurableAssistantPublishingView {
+  private toPublishingView(assistant: AssistantConfigurationView): AssistantPublishingView {
     return toAssistantPublishingView(
       assistant,
       this.publishingRecord(assistant),

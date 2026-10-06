@@ -23,7 +23,7 @@
 
     <div class="panel">
       @if (selectedChannel(); as channel) {
-        @if (channel.status !== 'not-configured' && channel.type !== 'website') {
+        @if (channel.status !== 'not-configured' && channel.type === 'platform') {
           <lib-setting-row [title]="channel.name" [description]="channel.statusDetail" [controlId]="'channel-enabled-' + channel.type" [toggleable]="true" [checked]="channel.status !== 'paused'" [disabled]="pausing()" (toggled)="togglePause()" />
           <p class="pause-status" aria-live="polite">{{ pauseStatus() }}</p>
         }
@@ -33,11 +33,7 @@
           <app-website-embed [assistantId]="current.assistantId" [view]="current.website" (changed)="refresh()" />
         }
         @case ('line') {
-          @if (configurableLine(current.line); as line) {
-            <app-line-setup [assistantId]="current.assistantId" [view]="line" (changed)="refresh()" />
-          } @else {
-            <p class="channel-unavailable" role="status">{{ unavailableMessage(current.line) }}</p>
-          }
+          <app-line-setup [assistantId]="current.assistantId" [view]="current.line" (changed)="refresh()" />
         }
         @default {
           <app-platform-sharing [assistantId]="current.assistantId" [view]="current.platform" (changed)="refresh()" />

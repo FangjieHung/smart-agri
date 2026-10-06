@@ -95,8 +95,10 @@ import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import type {
   AssistantChannelsView,
   AssistantPublishingView,
+  LinePublishFailure,
   LineSettingsInput,
   LineSetupView,
+  LineTestRefusal,
   PlatformSharingView,
   PublishingChannelType,
   PublishingChannelView,
@@ -497,9 +499,42 @@ export interface WebsitePublishRefusedView {
 
 export type PublishWebsiteResult = RepositoryView<WebsiteEmbedView> | WebsitePublishRefusedView;
 
-export type ActivateLineChannelResult =
+/** `409 line-revision-conflict`：設定在另一個分頁被改過（儲存或測試連線期間），這次完全沒有寫入／儲存，畫面要請使用者重新載入。 */
+export interface LineConflictView {
+  readonly status: 'conflict';
+  readonly message: string;
+}
+
+/** 儲存 LINE 設定：逐欄的格式錯誤是 `validation-failed`（欄位 `officialAccountId` 等），版本過期是 `conflict`。 */
+export type UpdateLineChannelResult =
   | RepositoryView<LineSetupView>
-  | PublishingValidationFailedView;
+  | PublishingValidationFailedView
+  | LineConflictView;
+
+/** `422 line-test-refused`：伺服器自己的前提不成立（還沒儲存設定、沒有對外網址），LINE 一個都沒有呼叫。 */
+export interface LineTestRefusedView {
+  readonly status: 'test-refused';
+  readonly message: string;
+  readonly failures: readonly LineTestRefusal[];
+}
+
+/**
+ * 測試連線：LINE 失敗不是錯誤，而是 `ready`，結果在 `checks`（每一項 `passed`／`failed`／`skipped`）。
+ * 測試期間設定被改過是 `conflict`。
+ */
+export type TestLineConnectionResult =
+  | RepositoryView<LineSetupView>
+  | LineTestRefusedView
+  | LineConflictView;
+
+/** 啟用閘門 `422 line-publish-refused`：逐項列出原因，什麼都沒有寫入。 */
+export interface LinePublishRefusedView {
+  readonly status: 'publish-refused';
+  readonly message: string;
+  readonly failures: readonly LinePublishFailure[];
+}
+
+export type PublishLineResult = RepositoryView<LineSetupView> | LinePublishRefusedView;
 
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
 export type DemoKeyValueStorage = Pick<
@@ -632,8 +667,7 @@ export interface DemoRepository extends DemoScenarioController {
   listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**
    * 單一助理的三個管道設定。id 來自網址、未經驗證；不存在或非擁有者時一律回傳
-   * 相同的 `publishing` permission-denied，訊息不包含資源名稱。API 模式的 LINE
-   * 是 `UnavailablePublishingChannelView`（M5b 才開放）。
+   * 相同的 `publishing` permission-denied，訊息不包含資源名稱。
    */
   getAssistantPublishing(assistantId: string): Observable<RepositoryView<AssistantPublishingView>>;
   /** 指定可在平台內使用助理的帳號（整份取代）；空清單代表只有擁有者自己可以使用。 */
@@ -658,22 +692,31 @@ export interface DemoRepository extends DemoScenarioController {
   publishWebsite(assistantId: string): Observable<PublishWebsiteResult>;
   /** 取消發布：回到草稿，設定與網域都保留。 */
   unpublishWebsite(assistantId: string): Observable<RepositoryView<WebsiteEmbedView>>;
-  /** 儲存 LINE 連接資訊並逐欄檢查；儲存後需重新傳送測試訊息才能啟用。 */
+  /**
+   * 儲存 LINE 連接資訊與歡迎訊息（整份取代）。`channelSecret`、`accessToken` 只寫：省略或空字串表示不變更，
+   * 有值才取代；憑證有任何變更（或官方帳號 ID、Channel ID 改了）都會清除連線測試結果，已啟用的退回草稿。
+   * `revision` 是讀到的 `LineSetupView.revision`（還沒存過是 0）；已經不是最新時回傳 `conflict`。
+   * API 模式走 `PUT …/publishing/line`。
+   */
   saveLineSettings(
-    viewerAccountId: AccountId,
     assistantId: string,
     input: LineSettingsInput,
-  ): RepositoryView<LineSetupView>;
-  /** Demo：模擬傳送 LINE 測試訊息，結果寫在 lastTest，不會連接 LINE。 */
-  sendLineTestMessage(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): RepositoryView<LineSetupView>;
-  /** 測試訊息送達後才可啟用；否則回傳 validation-failed。 */
-  activateLineChannel(
-    viewerAccountId: AccountId,
-    assistantId: string,
-  ): ActivateLineChannelResult;
+    revision: number,
+  ): Observable<UpdateLineChannelResult>;
+  /**
+   * 測試連線（決定 B）：依序檢查 Token 與官方帳號、設定 Webhook 網址、Webhook 連線測試；
+   * 前面的檢查未通過，後面的 `skipped`。結果存起來，啟用時要求三項都通過。
+   * API 模式走 `POST …/publishing/line:test`；mock 模擬結果，不會連接 LINE。
+   */
+  testLineConnection(assistantId: string): Observable<TestLineConnectionResult>;
+  /**
+   * 啟用 LINE 頻道（啟用閘門）：三項檢查都通過、驗收通過、助理沒有暫停、連接的知識庫都是擁有者自己的，
+   * 而且伺服器知道自己的對外網址；不符合時回傳 `publish-refused` 並列出每一項原因。
+   * 已啟用的再啟用不變，暫停中的會恢復。
+   */
+  publishLine(assistantId: string): Observable<PublishLineResult>;
+  /** 取消啟用：回到草稿，設定、憑證與連線測試結果都保留。 */
+  unpublishLine(assistantId: string): Observable<RepositoryView<LineSetupView>>;
   /** 暫停或恢復單一管道；不影響同一助理的其他管道。 */
   setPublishingChannelPaused(
     assistantId: string,

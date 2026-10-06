@@ -55,6 +55,7 @@ public sealed class EmbeddingStartupTests : IDisposable
             builder.UseSetting("Authentication:SigningCertificatePassword", CertificatePassword);
             builder.UseSetting("Authentication:EncryptionCertificatePath", WritePfx("encryption", X509KeyUsageFlags.KeyEncipherment));
             builder.UseSetting("Authentication:EncryptionCertificatePassword", CertificatePassword);
+            DataProtectionTestSettings.Use(builder, _directory);
             configure(builder);
         });
 

@@ -331,7 +331,7 @@ export interface KnowledgeRetrievalPassageView {
 export interface KnowledgeRetrievalPreviewView {
   /** 依分數由高到低，即使全部低於門檻也會列出，最多 5 筆。 */
   readonly passages: readonly KnowledgeRetrievalPassageView[];
-  /** 相關性門檻（後端 `Retrieval:MinScore`，目前預設 0.3）。 */
+  /** 相關性門檻（後端 `Retrieval:MinScore`；正式預設 0.406，Development 的 Fake 模型為 0.3）。 */
   readonly threshold: number;
   /** 沒有任何段落達到門檻：只使用組織資料的助理會回答「查無結果」。 */
   readonly belowThreshold: boolean;
@@ -344,7 +344,7 @@ export const KNOWLEDGE_RETRIEVAL_QUESTION_REQUIRED_MESSAGE = '請輸入要試查
 
 export const KNOWLEDGE_RETRIEVAL_QUESTION_TOO_LONG_MESSAGE = `問題最多 ${KNOWLEDGE_RETRIEVAL_QUESTION_MAX_LENGTH} 個字。`;
 
-/** 與後端 `KnowledgeRetrievalSettings.DefaultMinScore`／`DefaultTop` 相同（M2 計畫定案）。 */
+/** mock 模式的門檻與筆數：門檻比照後端 Development（Fake 嵌入模型）的 `Retrieval:MinScore` 0.3，mock 的假分數也在這個尺度；API 模式一律以伺服器回傳的 `threshold` 為準（正式預設 0.406，#192）。 */
 export const KNOWLEDGE_RETRIEVAL_DEFAULT_THRESHOLD = 0.3;
 export const KNOWLEDGE_RETRIEVAL_DEFAULT_TOP = 5;
 

@@ -10,12 +10,12 @@ namespace SmartAgri.Api.Tests.Knowledge;
 public sealed class RetrievalOptionsTests
 {
     [Fact]
-    public void The_defaults_are_the_placeholder_threshold_and_five_passages_and_appsettings_json_says_the_same()
+    public void The_defaults_are_the_calibrated_threshold_and_five_passages_and_appsettings_json_says_the_same()
     {
         var options = new RetrievalOptions();
         options.Validate().ShouldBeNull();
         options.ToSettings().ShouldBe(KnowledgeRetrievalSettings.Default);
-        (KnowledgeRetrievalSettings.DefaultMinScore, KnowledgeRetrievalSettings.DefaultTop).ShouldBe((0.3, 5));
+        (KnowledgeRetrievalSettings.DefaultMinScore, KnowledgeRetrievalSettings.DefaultTop).ShouldBe((0.406, 5));
 
         var configured = new RetrievalOptions();
         new ConfigurationBuilder()
@@ -23,7 +23,20 @@ public sealed class RetrievalOptionsTests
             .Build()
             .GetSection(RetrievalOptions.SectionName)
             .Bind(configured);
-        (configured.MinScore, configured.Top).ShouldBe((0.3, 5), "change the default in both places (#50 calibrates it)");
+        (configured.MinScore, configured.Top).ShouldBe((0.406, 5), "change the default in both places (#192 calibrated it)");
+    }
+
+    [Fact]
+    public void Development_keeps_the_fake_models_threshold_because_it_scores_a_matching_passage_around_0_32()
+    {
+        var development = new RetrievalOptions();
+        new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(ApiProjectDirectory(), "appsettings.json"), optional: false)
+            .AddJsonFile(Path.Combine(ApiProjectDirectory(), "appsettings.Development.json"), optional: false)
+            .Build()
+            .GetSection(RetrievalOptions.SectionName)
+            .Bind(development);
+        (development.MinScore, development.Top).ShouldBe((0.3, 5), "0.406 is calibrated for text-embedding-3-small; Fake scores lower");
     }
 
     [Theory]

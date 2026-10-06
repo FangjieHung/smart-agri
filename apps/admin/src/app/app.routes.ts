@@ -133,6 +133,12 @@ export const routes: Routes = [
       import('./features/issues/issues-page.component').then((m) => m.IssuesPageComponent),
   },
   {
+    path: 'app/cases',
+    canActivate: [demoSessionGuard],
+    loadComponent: () =>
+      import('./features/cases/cases-page.component').then((m) => m.CasesPageComponent),
+  },
+  {
     path: 'app/channels',
     canActivate: [demoSessionGuard],
     loadComponent: () =>

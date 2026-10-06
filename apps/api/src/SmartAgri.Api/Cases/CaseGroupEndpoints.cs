@@ -4,6 +4,7 @@ using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Application.Cases;
+using SmartAgri.Application.Validation;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Cases;
 using SmartAgri.Domain.Organizations;
@@ -96,9 +97,12 @@ public static class CaseGroupEndpoints
 
     public const string InUseReason = "case-group-in-use";
 
-    /// <summary>The field of a <c>case-group-in-use</c> refusal: what still uses the group (M7-2: the
-    /// active case types it is the default of; M7-3 adds open cases).</summary>
+    /// <summary>The field of a <c>case-group-in-use</c> refusal for the active case types the group is
+    /// the default of (M7-2).</summary>
     public const string InUseField = "caseTypes";
+
+    /// <summary>The field of a <c>case-group-in-use</c> refusal for the group's open cases (M7-3).</summary>
+    public const string OpenCasesField = "cases";
 
     public static IEndpointRouteBuilder MapCaseGroupEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -289,8 +293,8 @@ public static class CaseGroupEndpoints
 
     /// <summary>
     /// Archives the group (one <c>case-group-archived</c>); already archived answers <c>200</c>
-    /// without writing. A group that is the default of an active case type is <c>422
-    /// case-group-in-use</c>, the message naming those types (M7-2); M7-3 adds open cases here.
+    /// without writing. A group that is the default of an active case type (M7-2) or still has open
+    /// cases (M7-3) is <c>422 case-group-in-use</c>, naming each reason.
     /// </summary>
     internal static Task<IResult> ArchiveAsync(
         Guid id, HttpContext httpContext, AppDbContext dbContext, TimeProvider clock, CancellationToken cancellationToken) =>
@@ -411,10 +415,14 @@ public static class CaseGroupEndpoints
             return NotFound();
         }
 
-        if (archived && !group.IsArchived
-            && await CaseTypeEndpoints.ActiveTypeNamesUsingGroupAsync(dbContext, group.Id, cancellationToken) is { Count: > 0 } typeNames)
+        if (archived && !group.IsArchived)
         {
-            return InUse(group.Name, typeNames);
+            var typeNames = await CaseTypeEndpoints.ActiveTypeNamesUsingGroupAsync(dbContext, group.Id, cancellationToken);
+            var openCases = await CaseEndpoints.OpenCaseCountInGroupAsync(dbContext, group.Id, cancellationToken);
+            if (typeNames.Count > 0 || openCases > 0)
+            {
+                return InUse(group.Name, typeNames, openCases);
+            }
         }
 
         var now = clock.GetUtcNow();
@@ -429,16 +437,30 @@ public static class CaseGroupEndpoints
     }
 
     /// <summary>
-    /// <c>422 case-group-in-use</c>, naming the active types that default to the group, e.g.
-    /// 「設備組」是啟用中的案件類型「設備故障報修」、「冷藏庫異常」的預設承辦組……
+    /// <c>422 case-group-in-use</c>: each reason under its own field — the active types that default to
+    /// the group under <see cref="InUseField"/> (M7-2), e.g. 「設備組」是啟用中的案件類型「設備故障報修」的預設承辦組……,
+    /// and its open cases under <see cref="OpenCasesField"/> (M7-3). <c>message</c> joins them.
     /// </summary>
-    private static IResult InUse(string groupName, IReadOnlyList<string> typeNames) =>
-        ApiErrors.WithReason(
-            StatusCodes.Status422UnprocessableEntity,
-            InUseReason,
-            $"「{groupName}」是啟用中的案件類型{string.Join("、", typeNames.Select(name => $"「{name}」"))}的預設承辦組。"
-            + "請先替這些類型換一個承辦組，或停用它們，再封存。",
-            field: InUseField);
+    private static IResult InUse(string groupName, IReadOnlyList<string> typeNames, int openCases)
+    {
+        var failures = new List<ValidationFailure>();
+        if (typeNames.Count > 0)
+        {
+            failures.Add(new ValidationFailure(
+                InUseField,
+                $"「{groupName}」是啟用中的案件類型{string.Join("、", typeNames.Select(name => $"「{name}」"))}的預設承辦組。"
+                + "請先替這些類型換一個承辦組，或停用它們，再封存。"));
+        }
+
+        if (openCases > 0)
+        {
+            failures.Add(new ValidationFailure(
+                OpenCasesField,
+                $"「{groupName}」還有 {openCases} 件未結案的案件。請先將它們結案或轉給其他承辦組，再封存。"));
+        }
+
+        return ApiErrors.Refused(InUseReason, string.Join(" ", failures.Select(failure => failure.Message)), failures);
+    }
 
     /// <summary>The group under the organization filter: another organization's id is not found,
     /// exactly like an id that does not exist.</summary>

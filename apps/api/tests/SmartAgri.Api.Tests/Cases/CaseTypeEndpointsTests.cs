@@ -315,7 +315,7 @@ public class CaseTypeEndpointsTests : IClassFixture<AuthHostFixture>
             detail.RootElement.GetProperty("name").GetString().ShouldBe("設備報修");
             detail.RootElement.GetProperty("changed").EnumerateArray().Select(field => field.GetString())
                 .ShouldBe(["name", "description", "defaultDueHours"]);
-            activities[1].Detail!.ShouldNotContain("溫控", Case.Sensitive, "the description's text is never recorded");
+            activities[1].Detail!.ShouldNotContain("溫控", Shouldly.Case.Sensitive, "the description's text is never recorded");
         }
 
         using (var detail = JsonDocument.Parse(activities[2].Detail!))

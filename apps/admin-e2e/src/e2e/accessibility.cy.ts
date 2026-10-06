@@ -16,6 +16,7 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/databases/database-customer-records/access', '誰可以查看收集紀錄'],
   ['/app/channels', '發布管道'],
   ['/app/assistants/assistant-customer-service/publishing?channel=line', '客服助理'],
+  ['/app/cases', '案件清單'],
   ['/app/settings', '團隊與權限'],
 ];
 

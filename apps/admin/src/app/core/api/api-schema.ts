@@ -6473,6 +6473,162 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    scope?: string;
+                    status?: string;
+                    typeId?: string;
+                    groupId?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseSummaryView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/chat/conversations": {
         parameters: {
             query?: never;
@@ -7440,6 +7596,35 @@ export interface components {
         };
         /** @enum {unknown} */
         AssistantTone: "friendly" | "professional" | "concise";
+        CaseAccountView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+        };
+        CaseDetailView: {
+            case: components["schemas"]["CaseView"];
+            events: components["schemas"]["CaseEventView"][];
+            links: components["schemas"]["CaseLinksView"];
+        };
+        /** @enum {unknown} */
+        CaseEventAction: "created" | "accepted" | "info-requested" | "commented" | "resumed" | "completed" | "cancelled" | "transferred" | "due-changed";
+        CaseEventView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            ordinal: number;
+            action: components["schemas"]["CaseEventAction"];
+            actor: null | components["schemas"]["CaseAccountView"];
+            /** Format: date-time */
+            at: string;
+            note: null | string;
+            status: null | components["schemas"]["CaseStatus"];
+            owner: null | components["schemas"]["CaseAccountView"];
+            fromGroup: null | components["schemas"]["CaseGroupRefView"];
+            toGroup: null | components["schemas"]["CaseGroupRefView"];
+            /** Format: date-time */
+            dueAt: null | string;
+        };
         CaseGroupAccountView: {
             /** Format: uuid */
             id: string;
@@ -7468,6 +7653,12 @@ export interface components {
         CaseGroupNameRequest: {
             name: null | string;
         };
+        CaseGroupRefView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            archived: boolean;
+        };
         CaseGroupView: {
             /** Format: uuid */
             id: string;
@@ -7481,6 +7672,60 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        CaseIssueLinkView: {
+            /** Format: uuid */
+            issueId: string;
+            canOpen: boolean;
+        };
+        CaseLinksView: {
+            record: null | components["schemas"]["CaseRecordLinkView"];
+            thread: null | components["schemas"]["CaseThreadLinkView"];
+            assistantIssue: null | components["schemas"]["CaseIssueLinkView"];
+            previousCase: null | components["schemas"]["CasePreviousLinkView"];
+        };
+        /** @enum {unknown} */
+        CaseOrigin: "manual" | "chat-proposal" | "database-submission" | "assistant-issue";
+        CasePreviousLinkView: {
+            /** Format: uuid */
+            caseId: string;
+            canOpen: boolean;
+        };
+        /** @enum {unknown} */
+        CaseRecordLinkState: "available" | "withdrawn" | "unavailable";
+        CaseRecordLinkView: {
+            /** Format: uuid */
+            databaseId: string;
+            /** Format: uuid */
+            submissionId: string;
+            state: components["schemas"]["CaseRecordLinkState"];
+            canRead: boolean;
+        };
+        /** @enum {unknown} */
+        CaseStatus: "pending" | "in-progress" | "awaiting-info" | "completed" | "cancelled";
+        CaseSummaryView: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            status: components["schemas"]["CaseStatus"];
+            origin: components["schemas"]["CaseOrigin"];
+            type: components["schemas"]["CaseTypeRefView"];
+            group: components["schemas"]["CaseGroupRefView"];
+            createdBy: null | components["schemas"]["CaseAccountView"];
+            owner: null | components["schemas"]["CaseAccountView"];
+            /** Format: date-time */
+            dueAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CaseThreadLinkView: {
+            /** Format: uuid */
+            assistantId: string;
+            /** Format: uuid */
+            threadId: string;
+            canOpen: boolean;
+        };
         CaseTypeGroupView: {
             /** Format: uuid */
             id: string;
@@ -7490,6 +7735,11 @@ export interface components {
         CaseTypeListView: {
             types: components["schemas"]["CaseTypeView"][];
             canManage: boolean;
+        };
+        CaseTypeRefView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
         };
         CaseTypeRequest: {
             name: null | string;
@@ -7513,6 +7763,34 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        CaseView: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            description: string;
+            status: components["schemas"]["CaseStatus"];
+            origin: components["schemas"]["CaseOrigin"];
+            type: components["schemas"]["CaseTypeRefView"];
+            group: components["schemas"]["CaseGroupRefView"];
+            createdBy: null | components["schemas"]["CaseAccountView"];
+            owner: null | components["schemas"]["CaseAccountView"];
+            /** Format: date-time */
+            dueAt: string;
+            resolution: null | string;
+            cancelReason: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            acceptedAt: null | string;
+            /** Format: date-time */
+            completedAt: null | string;
+            /** Format: date-time */
+            cancelledAt: null | string;
+            /** Format: int32 */
+            eventCount: number;
         };
         ChangePasswordRequest: {
             currentPassword: null | string;
@@ -7684,6 +7962,26 @@ export interface components {
             expectedDocumentIds: null | string[];
             /** Format: uuid */
             followUpOfId: null | string;
+        };
+        CreateCaseRequest: {
+            /** Format: uuid */
+            typeId: null | string;
+            /** Format: uuid */
+            groupId: null | string;
+            /** Format: date-time */
+            dueAt: null | string;
+            title: null | string;
+            description: null | string;
+            /** Format: uuid */
+            databaseId?: null | string;
+            /** Format: uuid */
+            submissionId?: null | string;
+            /** Format: uuid */
+            assistantId?: null | string;
+            /** Format: uuid */
+            threadId?: null | string;
+            /** Format: uuid */
+            previousCaseId?: null | string;
         };
         CreateDatabaseRequest: {
             templateId: null | string;

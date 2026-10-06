@@ -1240,9 +1240,10 @@ are never deleted, only archived (decision G). All endpoints need an internal ac
   case-group-members-conflict`. A member's account cannot be deleted (`Restrict`, decision C).
 - **`GET /api/v1/case-groups/{id}/member-changes`** (manager only): `[{ id, account, added,
   changedBy, changedAt }]`, newest first.
-- **Archiving a group that an active case type defaults to** is `422 case-group-in-use`
-  (`errors.caseTypes`); the message names those types (M7-2). Move them to another group or
-  deactivate them first.
+- **Archiving a group that is still in use** is `422 case-group-in-use`, each reason under its own
+  field: the active case types that default to it (`errors.caseTypes`, M7-2) and its open cases
+  (`errors.cases`, M7-3); `message` joins them. Move or deactivate the types and close or transfer
+  the cases first.
 
 Account names on these and the other history screens (data managers, submission records, the
 settings' 「上次變更」, issues) come from one lookup, `AccountNames`: an account that can no longer be
@@ -1272,6 +1273,36 @@ deactivated (decision O). Same access rules as the case groups.
   `Restrict`. Creating writes `case-type-created` (`{ id, name }`), a real change writes
   `case-type-updated` (`{ id, name, changed: [field names], isActive }` — never the description's
   text); a no-op writes nothing.
+
+## Cases (M7-3, #248)
+
+案件 are business work 「接下來誰要做」 (case ADR; M7 plan §3 C). Internal accounts only: an external
+customer, and a case that does not exist, belongs to another organization or is not visible, all get
+the very same `403 case` (byte for byte). Who sees a case is one rule, `CaseVisibility` (Application):
+its creator, the members of its **current** case group, anyone who ever accepted it (from the
+`accepted` events, M7-4), and the manager (`smb-admin`).
+
+- **`POST /api/v1/cases`** `{ typeId, groupId, dueAt, title, description, databaseId?, submissionId?,
+  assistantId?, threadId?, previousCaseId? }` creates a `manual` case in `pending` with one `created`
+  event and answers `201` with the detail. Checks, in order: the fields, all at once (`422`,
+  `errors.<field>`: title trimmed 1–120, description 0–4,000, a link pair both set or both absent);
+  `dueAt` earlier than now is `422 due-in-past` (`errors.dueAt`, decision H); an inactive, unknown or
+  foreign type is `422 case-type-inactive`; the group `422 case-group-not-found` /
+  `case-group-archived`; a record the caller cannot read now (designated data manager holding
+  `read-consented-submissions`), a withdrawn one, a thread that is not the caller's own, or a previous
+  case that is not visible or still open is `422 link-not-available` (`errors.submissionId`,
+  `errors.threadId`, `errors.previousCaseId`). The type, group, creator, owner and previous case are
+  same-organization composite foreign keys (`Restrict`); the thread, record and issue are plain ids
+  (decision S), checked again on every read.
+- **`GET /api/v1/cases`** `?scope=all|created|owned|my-groups&status=open|closed|all|<status>&typeId=&groupId=`:
+  the visible cases, newest first, not paged (decision Q); `status` defaults to `open` (`pending`,
+  `in-progress`, `awaiting-info`). Each row: `{ id, title, status, origin, type, group, createdBy,
+  owner, dueAt, createdAt, updatedAt }` (no description). An unknown `scope` or `status` is `422`.
+- **`GET /api/v1/cases/{id}`**: `{ case, events, links }`. `links.record` is `{ databaseId,
+  submissionId, state: available|withdrawn|unavailable, canRead }` (seeing the case never widens the
+  record's access); `links.thread` `{ assistantId, threadId, canOpen }`, `links.assistantIssue`
+  `{ issueId, canOpen }` and `links.previousCase` `{ caseId, canOpen }` say only whether the caller can
+  open them. **No response ever carries conversation text** — not the thread's title either.
 
 ## Retrieval preview and `KnowledgeRetriever`
 

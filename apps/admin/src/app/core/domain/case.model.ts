@@ -39,9 +39,22 @@ export interface CaseListFilter {
   readonly status?: CaseListStatus;
   readonly typeId?: string;
   readonly groupId?: string;
+  /** 只列逾期的（issue #250，`overdue=true`）。 */
+  readonly overdue?: boolean;
 }
 
 export const OPEN_CASE_STATUSES: readonly CaseStatus[] = ['pending', 'in-progress', 'awaiting-info'];
+
+/**
+ * 逾期提示（issue #250）：`GET /api/v1/cases/attention`。`overdueCount`（側欄數字）＝我負責的逾期
+ * ＋我的承辦組待受理的逾期；`pendingForMeCount` 是待我受理（不論是否逾期）。
+ */
+export type CaseAttentionView = components['schemas']['CaseAttentionView'];
+
+/** 與後端 `CaseAttention.Overdue` 相同：時限已過（剛好到時限的那一刻還不算）且未結案；待補件照樣計時。 */
+export function isCaseOverdue(item: { readonly status: CaseStatus; readonly dueAt: string }, now: Date): boolean {
+  return OPEN_CASE_STATUSES.includes(item.status) && Date.parse(item.dueAt) < now.getTime();
+}
 
 const CASE_STATUS_LABELS: Readonly<Record<CaseStatus, string>> = {
   pending: '待受理',
@@ -88,6 +101,21 @@ export function caseEventLabel(action: CaseEventAction): string {
 /** 連結的數據庫紀錄目前的狀態。 */
 export function caseRecordStateLabel(state: CaseRecordLinkState): string {
   return state === 'available' ? '紀錄可查看' : state === 'withdrawn' ? '紀錄已撤回' : '紀錄已不存在';
+}
+
+/**
+ * 詳情的「建立者」：有建立者時是他的名稱；數據庫送出後自動開的案件沒有建立者（決定 M），顯示
+ * 「由數據庫「X」自動建立」（issue #255）。`databaseName` 是可省略的（舊的回應沒有這個欄位）。
+ */
+export function caseCreatedByText(
+  item: Pick<CaseView, 'createdBy' | 'origin'>,
+  record: { readonly databaseName?: string | null } | null | undefined,
+): string {
+  if (item.createdBy) return item.createdBy.displayName;
+  if (item.origin === 'database-submission') {
+    return record?.databaseName ? `由數據庫「${record.databaseName}」自動建立` : '由數據庫送出自動建立';
+  }
+  return '系統自動建立';
 }
 
 /** 與後端 `CaseRules` 相同的上限與訊息（issue #248）。 */

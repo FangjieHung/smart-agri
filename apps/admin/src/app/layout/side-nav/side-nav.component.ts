@@ -9,7 +9,7 @@ import { map, startWith } from 'rxjs';
 import { ApiSessionService } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { ZH_TW } from '../../core/i18n/zh-tw';
-import { NavEntry, NavGroup, isNavGroup } from './nav-item.model';
+import { NavEntry, NavGroup, NavLeaf, isNavGroup } from './nav-item.model';
 import { repositoryResource } from '../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { ChatHistoryRevisionService } from '../../core/session/chat-history-revision.service';
@@ -80,6 +80,15 @@ export class SideNavComponent {
   readonly toggleGroup = output<string>();
   readonly navClick = output<void>();
   readonly groupDetach = output<void>();
+
+  /**
+   * 連結的 `aria-label`：收合時是名稱（看不到文字）；有逾期數字時接上「，N 件逾期」（issue #250，
+   * 數字本身 `aria-hidden`）；其他時候不需要。
+   */
+  protected leafLabel(item: NavLeaf): string | null {
+    const count = item.count?.();
+    return count ? `${item.label}，${count} 件逾期` : this.collapsed() ? item.label : null;
+  }
 
   protected isGroupActive(group: NavGroup): boolean {
     return this.currentGroupLabel() === group.label;

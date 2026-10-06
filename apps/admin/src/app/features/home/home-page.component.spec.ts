@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
+import { of } from 'rxjs';
+import { vi } from 'vitest';
+import { CasesRepository } from '../../core/repositories/cases.repository';
 import { createEmptyAssistantDraft } from '../../core/domain/assistant-draft.model';
 import { createMemoryStorage } from '../../core/repositories/memory-storage';
 import { MockDemoRepository } from '../../core/repositories/mock-demo-repository';
@@ -184,6 +187,50 @@ describe('HomePageComponent', () => {
 
       expect(page.querySelector('.usage--banner')).toBeNull();
       expect(page.textContent).not.toContain('接近上限');
+    });
+  });
+
+  describe('案件 card (issue #250)', () => {
+    async function renderCases(accountId: AccountId) {
+      const attention = vi.fn(() => of({
+        status: 'ready' as const,
+        data: { overdueCount: 3, ownedOverdueCount: 2, groupPendingOverdueCount: 1, pendingForMeCount: 4 },
+      }));
+      await TestBed.configureTestingModule({
+        imports: [HomePageComponent],
+        providers: [
+          provideRouter([]),
+          { provide: DemoSessionService, useValue: { activeAccountId: () => accountId } },
+          { provide: CasesRepository, useValue: { attention } },
+        ],
+      }).compileComponents();
+      const fixture = TestBed.createComponent(HomePageComponent);
+      await render(fixture);
+      return { page: fixture.nativeElement as HTMLElement, attention };
+    }
+
+    it('shows the overdue and 待我受理 numbers, each linking to the matching list filter', async () => {
+      const { page, attention } = await renderCases('account-internal-employee');
+
+      expect(attention).toHaveBeenCalledOnce();
+      const card = page.querySelector('[data-home-cases]') as HTMLElement;
+      expect(card.querySelector('h2')?.textContent).toBe('案件');
+      expect(card.querySelector('[data-home-cases-summary]')?.textContent?.trim()).toBe('已逾期 3 件，待我受理 4 件。');
+      const link = (name: string) => card.querySelector(`[data-home-cases-link="${name}"]`) as HTMLAnchorElement;
+      expect(link('owned-overdue').textContent).toContain('我負責的逾期案件 2 件');
+      expect(link('owned-overdue').getAttribute('href')).toBe('/app/cases?scope=owned&overdue=true');
+      expect(link('group-overdue').textContent).toContain('承辦組待受理的逾期案件 1 件');
+      expect(link('group-overdue').getAttribute('href')).toBe('/app/cases?scope=my-groups&status=pending&overdue=true');
+      expect(link('pending').textContent).toContain('待我受理 4 件');
+      expect(link('pending').getAttribute('href')).toBe('/app/cases?scope=my-groups&status=pending');
+    });
+
+    it('is not shown to an external customer, who never asks for it', async () => {
+      const { page, attention } = await renderCases('account-external-customer');
+
+      expect(page.querySelector('[data-home-cases]')).toBeNull();
+      expect(attention).not.toHaveBeenCalled();
+      expect(page.textContent).toContain('待處理事項');
     });
   });
 });

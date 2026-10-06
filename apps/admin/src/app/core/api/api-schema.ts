@@ -3588,6 +3588,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}/auto-case": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseAutoCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateDatabaseAutoCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseAutoCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants": {
         parameters: {
             query?: never;
@@ -6651,6 +6748,7 @@ export interface paths {
                     status?: string;
                     typeId?: string;
                     groupId?: string;
+                    overdue?: boolean;
                 };
                 header?: never;
                 path?: never;
@@ -6736,6 +6834,55 @@ export interface paths {
                 };
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseAttentionView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8476,6 +8623,16 @@ export interface components {
         };
         /** @enum {unknown} */
         CaseAction: "accept" | "request-info" | "resume" | "complete" | "cancel" | "transfer" | "set-due" | "comment";
+        CaseAttentionView: {
+            /** Format: int32 */
+            overdueCount: number;
+            /** Format: int32 */
+            ownedOverdueCount: number;
+            /** Format: int32 */
+            groupPendingOverdueCount: number;
+            /** Format: int32 */
+            pendingForMeCount: number;
+        };
         CaseCommentRequest: {
             /** Format: int32 */
             eventCount: null | number;
@@ -8586,6 +8743,7 @@ export interface components {
             submissionId: string;
             state: components["schemas"]["CaseRecordLinkState"];
             canRead: boolean;
+            databaseName: null | string;
         };
         /** @enum {unknown} */
         CaseStatus: "pending" | "in-progress" | "awaiting-info" | "completed" | "cancelled";
@@ -8944,6 +9102,25 @@ export interface components {
             /** Format: uuid */
             id: string;
             displayName: string;
+        };
+        DatabaseAutoCaseOptionView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            group: components["schemas"]["CaseTypeGroupView"];
+            /** Format: int32 */
+            defaultDueHours: number;
+            /** Format: int32 */
+            memberCount: number;
+            /** Format: int32 */
+            unreadableMemberCount: number;
+        };
+        DatabaseAutoCaseView: {
+            /** Format: uuid */
+            databaseId: string;
+            /** Format: uuid */
+            caseTypeId: null | string;
+            options: components["schemas"]["DatabaseAutoCaseOptionView"][];
         };
         DatabaseComparisonAxis: {
             /** Format: double */
@@ -9943,6 +10120,10 @@ export interface components {
         };
         UpdateDatabaseAccessRequest: {
             dataManagerAccountIds: null | string[];
+        };
+        UpdateDatabaseAutoCaseRequest: {
+            /** Format: uuid */
+            caseTypeId: null | string;
         };
         UpdateKnowledgeBaseRequest: {
             name?: null | string;

@@ -129,6 +129,42 @@ describe('CasesPageComponent', () => {
     expect(repo.list).toHaveBeenLastCalledWith({ scope: 'my-groups', status: 'closed', typeId: 'type-1', groupId: 'group-2' });
   });
 
+  it('starts from the filters in the address (the home page card) and filters overdue cases (issue #250)', async () => {
+    const owned = await setup({ url: '/app/cases?scope=owned&overdue=true' });
+    expect(owned.repo.list).toHaveBeenLastCalledWith({ scope: 'owned', status: 'open', typeId: undefined, groupId: undefined, overdue: true });
+    expect(element<HTMLInputElement>(owned.fixture, '[data-case-overdue-filter]').checked).toBe(true);
+    const selects = (owned.fixture.nativeElement as HTMLElement).querySelectorAll<HTMLSelectElement>('.cases-filters select');
+    expect(selects[0].value).toBe('owned');
+
+    const checkbox = element<HTMLInputElement>(owned.fixture, '[data-case-overdue-filter]');
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event('change'));
+    owned.fixture.detectChanges();
+    await owned.fixture.whenStable();
+    expect(owned.repo.list).toHaveBeenLastCalledWith({ scope: 'owned', status: 'open', typeId: undefined, groupId: undefined });
+
+    const pending = await setup({ url: '/app/cases?scope=my-groups&status=pending&overdue=true' });
+    expect(pending.repo.list).toHaveBeenLastCalledWith({ scope: 'my-groups', status: 'pending', typeId: undefined, groupId: undefined, overdue: true });
+
+    const unknown = await setup({ url: '/app/cases?scope=everything&status=whatever&overdue=yes' });
+    expect(unknown.repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'open', typeId: undefined, groupId: undefined });
+  });
+
+  it('marks an open case past its due time as 已逾期, and never a closed one', async () => {
+    const { fixture } = await setup({
+      list: of({
+        status: 'ready',
+        data: [
+          { ...summary, id: 'late', title: '逾期的待補件', status: 'awaiting-info', dueAt: '2020-01-01T00:00:00Z' },
+          { ...summary, id: 'on-time', title: '還沒到時限', dueAt: '2099-01-01T00:00:00Z' },
+          { ...summary, id: 'done', title: '已完成的舊案件', status: 'completed', dueAt: '2020-01-01T00:00:00Z' },
+        ],
+      }),
+    });
+    const items = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.case-item'));
+    expect(items.map((item) => item.querySelector('.case-overdue')?.textContent ?? null)).toEqual(['已逾期', null, null]);
+  });
+
   it('distinguishes loading, permission and empty states', async () => {
     const loading = await setup({ list: NEVER, settle: false });
     expect(text(loading.fixture)).toContain('正在載入案件');
@@ -147,7 +183,7 @@ describe('CasesPageComponent', () => {
         status: 'ready',
         data: detail({
           thread: { assistantId: 'assistant-1', threadId: 'thread-1', canOpen: false },
-          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'withdrawn', canRead: false },
+          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'withdrawn', canRead: false, databaseName: '客戶資料庫' },
         }),
       }),
     });
@@ -172,7 +208,7 @@ describe('CasesPageComponent', () => {
         status: 'ready',
         data: detail({
           thread: { assistantId: 'assistant-1', threadId: 'thread-1', canOpen: true },
-          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'available', canRead: true },
+          record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'available', canRead: true, databaseName: '客戶資料庫' },
         }),
       }),
     });
@@ -194,6 +230,25 @@ describe('CasesPageComponent', () => {
     });
     expect(element(hidden.fixture, '[data-case-link="issue"]').querySelector('a')).toBeNull();
     expect(element(hidden.fixture, '[data-case-link="issue"]').textContent).toContain('你沒有開啟它的權限');
+  });
+
+  it('shows a case opened by a database submission as created by that database, without a person, and a withdrawn record', async () => {
+    const base = detail({ record: { databaseId: 'database-1', submissionId: 'submission-1', state: 'withdrawn', canRead: false, databaseName: '客戶資料庫' } });
+    const { fixture } = await setup({
+      url: '/app/cases?case=case-1',
+      get: of({
+        status: 'ready',
+        data: {
+          ...base,
+          case: { ...base.case, origin: 'database-submission', createdBy: null, title: '客戶資料庫：新紀錄' },
+          events: base.events.map((event) => ({ ...event, actor: null })),
+        },
+      }),
+    });
+    expect(element(fixture, '[data-case-created-by]').textContent?.trim()).toBe('由數據庫「客戶資料庫」自動建立');
+    expect(element(fixture, '[data-case-link="record"]').textContent).toContain('紀錄已撤回');
+    expect(element(fixture, '[data-case-link="record"]').querySelector('a')).toBeNull();
+    expect(element(fixture, '[data-case-history]').textContent).toContain('系統');
   });
 
   it('shows a case it may not see as permission denied', async () => {

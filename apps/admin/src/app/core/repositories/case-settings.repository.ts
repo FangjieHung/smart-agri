@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, Injector } from '@angular/core';
 import { catchError, defer, map, of, throwError, type Observable } from 'rxjs';
 import type { AccountId, AccountRole } from '../domain/account.model';
 import { CASE_DUE_MAX_HOURS, CASE_DUE_MIN_HOURS, CASE_DUE_RANGE_MESSAGE } from '../domain/case-due-time';
@@ -11,6 +11,7 @@ import type {
   CaseTypeInput,
   CaseTypeListView,
   CaseTypeView,
+  DatabaseAutoCaseView,
 } from '../domain/case-settings.model';
 import { DemoSessionService } from '../session/demo-session.service';
 import { DEMO_SEED } from './demo-seed';
@@ -20,7 +21,7 @@ import type {
   PermissionDeniedRepositoryView,
   RepositoryView,
 } from './demo-repository';
-import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
+import { API_DEMO_REPOSITORY_FACTORY, DEMO_REPOSITORY } from './tokens';
 
 export const API_CASE_GROUPS_PATH = '/api/v1/case-groups';
 
@@ -61,6 +62,22 @@ export function caseGroupInUseMessage(groupName: string, typeNames: readonly str
   return `「${groupName}」是啟用中的案件類型${typeNames.map((name) => `「${name}」`).join('、')}的預設承辦組。`
     + '請先替這些類型換一個承辦組，或停用它們，再封存。';
 }
+
+export function apiDatabaseAutoCasePath(databaseId: string): string {
+  return `/api/v1/databases/${encodeURIComponent(databaseId)}/auto-case`;
+}
+
+/** 與後端 `CaseEndpoints.TypeInactiveMessage` 相同：送出後自動開案只能選啟用中的類型。 */
+export const DATABASE_AUTO_CASE_TYPE_INACTIVE_MESSAGE = '這個案件類型已停用或不存在，請選擇其他類型。';
+
+/** 與後端 `CaseTypeEndpoints.InUse` 相同：數據庫正在用的類型不能停用（`422 case-type-in-use`）。 */
+export function caseTypeInUseMessage(typeName: string, databaseNames: readonly string[]): string {
+  return `「${typeName}」是數據庫${databaseNames.map((name) => `「${name}」`).join('、')}送出後自動開案的類型。`
+    + '請先在這些數據庫改選其他類型或關閉自動開案，再停用。';
+}
+
+/** 設定送出後自動開案：停用或不存在的類型是 validation-failed（`422 case-type-inactive`），什麼都沒有寫入。 */
+export type DatabaseAutoCaseResult = RepositoryView<DatabaseAutoCaseView> | OrganizationSettingsValidationFailedView;
 
 /** 案件類型表單的欄位（與 API 的欄位名稱相同）。 */
 export type CaseTypeField = 'name' | 'description' | 'defaultGroupId' | 'defaultDueHours';
@@ -174,6 +191,11 @@ const MOCK_TYPES: readonly MockType[] = [
 
 const REMOVED_ACCOUNT_NAME = '已停用的帳號';
 
+/** mock 內部用：自動開案的畫面資料，加上數據庫名稱（停用類型被拒絕時的訊息要列出它）。 */
+type MockAutoCaseView =
+  | { readonly status: 'ready'; readonly data: DatabaseAutoCaseView; readonly databaseName: string }
+  | PermissionDeniedRepositoryView;
+
 /**
  * 承辦組與案件類型設定的單一資料入口（issue #246、#247）。API 模式讀寫 `/api/v1/case-groups`、
  * `/api/v1/case-types`；純 Demo 模式只保存在這次工作階段，檢查與後端相同：管理者以角色
@@ -188,6 +210,9 @@ export class CaseSettingsRepository {
   private mockGroups: MockGroup[] = MOCK_GROUPS.map((group) => ({ ...group }));
   private mockChanges: MockChange[] = [...MOCK_CHANGES];
   private mockTypes: MockType[] = MOCK_TYPES.map((type) => ({ ...type }));
+  /** mock：每個數據庫送出後自動開案的類型（數據庫 id → 類型 id 與數據庫名稱）；一開始都沒有設定。 */
+  private mockAutoCase = new Map<string, { readonly typeId: string; readonly databaseName: string }>();
+  private readonly injector = inject(Injector);
 
   /** 內部帳號的清單；`includeArchived` 只有管理者有效（設定頁），其他人永遠只看到可選的組。 */
   listCaseGroups(options: { readonly includeArchived?: boolean } = {}): Observable<RepositoryView<CaseGroupListView>> {
@@ -402,10 +427,63 @@ export class CaseSettingsRepository {
       if (!this.mockIsManager() || !current) return of(ADMIN_DENIED);
       const checked = this.mockCheckType(input, current);
       if ('status' in checked) return of(checked);
+      const usedBy = [...this.mockAutoCase.values()].filter((entry) => entry.typeId === current.id).map((entry) => entry.databaseName);
+      if (current.isActive && !checked.isActive && usedBy.length > 0) {
+        return of<CaseTypeResult>({ status: 'validation-failed', message: caseTypeInUseMessage(current.name, usedBy), fieldErrors: {} });
+      }
       const unchanged = (Object.keys(checked) as (keyof typeof checked)[]).every((key) => checked[key] === current[key]);
       const next: MockType = unchanged ? current : { ...current, ...checked, updatedAt: new Date().toISOString() };
       this.mockTypes = this.mockTypes.map((type) => (type.id === typeId ? next : type));
       return of<CaseTypeResult>({ status: 'ready', data: this.mockTypeView(next) });
+    });
+  }
+
+  /**
+   * 數據庫的「送出後自動開案」（issue #255）：只有管理者讀得到；其他人、不存在或別的組織的數據庫一律是
+   * `403 organization-settings`（畫面據此不顯示這個區塊）。`options` 的 `unreadableMemberCount` 是承辦組中
+   * 無法讀取這個數據庫紀錄的人數。
+   */
+  getDatabaseAutoCase(databaseId: string): Observable<RepositoryView<DatabaseAutoCaseView>> {
+    if (this.apiMode) {
+      return this.client().get<DatabaseAutoCaseView>(apiDatabaseAutoCasePath(databaseId)).pipe(
+        map((data): RepositoryView<DatabaseAutoCaseView> => ({ status: 'ready', data })),
+        catchError((error: unknown) => this.denied<DatabaseAutoCaseView>(error, ADMIN_DENIED)),
+      );
+    }
+    return defer(() => (this.mockIsManager()
+      ? this.mockAutoCaseView(databaseId).pipe(map((view): RepositoryView<DatabaseAutoCaseView> => (
+        view.status === 'ready' ? { status: 'ready', data: view.data } : view)))
+      : of(ADMIN_DENIED)));
+  }
+
+  /** 設定（`caseTypeId`）或關閉（`null`）送出後自動開案；與目前相同時什麼都不寫。 */
+  setDatabaseAutoCase(databaseId: string, caseTypeId: string | null): Observable<DatabaseAutoCaseResult> {
+    if (this.apiMode) {
+      return this.client().put<DatabaseAutoCaseView>(apiDatabaseAutoCasePath(databaseId), { caseTypeId }).pipe(
+        map((data): DatabaseAutoCaseResult => ({ status: 'ready', data })),
+        catchError((error: unknown) => {
+          if (error instanceof HttpErrorResponse && error.status === 422) {
+            return of<DatabaseAutoCaseResult>({
+              status: 'validation-failed', message: messageOf(error) ?? DATABASE_AUTO_CASE_TYPE_INACTIVE_MESSAGE,
+            });
+          }
+          return this.denied<DatabaseAutoCaseView>(error, ADMIN_DENIED);
+        }),
+      );
+    }
+    return defer(() => {
+      if (!this.mockIsManager()) return of(ADMIN_DENIED);
+      if (caseTypeId !== null && !this.mockTypes.some((type) => type.id === caseTypeId && type.isActive)) {
+        return this.mockAutoCaseView(databaseId).pipe(map((view): DatabaseAutoCaseResult => (view.status === 'ready'
+          ? { status: 'validation-failed', message: DATABASE_AUTO_CASE_TYPE_INACTIVE_MESSAGE }
+          : view)));
+      }
+      return this.mockAutoCaseView(databaseId).pipe(map((view): DatabaseAutoCaseResult => {
+        if (view.status !== 'ready') return view;
+        if (caseTypeId === null) this.mockAutoCase.delete(databaseId);
+        else this.mockAutoCase.set(databaseId, { typeId: caseTypeId, databaseName: view.databaseName });
+        return { status: 'ready', data: { ...view.data, caseTypeId } };
+      }));
     });
   }
 
@@ -487,6 +565,39 @@ export class CaseSettingsRepository {
       return failed({ defaultGroupId: CASE_TYPE_GROUP_ARCHIVED_MESSAGE });
     }
     return { name, description, defaultGroupId: group.id, defaultDueHours: input.defaultDueHours, isActive: input.isActive };
+  }
+
+  /**
+   * mock 的自動開案設定：數據庫要是這個身分在 mock 裡打得開的（否則同後端，一律 `403
+   * organization-settings`）；無法讀取紀錄的人數用 mock 數據庫自己的「目前可讀取的人」計算。
+   */
+  private mockAutoCaseView(databaseId: string): Observable<MockAutoCaseView> {
+    return this.injector.get(DEMO_REPOSITORY).getDatabaseDetail(databaseId).pipe(
+      map((detail): MockAutoCaseView => {
+        if (detail.status !== 'ready' && detail.status !== 'partial-failure') return ADMIN_DENIED;
+        const readers = new Set(detail.data.access.effectiveReaders.map((reader) => reader.id));
+        const options = this.mockTypes
+          .filter((type) => type.isActive)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+          .map((type) => {
+            const group = this.mockFind(type.defaultGroupId);
+            const members = group?.members ?? [];
+            return {
+              id: type.id,
+              name: type.name,
+              group: { id: type.defaultGroupId, name: group?.name ?? '', archived: group?.archivedAt != null },
+              defaultDueHours: type.defaultDueHours,
+              memberCount: members.length,
+              unreadableMemberCount: members.filter((id) => !readers.has(id)).length,
+            };
+          });
+        return {
+          status: 'ready',
+          data: { databaseId, caseTypeId: this.mockAutoCase.get(databaseId)?.typeId ?? null, options },
+          databaseName: detail.data.summary.name,
+        };
+      }),
+    );
   }
 
   private mockTypeView(type: MockType): CaseTypeView {

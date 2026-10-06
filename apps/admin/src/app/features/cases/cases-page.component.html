@@ -53,6 +53,10 @@
             }
           </select>
         </label>
+        <label class="cases-filters__check">
+          <input type="checkbox" data-case-overdue-filter [checked]="overdueOnly()" (change)="overdueOnly.set($any($event.target).checked)" />
+          只看逾期
+        </label>
       </div>
 
       @if (list.status === 'loading') {
@@ -76,7 +80,7 @@
               >
                 <span class="case-item__top"><strong>{{ item.title }}</strong><span class="case-status">{{ statusLabel(item.status) }}</span></span>
                 <span>{{ item.type.name }} · {{ item.group.name }}</span>
-                <span>時限 {{ item.dueAt | date:'yyyy/MM/dd HH:mm' }}</span>
+                <span>時限 {{ item.dueAt | date:'yyyy/MM/dd HH:mm' }}@if (isOverdue(item)) { · <strong class="case-overdue">已逾期</strong>}</span>
               </button>
             </li>
           }
@@ -215,7 +219,7 @@
                 <div><dt>承辦組</dt><dd>{{ item.group.name }}@if (item.group.archived) {（已封存）}</dd></div>
                 <div><dt>案件負責人</dt><dd>{{ item.owner?.displayName ?? '尚未受理' }}</dd></div>
                 <div><dt>處理時限</dt><dd>{{ item.dueAt | date:'yyyy/MM/dd HH:mm' }}</dd></div>
-                <div><dt>建立者</dt><dd>{{ item.createdBy?.displayName ?? '系統自動建立' }}</dd></div>
+                <div><dt>建立者</dt><dd data-case-created-by>{{ createdByText(item, links.record) }}</dd></div>
                 <div><dt>來源</dt><dd>{{ originLabel(item.origin) }}</dd></div>
                 <div><dt>建立時間</dt><dd>{{ item.createdAt | date:'yyyy/MM/dd HH:mm' }}</dd></div>
                 @if (item.resolution) {

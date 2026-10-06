@@ -2855,6 +2855,89 @@
         }
       }
     },
+    "/api/v1/databases/{id}/auto-case": {
+      "get": {
+        "tags": [
+          "DatabaseAutoCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseAutoCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "DatabaseAutoCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDatabaseAutoCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseAutoCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants": {
       "get": {
         "tags": [
@@ -5334,6 +5417,13 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -5358,6 +5448,31 @@
           },
           "422": {
             "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/attention": {
+      "get": {
+        "tags": [
+          "CaseEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseAttentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -7890,6 +8005,33 @@
           "comment"
         ]
       },
+      "CaseAttentionView": {
+        "required": [
+          "overdueCount",
+          "ownedOverdueCount",
+          "groupPendingOverdueCount",
+          "pendingForMeCount"
+        ],
+        "type": "object",
+        "properties": {
+          "overdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ownedOverdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "groupPendingOverdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pendingForMeCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "CaseCommentRequest": {
         "required": [
           "eventCount",
@@ -8348,7 +8490,8 @@
           "databaseId",
           "submissionId",
           "state",
-          "canRead"
+          "canRead",
+          "databaseName"
         ],
         "type": "object",
         "properties": {
@@ -8365,6 +8508,12 @@
           },
           "canRead": {
             "type": "boolean"
+          },
+          "databaseName": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -9854,6 +10003,68 @@
           },
           "displayName": {
             "type": "string"
+          }
+        }
+      },
+      "DatabaseAutoCaseOptionView": {
+        "required": [
+          "id",
+          "name",
+          "group",
+          "defaultDueHours",
+          "memberCount",
+          "unreadableMemberCount"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseTypeGroupView"
+          },
+          "defaultDueHours": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unreadableMemberCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DatabaseAutoCaseView": {
+        "required": [
+          "databaseId",
+          "caseTypeId",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "caseTypeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseAutoCaseOptionView"
+            }
           }
         }
       },
@@ -13714,6 +13925,21 @@
           }
         }
       },
+      "UpdateDatabaseAutoCaseRequest": {
+        "required": [
+          "caseTypeId"
+        ],
+        "type": "object",
+        "properties": {
+          "caseTypeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
       "UpdateKnowledgeBaseRequest": {
         "type": "object",
         "properties": {
@@ -14209,6 +14435,9 @@
     },
     {
       "name": "DatabaseReportEndpoints"
+    },
+    {
+      "name": "DatabaseAutoCaseEndpoints"
     },
     {
       "name": "AssistantEndpoints"

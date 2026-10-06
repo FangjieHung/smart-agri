@@ -17,7 +17,6 @@ using SmartAgri.Api.Observability;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Operations;
 using SmartAgri.Api.Organizations;
-using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Reports;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Seeding;

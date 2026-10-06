@@ -108,6 +108,7 @@ ADR 寫的是「由伺服器以 CORS 與 `frame-ancestors` 限制」。在 ifram
 | `not-published` | 頻道不是 `published`，或允許網域為空 | iframe 被擋（`frame-ancestors 'none'`） | 未發布 |
 | `paused` | 頻道 `paused`，或助理 `paused` | 「目前暫停服務」 | 已暫停 |
 | `suspended-acceptance` | 驗收狀態是 `failed`、`not-accepted`，或 `outdated` 且**最近一次完成的執行**有未通過的題目 | 「目前暫停服務」 | 需要處理：驗收未通過，附題組頁連結 |
+| `suspended-knowledge` | 連接了任何不是助理擁有者擁有的知識庫（決定 B）；連接新知識庫會讓驗收「過期」而照常服務，所以這條必須獨立判斷 | 「目前暫停服務」 | 需要處理：連接了別人的知識庫，附知識庫清單 |
 | `suspended-quota` | 組織當月用量已達上限（E） | 「目前暫停服務」 | 需要處理：本月用量已達上限 |
 | `serving` | 其餘情況（包含 `passed`，以及「最近一次完成的執行全部通過」的 `outdated`） | 正常對話 | 已發布 |
 
@@ -239,6 +240,7 @@ ASP.NET Core 內建的 Rate Limiter，只套用在 `/api/v1/public/*`，數值�
   - 允許網域為空時發布得到 `422 allowed-domains`。
   - 已發布後，重跑結果未通過 → `suspended-acceptance`；再重跑通過 → `serving`；過程中不必重新發布。
   - `outdated` 且最近一次完成的執行全數通過 → `serving`；最近一次完成的執行有未通過 → `suspended-acceptance`。
+  - 連接了別人擁有的知識庫時發布得到 `422 knowledge-ownership`，`errors` 列出這些知識庫；已發布後才連接 → `suspended-knowledge`，解除連接後回到 `serving`。
   - 組織 B 的 token 讀組織 A 的網站頻道，與不存在的 id 得到相同的 `403 publishing`。
   - 網域驗證與前端 `validateAllowedDomain()` 同規則（同一組案例在前後端各跑一次）。
 - **依賴：** 無。

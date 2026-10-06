@@ -8,18 +8,17 @@ import { API_ORGANIZATION_CHAT_MODEL_PATH, HybridDemoRepository } from './hybrid
 import { createMemoryStorage } from './memory-storage';
 
 /*
- * TODO(#240)：以下回應「尚未」從真實 API 錄下。錄製（`scratchpad/240/record.py`，對自建的臨時 DB、
- * 兩個 Fake 模型）在這個工作階段被環境擋下，這裡暫時依 `apps/api/openapi/v1.json` 與既有錄下的
- * 403 ProblemDetails 形狀（`hybrid-demo-repository-usage.spec.ts`）撰寫。合併前必須換成錄下的原始字串
- * （管理者與內部同仁各自的 GET、PUT 成功、403、409、422，以及移除模型後的 GET）。
+ * 以下是 2026-10-06 從真實 API 錄下的原始回應（#240）：自建的臨時 DB、兩個 Fake 模型（部署預設
+ * `fake-chat-dev` 與 `second`），管理者與內部同仁各自登入；「移除」是拿掉第二個模型後重啟 API 再讀。
+ * 不要依型別手改：真實回應的鍵與文字（例如 409 的訊息、422 的 type）與手寫的不一樣。
  */
 const ADMIN_GET_JSON = `{"options":[{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"}],"selectedId":null,"effective":{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},"source":"deployment-default","canChange":true,"lastChange":null,"revision":0}`;
-const ADMIN_PUT_SECOND_JSON = `{"options":[{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"}],"selectedId":"second","effective":{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"},"source":"selected","canChange":true,"lastChange":{"actorName":"安心商行管理者","at":"2026-10-06T03:04:05.123456+00:00"},"revision":1}`;
-const INTERNAL_GET_JSON = `{"options":[{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"}],"selectedId":"second","effective":{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"},"source":"selected","canChange":false,"lastChange":{"actorName":"安心商行管理者","at":"2026-10-06T03:04:05.123456+00:00"},"revision":1}`;
-const REMOVED_GET_JSON = `{"options":[{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"}],"selectedId":"second","effective":{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},"source":"removed","canChange":true,"lastChange":{"actorName":"安心商行管理者","at":"2026-10-06T03:04:05.123456+00:00"},"revision":1}`;
+const ADMIN_PUT_SECOND_JSON = `{"options":[{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"}],"selectedId":"second","effective":{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"},"source":"selected","canChange":true,"lastChange":{"actorName":"安心商行管理者","at":"2026-10-06T11:50:21.033624+00:00"},"revision":1}`;
+const INTERNAL_GET_JSON = `{"options":[{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"}],"selectedId":"second","effective":{"id":"second","displayName":"fake-chat-second","model":"fake-chat-second"},"source":"selected","canChange":false,"lastChange":{"actorName":"安心商行管理者","at":"2026-10-06T11:50:21.033624+00:00"},"revision":1}`;
+const REMOVED_GET_JSON = `{"options":[{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"}],"selectedId":"second","effective":{"id":"fake-chat-dev","displayName":"fake-chat-dev","model":"fake-chat-dev"},"source":"removed","canChange":true,"lastChange":{"actorName":"安心商行管理者","at":"2026-10-06T11:50:21.033624+00:00"},"revision":1}`;
 const INTERNAL_PUT_FORBIDDEN_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"organization-settings","message":"只有管理者可以變更組織設定。"}`;
-const STALE_PUT_CONFLICT_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"organization-settings-conflict","message":"組織設定已被其他人更新過，請重新載入後再修改。"}`;
-const UNKNOWN_PUT_UNPROCESSABLE_JSON = `{"type":"https://tools.ietf.org/html/rfc4918#section-11.2","title":"Unprocessable Entity","status":422,"message":"這個模型不在部署提供的清單中，請重新載入後再選擇。","errors":{"modelId":["這個模型不在部署提供的清單中，請重新載入後再選擇。"]}}`;
+const STALE_PUT_CONFLICT_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"organization-settings-conflict","message":"組織設定已在其他分頁或由其他管理者更新過，請重新載入後再修改。"}`;
+const UNKNOWN_PUT_UNPROCESSABLE_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"這個模型不在部署提供的清單中，請重新載入後再選擇。","errors":{"modelId":["這個模型不在部署提供的清單中，請重新載入後再選擇。"]}}`;
 
 function setUp() {
   TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
@@ -115,7 +114,7 @@ describe('HybridDemoRepository organization chat model (issue #240)', () => {
     const result = firstValueFrom(repository.updateOrganizationChatModel('no-such-model', 1));
     controller
       .expectOne(API_ORGANIZATION_CHAT_MODEL_PATH)
-      .flush(JSON.parse(UNKNOWN_PUT_UNPROCESSABLE_JSON), { status: 422, statusText: 'Unprocessable Entity' });
+      .flush(JSON.parse(UNKNOWN_PUT_UNPROCESSABLE_JSON), { status: 422, statusText: 'Unprocessable Content' });
 
     expect(await result).toEqual({
       status: 'validation-failed',

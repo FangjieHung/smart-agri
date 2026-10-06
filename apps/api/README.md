@@ -1564,6 +1564,32 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-form-requests --report /
   directive says otherwise), and the report says so. The real-model run is pending a key; see
   `docs/evals/2026-10-05-164-form-request-trigger.md`.
 
+## Evaluating case-proposal triggers: `eval-case-proposals`
+
+M7-12 #257: how often the keyword rule (`CaseProposalRules.KeywordProposal`, decision T) and the
+model choosing `propose_case` miss a case proposal, false-trigger (on a question that should get no
+proposal, the form, or the database query) or pick the wrong case type, on the labelled set in
+`apps/api/eval/case-proposals/` (its README describes the format: a sample form, three case types,
+50 questions). No database is needed.
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --trigger keyword   # no model needed
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals                     # keyword and model (Ai:Chat)
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --report /tmp/case.md --set <dir> --trigger model
+```
+
+- **Development and Testing only**, same arguments and exit codes as `eval-form-requests`. A relative
+  `--report` is resolved against the process's working directory (`dotnet run --project` runs in the
+  project directory), so pass an absolute path or omit it.
+- Each question is judged twice per trigger: the **case layer alone**, and the **whole proposal stage**
+  (decision L: database query → form → case). The query layer is the `DatabaseQueryTools.AsksForStatistics`
+  gate (the query model is not called); the form layer is `AssistantFormRequestRules.AsksForForm`
+  (keyword) or one `request_database_form` call (model, #164). In model mode every question gets one
+  form call and one case call with the production declarations and prompts, calling the configured
+  chat model directly (not in `ModelInvocations`; the report has every question's tokens).
+- A reasoning model such as `gpt-6-luna` needs `Ai__Chat__ReasoningEffort=None` (see "Chat model").
+- Results and recommendations: `docs/evals/2026-10-07-257-case-proposal-trigger.md`.
+
 ## Development seed data
 
 `DevelopmentSeeder` (`SmartAgri.Infrastructure.Seeding`) gives local development and E2E

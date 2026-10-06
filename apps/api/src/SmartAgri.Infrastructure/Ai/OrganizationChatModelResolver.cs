@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
 
 namespace SmartAgri.Infrastructure.Ai;
 
@@ -36,33 +37,42 @@ public interface IOrganizationChatModelResolver
 }
 
 /// <summary>
-/// The resolver the Api registers. M6-1: organizations cannot choose yet, so every organization
-/// gets the deployment default (<see cref="ChatModelSource.DeploymentDefault"/>) and behavior is
-/// unchanged.
-/// </summary>
-/// <remarks>
-/// M6-2 makes it read the organization's <c>ChatModelId</c> once per scope (no cache across scopes,
-/// so a change applies to the next conversation): an id the catalog still offers is
+/// The resolver the Api registers: reads the scope's organization's <c>ChatModelId</c> (M6-2) once
+/// per scope — no cache across scopes, so a manager's change applies to the next conversation, test
+/// run or report — and applies <see cref="Resolve"/>: an id the catalog still offers is
 /// <see cref="ChatModelSource.Selected"/>, any other one <see cref="ChatModelSource.Removed"/> with
-/// the default — see <see cref="Resolve"/>, which already implements that rule.
-/// </remarks>
+/// the default. A scope with no organization gets the default.
+/// </summary>
 public sealed class OrganizationChatModelResolver : IOrganizationChatModelResolver
 {
     private readonly ChatModelCatalog _catalog;
+    private readonly AppDbContext _dbContext;
     private ResolvedChatModel? _resolved;
 
-    public OrganizationChatModelResolver(ChatModelCatalog catalog)
+    public OrganizationChatModelResolver(ChatModelCatalog catalog, AppDbContext dbContext)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(dbContext);
         _catalog = catalog;
+        _dbContext = dbContext;
     }
 
-    public ValueTask<ResolvedChatModel> ResolveAsync(CancellationToken cancellationToken)
+    public async ValueTask<ResolvedChatModel> ResolveAsync(CancellationToken cancellationToken)
     {
-        // M6-2: read the scope's organization's ChatModelId here (the organization-filtered
-        // AppDbContext), once, and pass it as selectedId.
-        _resolved ??= Resolve(_catalog, selectedId: null);
-        return ValueTask.FromResult(_resolved);
+        if (_resolved is null)
+        {
+            // Organizations is the tenant table itself (not filtered): read the scope's own row.
+            var selectedId = _dbContext.OrganizationContext.OrganizationId is { } organizationId
+                ? await _dbContext.Organizations
+                    .AsNoTracking()
+                    .Where(organization => organization.Id == organizationId)
+                    .Select(organization => organization.ChatModelId)
+                    .SingleOrDefaultAsync(cancellationToken)
+                : null;
+            _resolved ??= Resolve(_catalog, selectedId);
+        }
+
+        return _resolved;
     }
 
     /// <summary>The entry <paramref name="catalog"/> gives an organization that chose

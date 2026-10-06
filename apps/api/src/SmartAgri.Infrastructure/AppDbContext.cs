@@ -22,6 +22,7 @@ using SmartAgri.Infrastructure.Chat;
 using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
+using SmartAgri.Infrastructure.Organizations;
 using SmartAgri.Infrastructure.Persistence;
 using SmartAgri.Infrastructure.Reports;
 using SmartAgri.Infrastructure.Tenancy;
@@ -77,6 +78,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     public IOrganizationContext OrganizationContext { get; }
 
     public DbSet<Organization> Organizations => Set<Organization>();
+
+    /// <summary>Organization-level settings changes (M6 plan §3 E): only ever added.</summary>
+    public DbSet<OrganizationActivity> OrganizationActivities => Set<OrganizationActivity>();
 
     /// <summary>Same set as Identity's <see cref="IdentityUserContext{TUser,TKey,TUserClaim,TUserLogin,TUserToken}.Users"/>.</summary>
     public DbSet<Account> Accounts => Set<Account>();
@@ -250,7 +254,15 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
             organization.HasIndex(o => o.Code).IsUnique();
             organization.Property(o => o.TeamPermissionsSavedAt);
             organization.Property(o => o.MonthlyTokenLimit);
+            organization.Property(o => o.ChatModelId).HasMaxLength(Organization.ChatModelIdMaxLength);
+
+            // A concurrency token, so two settings PUTs that both read the same revision cannot
+            // both write: the second UPDATE matches no row and the API answers 409.
+            organization.Property(o => o.SettingsRevision).IsConcurrencyToken();
         });
+
+        // Organization-level activity log (M6 plan §3 E).
+        modelBuilder.ApplyConfiguration(new OrganizationActivityConfiguration());
 
         modelBuilder.Entity<Account>(account =>
         {

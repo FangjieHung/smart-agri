@@ -209,6 +209,7 @@ app.MapAssistantHandoffEndpoints();
 app.MapAssistantAnalyticsEndpoints();
 app.MapOperationsSummaryEndpoints();
 app.MapOrganizationUsageEndpoints();
+app.MapOrganizationChatModelEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();

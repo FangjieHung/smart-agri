@@ -17,15 +17,40 @@ internal static class SecondChatModel
 
     public const string Model = "fake-chat-second";
 
+    public const string DisplayName = "第二個模型";
+
+    /// <summary>The key and endpoint the second model is configured with, which no response may
+    /// ever contain (M6-2).</summary>
+    public const string ApiKey = "sk-second-model-secret-key";
+
+    public const string Endpoint = "http://second-model.internal:8001/v1";
+
     /// <summary><paramref name="factory"/>'s host, with the second model configured and chosen.</summary>
     public static WebApplicationFactory<Program> Host(WebApplicationFactory<Program> factory) =>
         factory.WithWebHostBuilder(builder =>
         {
-            builder.UseSetting("Ai:Chat:Models:0:Provider", "Fake");
-            builder.UseSetting("Ai:Chat:Models:0:Model", Model);
-            builder.UseSetting("Ai:Chat:Models:0:Id", Id);
+            Configure(builder);
             builder.ConfigureTestServices(Choose);
         });
+
+    /// <summary>
+    /// <paramref name="factory"/>'s host, with the second model offered but the real resolver: an
+    /// organization uses it once its manager chooses it (<c>PUT /api/v1/organization/chat-model</c>,
+    /// M6-2). Same database, so a choice made through either host is seen by both — the original
+    /// host, which does not offer it, then reports it <c>removed</c>.
+    /// </summary>
+    public static WebApplicationFactory<Program> Offered(WebApplicationFactory<Program> factory) =>
+        factory.WithWebHostBuilder(Configure);
+
+    private static void Configure(IWebHostBuilder builder)
+    {
+        builder.UseSetting("Ai:Chat:Models:0:Provider", "Fake");
+        builder.UseSetting("Ai:Chat:Models:0:Model", Model);
+        builder.UseSetting("Ai:Chat:Models:0:Id", Id);
+        builder.UseSetting("Ai:Chat:Models:0:DisplayName", DisplayName);
+        builder.UseSetting("Ai:Chat:Models:0:ApiKey", ApiKey);
+        builder.UseSetting("Ai:Chat:Models:0:Endpoint", Endpoint);
+    }
 
     /// <summary>Replaces the resolver with one that always picks the catalog's <see cref="Id"/>.</summary>
     public static void Choose(IServiceCollection services) =>

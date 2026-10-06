@@ -143,6 +143,8 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'publishing',
   'team',
   'assistant-issue',
+  /** 組織設定（issue #239）：只有管理者（`smb-admin`）可以變更組織的對話模型等設定。 */
+  'organization-settings',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
   'password-change-required',
 ] as const;

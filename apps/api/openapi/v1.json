@@ -490,6 +490,70 @@
         }
       }
     },
+    "/api/v1/organization/chat-model": {
+      "get": {
+        "tags": [
+          "OrganizationChatModelEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationChatModelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "OrganizationChatModelEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationChatModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationChatModelView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/chat/recent-conversations": {
       "get": {
         "tags": [
@@ -6575,6 +6639,32 @@
           }
         }
       },
+      "ChatModelOptionView": {
+        "required": [
+          "id",
+          "displayName",
+          "model"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "ChatModelSource": {
+        "enum": [
+          "selected",
+          "deployment-default",
+          "removed"
+        ]
+      },
       "ChatReplyView": {
         "required": [
           "kind",
@@ -9730,6 +9820,78 @@
           }
         }
       },
+      "OrganizationChatModelView": {
+        "required": [
+          "options",
+          "selectedId",
+          "effective",
+          "source",
+          "canChange",
+          "lastChange",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatModelOptionView"
+            }
+          },
+          "selectedId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "effective": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatModelOptionView"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/ChatModelSource"
+          },
+          "canChange": {
+            "type": "boolean"
+          },
+          "lastChange": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationSettingChangeView"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrganizationSettingChangeView": {
+        "required": [
+          "actorName",
+          "at"
+        ],
+        "type": "object",
+        "properties": {
+          "actorName": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "OrganizationUsageView": {
         "required": [
           "month",
@@ -10813,6 +10975,25 @@
           }
         }
       },
+      "UpdateOrganizationChatModelRequest": {
+        "required": [
+          "modelId",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "UpdatePlatformSharingRequest": {
         "required": [
           "accountIds"
@@ -11103,6 +11284,9 @@
     },
     {
       "name": "OrganizationUsageEndpoints"
+    },
+    {
+      "name": "OrganizationChatModelEndpoints"
     },
     {
       "name": "ChatEndpoints"

@@ -708,6 +708,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/organization/chat-model": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrganizationChatModelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateOrganizationChatModelRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrganizationChatModelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/recent-conversations": {
         parameters: {
             query?: never;
@@ -6552,6 +6652,13 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        ChatModelOptionView: {
+            id: string;
+            displayName: string;
+            model: string;
+        };
+        /** @enum {unknown} */
+        ChatModelSource: "selected" | "deployment-default" | "removed";
         ChatReplyView: {
             kind: string;
             text: string;
@@ -7370,6 +7477,21 @@ export interface components {
             issues: components["schemas"]["IssuesSummaryView"];
             databaseQueries: components["schemas"]["DatabaseQueryOperationsView"];
         };
+        OrganizationChatModelView: {
+            options: components["schemas"]["ChatModelOptionView"][];
+            selectedId: null | string;
+            effective: null | components["schemas"]["ChatModelOptionView"];
+            source: components["schemas"]["ChatModelSource"];
+            canChange: boolean;
+            lastChange: null | components["schemas"]["OrganizationSettingChangeView"];
+            /** Format: int32 */
+            revision: number;
+        };
+        OrganizationSettingChangeView: {
+            actorName: string;
+            /** Format: date-time */
+            at: string;
+        };
         OrganizationUsageView: {
             month: string;
             /** Format: int64 */
@@ -7634,6 +7756,11 @@ export interface components {
         };
         UpdateMemberPermissionsRequest: {
             permissions: null | string[];
+        };
+        UpdateOrganizationChatModelRequest: {
+            modelId: null | string;
+            /** Format: int32 */
+            revision: number;
         };
         UpdatePlatformSharingRequest: {
             accountIds: null | string[];

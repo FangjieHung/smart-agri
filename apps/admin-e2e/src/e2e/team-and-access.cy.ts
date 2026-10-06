@@ -149,6 +149,50 @@ describe('team management and data access', () => {
     });
   });
 
+  it('lets only the manager define case types, entering the handling time in days or hours (issue #247)', () => {
+    loginAs('內部使用者');
+    cy.visit('/app/settings');
+    cy.contains('h2', '外觀設定').should('exist');
+    cy.get('[data-case-types-panel]').should('not.exist');
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/settings');
+    cy.get('[data-case-types-panel]').scrollIntoView().within(() => {
+      cy.contains('h2', '案件類型').should('be.visible');
+      cy.get('[data-case-type="設備故障報修"]').should('contain', '預設承辦組：設備組').and('contain', '3 天');
+      cy.get('[data-case-type="倉儲盤點差異"]').should('contain', '已停用').and('contain', '舊倉儲組（已封存）');
+
+      cy.contains('button', '新增案件類型').click();
+      cy.get('#case-type-name').type('冷藏庫異常');
+      cy.get('#case-type-description').type('冷藏庫溫度超過設定值。');
+      cy.get('#case-type-group').select('採購組');
+      cy.get('#case-type-due').clear().type('91');
+      cy.contains('button', '建立案件類型').click();
+      cy.get('#case-type-due-error').should('contain', '1 到 2,160 小時（90 天）');
+      cy.get('#case-type-due').clear().type('2');
+      cy.get('#case-type-due-hint').should('contain', '共 48 小時');
+      cy.contains('button', '建立案件類型').click();
+      cy.get('[role="status"]').should('contain', '已建立案件類型「冷藏庫異常」。');
+      cy.get('[data-case-type="冷藏庫異常"]').should('contain', '預設承辦組：採購組').and('contain', '2 天');
+
+      cy.contains('button', '編輯「冷藏庫異常」').click();
+      cy.get('#case-type-due-unit').select('小時');
+      cy.get('#case-type-due').clear().type('36');
+      cy.contains('button', '儲存案件類型').click();
+      cy.get('[data-case-type="冷藏庫異常"]').should('contain', '36 小時');
+
+      cy.contains('button', '停用「冷藏庫異常」').click();
+      cy.get('[data-case-type="冷藏庫異常"]').should('contain', '已停用');
+    });
+
+    // The default group of an active type cannot be archived.
+    cy.get('[data-case-groups-panel]').within(() => {
+      cy.contains('button', '封存「設備組」').click();
+      cy.get('[role="alert"]').should('contain', '「設備組」是啟用中的案件類型「設備故障報修」的預設承辦組');
+      cy.get('[data-case-group="設備組"]').should('not.contain', '已封存');
+    });
+  });
+
   it('will not let the admin lock themselves out of the team screen', () => {
     loginAs('SMB 管理者');
     cy.visit('/app/settings');

@@ -4,8 +4,10 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   inject,
   signal,
+  untracked,
   type WritableSignal,
 } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -23,6 +25,7 @@ import {
 } from '../../../../core/repositories/case-settings.repository';
 import type { RepositoryView } from '../../../../core/repositories/demo-repository';
 import { DemoSessionService } from '../../../../core/session/demo-session.service';
+import { OrganizationSettingsChanges } from '../../organization-settings-changes.service';
 
 type Editing =
   | { readonly groupId: string; readonly mode: 'rename' }
@@ -39,7 +42,8 @@ const ROLE_LABELS: Readonly<Record<string, string>> = {
  * 其他內部帳號雖然讀得到清單（建立案件時要選），但不在設定頁顯示；外部客戶是 `403 case`。
  *
  * - 建立、改名：名稱 1–40 字、同組織不重複，錯誤顯示在欄位下方。
- * - 封存／取消封存可以來回操作；封存的組不會出現在建立案件、轉組時的選單。
+ * - 封存／取消封存可以來回操作；封存的組不會出現在建立案件、轉組時的選單。是啟用中案件類型的
+ *   預設承辦組時不能封存（訊息列出那些類型，issue #247）。
  * - 編輯成員：整份名單一次儲存，候選人只有內部帳號（管理者、內部同仁）。
  * - 異動歷史：每個加入、移除各一筆，最新的在前。
  */
@@ -54,6 +58,8 @@ export class CaseGroupsPanelComponent {
   private readonly repository = inject(CaseSettingsRepository);
   private readonly session = inject(DemoSessionService);
   private readonly destroyRef = inject(DestroyRef);
+  /** 承辦組有變更時通知「案件類型」區塊重新讀取（預設承辦組的名稱與可選項目，issue #247）。 */
+  private readonly settingsChanges = inject(OrganizationSettingsChanges, { optional: true });
 
   protected readonly nameMaxLength = CASE_GROUP_NAME_MAX_LENGTH;
   protected readonly roleLabels = ROLE_LABELS;
@@ -81,6 +87,13 @@ export class CaseGroupsPanelComponent {
   protected readonly saving = signal(false);
   protected readonly feedback = signal('');
   protected readonly error = signal('');
+
+  constructor() {
+    effect(() => {
+      const change = this.settingsChanges?.saved();
+      if (change && change.by !== this) untracked(() => this.groupsResource.reload());
+    });
+  }
 
   protected isEditing(group: CaseGroupView, mode: Editing['mode']): boolean {
     const editing = this.editing();
@@ -155,10 +168,13 @@ export class CaseGroupsPanelComponent {
         next: (result) => {
           this.saving.set(false);
           if (result.status !== 'ready') {
-            this.error.set(result.status === 'permission-denied' ? result.message : '目前無法變更，請稍後再試。');
+            this.error.set(result.status === 'permission-denied' || result.status === 'validation-failed'
+              ? result.message
+              : '目前無法變更，請稍後再試。');
             return;
           }
           this.groupsResource.reload();
+          this.settingsChanges?.announce(this);
           this.feedback.set(archive
             ? `已封存「${result.data.name}」。建立案件與轉組時不會再出現這個承辦組。`
             : `已取消封存「${result.data.name}」，可以再被選用。`);
@@ -228,6 +244,7 @@ export class CaseGroupsPanelComponent {
   private nameSaved(result: CaseGroupNameResult, fieldError: WritableSignal<string>): boolean {
     if (result.status === 'ready') {
       this.groupsResource.reload();
+      this.settingsChanges?.announce(this);
       return true;
     }
     if (result.status === 'validation-failed') fieldError.set(result.message);

@@ -84,3 +84,40 @@ internal sealed class CaseGroupMemberChangeConfiguration : IEntityTypeConfigurat
         builder.HasIndex(change => new { change.GroupId, change.ChangedAt });
     }
 }
+
+/// <summary>Index names the case type endpoints recognize a violation of.</summary>
+public static class CaseTypeIndexes
+{
+    /// <summary>The unique index on <c>(OrganizationId, Name)</c>, active or not.</summary>
+    public const string Name = "IX_CaseTypes_OrganizationId_Name";
+}
+
+/// <summary>
+/// Table <c>CaseTypes</c> (M7 plan §4; issue #247). The default group is a same-organization
+/// composite foreign key with <c>Restrict</c>: a group is never deleted, and while a type points at
+/// it the database refuses to. The handling time's range is also a check constraint.
+/// </summary>
+internal sealed class CaseTypeConfiguration : IEntityTypeConfiguration<CaseType>
+{
+    public void Configure(EntityTypeBuilder<CaseType> builder)
+    {
+        builder.ToTable("CaseTypes", table => table.HasCheckConstraint(
+            "CK_CaseTypes_DefaultDueHours",
+            $"\"DefaultDueHours\" BETWEEN {CaseType.MinDueHours} AND {CaseType.MaxDueHours}"));
+        builder.HasKey(type => type.Id);
+        builder.Property(type => type.Id).ValueGeneratedNever();
+        builder.Property(type => type.Name).HasMaxLength(CaseType.NameMaxLength).IsRequired();
+        builder.Property(type => type.Description).HasMaxLength(CaseType.DescriptionMaxLength).IsRequired();
+
+        // Target of M7-3's composite foreign key from a case to its type.
+        builder.HasAlternateKey(type => new { type.Id, type.OrganizationId });
+
+        builder.HasOne<CaseGroup>()
+            .WithMany()
+            .HasForeignKey(type => new { type.DefaultGroupId, type.OrganizationId })
+            .HasPrincipalKey(group => new { group.Id, group.OrganizationId })
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(type => new { type.OrganizationId, type.Name }).IsUnique().HasDatabaseName(CaseTypeIndexes.Name);
+    }
+}

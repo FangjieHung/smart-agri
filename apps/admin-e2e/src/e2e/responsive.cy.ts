@@ -119,6 +119,15 @@ describe('responsive layout', () => {
         expectNoHorizontalOverflow('/app/settings（展開承辦組成員）', PHONE[0]);
       });
 
+      it('fits the expanded case type form (issue #247)', () => {
+        cy.visit('/app/settings');
+        cy.contains('button', '編輯「設備故障報修」').scrollIntoView().click();
+        cy.get('[data-case-type-form] #case-type-description').should('exist');
+        cy.window().its('innerWidth').should('eq', PHONE[0]);
+        cy.contains('button', '儲存案件類型').should('exist').scrollIntoView().should('be.visible');
+        expectNoHorizontalOverflow('/app/settings（展開案件類型）', PHONE[0]);
+      });
+
       it('switches the shell to the mobile header and drawer', () => {
         cy.visit('/app/home');
 

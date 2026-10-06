@@ -71,8 +71,8 @@ public sealed record UpdateCaseGroupMembersRequest(IReadOnlyList<Guid>? AccountI
 /// Creating, renaming, archiving and unarchiving each write one <see cref="OrganizationActivity"/>
 /// in the same save (decision P); member changes have their own history
 /// (<see cref="CaseGroupMemberChange"/>, like the data managers'). Groups are never deleted
-/// (decision G). "Still in use" checks before archiving come with M7-2 (a case type's default
-/// group) and M7-3 (open cases): <see cref="ArchiveAsync"/> is where they go.
+/// (decision G). A group still in use cannot be archived: the default of an active case type (M7-2)
+/// and, from M7-3, open cases (<see cref="ArchiveAsync"/>).
 /// </remarks>
 public static class CaseGroupEndpoints
 {
@@ -93,6 +93,12 @@ public static class CaseGroupEndpoints
     public const string MembersConflictMessage = "承辦組成員剛被其他人更新，請重新整理後再試一次。";
 
     public const string AccountIdsField = "accountIds";
+
+    public const string InUseReason = "case-group-in-use";
+
+    /// <summary>The field of a <c>case-group-in-use</c> refusal: what still uses the group (M7-2: the
+    /// active case types it is the default of; M7-3 adds open cases).</summary>
+    public const string InUseField = "caseTypes";
 
     public static IEndpointRouteBuilder MapCaseGroupEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -122,7 +128,8 @@ public static class CaseGroupEndpoints
             .RequireOrganizationAdmin(ForbiddenReason.OrganizationSettings)
             .Produces<CaseGroupView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
-            .Produces(StatusCodes.Status403Forbidden);
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
 
         groups.MapPost("/{id:guid}:unarchive", UnarchiveAsync)
             .RequireOrganizationAdmin(ForbiddenReason.OrganizationSettings)
@@ -282,8 +289,8 @@ public static class CaseGroupEndpoints
 
     /// <summary>
     /// Archives the group (one <c>case-group-archived</c>); already archived answers <c>200</c>
-    /// without writing. The "still in use" refusals (<c>422 case-group-in-use</c>) are added here by
-    /// M7-2 (default group of an active case type) and M7-3 (open cases).
+    /// without writing. A group that is the default of an active case type is <c>422
+    /// case-group-in-use</c>, the message naming those types (M7-2); M7-3 adds open cases here.
     /// </summary>
     internal static Task<IResult> ArchiveAsync(
         Guid id, HttpContext httpContext, AppDbContext dbContext, TimeProvider clock, CancellationToken cancellationToken) =>
@@ -404,6 +411,12 @@ public static class CaseGroupEndpoints
             return NotFound();
         }
 
+        if (archived && !group.IsArchived
+            && await CaseTypeEndpoints.ActiveTypeNamesUsingGroupAsync(dbContext, group.Id, cancellationToken) is { Count: > 0 } typeNames)
+        {
+            return InUse(group.Name, typeNames);
+        }
+
         var now = clock.GetUtcNow();
         if (archived ? group.Archive(now) : group.Unarchive(now))
         {
@@ -414,6 +427,18 @@ public static class CaseGroupEndpoints
 
         return Results.Ok((await ToViewsAsync(dbContext, [group], cancellationToken))[0]);
     }
+
+    /// <summary>
+    /// <c>422 case-group-in-use</c>, naming the active types that default to the group, e.g.
+    /// 「設備組」是啟用中的案件類型「設備故障報修」、「冷藏庫異常」的預設承辦組……
+    /// </summary>
+    private static IResult InUse(string groupName, IReadOnlyList<string> typeNames) =>
+        ApiErrors.WithReason(
+            StatusCodes.Status422UnprocessableEntity,
+            InUseReason,
+            $"「{groupName}」是啟用中的案件類型{string.Join("、", typeNames.Select(name => $"「{name}」"))}的預設承辦組。"
+            + "請先替這些類型換一個承辦組，或停用它們，再封存。",
+            field: InUseField);
 
     /// <summary>The group under the organization filter: another organization's id is not found,
     /// exactly like an id that does not exist.</summary>

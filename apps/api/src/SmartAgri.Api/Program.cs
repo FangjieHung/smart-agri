@@ -223,6 +223,7 @@ app.MapOrganizationChatModelEndpoints();
 app.MapOrganizationRetentionEndpoints();
 app.MapConversationPurgeEndpoints();
 app.MapCaseGroupEndpoints();
+app.MapCaseTypeEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();

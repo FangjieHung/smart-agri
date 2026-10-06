@@ -1198,6 +1198,20 @@ Each organization chooses how long conversations are kept: 30, 90, 180 or 365 da
   Model invocations, handoff copies in issues, periodic reports, database records and test runs are
   never touched. The first cleanup after shortening a long-used retention may delete a lot: run the
   first change off-peak.
+- **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
+  every organization with a retention in days but no queued or running cleanup job (a job that
+  failed for good breaks its chain); the same compare-and-set keeps it from forking.
+- **`retention-cleanup`** is a one-shot subcommand that runs one organization's cleanup now (a due
+  pending value first), without touching the chain:
+
+  ```sh
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code>
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code> --as-of 2026-11-13T03:00:00+08:00   # Development/Testing only
+  ```
+
+  `--as-of` computes the cutoff (and whether a pending value is due) as of that time, for the API-mode
+  E2E; any other environment refuses it. Exit code `0` done, `1` unknown organization or the cleanup
+  failed, `2` bad arguments.
 
 ## Case groups (M7-1, #246)
 
@@ -1226,24 +1240,38 @@ are never deleted, only archived (decision G). All endpoints need an internal ac
   case-group-members-conflict`. A member's account cannot be deleted (`Restrict`, decision C).
 - **`GET /api/v1/case-groups/{id}/member-changes`** (manager only): `[{ id, account, added,
   changedBy, changedAt }]`, newest first.
+- **Archiving a group that an active case type defaults to** is `422 case-group-in-use`
+  (`errors.caseTypes`); the message names those types (M7-2). Move them to another group or
+  deactivate them first.
 
 Account names on these and the other history screens (data managers, submission records, the
 settings' 「上次變更」, issues) come from one lookup, `AccountNames`: an account that can no longer be
 found shows as 「已停用的帳號」.
-- **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
-  every organization with a retention in days but no queued or running cleanup job (a job that
-  failed for good breaks its chain); the same compare-and-set keeps it from forking.
-- **`retention-cleanup`** is a one-shot subcommand that runs one organization's cleanup now (a due
-  pending value first), without touching the chain:
 
-  ```sh
-  dotnet SmartAgri.Api.dll retention-cleanup --organization <code>
-  dotnet SmartAgri.Api.dll retention-cleanup --organization <code> --as-of 2026-11-13T03:00:00+08:00   # Development/Testing only
-  ```
+## Case types (M7-2, #247)
 
-  `--as-of` computes the cutoff (and whether a pending value is due) as of that time, for the API-mode
-  E2E; any other environment refuses it. Exit code `0` done, `1` unknown organization or the cleanup
-  failed, `2` bad arguments.
+案件類型 are defined by the manager (M7 plan §3 B). Each has a description (what the assistant reads
+when it proposes a case, M7-9), a default case group and a default handling time; a new case starts
+from a type, which fills in the group and the due time (M7-3). Types are never deleted, only
+deactivated (decision O). Same access rules as the case groups.
+
+- **`GET /api/v1/case-types`** (any internal account) returns `{ types: [{ id, name, description,
+  defaultGroup: { id, name, archived }, defaultDueHours, isActive, createdAt, updatedAt }],
+  canManage }`, in creation order. Inactive types are left out unless the manager asks
+  `?includeInactive=true` (ignored for anyone else).
+- **`POST /api/v1/case-types`**, **`PUT /api/v1/case-types/{id}`** `{ name, description,
+  defaultGroupId, defaultDueHours, isActive }` — manager only (`403 organization-settings`, the
+  same bytes for an unknown or foreign id). Every field is sent each time; an omitted `isActive` is
+  active on create and unchanged on update. Field rules, all reported at once (`422`, `errors.<field>`):
+  name trimmed, 1–40 characters; description trimmed, 0–500 characters; a default group;
+  `defaultDueHours` 1–2,160 (90 days, calendar time — decision H; also a check constraint). The name
+  is unique in the organization, active or not (`422 case-type-name-taken`). The default group must
+  be one of the organization's groups (`422 case-group-not-found`) and not archived (`422
+  case-group-archived`); an inactive type may keep a group that was archived later, but cannot be
+  reactivated with it. The foreign key to the group is a same-organization composite with
+  `Restrict`. Creating writes `case-type-created` (`{ id, name }`), a real change writes
+  `case-type-updated` (`{ id, name, changed: [field names], isActive }` — never the description's
+  text); a no-op writes nothing.
 
 ## Retrieval preview and `KnowledgeRetriever`
 

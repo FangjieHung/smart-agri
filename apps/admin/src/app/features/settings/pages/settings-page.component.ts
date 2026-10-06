@@ -2,6 +2,7 @@ import { Component, inject } from '@angular/core';
 import { COLOR_THEMES, ThemeService, texture } from '@smart-agri/theme-pack';
 import { SettingRowComponent } from '@smart-agri/ui';
 import { CaseGroupsPanelComponent } from '../components/case-groups-panel/case-groups-panel.component';
+import { CaseTypesPanelComponent } from '../components/case-types-panel/case-types-panel.component';
 import { ChatModelPanelComponent } from '../components/chat-model-panel/chat-model-panel.component';
 import { ConversationRetentionComponent } from '../components/conversation-retention/conversation-retention.component';
 import { TeamPanelComponent } from '../components/team-panel/team-panel.component';
@@ -15,11 +16,13 @@ import { OrganizationSettingsChanges } from '../organization-settings-changes.se
     ChatModelPanelComponent,
     ConversationRetentionComponent,
     CaseGroupsPanelComponent,
+    CaseTypesPanelComponent,
     SettingRowComponent,
   ],
   templateUrl: './settings-page.component.html',
   styleUrl: './settings-page.component.scss',
-  // 對話模型與保存期限共用 revision：一個區塊存好後，其他區塊重新讀取（issue #243）。
+  // 對話模型與保存期限共用 revision：一個區塊存好後，其他區塊重新讀取（issue #243）；
+  // 承辦組變更後「案件類型」也重新讀取（預設承辦組的名稱與選項，issue #247）。
   providers: [OrganizationSettingsChanges],
 })
 export class SettingsPageComponent {

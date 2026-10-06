@@ -171,6 +171,28 @@ public sealed class OrganizationActivity : IOrganizationScoped
             actorAccountId,
             at,
             new { id = groupId, name });
+
+    /// <summary><see cref="OrganizationActivityAction.CaseTypeCreated"/>: detail <c>{ "id", "name" }</c>.</summary>
+    public static OrganizationActivity CaseTypeCreated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid typeId, string name) =>
+        Record(organizationId, OrganizationActivityAction.CaseTypeCreated, actorAccountId, at, new { id = typeId, name });
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.CaseTypeUpdated"/>: detail <c>{ "id", "name", "changed",
+    /// "isActive" }</c>; <paramref name="changed"/> lists the wire names of the fields that changed
+    /// (at least one). The description itself is something a person wrote, so only the fact that it
+    /// changed is recorded.
+    /// </summary>
+    public static OrganizationActivity CaseTypeUpdated(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid typeId, string name, IReadOnlyList<string> changed, bool isActive)
+    {
+        ArgumentNullException.ThrowIfNull(changed);
+        if (changed.Count == 0)
+        {
+            throw new ArgumentException("An update is recorded only when something changed.", nameof(changed));
+        }
+
+        return Record(organizationId, OrganizationActivityAction.CaseTypeUpdated, actorAccountId, at, new { id = typeId, name, changed, isActive });
+    }
 }
 
 /// <summary>One side of a <see cref="OrganizationActivityAction.ChatModelChanged"/> detail.</summary>

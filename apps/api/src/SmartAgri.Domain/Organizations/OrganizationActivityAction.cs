@@ -62,4 +62,16 @@ public enum OrganizationActivityAction
     /// <c>name</c>.</summary>
     [JsonStringEnumMemberName("case-group-unarchived")]
     CaseGroupUnarchived,
+
+    /// <summary>A manager created a case type (案件類型, M7-2). Detail: <c>id</c>, <c>name</c>
+    /// (<see cref="OrganizationActivity.CaseTypeCreated"/>).</summary>
+    [JsonStringEnumMemberName("case-type-created")]
+    CaseTypeCreated,
+
+    /// <summary>A manager changed a case type (M7-2), including deactivating or reactivating it.
+    /// Detail: <c>id</c>, <c>name</c> (the current one), <c>changed</c> (the wire names of the fields
+    /// that changed) and <c>isActive</c> — never the description's text
+    /// (<see cref="OrganizationActivity.CaseTypeUpdated"/>).</summary>
+    [JsonStringEnumMemberName("case-type-updated")]
+    CaseTypeUpdated,
 }

@@ -1,0 +1,40 @@
+:host { display: block; }
+
+.retention-period { display: grid; gap: var(--space-3); min-inline-size: 0; }
+p { margin: 0; }
+.hint { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+  line-height: var(--line-height-body);
+}
+.notice p { flex: 1 1 16rem; min-inline-size: 0; }
+.error { color: var(--color-error); font-weight: 700; }
+.feedback { color: var(--color-success); font-weight: 600; }
+.feedback:empty { display: none; }
+
+.retention-period__select,
+.retention-period__revert {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.retention-period__select { max-inline-size: 100%; font-size: max(16px, 1em); }
+.retention-period__revert { font-weight: 700; cursor: pointer; }
+.retention-period__revert:disabled { opacity: 0.6; cursor: not-allowed; }
+.retention-period__select:focus-visible,
+.retention-period__revert:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
+// 投影進確認框的內容（帶著本元件的 _ngcontent 屬性，所以這裡的規則套得到）。
+.retention-confirm__count { font-weight: 700; line-height: var(--line-height-body); }
+.retention-confirm__note { color: var(--color-text-secondary); line-height: var(--line-height-body); }

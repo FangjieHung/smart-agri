@@ -58,7 +58,7 @@ import {
   type WebsitePublishFailureReason,
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
-import type { OrganizationChatModelView } from '../domain/organization-settings.model';
+import type { OrganizationChatModelView, OrganizationRetentionView } from '../domain/organization-settings.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -182,6 +182,8 @@ import {
   type UpdateKnowledgeSharingResult,
   type UpdateMemberPermissionsResult,
   type UpdateOrganizationChatModelResult,
+  type UpdateOrganizationRetentionResult,
+  type PreviewOrganizationRetentionResult,
   type UploadKnowledgeDocumentEvent,
 } from './demo-repository';
 import type { DemoSeed } from './demo-seed';
@@ -195,6 +197,7 @@ import {
   ORGANIZATION_SETTINGS_CONFLICT_MESSAGE,
   ORGANIZATION_SETTINGS_DENIED_MESSAGE,
   UNKNOWN_CHAT_MODEL_MESSAGE,
+  UNKNOWN_RETENTION_DAYS_MESSAGE,
   TEAM_PERMISSION_DENIED_MESSAGE,
   type AccountPermissionOverrides,
   type MockDemoRepositoryOptions,
@@ -251,6 +254,9 @@ type ApiAssistantPublishing = components['schemas']['AssistantPublishingView'];
 type ApiOrganizationUsage = components['schemas']['OrganizationUsageView'];
 type ApiOrganizationChatModel = components['schemas']['OrganizationChatModelView'];
 type UpdateOrganizationChatModelRequest = components['schemas']['UpdateOrganizationChatModelRequest'];
+type ApiOrganizationRetention = components['schemas']['OrganizationRetentionView'];
+type ApiOrganizationRetentionPreview = components['schemas']['OrganizationRetentionPreviewView'];
+type UpdateOrganizationRetentionRequest = components['schemas']['UpdateOrganizationRetentionRequest'];
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
 type ApiWebsiteChannel = components['schemas']['WebsiteChannelView'];
@@ -423,6 +429,12 @@ export const API_ORGANIZATION_USAGE_PATH = '/api/v1/organization/usage';
 
 /** 組織的對話模型（issue #239／#240）：`GET` 任何帳號、`PUT` 只有管理者。 */
 export const API_ORGANIZATION_CHAT_MODEL_PATH = '/api/v1/organization/chat-model';
+
+/** 組織的對話保存期限（issue #241／#243）：`GET` 任何帳號、`PUT` 只有管理者。 */
+export const API_ORGANIZATION_RETENTION_PATH = '/api/v1/organization/retention';
+
+/** 保存期限的預覽（管理者）：`?days=N`。 */
+export const API_ORGANIZATION_RETENTION_PREVIEW_PATH = `${API_ORGANIZATION_RETENTION_PATH}/preview`;
 
 export function apiAssistantPublishingPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/publishing`;
@@ -1160,6 +1172,60 @@ export class HybridDemoRepository extends MockDemoRepository {
           return of<UpdateOrganizationChatModelResult>({
             status: 'validation-failed',
             message: bodyMessage(error) ?? UNKNOWN_CHAT_MODEL_MESSAGE,
+          });
+        }
+        return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
+      }),
+    );
+  }
+
+  override getOrganizationRetention(): Observable<RepositoryView<OrganizationRetentionView>> {
+    return this.http.get<ApiOrganizationRetention>(API_ORGANIZATION_RETENTION_PATH).pipe(
+      map((response): RepositoryView<OrganizationRetentionView> => ({ status: 'ready', data: toOrganizationRetention(response) })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED)),
+    );
+  }
+
+  /** `422`（`errors.days`）→ validation-failed、`403 organization-settings` → permission-denied。 */
+  override previewOrganizationRetention(days: number): Observable<PreviewOrganizationRetentionResult> {
+    return this.http
+      .get<ApiOrganizationRetentionPreview>(API_ORGANIZATION_RETENTION_PREVIEW_PATH, { params: { days } })
+      .pipe(
+        map((response): PreviewOrganizationRetentionResult => ({
+          status: 'ready',
+          data: { days: response.days, threadCount: response.threadCount, cutoff: response.cutoff },
+        })),
+        catchError((error: unknown) => {
+          if (isHttpError(error, 422)) {
+            return of<PreviewOrganizationRetentionResult>({
+              status: 'validation-failed',
+              message: bodyMessage(error) ?? UNKNOWN_RETENTION_DAYS_MESSAGE,
+            });
+          }
+          return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
+        }),
+      );
+  }
+
+  /** `409` → conflict、`422`（`errors.days`）→ validation-failed、`403 organization-settings` → permission-denied。 */
+  override updateOrganizationRetention(
+    days: number | null,
+    revision: number,
+  ): Observable<UpdateOrganizationRetentionResult> {
+    const body: UpdateOrganizationRetentionRequest = { days, revision };
+    return this.http.put<ApiOrganizationRetention>(API_ORGANIZATION_RETENTION_PATH, body).pipe(
+      map((response): UpdateOrganizationRetentionResult => ({ status: 'ready', data: toOrganizationRetention(response) })),
+      catchError((error: unknown) => {
+        if (isHttpError(error, 409)) {
+          return of<UpdateOrganizationRetentionResult>({
+            status: 'conflict',
+            message: bodyMessage(error) ?? ORGANIZATION_SETTINGS_CONFLICT_MESSAGE,
+          });
+        }
+        if (isHttpError(error, 422)) {
+          return of<UpdateOrganizationRetentionResult>({
+            status: 'validation-failed',
+            message: bodyMessage(error) ?? UNKNOWN_RETENTION_DAYS_MESSAGE,
           });
         }
         return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
@@ -2722,6 +2788,21 @@ function toOrganizationChatModel(response: ApiOrganizationChatModel): Organizati
     selectedId: response.selectedId ?? null,
     effective: response.effective ? option(response.effective) : null,
     source: response.source,
+    canChange: response.canChange === true,
+    lastChange: response.lastChange ? { actorName: response.lastChange.actorName, at: response.lastChange.at } : null,
+    revision: response.revision,
+  };
+}
+
+/**
+ * 原樣複製。`days`／`pending`／`lastChange` 可為 null；伺服器省略鍵時一律當成 `null`
+ * （`days` 省略是永久，不是「沒有資料」）。
+ */
+function toOrganizationRetention(response: ApiOrganizationRetention): OrganizationRetentionView {
+  return {
+    days: response.days ?? null,
+    pending: response.pending ? { days: response.pending.days, effectiveAt: response.pending.effectiveAt } : null,
+    options: [...(response.options ?? [])],
     canChange: response.canChange === true,
     lastChange: response.lastChange ? { actorName: response.lastChange.actorName, at: response.lastChange.at } : null,
     revision: response.revision,

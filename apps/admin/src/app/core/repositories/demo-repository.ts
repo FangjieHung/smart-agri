@@ -92,7 +92,11 @@ import type { Observable } from 'rxjs';
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type { TeamMemberView, TeamView } from '../domain/team.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
-import type { OrganizationChatModelView } from '../domain/organization-settings.model';
+import type {
+  OrganizationChatModelView,
+  OrganizationRetentionPreviewView,
+  OrganizationRetentionView,
+} from '../domain/organization-settings.model';
 import type {
   AssistantChannelsView,
   AssistantPublishingView,
@@ -559,6 +563,17 @@ export type UpdateOrganizationChatModelResult =
   | OrganizationSettingsConflictView
   | OrganizationSettingsValidationFailedView;
 
+/** 保存期限的 `PUT`（issue #243）：`422` 是 `errors.days`（不在選項內），`409` 是 revision 過時。 */
+export type UpdateOrganizationRetentionResult =
+  | RepositoryView<OrganizationRetentionView>
+  | OrganizationSettingsConflictView
+  | OrganizationSettingsValidationFailedView;
+
+/** 保存期限的預覽（issue #243）：`422` 是 `errors.days`；非管理者是 `organization-settings` permission-denied。 */
+export type PreviewOrganizationRetentionResult =
+  | RepositoryView<OrganizationRetentionPreviewView>
+  | OrganizationSettingsValidationFailedView;
+
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
 export type DemoKeyValueStorage = Pick<
   Storage,
@@ -700,6 +715,25 @@ export interface DemoRepository extends DemoScenarioController {
     modelId: string | null,
     revision: number,
   ): Observable<UpdateOrganizationChatModelResult>;
+  /**
+   * 組織的對話保存期限（issue #243，M6 計畫第 3 節 F）：組織內任何帳號都讀得到，`canChange`
+   * 只有管理者是 true。
+   */
+  getOrganizationRetention(): Observable<RepositoryView<OrganizationRetentionView>>;
+  /**
+   * 期限改成 `days` 天時，現在的每日清理大約會刪除幾串對話（只有管理者）。不在選項內是
+   * validation-failed；非管理者是 `organization-settings` permission-denied。
+   */
+  previewOrganizationRetention(days: number): Observable<PreviewOrganizationRetentionResult>;
+  /**
+   * 變更保存期限（只有管理者）：縮短存成 `pending`（7 天後生效），延長立即生效並清掉 `pending`，
+   * 送出目前生效的值是「改回」。不在選項內是 validation-failed；過時的 `revision` 是 conflict
+   * （先檢查 `days` 再檢查 `revision`，與後端相同）；不改變任何東西時直接回 ready。
+   */
+  updateOrganizationRetention(
+    days: number | null,
+    revision: number,
+  ): Observable<UpdateOrganizationRetentionResult>;
   /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */
   listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**

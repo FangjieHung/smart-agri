@@ -108,6 +108,11 @@
   text-align: center;
 }
 
+/* 逾期數字（issue #250）：收合時貼在圖示右上角。這段樣式在初始 bundle，盡量短。 */
+.nav-link { position: relative; }
+.nav-count { margin-left: auto; padding: 0 6px; border-radius: 9px; background: var(--color-error); color: #fff; font-size: .75rem; font-weight: 700; line-height: 18px; }
+.collapsed .nav-count { position: absolute; top: 2px; right: 2px; }
+
 .collapsed .nav-link,
 .collapsed .nav-group-trigger {
   justify-content: center;

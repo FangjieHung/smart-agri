@@ -129,6 +129,42 @@ describe('CasesPageComponent', () => {
     expect(repo.list).toHaveBeenLastCalledWith({ scope: 'my-groups', status: 'closed', typeId: 'type-1', groupId: 'group-2' });
   });
 
+  it('starts from the filters in the address (the home page card) and filters overdue cases (issue #250)', async () => {
+    const owned = await setup({ url: '/app/cases?scope=owned&overdue=true' });
+    expect(owned.repo.list).toHaveBeenLastCalledWith({ scope: 'owned', status: 'open', typeId: undefined, groupId: undefined, overdue: true });
+    expect(element<HTMLInputElement>(owned.fixture, '[data-case-overdue-filter]').checked).toBe(true);
+    const selects = (owned.fixture.nativeElement as HTMLElement).querySelectorAll<HTMLSelectElement>('.cases-filters select');
+    expect(selects[0].value).toBe('owned');
+
+    const checkbox = element<HTMLInputElement>(owned.fixture, '[data-case-overdue-filter]');
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event('change'));
+    owned.fixture.detectChanges();
+    await owned.fixture.whenStable();
+    expect(owned.repo.list).toHaveBeenLastCalledWith({ scope: 'owned', status: 'open', typeId: undefined, groupId: undefined });
+
+    const pending = await setup({ url: '/app/cases?scope=my-groups&status=pending&overdue=true' });
+    expect(pending.repo.list).toHaveBeenLastCalledWith({ scope: 'my-groups', status: 'pending', typeId: undefined, groupId: undefined, overdue: true });
+
+    const unknown = await setup({ url: '/app/cases?scope=everything&status=whatever&overdue=yes' });
+    expect(unknown.repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'open', typeId: undefined, groupId: undefined });
+  });
+
+  it('marks an open case past its due time as 已逾期, and never a closed one', async () => {
+    const { fixture } = await setup({
+      list: of({
+        status: 'ready',
+        data: [
+          { ...summary, id: 'late', title: '逾期的待補件', status: 'awaiting-info', dueAt: '2020-01-01T00:00:00Z' },
+          { ...summary, id: 'on-time', title: '還沒到時限', dueAt: '2099-01-01T00:00:00Z' },
+          { ...summary, id: 'done', title: '已完成的舊案件', status: 'completed', dueAt: '2020-01-01T00:00:00Z' },
+        ],
+      }),
+    });
+    const items = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.case-item'));
+    expect(items.map((item) => item.querySelector('.case-overdue')?.textContent ?? null)).toEqual(['已逾期', null, null]);
+  });
+
   it('distinguishes loading, permission and empty states', async () => {
     const loading = await setup({ list: NEVER, settle: false });
     expect(text(loading.fixture)).toContain('正在載入案件');

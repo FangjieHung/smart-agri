@@ -53,6 +53,10 @@
             }
           </select>
         </label>
+        <label class="cases-filters__check">
+          <input type="checkbox" data-case-overdue-filter [checked]="overdueOnly()" (change)="overdueOnly.set($any($event.target).checked)" />
+          只看逾期
+        </label>
       </div>
 
       @if (list.status === 'loading') {
@@ -76,7 +80,7 @@
               >
                 <span class="case-item__top"><strong>{{ item.title }}</strong><span class="case-status">{{ statusLabel(item.status) }}</span></span>
                 <span>{{ item.type.name }} · {{ item.group.name }}</span>
-                <span>時限 {{ item.dueAt | date:'yyyy/MM/dd HH:mm' }}</span>
+                <span>時限 {{ item.dueAt | date:'yyyy/MM/dd HH:mm' }}@if (isOverdue(item)) { · <strong class="case-overdue">已逾期</strong>}</span>
               </button>
             </li>
           }

@@ -25,6 +25,7 @@ import {
   caseCreatedByText,
   caseRecordStateLabel,
   caseStatusLabel,
+  isCaseOverdue,
   type CaseEventView,
   type CaseListScope,
   type CaseListStatus,
@@ -73,10 +74,12 @@ export class CasesPageComponent {
   protected readonly createdByText = caseCreatedByText;
   protected readonly formatDueHours = formatDueHours;
 
-  protected readonly scope = signal<CaseListScope>('all');
-  protected readonly status = signal<CaseListStatus>('open');
+  /** 篩選的初始值可以從網址帶入（首頁「案件」卡片，issue #250）：`?scope=owned&overdue=true` 等。 */
+  protected readonly scope = signal<CaseListScope>(queryScope(this.route.snapshot.queryParamMap.get('scope')));
+  protected readonly status = signal<CaseListStatus>(queryStatus(this.route.snapshot.queryParamMap.get('status')));
   protected readonly typeFilter = signal('');
   protected readonly groupFilter = signal('');
+  protected readonly overdueOnly = signal(this.route.snapshot.queryParamMap.get('overdue') === 'true');
 
   protected readonly selectedId = toSignal(this.route.queryParamMap.pipe(map((params) => params.get('case'))), {
     initialValue: this.route.snapshot.queryParamMap.get('case'),
@@ -99,7 +102,10 @@ export class CasesPageComponent {
     params: () => {
       const accountId = this.session.activeAccountId();
       return accountId
-        ? { accountId, scope: this.scope(), status: this.status(), typeId: this.typeFilter(), groupId: this.groupFilter() }
+        ? {
+          accountId, scope: this.scope(), status: this.status(), typeId: this.typeFilter(), groupId: this.groupFilter(),
+          overdue: this.overdueOnly(),
+        }
         : undefined;
     },
     stream: (params) => this.cases.list({
@@ -107,6 +113,7 @@ export class CasesPageComponent {
       status: params.status,
       typeId: params.typeId || undefined,
       groupId: params.groupId || undefined,
+      ...(params.overdue ? { overdue: true } : {}),
     }),
   });
   protected readonly listView = this.listResource.view;
@@ -146,6 +153,11 @@ export class CasesPageComponent {
     const due = fromDateTimeLocalValue(this.formDueAt());
     return due !== null && isDueInPast(due, new Date());
   });
+
+  /** 清單上的「已逾期」：與後端 `CaseAttention.Overdue` 相同的判斷，以畫面讀取時的時間計算。 */
+  protected isOverdue(item: CaseSummaryView): boolean {
+    return isCaseOverdue(item, new Date());
+  }
 
   protected select(item: Pick<CaseSummaryView, 'id'>): void {
     this.creating.set(false);
@@ -257,6 +269,17 @@ export class CasesPageComponent {
     delete next[field];
     this.formErrors.set(next);
   }
+}
+
+const SCOPES: readonly CaseListScope[] = ['all', 'created', 'owned', 'my-groups'];
+
+function queryScope(value: string | null): CaseListScope {
+  return SCOPES.find((scope) => scope === value) ?? 'all';
+}
+
+function queryStatus(value: string | null): CaseListStatus {
+  const statuses: readonly CaseListStatus[] = ['open', 'closed', 'all', ...CASE_STATUSES];
+  return statuses.find((status) => status === value) ?? 'open';
 }
 
 function pickFormErrors(errors: Readonly<Partial<Record<CaseField, string>>>): Partial<Record<FormField, string>> {

@@ -136,7 +136,52 @@ describe('cases', () => {
       cy.get('[data-case-link="previous"]').scrollIntoView().should('contain.text', '接續的舊案件');
     });
   });
+
+  /**
+   * 逾期提示（issue #250）：mock 的「溫室感測器離線」在設備組待受理、時限已過，所以同仁的側欄數字至少是 1。
+   * 數字取決於今天的日期（其他範例案件之後也會逾期），因此這裡比對「側欄＝兩個篩選的件數合計」。
+   */
+  it('shows the overdue number beside 案件, equal to the two overdue filters the home page card links to', () => {
+    cy.visit('/app/home');
+    cy.get('.app-sidenav a[href="/app/cases"] .nav-count').invoke('text').then((text) => {
+      const sideNav = Number(text.trim());
+      expect(sideNav).to.be.at.least(1);
+      cy.get('.app-sidenav a[href="/app/cases"]').should('have.attr', 'aria-label', `案件，${sideNav} 件逾期`);
+
+      cy.get('[data-home-cases]').scrollIntoView().should('be.visible')
+        .and('contain.text', `已逾期 ${sideNav} 件`);
+      cy.get('[data-home-cases-link="owned-overdue"]').click();
+      cy.location('search').should('eq', '?scope=owned&overdue=true');
+      cy.get('[data-case-overdue-filter]').should('be.checked');
+      listedCount().then((owned) => {
+        cy.visit('/app/home');
+        cy.get('[data-home-cases-link="group-overdue"]').scrollIntoView().click();
+        cy.location('search').should('eq', '?scope=my-groups&status=pending&overdue=true');
+        cy.contains('.case-item', '溫室感測器離線').should('contain.text', '已逾期');
+        listedCount().then((groupPending) => {
+          expect(owned + groupPending).to.eq(sideNav);
+        });
+      });
+    });
+
+    cy.get('[data-case-overdue-filter]').uncheck();
+    cy.contains('.case-item', '冷藏庫溫度降不下來').should('be.visible');
+  });
+
+  it('shows an external customer no overdue number and no 案件 card', () => {
+    loginAs('外部客戶');
+    cy.visit('/app/home');
+    cy.contains('h2', '待處理事項').scrollIntoView().should('be.visible');
+    cy.get('[data-home-cases]').should('not.exist');
+    cy.get('.app-sidenav a[href="/app/cases"]').should('exist').find('.nav-count').should('not.exist');
+  });
 });
+
+/** 清單讀完後的件數（沒有符合的案件時是 0）。 */
+function listedCount(): Cypress.Chainable<number> {
+  cy.get('.cases-list .case-items, .cases-list [data-state="empty"]').should('exist');
+  return cy.get('.cases-list').then(($list) => $list.find('.case-item').length);
+}
 
 /**
  * 數據庫送出後自動開案（issue #255，mock 模式）：管理者在數據庫的「權限」頁籤設定類型，畫面提示承辦組中有

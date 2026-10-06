@@ -20,6 +20,9 @@ namespace SmartAgri.Api.Assistants;
 /// <param name="ViewerIsAssistantOwner">The caller owns the assistant (and may manage
 /// assistants); the frontend never compares ids itself.</param>
 /// <param name="ViewerIsAssignee">The caller is the assignee (and may handle issues).</param>
+/// <param name="ResolutionKind">How it was resolved (M7-7): <c>fixed</c>, or <c>not-assistant-issue</c>
+/// (「非助理問題」) when a case was opened from it; <see langword="null"/> unless resolved.</param>
+/// <param name="LinkedCaseId">The case opened from it (with <c>not-assistant-issue</c>).</param>
 public sealed record AssistantIssueView(
     Guid Id,
     Guid AssistantId,
@@ -43,12 +46,16 @@ public sealed record AssistantIssueView(
     DateTimeOffset? ResolvedAt,
     bool ViewerIsAssistantOwner,
     bool ViewerIsAssignee,
-    bool HandoffUnverified);
+    bool HandoffUnverified,
+    AssistantIssueResolutionKind? ResolutionKind,
+    Guid? LinkedCaseId);
 
-/// <summary>Only the state and outcome of a member's own forwarded handoff.</summary>
+/// <summary>Only the state and outcome of a member's own forwarded handoff (with M7-7's
+/// <paramref name="ResolutionKind"/>, never the case itself: the member may not see it).</summary>
 public sealed record ForwardedAssistantIssueView(
     Guid Id, Guid AssistantId, string AssistantName, AssistantIssueStatus Status,
-    string? ResolutionNote, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? ResolvedAt);
+    string? ResolutionNote, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? ResolvedAt,
+    AssistantIssueResolutionKind? ResolutionKind);
 
 /// <summary>One entry of an issue's handling history, oldest first.</summary>
 /// <param name="AssigneeAccountId">For <c>assigned</c> (and <c>created</c>): the assignee
@@ -67,9 +74,15 @@ public sealed record AssistantIssueEventView(
     AssistantIssueStatus? Status,
     DateTimeOffset? DueAt);
 
+/// <summary>The case opened from an issue (M7-7): only whether <b>you</b> can open it now (the case's
+/// own visibility, <c>CaseVisibility</c>), never what it holds.</summary>
+public sealed record AssistantIssueCaseLinkView(Guid CaseId, bool CanOpen);
+
 /// <summary><c>GET /api/v1/issues/{id}</c> (and <c>PATCH</c>'s response): the issue and its
 /// whole history.</summary>
-public sealed record AssistantIssueDetailView(AssistantIssueView Issue, IReadOnlyList<AssistantIssueEventView> Events);
+/// <param name="LinkedCase">The case opened from it (M7-7); <see langword="null"/> when there is none.</param>
+public sealed record AssistantIssueDetailView(
+    AssistantIssueView Issue, IReadOnlyList<AssistantIssueEventView> Events, AssistantIssueCaseLinkView? LinkedCase);
 
 /// <summary><c>GET /api/v1/issues/summary</c>: counts of the unresolved issues the caller can
 /// see (the same set as <c>GET /api/v1/issues</c>'s default scope), for the home page's
@@ -122,7 +135,7 @@ public sealed record UpdateAssistantIssueRequest(
 /// records an <see cref="AssistantIssueEvent"/>.
 /// </para>
 /// </remarks>
-public static class AssistantIssueEndpoints
+public static partial class AssistantIssueEndpoints
 {
     public const string TestResultNotFoundReason = "test-result-not-found";
     public const string TestResultPassedReason = "test-result-passed";
@@ -173,6 +186,7 @@ public static class AssistantIssueEndpoints
             .Produces(StatusCodes.Status409Conflict)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
+        MapOpenCase(issues);
         return endpoints;
     }
 
@@ -366,7 +380,7 @@ public static class AssistantIssueEndpoints
             return Results.Ok(new { Issue = limited[0], Events = Array.Empty<object>() });
         }
 
-        return Results.Ok(await ToDetailAsync(dbContext, issue, callerId, canManage, canHandle, cancellationToken));
+        return Results.Ok(await ToDetailAsync(httpContext, dbContext, issue, callerId, canManage, canHandle, cancellationToken));
     }
 
     /// <summary>Assigns, changes the due date, changes the status and/or adds a note, recording
@@ -471,7 +485,7 @@ public static class AssistantIssueEndpoints
             return Changed();
         }
 
-        return Results.Ok(await ToDetailAsync(dbContext, issue, callerId, canManage, canHandle, cancellationToken));
+        return Results.Ok(await ToDetailAsync(httpContext, dbContext, issue, callerId, canManage, canHandle, cancellationToken));
     }
 
     /// <summary>Unresolved issues (not <c>resolved</c>) across the organization, and the average
@@ -494,10 +508,6 @@ public static class AssistantIssueEndpoints
         return (openCount, average);
     }
 
-    /// <summary>The issues the caller may open and change: its own assistants' (with
-    /// <c>manage-assistants</c>) and those assigned to it (with
-    /// <c>handle-assistant-issues</c>). The organization filter already hides every other
-    /// organization's.</summary>
     /// <summary>Whether <paramref name="callerId"/> could open issue <paramref name="issueId"/> now (the
     /// same rule as <c>GET /api/v1/issues/{id}</c>): a case's link to its issue (M7 plan §3 C) only
     /// says this, never what the issue holds.</summary>
@@ -508,6 +518,10 @@ public static class AssistantIssueEndpoints
         return await Visible(dbContext, callerId, canManage, canHandle).AnyAsync(issue => issue.Id == issueId, cancellationToken);
     }
 
+    /// <summary>The issues the caller may open and change: its own assistants' (with
+    /// <c>manage-assistants</c>) and those assigned to it (with
+    /// <c>handle-assistant-issues</c>). The organization filter already hides every other
+    /// organization's.</summary>
     private static IQueryable<AssistantIssue> Visible(AppDbContext dbContext, Guid callerId, bool canManage, bool canHandle)
     {
         var ownedAssistantIds = dbContext.Assistants.Where(AssistantAccess.ManageableBy(callerId)).Select(assistant => assistant.Id);
@@ -563,7 +577,13 @@ public static class AssistantIssueEndpoints
         ApiErrors.WithReason(StatusCodes.Status409Conflict, IssueChangedReason, IssueChangedMessage);
 
     private static async Task<AssistantIssueDetailView> ToDetailAsync(
-        AppDbContext dbContext, AssistantIssue issue, Guid callerId, bool canManage, bool canHandle, CancellationToken cancellationToken)
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        AssistantIssue issue,
+        Guid callerId,
+        bool canManage,
+        bool canHandle,
+        CancellationToken cancellationToken)
     {
         var events = await dbContext.AssistantIssueEvents.AsNoTracking()
             .Where(issueEvent => issueEvent.IssueId == issue.Id)
@@ -586,7 +606,10 @@ public static class AssistantIssueEndpoints
                 issueEvent.AssigneeAccountId,
                 names.NameOf(issueEvent.AssigneeAccountId),
                 issueEvent.Status,
-                issueEvent.DueAt)));
+                issueEvent.DueAt)),
+            issue.LinkedCaseId is { } caseId
+                ? new AssistantIssueCaseLinkView(caseId, await CanOpenCaseAsync(httpContext, dbContext, caseId, cancellationToken))
+                : null);
     }
 
     private static async Task<List<AssistantIssueView>> ToViewsAsync(
@@ -631,7 +654,9 @@ public static class AssistantIssueEndpoints
                 issue.ResolvedAt,
                 canManage && assistant is not null && assistant.OwnerAccountId == callerId,
                 canHandle && issue.AssigneeAccountId == callerId,
-                issue.HandoffUnverified);
+                issue.HandoffUnverified,
+                issue.ResolutionKind,
+                issue.LinkedCaseId);
         })];
     }
 
@@ -644,6 +669,6 @@ public static class AssistantIssueEndpoints
             .ToDictionaryAsync(assistant => assistant.Id, assistant => assistant.Name, cancellationToken);
         return [.. issues.Select(issue => new ForwardedAssistantIssueView(
             issue.Id, issue.AssistantId, names.GetValueOrDefault(issue.AssistantId, string.Empty),
-            issue.Status, issue.ResolutionNote, issue.CreatedAt, issue.UpdatedAt, issue.ResolvedAt))];
+            issue.Status, issue.ResolutionNote, issue.CreatedAt, issue.UpdatedAt, issue.ResolvedAt, issue.ResolutionKind))];
     }
 }

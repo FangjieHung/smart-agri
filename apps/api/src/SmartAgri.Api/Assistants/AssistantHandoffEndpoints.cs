@@ -100,7 +100,7 @@ public static class AssistantHandoffEndpoints
             issue.AssigneeAccountId, null, issue.ReporterAccountId, null, issue.DueAt,
             issue.TestRunId, issue.TestResultId, issue.TestFailureReason, issue.QuestionSnapshot,
             issue.AnswerSnapshot, issue.ResolutionNote, issue.CreatedAt, issue.UpdatedAt,
-            issue.ResolvedAt, false, false, issue.HandoffUnverified));
+            issue.ResolvedAt, false, false, issue.HandoffUnverified, issue.ResolutionKind, issue.LinkedCaseId));
     }
 
     private static IResult Invalid(string field, string message) =>

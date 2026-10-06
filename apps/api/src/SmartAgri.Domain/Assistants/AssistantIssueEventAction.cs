@@ -27,4 +27,10 @@ public enum AssistantIssueEventAction
     /// (<see langword="null"/> when cleared).</summary>
     [JsonStringEnumMemberName("due-date-changed")]
     DueDateChanged,
+
+    /// <summary>「另開案件」 (M7-7, issue #252): a case was opened from the issue and the issue was
+    /// resolved as <see cref="AssistantIssueResolutionKind.NotAssistantIssue"/>;
+    /// <see cref="AssistantIssueEvent.Status"/> is <see cref="AssistantIssueStatus.Resolved"/>.</summary>
+    [JsonStringEnumMemberName("case-opened")]
+    CaseOpened,
 }

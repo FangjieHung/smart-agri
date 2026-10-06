@@ -40,5 +40,24 @@ describe('assistant acceptance in mock mode', () => {
       .contains('建立處理事項').click();
     cy.location('pathname').should('eq', '/app/issues');
     cy.contains('例外情況要怎麼處理？').should('be.visible');
+
+    // 另開案件（issue #252）：預先帶入標題與問題副本，處理事項以「非助理問題」結案，兩邊互相連結。
+    cy.get('[data-issue-open-case]').scrollIntoView().click();
+    cy.get('[role="dialog"]').should('be.visible').and('contain', '非助理問題');
+    cy.get('#issue-case-title').should('have.value', '例外情況要怎麼處理？');
+    cy.get('#issue-case-description').should('have.value', '例外情況要怎麼處理？');
+    cy.get('#issue-case-type').select('設備故障報修');
+    cy.get('#issue-case-group').find('option:selected').should('have.text', '設備組');
+    cy.get('.confirm-open-case').click();
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('[data-issue-case-notice]').should('contain', '非助理問題');
+    cy.get('[data-issue-resolution-kind]').should('contain', '非助理問題');
+    cy.get('[data-issue-open-case]').should('not.exist');
+    cy.get('[data-issue-case-notice] a').click();
+    cy.location('pathname').should('eq', '/app/cases');
+    cy.contains('[data-case-detail]', '例外情況要怎麼處理？').should('be.visible');
+    cy.get('[data-case-link="issue"] a').scrollIntoView().click();
+    cy.location('pathname').should('eq', '/app/issues');
+    cy.get('[data-issue-linked-case] a').should('have.attr', 'href').and('include', '/app/cases?case=');
   });
 });

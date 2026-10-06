@@ -47,6 +47,7 @@ import {
 } from './case-settings.repository';
 import { DEMO_SEED } from './demo-seed';
 import { mockChatProposedCases } from './mock-chat-cases';
+import { mockIssueCases } from './mock-issue-cases';
 import type { PermissionDeniedRepositoryView, RepositoryView } from './demo-repository';
 import { API_DEMO_REPOSITORY_FACTORY } from './tokens';
 
@@ -157,6 +158,8 @@ interface MockCase {
     readonly state: CaseRecordLinkState;
   } | null;
   readonly previousCaseId: string | null;
+  /** 從處理事項另開時（issue #252）：來源處理事項。 */
+  readonly issueId: string | null;
   /** 交接軌跡，舊的在前；`eventCount` 就是它的長度。 */
   events: MockEvent[];
 }
@@ -215,7 +218,7 @@ function seedCase(seed: MockSeed): MockCase {
     id: seed.id, typeId: seed.typeId, groupId: seed.groupId, status: 'pending', origin: seed.origin ?? 'manual', title: seed.title,
     description: seed.description, createdBy: seed.createdBy, owner: null, dueAt: seed.dueAt, createdAt: seed.createdAt,
     updatedAt: seed.createdAt, acceptedAt: null, completedAt: null, cancelledAt: null, resolution: null, cancelReason: null,
-    thread: seed.thread, record: seed.record, previousCaseId: null, events: [],
+    thread: seed.thread, record: seed.record, previousCaseId: null, issueId: null, events: [],
   };
   item.events.push(createdEvent(item));
   if (seed.completed) {
@@ -364,7 +367,7 @@ export class CasesRepository {
         id: crypto.randomUUID(), typeId: checked.typeId, groupId: checked.groupId, status: 'pending', origin: 'manual',
         title: checked.title, description: checked.description, createdBy: context.viewer, owner: null, dueAt: checked.dueAt,
         createdAt: now, updatedAt: now, acceptedAt: null, completedAt: null, cancelledAt: null, resolution: null, cancelReason: null,
-        thread: null, record: null, previousCaseId: checked.previousCaseId, events: [],
+        thread: null, record: null, previousCaseId: checked.previousCaseId, issueId: null, events: [],
       };
       item.events.push(createdEvent(item));
       this.mockCases = [...this.mockCases, item];
@@ -374,6 +377,7 @@ export class CasesRepository {
 
   /** 範例與建立的案件，加上從對話確認建立的（issue #254，見 `mock-chat-cases.ts`）。 */
   private allMockCases(): readonly MockCase[] {
+    this.syncMockIssueCases();
     return [
       ...this.mockCases,
       ...mockChatProposedCases().map((item): MockCase => ({
@@ -385,6 +389,24 @@ export class CasesRepository {
         origin: 'chat-proposal',
       })),
     ];
+  }
+
+  /**
+   * 從處理事項另開的案件（issue #252，見 `mock-issue-cases.ts`）第一次出現時收進這次工作階段的案件，
+   * 之後跟一般案件一樣可以受理、轉組與結案。
+   */
+  private syncMockIssueCases(): void {
+    const added = mockIssueCases()
+      .filter((opened) => !this.mockCases.some((item) => item.id === opened.id))
+      .map((opened): MockCase => ({
+        ...seedCase({
+          id: opened.id, typeId: opened.typeId, groupId: opened.groupId, title: opened.title, description: opened.description,
+          createdBy: opened.createdBy, dueAt: opened.dueAt, createdAt: opened.createdAt, thread: null, record: null,
+        }),
+        origin: 'assistant-issue',
+        issueId: opened.issueId,
+      }));
+    if (added.length > 0) this.mockCases = [...this.mockCases, ...added];
   }
 
   /**
@@ -403,6 +425,7 @@ export class CasesRepository {
       );
     }
     return this.withMockContext<CaseActionResult>((context) => {
+      this.syncMockIssueCases();
       const item = this.mockCases.find((candidate) => candidate.id === caseId);
       if (!item || !this.mockVisible(item, context)) return of(CASE_DENIED);
       return of(this.mockAct(item, action, input, context));
@@ -630,7 +653,8 @@ export class CasesRepository {
           threadId: item.thread.threadId,
           canOpen: item.thread.available && item.createdBy === context.viewer,
         },
-        assistantIssue: null,
+        // 來源處理事項：mock 只讓另開的人打得開（後端依處理事項的權限判斷）。
+        assistantIssue: item.issueId ? { issueId: item.issueId, canOpen: item.createdBy === context.viewer } : null,
         previousCase: item.previousCaseId ? { caseId: item.previousCaseId, canOpen: true } : null,
       },
     };

@@ -8,6 +8,7 @@ using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Chat;
 using SmartAgri.Api.Databases;
+using SmartAgri.Api.DataProtection;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
@@ -52,6 +53,7 @@ builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<Chat
 builder.Services.AddScoped<ChatFormRequestTool>();
 builder.Services.AddPeriodicReports();
 builder.AddSmartAgriAuthentication();
+builder.AddSmartAgriDataProtection();
 builder.Services.AddInitialSetup();
 builder.Services.AddDevelopmentSeeding(builder.Environment);
 // Numbers are JSON numbers only. ASP.NET Core's web defaults also accept "12" for an int,

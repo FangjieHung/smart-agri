@@ -24,6 +24,12 @@ COPY --from=build /app/publish .
 COPY apps/api/src/SmartAgri.Api/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
+# Data Protection key ring (deploy/docker-compose.yml mounts the named volume
+# smartagri-dataprotection-keys here). Docker copies the owner of an image directory into a
+# new empty named volume, so creating it here, owned by the non-root user, is what lets the
+# api write its keys; a directory that does not exist in the image would be created root-owned.
+RUN mkdir /app/keys && chown $APP_UID:$APP_UID /app/keys
+
 USER $APP_UID
 EXPOSE 8080
 

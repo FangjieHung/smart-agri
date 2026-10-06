@@ -94,8 +94,9 @@ public sealed class OrganizationTokenUsageSourceTests : IAsyncLifetime
         var usage = await Usage(at).GetAsync(organization.Id, CancellationToken);
 
         usage.UsedTokens.ShouldBe(expected);
-        OrganizationTokenUsageRules.CountedPurposes.Count.ShouldBe(7);
+        OrganizationTokenUsageRules.CountedPurposes.Count.ShouldBe(8);
         OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.PublicAnswer, "website visitors' answers count (#196)");
+        OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.LineAnswer, "LINE users' answers count (#232)");
     }
 
     [Fact]

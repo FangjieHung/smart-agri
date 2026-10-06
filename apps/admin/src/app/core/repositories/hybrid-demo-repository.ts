@@ -41,15 +41,17 @@ import type {
   PeriodicReportAutoDisabledView,
 } from '../domain/assistant-settings.model';
 import {
-  EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE,
   PUBLISHING_CHANNEL_NAMES,
   type AssistantChannelsView,
   type AssistantPublishingView,
+  type LinePublishFailureReason,
+  type LineSettingsInput,
+  type LineSetupView,
+  type LineTestRefusalReason,
   type PlatformSharingView,
   type PublishingChannelStatus,
   type PublishingChannelType,
   type PublishingChannelView,
-  type UnavailablePublishingChannelView,
   type WebsiteEmbedSettings,
   type WebsiteEmbedView,
   type WebsitePublishFailure,
@@ -171,7 +173,10 @@ import {
   type UpdateKnowledgeChunkExclusionResult,
   type SaveAssistantDraftResult,
   type UpdateAssistantSettingsResult,
+  type PublishLineResult,
   type PublishWebsiteResult,
+  type TestLineConnectionResult,
+  type UpdateLineChannelResult,
   type UpdatePlatformSharingResult,
   type UpdateWebsiteEmbedResult,
   type UpdateKnowledgeSharingResult,
@@ -249,7 +254,10 @@ type UpdateOrganizationChatModelRequest = components['schemas']['UpdateOrganizat
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
 type ApiWebsiteChannel = components['schemas']['WebsiteChannelView'];
+type ApiLineChannel = components['schemas']['LineChannelView'];
 type UpdateWebsiteChannelRequest = components['schemas']['UpdateWebsiteChannelRequest'];
+type UpdateLineChannelRequest = components['schemas']['UpdateLineChannelRequest'];
+type SetLinePausedRequest = components['schemas']['SetLinePausedRequest'];
 type UpdatePlatformSharingRequest = components['schemas']['UpdatePlatformSharingRequest'];
 type SetPlatformPausedRequest = components['schemas']['SetPlatformPausedRequest'];
 type ApiAssistantAnalytics = components['schemas']['AssistantAnalyticsView'];
@@ -422,6 +430,10 @@ export function apiAssistantPublishingPath(assistantId: string): string {
 
 export function apiAssistantWebsitePath(assistantId: string): string {
   return `${apiAssistantPublishingPath(assistantId)}/website`;
+}
+
+export function apiAssistantLinePath(assistantId: string): string {
+  return `${apiAssistantPublishingPath(assistantId)}/line`;
 }
 
 export function apiAssistantPlatformSharingPath(assistantId: string): string {
@@ -1066,7 +1078,7 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
-  // ---------- 發布（組織內部分享與官網嵌入；LINE 在 M5b 開放） ----------
+  // ---------- 發布（組織內部分享、官網嵌入與 LINE） ----------
 
   /**
    * 發布管道總覽：後端沒有總覽端點，所以讀自己擁有的助理，再逐一讀它的發布設定。
@@ -1178,19 +1190,22 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /**
-   * 平台內管道的暫停就是暫停助理；官網管道是 `PUT …/website/paused`（還沒發布時 `422`，以 error 傳出，
-   * 畫面顯示「目前無法變更」）；LINE 尚未開放，視同沒有權限。
+   * 平台內管道的暫停就是暫停助理；官網與 LINE 管道是 `PUT …/website/paused`、`PUT …/line/paused`
+   * （還沒發布時 `422`，以 error 傳出，畫面顯示「目前無法變更」）。
    */
   override setPublishingChannelPaused(
     assistantId: string,
     channelType: PublishingChannelType,
     paused: boolean,
   ): Observable<RepositoryView<PublishingChannelView>> {
-    if (channelType === 'line') return of(permissionDenied(PUBLISHING_DENIED));
-
-    const url = channelType === 'website' ? `${apiAssistantWebsitePath(assistantId)}/paused` : apiAssistantPlatformPausedPath(assistantId);
-    const body: SetPlatformPausedRequest = { paused };
-    return this.http.put<ApiPublishingChannel | ApiWebsiteChannel>(url, body).pipe(
+    const url =
+      channelType === 'website'
+        ? `${apiAssistantWebsitePath(assistantId)}/paused`
+        : channelType === 'line'
+          ? `${apiAssistantLinePath(assistantId)}/paused`
+          : apiAssistantPlatformPausedPath(assistantId);
+    const body: SetPlatformPausedRequest | SetLinePausedRequest = { paused };
+    return this.http.put<ApiPublishingChannel | ApiWebsiteChannel | ApiLineChannel>(url, body).pipe(
       map((response): RepositoryView<PublishingChannelView> => ({
         status: 'ready',
         data: toPublishingChannel('channel' in response ? response.channel : response),
@@ -1238,6 +1253,84 @@ export class HybridDemoRepository extends MockDemoRepository {
 
   override unpublishWebsite(assistantId: string): Observable<RepositoryView<WebsiteEmbedView>> {
     return websiteView(this.http.post<ApiWebsiteChannel>(`${apiAssistantWebsitePath(assistantId)}:unpublish`, {})).pipe(
+      catchError((error: unknown) => this.publishingDeniedOrThrow(error)),
+    );
+  }
+
+  /**
+   * 整份取代連接資訊與歡迎訊息；`channelSecret`、`accessToken` 空白不送（後端把空值當「不變更」）。
+   * `409`（版本不是最新）完全沒有寫入；`422` 的 `errors` 逐欄轉成 `validation-failed`。
+   */
+  override saveLineSettings(
+    assistantId: string,
+    input: LineSettingsInput,
+    revision: number,
+  ): Observable<UpdateLineChannelResult> {
+    const body: UpdateLineChannelRequest = {
+      officialAccountId: input.officialAccountId,
+      channelId: input.channelId,
+      welcomeMessage: input.welcomeMessage,
+      revision,
+      ...(input.channelSecret ? { channelSecret: input.channelSecret } : {}),
+      ...(input.accessToken ? { accessToken: input.accessToken } : {}),
+    };
+    return lineView(this.http.put<ApiLineChannel>(apiAssistantLinePath(assistantId), body)).pipe(
+      catchError((error: unknown) => {
+        if (isHttpError(error, 409)) {
+          return of<UpdateLineChannelResult>({ status: 'conflict', message: bodyMessage(error) ?? LINE_RELOAD_MESSAGE });
+        }
+        if (isHttpError(error, 422)) {
+          return of<UpdateLineChannelResult>({
+            status: 'validation-failed',
+            errors: fieldErrorsOf(error, LINE_FIELD_NAMES, 'officialAccountId'),
+            message: bodyMessage(error) ?? '還有設定需要修正。',
+          });
+        }
+        return this.publishingDeniedOrThrow(error);
+      }),
+    );
+  }
+
+  /**
+   * 測試連線：LINE 失敗是 `200` 加上失敗的檢查結果（`ready`）。`422 line-test-refused`（還沒儲存設定、
+   * 沒有對外網址）一個 LINE 都沒呼叫；`409` 是測試期間設定被改過。
+   */
+  override testLineConnection(assistantId: string): Observable<TestLineConnectionResult> {
+    return lineView(this.http.post<ApiLineChannel>(`${apiAssistantLinePath(assistantId)}:test`, {})).pipe(
+      catchError((error: unknown) => {
+        if (isHttpError(error, 409)) {
+          return of<TestLineConnectionResult>({ status: 'conflict', message: bodyMessage(error) ?? LINE_RELOAD_MESSAGE });
+        }
+        const failures = isHttpError(error, 422) ? errorEntriesOf(error, LINE_TEST_REASONS) : [];
+        return failures.length > 0
+          ? of<TestLineConnectionResult>({
+              status: 'test-refused',
+              message: bodyMessage(error as HttpErrorResponse) ?? '目前還不能測試連線，請先處理下列項目。',
+              failures,
+            })
+          : this.publishingDeniedOrThrow(error);
+      }),
+    );
+  }
+
+  /** 啟用閘門：`422 line-publish-refused` 的 `errors` 逐項轉成 `failures`，什麼都沒有寫入。 */
+  override publishLine(assistantId: string): Observable<PublishLineResult> {
+    return lineView(this.http.post<ApiLineChannel>(`${apiAssistantLinePath(assistantId)}:publish`, {})).pipe(
+      catchError((error: unknown) => {
+        const failures = isHttpError(error, 422) ? errorEntriesOf(error, LINE_PUBLISH_REASONS) : [];
+        return failures.length > 0
+          ? of<PublishLineResult>({
+              status: 'publish-refused',
+              message: bodyMessage(error as HttpErrorResponse) ?? '無法啟用，請處理下列項目。',
+              failures,
+            })
+          : this.publishingDeniedOrThrow(error);
+      }),
+    );
+  }
+
+  override unpublishLine(assistantId: string): Observable<RepositoryView<LineSetupView>> {
+    return lineView(this.http.post<ApiLineChannel>(`${apiAssistantLinePath(assistantId)}:unpublish`, {})).pipe(
       catchError((error: unknown) => this.publishingDeniedOrThrow(error)),
     );
   }
@@ -2827,24 +2920,6 @@ function toPlatformSharing(platform: ApiPlatformSharing): PlatformSharingView {
   };
 }
 
-/** LINE 在 API 模式顯示 `not-available`：卡片顯示「尚未設定」加上說明（M5b 才開放）。 */
-function unavailableLine(platform: PublishingChannelView, message: string): UnavailablePublishingChannelView {
-  return {
-    availability: 'not-available',
-    message,
-    channel: {
-      id: `channel-line:${platform.assistantId}`,
-      assistantId: platform.assistantId,
-      ownerAccountId: platform.ownerAccountId,
-      name: PUBLISHING_CHANNEL_NAMES.line,
-      type: 'line',
-      status: 'not-configured',
-      statusDetail: message,
-      updatedAt: platform.updatedAt,
-    },
-  };
-}
-
 /**
  * 網站頻道：後端已經推導好實際服務狀態（`servingState`）與卡片狀態（`channel.status`），這裡原樣帶過來。
  * 後端用 `JsonIgnore(WhenWritingNull)` 的欄位可能整個省略，所以可為 null 的欄位同時處理 `undefined`。
@@ -2861,6 +2936,64 @@ function toWebsiteEmbed(website: ApiWebsiteChannel): WebsiteEmbedView {
 
 function websiteView(request: Observable<ApiWebsiteChannel>): Observable<RepositoryView<WebsiteEmbedView>> {
   return request.pipe(map((response): RepositoryView<WebsiteEmbedView> => ({ status: 'ready', data: toWebsiteEmbed(response) })));
+}
+
+const LINE_RELOAD_MESSAGE = 'LINE 頻道的設定已被更新，請重新載入。';
+
+/**
+ * LINE 頻道：後端已經推導好實際服務狀態與卡片狀態，原樣帶過來。Secret 與 Token 只有 `configured`／末四碼
+ * （後端從來不回原文）；用 `JsonIgnore(WhenWritingNull)` 的欄位可能整個省略，所以可為 null 的欄位同時處理 `undefined`。
+ */
+function toLineSetup(line: ApiLineChannel): LineSetupView {
+  const secretStatus = (secret: ApiLineChannel['channelSecret']) => ({
+    configured: secret.configured,
+    lastFour: secret.lastFour ?? null,
+    updatedAt: secret.updatedAt ?? null,
+  });
+  return {
+    channel: toPublishingChannel(line.channel),
+    officialAccountId: line.officialAccountId,
+    channelId: line.channelId,
+    welcomeMessage: line.welcomeMessage,
+    channelSecret: secretStatus(line.channelSecret),
+    accessToken: secretStatus(line.accessToken),
+    webhookUrl: line.webhookUrl ?? null,
+    checks: line.checks.map(({ check, label, state, message }) => ({ check, label, state, message })),
+    connectionCheckedAt: line.connectionCheckedAt ?? null,
+    state: line.state,
+    servingState: line.servingState,
+    acceptanceStatus: line.acceptanceStatus,
+    nonOwnedKnowledgeBases: line.nonOwnedKnowledgeBases.map(({ id, name }) => ({ id, name })),
+    publishedAt: line.publishedAt ?? null,
+    pushFallbackCount: line.pushFallbackCount,
+    revision: line.revision,
+  };
+}
+
+function lineView(request: Observable<ApiLineChannel>): Observable<RepositoryView<LineSetupView>> {
+  return request.pipe(map((response): RepositoryView<LineSetupView> => ({ status: 'ready', data: toLineSetup(response) })));
+}
+
+const LINE_FIELD_NAMES = ['officialAccountId', 'channelId', 'channelSecret', 'accessToken', 'welcomeMessage'] as const;
+
+const LINE_PUBLISH_REASONS: readonly LinePublishFailureReason[] = [
+  'connection',
+  'acceptance',
+  'assistant-paused',
+  'knowledge-ownership',
+  'public-base-url',
+];
+
+const LINE_TEST_REASONS: readonly LineTestRefusalReason[] = ['settings', 'public-base-url'];
+
+/** `422` 的 `errors` 是「原因 → 訊息陣列」；每則訊息各成一項，認不得的原因記成 `other`，一則都不丟。 */
+function errorEntriesOf<R extends string>(error: HttpErrorResponse, known: readonly R[]): { reason: R | 'other'; message: string }[] {
+  const body = (error.error ?? {}) as ValidationFailedBody;
+  return Object.entries(body.errors ?? {}).flatMap(([key, messages]) =>
+    (Array.isArray(messages) ? messages : [messages])
+      .filter((message): message is string => typeof message === 'string')
+      .map((message) => ({ reason: known.find((reason) => reason === key) ?? 'other', message })),
+  );
 }
 
 const WEBSITE_FIELDS = ['displayName', 'welcomeMessage', 'brandColor', 'position', 'allowedDomains'] as const;
@@ -2894,8 +3027,7 @@ function toAssistantPublishing(response: ApiAssistantPublishing): AssistantPubli
     assistantName: response.assistantName,
     platform,
     website: toWebsiteEmbed(response.website),
-    // 後端 #229 起 `line` 是真實的 LINE 頻道，但 LINE 設定頁在 #233 才改用 API；在那之前一律顯示「將於後續版本開放」。
-    line: unavailableLine(platform.channel, EXTERNAL_PUBLISHING_NOT_AVAILABLE_MESSAGE),
+    line: toLineSetup(response.line),
   };
 }
 

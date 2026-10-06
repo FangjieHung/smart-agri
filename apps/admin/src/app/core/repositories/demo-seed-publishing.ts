@@ -1,8 +1,9 @@
 import type { AccountId } from '../domain/account.model';
 import type { SeededAssistantId } from '../domain/assistant.model';
 import type {
-  LineSettingsInput,
-  LineTestResultView,
+  LineChannelState,
+  LineConnectionCheckView,
+  SecretStatusView,
   WebsiteChannelState,
   WebsiteEmbedSettings,
 } from '../domain/publishing.model';
@@ -27,12 +28,24 @@ export interface PublishingRecord {
     readonly lastSeenAt: Readonly<Record<string, string>>;
     readonly updatedAt: string;
   };
-  readonly line: LineSettingsInput & {
-    /** 是否已執行過逐欄檢查；未檢查時清單顯示「尚未檢查」。 */
-    readonly checked: boolean;
-    readonly enabled: boolean;
-    readonly lastTest: LineTestResultView | null;
-    readonly paused: boolean;
+  readonly line: {
+    readonly officialAccountId: string;
+    readonly channelId: string;
+    readonly welcomeMessage: string;
+    /** 與 API 相同：憑證只保存「已設定」與末四碼，mock 也從不保存、回傳原文。 */
+    readonly channelSecret: SecretStatusView;
+    readonly accessToken: SecretStatusView;
+    /** 模擬：存進去的是「已失效」的示範權杖（儲存時判斷），測試連線的第一項會未通過。 */
+    readonly tokenExpired: boolean;
+    /** 最近一次測試連線的三項結果；還沒測試（或設定改了）是空陣列，畫面顯示 `pending`。 */
+    readonly checks: readonly LineConnectionCheckView[];
+    readonly checkedAt: string | null;
+    readonly state: LineChannelState;
+    readonly publishedAt: string | null;
+    /** 本月以 push 補送的回答數（mock 只有示範數字）。 */
+    readonly pushFallbackCount: number;
+    /** 儲存設定時遞增（樂觀鎖）；還沒存過是 0。 */
+    readonly revision: number;
     readonly updatedAt: string;
   };
 }
@@ -47,12 +60,41 @@ export const DEMO_LINE_CHANNEL_ID = '1650'.padEnd(10, '0');
 /** 假 LINE channel secret，符合 32 位英數字格式，僅供示範資料使用。 */
 export const DEMO_LINE_CHANNEL_SECRET = '0123456789abcdef'.repeat(2);
 
-export const EMPTY_LINE_SETTINGS: LineSettingsInput = {
-  officialAccountId: '',
-  channelId: '',
-  channelSecret: '',
-  accessToken: '',
-};
+export const DEFAULT_LINE_WELCOME_MESSAGE = '您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。';
+
+export const LINE_CHECK_LABELS = {
+  'access-token': 'Channel access token 與官方帳號',
+  'webhook-endpoint': '設定 Webhook 網址',
+  'webhook-test': 'Webhook 連線測試',
+} as const;
+
+export const LINE_CHECK_SKIPPED_MESSAGE = '前一項檢查未通過，這一項沒有執行。';
+
+/** 憑證原文 → 狀態（只留末四碼）；原文在這裡之後就丟掉。 */
+export function secretStatusOf(value: string, updatedAt: string): SecretStatusView {
+  return { configured: true, lastFour: value.slice(-4), updatedAt };
+}
+
+export const NO_SECRET: SecretStatusView = { configured: false, lastFour: null, updatedAt: null };
+
+/** 還沒設定過的 LINE 頻道（草稿、revision 0）。 */
+export function emptyLineRecord(updatedAt: string): PublishingRecord['line'] {
+  return {
+    officialAccountId: '',
+    channelId: '',
+    welcomeMessage: DEFAULT_LINE_WELCOME_MESSAGE,
+    channelSecret: NO_SECRET,
+    accessToken: NO_SECRET,
+    tokenExpired: false,
+    checks: [],
+    checkedAt: null,
+    state: 'draft',
+    publishedAt: null,
+    pushFallbackCount: 0,
+    revision: 0,
+    updatedAt,
+  };
+}
 
 export const PUBLISHING_RECORDS: Readonly<Partial<Record<SeededAssistantId, PublishingRecord>>> = {
   'assistant-customer-service': {
@@ -74,16 +116,29 @@ export const PUBLISHING_RECORDS: Readonly<Partial<Record<SeededAssistantId, Publ
       lastSeenAt: { 'shop.anxin-demo.example': '2026-10-05T06:03:00.000Z' },
       updatedAt: '2026-09-20T03:00:00.000Z',
     },
+    // 示範資料：已啟用，但 Token 已失效，最近一次測試連線未通過（對應「需要處理」）。
     line: {
+      ...emptyLineRecord('2026-09-21T06:30:00.000Z'),
       officialAccountId: '@anxin-demo',
       channelId: DEMO_LINE_CHANNEL_ID,
-      channelSecret: DEMO_LINE_CHANNEL_SECRET,
-      accessToken: EXPIRED_DEMO_LINE_TOKEN,
-      checked: true,
-      enabled: true,
-      lastTest: null,
-      paused: false,
-      updatedAt: '2026-09-21T06:30:00.000Z',
+      channelSecret: secretStatusOf(DEMO_LINE_CHANNEL_SECRET, '2026-09-21T06:30:00.000Z'),
+      accessToken: secretStatusOf(EXPIRED_DEMO_LINE_TOKEN, '2026-09-21T06:30:00.000Z'),
+      tokenExpired: true,
+      checks: [
+        {
+          check: 'access-token',
+          label: LINE_CHECK_LABELS['access-token'],
+          state: 'failed',
+          message: 'LINE 不接受這個 Channel access token（此權杖已失效，模擬結果）；請重新發行長效型 Token，重新填寫後儲存。',
+        },
+        { check: 'webhook-endpoint', label: LINE_CHECK_LABELS['webhook-endpoint'], state: 'skipped', message: LINE_CHECK_SKIPPED_MESSAGE },
+        { check: 'webhook-test', label: LINE_CHECK_LABELS['webhook-test'], state: 'skipped', message: LINE_CHECK_SKIPPED_MESSAGE },
+      ],
+      checkedAt: '2026-10-05T01:00:00.000Z',
+      state: 'published',
+      publishedAt: '2026-09-21T06:30:00.000Z',
+      pushFallbackCount: 3,
+      revision: 1,
     },
   },
   'assistant-internal-onboarding': {
@@ -105,13 +160,6 @@ export const PUBLISHING_RECORDS: Readonly<Partial<Record<SeededAssistantId, Publ
       lastSeenAt: {},
       updatedAt: '2026-09-21T02:00:00.000Z',
     },
-    line: {
-      ...EMPTY_LINE_SETTINGS,
-      checked: false,
-      enabled: false,
-      lastTest: null,
-      paused: false,
-      updatedAt: '2026-09-18T08:00:00.000Z',
-    },
+    line: emptyLineRecord('2026-09-18T08:00:00.000Z'),
   },
 };

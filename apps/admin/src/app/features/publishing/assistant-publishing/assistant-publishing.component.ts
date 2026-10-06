@@ -2,13 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { SettingRowComponent } from '@smart-agri/ui';
-import {
-  isUnavailableChannel,
-  PUBLISHING_CHANNEL_TYPES,
-  type LineSetupView,
-  type PublishingChannelType,
-  type UnavailablePublishingChannelView,
-} from '../../../core/domain/publishing.model';
+import { PUBLISHING_CHANNEL_TYPES, type PublishingChannelType } from '../../../core/domain/publishing.model';
 import { repositoryResource } from '../../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../core/session/demo-session.service';
@@ -75,15 +69,6 @@ export class AssistantPublishingComponent {
     return result.status === 'permission-denied' ? result.message : '';
   });
   protected readonly selectedChannel = computed(() => this.view()?.[this.selectedType()].channel ?? null);
-
-  /** LINE 在 API 模式尚未開放時是 null，畫面改顯示說明。 */
-  protected configurableLine(view: LineSetupView | UnavailablePublishingChannelView): LineSetupView | null {
-    return isUnavailableChannel(view) ? null : view;
-  }
-
-  protected unavailableMessage(view: LineSetupView | UnavailablePublishingChannelView): string {
-    return isUnavailableChannel(view) ? view.message : '';
-  }
 
   protected refresh(): void {
     this.publishing.reload();

@@ -1,7 +1,7 @@
 # 後端 Milestone 5b｜LINE：實作計畫
 
 **日期：** 2026-10-06
-**狀態：** 草案。第 7 節開場的四項已由負責人決定（2026-10-06）；「待確認」A–F 附有建議，確認後才拆票。issue 標題前綴用「M5b｜」。
+**狀態：** 已確認（2026-10-06）。第 7 節開場的四項由負責人決定，A–F 由負責人回覆「照建議」定案，可以拆票。issue 標題前綴用「M5b｜」。
 **依據：** [M5a 結案與 M5b 交接](2026-10-06-m5a-closeout-m5b-handoff.md) §4、[M5a 計畫](2026-10-06-backend-milestone-5a-website-embed.md)（發布閘門、防濫用、只寫欄位的設計）、`docs/adr/`（public-channel-protection、secrets-storage、authentication、withdrawal-and-retention、testing-and-banned-dependencies）、`docs/handoff/ai-assistant-backend-integration-handoff.md` §3.1、`docs/handoff/tasks-6-10-backend-handoff.md` §6、`docs/handoff/mock-to-api-mapping.md` §2.5／§3.4／§4.2；LINE 官方文件（2026-10-06 查證，見第 2.1 節）。
 **拆票方式：** 與 M5a 相同。每個 Slice 都是可單獨合併的垂直切片，各自附測試與驗收條件；「依賴」只列硬依賴；會改 migration 或 `openapi/v1.json` 的 Slice 用接續分支依序做。
 
@@ -19,8 +19,8 @@
 2. **Webhook**：`POST` 端點以 Channel Secret 對**原始 request body** 驗證 `x-line-signature`（HMAC-SHA256、base64），失敗直接拒絕（對外管道 ADR）。驗證通過後 2 秒內回 `200`，問答在背景處理；以 `webhookEventId` 去重。
 3. **同一套把關**：沿用 M5a 的發布閘門（啟用時驗收必須「通過」）與實際服務狀態（過期照常服務、未通過、別人的知識庫、超過用量時自動暫停）、頻率限制與每月 token 上限。
 4. **對話**：一對一聊天與群組裡被 @ 時回答（2026-10-06 決定）。前文只暫存在記憶體（每段對話最近 20 則、閒置 30 分鐘清除），資料庫不寫任何對話內容（2026-10-06 決定）。
-5. **回覆**：先送 LINE 的「輸入中」動畫（只支援一對一），答案以 reply 送出；超過時限才改用 push 補送（2026-10-06 決定；群組見待確認 A）。引用以 Flex 卡片呈現（2026-10-06 決定），依助理的「顯示引用」設定。
-6. **admin**：LINE 設定頁改用 API；不再顯示憑證原文；「傳送測試訊息」改成「測試連線」（待確認 B）。
+5. **回覆**：先送 LINE 的「輸入中」動畫（只支援一對一），答案以 reply 送出；超過時限才改用 push 補送（2026-10-06 決定；群組見決定 A）。引用以 Flex 卡片呈現（2026-10-06 決定），依助理的「顯示引用」設定。
+6. **admin**：LINE 設定頁改用 API；不再顯示憑證原文；「傳送測試訊息」改成「測試連線」（決定 B）。
 
 **非目標：** 見第 8 節。
 
@@ -52,7 +52,7 @@
 | 簽章：`x-line-signature` = base64(HMAC-SHA256(Channel Secret, **原始 body**))；不公布來源 IP | 讀原始 bytes 後才驗證，不能先反序列化；不能用 IP 白名單 |
 | Webhook 要在約 2 秒內回 `200`；重送預設關閉，重送時 `webhookEventId` 與 reply token 不變（`deliveryContext.isRedelivery`） | 問答改背景處理；以 `webhookEventId` 去重 |
 | reply token 只能用一次、約 1 分鐘內有效；reply **免費**，一次最多 5 個訊息物件 | 先 reply；逾時才 push |
-| push 依「收到的人數」計算額度：一對一 1 則，群組＝成員數；台灣輕用量方案每月 200 則免費，2026-11-01 起中用量方案不可超量，超過額度時回 `429` 且不送出 | 群組補送很貴（待確認 A）；admin 要看得到補送次數 |
+| push 依「收到的人數」計算額度：一對一 1 則，群組＝成員數；台灣輕用量方案每月 200 則免費，2026-11-01 起中用量方案不可超量，超過額度時回 `429` 且不送出 | 群組補送很貴（決定 A）；admin 要看得到補送次數 |
 | 「輸入中」動畫 `POST /v2/bot/chat/loading/start`（5–60 秒），只支援一對一，群組回 `400` | 群組不送動畫 |
 | 被 @ 時 `message.mention.mentionees[]` 有一筆 `isSelf: true` | 群組只在這時回答 |
 | userId 以 provider 為範圍（`U` + 32 位十六進位）；群組裡只有 iOS／Android 使用者帶 userId | 以「助理＋聊天對象 id（userId／groupId／roomId）」區分對話 |
@@ -73,12 +73,12 @@
 - **只寫的操作方式**：`PUT …/publishing/line` 的 `channelSecret`、`accessToken` 是選填；空值表示「不變更」，有值才取代。任何憑證變更都會清除連線測試結果，並把已啟用的頻道退回需要重新測試（沿用 mock「儲存會重設測試」的規則）。
 - Token 用 LINE 的長效型 Channel Access Token（與 mock 一致，客戶最容易取得）；不採用「以 Secret 換短效 token」，以免每個請求多一次 OAuth 呼叫。
 
-### B. 測試連線與啟用（待確認 B、C）
+### B. 測試連線與啟用（決定 B、C）
 
 「儲存並檢查」之後，「測試連線」依序執行，結果逐項回傳（外部服務失敗是 `200`＋失敗項目，§3.4 慣例）：
 
 1. `GET /v2/bot/info` 驗證 Token；回傳的 basicId 必須等於使用者填的官方帳號 ID，記下 bot 的 userId（Webhook 的 `destination` 必須等於它）。
-2. `PUT /v2/bot/channel/webhook/endpoint` 把 Webhook 網址設成 `{PublicBaseUrl}/api/v1/line/webhook/{assistantId}`（待確認 C）。
+2. `PUT /v2/bot/channel/webhook/endpoint` 把 Webhook 網址設成 `{PublicBaseUrl}/api/v1/line/webhook/{assistantId}`（決定 C）。
 3. `POST /v2/bot/channel/webhook/test`：LINE 送一個有簽章的測試事件到我們的端點；端點以保存的 Secret 驗證通過，LINE 才回報成功——一次同時確認 Secret 正確、網址可達、憑證有效。
 
 **啟用**（`POST …/publishing/line:publish`）的條件 = 三項測試都通過＋M5a 的發布閘門（驗收 `passed`、助理未暫停、知識庫都是擁有者的、`PublicBaseUrl` 已設定）。失敗回 `422`，逐項列出原因。
@@ -104,7 +104,7 @@
 - **每個事件**：
   - `message`（文字）：一對一直接處理；群組／聊天室只在 `mentionees` 有 `isSelf: true` 時處理，並把 @ 的文字從問題中移除。
   - `message`（非文字）：一對一回固定訊息「目前只能回答文字問題。」；群組不回應。
-  - `follow`、`join`：回歡迎訊息（待確認 D）。
+  - `follow`、`join`：回歡迎訊息（決定 D）。
   - `unfollow`、`leave`：清除該對象的記憶體前文。
   - `unsend`：從記憶體前文移除那一則。
   - 其他事件（含 `postback`、`memberJoined`、`messageEdited`）：忽略。未知事件不報錯。
@@ -114,7 +114,7 @@
   3. 一對一送「輸入中」動畫；
   4. `GroundedAnswerService.AnswerAsync`，前文取自記憶體（第 3 節 E），用途 `line-answer`、回覆統計 `line`，`AccountId = null`；
   5. 組訊息（第 3 節 G）；
-  6. 從收到事件起算，在期限內（預設 50 秒）用 reply 送出；超過或 reply 失敗時，一對一改用 push 補送（待確認 A：群組不補送）。
+  6. 從收到事件起算，在期限內（預設 50 秒）用 reply 送出；超過或 reply 失敗時，一對一改用 push 補送（決定 A：群組不補送）。
 - **補送次數**：每次 push 記一筆不含內容的 OpenTelemetry 指標，並累計在頻道上「本月補送次數」，顯示在 admin。
 - LINE 回 `429`（額度用完或頻率）時，記錄並放棄這一則，不重試。
 
@@ -127,7 +127,7 @@
 
 ### F. 頻率限制
 
-LINE 的請求都來自 LINE 的伺服器，不能用 IP 分區；改在背景處理器裡用程式化的 `PartitionedRateLimiter`，數值放在 `PublicChannels:RateLimits:Line*`（預設值見待確認 E）：
+LINE 的請求都來自 LINE 的伺服器，不能用 IP 分區；改在背景處理器裡用程式化的 `PartitionedRateLimiter`，數值放在 `PublicChannels:RateLimits:Line*`（預設值見決定 E）：
 
 | 分區 | 對象 |
 | --- | --- |
@@ -154,7 +154,7 @@ LINE 的請求都來自 LINE 的伺服器，不能用 IP 分區；改在背景�
 
 - `line-setup` 改用 API：Hybrid 覆寫讀取、儲存、測試連線、啟用、暫停、取消啟用；mock 改成同一個契約。
 - Secret／Token 欄位：已設定時顯示「已設定・末四碼 1234」與「更換」；不再有「顯示」切換（前端拿不到原文）。
-- 「傳送測試訊息」改為「測試連線」，逐項顯示三個檢查與失敗原因（待確認 B）；顯示實際的 Webhook 網址（唯讀，附複製）；實際服務狀態與原因對應比照網站頻道；顯示本月補送次數與群組設定提醒。
+- 「傳送測試訊息」改為「測試連線」，逐項顯示三個檢查與失敗原因（決定 B）；顯示實際的 Webhook 網址（唯讀，附複製）；實際服務狀態與原因對應比照網站頻道；顯示本月補送次數與群組設定提醒。
 - mock 的 `publishing.cy.ts`、`accessibility.cy.ts` 依新流程更新。
 
 ---
@@ -221,7 +221,7 @@ LINE 的請求都來自 LINE 的伺服器，不能用 IP 分區；改在背景�
   - 追問時，模型收到前一輪的前文；閒置 30 分鐘後前文清除（以可注入的時鐘測試）；`unsend` 從前文移除。
   - 暫停、驗收未通過、超過用量時回「目前暫停服務」，不呼叫模型。
   - 頻率限制：各分區超過時回一次提示，之後同一時間窗不再回覆，也不呼叫模型。
-  - 回答超過期限時，一對一改用 push，補送次數＋1；群組依待確認 A 處理。
+  - 回答超過期限時，一對一改用 push，補送次數＋1；群組依決定 A 處理。
   - 資料庫的對話串、訊息筆數不變；`ModelInvocations` 多一筆 `line-answer`、`AccountId` 為 null；`AnswerOutcomes` 多一筆 `line`。
   - 5,000 字截斷與 Flex 大小限制的邊界測試。
 - **依賴：** Slice 3。
@@ -269,14 +269,14 @@ LINE 的請求都來自 LINE 的伺服器，不能用 IP 分區；改在背景�
 3. **也支援群組**：只在被 @ 時回答。
 4. **引用用 Flex 卡片**。
 
-**待確認（附建議）：**
+**已決定（2026-10-06，負責人對待確認項回覆「照建議」）：**
 
-- **A. 群組裡逾時不補送 push。** push 依收到的人數計算額度，在 30 人的群組補送一次就是 30 則；一對一照決定 2 補送。替代方案：群組也補送（每次消耗群組人數的額度），或由擁有者在設定頁選擇。
+- **A. 群組裡逾時不補送 push**：push 依收到的人數計算額度，在 30 人的群組補送一次就是 30 則；一對一照決定 2 補送。替代方案：群組也補送（每次消耗群組人數的額度），或由擁有者在設定頁選擇。
 - **B. 「傳送測試訊息」改為「測試連線」。** 用 LINE 的 webhook test API，同時驗證 Token、Secret 與網址可達，不消耗訊息額度，也不需要先知道擁有者的 LINE userId。替代方案是保留「傳送測試訊息」：需要擁有者先加官方帳號好友並傳一則訊息讓系統記下 userId，而且 push 會消耗額度。
 - **C. 由系統自動設定 Webhook 網址**（`PUT /v2/bot/channel/webhook/endpoint`），設定頁仍顯示網址。替代方案：只顯示網址，由擁有者自己貼到 LINE Developers Console（多一個容易出錯的步驟）。
 - **D. LINE 頻道有自己的歡迎訊息欄位**（加好友、被邀進群組時送出，≤ 120 字，預設「您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。」）。替代方案：沿用網站頻道的歡迎訊息（網站頻道可能沒有設定，而且群組需要提醒要 @）。
 - **E. 預設數值**（全部可由部署設定覆寫）：每個 LINE 使用者每分鐘 6 題、每小時 60 題（同網站訪客）；每個群組每分鐘 10 題；每個助理每分鐘 120 題、同時處理 10 題；reply 期限 50 秒；記憶體前文 20 則、閒置 30 分鐘、最多 10,000 段對話。
-- **F. ADR 與用語隨本計畫更新**：對外管道 ADR 補充 LINE 的簽章、去重、頻率限制分區與「群組只在被提及時回答」；機敏設定 ADR 補上第一個使用者；authentication ADR 註明 LINE 使用者不建立帳號；`docs/glossary.md` 新增「LINE 頻道」「測試連線」「補送」。
+- **F. ADR 與用語隨本計畫更新**，已在本計畫的 PR 中完成：對外管道 ADR 補充 LINE 的簽章、去重、頻率限制分區與「群組只在被提及時回答」；機敏設定 ADR 補上第一個使用者；authentication ADR 註明 LINE 使用者不建立帳號；`docs/glossary.md` 新增「LINE 頻道」「測試連線」「補送」。
 
 **待負責人提供：**
 

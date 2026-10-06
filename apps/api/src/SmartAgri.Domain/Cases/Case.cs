@@ -343,6 +343,22 @@ public sealed class Case : IOrganizationScoped
         return changed;
     }
 
+    /// <summary>
+    /// The <c>case-set-due</c> operations command (M7 plan §3 E, decision H; issue #256): moves the due
+    /// time of an open case to any moment, <b>including the past</b>, and records it as a
+    /// <see cref="CaseEventAction.DueChanged"/> event with no actor. Only the Development/Testing command
+    /// calls it, so the API-mode E2E can make a case overdue; every person's 調整時限 goes through
+    /// <see cref="SetDue"/>, which refuses the past.
+    /// </summary>
+    public CaseEvent SetDueByOperations(DateTimeOffset dueAt, DateTimeOffset now)
+    {
+        RequireOpen();
+        var changed = Record(CaseEventAction.DueChanged, actorAccountId: null, now, note: null);
+        DueAt = dueAt;
+        changed.DueAt = dueAt;
+        return changed;
+    }
+
     private void RequireOpen()
     {
         if (!Status.IsOpen())

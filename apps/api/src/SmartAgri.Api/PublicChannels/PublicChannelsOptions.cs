@@ -103,6 +103,12 @@ public sealed class PublicChannelsOptions
             ? $"<script src=\"{baseUrl}/embed.js\" data-assistant=\"{assistantId}\"{(position == WebsiteLauncherPosition.BottomLeft ? " data-position=\"left\"" : "")} async></script>"
             : null;
 
+    /// <summary>The address LINE delivers an assistant's webhook events to (M5b plan §3 B, decision C:
+    /// the connection test sets it on the LINE channel), or <see langword="null"/> without
+    /// <see cref="PublicBaseUrl"/>.</summary>
+    public string? LineWebhookUrl(Guid assistantId) =>
+        ResolvedPublicBaseUrl is { } baseUrl ? $"{baseUrl}/api/v1/line/webhook/{assistantId}" : null;
+
     private static bool TryResolve(string? raw, out string? resolved)
     {
         resolved = null;

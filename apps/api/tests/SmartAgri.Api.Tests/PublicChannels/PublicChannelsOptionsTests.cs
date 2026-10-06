@@ -50,6 +50,14 @@ public class PublicChannelsOptionsTests
             "<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" async></script>");
     }
 
+    [Fact]
+    public void The_line_webhook_url_is_under_the_public_base_url_and_null_without_it()
+    {
+        new PublicChannelsOptions { PublicBaseUrl = "https://assistant.example.org/" }.LineWebhookUrl(AssistantId)
+            .ShouldBe("https://assistant.example.org/api/v1/line/webhook/01a10194-0000-7000-8000-000000000001");
+        new PublicChannelsOptions().LineWebhookUrl(AssistantId).ShouldBeNull();
+    }
+
     [Theory]
     [InlineData("assistant.example.org")]
     [InlineData("ftp://assistant.example.org")]

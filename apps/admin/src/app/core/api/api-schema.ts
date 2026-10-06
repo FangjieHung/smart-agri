@@ -4231,6 +4231,223 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/publishing/line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LineChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateLineChannelRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LineChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/publishing/line/paused": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetLinePausedRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LineChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/publishing/line:unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LineChannelView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistant-drafts": {
         parameters: {
             query?: never;
@@ -6024,7 +6241,7 @@ export interface components {
             assistantName: string;
             platform: components["schemas"]["PlatformSharingView"];
             website: components["schemas"]["WebsiteChannelView"];
-            line: components["schemas"]["NotAvailablePublishingChannelView"];
+            line: components["schemas"]["LineChannelView"];
         };
         AssistantSettingsView: {
             configuration: components["schemas"]["AssistantConfigurationView"];
@@ -6141,6 +6358,8 @@ export interface components {
             currentPassword: null | string;
             newPassword: null | string;
         };
+        /** @enum {unknown} */
+        ChannelServingState: "not-published" | "paused" | "suspended-acceptance" | "suspended-knowledge" | "suspended-quota" | "serving";
         ChatCitationDetailView: {
             id: string;
             knowledgeBaseName: string;
@@ -6959,6 +7178,41 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @enum {unknown} */
+        LineChannelState: "draft" | "published" | "paused";
+        LineChannelView: {
+            channel: components["schemas"]["PublishingChannelView"];
+            officialAccountId: string;
+            channelId: string;
+            welcomeMessage: string;
+            channelSecret: components["schemas"]["SecretStatusView"];
+            accessToken: components["schemas"]["SecretStatusView"];
+            webhookUrl: null | string;
+            checks: components["schemas"]["LineConnectionCheckView"][];
+            /** Format: date-time */
+            connectionCheckedAt: null | string;
+            state: components["schemas"]["LineChannelState"];
+            servingState: components["schemas"]["ChannelServingState"];
+            servingMessage: string;
+            acceptanceStatus: components["schemas"]["AssistantAcceptanceStatus"];
+            nonOwnedKnowledgeBases: components["schemas"]["WebsiteKnowledgeBaseView"][];
+            /** Format: date-time */
+            publishedAt: null | string;
+            /** Format: int32 */
+            pushFallbackCount: number;
+            /** Format: int32 */
+            revision: number;
+        };
+        /** @enum {unknown} */
+        LineConnectionCheckKind: "access-token" | "webhook-endpoint" | "webhook-test";
+        /** @enum {unknown} */
+        LineConnectionCheckState: "pending" | "passed" | "failed" | "skipped";
+        LineConnectionCheckView: {
+            check: components["schemas"]["LineConnectionCheckKind"];
+            label: string;
+            state: components["schemas"]["LineConnectionCheckState"];
+            message: string;
+        };
         LoginOptionsResponse: {
             organizationCodeRequired: boolean;
         };
@@ -6981,10 +7235,6 @@ export interface components {
             organization: components["schemas"]["MeOrganization"];
             passwordChangeRequired: boolean;
             statisticsTimeZone: string;
-        };
-        NotAvailablePublishingChannelView: {
-            status: string;
-            message: string;
         };
         OperationsSummaryView: {
             /** Format: date */
@@ -7118,6 +7368,15 @@ export interface components {
             baseVersionNumber: null | number;
             fields: null | components["schemas"]["DatabaseFieldDraft"][];
         };
+        SecretStatusView: {
+            configured: boolean;
+            lastFour: null | string;
+            /** Format: date-time */
+            updatedAt: null | string;
+        };
+        SetLinePausedRequest: {
+            paused: boolean;
+        };
         SetPlatformPausedRequest: {
             paused: boolean;
         };
@@ -7241,6 +7500,15 @@ export interface components {
             sharedWithAccountIds: null | string[];
             allowOriginalDownload: null | boolean;
         };
+        UpdateLineChannelRequest: {
+            officialAccountId: null | string;
+            channelId: null | string;
+            welcomeMessage: null | string;
+            /** Format: int32 */
+            revision: number;
+            channelSecret?: null | string;
+            accessToken?: null | string;
+        };
         UpdateMemberPermissionsRequest: {
             permissions: null | string[];
         };
@@ -7281,7 +7549,7 @@ export interface components {
             allowedDomains: string[];
             domains: components["schemas"]["WebsiteDomainView"][];
             state: components["schemas"]["WebsiteChannelState"];
-            servingState: components["schemas"]["WebsiteServingState"];
+            servingState: components["schemas"]["ChannelServingState"];
             servingMessage: string;
             acceptanceStatus: components["schemas"]["AssistantAcceptanceStatus"];
             nonOwnedKnowledgeBases: components["schemas"]["WebsiteKnowledgeBaseView"][];
@@ -7305,8 +7573,6 @@ export interface components {
         };
         /** @enum {unknown} */
         WebsiteLauncherPosition: "bottom-right" | "bottom-left";
-        /** @enum {unknown} */
-        WebsiteServingState: "not-published" | "paused" | "suspended-acceptance" | "suspended-knowledge" | "suspended-quota" | "serving";
     };
     responses: never;
     parameters: never;

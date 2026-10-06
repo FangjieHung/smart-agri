@@ -914,6 +914,36 @@ Cache-Control: no-store
 - The CSP deliberately allows no `unsafe-inline`: the page has no inline script or handler (the widget is
   built with `inlineCritical: false`), and brand colours are set through the CSSOM.
 
+## LINE channel: settings API (M5b)
+
+An assistant's LINE channel (M5b, `SmartAgri.Api.Assistants.AssistantLineChannelEndpoints`, issue
+#229) is set up under `/api/v1/assistants/{id}/publishing/line`, with the same access rule as the
+website channel (owner + `manage-publishing`; a missing id, another organization's or someone else's
+assistant all get the same `403 publishing`): `GET`, `PUT` (settings; `revision` conflict `409`,
+per-field `422`), `PUT …/line/paused` and `POST …/line:unpublish`. Testing the connection and
+enabling (`:test`, `:publish`) come with #230. `GET …/publishing`'s `line` is the same view.
+
+- **Fields.** The official account id (`@` and 3–20 letters, digits, `.`, `_`, `-`), the channel id
+  (10 digits), the channel secret (32 hexadecimal digits), the channel access token (at least 40
+  characters, no white space) and the welcome message sent on follow/join (at most 120 characters;
+  default 「您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。」). The format rules and messages
+  are the admin mock's: `apps/admin/src/app/core/domain/line-field-cases.json` is run by both
+  `LineChannelRulesTests` and the frontend spec next to `publishing-channels.ts`.
+- **Write-only credentials.** `channelSecret` and `accessToken` are stored as `ProtectedSecret`s
+  (Data Protection purposes `line.channel-secret` and `line.access-token`; the key ring section above
+  applies — losing it means re-entering both). In a `PUT` they are optional: `null` or empty keeps
+  the stored value (both are required on the first save), a value replaces it. No response ever
+  contains the plaintext or the ciphertext: only `channelSecret`/`accessToken` as
+  `{ configured, lastFour, updatedAt }`.
+- **A connection change needs a new test.** Changing the official account id, the channel id or
+  either credential clears the connection-check results and the bot user id, and an enabled or
+  paused channel goes back to `draft` (`AssistantLineChannel.TryApplySettings`); changing only the
+  welcome message keeps everything.
+- **Serving state.** `servingState` is derived like the website channel's (`ChannelServing`, shared
+  by both channels), with "every connection check passed" in place of "has an allowed domain".
+- **Webhook URL.** `webhookUrl` is `{PublicChannels:PublicBaseUrl}/api/v1/line/webhook/{assistantId}`,
+  or `null` without a public base URL.
+
 ## Monthly token limit: `set-token-limit`
 
 Every organization has a monthly budget of chat-model tokens (M5a #195;

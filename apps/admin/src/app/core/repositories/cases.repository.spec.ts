@@ -46,19 +46,23 @@ describe('CasesRepository (mock)', () => {
     const { repository, activeAccountId } = mockRepository();
 
     // 客服同仁：設備組成員，也是兩件設備組案件的建立者；看不到管理者在採購組建立的案件。
-    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id)).toEqual(['case-cold-room']);
+    // 數據庫送出後自動開的案件（issue #255）沒有建立者，設備組成員因承辦組而看得到。
+    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id)).toEqual(['case-cold-room', 'case-auto-customer-record']);
     expect(ready(await firstValueFrom(repository.list({ status: 'closed' }))).map((item) => item.id)).toEqual(['case-irrigation-done']);
     expect(ready(await firstValueFrom(repository.list({ status: 'all' }))).map((item) => item.id))
+      .toEqual(['case-cold-room', 'case-auto-customer-record', 'case-irrigation-done']);
+    expect(ready(await firstValueFrom(repository.list({ scope: 'created', status: 'all' }))).map((item) => item.id))
       .toEqual(['case-cold-room', 'case-irrigation-done']);
     expect(await firstValueFrom(repository.get('case-compressor-purchase'))).toEqual(DENIED);
     expect(await firstValueFrom(repository.get('case-that-does-not-exist'))).toEqual(DENIED);
 
     activeAccountId.set('account-smb-admin');
-    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id)).toEqual(['case-compressor-purchase', 'case-cold-room']);
+    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id))
+      .toEqual(['case-compressor-purchase', 'case-cold-room', 'case-auto-customer-record']);
     expect(ready(await firstValueFrom(repository.list({ scope: 'created' }))).map((item) => item.id)).toEqual(['case-compressor-purchase']);
     expect(ready(await firstValueFrom(repository.list({ scope: 'my-groups' }))).map((item) => item.id)).toEqual(['case-compressor-purchase']);
     expect(ready(await firstValueFrom(repository.list({ groupId: 'case-group-equipment', status: 'all' }))).map((item) => item.id))
-      .toEqual(['case-cold-room', 'case-irrigation-done']);
+      .toEqual(['case-cold-room', 'case-auto-customer-record', 'case-irrigation-done']);
     expect(ready(await firstValueFrom(repository.list({ scope: 'owned' })))).toEqual([]);
 
     activeAccountId.set('account-external-customer');
@@ -79,7 +83,27 @@ describe('CasesRepository (mock)', () => {
     const purchase = ready(await firstValueFrom(repository.get('case-compressor-purchase')));
     expect(purchase.links.record).toEqual({
       databaseId: 'database-customer-records', submissionId: 'submission-mock-compressor', state: 'available', canRead: true,
+      databaseName: '客戶資料庫',
     });
+  });
+
+  it('shows a case opened by a database submission without a creator, and its withdrawn record as unreadable', async () => {
+    const { repository, activeAccountId } = mockRepository();
+
+    const auto = ready(await firstValueFrom(repository.get('case-auto-customer-record')));
+    expect(auto.case).toMatchObject({
+      origin: 'database-submission', createdBy: null, title: '客戶資料庫：新紀錄', description: '由數據庫送出自動建立，內容請開啟紀錄查看。',
+    });
+    expect(auto.events.map((event) => [event.action, event.actor])).toEqual([['created', null]]);
+    expect(auto.links.record).toEqual({
+      databaseId: 'database-customer-records', submissionId: 'submission-mock-withdrawn', state: 'withdrawn', canRead: false,
+      databaseName: '客戶資料庫',
+    });
+    // 撤回後案件照常流轉：設備組成員可以受理。
+    expect(auto.allowedActions).toContain('accept');
+
+    activeAccountId.set('account-smb-admin');
+    expect(ready(await firstValueFrom(repository.get('case-auto-customer-record'))).links.record?.canRead).toBe(false);
   });
 
   it('creates a pending case with its created event, and refuses what the API refuses', async () => {

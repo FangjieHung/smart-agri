@@ -36,6 +36,19 @@ describe('team management and data access', () => {
     cy.contains('h2', '外觀設定').should('be.visible');
   });
 
+  it('shows the single mock chat model to every persona without a menu (issue #240)', () => {
+    for (const persona of ['SMB 管理者', '內部使用者']) {
+      loginAs(persona);
+      cy.visit('/app/settings');
+      // 設定頁在捲動容器裡：先捲到區塊，否則 `be.visible` 會因為被裁切而假失敗。
+      cy.get('[data-chat-model-panel]').scrollIntoView().within(() => {
+        cy.contains('h2', '對話模型').should('be.visible');
+        cy.contains('目前使用：fake-chat-dev').should('be.visible');
+        cy.get('select').should('not.exist');
+      });
+    }
+  });
+
   it('will not let the admin lock themselves out of the team screen', () => {
     loginAs('SMB 管理者');
     cy.visit('/app/settings');

@@ -6,6 +6,7 @@ import type {
   AssistantTestCaseView,
   AssistantTestRunView,
 } from '../../../../../core/domain/assistant-acceptance.model';
+import type { OrganizationChatModelView } from '../../../../../core/domain/organization-settings.model';
 import type { RepositoryView } from '../../../../../core/repositories/demo-repository';
 import { DEMO_REPOSITORY } from '../../../../../core/repositories/tokens';
 import { AssistantIssuesRepository } from '../../../../../core/repositories/assistant-issues.repository';
@@ -24,11 +25,48 @@ const testCase: AssistantTestCaseView = {
   updatedAt: '2026-09-30T08:00:00Z',
 };
 
-function testRepository(cases: Observable<RepositoryView<readonly AssistantTestCaseView[]>>) {
+function run(overrides: Partial<AssistantTestRunView>): AssistantTestRunView {
+  return {
+    id: 'run-1',
+    assistantId: 'assistant-1',
+    trigger: 'manual',
+    status: 'completed',
+    rerunRequested: false,
+    queuedAt: '2026-10-01T08:00:00Z',
+    startedAt: '2026-10-01T08:00:01Z',
+    completedAt: '2026-10-01T08:00:09Z',
+    passedCount: 1,
+    failedCount: 0,
+    promptVersion: 'v1',
+    model: 'fake-chat-dev',
+    minScore: 0.3,
+    ...overrides,
+  };
+}
+
+function chatModel(model: string): OrganizationChatModelView {
+  const effective = { id: model, displayName: model, model };
+  return {
+    options: [effective],
+    selectedId: null,
+    effective,
+    source: 'deployment-default',
+    canChange: true,
+    lastChange: null,
+    revision: 0,
+  };
+}
+
+function testRepository(
+  cases: Observable<RepositoryView<readonly AssistantTestCaseView[]>>,
+  runs: readonly AssistantTestRunView[] = [],
+  currentModel = 'fake-chat-dev',
+) {
   return {
     listAssistantTestCases: vi.fn(() => cases),
-    listAssistantTestRuns: vi.fn(() =>
-      of({ status: 'ready' as const, data: [] as readonly AssistantTestRunView[] }),
+    listAssistantTestRuns: vi.fn(() => of({ status: 'ready' as const, data: runs })),
+    getOrganizationChatModel: vi.fn(() =>
+      of({ status: 'ready' as const, data: chatModel(currentModel) }),
     ),
     getAssistantTestRun: vi.fn(),
     createAssistantTestCase: vi.fn(),
@@ -43,9 +81,11 @@ function testRepository(cases: Observable<RepositoryView<readonly AssistantTestC
 async function render(
   cases: Observable<RepositoryView<readonly AssistantTestCaseView[]>>,
   settle = true,
+  runs: readonly AssistantTestRunView[] = [],
+  currentModel = 'fake-chat-dev',
 ) {
   TestBed.resetTestingModule();
-  const repository = testRepository(cases);
+  const repository = testRepository(cases, runs, currentModel);
   await TestBed.configureTestingModule({
     imports: [AssistantAcceptanceTabComponent],
     providers: [
@@ -114,5 +154,47 @@ describe('AssistantAcceptanceTabComponent', () => {
     run?.click();
     run?.click();
     expect(repository.createAssistantTestRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('suggests a rerun when the latest run used another model (issue #240)', async () => {
+    const runs = [
+      run({ id: 'run-old', queuedAt: '2026-09-30T08:00:00Z', model: 'fake-chat-dev' }),
+      run({ id: 'run-new', queuedAt: '2026-10-02T08:00:00Z', model: 'fake-chat-second' }),
+    ];
+    const { fixture } = await render(of({ status: 'ready', data: [testCase] }), true, runs, 'fake-chat-dev');
+
+    expect(page(fixture).querySelector('[data-model-changed]')?.textContent?.trim()).toBe(
+      '上次測試使用模型 fake-chat-second，現在是 fake-chat-dev。建議重跑題組。',
+    );
+  });
+
+  it('says nothing when the latest run used the current model, or there is no run yet', async () => {
+    const same = await render(of({ status: 'ready', data: [testCase] }), true, [
+      run({ id: 'run-old', queuedAt: '2026-09-30T08:00:00Z', model: 'fake-chat-second' }),
+      run({ id: 'run-new', queuedAt: '2026-10-02T08:00:00Z', model: 'fake-chat-dev' }),
+    ]);
+    expect(page(same.fixture).querySelector('[data-model-changed]')).toBeNull();
+
+    const none = await render(of({ status: 'ready', data: [testCase] }), true, [], 'fake-chat-second');
+    expect(page(none.fixture).querySelector('[data-model-changed]')).toBeNull();
+  });
+
+  it('does not suggest a rerun while one is queued (it will use the current model)', async () => {
+    const { fixture } = await render(
+      of({ status: 'ready', data: [testCase] }),
+      false,
+      [
+        run({ id: 'run-done', queuedAt: '2026-09-30T08:00:00Z', model: 'fake-chat-second' }),
+        run({ id: 'run-queued', queuedAt: '2026-10-02T08:00:00Z', status: 'queued', model: null, startedAt: null, completedAt: null }),
+      ],
+      'fake-chat-dev',
+    );
+    // 有進行中的重跑時會輪詢，不能等 whenStable；讓 resource 先送出結果再看畫面。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+
+    expect(page(fixture).textContent).toContain('排隊中');
+    expect(page(fixture).querySelector('[data-model-changed]')).toBeNull();
+    fixture.destroy();
   });
 });

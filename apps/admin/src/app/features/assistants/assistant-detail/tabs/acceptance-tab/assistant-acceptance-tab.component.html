@@ -27,6 +27,11 @@
       <p>{{ permissionMessage() }}</p>
     </section>
   } @else {
+    @if (modelChange(); as change) {
+      <p class="notice notice--model" data-model-changed>
+        上次測試使用模型 {{ change.tested }}，現在是 {{ change.current }}。建議重跑題組。
+      </p>
+    }
     <section class="case-section" aria-labelledby="case-list-title">
       <div class="section-heading">
         <div>

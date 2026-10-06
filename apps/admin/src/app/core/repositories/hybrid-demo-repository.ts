@@ -56,6 +56,7 @@ import {
   type WebsitePublishFailureReason,
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
+import type { OrganizationChatModelView } from '../domain/organization-settings.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -175,6 +176,7 @@ import {
   type UpdateWebsiteEmbedResult,
   type UpdateKnowledgeSharingResult,
   type UpdateMemberPermissionsResult,
+  type UpdateOrganizationChatModelResult,
   type UploadKnowledgeDocumentEvent,
 } from './demo-repository';
 import type { DemoSeed } from './demo-seed';
@@ -185,6 +187,9 @@ import {
   KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
   MockDemoRepository,
   normalizeDraftPayload,
+  ORGANIZATION_SETTINGS_CONFLICT_MESSAGE,
+  ORGANIZATION_SETTINGS_DENIED_MESSAGE,
+  UNKNOWN_CHAT_MODEL_MESSAGE,
   TEAM_PERMISSION_DENIED_MESSAGE,
   type AccountPermissionOverrides,
   type MockDemoRepositoryOptions,
@@ -239,6 +244,8 @@ type ApiTrialAnswerPassage = components['schemas']['TrialAnswerPassageView'];
 type ApiConnectableSource = components['schemas']['ConnectableSourceView'];
 type ApiAssistantPublishing = components['schemas']['AssistantPublishingView'];
 type ApiOrganizationUsage = components['schemas']['OrganizationUsageView'];
+type ApiOrganizationChatModel = components['schemas']['OrganizationChatModelView'];
+type UpdateOrganizationChatModelRequest = components['schemas']['UpdateOrganizationChatModelRequest'];
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
 type ApiWebsiteChannel = components['schemas']['WebsiteChannelView'];
@@ -406,6 +413,9 @@ export function apiAssistantChatFormPath(assistantId: string, databaseId: string
 
 export const API_ORGANIZATION_USAGE_PATH = '/api/v1/organization/usage';
 
+/** 組織的對話模型（issue #239／#240）：`GET` 任何帳號、`PUT` 只有管理者。 */
+export const API_ORGANIZATION_CHAT_MODEL_PATH = '/api/v1/organization/chat-model';
+
 export function apiAssistantPublishingPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/publishing`;
 }
@@ -528,6 +538,10 @@ interface PermissionDeniedFallback {
 }
 
 const TEAM_DENIED: PermissionDeniedFallback = { reason: 'team', message: TEAM_PERMISSION_DENIED_MESSAGE };
+const ORGANIZATION_SETTINGS_DENIED: PermissionDeniedFallback = {
+  reason: 'organization-settings',
+  message: ORGANIZATION_SETTINGS_DENIED_MESSAGE,
+};
 const KNOWLEDGE_DENIED: PermissionDeniedFallback = {
   reason: 'knowledge-base',
   message: KNOWLEDGE_PERMISSION_DENIED_MESSAGE,
@@ -1105,6 +1119,39 @@ export class HybridDemoRepository extends MockDemoRepository {
     return this.http.get<ApiOrganizationUsage>(API_ORGANIZATION_USAGE_PATH).pipe(
       map((response): RepositoryView<OrganizationUsageView> => ({ status: 'ready', data: toOrganizationUsage(response) })),
       catchError((error: unknown) => this.permissionDeniedOrThrow(error, PUBLISHING_DENIED)),
+    );
+  }
+
+  override getOrganizationChatModel(): Observable<RepositoryView<OrganizationChatModelView>> {
+    return this.http.get<ApiOrganizationChatModel>(API_ORGANIZATION_CHAT_MODEL_PATH).pipe(
+      map((response): RepositoryView<OrganizationChatModelView> => ({ status: 'ready', data: toOrganizationChatModel(response) })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED)),
+    );
+  }
+
+  /** `409` → conflict、`422`（`errors.modelId`）→ validation-failed、`403 organization-settings` → permission-denied。 */
+  override updateOrganizationChatModel(
+    modelId: string | null,
+    revision: number,
+  ): Observable<UpdateOrganizationChatModelResult> {
+    const body: UpdateOrganizationChatModelRequest = { modelId, revision };
+    return this.http.put<ApiOrganizationChatModel>(API_ORGANIZATION_CHAT_MODEL_PATH, body).pipe(
+      map((response): UpdateOrganizationChatModelResult => ({ status: 'ready', data: toOrganizationChatModel(response) })),
+      catchError((error: unknown) => {
+        if (isHttpError(error, 409)) {
+          return of<UpdateOrganizationChatModelResult>({
+            status: 'conflict',
+            message: bodyMessage(error) ?? ORGANIZATION_SETTINGS_CONFLICT_MESSAGE,
+          });
+        }
+        if (isHttpError(error, 422)) {
+          return of<UpdateOrganizationChatModelResult>({
+            status: 'validation-failed',
+            message: bodyMessage(error) ?? UNKNOWN_CHAT_MODEL_MESSAGE,
+          });
+        }
+        return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
+      }),
     );
   }
 
@@ -2563,6 +2610,29 @@ function bodyMessage(error: HttpErrorResponse): string | null {
   if (typeof body.message === 'string') return body.message;
   const firstField = Object.values(body.errors ?? {})[0];
   return Array.isArray(firstField) && typeof firstField[0] === 'string' ? firstField[0] : null;
+}
+
+// ---------- 組織設定的轉換 ----------
+
+/**
+ * 原樣複製（不共用回應物件）。`selectedId`／`effective`／`lastChange` 在後端是可為 null 的欄位；
+ * 若伺服器省略了鍵，一律當成 `null`，不讓 `undefined` 流進畫面。
+ */
+function toOrganizationChatModel(response: ApiOrganizationChatModel): OrganizationChatModelView {
+  const option = (value: ApiOrganizationChatModel['options'][number]) => ({
+    id: value.id,
+    displayName: value.displayName,
+    model: value.model,
+  });
+  return {
+    options: (response.options ?? []).map(option),
+    selectedId: response.selectedId ?? null,
+    effective: response.effective ? option(response.effective) : null,
+    source: response.source,
+    canChange: response.canChange === true,
+    lastChange: response.lastChange ? { actorName: response.lastChange.actorName, at: response.lastChange.at } : null,
+    revision: response.revision,
+  };
 }
 
 // ---------- 助理的轉換 ----------

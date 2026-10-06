@@ -1,0 +1,78 @@
+@let state = result();
+<section class="chat-model-panel" aria-labelledby="chat-model-title" data-chat-model-panel>
+  <div>
+    <p class="ui-text-caption">組織</p>
+    <h2 id="chat-model-title" class="ui-text-subtitle">對話模型</h2>
+  </div>
+
+  @if (state === null) {
+    <app-state-panel
+      state="error"
+      title="目前無法載入對話模型"
+      description="請稍後重新整理頁面再試一次。"
+    />
+  } @else if (state.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入對話模型" />
+  } @else if (state.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法查看對話模型" [description]="state.message" />
+  } @else if (view(); as data) {
+    @if (data.effective === null) {
+      <p class="hint" data-chat-model-unconfigured>這個部署還沒有設定對話模型，請聯絡系統營運者。</p>
+    } @else {
+      @if (canChoose()) {
+        <lib-setting-row
+          title="使用的模型"
+          controlId="chat-model-select"
+          description="換了就立即儲存。新的對話、試問與題組重跑會使用這個模型；進行中的回答不受影響。"
+        >
+          <select
+            id="chat-model-select"
+            class="chat-model-panel__select"
+            aria-describedby="chat-model-status"
+            [attr.aria-busy]="saving()"
+            (change)="choose($event)"
+          >
+            @if (data.source === 'removed') {
+              <option [value]="removedOption" disabled [selected]="selectedValue() === removedOption">
+                原本的模型（已不再提供）
+              </option>
+            }
+            @for (option of data.options; track option.id; let first = $first) {
+              <option [value]="option.id" [selected]="selectedValue() === option.id">
+                {{ option.displayName }}{{ first ? '（部署預設）' : '' }}
+              </option>
+            }
+          </select>
+        </lib-setting-row>
+      } @else {
+        <lib-setting-row
+          [title]="'目前使用：' + data.effective.displayName"
+          [description]="
+            data.options.length > 1
+              ? '只有管理者可以變更對話模型。'
+              : '這個部署只提供一個對話模型。'
+          "
+        />
+      }
+
+      @if (data.source === 'removed') {
+        <p class="notice" data-chat-model-removed>
+          原本選的模型已不再提供，目前使用部署預設 {{ data.effective.displayName }}。
+        </p>
+      }
+    }
+
+    <p class="hint" data-chat-model-last-change>
+      @if (data.lastChange; as change) {
+        上次變更：{{ change.actorName }}，{{ change.at | date: 'yyyy/MM/dd HH:mm' }}
+      } @else {
+        上次變更：尚未變更過（使用部署預設）
+      }
+    </p>
+  }
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  <p id="chat-model-status" class="feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+</section>

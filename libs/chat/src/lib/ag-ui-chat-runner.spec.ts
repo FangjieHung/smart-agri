@@ -75,6 +75,39 @@ describe('AgUiChatRunner', () => {
     ]);
   });
 
+  it('sends a custom authorization header value verbatim, taking precedence over accessToken', async () => {
+    const calls: Captured[] = [];
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init, body: JSON.parse(String(init.body)), headers: init.headers as Record<string, string> });
+      return sse(fixture('company-data-saved.sse'))();
+    });
+    const runner = new AgUiChatRunner({
+      accessToken: () => 'ignored',
+      authorizationHeader: () => 'Visitor visitor-token',
+      onUnauthorized: vi.fn(),
+      fetch,
+      runsPath: (id) => `/api/v1/public/assistants/${id}/chat/runs`,
+    });
+
+    await collect(runner);
+
+    expect(calls[0].url).toBe('/api/v1/public/assistants/assistant-1/chat/runs');
+    expect(calls[0].headers['Authorization']).toBe('Visitor visitor-token');
+  });
+
+  it('sends no Authorization header when authorizationHeader returns null and no accessToken is given', async () => {
+    const calls: Captured[] = [];
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init, body: JSON.parse(String(init.body)), headers: init.headers as Record<string, string> });
+      return sse(fixture('company-data-saved.sse'))();
+    });
+    const runner = new AgUiChatRunner({ authorizationHeader: () => null, onUnauthorized: vi.fn(), fetch });
+
+    await collect(runner);
+
+    expect(calls[0].headers['Authorization']).toBeUndefined();
+  });
+
   it('sends the thread id and, for unsaved assistants, the page history before the question', async () => {
     const { runner, calls } = setup(sse(fixture('no-result-unsaved.sse')), null);
 

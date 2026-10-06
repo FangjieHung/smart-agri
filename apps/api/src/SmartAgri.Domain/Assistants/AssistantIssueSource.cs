@@ -14,7 +14,7 @@ public enum AssistantIssueSource
     TestFailure,
 
     /// <summary>A member forwarded one question and reply from their own conversation
-    /// (「轉給專人」, issue #127; not created anywhere yet).</summary>
+    /// (「轉給專人」, issue #127; created by <c>AssistantHandoffEndpoints</c> in the API).</summary>
     [JsonStringEnumMemberName("handoff")]
     Handoff,
 }

@@ -1,9 +1,20 @@
 # The api image is built with the repo root as context (deploy/docker-compose.yml);
-# send only what the Dockerfile copies.
+# send only what the Dockerfile copies: the api's sources, and for the Node stage that builds the
+# widget (M5a #201) the workspace files, apps/widget, libs/chat and the embed loader.
 *
 !global.json
 !apps/api/Directory.Build.props
 !apps/api/Directory.Packages.props
 !apps/api/src
+!package.json
+!package-lock.json
+!.npmrc
+!nx.json
+!tsconfig.base.json
+!apps/widget
+!libs/chat
+!apps/embed-loader/src/embed.js
 **/bin
 **/obj
+**/node_modules
+**/dist

@@ -191,7 +191,7 @@ public class KnowledgeRetrieverTests
     [Fact]
     public void Settings_accept_a_similarity_threshold_and_a_capped_top()
     {
-        KnowledgeRetrievalSettings.Default.ShouldBe(new KnowledgeRetrievalSettings(0.3, 5));
+        KnowledgeRetrievalSettings.Default.ShouldBe(new KnowledgeRetrievalSettings(0.406, 5));
         Should.Throw<ArgumentOutOfRangeException>(() => new KnowledgeRetrievalSettings(-0.1, 5));
         Should.Throw<ArgumentOutOfRangeException>(() => new KnowledgeRetrievalSettings(1.1, 5));
         Should.Throw<ArgumentOutOfRangeException>(() => new KnowledgeRetrievalSettings(double.NaN, 5));

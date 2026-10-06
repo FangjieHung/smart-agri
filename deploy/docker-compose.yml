@@ -40,6 +40,13 @@ services:
       Authentication__SigningCertificatePassword: ${AUTH_SIGNING_CERTIFICATE_PASSWORD:-}
       Authentication__EncryptionCertificatePath: /app/certs/encryption.pfx
       Authentication__EncryptionCertificatePassword: ${AUTH_ENCRYPTION_CERTIFICATE_PASSWORD:-}
+      # Data Protection key ring (apps/api/README.md, "Data Protection key ring"): the keys behind
+      # sign-in cookies and stored secret settings. Outside Development the api refuses to start
+      # without the keys directory and the certificate that encrypts the key files. The directory
+      # is the named volume below; back it up together with the database and the certificate.
+      DataProtection__KeysPath: /app/keys
+      DataProtection__CertificatePath: /app/certs/dataprotection.pfx
+      DataProtection__CertificatePassword: ${DATA_PROTECTION_CERTIFICATE_PASSWORD:-}
       # Origin the admin SPA is served from; `migrate` registers {origin}/auth/callback.
       Authentication__AdminSpa__Origins__0: ${ADMIN_SPA_ORIGIN:-}
       # Embedding model (apps/api/README.md, "Embeddings and vector search"). Without a
@@ -72,6 +79,7 @@ services:
       PublicChannels__PublicBaseUrl: ${PUBLIC_BASE_URL:-}
     volumes:
       - ./certs:/app/certs:ro
+      - smartagri-dataprotection-keys:/app/keys
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
@@ -80,3 +88,4 @@ services:
 
 volumes:
   smartagri-postgres-data:
+  smartagri-dataprotection-keys:

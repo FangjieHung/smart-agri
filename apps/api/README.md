@@ -135,7 +135,62 @@ openssl pkcs12 -export -inkey encryption.key -in encryption.crt -out deploy/cert
 
 `deploy/docker-compose.yml` mounts `deploy/certs/` (git-ignored) and reads the passwords
 and `ADMIN_SPA_ORIGIN` from `deploy/.env`. Outside Development OpenIddict also requires
-HTTPS on `/connect/*`.
+HTTPS on `/connect/*`. The api container runs as a non-root user (uid 1654 in the .NET
+images), so every `.pfx` in `deploy/certs/` must be readable by it — `openssl` writes them
+`600` for the user who ran it, so `chmod 644 deploy/certs/*.pfx` (the passwords stay in
+`deploy/.env`); otherwise the api refuses to start because it cannot read the certificate.
+
+## Data Protection key ring
+
+ASP.NET Core Data Protection encrypts three things in the Api: the Identity sign-in cookie,
+OpenIddict's tokens and (from M5a) stored secret settings such as a LINE channel secret. They
+all use one **key ring** of key files, which must live outside the database and survive a
+container rebuild — otherwise every rebuild signs everyone out and makes every stored secret
+unreadable (secrets-storage ADR).
+
+| Setting | Meaning |
+| --- | --- |
+| `DataProtection:KeysPath` | directory the key files are written to (compose: `/app/keys`, the named volume `smartagri-dataprotection-keys`) |
+| `DataProtection:CertificatePath` / `...Password` | PKCS#12 file whose key encrypts the key files (compose: `/app/certs/dataprotection.pfx`, i.e. `deploy/certs/dataprotection.pfx`, password in `DATA_PROTECTION_CERTIFICATE_PASSWORD`) |
+
+In **any environment except `Development` and `Testing` the Api refuses to start** without both, or
+when the directory cannot be created and written to. `Development` needs nothing: ASP.NET Core's
+default (a per-user folder outside the repository, keys not encrypted) is used unless you set the
+options. The application name is fixed to `SmartAgri`. Create the certificate like the token ones
+(self-signed is fine):
+
+```sh
+openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes -subj "/CN=smartagri-dataprotection" \
+  -addext "keyUsage=critical,keyEncipherment" -keyout dataprotection.key -out dataprotection.crt
+openssl pkcs12 -export -inkey dataprotection.key -in dataprotection.crt -out deploy/certs/dataprotection.pfx
+```
+
+The image creates `/app/keys` owned by the non-root `app` user, so a fresh named volume is
+writable. A bind mount (a host directory instead of the named volume) must be writable by that
+user's uid (`$APP_UID`, 1654 in the .NET images); the Api names the path and refuses to start if it
+is not.
+
+**Back up the key volume and the certificate together with the database**, from the same point in
+time as far as you can: the database holds ciphertext that only these keys can open. For example:
+
+```sh
+docker run --rm -v smartagri-dataprotection-keys:/keys:ro -v "$PWD":/backup alpine \
+  tar czf /backup/dataprotection-keys.tgz -C /keys .
+```
+
+(The compose project name is `smartagri`, so the volume is `smartagri_smartagri-dataprotection-keys`
+under its default naming: check `docker volume ls`.) Keys are rotated automatically every 90 days;
+the old ones stay in the directory and keep decrypting old data, so never delete files from it.
+
+**If the keys or the certificate are lost** the data is not recoverable: every stored secret
+setting (LINE credentials, an organization's own model API key) must be entered again, every
+sign-in cookie and visitor token stops working (people sign in again, visitors reopen the chat
+window), and nothing else is affected. A new certificate cannot open an old key ring either: replace
+the certificate only together with the key files, or accept the same loss.
+
+Secret settings are **write-only**: the Api stores them with `ISecretProtector` (one purpose string
+per field) and only ever returns `SecretStatusView { configured, lastFour, updatedAt }`; no
+endpoint returns the value, and `lastFour` is null for a value shorter than four characters.
 
 ## OpenAPI document and frontend types
 
@@ -760,7 +815,7 @@ Configuration (section `Retrieval`; written out in `appsettings.json`, override 
 
 | Key | Default | |
 | --- | --- | --- |
-| `MinScore` | `0.3` | The relevance threshold, a cosine similarity of 0–1. **A placeholder** until the retrieval evaluation (M2 Slice 16) calibrates it for the chosen model; it depends on the model (OpenAI's `text-embedding-3` models separate related text around here, the e5 family scores almost everything above 0.7), so set it again when `Ai:Embedding:Model` changes. The `Fake` model scores the fixture's matching page at about 0.32 and unrelated text below 0.1. M3 will let an assistant tune its own. |
+| `MinScore` | `0.406` | The relevance threshold, a cosine similarity of 0–1. **Calibrated for OpenAI `text-embedding-3-small`** by the retrieval evaluation (`docs/evals/2026-10-06-retrieval-text-embedding-3-small.md`, #192). It depends on the model (the e5 family scores almost everything above 0.7), so set it again when `Ai:Embedding:Model` changes. `appsettings.Development.json` sets `0.3`, because the `Fake` model scores the fixture's matching page at about 0.32 and unrelated text below 0.1 — so with a real model in Development, also set `Retrieval__MinScore`. An assistant can tune its own. |
 | `Top` | `5` | Passages per search when the caller does not say, 1–20. |
 
 ## Evaluating retrieval: `eval-retrieval`
@@ -839,11 +894,10 @@ suggested threshold (or a value justified from the report) as `Retrieval:MinScor
 `appsettings.json` **and** `KnowledgeRetrievalSettings.DefaultMinScore` (`RetrievalOptionsTests`
 fails when they differ), and commit the report under `docs/evals/`.
 
-> **Deferred to the end of M2** (#50; docs/plans/2026-09-26-m2-owner-action-items.md, items 3
-> and 4): the OpenAI run with a committed report, the local-model run and its comparison with
-> OpenAI, the hit@5 ≥ 90% check, and the `Retrieval:MinScore` calibration all wait for the
-> owner's API key and consent to run a local model. Until then `Retrieval:MinScore` 0.3 stays a
-> placeholder, and only the `Fake` run is verified.
+> **Calibrated** (#191/#192, 2026-10-06): the OpenAI run is committed as
+> `docs/evals/2026-10-06-retrieval-text-embedding-3-small.md` (hit@5 27/27), and `Retrieval:MinScore`
+> is its suggested 0.406. The local-model run and its comparison with OpenAI wait for a fully
+> on-premises customer (M5 handoff §3.4).
 
 ## Evaluating answers: `eval-answers`
 
@@ -1029,9 +1083,10 @@ administrator are created once with the `setup` subcommand (on-prem-packaging AD
 never by seed data, a web wizard or a password in configuration:
 
 1. Prepare `deploy/.env` (real `POSTGRES_PASSWORD`, `ADMIN_SPA_ORIGIN`, certificate
-   passwords) and put `signing.pfx` / `encryption.pfx` in `deploy/certs/` (see "Sign-in
-   and tokens"). `setup` builds the same host as the web server, so outside Development
-   it also refuses to run without the certificates.
+   passwords) and put `signing.pfx` / `encryption.pfx` / `dataprotection.pfx` in
+   `deploy/certs/` (see "Sign-in and tokens" and "Data Protection key ring"). `setup`
+   builds the same host as the web server, so outside Development it also refuses to run
+   without the certificates.
 2. Build the image and create the schema:
    ```sh
    docker compose -f deploy/docker-compose.yml --env-file deploy/.env build

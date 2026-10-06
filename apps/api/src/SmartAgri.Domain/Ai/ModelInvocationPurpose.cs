@@ -59,4 +59,11 @@ public enum ModelInvocationPurpose
     /// any LINE id) and counted toward the monthly token limit like every chat-model call.</summary>
     [JsonStringEnumMemberName("line-answer")]
     LineAnswer,
+
+    /// <summary>Deciding whether a conversation question should get a case proposal, and drafting its
+    /// title and description (<c>propose_case</c>, M7-9 #254, only with <c>Chat:FormRequests:Trigger = Model</c>,
+    /// after the form decision said no): the model only chooses among the case types the server offers;
+    /// the server re-checks the type and truncates the draft. Counted toward the monthly token limit.</summary>
+    [JsonStringEnumMemberName("case-proposal")]
+    CaseProposal,
 }

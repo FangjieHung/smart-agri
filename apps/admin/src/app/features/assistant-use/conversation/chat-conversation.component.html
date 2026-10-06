@@ -77,6 +77,17 @@
                 (startForm)="startForm($event, message.id)"
                 (withdrawSubmission)="askWithdraw($event)"
               />
+              @if (isCaseProposal(message)) {
+                <app-case-proposal-card
+                  [messageId]="message.id"
+                  [proposal]="caseProposal(message)"
+                  [busy]="caseBusy() === message.id"
+                  [error]="caseErrors()[message.id] ?? ''"
+                  [fieldErrors]="caseFieldErrors()[message.id] ?? {}"
+                  (confirmRequested)="askCaseConfirm(message, $event)"
+                  (dismissed)="dismissCase(message)"
+                />
+              }
               @if (handoffExchange(message)) {
                 <button type="button" class="handoff-trigger" (click)="askHandoff(message)">轉給專人</button>
               }
@@ -92,6 +103,17 @@
                 (startForm)="startForm($event, entry.message.id)"
                 (withdrawSubmission)="askWithdraw($event)"
               />
+              @if (isCaseProposal(entry.message)) {
+                <app-case-proposal-card
+                  [messageId]="entry.message.id"
+                  [proposal]="caseProposal(entry.message)"
+                  [busy]="caseBusy() === entry.message.id"
+                  [error]="caseErrors()[entry.message.id] ?? ''"
+                  [fieldErrors]="caseFieldErrors()[entry.message.id] ?? {}"
+                  (confirmRequested)="askCaseConfirm(entry.message, $event)"
+                  (dismissed)="dismissCase(entry.message)"
+                />
+              }
               @if (handoffExchange(entry.message)) {
                 <button type="button" class="handoff-trigger" (click)="askHandoff(entry.message)">轉給專人</button>
               }
@@ -252,6 +274,25 @@
       (cancelled)="cancelLeave()"
       (confirmed)="confirmLeave()"
     />
+  }
+
+  @if (pendingCase(); as pending) {
+    <app-confirm-dialog
+      name="case-proposal"
+      heading="建立這件案件？"
+      [detail]="'案件會交給「' + pending.groupName + '」處理，處理時限 ' + pending.dueLabel + '。案件只保存下列標題與說明，並連結這段對話；不會複製對話內容。'"
+      [confirmLabel]="caseBusy() !== null ? '建立中…' : '建立案件'"
+      confirmClass="confirm-case-proposal"
+      [busy]="caseBusy() !== null"
+      (cancelled)="cancelCaseConfirm()"
+      (confirmed)="confirmCase()"
+    >
+      <dl class="handoff-preview">
+        <div><dt>案件類型</dt><dd>{{ pending.typeName }}</dd></div>
+        <div><dt>標題</dt><dd>{{ pending.confirmation.title }}</dd></div>
+        <div><dt>說明</dt><dd>{{ pending.confirmation.description || '（沒有說明）' }}</dd></div>
+      </dl>
+    </app-confirm-dialog>
   }
 
   @if (pendingHandoff(); as exchange) {

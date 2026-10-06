@@ -2,6 +2,8 @@ import type { AccountId } from './account.model';
 import type { AssistantId } from './assistant.model';
 import type { DatabaseId, DatabaseRecordEntryView, DatabaseTrialAnswers } from './database.model';
 import type {
+  ChatCaseProposalStatus,
+  ChatCaseProposalView,
   ChatCitationId,
   ChatCitationView,
   ChatConsentView,
@@ -22,6 +24,8 @@ import type {
 // admin 沿用原本的名稱與匯入路徑，這裡只是重新匯出。
 export { REPLY_KIND_LABELS } from '@smart-agri/chat';
 export type {
+  ChatCaseProposalStatus,
+  ChatCaseProposalView,
   ChatCitationId,
   ChatCitationView,
   ChatConsentView,

@@ -46,4 +46,12 @@ public static class FakeChatDirectives
     /// <summary>When the call offers the form tool (M4 #164): call none, even if the question has a
     /// fill-in word (a model seeing that it is not a request to fill anything in).</summary>
     public const string NoForm = "#form-none";
+
+    /// <summary>When the call offers the case tool (M7-9 #254): call it with the first offered type and a
+    /// title drafted from the question, even without a case word (a model recognizing an intent the keywords
+    /// miss). Without this or <see cref="NoCase"/>, the fake calls it exactly when the keyword words match.</summary>
+    public const string CaseProposal = "#case-proposal";
+
+    /// <summary>When the call offers the case tool (M7-9 #254): call none, even with a case word.</summary>
+    public const string NoCase = "#case-none";
 }

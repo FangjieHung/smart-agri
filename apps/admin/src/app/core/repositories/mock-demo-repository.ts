@@ -40,6 +40,7 @@ import {
 import type {
   AssistantChatView,
   AuthorizedFormInput,
+  ChatCaseProposalView,
   ChatFormSubmission,
   ChatFormView,
   ChatHistoryMode,
@@ -80,6 +81,19 @@ import type {
   TrackedSubjectId,
 } from '../domain/database.model';
 import { DATABASE_REPORT_SUMMARY_DISCLAIMER, DATABASE_REPORT_SUMMARY_LABEL } from '../domain/database.model';
+import {
+  CASE_PROPOSAL_CLOSED_MESSAGE,
+  CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE,
+  CASE_PROPOSAL_TITLE_MAX_LENGTH,
+  caseProposalText,
+  caseTitleFromQuestion,
+  keywordCaseProposal,
+  type ProposableCaseType,
+} from '../domain/case-proposal';
+import { MOCK_PROPOSABLE_CASE_TYPES, recordMockChatProposedCase } from './mock-chat-cases';
+
+/** 與後端 `ForbiddenReason.CaseFeature`（`CASE_FEATURE_DENIED_MESSAGE`）相同。 */
+const CASE_FEATURE_DENIED_TEXT = '你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。';
 import {
   isRetryableKnowledgeDocument,
   isUsableKnowledgeDocument,
@@ -232,6 +246,8 @@ import {
 } from './publishing-channels';
 import type {
   ApproveKnowledgeVersionsResult,
+  ChatCaseProposalConfirmation,
+  ChatCaseProposalResult,
   CreateAssistantResult,
   CreateDatabaseResult,
   DeleteAssistantResult,
@@ -551,6 +567,8 @@ interface StoredAssistantSettings {
   readonly rules: AssistantAnswerRules;
   /** 定期報表自動停用（#179）；沒有這個鍵的舊紀錄視為沒有停用。 */
   readonly periodicReportAutoDisabled?: PeriodicReportAutoDisabledView | null;
+  /** 可提議的案件類型（#254）；沒有這個鍵的舊紀錄視為沒有。 */
+  readonly caseTypeIds?: readonly string[];
 }
 
 /** 存起來的自動停用紀錄；形狀不對時當成沒有停用。 */
@@ -612,6 +630,9 @@ function normalizeStoredAssistantSettings(value: unknown): StoredAssistantSettin
       typeof value['roleInstructions'] === 'string' ? value['roleInstructions'] : '',
     rules: { ...empty.rules, ...value['rules'] } as AssistantAnswerRules,
     periodicReportAutoDisabled: normalizeAutoDisabled(value['periodicReportAutoDisabled']),
+    caseTypeIds: Array.isArray(value['caseTypeIds'])
+      ? value['caseTypeIds'].filter((id): id is string => typeof id === 'string')
+      : [],
   };
 }
 
@@ -1627,6 +1648,37 @@ export class MockDemoRepository implements DemoRepository {
       (viewer) => this.setAssistantSourceConnectionSync(viewer, assistantId, source, connected),
       () => this.assistantSettingsPermissionDenied(),
     );
+  }
+
+  setAssistantCaseType(
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
+  ): Observable<UpdateAssistantSettingsResult> {
+    return this.signedIn(
+      (viewer) => this.setAssistantCaseTypeSync(viewer, assistantId, caseTypeId, proposable),
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  /** 與後端相同：只有擁有者，只能加入啟用中的類型（mock 是 `MOCK_PROPOSABLE_CASE_TYPES`）；重複加入或移除不在清單上的都不變。 */
+  private setAssistantCaseTypeSync(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
+  ): UpdateAssistantSettingsResult {
+    const assistant = this.settingsTarget(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantSettingsPermissionDenied();
+    if (proposable && !MOCK_PROPOSABLE_CASE_TYPES.some((type) => type.typeId === caseTypeId)) {
+      const message = '這個案件類型已停用或不存在，請選擇其他類型。';
+      return immutableCopy({ status: 'validation-failed', errors: [{ field: 'caseTypeIds', message }], message });
+    }
+    const current = this.assistantSettings(assistant);
+    const caseTypeIds = proposable
+      ? current.caseTypeIds.includes(caseTypeId) ? current.caseTypeIds : [...current.caseTypeIds, caseTypeId]
+      : current.caseTypeIds.filter((id) => id !== caseTypeId);
+    return this.commitAssistantSettings({ ...current, caseTypeIds });
   }
 
   /**
@@ -2928,6 +2980,7 @@ export class MockDemoRepository implements DemoRepository {
       tone: draft.tone,
       roleInstructions: draft.roleInstructions,
       rules: draft.rules,
+      caseTypeIds: [],
       periodicReportAutoDisabled: null,
       savedAt: null,
     });
@@ -5100,6 +5153,124 @@ export class MockDemoRepository implements DemoRepository {
     return { status: 'ready', data: null };
   }
 
+  confirmChatCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation,
+  ): Observable<ChatCaseProposalResult> {
+    return defer(() => of(this.settleCaseProposal(viewerId, assistantId, messageId, confirmation)));
+  }
+
+  dismissChatCaseProposal(viewerId: ChatViewerId, assistantId: string, messageId: string): Observable<ChatCaseProposalResult> {
+    return defer(() => of(this.settleCaseProposal(viewerId, assistantId, messageId, null)));
+  }
+
+  /**
+   * 與後端相同的檢查順序（#254）：可使用助理 → 內部帳號 → 自己對話裡的提議 → 仍待確認（否則 conflict）→
+   * （確認時）標題與說明 → 類型仍可提議。確認後的案件只有確認過的標題與說明，連結這個對話串。
+   */
+  private settleCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation | null,
+  ): ChatCaseProposalResult {
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
+    if (!this.proposesCasesTo(viewerId)) {
+      return { status: 'permission-denied', reason: 'case', message: CASE_FEATURE_DENIED_TEXT };
+    }
+    const thread = this.keepsConversations(assistant)
+      ? this.storedThreads(viewerId, assistant.id).find((candidate) =>
+          candidate.messages.some((message) => message.id === messageId && message.author === 'assistant' && message.reply.kind === 'case-proposal'))
+      : undefined;
+    const message = thread?.messages.find((candidate) => candidate.id === messageId);
+    if (thread === undefined || message === undefined || message.author !== 'assistant' || message.reply.kind !== 'case-proposal'
+      || message.reply.proposal === null) {
+      return this.chatThreadPermissionDenied();
+    }
+    const proposal = message.reply.proposal;
+    if (proposal.status !== 'proposed') return { status: 'conflict', message: CASE_PROPOSAL_CLOSED_MESSAGE };
+
+    let next: ChatCaseProposalView = { ...proposal, status: 'dismissed', available: false };
+    if (confirmation !== null) {
+      const title = confirmation.title.trim();
+      const description = confirmation.description.trim();
+      const fieldErrors: Partial<Record<'title' | 'description', string>> = {};
+      if (title.length === 0) fieldErrors.title = '請輸入案件標題。';
+      else if (title.length > CASE_PROPOSAL_TITLE_MAX_LENGTH) fieldErrors.title = `案件標題請在 ${CASE_PROPOSAL_TITLE_MAX_LENGTH} 個字以內。`;
+      if (description.length > 4000) fieldErrors.description = '說明請在 4,000 個字以內。';
+      const first = fieldErrors.title ?? fieldErrors.description;
+      if (first !== undefined) return { status: 'validation-failed', reason: null, message: first, fieldErrors };
+      const type = this.proposableCaseTypes(assistant).find((candidate) => candidate.typeId === proposal.typeId);
+      if (type === undefined) {
+        return { status: 'validation-failed', reason: 'case-type-not-proposable', message: CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE, fieldErrors: {} };
+      }
+      const now = this.now();
+      const caseId = `case-chat-${crypto.randomUUID()}`;
+      recordMockChatProposedCase({
+        id: caseId, typeId: type.typeId, groupId: type.group.id, title, description, createdBy: viewerId as AccountId,
+        dueAt: new Date(now.getTime() + type.dueHours * 3_600_000).toISOString(), createdAt: now.toISOString(),
+        assistantId: assistant.id, threadId: thread.id,
+      });
+      next = { ...proposal, title, description, status: 'confirmed', available: false, caseId };
+    }
+    const updated: ChatMessageView = { ...message, reply: { ...message.reply, proposal: next } };
+    this.writeChatMessages(viewerId, assistant, thread, thread.messages.map((candidate) => (candidate.id === messageId ? updated : candidate)));
+    return { status: 'ready', data: updated };
+  }
+
+  /** 只有組織內部帳號（管理者、內部同仁）會被提議開案（#254）；訪客與外部客戶不會。 */
+  private proposesCasesTo(viewerId: ChatViewerId): boolean {
+    if (isVisitorId(viewerId)) return false;
+    const role = this.accounts().find((account) => account.id === viewerId)?.role;
+    return role === 'smb-admin' || role === 'internal-employee';
+  }
+
+  /** 助理現在可以提議的類型：在清單上，而且（mock 裡）仍啟用。 */
+  private proposableCaseTypes(assistant: AssistantConfigurationView): readonly ProposableCaseType[] {
+    const ids = this.storedAssistantSettings(assistant.id)?.caseTypeIds ?? [];
+    return MOCK_PROPOSABLE_CASE_TYPES.filter((type) => ids.includes(type.typeId));
+  }
+
+  /**
+   * 助理提議開案（#254，決定 L、T）：數據庫查詢與表單優先；都沒有、而且提問者是內部帳號、對話會保存、
+   * 關鍵字與類型名稱（或唯一的類型）符合時才提議。
+   */
+  private caseProposalReply(
+    viewerId: ChatViewerId,
+    assistant: AssistantConfigurationView,
+    question: string,
+  ): ChatReplyView | null {
+    if (!this.keepsConversations(assistant) || !this.proposesCasesTo(viewerId)) return null;
+    const type = keywordCaseProposal(question, this.proposableCaseTypes(assistant));
+    if (type === null) return null;
+    return {
+      kind: 'case-proposal',
+      text: caseProposalText(type.name),
+      proposal: {
+        typeId: type.typeId, typeName: type.name, title: caseTitleFromQuestion(question), description: '',
+        status: 'proposed', available: true, group: type.group, dueHours: type.dueHours, caseId: null,
+      },
+    };
+  }
+
+  /** 讀取時重新檢查類型（#254）：已不在清單上（或已停用）的待確認提議顯示「無法建立」。 */
+  private resolveCaseProposals(
+    assistant: AssistantConfigurationView,
+    messages: readonly ChatMessageView[],
+  ): readonly ChatMessageView[] {
+    if (!messages.some((message) => message.author === 'assistant' && message.reply.kind === 'case-proposal')) return messages;
+    const proposable = this.proposableCaseTypes(assistant);
+    return messages.map((message) => {
+      if (message.author !== 'assistant' || message.reply.kind !== 'case-proposal' || message.reply.proposal === null) return message;
+      const proposal = message.reply.proposal;
+      const available = proposal.status === 'proposed' && proposable.some((type) => type.typeId === proposal.typeId);
+      return available === proposal.available ? message : { ...message, reply: { ...message.reply, proposal: { ...proposal, available } } };
+    });
+  }
+
   submitChatForm(
     viewerId: ChatViewerId,
     assistantId: string,
@@ -5528,7 +5699,7 @@ export class MockDemoRepository implements DemoRepository {
           return reply !== null && !(reply.kind === 'database-query' && reply.query.status === 'not-available');
         })
         .map((fixture) => ({ id: fixture.id, text: fixture.prompt })),
-      messages: this.resolveReceipts(viewerId, messages),
+      messages: this.resolveCaseProposals(assistant, this.resolveReceipts(viewerId, messages)),
     };
   }
 
@@ -5604,9 +5775,19 @@ export class MockDemoRepository implements DemoRepository {
     question: string,
   ): ChatReplyView {
     const normalized = question.replace(/\s+/g, '');
-    for (const fixture of this.seed.chatResponses) {
-      const matches = fixture.matchers.some((group) => group.every((keyword) => normalized.includes(keyword)));
-      if (!matches) continue;
+    const matched = this.seed.chatResponses.filter((fixture) =>
+      fixture.matchers.some((group) => group.every((keyword) => normalized.includes(keyword))));
+    // 優先順序（#254，決定 L）：數據庫查詢 → 表單 → 案件提議 → 一般回答。助理沒有可提議的類型時與之前完全相同。
+    const caseProposal = this.caseProposalReply(viewerId, assistant, question);
+    if (caseProposal !== null) {
+      for (const fixture of matched) {
+        if (fixture.answer.kind !== 'database-query' && fixture.answer.kind !== 'form-request') continue;
+        const reply = this.fixtureReply(viewerId, assistant, fixture);
+        if (reply !== null) return reply;
+      }
+      return caseProposal;
+    }
+    for (const fixture of matched) {
       const reply = this.fixtureReply(viewerId, assistant, fixture);
       if (reply !== null) return reply;
     }
@@ -6124,6 +6305,7 @@ export class MockDemoRepository implements DemoRepository {
       tone: stored?.tone ?? empty.tone,
       roleInstructions: stored?.roleInstructions ?? '',
       rules: stored?.rules ?? this.defaultRules(assistant),
+      caseTypeIds: stored?.caseTypeIds ?? [],
       periodicReportAutoDisabled: stored?.periodicReportAutoDisabled ?? null,
       savedAt: stored?.savedAt ?? null,
     };
@@ -6169,6 +6351,7 @@ export class MockDemoRepository implements DemoRepository {
       roleInstructions: next.roleInstructions,
       rules: next.rules,
       periodicReportAutoDisabled: next.periodicReportAutoDisabled,
+      caseTypeIds: next.caseTypeIds,
     };
 
     this.storage.setItem(

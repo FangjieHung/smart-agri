@@ -63,9 +63,11 @@ public static class AssistantHandoffEndpoints
             // A form request or receipt (M4 #148) is not an answer to hand off: the submitted
             // answers reach their readers only through the consented record, never through an issue.
             // Nor is a database query answer (M4 #149): its figures come from records only the asker
-            // may read, and a handler must not see them through an issue.
+            // may read, and a handler must not see them through an issue. Nor is a case proposal (M7-9): it
+            // is the server's offer to open a case, which the asker confirms or dismisses in the conversation.
             if (asked is null || replied is null || replied.Sequence != asked.Sequence + 1
-                || replied.ReplyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt or ChatReplyKind.DatabaseQuery)
+                || replied.ReplyKind is ChatReplyKind.FormRequest or ChatReplyKind.SubmissionReceipt or ChatReplyKind.DatabaseQuery
+                    or ChatReplyKind.CaseProposal)
                 return ApiErrors.NotFound(ForbiddenReason.ChatThread);
             question = asked.Text;
             answer = replied.Text;

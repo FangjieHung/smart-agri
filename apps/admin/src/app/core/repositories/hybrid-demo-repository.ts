@@ -9,6 +9,7 @@ import { statisticsDay } from './database-tracking';
 import { toChatMessage as toSharedChatMessage } from '@smart-agri/chat';
 import { catchError, filter, forkJoin, map, of, switchMap, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
+import { CASE_PROPOSAL_CLOSED_MESSAGE, CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE } from '../domain/case-proposal';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
 import type { AssistantTestCaseView, AssistantTestRunView, AssistantTestRunDetailView, AssistantTestCaseInput, AssistantTestCasePatch, AssistantTestCaseImportEntry, AssistantTestCaseExportEntry } from '../domain/assistant-acceptance.model';
 import type {
@@ -172,6 +173,8 @@ import {
   type RenameChatThreadResult,
   type ReviewChatFormResult,
   type SubmitChatFormResult,
+  type ChatCaseProposalConfirmation,
+  type ChatCaseProposalResult,
   type WithdrawChatSubmissionResult,
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
@@ -298,6 +301,7 @@ type ApiChatDatabaseQuery = components['schemas']['ChatDatabaseQueryView'];
 type ApiChatFormSubmission = components['schemas']['ChatFormSubmissionView'];
 type ReviewChatFormRequest = components['schemas']['ReviewChatFormRequest'];
 type SubmitChatFormRequest = components['schemas']['SubmitChatFormRequest'];
+type ConfirmChatCaseProposalRequest = components['schemas']['ConfirmChatCaseProposalRequest'];
 type DismissChatFormRequest = components['schemas']['DismissChatFormRequest'];
 type ApiDatabaseOwnSubmissionList = components['schemas']['DatabaseOwnSubmissionListView'];
 type ApiDatabaseTracking = components['schemas']['DatabaseTrackingView'];
@@ -427,6 +431,16 @@ export function apiAssistantKnowledgeSourcePath(assistantId: string, knowledgeBa
 
 export function apiAssistantDatabaseSourcePath(assistantId: string, databaseId: string): string {
   return `${apiAssistantPath(assistantId)}/sources/database/${encodeURIComponent(databaseId)}`;
+}
+
+/** 可提議的案件類型（#254）：`PUT`／`DELETE`。 */
+export function apiAssistantCaseTypeSourcePath(assistantId: string, caseTypeId: string): string {
+  return `${apiAssistantPath(assistantId)}/sources/case-type/${encodeURIComponent(caseTypeId)}`;
+}
+
+/** 助理提議開案的確認與「不用了」（#254）：`POST .../chat/case-proposals/{messageId}:confirm`／`:dismiss`。 */
+export function apiChatCaseProposalPath(assistantId: string, messageId: string, action: 'confirm' | 'dismiss'): string {
+  return `${apiAssistantPath(assistantId)}/chat/case-proposals/${encodeURIComponent(messageId)}:${action}`;
 }
 
 /** 對話中的表單（issue #148）：`.../review` 與 `.../submissions`。 */
@@ -959,6 +973,22 @@ export class HybridDemoRepository extends MockDemoRepository {
     const request = connected
       ? this.http.put<ApiAssistantSettings>(path, null)
       : this.http.delete<ApiAssistantSettings>(path);
+    return request.pipe(
+      map((response): UpdateAssistantSettingsResult => ({ status: 'ready', data: toAssistantSettings(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) ? of(settingsValidationFailed(error)) : this.assistantConfigurationDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  /** 可提議的案件類型（#254）：`PUT`／`DELETE .../sources/case-type/{id}`；`422`（不是啟用中的類型）轉成欄位錯誤。 */
+  override setAssistantCaseType(
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
+  ): Observable<UpdateAssistantSettingsResult> {
+    const path = apiAssistantCaseTypeSourcePath(assistantId, caseTypeId);
+    const request = proposable ? this.http.put<ApiAssistantSettings>(path, null) : this.http.delete<ApiAssistantSettings>(path);
     return request.pipe(
       map((response): UpdateAssistantSettingsResult => ({ status: 'ready', data: toAssistantSettings(response) })),
       catchError((error: unknown) =>
@@ -2286,6 +2316,51 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  /**
+   * 確認助理提議的案件（#254）：伺服器以確認的標題與說明建立案件，回傳這則提議更新後的訊息。
+   * `422` 是 validation-failed（欄位或類型已不可提議），`409` 是 conflict（已處理過），`403` 是 permission-denied。
+   */
+  override confirmChatCaseProposal(
+    _viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation,
+  ): Observable<ChatCaseProposalResult> {
+    const body: ConfirmChatCaseProposalRequest = { title: confirmation.title, description: confirmation.description };
+    return this.http.post<ApiChatMessageView>(apiChatCaseProposalPath(assistantId, messageId, 'confirm'), body).pipe(
+      map((response): ChatCaseProposalResult => ({ status: 'ready', data: toChatMessage(response) })),
+      catchError((error: unknown) => this.caseProposalRefusedOrThrow(error)),
+    );
+  }
+
+  override dismissChatCaseProposal(_viewerId: ChatViewerId, assistantId: string, messageId: string): Observable<ChatCaseProposalResult> {
+    return this.http.post<ApiChatMessageView>(apiChatCaseProposalPath(assistantId, messageId, 'dismiss'), {}).pipe(
+      map((response): ChatCaseProposalResult => ({ status: 'ready', data: toChatMessage(response) })),
+      catchError((error: unknown) => this.caseProposalRefusedOrThrow(error)),
+    );
+  }
+
+  private caseProposalRefusedOrThrow(error: unknown): Observable<ChatCaseProposalResult> {
+    if (isHttpError(error, 409)) {
+      return of({ status: 'conflict', message: bodyMessage(error) ?? CASE_PROPOSAL_CLOSED_MESSAGE });
+    }
+    if (isHttpError(error, 422)) {
+      const body = (error.error ?? {}) as { reason?: unknown; errors?: Record<string, unknown> };
+      const fieldErrors: Partial<Record<'title' | 'description', string>> = {};
+      for (const field of ['title', 'description'] as const) {
+        const messages = body.errors?.[field];
+        if (Array.isArray(messages) && typeof messages[0] === 'string') fieldErrors[field] = messages[0];
+      }
+      return of({
+        status: 'validation-failed',
+        reason: typeof body.reason === 'string' ? body.reason : null,
+        message: bodyMessage(error) ?? fieldErrors.title ?? fieldErrors.description ?? CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE,
+        fieldErrors,
+      });
+    }
+    return this.permissionDeniedOrThrow(error, CHAT_DENIED);
+  }
+
   private chatFormRefusedOrThrow(
     error: unknown,
   ): Observable<DatabaseFieldsValidationFailedView | DatabaseSubmissionConflictView | PermissionDeniedRepositoryView> {
@@ -2914,6 +2989,8 @@ function toAssistantSettings(settings: ApiAssistantSettings): AssistantSettingsV
       ...settings.knowledgeBaseIds.map((id): AssistantSourceReference => ({ id, type: 'knowledge-base' })),
       ...settings.databaseIds.map((id): AssistantSourceReference => ({ id, type: 'database' })),
     ],
+    // 可提議的案件類型（#254）。#254 之前錄下的回應沒有這個鍵：視為沒有。
+    caseTypeIds: [...((settings as { caseTypeIds?: readonly string[] }).caseTypeIds ?? [])],
     tone: settings.tone,
     roleInstructions: settings.roleInstructions,
     rules: {
@@ -3209,6 +3286,7 @@ const SETTINGS_FIELDS: readonly AssistantSettingsField[] = [
   'dataWritePurpose',
   'periodicReport',
   'sources',
+  'caseTypeIds',
 ];
 
 function settingsValidationFailed(error: HttpErrorResponse): UpdateAssistantSettingsResult {
@@ -3424,7 +3502,7 @@ function toChatWithdrawal(receipt: DatabaseSubmissionReceiptView): SubmissionWit
 /**
  * 只有 admin 會收到的回覆種類：`form-request` 與 `submission-receipt` 是 #148，表單來自伺服器
  * （`form` 為 null 代表已無法使用），收據由伺服器依提交 id 即時讀取，訊息本身不含填寫內容；
- * `database-query` 是 #149。其他 kind（組織資料、一般知識、查無資料）由 `@smart-agri/chat` 的
+ * `database-query` 是 #149；`case-proposal` 是 #254。其他 kind（組織資料、一般知識、查無資料）由 `@smart-agri/chat` 的
  * `toChatMessage` 依通用規則轉換，這裡回傳 `null` 交還給它。
  *
  * 通用規則在 lib（官網訪客的對話視窗也用）；這個函式同時交給 `AgUiChatRunner` 的串流回覆使用
@@ -3436,6 +3514,10 @@ export function toAdminChatReply(reply: ApiChatReplyView): ChatReplyView | null 
   }
   if (reply.kind === 'form-request') {
     return { kind: 'form-request', text: reply.text, form: reply.form ? toChatForm(reply.form) : null };
+  }
+  if (reply.kind === 'case-proposal') {
+    // 助理提議開案（#254）：類型、承辦組與時限是伺服器讀取當下的值；可不可以確認也由伺服器判斷。
+    return { kind: 'case-proposal', text: reply.text, proposal: reply.caseProposal ?? null };
   }
   if (reply.kind === 'submission-receipt') {
     const receipt = reply.receipt ?? null;

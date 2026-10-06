@@ -62,6 +62,8 @@ builder.Services.AddOptions<ChatFormRequestOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<ChatFormRequestOptions>, ChatFormRequestOptions.Validator>();
 builder.Services.AddScoped<ChatFormRequestTool>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.ChatFormRequestProposal>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.ChatProposalStage>();
 builder.Services.AddPeriodicReports();
 builder.AddSmartAgriAuthentication();
 builder.AddSmartAgriDataProtection();

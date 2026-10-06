@@ -1020,8 +1020,10 @@ else's assistant all get the same `403 publishing`): `GET`, `PUT` (settings; `re
   body, a reply token or a user id — and `IHttpClientFactory`'s own request loggers are removed.
 - **`Line:ApiBaseUrl`** (optional; `Line__ApiBaseUrl` as an environment variable): the Messaging
   API's base address, default `https://api.line.me`. Tests point it (or the client's handler) at a fake
-  LINE server (`tests/SmartAgri.Api.Tests/Infrastructure/FakeLineServer.cs`). **Production refuses to
-  start with any other value**, since the channel access tokens are sent there.
+  LINE server (`tests/SmartAgri.Api.Tests/Infrastructure/FakeLineServer.cs`); the API-mode E2E (CI's
+  `e2e-api` job, `apps/admin-e2e/README.md`) points it at the Node fake `tools/fake-line-server/server.mjs`
+  (`http://127.0.0.1:5180`). **Production refuses to start with any other value**, since the channel
+  access tokens are sent there; Development and every other environment accept any absolute http(s) URL.
 
 ## LINE webhook: `POST /api/v1/line/webhook/{assistantId}` (M5b)
 

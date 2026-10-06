@@ -37,7 +37,7 @@ namespace SmartAgri.Api.Tests.Reports;
 /// queued for the future and stays put.
 /// </remarks>
 [Trait("Category", TestCategories.Docker)]
-public sealed class PeriodicReportEndpointsTests : IClassFixture<AuthHostFixture>
+public sealed partial class PeriodicReportEndpointsTests : IClassFixture<AuthHostFixture>
 {
     private const string Password = "Periodic-Report-Pass-1!";
     private const string AssistantsPath = "/api/v1/assistants";

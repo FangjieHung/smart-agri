@@ -46,7 +46,7 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
 
     private readonly AppDbContext _dbContext;
     private readonly GroundedAnswerService _answers;
-    private readonly ChatClientProvider _chat;
+    private readonly IOrganizationChatModelResolver _chatModel;
     private readonly KnowledgeRetrievalSettings _retrieval;
     private readonly TimeProvider _clock;
     private readonly ILogger<RunAssistantTestSetHandler> _logger;
@@ -54,14 +54,14 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
     public RunAssistantTestSetHandler(
         AppDbContext dbContext,
         GroundedAnswerService answers,
-        ChatClientProvider chat,
+        IOrganizationChatModelResolver chatModel,
         KnowledgeRetrievalSettings retrieval,
         TimeProvider clock,
         ILogger<RunAssistantTestSetHandler> logger)
     {
         _dbContext = dbContext;
         _answers = answers;
-        _chat = chat;
+        _chatModel = chatModel;
         _retrieval = retrieval;
         _clock = clock;
         _logger = logger;
@@ -87,6 +87,10 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
         if (run.Status == AssistantTestRunStatus.Queued)
         {
             var minScore = assistant.MinScore ?? _retrieval.MinScore;
+
+            // The model the organization's calls of this scope go to (M6 plan §3 B), not the
+            // deployment's: what the run records is what answered it.
+            var model = (await _chatModel.ResolveAsync(cancellationToken)).Entry.Model;
             var started = await ChangeRunAsync(
                 run,
                 current =>
@@ -96,7 +100,7 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
                         return false;
                     }
 
-                    current.Start(GroundedAnswerPrompt.Version, _chat.Model, minScore, _clock.GetUtcNow());
+                    current.Start(GroundedAnswerPrompt.Version, model, minScore, _clock.GetUtcNow());
                     return true;
                 },
                 cancellationToken);

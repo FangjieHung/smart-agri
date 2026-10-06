@@ -36,20 +36,20 @@ internal sealed class SummarizeDatabaseReportHandler : IJobHandler
 {
     private readonly AppDbContext _dbContext;
     private readonly IChatClient _chat;
-    private readonly ChatClientProvider _provider;
+    private readonly IOrganizationChatModelResolver _chatModel;
     private readonly TimeProvider _clock;
     private readonly ILogger<SummarizeDatabaseReportHandler> _logger;
 
     public SummarizeDatabaseReportHandler(
         AppDbContext dbContext,
         IChatClient chat,
-        ChatClientProvider provider,
+        IOrganizationChatModelResolver chatModel,
         TimeProvider clock,
         ILogger<SummarizeDatabaseReportHandler> logger)
     {
         _dbContext = dbContext;
         _chat = chat;
-        _provider = provider;
+        _chatModel = chatModel;
         _clock = clock;
         _logger = logger;
     }
@@ -80,7 +80,10 @@ internal sealed class SummarizeDatabaseReportHandler : IJobHandler
         {
             var response = await _chat.GetResponseAsync(ReportSummaryPrompt.Messages(facts), attribution.ToChatOptions(), cancellationToken);
             text = response.Text?.Trim() ?? string.Empty;
-            model = string.IsNullOrWhiteSpace(response.ModelId) ? _provider.Model : response.ModelId;
+            // Without a model name in the response, the model the organization's call went to.
+            model = string.IsNullOrWhiteSpace(response.ModelId)
+                ? (await _chatModel.ResolveAsync(cancellationToken)).Entry.Model
+                : response.ModelId;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

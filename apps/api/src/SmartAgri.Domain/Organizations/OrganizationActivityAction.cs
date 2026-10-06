@@ -36,4 +36,11 @@ public enum OrganizationActivityAction
     /// <c>answerOutcomeCount</c> — counts only, never which threads.</summary>
     [JsonStringEnumMemberName("retention-cleanup")]
     RetentionCleanup,
+
+    /// <summary>A manager deleted every member's saved conversations on one assistant at once
+    /// (「立即刪除」, M6-5). Detail: <c>assistantId</c>, <c>assistantName</c> and <c>threadCount</c>
+    /// (<see cref="OrganizationActivity.ConversationsPurged"/>) — never which threads or what they
+    /// said. The members are not notified.</summary>
+    [JsonStringEnumMemberName("conversations-purged")]
+    ConversationsPurged,
 }

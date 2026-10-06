@@ -135,6 +135,29 @@ public class OrganizationRetentionTests
         Should.Throw<ArgumentOutOfRangeException>(() => OrganizationActivity.RetentionCleanup(organizationId, Now, 30, Now, 0, 0));
     }
 
+    [Fact]
+    public void A_purge_records_the_assistant_and_the_count_and_nothing_anyone_wrote()
+    {
+        var organizationId = Guid.CreateVersion7();
+        var actorId = Guid.CreateVersion7();
+        var assistantId = Guid.CreateVersion7();
+
+        var purged = OrganizationActivity.ConversationsPurged(organizationId, actorId, Now, assistantId, "退貨助理", 12);
+
+        (purged.Action, purged.ActorAccountId, purged.At).ShouldBe((OrganizationActivityAction.ConversationsPurged, (Guid?)actorId, Now));
+        Keys(purged).ShouldBe(["assistantId", "assistantName", "threadCount"]);
+        using (var detail = JsonDocument.Parse(purged.Detail!))
+        {
+            detail.RootElement.GetProperty("assistantId").GetGuid().ShouldBe(assistantId);
+            detail.RootElement.GetProperty("assistantName").GetString().ShouldBe("退貨助理");
+            detail.RootElement.GetProperty("threadCount").GetInt32().ShouldBe(12);
+        }
+
+        // A purge that found nothing is still the manager's action, recorded with 0.
+        Keys(OrganizationActivity.ConversationsPurged(organizationId, actorId, Now, assistantId, "退貨助理", 0)).Count.ShouldBe(3);
+        Should.Throw<ArgumentOutOfRangeException>(() => OrganizationActivity.ConversationsPurged(organizationId, actorId, Now, assistantId, "退貨助理", -1));
+    }
+
     private static List<string> Keys(OrganizationActivity activity)
     {
         using var detail = JsonDocument.Parse(activity.Detail!);

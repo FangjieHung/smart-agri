@@ -16,6 +16,7 @@ import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { SettingRowComponent } from '@smart-agri/ui';
 import type { AccountId } from '../../../../core/domain/account.model';
 import {
+  HANDOFF_COPIES_KEPT,
   isShorterRetention,
   RETENTION_BUFFER_DAYS,
   retentionLabel,
@@ -35,7 +36,7 @@ import { OrganizationSettingsChanges } from '../../organization-settings-changes
 export const FOREVER_RETENTION_OPTION = 'forever';
 
 /** 固定說明：處理事項裡的問答副本不受保存期限影響（M6 計畫第 3 節 G）。 */
-export const RETENTION_ISSUES_NOTE = '已轉給專人的問答會保留在處理事項中，不受保存期限影響。';
+export const RETENTION_ISSUES_NOTE = `${HANDOFF_COPIES_KEPT}，不受保存期限影響。`;
 
 type SaveKind = 'shorten' | 'extend' | 'revert';
 

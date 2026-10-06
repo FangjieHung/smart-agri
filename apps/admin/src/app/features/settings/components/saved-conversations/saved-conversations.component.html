@@ -1,0 +1,65 @@
+@let state = result();
+@if (state?.status !== 'permission-denied') {
+  <div class="saved-conversations" data-saved-conversations>
+    <div class="saved-conversations__heading">
+      <h3 #heading id="saved-conversations-title" tabindex="-1">各助理已保存的對話</h3>
+      <p class="hint">只顯示數字，不顯示對話內容。立即刪除會刪掉該助理所有成員已保存的對話，不會通知受影響的成員。</p>
+    </div>
+
+    @if (state === null) {
+      <app-state-panel state="error" title="目前無法載入各助理的對話數" description="請稍後重新整理頁面再試一次。" />
+    } @else if (state.status === 'loading') {
+      <app-state-panel state="loading" title="正在載入各助理的對話數" />
+    } @else if (rows(); as list) {
+      @if (list.length === 0) {
+        <p class="hint">組織內還沒有助理。</p>
+      } @else {
+        <ul class="saved-conversations__list" aria-labelledby="saved-conversations-title">
+          @for (row of list; track row.assistantId) {
+            <li class="saved-conversations__row" [attr.data-assistant-row]="row.assistantId">
+              <div class="saved-conversations__copy">
+                <p class="saved-conversations__name">{{ row.assistantName }}</p>
+                <p class="hint" data-keep-state>保留使用者自己的對話紀錄：{{ row.keepConversations ? '開啟' : '關閉' }}</p>
+                <p data-thread-count>
+                  已保存 {{ row.threadCount }} 串對話（{{ row.accountCount }} 位成員）
+                </p>
+                <p class="hint" data-last-activity>
+                  @if (row.lastActivityAt; as at) {
+                    最後活動：{{ at | date: 'yyyy/MM/dd HH:mm' }}
+                  } @else {
+                    最後活動：尚無對話
+                  }
+                </p>
+              </div>
+              <button
+                #purgeButton
+                type="button"
+                class="saved-conversations__purge"
+                [attr.data-assistant-id]="row.assistantId"
+                [attr.aria-label]="purgeLabel(row)"
+                [disabled]="busy() || row.threadCount === 0"
+                (click)="ask(row)"
+              >立即刪除</button>
+            </li>
+          }
+        </ul>
+      }
+    }
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+    <p class="feedback" role="status" aria-live="polite" data-purge-status>{{ feedback() }}</p>
+  </div>
+}
+
+@if (purging(); as row) {
+  <app-purge-conversations-dialog
+    [assistantName]="row.assistantName"
+    [threadCount]="row.threadCount"
+    [accountCount]="row.accountCount"
+    [busy]="busy()"
+    (cancelled)="cancel()"
+    (confirmed)="confirm()"
+  />
+}

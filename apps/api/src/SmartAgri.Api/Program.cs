@@ -220,6 +220,7 @@ app.MapOperationsSummaryEndpoints();
 app.MapOrganizationUsageEndpoints();
 app.MapOrganizationChatModelEndpoints();
 app.MapOrganizationRetentionEndpoints();
+app.MapConversationPurgeEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();

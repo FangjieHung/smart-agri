@@ -966,6 +966,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/organization/retention/assistants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrganizationRetentionAssistantView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/recent-conversations": {
         parameters: {
             query?: never;
@@ -5779,6 +5828,108 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/assistants/{id}/chat/conversations/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantConversationSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/conversations:purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantConversationPurgeView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/chat/conversations": {
         parameters: {
             query?: never;
@@ -6519,6 +6670,17 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
             acceptanceStatus: components["schemas"]["AssistantAcceptanceStatus"];
+        };
+        AssistantConversationPurgeView: {
+            /** Format: int32 */
+            deletedThreadCount: number;
+        };
+        AssistantConversationSummaryView: {
+            /** Format: int32 */
+            threadCount: number;
+            /** Format: int32 */
+            accountCount: number;
+            canPurge: boolean;
         };
         AssistantDraftView: {
             /** Format: uuid */
@@ -7644,6 +7806,18 @@ export interface components {
             lastChange: null | components["schemas"]["OrganizationSettingChangeView"];
             /** Format: int32 */
             revision: number;
+        };
+        OrganizationRetentionAssistantView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            keepConversations: boolean;
+            /** Format: int32 */
+            threadCount: number;
+            /** Format: int32 */
+            accountCount: number;
+            /** Format: date-time */
+            lastActivityAt: null | string;
         };
         OrganizationRetentionPendingView: {
             /** Format: int32 */

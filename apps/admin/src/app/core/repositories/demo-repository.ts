@@ -93,7 +93,10 @@ import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../do
 import type { TeamMemberView, TeamView } from '../domain/team.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import type {
+  AssistantConversationPurgeView,
+  AssistantConversationSummaryView,
   OrganizationChatModelView,
+  OrganizationRetentionAssistantView,
   OrganizationRetentionPreviewView,
   OrganizationRetentionView,
 } from '../domain/organization-settings.model';
@@ -734,6 +737,22 @@ export interface DemoRepository extends DemoScenarioController {
     days: number | null,
     revision: number,
   ): Observable<UpdateOrganizationRetentionResult>;
+  /**
+   * 各助理已保存的對話（issue #242，只有管理者）：組織內每個助理一列，只有數字。非管理者是
+   * `organization-settings` permission-denied，畫面當成「不顯示」。
+   */
+  listRetentionAssistants(): Observable<RepositoryView<readonly OrganizationRetentionAssistantView[]>>;
+  /**
+   * 單一助理已保存的對話串數與成員數：管理者，或可管理這個助理的擁有者。其他人、不存在的 id 一律是
+   * 相同的 `assistant-configuration` permission-denied。建立精靈裡助理還不存在，不要呼叫。
+   */
+  getAssistantConversationSummary(assistantId: string): Observable<RepositoryView<AssistantConversationSummaryView>>;
+  /**
+   * 立即刪除這個助理所有成員已保存的對話（只有管理者；「保存對話」開或關都可以）。非管理者（含擁有者）、
+   * 不存在或別的組織的助理一律是相同的 `organization-settings` permission-denied。處理事項的問答副本
+   * 不受影響，也不通知受影響的成員。
+   */
+  purgeAssistantConversations(assistantId: string): Observable<RepositoryView<AssistantConversationPurgeView>>;
   /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */
   listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**

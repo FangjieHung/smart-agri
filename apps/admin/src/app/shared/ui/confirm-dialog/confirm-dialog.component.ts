@@ -38,6 +38,8 @@ export class ConfirmDialogComponent {
   readonly confirmClass = input('');
   /** 送出中：兩個按鈕都停用（Escape 仍會發出 `cancelled`，由使用的元件決定要不要忽略）。 */
   readonly busy = input(false);
+  /** 只停用確認按鈕（例如還沒勾選「我了解刪除後無法復原」）；「取消」與 Escape 照常可用。 */
+  readonly confirmDisabled = input(false);
 
   /** 按「取消」或 Escape。 */
   readonly cancelled = output<void>();

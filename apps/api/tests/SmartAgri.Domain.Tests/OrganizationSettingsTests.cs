@@ -80,7 +80,8 @@ public class OrganizationSettingsTests
     public void Activity_actions_have_wire_names()
     {
         WireNames<OrganizationActivityAction>.All.ShouldBe(
-            ["chat-model-changed", "retention-changed", "retention-change-cancelled", "retention-took-effect", "retention-cleanup"]);
+            ["chat-model-changed", "retention-changed", "retention-change-cancelled", "retention-took-effect", "retention-cleanup",
+             "conversations-purged"]);
     }
 
     private static Organization NewOrganization() => new(Guid.CreateVersion7(), "模型商行", "models");

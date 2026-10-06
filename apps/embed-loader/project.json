@@ -1,0 +1,38 @@
+{
+  "name": "embed-loader",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/embed-loader/src",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "outputs": ["{workspaceRoot}/dist/embed-loader"],
+      "options": {
+        "commands": [
+          "node -e \"require('fs').mkdirSync('dist/embed-loader',{recursive:true});require('fs').copyFileSync('apps/embed-loader/src/embed.js','dist/embed-loader/embed.js')\""
+        ],
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "inputs": ["default", "{workspaceRoot}/tsconfig.base.json"],
+      "options": {
+        "command": "tsc -p apps/embed-loader/tsconfig.json --noEmit",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "vitest run --config apps/embed-loader/vitest.config.mts",
+        "cwd": "{workspaceRoot}"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

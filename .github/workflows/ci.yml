@@ -142,6 +142,14 @@ jobs:
           Ai__Embedding__Model: fake-dev
           Ai__Chat__Provider: Fake
           Ai__Chat__Model: fake-chat-dev
+          # 第二個可選的 Fake 模型（M6 #244）：org-settings-api.cy.ts 換模型後檢查驗收頁的提示。只放在這一步：
+          # 前面的 `dotnet build`（建置期產生 OpenAPI 不是 Development，讀不到 appsettings.Development.json 的
+          # Ai:Chat）看到 Ai:Chat:Models 會因為缺少預設模型而失敗；這裡以 --no-build 啟動，不會重新建置。
+          # Cypress 那一步用 cy.exec 跑的一次性子指令（set-token-limit、retention-cleanup）不需要它。
+          Ai__Chat__Models__0__Provider: Fake
+          Ai__Chat__Models__0__Model: fake-chat-second
+          Ai__Chat__Models__0__Id: second
+          Ai__Chat__Models__0__DisplayName: 第二個測試模型
           Jobs__WorkerEnabled: 'true'
           # 對話視窗與載入器（路徑同 Dockerfile 複製進 wwwroot 的來源）；嵌入碼與同源檢查用的對外網址。
           Widget__RootPath: ${{ github.workspace }}/dist/smart-agri-widget/browser

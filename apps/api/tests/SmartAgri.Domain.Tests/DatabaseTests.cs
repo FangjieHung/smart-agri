@@ -16,8 +16,9 @@ public partial class DatabaseTests
     [Fact]
     public void Field_types_match_the_frontend_union()
     {
+        // Declared in libs/chat since #198 (chat replies show form fields); admin re-exports it.
         AssertMatchesFrontend<DatabaseFieldType>(
-            "DatabaseFieldType", ["text", "number", "date", "single-choice", "multiple-choice", "scale"]);
+            "DatabaseFieldType", ["text", "number", "date", "single-choice", "multiple-choice", "scale"], ChatViewModel);
     }
 
     [Fact]
@@ -25,7 +26,8 @@ public partial class DatabaseTests
     {
         AssertMatchesFrontend<DatabaseTemplateId>(
             "DatabaseTemplateId",
-            ["template-customer-profile", "template-periodic-report", "template-satisfaction", "template-progress", "template-blank"]);
+            ["template-customer-profile", "template-periodic-report", "template-satisfaction", "template-progress", "template-blank"],
+            AdminDatabaseModel);
     }
 
     [Fact]
@@ -116,35 +118,39 @@ public partial class DatabaseTests
     private static DatabaseFormField Text(string id, string label) =>
         new(id, label, DatabaseFieldType.Text, false, [], null, string.Empty);
 
-    private static void AssertMatchesFrontend<TEnum>(string unionName, string[] expected)
+    private static readonly string[] AdminDatabaseModel = ["apps", "admin", "src", "app", "core", "domain", "database.model.ts"];
+    private static readonly string[] ChatViewModel = ["libs", "chat", "src", "lib", "chat-view.model.ts"];
+
+    private static void AssertMatchesFrontend<TEnum>(string unionName, string[] expected, string[] frontendFile)
         where TEnum : struct, Enum
     {
         Enum.GetValues<TEnum>()
             .Select(value => JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(value)))
             .ShouldBe(expected);
         WireNames<TEnum>.All.ShouldBe(expected);
-        ReadUnion(File.ReadAllText(FindFrontendDatabaseModel()), unionName).ShouldBe(expected);
+        var path = FindFrontendFile(frontendFile);
+        ReadUnion(File.ReadAllText(path), unionName, Path.GetFileName(path)).ShouldBe(expected);
     }
 
-    private static string[] ReadUnion(string source, string name)
+    private static string[] ReadUnion(string source, string name, string fileName)
     {
         var declaration = Regex.Match(source, $@"export\s+type\s+{name}\s*=(?<body>[^;]*);");
-        declaration.Success.ShouldBeTrue($"`export type {name}` not found in database.model.ts");
+        declaration.Success.ShouldBeTrue($"`export type {name}` not found in {fileName}");
         return [.. StringLiteral().Matches(declaration.Groups["body"].Value).Select(match => match.Groups[1].Value)];
     }
 
-    private static string FindFrontendDatabaseModel()
+    private static string FindFrontendFile(string[] segments)
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {
-            var candidate = Path.Combine(directory.FullName, "apps", "admin", "src", "app", "core", "domain", "database.model.ts");
+            var candidate = Path.Combine([directory.FullName, .. segments]);
             if (File.Exists(candidate))
             {
                 return candidate;
             }
         }
 
-        throw new FileNotFoundException("apps/admin/src/app/core/domain/database.model.ts not found above the test output directory.");
+        throw new FileNotFoundException($"{string.Join('/', segments)} not found above the test output directory.");
     }
 
     [GeneratedRegex("'([^']*)'")]

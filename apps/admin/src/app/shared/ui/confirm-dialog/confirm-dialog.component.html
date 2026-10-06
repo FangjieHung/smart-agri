@@ -1,0 +1,23 @@
+<div class="confirm-backdrop"></div>
+<div
+  class="confirm"
+  role="dialog"
+  aria-modal="true"
+  [attr.aria-labelledby]="name() + '-confirm-title'"
+  [attr.aria-describedby]="name() + '-confirm-detail'"
+  cdkTrapFocus
+  (keydown.escape)="cancelled.emit()"
+>
+  <!-- 按鈕與標題的文字不留前後空白：既有 Cypress 以 have.text 精確比對（例如「繼續填寫」）。 -->
+  @if (headingLevel() === 3) {
+    <h3 class="confirm-title" [id]="name() + '-confirm-title'">{{ heading() }}</h3>
+  } @else {
+    <h2 class="confirm-title" [id]="name() + '-confirm-title'">{{ heading() }}</h2>
+  }
+  <p class="confirm-detail" [id]="name() + '-confirm-detail'">{{ detail() }}</p>
+  <ng-content />
+  <div class="confirm-actions">
+    <button #cancelButton type="button" class="confirm-cancel" [disabled]="busy()" (click)="cancelled.emit()">{{ cancelLabel() }}</button>
+    <button type="button" [class]="confirmClass()" [disabled]="busy()" (click)="confirmed.emit()">{{ confirmLabel() }}</button>
+  </div>
+</div>

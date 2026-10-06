@@ -85,24 +85,15 @@
 </div>
 
 @if (pendingDelete(); as pending) {
-  <div class="confirm-backdrop"></div>
-  <div
-    class="confirm"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="delete-confirm-title"
-    aria-describedby="delete-confirm-detail"
-    cdkTrapFocus
-    (keydown.escape)="cancelDelete()"
-  >
-    <h3 class="confirm-title" id="delete-confirm-title">刪除這段對話？</h3>
-    <p class="confirm-detail" id="delete-confirm-detail">
-      「{{ pending.title }}」與其中的 {{ pending.messageCount }} 則訊息會被刪除，無法復原。
-    </p>
-    <div class="confirm-actions">
-      <button #cancelButton type="button" class="confirm-cancel" (click)="cancelDelete()">取消</button>
-      <button type="button" class="confirm-delete" (click)="confirmDelete()">刪除</button>
-    </div>
-  </div>
+  <app-confirm-dialog
+    name="delete"
+    [headingLevel]="3"
+    heading="刪除這段對話？"
+    [detail]="'「' + pending.title + '」與其中的 ' + pending.messageCount + ' 則訊息會被刪除，無法復原。'"
+    confirmLabel="刪除"
+    confirmClass="confirm-delete"
+    (cancelled)="cancelDelete()"
+    (confirmed)="confirmDelete()"
+  />
 }
 }

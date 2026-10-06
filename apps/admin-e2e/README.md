@@ -25,11 +25,20 @@ API 模式的 spec 不會自己啟動任何伺服器，要先準備好資料庫�
    ```
 
    帳號已經存在時 `migrate` 不會改密碼，這時請用當初建立帳號的密碼。
-3. **API**（5153，背景工作 worker 預設開啟，`appsettings.Development.json` 已經用 `Fake` 嵌入與對話）：
+3. **API**（5153，背景工作 worker 預設開啟，`appsettings.Development.json` 已經用 `Fake` 嵌入與對話）。
+   `website-embed-api.cy.ts` 會開 API 提供的訪客對話視窗 `/use/{id}`，所以先建置 widget，再讓 API 指到產出
+   （沒有建置時 `/use/{id}` 一律 `503`）：
 
    ```sh
+   npx nx build widget --configuration=production
+   Widget__RootPath="$PWD/dist/smart-agri-widget/browser" \
+   Widget__EmbedScriptPath="$PWD/apps/embed-loader/src/embed.js" \
    dotnet run --project apps/api/src/SmartAgri.Api
    ```
+
+   同一個 spec 會用 `cy.exec` 執行 `dotnet run --no-build --project ../api/src/SmartAgri.Api -- set-token-limit`
+   暫時調整 安心商行 的用量上限（最後恢復成 `default`），所以跑 Cypress 的 shell 要能連到同一個資料庫
+   （換資料庫時一樣設定 `ConnectionStrings__Default`）。
 
 4. **admin**（4200，`apps/admin/proxy.api.json` 把 `/api`、`/connect`、`/.well-known` 轉給 5153）：
 
@@ -47,7 +56,9 @@ API 模式的 spec 不會自己啟動任何伺服器，要先準備好資料庫�
 
 ### 換埠跑（避開正在用的 5153／4200）
 
-- API：`ASPNETCORE_URLS=http://localhost:5163`，資料庫另開時用 `ConnectionStrings__Default=...` 指過去。
+- API：`ASPNETCORE_URLS=http://localhost:5163`，資料庫另開時用 `ConnectionStrings__Default=...` 指過去；
+  對外網址也要一起改：`PublicChannels__PublicBaseUrl=http://localhost:5163`，跑 spec 時設
+  `ADMIN_E2E_API_URL=http://localhost:5163`。
 - admin 的 redirect URI 是 `migrate` 依 `Authentication:AdminSpa:Origins` 寫進資料庫的，換埠要在 `migrate`
   時一起設定：`Authentication__AdminSpa__Origins__0=http://localhost:4210`。
 - proxy 目標寫在 `apps/admin/proxy.api.json`：複製一份改成新的 API 埠，以

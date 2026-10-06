@@ -112,6 +112,10 @@ jobs:
       - run: npm ci
       - run: dotnet restore apps/api/SmartAgri.slnx --locked-mode
       - run: dotnet build apps/api/src/SmartAgri.Api --no-restore
+      # 訪客的對話視窗（apps/widget）由 API 自己提供（/use/{id}、/widget/*、/embed.js；M5a #201），
+      # website-embed-api.cy.ts 要開它，所以先建置，API 以 Widget__RootPath 指到產出。
+      - name: Build the chat window the API serves
+        run: npx nx build widget --configuration=production
       # 套用 migration、註冊 admin-spa（redirect URI 用 Development 預設的 http://localhost:4200），
       # 並以 SEED_DEMO_PASSWORD 建立 安心商行（anxin）與 對照組織（control）的示範帳號。
       # 不設 SEED_DEMO_KNOWLEDGE：spec 自己建立並刪除它用到的知識庫。
@@ -125,11 +129,23 @@ jobs:
           Ai__Chat__Provider: Fake
           Ai__Chat__Model: fake-chat-dev
           Jobs__WorkerEnabled: 'true'
+          # 對話視窗與載入器（路徑同 Dockerfile 複製進 wwwroot 的來源）；嵌入碼與同源檢查用的對外網址。
+          Widget__RootPath: ${{ github.workspace }}/dist/smart-agri-widget/browser
+          Widget__EmbedScriptPath: ${{ github.workspace }}/apps/embed-loader/src/embed.js
+          PublicChannels__PublicBaseUrl: http://localhost:5153
         run: |
           nohup dotnet run --no-build --no-launch-profile --project apps/api/src/SmartAgri.Api \
             > "$RUNNER_TEMP/api.log" 2>&1 &
           for _ in $(seq 1 60); do
             if curl -fsS --max-time 3 -o /dev/null http://localhost:5153/health/ready; then
+              # 沒有 widget 建置時 /use/{id} 一律 503；未知的 id 應是固定的 404 頁。
+              status=$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' \
+                http://localhost:5153/use/00000000-0000-4000-8000-000000000000)
+              if [ "$status" != 404 ]; then
+                echo "the API does not serve the chat window (/use answered $status)" >&2
+                tail -n 100 "$RUNNER_TEMP/api.log" >&2
+                exit 1
+              fi
               echo "API is ready"; exit 0
             fi
             sleep 2

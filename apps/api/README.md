@@ -135,7 +135,10 @@ openssl pkcs12 -export -inkey encryption.key -in encryption.crt -out deploy/cert
 
 `deploy/docker-compose.yml` mounts `deploy/certs/` (git-ignored) and reads the passwords
 and `ADMIN_SPA_ORIGIN` from `deploy/.env`. Outside Development OpenIddict also requires
-HTTPS on `/connect/*`.
+HTTPS on `/connect/*`. The api container runs as a non-root user (uid 1654 in the .NET
+images), so every `.pfx` in `deploy/certs/` must be readable by it — `openssl` writes them
+`600` for the user who ran it, so `chmod 644 deploy/certs/*.pfx` (the passwords stay in
+`deploy/.env`); otherwise the api refuses to start because it cannot read the certificate.
 
 ## Data Protection key ring
 

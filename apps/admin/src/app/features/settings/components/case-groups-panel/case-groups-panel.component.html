@@ -1,0 +1,159 @@
+@if (view(); as data) {
+  <section class="case-groups-panel" aria-labelledby="case-groups-title" data-case-groups-panel>
+    <div>
+      <p class="ui-text-caption">案件</p>
+      <h2 id="case-groups-title" class="ui-text-subtitle">承辦組</h2>
+    </div>
+    <p class="hint">
+      承辦組是可以受理某類案件的一群同仁，不必對應部門。成員只能是組織內部的帳號；承辦組不能刪除，不再使用時請封存。
+    </p>
+
+    <form class="create" novalidate (submit)="create($event)" data-case-group-create>
+      <div class="control">
+        <label for="case-group-new-name">新的承辦組名稱</label>
+        <input
+          id="case-group-new-name"
+          type="text"
+          autocomplete="off"
+          [attr.maxlength]="nameMaxLength"
+          [value]="newName()"
+          [attr.aria-invalid]="createError() ? 'true' : null"
+          [attr.aria-describedby]="createError() ? 'case-group-new-name-error' : null"
+          (input)="onNewName($event)"
+        />
+        @if (createError()) {
+          <p id="case-group-new-name-error" class="field-error">{{ createError() }}</p>
+        }
+      </div>
+      <button type="submit" class="ui-button" [disabled]="saving()">建立承辦組</button>
+    </form>
+
+    <ul class="group-list">
+      @for (group of data.groups; track group.id) {
+        <li class="group" [class.is-archived]="group.archived" [attr.data-case-group]="group.name">
+          <div class="group__identity">
+            <p class="group__name">
+              {{ group.name }}
+              @if (group.archived) {
+                <span class="group__tag">已封存</span>
+              }
+            </p>
+            <p class="group__members">
+              @if (group.members.length > 0) {
+                成員：{{ memberNames(group) }}
+              } @else {
+                尚無成員
+              }
+            </p>
+          </div>
+
+          @if (isEditing(group, 'rename')) {
+            <form class="editor" novalidate (submit)="rename(group, $event)">
+              <div class="control">
+                <label [for]="'case-group-name-' + group.id">「{{ group.name }}」的新名稱</label>
+                <input
+                  [id]="'case-group-name-' + group.id"
+                  type="text"
+                  autocomplete="off"
+                  [attr.maxlength]="nameMaxLength"
+                  [value]="renameDraft()"
+                  [attr.aria-invalid]="renameError() ? 'true' : null"
+                  [attr.aria-describedby]="renameError() ? 'case-group-name-error-' + group.id : null"
+                  (input)="onRenameDraft($event)"
+                />
+                @if (renameError()) {
+                  <p [id]="'case-group-name-error-' + group.id" class="field-error">{{ renameError() }}</p>
+                }
+              </div>
+              <div class="actions">
+                <button type="submit" class="ui-button" [disabled]="saving()">儲存名稱</button>
+                <button type="button" class="ui-button secondary" (click)="cancelEditing()">取消</button>
+              </div>
+            </form>
+          } @else if (isEditing(group, 'members')) {
+            <form class="editor" novalidate (submit)="saveMembers(group, $event)" data-case-group-members-editor>
+              <fieldset>
+                <legend>「{{ group.name }}」的成員</legend>
+                <p class="hint">只能選擇組織內部的帳號（管理者、內部同仁）。儲存時整份名單一起更新，每個加入、移除都會留下紀錄。</p>
+                @for (candidate of data.candidates; track candidate.id) {
+                  <div class="choice">
+                    <input
+                      type="checkbox"
+                      [id]="'case-group-member-' + group.id + '-' + candidate.id"
+                      [checked]="memberDraft().has(candidate.id)"
+                      (change)="toggleMember(candidate.id, $event)"
+                    />
+                    <label [for]="'case-group-member-' + group.id + '-' + candidate.id">
+                      {{ candidate.displayName }}
+                      <small>{{ roleLabels[candidate.role] }}</small>
+                    </label>
+                  </div>
+                } @empty {
+                  <p class="hint">目前沒有可以加入的內部帳號。</p>
+                }
+              </fieldset>
+              <div class="actions">
+                <button type="submit" class="ui-button" [disabled]="saving()">儲存成員</button>
+                <button type="button" class="ui-button secondary" (click)="cancelEditing()">取消</button>
+              </div>
+            </form>
+          } @else {
+            <div class="actions">
+              <button type="button" class="ui-button secondary" (click)="startRename(group)">改名「{{ group.name }}」</button>
+              <button type="button" class="ui-button secondary" (click)="startMembers(group)">編輯「{{ group.name }}」的成員</button>
+              @if (group.archived) {
+                <button type="button" class="ui-button secondary" [disabled]="saving()" (click)="setArchived(group, false)">
+                  取消封存「{{ group.name }}」
+                </button>
+              } @else {
+                <button type="button" class="ui-button secondary" [disabled]="saving()" (click)="setArchived(group, true)">
+                  封存「{{ group.name }}」
+                </button>
+              }
+              <button
+                type="button"
+                class="ui-button secondary"
+                [attr.aria-expanded]="isEditing(group, 'history')"
+                [attr.aria-controls]="'case-group-history-' + group.id"
+                (click)="toggleHistory(group)"
+              >
+                「{{ group.name }}」的成員異動
+              </button>
+            </div>
+          }
+
+          @if (isEditing(group, 'history')) {
+            <div class="history" [id]="'case-group-history-' + group.id" data-case-group-history>
+              @let changes = history();
+              @if (changes === null) {
+                <p class="error">目前無法載入成員異動，請稍後再試。</p>
+              } @else if (changes.status === 'loading') {
+                <p class="hint">正在載入成員異動…</p>
+              } @else if (changes.status === 'ready') {
+                <ol class="history__list">
+                  @for (change of changes.data; track change.id) {
+                    <li>
+                      {{ change.changedAt | date: 'yyyy/MM/dd HH:mm' }}　{{ change.changedBy.displayName }}
+                      {{ change.added ? '加入' : '移除' }}了 {{ change.account.displayName }}
+                    </li>
+                  } @empty {
+                    <li class="hint">還沒有成員異動。</li>
+                  }
+                </ol>
+              } @else if (changes.status === 'permission-denied') {
+                <p class="error">{{ changes.message }}</p>
+              }
+            </div>
+          }
+        </li>
+      } @empty {
+        <li class="hint">還沒有承辦組。建立第一個承辦組後，就能在案件類型與案件中選用。</li>
+      }
+    </ul>
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+    <p class="feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+  </section>
+}

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
@@ -558,7 +559,7 @@ public static class AssistantIssueEndpoints
             .Where(issueEvent => issueEvent.IssueId == issue.Id)
             .OrderBy(issueEvent => issueEvent.Ordinal)
             .ToListAsync(cancellationToken);
-        var names = await AccountNamesAsync(
+        var names = await AccountNames.LoadAsync(
             dbContext,
             events.Select(issueEvent => (Guid?)issueEvent.ActorAccountId).Concat(events.Select(issueEvent => issueEvent.AssigneeAccountId)),
             cancellationToken);
@@ -569,11 +570,11 @@ public static class AssistantIssueEndpoints
                 issueEvent.Id,
                 issueEvent.Action,
                 issueEvent.ActorAccountId,
-                names.GetValueOrDefault(issueEvent.ActorAccountId, string.Empty),
+                names.NameOf(issueEvent.ActorAccountId),
                 issueEvent.At,
                 issueEvent.Note,
                 issueEvent.AssigneeAccountId,
-                issueEvent.AssigneeAccountId is { } assignee ? names.GetValueOrDefault(assignee) : null,
+                names.NameOf(issueEvent.AssigneeAccountId),
                 issueEvent.Status,
                 issueEvent.DueAt)));
     }
@@ -591,7 +592,7 @@ public static class AssistantIssueEndpoints
             .Where(assistant => assistantIds.Contains(assistant.Id))
             .Select(assistant => new { assistant.Id, assistant.Name, assistant.OwnerAccountId })
             .ToDictionaryAsync(assistant => assistant.Id, cancellationToken);
-        var names = await AccountNamesAsync(
+        var names = await AccountNames.LoadAsync(
             dbContext, issues.Select(issue => issue.AssigneeAccountId).Concat(issues.Select(issue => issue.ReporterAccountId)), cancellationToken);
 
         return [.. issues.Select(issue =>
@@ -605,9 +606,9 @@ public static class AssistantIssueEndpoints
                 issue.Status,
                 issue.Title,
                 issue.AssigneeAccountId,
-                issue.AssigneeAccountId is { } assignee ? names.GetValueOrDefault(assignee) : null,
+                names.NameOf(issue.AssigneeAccountId),
                 issue.ReporterAccountId,
-                issue.ReporterAccountId is { } reporter ? names.GetValueOrDefault(reporter) : null,
+                names.NameOf(issue.ReporterAccountId),
                 issue.DueAt,
                 issue.TestRunId,
                 issue.TestResultId,
@@ -634,19 +635,5 @@ public static class AssistantIssueEndpoints
         return [.. issues.Select(issue => new ForwardedAssistantIssueView(
             issue.Id, issue.AssistantId, names.GetValueOrDefault(issue.AssistantId, string.Empty),
             issue.Status, issue.ResolutionNote, issue.CreatedAt, issue.UpdatedAt, issue.ResolvedAt))];
-    }
-
-    private static async Task<Dictionary<Guid, string>> AccountNamesAsync(
-        AppDbContext dbContext, IEnumerable<Guid?> accountIds, CancellationToken cancellationToken)
-    {
-        var ids = accountIds.OfType<Guid>().Distinct().ToList();
-        if (ids.Count == 0)
-        {
-            return [];
-        }
-
-        return await dbContext.Accounts.AsNoTracking()
-            .Where(account => ids.Contains(account.Id))
-            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
     }
 }

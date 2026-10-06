@@ -1198,6 +1198,38 @@ Each organization chooses how long conversations are kept: 30, 90, 180 or 365 da
   Model invocations, handoff copies in issues, periodic reports, database records and test runs are
   never touched. The first cleanup after shortening a long-used retention may delete a lot: run the
   first change off-peak.
+
+## Case groups (M7-1, #246)
+
+承辦組 are groups of the organization's own accounts that take on a kind of case (M7 plan §3 A). They
+are never deleted, only archived (decision G). All endpoints need an internal account
+(`smb-admin`, `internal-employee`); an external customer gets `403 case`.
+
+- **`GET /api/v1/case-groups`** (any internal account) returns `{ groups: [{ id, name, archived,
+  archivedAt, members: [{ id, displayName }], createdAt, updatedAt }], canManage, candidates }`.
+  Archived groups are left out — they are not offered where a group is chosen — unless the
+  manager asks `?includeArchived=true` (ignored for anyone else). `candidates` (manager only) are
+  the internal accounts, each `{ id, displayName, role }`.
+- **`POST /api/v1/case-groups`** `{ name }`, **`PUT /api/v1/case-groups/{id}`** `{ name }`,
+  **`POST /api/v1/case-groups/{id}:archive`**, **`:unarchive`** — manager only (`403
+  organization-settings`, the same bytes for an id that does not exist or belongs to another
+  organization). The name is trimmed, 1–40 characters (`422`, `errors.name`) and unique in the
+  organization (`422 case-group-name-taken`, also from the unique index under concurrency). Each
+  change writes `case-group-created`／`-renamed`／`-archived`／`-unarchived` (detail `{ id, name }`,
+  plus `previousName` for a rename) to `OrganizationActivities` in the same save; a no-op writes
+  nothing.
+- **`PUT /api/v1/case-groups/{id}/members`** `{ accountIds }` (manager only) replaces the whole list.
+  Only internal accounts of the organization: an external customer, an unknown id or another
+  organization's account is `422 member-not-eligible` (`errors.accountIds`) and nothing is saved.
+  Each addition and removal writes one `CaseGroupMemberChanges` row (account ids without foreign
+  keys, so the history outlives the accounts); two concurrent saves of the same account are `409
+  case-group-members-conflict`. A member's account cannot be deleted (`Restrict`, decision C).
+- **`GET /api/v1/case-groups/{id}/member-changes`** (manager only): `[{ id, account, added,
+  changedBy, changedAt }]`, newest first.
+
+Account names on these and the other history screens (data managers, submission records, the
+settings' 「上次變更」, issues) come from one lookup, `AccountNames`: an account that can no longer be
+found shows as 「已停用的帳號」.
 - **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
   every organization with a retention in days but no queued or running cleanup job (a job that
   failed for good breaks its chain); the same compare-and-set keeps it from forking.

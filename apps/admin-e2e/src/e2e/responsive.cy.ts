@@ -110,6 +110,15 @@ describe('responsive layout', () => {
         expectNoHorizontalOverflow('/app/settings（展開權限編輯器）', PHONE[0]);
       });
 
+      it('fits the expanded case group member editor (issue #246)', () => {
+        cy.visit('/app/settings');
+        cy.contains('button', '編輯「設備組」的成員').scrollIntoView().click();
+        cy.get('[data-case-group-members-editor] input[type="checkbox"]').should('have.length', 2);
+        cy.window().its('innerWidth').should('eq', PHONE[0]);
+        cy.contains('button', '儲存成員').should('exist').scrollIntoView().should('be.visible');
+        expectNoHorizontalOverflow('/app/settings（展開承辦組成員）', PHONE[0]);
+      });
+
       it('switches the shell to the mobile header and drawer', () => {
         cy.visit('/app/home');
 

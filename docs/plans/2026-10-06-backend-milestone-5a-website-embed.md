@@ -85,6 +85,7 @@
   - `@ag-ui/client` 照 admin 的作法在送出第一個問題時才動態載入，這個 chunk 另外量測、寫進 PR；
   - `embed.js`：≤ 5 kB（未壓縮），由單元測試檢查檔案大小。
   若 Slice 8 量到 `@ag-ui/client` 的 chunk 過大，退路是用 repo 既有的 `tools/agui-contract` 檢查一個手寫的 SSE 解析器；這個決定在 Slice 8 的 PR 中提出，不預先做。
+- **載入器與 widget 的契約**（iframe 網址與 `host` 參數、postMessage 訊息類型與來源檢查、注入的元素 id／class）：見 [`apps/embed-loader/README.md`](../../apps/embed-loader/README.md)。
 - **admin 不變**：admin 的 `/use/:assistantId` 在 API 模式維持轉址到 `/app/chat/:assistantId`（它不是訪客入口）；mock 模式照舊，讓 Pages Demo 繼續展示訪客情境。
 
 不採用的替代方案：Web Component 直接放進客戶頁面（客戶頁面的程式讀得到對話內容與訪客憑證，也可能被客戶網站自己的 CSP 擋掉）；Preact／Lit 等較輕的框架（多維護一套框架，對話元件不能共用）。

@@ -17,6 +17,9 @@ public enum PublicRateLimitedEndpoint
 
     /// <summary><c>POST …/chat/runs</c>.</summary>
     ChatRun,
+
+    /// <summary><c>POST /api/v1/line/webhook/{assistantId}</c> (M5b #231).</summary>
+    LineWebhook,
 }
 
 /// <summary>Endpoint metadata that puts an endpoint under the visitor API's rate limits.</summary>
@@ -41,6 +44,11 @@ public sealed record PublicRateLimitMarker(PublicRateLimitedEndpoint Kind);
 /// most one window old, so it is never too early) and 5 seconds for the concurrency limit. Limiters are ordered narrowest first (visitor, IP, assistant), so a refusal by a
 /// wider partition never uses up another visitor's budget and a flooding visitor mostly burns their
 /// own; permits taken by an earlier limiter are not given back when a later one refuses.
+/// </para>
+/// <para>
+/// <b>LINE webhook</b> (M5b #231): per assistant id in the URL, a one-minute sliding window; the
+/// request has not been authenticated at that point (the signature is checked by the endpoint), so the
+/// limit bounds what a flood of forged requests can cost.
 /// </para>
 /// <para>
 /// <b>Where it runs</b>: after authorization, so the visitor claims are known (a request with no or
@@ -108,7 +116,10 @@ public static class PublicRateLimiting
                 {
                     PermitLimit = limits.MaxConcurrentRunsPerAssistant,
                     QueueLimit = 0,
-                })));
+                })),
+            // LINE webhook: per assistant in the URL, before the body is read (M5b #231).
+            Layer(PublicRateLimitedEndpoint.LineWebhook, LineWebhookAssistantKey, Minute, key =>
+                Sliding(key, limits.LineWebhooksPerAssistantPerMinute, Minute, segments: 6)));
 
     private static RateLimitPartition<string> Sliding(string key, int permits, TimeSpan window, int segments) =>
         RateLimitPartition.GetSlidingWindowLimiter(key, _ => new SlidingWindowRateLimiterOptions
@@ -149,6 +160,12 @@ public static class PublicRateLimiting
         VisitorAuthentication.Read(context.User) is { } visitor ? visitor.AssistantId.ToString("N") : null;
 
     private static string? ClientKey(HttpContext context) => ClientPartition(context.Connection.RemoteIpAddress);
+
+    /// <summary>The webhook URL's assistant id; every value that is not a GUID shares one partition.</summary>
+    internal static string LineWebhookAssistantKey(HttpContext context) =>
+        Guid.TryParse(context.Request.RouteValues["assistantId"] as string, out var assistantId)
+            ? "line:" + assistantId.ToString("N")
+            : "line:invalid";
 
     /// <summary>The rate-limit partition of a client address: itself, or for IPv6 its /64.</summary>
     internal static string ClientPartition(IPAddress? address)

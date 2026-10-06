@@ -32,13 +32,16 @@
           routerLinkActive="active"
           [routerLinkActiveOptions]="{ exact: true }"
           [matTooltip]="collapsed() ? item.label : ''"
-          [attr.aria-label]="collapsed() ? item.label : null"
+          [attr.aria-label]="leafLabel(item)"
           matTooltipPosition="right"
           (click)="navClick.emit()"
         >
           <span class="material-symbols-rounded nav-icon" aria-hidden="true">{{ item.icon }}</span>
           @if (!collapsed()) {
             <span>{{ item.label }}</span>
+          }
+          @if (item.count?.(); as count) {
+            <span class="nav-count" aria-hidden="true">{{ count }}</span>
           }
         </a>
       }

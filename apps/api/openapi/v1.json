@@ -5193,6 +5193,13 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -5217,6 +5224,31 @@
           },
           "422": {
             "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/attention": {
+      "get": {
+        "tags": [
+          "CaseEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseAttentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -7559,6 +7591,33 @@
           "set-due",
           "comment"
         ]
+      },
+      "CaseAttentionView": {
+        "required": [
+          "overdueCount",
+          "ownedOverdueCount",
+          "groupPendingOverdueCount",
+          "pendingForMeCount"
+        ],
+        "type": "object",
+        "properties": {
+          "overdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ownedOverdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "groupPendingOverdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pendingForMeCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
       },
       "CaseCommentRequest": {
         "required": [

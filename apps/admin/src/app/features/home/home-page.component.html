@@ -74,5 +74,33 @@
       }
       <a class="home-card__text-link" routerLink="/app/issues">查看處理事項 <span aria-hidden="true">→</span></a>
     </section>
+
+    @if (showCases()) {
+      <section class="home-card" aria-labelledby="cases-title" data-home-cases>
+        <p class="home-card__eyebrow">需要留意</p>
+        <h2 id="cases-title">案件</h2>
+        @let attention = caseAttentionView();
+        @if (attention.status === 'loading') {
+          <p role="status">正在載入案件…</p>
+        } @else if (attention.status === 'error') {
+          <p role="alert">目前無法載入案件，請稍後再試。</p>
+        } @else if (attention.status === 'permission-denied') {
+          <p>{{ attention.message }}</p>
+        } @else {
+          <p data-home-cases-summary>已逾期 {{ attention.data.overdueCount }} 件，待我受理 {{ attention.data.pendingForMeCount }} 件。</p>
+          <div class="home-card__links">
+            <a class="home-card__text-link" routerLink="/app/cases" [queryParams]="{ scope: 'owned', overdue: 'true' }" data-home-cases-link="owned-overdue">
+              我負責的逾期案件 {{ attention.data.ownedOverdueCount }} 件 <span aria-hidden="true">→</span>
+            </a>
+            <a class="home-card__text-link" routerLink="/app/cases" [queryParams]="{ scope: 'my-groups', status: 'pending', overdue: 'true' }" data-home-cases-link="group-overdue">
+              承辦組待受理的逾期案件 {{ attention.data.groupPendingOverdueCount }} 件 <span aria-hidden="true">→</span>
+            </a>
+            <a class="home-card__text-link" routerLink="/app/cases" [queryParams]="{ scope: 'my-groups', status: 'pending' }" data-home-cases-link="pending">
+              待我受理 {{ attention.data.pendingForMeCount }} 件 <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        }
+      </section>
+    }
   </div>
 </section>

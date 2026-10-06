@@ -40,6 +40,17 @@ public sealed record CaseSummaryView(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);
 
+/// <summary><c>GET /api/v1/cases/attention</c> (逾期提示, issue #250): what needs the caller's attention now.</summary>
+/// <param name="OverdueCount">The side navigation's number: <paramref name="OwnedOverdueCount"/> plus
+/// <paramref name="GroupPendingOverdueCount"/> (the two never overlap).</param>
+/// <param name="OwnedOverdueCount">Overdue cases the caller owns (案件負責人); the list's
+/// <c>scope=owned&amp;overdue=true</c>.</param>
+/// <param name="GroupPendingOverdueCount">Overdue 待受理 cases in the caller's case groups; the list's
+/// <c>scope=my-groups&amp;status=pending&amp;overdue=true</c>.</param>
+/// <param name="PendingForMeCount">待我受理: every 待受理 case in the caller's case groups, overdue or not;
+/// the list's <c>scope=my-groups&amp;status=pending</c>.</param>
+public sealed record CaseAttentionView(int OverdueCount, int OwnedOverdueCount, int GroupPendingOverdueCount, int PendingForMeCount);
+
 /// <summary>One case, as the detail shows it.</summary>
 /// <param name="EventCount">The version M7-4's actions send back as <c>eventCount</c>.</param>
 public sealed record CaseView(
@@ -203,6 +214,11 @@ public static class CaseEndpoints
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
+        cases.MapGet("/attention", AttentionAsync)
+            .Produces<CaseAttentionView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
         cases.MapGet("/{id:guid}", GetAsync)
             .Produces<CaseDetailView>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -282,16 +298,20 @@ public static class CaseEndpoints
     /// <summary>
     /// The cases the caller can see, newest first, not paged (decision Q). <c>scope</c> narrows them
     /// (<see cref="Scopes"/>); <c>status</c> defaults to <c>open</c>; <c>typeId</c> and <c>groupId</c>
-    /// filter by the current type and group. An unknown <c>scope</c> or <c>status</c> is <c>422</c>.
+    /// filter by the current type and group; <c>overdue=true</c> keeps only the overdue ones
+    /// (<see cref="CaseAttention.Overdue"/>, issue #250; left out or <c>false</c> filters nothing). An
+    /// unknown <c>scope</c> or <c>status</c> is <c>422</c>.
     /// </summary>
     internal static async Task<IResult> ListAsync(
         string? scope,
         string? status,
         Guid? typeId,
         Guid? groupId,
+        bool? overdue,
         HttpContext httpContext,
         AppDbContext dbContext,
         RequestAccountRole roles,
+        TimeProvider clock,
         CancellationToken cancellationToken)
     {
         if (await CallerAsync(httpContext, roles, cancellationToken) is not { } caller)
@@ -331,11 +351,15 @@ public static class CaseEndpoints
         query = resolvedScope switch
         {
             "created" => query.Where(item => item.CreatedByAccountId == callerId),
-            "owned" => query.Where(item => item.OwnerAccountId == callerId),
-            "my-groups" => query.Where(item =>
-                dbContext.CaseGroupMembers.Any(member => member.GroupId == item.GroupId && member.AccountId == callerId)),
+            "owned" => query.Where(CaseAttention.OwnedBy(callerId)),
+            "my-groups" => query.Where(CaseAttention.InGroupsOf(callerId, dbContext.CaseGroupMembers)),
             _ => query,
         };
+
+        if (overdue == true)
+        {
+            query = query.Where(CaseAttention.Overdue(clock.GetUtcNow()));
+        }
 
         if (statuses is not null)
         {
@@ -370,6 +394,36 @@ public static class CaseEndpoints
             item.DueAt,
             item.CreatedAt,
             item.UpdatedAt)));
+    }
+
+    /// <summary>
+    /// 逾期提示 (M7 plan §3 E, decision D; issue #250): the caller's overdue counts and 待我受理, decided
+    /// now (<see cref="CaseAttention"/>). Internal accounts only — the admin never asks for an external
+    /// customer, who gets the one <c>403 case</c> like everywhere else on cases. The manager gets no extra
+    /// count for being the manager.
+    /// </summary>
+    internal static async Task<IResult> AttentionAsync(
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        RequestAccountRole roles,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (await CallerAsync(httpContext, roles, cancellationToken) is not { } caller)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        if (!caller.IsInternal)
+        {
+            return Denied();
+        }
+
+        var sets = CaseAttention.For(Visible(dbContext, caller), dbContext.CaseGroupMembers, caller.Id, clock.GetUtcNow());
+        var owned = await sets.OwnedOverdue.CountAsync(cancellationToken);
+        var groupPending = await sets.GroupPendingOverdue.CountAsync(cancellationToken);
+        var pendingForMe = await sets.PendingForMe.CountAsync(cancellationToken);
+        return Results.Ok(new CaseAttentionView(owned + groupPending, owned, groupPending, pendingForMe));
     }
 
     /// <summary>The case, its history, names and links (<c>403 case</c> unless visible).</summary>

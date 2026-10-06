@@ -1,7 +1,7 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../domain/account.model';
 import {
   CASE_ACTION_DENIED_MESSAGE,
@@ -46,19 +46,21 @@ describe('CasesRepository (mock)', () => {
     const { repository, activeAccountId } = mockRepository();
 
     // 客服同仁：設備組成員，也是兩件設備組案件的建立者；看不到管理者在採購組建立的案件。
-    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id)).toEqual(['case-cold-room']);
+    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id)).toEqual(['case-cold-room', 'case-greenhouse-sensor']);
     expect(ready(await firstValueFrom(repository.list({ status: 'closed' }))).map((item) => item.id)).toEqual(['case-irrigation-done']);
     expect(ready(await firstValueFrom(repository.list({ status: 'all' }))).map((item) => item.id))
-      .toEqual(['case-cold-room', 'case-irrigation-done']);
+      .toEqual(['case-cold-room', 'case-greenhouse-sensor', 'case-irrigation-done']);
     expect(await firstValueFrom(repository.get('case-compressor-purchase'))).toEqual(DENIED);
     expect(await firstValueFrom(repository.get('case-that-does-not-exist'))).toEqual(DENIED);
 
     activeAccountId.set('account-smb-admin');
-    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id)).toEqual(['case-compressor-purchase', 'case-cold-room']);
-    expect(ready(await firstValueFrom(repository.list({ scope: 'created' }))).map((item) => item.id)).toEqual(['case-compressor-purchase']);
+    expect(ready(await firstValueFrom(repository.list())).map((item) => item.id))
+      .toEqual(['case-compressor-purchase', 'case-cold-room', 'case-greenhouse-sensor']);
+    expect(ready(await firstValueFrom(repository.list({ scope: 'created' }))).map((item) => item.id))
+      .toEqual(['case-compressor-purchase', 'case-greenhouse-sensor']);
     expect(ready(await firstValueFrom(repository.list({ scope: 'my-groups' }))).map((item) => item.id)).toEqual(['case-compressor-purchase']);
     expect(ready(await firstValueFrom(repository.list({ groupId: 'case-group-equipment', status: 'all' }))).map((item) => item.id))
-      .toEqual(['case-cold-room', 'case-irrigation-done']);
+      .toEqual(['case-cold-room', 'case-greenhouse-sensor', 'case-irrigation-done']);
     expect(ready(await firstValueFrom(repository.list({ scope: 'owned' })))).toEqual([]);
 
     activeAccountId.set('account-external-customer');
@@ -172,5 +174,85 @@ describe('CasesRepository (mock)', () => {
     const due = new Date(Date.now() + 86_400_000).toISOString();
     const changed = ready(await firstValueFrom(repository.act('case-cold-room', 'set-due', { eventCount: 2, dueAt: due })));
     expect(changed.case.dueAt).toBe(due);
+  });
+
+  describe('逾期提示 (issue #250)', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** 只假造 `Date`：mock 以「現在」判斷逾期，與後端注入的時鐘相同的邊界。 */
+    function at(iso: string): void {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(iso));
+    }
+
+    async function ids(repository: CasesRepository, filter: Parameters<CasesRepository['list']>[0]): Promise<string[]> {
+      return ready(await firstValueFrom(repository.list(filter))).map((item) => item.id);
+    }
+
+    it('counts the owner\'s overdue cases and the group\'s overdue pending ones, never extra for the manager, and moves with a transfer', async () => {
+      at('2026-10-07T01:00:00.000Z');
+      const { repository, activeAccountId } = mockRepository();
+
+      // 客服同仁（設備組）：「溫室感測器離線」待受理且已逾期；「冷藏庫溫度降不下來」10/9 才到時限。
+      expect(ready(await firstValueFrom(repository.attention())))
+        .toEqual({ overdueCount: 1, ownedOverdueCount: 0, groupPendingOverdueCount: 1, pendingForMeCount: 2 });
+      expect(await ids(repository, { overdue: true })).toEqual(['case-greenhouse-sensor']);
+
+      // 管理者（採購組成員）看得到全部，但不因為是管理者而多算。
+      activeAccountId.set('account-smb-admin');
+      expect(await ids(repository, { overdue: true })).toEqual(['case-greenhouse-sensor']);
+      expect(ready(await firstValueFrom(repository.attention())))
+        .toEqual({ overdueCount: 0, ownedOverdueCount: 0, groupPendingOverdueCount: 0, pendingForMeCount: 1 });
+
+      // 同仁受理：改算在負責人身上。
+      activeAccountId.set('account-internal-employee');
+      ready(await firstValueFrom(repository.act('case-greenhouse-sensor', 'accept', { eventCount: 1 })));
+      expect(ready(await firstValueFrom(repository.attention())))
+        .toEqual({ overdueCount: 1, ownedOverdueCount: 1, groupPendingOverdueCount: 0, pendingForMeCount: 1 });
+
+      // 待補件照樣計時。
+      ready(await firstValueFrom(repository.act('case-greenhouse-sensor', 'request-info', { eventCount: 2, note: '請補感測器序號' })));
+      expect(await ids(repository, { scope: 'owned', overdue: true })).toEqual(['case-greenhouse-sensor']);
+
+      // 轉給採購組：清空負責人，改算給新的承辦組。
+      ready(await firstValueFrom(repository.act('case-greenhouse-sensor', 'transfer', { eventCount: 3, groupId: 'case-group-purchasing' })));
+      expect(ready(await firstValueFrom(repository.attention())))
+        .toEqual({ overdueCount: 0, ownedOverdueCount: 0, groupPendingOverdueCount: 0, pendingForMeCount: 1 });
+      activeAccountId.set('account-smb-admin');
+      expect(ready(await firstValueFrom(repository.attention())))
+        .toEqual({ overdueCount: 1, ownedOverdueCount: 0, groupPendingOverdueCount: 1, pendingForMeCount: 2 });
+
+      activeAccountId.set('account-external-customer');
+      expect(await firstValueFrom(repository.attention())).toEqual(DENIED);
+    });
+
+    it('is overdue only after the due time, and completed or cancelled cases never count', async () => {
+      at('2026-10-09T01:00:00.000Z');
+      const { repository } = mockRepository();
+      expect(await ids(repository, { overdue: true })).toEqual(['case-greenhouse-sensor']);
+
+      at('2026-10-09T01:00:00.001Z');
+      expect(await ids(repository, { overdue: true })).toEqual(['case-cold-room', 'case-greenhouse-sensor']);
+      expect(await ids(repository, { status: 'all', overdue: true })).toEqual(['case-cold-room', 'case-greenhouse-sensor']);
+
+      ready(await firstValueFrom(repository.act('case-cold-room', 'cancel', { eventCount: 1 })));
+      expect(await ids(repository, { status: 'all', overdue: true })).toEqual(['case-greenhouse-sensor']);
+      expect(await ids(repository, { status: 'closed', overdue: true })).toEqual([]);
+    });
+
+    it('makes the side navigation\'s number the owned and my-groups pending filters with overdue', async () => {
+      at('2026-10-20T00:00:00.000Z');
+      const { repository } = mockRepository();
+      ready(await firstValueFrom(repository.act('case-cold-room', 'accept', { eventCount: 1 })));
+
+      const attention = ready(await firstValueFrom(repository.attention()));
+      const owned = await ids(repository, { scope: 'owned', overdue: true });
+      const groupPending = await ids(repository, { scope: 'my-groups', status: 'pending', overdue: true });
+      expect([owned, groupPending]).toEqual([['case-cold-room'], ['case-greenhouse-sensor']]);
+      expect(owned.length + groupPending.length).toBe(attention.overdueCount);
+      expect(await ids(repository, { scope: 'my-groups', status: 'pending' })).toHaveLength(attention.pendingForMeCount);
+    });
   });
 });

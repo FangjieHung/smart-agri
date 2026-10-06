@@ -39,9 +39,22 @@ export interface CaseListFilter {
   readonly status?: CaseListStatus;
   readonly typeId?: string;
   readonly groupId?: string;
+  /** 只列逾期的（issue #250，`overdue=true`）。 */
+  readonly overdue?: boolean;
 }
 
 export const OPEN_CASE_STATUSES: readonly CaseStatus[] = ['pending', 'in-progress', 'awaiting-info'];
+
+/**
+ * 逾期提示（issue #250）：`GET /api/v1/cases/attention`。`overdueCount`（側欄數字）＝我負責的逾期
+ * ＋我的承辦組待受理的逾期；`pendingForMeCount` 是待我受理（不論是否逾期）。
+ */
+export type CaseAttentionView = components['schemas']['CaseAttentionView'];
+
+/** 與後端 `CaseAttention.Overdue` 相同：時限已過（剛好到時限的那一刻還不算）且未結案；待補件照樣計時。 */
+export function isCaseOverdue(item: { readonly status: CaseStatus; readonly dueAt: string }, now: Date): boolean {
+  return OPEN_CASE_STATUSES.includes(item.status) && Date.parse(item.dueAt) < now.getTime();
+}
 
 const CASE_STATUS_LABELS: Readonly<Record<CaseStatus, string>> = {
   pending: '待受理',

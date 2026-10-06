@@ -2,7 +2,7 @@ using Shouldly;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Domain.Assistants;
 using Acceptance = SmartAgri.Domain.Assistants.AssistantAcceptanceStatus;
-using Serving = SmartAgri.Domain.Assistants.WebsiteServingState;
+using Serving = SmartAgri.Domain.Assistants.ChannelServingState;
 
 namespace SmartAgri.Application.Tests.Assistants;
 

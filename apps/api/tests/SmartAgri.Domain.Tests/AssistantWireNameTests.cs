@@ -63,8 +63,17 @@ public partial class AssistantWireNameTests
     {
         // M5a plan §3 C; no frontend union yet (the admin maps them in #202).
         WireNames<WebsiteChannelState>.All.ShouldBe(["draft", "published", "paused"]);
-        WireNames<WebsiteServingState>.All.ShouldBe(
+        WireNames<ChannelServingState>.All.ShouldBe(
             ["not-published", "paused", "suspended-acceptance", "suspended-knowledge", "suspended-quota", "serving"]);
+    }
+
+    [Fact]
+    public void Line_channel_states_and_connection_checks_have_the_plans_wire_names()
+    {
+        // M5b plan §3 A/B (#229); the admin maps them in #233.
+        WireNames<LineChannelState>.All.ShouldBe(["draft", "published", "paused"]);
+        WireNames<LineConnectionCheckKind>.All.ShouldBe(["access-token", "webhook-endpoint", "webhook-test"]);
+        WireNames<LineConnectionCheckState>.All.ShouldBe(["pending", "passed", "failed", "skipped"]);
     }
 
     private static void AssertMatchesFrontendUnion<TEnum>(string fileName, string unionName, string[] expected)

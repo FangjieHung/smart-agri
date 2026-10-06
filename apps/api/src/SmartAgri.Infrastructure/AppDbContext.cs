@@ -138,6 +138,10 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>The host names allowed to embed an assistant's website channel (M5a plan §4; #194).</summary>
     public DbSet<AssistantWebsiteDomain> AssistantWebsiteDomains => Set<AssistantWebsiteDomain>();
 
+    /// <summary>An assistant's LINE channel, at most one each; its credentials are
+    /// <c>ProtectedSecret</c>s (M5b plan §4; #229).</summary>
+    public DbSet<AssistantLineChannel> AssistantLineChannels => Set<AssistantLineChannel>();
+
     /// <summary>One account's private conversation with one assistant (M3 plan §4; #76).</summary>
     public DbSet<ChatThread> ChatThreads => Set<ChatThread>();
 
@@ -295,6 +299,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new AssistantShareConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantWebsiteChannelConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantWebsiteDomainConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantLineChannelConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestCaseConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestRunConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantTestResultConfiguration());

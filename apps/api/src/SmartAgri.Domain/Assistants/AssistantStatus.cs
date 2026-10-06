@@ -14,7 +14,7 @@ namespace SmartAgri.Domain.Assistants;
 /// <em>channel</em>'s state (<see cref="AssistantWebsiteChannel.State"/>, and later LINE's), since
 /// one assistant can be shared within the platform and embedded on a website at the same time.
 /// <see cref="Paused"/> here pauses every channel at once: the website channel then serves
-/// nobody (<see cref="WebsiteServingState.Paused"/>).
+/// nobody (<see cref="ChannelServingState.Paused"/>).
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<AssistantStatus>))]
 public enum AssistantStatus

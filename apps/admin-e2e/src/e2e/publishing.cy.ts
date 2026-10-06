@@ -157,7 +157,8 @@ describe('publishing channels', () => {
       cy.get('#line-channelSecret').should('not.exist');
       cy.get('#line-accessToken').should('not.exist');
       cy.contains('button', '顯示').should('not.exist');
-      cy.get('app-line-setup').should('not.contain.text', VALID_TOKEN);
+      // within() 的範圍就是 app-line-setup 本身，所以用 cy.root()，不能再 cy.get('app-line-setup')。
+      cy.root().should('not.contain.text', VALID_TOKEN);
 
       // 示範資料：Token 已失效，最近一次測試連線第一項未通過、後兩項略過；頻道還在啟用狀態但不會服務。
       cy.get('.checklist li').should('have.length', 3);
@@ -180,7 +181,8 @@ describe('publishing channels', () => {
       // 更換憑證後測試結果清掉、已啟用的頻道退回草稿，要重新測試。
       cy.get('.checklist li[data-state="pending"]').should('have.length', 3);
       cy.get('#line-accessToken-status').should('contain', `末四碼 ${VALID_TOKEN.slice(-4)}`);
-      cy.get('app-line-setup').should('not.contain.text', VALID_TOKEN);
+      // within() 的範圍就是 app-line-setup 本身，所以用 cy.root()，不能再 cy.get('app-line-setup')。
+      cy.root().should('not.contain.text', VALID_TOKEN);
       cy.contains('button', '測試連線').click();
     });
     inLineSetup(() => {

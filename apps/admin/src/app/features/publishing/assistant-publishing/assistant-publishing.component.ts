@@ -17,6 +17,7 @@ import { StatePanelComponent } from '../../../shared/ui/state-panel/state-panel.
 import { ChannelCardComponent } from '../channel-card/channel-card.component';
 import { LineSetupComponent } from '../line-setup/line-setup.component';
 import { PlatformSharingComponent } from '../platform-sharing/platform-sharing.component';
+import { UsageNoticeComponent } from '../usage-notice/usage-notice.component';
 import { WebsiteEmbedComponent } from '../website-embed/website-embed.component';
 
 /** 單一助理的發布設定：三張管道卡與目前選取管道的設定面板，供助理詳情「發布」頁籤使用。 */
@@ -30,6 +31,7 @@ import { WebsiteEmbedComponent } from '../website-embed/website-embed.component'
     PlatformSharingComponent,
     WebsiteEmbedComponent,
     LineSetupComponent,
+    UsageNoticeComponent,
   ],
   templateUrl: './assistant-publishing.component.html',
   styleUrl: './assistant-publishing.component.scss',

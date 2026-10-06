@@ -1,0 +1,11 @@
+{
+  "name": "@smart-agri/chat",
+  "version": "0.0.1",
+  "peerDependencies": {
+    "@ag-ui/client": "1.0.0",
+    "@angular/cdk": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "rxjs": "~7.8.0"
+  },
+  "sideEffects": false
+}

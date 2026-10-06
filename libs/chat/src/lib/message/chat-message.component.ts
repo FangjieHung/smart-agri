@@ -5,8 +5,8 @@ import {
   type ChatFormView,
   type ChatMessageView,
   type ChatReplyKind,
-} from '../../../core/domain/conversation.model';
-import type { DatabaseRecordId } from '../../../core/domain/database.model';
+  type DatabaseRecordId,
+} from '../chat-view.model';
 
 export interface CitationRequest {
   readonly citations: readonly ChatCitationView[];

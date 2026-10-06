@@ -6,6 +6,7 @@ import {
   type HttpResponse,
 } from '@angular/common/http';
 import { statisticsDay } from './database-tracking';
+import { toChatMessage as toSharedChatMessage } from '@smart-agri/chat';
 import { catchError, filter, forkJoin, map, of, switchMap, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
@@ -2963,13 +2964,15 @@ function toChatWithdrawal(receipt: DatabaseSubmissionReceiptView): SubmissionWit
 }
 
 /**
- * 後端的 `ChatReplyView` 是同一個扁平形狀（不適用的欄位為 null），不是前端的
- * discriminated union（`docs/plans/2026-09-27-backend-milestone-3-in-platform-chat.md`
- * 第 3 節「與前端型別的差異」）；這裡依 `kind` 轉回前端的變體。`form-request` 與
- * `submission-receipt` 是 #148：表單來自伺服器（`form` 為 null 代表已無法使用），收據由
- * 伺服器依提交 id 即時讀取，訊息本身不含填寫內容。
+ * 只有 admin 會收到的回覆種類：`form-request` 與 `submission-receipt` 是 #148，表單來自伺服器
+ * （`form` 為 null 代表已無法使用），收據由伺服器依提交 id 即時讀取，訊息本身不含填寫內容；
+ * `database-query` 是 #149。其他 kind（組織資料、一般知識、查無資料）由 `@smart-agri/chat` 的
+ * `toChatMessage` 依通用規則轉換，這裡回傳 `null` 交還給它。
+ *
+ * 通用規則在 lib（官網訪客的對話視窗也用）；這個函式同時交給 `AgUiChatRunner` 的串流回覆使用
+ * （見 `provideApiMode`），所以串流與 `GET chat` 的訊息轉換結果一致。
  */
-function toChatReply(reply: ApiChatReplyView): ChatReplyView {
+export function toAdminChatReply(reply: ApiChatReplyView): ChatReplyView | null {
   if (reply.kind === 'database-query') {
     return { kind: 'database-query', text: reply.text, query: toChatDatabaseQuery(reply.databaseQuery ?? null) };
   }
@@ -2990,25 +2993,7 @@ function toChatReply(reply: ApiChatReplyView): ChatReplyView {
         : toChatWithdrawal(toSubmissionReceipt(receipt)),
     };
   }
-  if (reply.kind === 'general-knowledge') {
-    return { kind: 'general-knowledge', text: reply.text, notice: reply.notice ?? '' };
-  }
-  if (reply.kind === 'no-result') {
-    return { kind: 'no-result', text: reply.text, nextSteps: [...reply.nextSteps] };
-  }
-  // 'company-data'，以及任何後端未來新增、前端還不認得的 kind 一律當成組織資料回覆。
-  return {
-    kind: 'company-data',
-    text: reply.text,
-    citations: reply.citations.map((citation) => ({
-      id: citation.id,
-      knowledgeBaseName: citation.knowledgeBaseName,
-      documentName: citation.documentName,
-      excerpt: citation.excerpt,
-      updatedLabel: citation.updatedLabel,
-    })),
-    citationNotice: reply.notice ?? null,
-  };
+  return null;
 }
 
 /**
@@ -3066,15 +3051,9 @@ function toChatForm(form: ApiChatFormRequest): ChatFormView {
   };
 }
 
-/** 也給 AG-UI 串流的 `smartagri.reply` 使用（`ag-ui-chat-runner.ts`；值與 `GET chat` 的訊息相同）。 */
-export function toChatMessage(message: ApiChatMessageView): ChatMessageView {
-  // issue #106：後端現在一律送出 `reply`（有值或明確的 `null`），不再用
-  // `JsonIgnore(WhenWritingNull)` 省略——PR #103 修過一次「省略鍵被誤判成 undefined」的 bug，
-  // 這裡繼續容忍 `undefined` 只是防禦性寫法，不代表現在真的會發生。
-  if (message.reply !== null && message.reply !== undefined) {
-    return { id: message.id, author: 'assistant', reply: toChatReply(message.reply), createdAt: message.createdAt };
-  }
-  return { id: message.id, author: 'account', text: message.text ?? '', createdAt: message.createdAt };
+/** 通用的訊息轉換在 `@smart-agri/chat`；這裡補上只有 admin 會收到的回覆種類。 */
+function toChatMessage(message: ApiChatMessageView): ChatMessageView {
+  return toSharedChatMessage(message, toAdminChatReply);
 }
 
 function toAssistantChatView(response: ApiAssistantChatView): AssistantChatView {

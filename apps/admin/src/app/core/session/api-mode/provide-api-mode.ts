@@ -6,10 +6,11 @@ import {
   makeEnvironmentProviders,
   provideAppInitializer,
 } from '@angular/core';
-import { AgUiChatRunner } from '../../chat/ag-ui-chat-runner';
+import { AgUiChatRunner } from '@smart-agri/chat';
+import type { components } from '../../api/api-schema';
 import { CHAT_RUNNER } from '../../chat/chat-runner';
 import type { DemoSeed } from '../../repositories/demo-seed';
-import { HybridDemoRepository } from '../../repositories/hybrid-demo-repository';
+import { HybridDemoRepository, toAdminChatReply } from '../../repositories/hybrid-demo-repository';
 import type { MockDemoRepositoryOptions } from '../../repositories/mock-demo-repository';
 import { API_DEMO_REPOSITORY_FACTORY, loadMockRepositoryModules } from '../../repositories/tokens';
 import { API_SESSION_BACKEND, ApiSessionService } from '../api-session.service';
@@ -51,6 +52,8 @@ export function provideApiMode(): EnvironmentProviders {
         return new AgUiChatRunner({
           accessToken: () => backend.accessToken(),
           onUnauthorized: () => apiSession.endExpiredSession(),
+          // 串流的 `smartagri.reply` 與 `GET chat` 的訊息同一個形狀，表單、收據與數據庫查詢用同一個轉換。
+          replyExtension: (reply) => toAdminChatReply(reply as components['schemas']['ChatReplyView']),
         });
       },
     },

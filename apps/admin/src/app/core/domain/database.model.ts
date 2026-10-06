@@ -1,5 +1,30 @@
 import type { AccountId } from './account.model';
 import type { AssistantId, AssistantStatus } from './assistant.model';
+import type {
+  DatabaseFieldId,
+  DatabaseFieldType,
+  DatabaseFieldView,
+  DatabaseId,
+  DatabasePeriodName,
+  DatabasePeriodRangeView,
+  DatabaseRecordEntryView,
+  DatabaseRecordId,
+  DatabaseScaleRange,
+} from '@smart-agri/chat';
+
+// 對話訊息（`@smart-agri/chat` 的 `ChatReplyView`）要顯示表單欄位、收據與查詢期間，所以這幾個
+// 純顯示用的型別住在 lib 裡；admin 沿用原本的名稱與匯入路徑。
+export type {
+  DatabaseFieldId,
+  DatabaseFieldType,
+  DatabaseFieldView,
+  DatabaseId,
+  DatabasePeriodName,
+  DatabasePeriodRangeView,
+  DatabaseRecordEntryView,
+  DatabaseRecordId,
+  DatabaseScaleRange,
+};
 
 export type SeededDatabaseId =
   | 'database-orders'
@@ -8,12 +33,6 @@ export type SeededDatabaseId =
 
 /** 由模板建立的資料庫 id，格式固定為 `database-created-<序號>`。 */
 export type CreatedDatabaseId = `database-created-${number}`;
-
-/**
- * mock 的 id 是 `SeededDatabaseId`／`CreatedDatabaseId`；API 模式是後端的 GUID（issue #142），
- * 所以和 `KnowledgeBaseId` 一樣放寬成 string。id 一律只拿來比對與組網址，不解析格式。
- */
-export type DatabaseId = string;
 
 export type DatabaseStatus = 'connected' | 'disconnected' | 'sync-error';
 
@@ -33,14 +52,6 @@ export interface DatabaseView {
 /* 表單欄位：第一版只支援六種常見類型，不含條件跳題或公式。             */
 /* ------------------------------------------------------------------ */
 
-export type DatabaseFieldType =
-  | 'text'
-  | 'number'
-  | 'date'
-  | 'single-choice'
-  | 'multiple-choice'
-  | 'scale';
-
 export const DATABASE_FIELD_TYPES: readonly DatabaseFieldType[] = [
   'text',
   'number',
@@ -49,28 +60,6 @@ export const DATABASE_FIELD_TYPES: readonly DatabaseFieldType[] = [
   'multiple-choice',
   'scale',
 ];
-
-export type DatabaseFieldId = `field-${string}`;
-
-export interface DatabaseScaleRange {
-  readonly min: number;
-  readonly max: number;
-  readonly minLabel: string;
-  readonly maxLabel: string;
-}
-
-export interface DatabaseFieldView {
-  readonly id: DatabaseFieldId;
-  readonly label: string;
-  readonly type: DatabaseFieldType;
-  readonly required: boolean;
-  /** 單選、多選的選項；其他類型為空陣列。 */
-  readonly options: readonly string[];
-  /** 量尺範圍；只有量尺類型有值。 */
-  readonly scale: DatabaseScaleRange | null;
-  /** 數字欄位的單位，例如「元」；其他類型為空字串。 */
-  readonly unit: string;
-}
 
 export function isChoiceFieldType(type: DatabaseFieldType): boolean {
   return type === 'single-choice' || type === 'multiple-choice';
@@ -227,8 +216,6 @@ export const DATABASE_UPCOMING_FEATURE_MESSAGE = '這項功能將於後續版本
 
 export type TrackedSubjectId = `subject-${string}`;
 
-export type DatabaseRecordId = `record-${string}`;
-
 export type DatabaseRecordSource = 'assistant-conversation' | 'form-link';
 
 /** fixture 保存的原始值；label 為提交當下的欄位名稱快照。 */
@@ -260,12 +247,6 @@ export type DatabaseRecordValue =
       readonly type: 'multiple-choice';
       readonly value: readonly string[];
     };
-
-export interface DatabaseRecordEntryView {
-  readonly fieldId: DatabaseFieldId;
-  readonly label: string;
-  readonly display: string;
-}
 
 export interface DatabaseRecordView {
   readonly id: DatabaseRecordId;
@@ -345,15 +326,6 @@ export interface TrackedSubjectView {
 /* 期間統計（#147）：固定查詢 `period-summary`，數字由 repository／伺服器算好 */
 /* ------------------------------------------------------------------ */
 
-/** 固定查詢接受的具名期間（日期一律是 UTC 曆日，週從週一開始）。 */
-export type DatabasePeriodName =
-  | 'this-week'
-  | 'last-week'
-  | 'this-month'
-  | 'last-month'
-  | 'last-7-days'
-  | 'last-30-days';
-
 export const DATABASE_PERIOD_OPTIONS: readonly { readonly id: DatabasePeriodName; readonly label: string }[] = [
   { id: 'this-week', label: '本週' },
   { id: 'last-week', label: '上週' },
@@ -362,14 +334,6 @@ export const DATABASE_PERIOD_OPTIONS: readonly { readonly id: DatabasePeriodName
   { id: 'last-7-days', label: '近 7 天' },
   { id: 'last-30-days', label: '近 30 天' },
 ];
-
-/** 一段統計期間：起訖都含在內（YYYY-MM-DD，UTC）；前一期沒有名稱。 */
-export interface DatabasePeriodRangeView {
-  readonly name: DatabasePeriodName | null;
-  readonly from: string;
-  readonly to: string;
-  readonly label: string;
-}
 
 /** 一個數字欄位在這一期與前一期的加總；`display` 與 `changeLabel` 已加上單位。 */
 export interface DatabaseFieldSumView {

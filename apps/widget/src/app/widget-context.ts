@@ -66,11 +66,25 @@ export const WIDGET_STORAGE = new InjectionToken<Storage | null>('WIDGET_STORAGE
   },
 });
 
-/** 嵌入頁面（載入器）的視窗；不在 iframe 裡時為 null。 */
-export const WIDGET_PARENT = new InjectionToken<Pick<Window, 'postMessage'> | null>('WIDGET_PARENT', {
+/** 只能送訊息給嵌入頁面（載入器）的介面。 */
+export interface WidgetParent {
+  postMessage(message: unknown, targetOrigin: string): void;
+}
+
+/**
+ * 嵌入頁面的訊息出口；不在 iframe 裡時為 null。
+ *
+ * 不能把 `window.parent` 本身交給 Angular：DI 建立值時會讀它的 `ngOnDestroy`，而客戶網站與
+ * widget 不同源，讀取跨來源視窗的任何屬性都會丟 `SecurityError`，整個 widget 無法啟動
+ * （同源的單元測試與 E2E 測不到，#205 實機嵌入時發現）。所以只包一層轉呼叫 `postMessage`。
+ */
+export function parentMessenger(self: Pick<Window, 'parent'>): WidgetParent | null {
+  const parent = self.parent;
+  if (parent === (self as unknown as Window)) return null;
+  return { postMessage: (message, targetOrigin) => parent.postMessage(message, targetOrigin) };
+}
+
+export const WIDGET_PARENT = new InjectionToken<WidgetParent | null>('WIDGET_PARENT', {
   providedIn: 'root',
-  factory: () => {
-    const self = globalThis as unknown as Window;
-    return self.parent !== self ? self.parent : null;
-  },
+  factory: () => parentMessenger(globalThis as unknown as Window),
 });

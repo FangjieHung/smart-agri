@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SmartAgri.Application.Organizations;
+using SmartAgri.Domain.Assistants;
 
 namespace SmartAgri.Api.PublicChannels;
 
@@ -94,10 +95,12 @@ public sealed class PublicChannelsOptions
         TryResolve(PublicBaseUrl, out var resolved) ? resolved : null;
 
     /// <summary>The <c>&lt;script&gt;</c> line a customer pastes into their site, or
-    /// <see langword="null"/> without <see cref="PublicBaseUrl"/>.</summary>
-    public string? EmbedCode(Guid assistantId) =>
+    /// <see langword="null"/> without <see cref="PublicBaseUrl"/>. The loader reads its position
+    /// only from the page (<c>apps/embed-loader/README.md</c>), so a bottom-left launcher is written
+    /// into the line as <c>data-position="left"</c> (#205: it was dropped before).</summary>
+    public string? EmbedCode(Guid assistantId, WebsiteLauncherPosition position = WebsiteLauncherPosition.BottomRight) =>
         ResolvedPublicBaseUrl is { } baseUrl
-            ? $"<script src=\"{baseUrl}/embed.js\" data-assistant=\"{assistantId}\" async></script>"
+            ? $"<script src=\"{baseUrl}/embed.js\" data-assistant=\"{assistantId}\"{(position == WebsiteLauncherPosition.BottomLeft ? " data-position=\"left\"" : "")} async></script>"
             : null;
 
     private static bool TryResolve(string? raw, out string? resolved)

@@ -92,6 +92,49 @@ public sealed class OrganizationActivity : IOrganizationScoped
         ArgumentNullException.ThrowIfNull(to);
         return Record(organizationId, OrganizationActivityAction.ChatModelChanged, actorAccountId, at, new { from, to });
     }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.RetentionChanged"/>: detail <c>{ "from", "to",
+    /// "effectiveAt" }</c>, days with <see langword="null"/> for forever; <c>effectiveAt</c> is when
+    /// <c>to</c> applies (<paramref name="at"/> when it applies at once).
+    /// </summary>
+    public static OrganizationActivity RetentionChanged(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, int? from, int? to, DateTimeOffset effectiveAt) =>
+        Record(organizationId, OrganizationActivityAction.RetentionChanged, actorAccountId, at, new { from, to, effectiveAt });
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.RetentionChangeCancelled"/>: detail <c>{ "days",
+    /// "cancelledDays", "cancelledEffectiveAt" }</c> — the retention that stays, and the pending one
+    /// dropped.
+    /// </summary>
+    public static OrganizationActivity RetentionChangeCancelled(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, int? days, int cancelledDays, DateTimeOffset cancelledEffectiveAt) =>
+        Record(organizationId, OrganizationActivityAction.RetentionChangeCancelled, actorAccountId, at, new { days, cancelledDays, cancelledEffectiveAt });
+
+    /// <summary><see cref="OrganizationActivityAction.RetentionTookEffect"/> (system): detail
+    /// <c>{ "from", "to" }</c>.</summary>
+    public static OrganizationActivity RetentionTookEffect(Guid organizationId, DateTimeOffset at, RetentionSwitch change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        return Record(organizationId, OrganizationActivityAction.RetentionTookEffect, actorAccountId: null, at, new { from = change.From, to = change.To });
+    }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.RetentionCleanup"/> (system): detail <c>{ "days",
+    /// "cutoff", "threadCount", "answerOutcomeCount" }</c>. Only for a cleanup that deleted something.
+    /// </summary>
+    public static OrganizationActivity RetentionCleanup(
+        Guid organizationId, DateTimeOffset at, int days, DateTimeOffset cutoff, int threadCount, int answerOutcomeCount)
+    {
+        if (threadCount < 0 || answerOutcomeCount < 0 || threadCount + answerOutcomeCount == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(threadCount), "A cleanup is recorded only when it deleted something.");
+        }
+
+        return Record(
+            organizationId, OrganizationActivityAction.RetentionCleanup, actorAccountId: null, at,
+            new { days, cutoff, threadCount, answerOutcomeCount });
+    }
 }
 
 /// <summary>One side of a <see cref="OrganizationActivityAction.ChatModelChanged"/> detail.</summary>

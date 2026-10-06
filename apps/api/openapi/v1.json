@@ -554,6 +554,108 @@
         }
       }
     },
+    "/api/v1/organization/retention": {
+      "get": {
+        "tags": [
+          "OrganizationRetentionEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRetentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "OrganizationRetentionEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationRetentionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRetentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/organization/retention/preview": {
+      "get": {
+        "tags": [
+          "OrganizationRetentionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRetentionPreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/chat/recent-conversations": {
       "get": {
         "tags": [
@@ -9876,6 +9978,99 @@
           }
         }
       },
+      "OrganizationRetentionPendingView": {
+        "required": [
+          "days",
+          "effectiveAt"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationRetentionPreviewView": {
+        "required": [
+          "days",
+          "threadCount",
+          "cutoff"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "threadCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationRetentionView": {
+        "required": [
+          "days",
+          "pending",
+          "options",
+          "canChange",
+          "lastChange",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "pending": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationRetentionPendingView"
+              }
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "canChange": {
+            "type": "boolean"
+          },
+          "lastChange": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationSettingChangeView"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "OrganizationSettingChangeView": {
         "required": [
           "actorName",
@@ -10994,6 +11189,26 @@
           }
         }
       },
+      "UpdateOrganizationRetentionRequest": {
+        "required": [
+          "days",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "UpdatePlatformSharingRequest": {
         "required": [
           "accountIds"
@@ -11287,6 +11502,9 @@
     },
     {
       "name": "OrganizationChatModelEndpoints"
+    },
+    {
+      "name": "OrganizationRetentionEndpoints"
     },
     {
       "name": "ChatEndpoints"

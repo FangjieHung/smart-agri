@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + set-token-limit subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + set-token-limit + retention-cleanup subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -1155,6 +1155,63 @@ next month or until the limit is raised. There is no settings screen: operators 
   `<code>` is the organization code used at login. Exit code `0` done, `1` unknown organization (or
   the write failed — nothing is written), `2` bad arguments (`--tokens` must be `0`, a positive
   integer, or `default`).
+
+## Conversation retention and the daily cleanup (M6-4, #241)
+
+Each organization chooses how long conversations are kept: 30, 90, 180 or 365 days, or forever
+(the default) — `Organization.RetentionDays` (`null` = forever).
+
+- **`GET /api/v1/organization/retention`** (any signed-in account of the organization) returns
+  `{ days, pending: { days, effectiveAt } | null, options: [30, 90, 180, 365], canChange, lastChange,
+  revision }`. `lastChange` covers the manager's changes and the system switching to a pending value
+  (「系統」); `revision` is `Organizations.SettingsRevision`, shared with the chat model.
+- **`GET /api/v1/organization/retention/preview?days=N`** (manager only, else `403
+  organization-settings`) returns `{ days, threadCount, cutoff }`: the threads a cleanup **now**
+  would delete with N days — the same cutoff and query the cleanup uses. After the buffer the real
+  number is larger. `N` outside the options is `422` (`errors.days`).
+- **`PUT /api/v1/organization/retention`** `{ days, revision }` (manager only): `days` outside the
+  options is `422` (`errors.days`), a stale revision `409 organization-settings-conflict`.
+  - **Shorter** (forever → a number included) is stored as `pending` with `effectiveAt` = now + 7
+    days; nothing is deleted under it before then.
+  - **Longer** (a number → forever included) applies at once and drops `pending`.
+  - **The current value** while something is pending drops it (「改回」).
+  - A change writes `retention-changed` or `retention-change-cancelled` to `OrganizationActivities`
+    in the same transaction; a value that changes nothing writes nothing.
+- **The daily cleanup** is a `retention-cleanup` background job per organization, due at 03:00 of
+  `Statistics:TimeZone`. The first save that gives the organization a retention in days (current or
+  pending) starts the chain; each run moves `Organizations.RetentionCleanupNextRunAt` with a
+  compare-and-set and only then queues the next run, so a job delivered twice deletes once and
+  queues one next job; a run that finds the retention forever with nothing pending ends the chain.
+  A run:
+  1. makes a pending value whose `effectiveAt` has passed current (`retention-took-effect`);
+  2. with a retention of N days, the cutoff is 00:00 of the local day N days before today;
+  3. deletes threads whose `LastActivityAt` is before it — whole, the database cascades to their
+     messages and citations — and every `AnswerOutcome` whose own `At` is before it, on every
+     channel (website included);
+  4. deletes in batches of 1,000, each its own transaction (index
+     `ChatThreads (OrganizationId, LastActivityAt)`);
+  5. writes one `retention-cleanup` activity (`{ days, cutoff, threadCount, answerOutcomeCount }`)
+     when it deleted something, none otherwise; the counters
+     `smartagri.retention.cleanup.runs` and `smartagri.retention.cleanup.deleted` (tag `record`)
+     count every run.
+
+  Model invocations, handoff copies in issues, periodic reports, database records and test runs are
+  never touched. The first cleanup after shortening a long-used retention may delete a lot: run the
+  first change off-peak.
+- **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
+  every organization with a retention in days but no queued or running cleanup job (a job that
+  failed for good breaks its chain); the same compare-and-set keeps it from forking.
+- **`retention-cleanup`** is a one-shot subcommand that runs one organization's cleanup now (a due
+  pending value first), without touching the chain:
+
+  ```sh
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code>
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code> --as-of 2026-11-13T03:00:00+08:00   # Development/Testing only
+  ```
+
+  `--as-of` computes the cutoff (and whether a pending value is due) as of that time, for the API-mode
+  E2E; any other environment refuses it. Exit code `0` done, `1` unknown organization or the cleanup
+  failed, `2` bad arguments.
 
 ## Retrieval preview and `KnowledgeRetriever`
 

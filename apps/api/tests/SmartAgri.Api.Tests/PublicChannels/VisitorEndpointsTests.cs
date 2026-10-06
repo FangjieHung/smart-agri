@@ -21,6 +21,7 @@ using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
 using SmartAgri.Application.Ai;
+using SmartAgri.Application.Answers;
 using SmartAgri.Application.Chat;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Accounts;
@@ -402,6 +403,22 @@ public sealed partial class VisitorEndpointsTests : IClassFixture<AuthHostFixtur
         reply.GetProperty("kind").GetString().ShouldBe("company-data");
         reply.GetProperty("citations").GetArrayLength().ShouldBe(0);
         run.Body.ShouldNotContain(JsonEncoded("退貨政策.md"));
+    }
+
+    [Fact]
+    public async Task A_visitors_no_result_suggests_rephrasing_and_never_the_staff_step_to_contact_the_manager()
+    {
+        var org = await CreateOrganizationWithKnowledgeAsync();
+        var assistantId = await PublishedAssistantAsync(org, keepConversations: false);
+        var visitor = VisitorClient();
+        var token = await SessionTokenAsync(visitor, assistantId);
+
+        var run = await RunAsync(visitor, assistantId, token, RunInput(UnrelatedQuestion));
+
+        var reply = run.Custom(ChatRunEndpoints.ReplyEventName)!.Value.GetProperty("reply");
+        reply.GetProperty("kind").GetString().ShouldBe("no-result");
+        reply.GetProperty("nextSteps").EnumerateArray().Select(step => step.GetString()).ShouldBe(GroundedReply.VisitorNoResultNextSteps);
+        run.Body.ShouldNotContain(JsonEncoded("管理者"));
     }
 
     [Fact]

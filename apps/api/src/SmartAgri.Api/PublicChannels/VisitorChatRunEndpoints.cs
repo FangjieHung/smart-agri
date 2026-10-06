@@ -292,6 +292,13 @@ public static class VisitorChatRunEndpoints
             yield return new TextMessageEndEvent { MessageId = streamMessageId };
 
             var view = ChatRunEndpoints.TransientReplyView(reply, clock.GetUtcNow());
+            if (view.Reply is { Kind: "no-result" } noResult)
+            {
+                // The default steps tell staff to contact the assistant's manager; a visitor gets the
+                // visitor wording (the owner's contact details are in the refusal message itself).
+                view = view with { Reply = noResult with { NextSteps = GroundedReply.VisitorNoResultNextSteps } };
+            }
+
             if (!showCitations && view.Reply is { Citations.Count: > 0 } shown)
             {
                 // The assistant hides its sources: the excerpts do not leave the server either.

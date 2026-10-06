@@ -238,6 +238,14 @@ public sealed record GroundedReply(
         "仍然找不到時，請聯絡這個助理的管理者補充相關資料。",
     ];
 
+    /// <summary>What a website visitor's <c>no-result</c> reply suggests instead (M5a): the
+    /// second step above is for staff, and a visitor cannot reach the assistant's manager — the
+    /// owner puts the organization's contact details in the assistant's refusal message.</summary>
+    public static IReadOnlyList<string> VisitorNoResultNextSteps { get; } =
+    [
+        "換個說法再問一次，或把問題問得更具體一些。",
+    ];
+
     internal static GroundedReply CompanyData(string text, IReadOnlyList<GroundedCitation> citations) =>
         new(GroundedReplyKind.CompanyData, text, citations, null, [], null);
 

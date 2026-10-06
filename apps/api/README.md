@@ -791,8 +791,53 @@ queries and handoffs are not on this path at all (an architecture test checks th
   before authentication to any `/api/v1/public/*` request whose `Origin` is not the API's own (the
   request's scheme, host and port, or `PublicChannels:PublicBaseUrl`'s — set it when a reverse proxy
   terminates TLS). Requests without `Origin` pass: this is a browser boundary, not abuse protection
-  (rate limits arrive with Slice 5). No CORS policy is registered, so cross-origin browser calls also
+  (the rate limits below are). No CORS policy is registered, so cross-origin browser calls also
   fail their preflight.
+- **Rate limits** (`PublicRateLimiting`, M5a #197): ASP.NET Core's built-in rate limiter, on
+  `/api/v1/public/*` **only** (member endpoints, the widget and health checks are never limited). They
+  are the real defence against abuse: `frame-ancestors` and the same-origin check only bind browsers,
+  and a script that sends no `Origin` is limited exactly like a browser. A request must pass every
+  limit that applies; the first to refuse answers `429 { "reason": "rate-limited", … }` (problem JSON,
+  `Cache-Control: no-store`) with `Retry-After` in whole seconds, before the answer stream starts.
+  `Retry-After` is exact for session creation, the whole window for a sliding-window refusal (the
+  built-in limiter cannot say when the next permit frees up, so it is never too early; an hour-limit
+  refusal says `3600`) and `5` for the concurrency limit. The widget shows 「問題太頻繁了，請稍後再試」
+  with a countdown from it. Values are counts, in `PublicChannels:RateLimits` (env:
+  `PublicChannels__RateLimits__<Name>`), each at least 1, validated at startup:
+
+  | Setting | Partition | Algorithm | Default |
+  | --- | --- | --- | --- |
+  | `SessionsPerIpPerMinute` | client IP, `visitor-sessions` | fixed window, 1 minute | 10 |
+  | `RunsPerVisitorPerMinute` | `visitor_id` claim, `chat/runs` | sliding window, 1 minute | 6 |
+  | `RunsPerVisitorPerHour` | `visitor_id` claim, `chat/runs` | sliding window, 1 hour | 60 |
+  | `RunsPerIpPerMinute` | client IP, `chat/runs` | sliding window, 1 minute | 20 |
+  | `RunsPerAssistantPerMinute` | `assistant_id` claim, `chat/runs` | sliding window, 1 minute | 120 |
+  | `MaxConcurrentRunsPerAssistant` | `assistant_id` claim, `chat/runs` | replies being generated at once | 10 |
+
+  The limiter runs after authorization (a missing or invalid visitor token is already `401` and costs
+  nothing) and after the origin check (a foreign `Origin` is `403` and uses no permit). Narrowest
+  partition first (visitor, IP, assistant); permits taken before a later limit refuses are not given
+  back. An IPv6 client counts per /64; a connection without an address is one partition (`unknown`).
+  **Counters live in this process's memory**: the deployment has one API container, and several
+  instances would each count on their own (the limits then multiply by the instance count). A restart
+  resets them.
+- **Behind a reverse proxy: `PublicChannels:TrustedProxies`** (env `PublicChannels__TrustedProxies__0`;
+  compose: `TRUSTED_PROXIES` in `deploy/.env`). A list of IP addresses and CIDR networks
+  (`10.0.0.5`, `172.16.0.0/12`, `::1`; one entry may also hold several separated by commas, so a single
+  `.env` value works); an entry that is neither refuses to start. **Not set (default): `X-Forwarded-*`
+  is ignored** and the client is the connection's source address — so behind a reverse proxy every
+  visitor looks like the proxy's one IP, shares one partition and is `429`'d almost at once. **Set it
+  for any deployment behind a proxy** (nginx, a load balancer, a CDN). Once set, requests from those
+  addresses — and only those — have `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host`
+  applied (for every endpoint, not only the visitor API), so the rate limits partition by the real
+  client and the origin check and embed code see `https://assistant.example.org` although the proxy
+  speaks plain `http` to the API. The chain is read from the right and stops at the first address that
+  is not a listed proxy, so a client cannot choose its own address by sending a header. The framework's
+  default of trusting loopback does not apply: list `127.0.0.1` and `::1` for a proxy on the same
+  machine, and the proxy's network (e.g. the compose network's subnet) for one in another container.
+  A Production host that receives `X-Forwarded-For` without any `TrustedProxies` logs a warning once
+  (`TrustedProxies`: "…is not configured…"). Also set `PublicChannels:PublicBaseUrl` to the public
+  address.
 - **Protocol check**: `tools/agui-contract/fixtures/visitor-*.sse` are recorded by
   `VisitorEndpointsTests.The_recorded_visitor_streams_match_the_fixtures_the_ag_ui_client_check_parses`
   and parsed by `check-agui-stream.mjs` like the member fixtures (re-record with

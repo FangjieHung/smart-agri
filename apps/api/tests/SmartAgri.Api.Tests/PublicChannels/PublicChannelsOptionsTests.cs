@@ -135,6 +135,118 @@ public class PublicChannelsOptionsTests
         Bind(null).AllowLocalhostAncestors.ShouldBeFalse();
     }
 
+    // --- RateLimits and TrustedProxies (#197) ------------------------------------------------------
+
+    [Fact]
+    public void Rate_limits_default_to_the_values_of_decision_C_and_need_no_setting()
+    {
+        foreach (var options in new[] { new PublicChannelsOptions(), BindSettings([]) })
+        {
+            options.RateLimits.SessionsPerIpPerMinute.ShouldBe(10);
+            options.RateLimits.RunsPerVisitorPerMinute.ShouldBe(6);
+            options.RateLimits.RunsPerVisitorPerHour.ShouldBe(60);
+            options.RateLimits.RunsPerIpPerMinute.ShouldBe(20);
+            options.RateLimits.RunsPerAssistantPerMinute.ShouldBe(120);
+            options.RateLimits.MaxConcurrentRunsPerAssistant.ShouldBe(10);
+            options.TrustedProxies.ShouldBeEmpty();
+            Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();
+        }
+    }
+
+    [Fact]
+    public void Rate_limits_are_bound_from_the_section()
+    {
+        var options = BindSettings(new Dictionary<string, string?>
+        {
+            ["PublicChannels:RateLimits:SessionsPerIpPerMinute"] = "3",
+            ["PublicChannels:RateLimits:RunsPerVisitorPerMinute"] = "4",
+            ["PublicChannels:RateLimits:RunsPerVisitorPerHour"] = "5",
+            ["PublicChannels:RateLimits:RunsPerIpPerMinute"] = "6",
+            ["PublicChannels:RateLimits:RunsPerAssistantPerMinute"] = "7",
+            ["PublicChannels:RateLimits:MaxConcurrentRunsPerAssistant"] = "8",
+        });
+
+        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8]);
+        Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("SessionsPerIpPerMinute", "0")]
+    [InlineData("RunsPerVisitorPerMinute", "-1")]
+    [InlineData("RunsPerVisitorPerHour", "0")]
+    [InlineData("RunsPerIpPerMinute", "-5")]
+    [InlineData("RunsPerAssistantPerMinute", "0")]
+    [InlineData("MaxConcurrentRunsPerAssistant", "0")]
+    public void A_rate_limit_below_one_fails_startup_and_says_which_setting(string name, string value)
+    {
+        var result = Validator("Production").Validate(null, BindSettings(new Dictionary<string, string?> { [$"PublicChannels:RateLimits:{name}"] = value }));
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain($"PublicChannels:RateLimits:{name} {value} must be 1 or more");
+    }
+
+    [Fact]
+    public void A_non_numeric_rate_limit_fails_binding_so_startup_is_refused()
+    {
+        Should.Throw<InvalidOperationException>(() =>
+            BindSettings(new Dictionary<string, string?> { ["PublicChannels:RateLimits:RunsPerIpPerMinute"] = "many" }));
+    }
+
+    [Fact]
+    public void Trusted_proxies_accept_addresses_and_networks_in_separate_entries_or_one_list()
+    {
+        var options = BindSettings(new Dictionary<string, string?>
+        {
+            ["PublicChannels:TrustedProxies:0"] = "10.0.0.5",
+            ["PublicChannels:TrustedProxies:1"] = "172.16.0.0/12, 192.168.1.0/24",
+            ["PublicChannels:TrustedProxies:2"] = "::1;fd00::/8",
+        });
+
+        var (addresses, networks, invalid) = options.ParseTrustedProxies();
+
+        addresses.Select(address => address.ToString()).ShouldBe(["10.0.0.5", "::1"]);
+        networks.Select(network => network.ToString()).ShouldBe(["172.16.0.0/12", "192.168.1.0/24", "fd00::/8"]);
+        invalid.ShouldBeEmpty();
+        Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void A_blank_trusted_proxies_value_binds_as_none_like_an_empty_env_value_in_compose()
+    {
+        // deploy/docker-compose.yml passes TRUSTED_PROXIES as "PublicChannels__TrustedProxies__0: ${TRUSTED_PROXIES:-}".
+        var options = BindSettings(new Dictionary<string, string?> { ["PublicChannels:TrustedProxies:0"] = "" });
+
+        var (addresses, networks, invalid) = options.ParseTrustedProxies();
+
+        (addresses.Count + networks.Count + invalid.Count).ShouldBe(0);
+        Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("proxy.example.org")]
+    [InlineData("10.0.0.0/33")]
+    [InlineData("10.0.0.0/")]
+    [InlineData("10.0.0.256")]
+    [InlineData("*")]
+    public void A_trusted_proxy_that_is_neither_an_address_nor_a_network_fails_startup_and_names_the_entry(string entry)
+    {
+        var options = BindSettings(new Dictionary<string, string?>
+        {
+            ["PublicChannels:TrustedProxies:0"] = "10.0.0.0/8",
+            ["PublicChannels:TrustedProxies:1"] = entry,
+        });
+
+        var result = Validator("Production").Validate(null, options);
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain($"PublicChannels:TrustedProxies entry '{entry}'");
+    }
+
+    private static PublicChannelsOptions BindSettings(IEnumerable<KeyValuePair<string, string?>> settings) =>
+        new ConfigurationBuilder().AddInMemoryCollection(settings).Build()
+            .GetSection(PublicChannelsOptions.SectionName)
+            .Get<PublicChannelsOptions>(binder => binder.ErrorOnUnknownConfiguration = false) ?? new PublicChannelsOptions();
+
     private static PublicChannelsOptions.Validator Validator(string environment = "Development") =>
         new(new HostingEnvironment { EnvironmentName = environment });
 

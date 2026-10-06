@@ -5694,7 +5694,7 @@ export interface paths {
         put?: never;
         /**
          * Start an anonymous website visitor session
-         * @description Anonymous; any credential is ignored. 201 while the assistant's website channel is serving; otherwise (unknown id, not published, paused, suspended) the same 403 public-assistant, byte for byte. Body { host }: the embedding page's origin, used only for passive installation detection.
+         * @description Anonymous; any credential is ignored. 201 while the assistant's website channel is serving; otherwise (unknown id, not published, paused, suspended) the same 403 public-assistant, byte for byte. 429 { reason: rate-limited } with Retry-After (seconds) when this client IP starts too many sessions. Body { host }: the embedding page's origin, used only for passive installation detection.
          */
         post: {
             parameters: {
@@ -5727,6 +5727,13 @@ export interface paths {
                     };
                     content?: never;
                 };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
             };
         };
         delete?: never;
@@ -5746,7 +5753,7 @@ export interface paths {
         put?: never;
         /**
          * Answer one website visitor's question as an AG-UI event stream
-         * @description Authorization: Visitor <token>. Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch); earlier turns come from messages (at most 20) and nothing is saved. 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply, RUN_FINISHED or RUN_ERROR); see VisitorChatRunEndpoints' remarks.
+         * @description Authorization: Visitor <token>. Body: AG-UI RunAgentInput (use @ag-ui/core's type; this schema is only a sketch); earlier turns come from messages (at most 20) and nothing is saved. 200: text/event-stream of AG-UI events (RUN_STARTED, TEXT_MESSAGE_*, CUSTOM smartagri.reply, RUN_FINISHED or RUN_ERROR); see VisitorChatRunEndpoints' remarks. 429 { reason: rate-limited } with Retry-After (seconds) when the visitor, the client IP or the assistant is over its limit.
          */
         post: {
             parameters: {
@@ -5795,6 +5802,13 @@ export interface paths {
                 };
                 /** @description Unprocessable Entity */
                 422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Too Many Requests */
+                429: {
                     headers: {
                         [name: string]: unknown;
                     };

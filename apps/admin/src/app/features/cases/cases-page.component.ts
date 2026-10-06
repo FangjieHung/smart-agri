@@ -28,6 +28,7 @@ import {
   type CaseListScope,
   type CaseListStatus,
   type CaseSummaryView,
+  type CaseView,
 } from '../../core/domain/case.model';
 import type { CaseTypeView } from '../../core/domain/case-settings.model';
 import { CaseSettingsRepository } from '../../core/repositories/case-settings.repository';
@@ -36,17 +37,19 @@ import { repositoryResource } from '../../core/repositories/repository-resource'
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../shared/ui/state-panel/state-panel.component';
+import { CaseActionsComponent } from './case-actions.component';
 
 type FormField = Extract<CaseField, 'typeId' | 'groupId' | 'dueAt' | 'title' | 'description'>;
 
 /**
  * 案件頁（issue #248；M7 計畫第 3 節 J）：清單＋詳情，以 `?case=<id>` 選取（比照 `/app/issues`），
  * 以及「建立案件」表單：選類型 → 帶入承辦組與時限（可修改），時限早於現在時送出前就提示。
- * 連結到紀錄與對話串只顯示「能不能開啟」，從不顯示對話內容。只透過 lazy 路由載入。
+ * 連結到紀錄與對話串只顯示「能不能開啟」，從不顯示對話內容。詳情依身分與狀態只顯示能做的動作
+ * （`CaseActionsComponent`，issue #249）與交接軌跡；已結案的案件只剩「另開新案」。只透過 lazy 路由載入。
  */
 @Component({
   selector: 'app-cases-page',
-  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent],
+  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent, CaseActionsComponent],
   templateUrl: './cases-page.component.html',
   styleUrl: './cases-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -87,6 +90,8 @@ export class CasesPageComponent {
   protected readonly formErrors = signal<Partial<Record<FormField, string>>>({});
   protected readonly formMessage = signal('');
   protected readonly saving = signal(false);
+  /** 「另開新案」接續的舊案件（建立時以 `previousCaseId` 連結）。 */
+  protected readonly formPreviousCase = signal<Pick<CaseView, 'id' | 'title'> | null>(null);
 
   protected readonly listResource = repositoryResource({
     params: () => {
@@ -154,6 +159,21 @@ export class CasesPageComponent {
     this.formDescription.set('');
     this.formErrors.set({});
     this.formMessage.set('');
+    this.formPreviousCase.set(null);
+  }
+
+  /** 已結案的案件不能重開：另開新案，帶入舊案件的類型（仍啟用時）與標題，並連結舊案件。 */
+  protected startFollowUp(item: CaseView): void {
+    this.startCreate();
+    if (this.types().some((type) => type.id === item.type.id)) this.chooseType(item.type.id);
+    this.formTitle.set(item.title);
+    this.formPreviousCase.set({ id: item.id, title: item.title });
+  }
+
+  /** 動作成功：重新讀取詳情與清單（狀態、承辦組、負責人都可能改變）。 */
+  protected actionDone(): void {
+    this.detailResource.reload();
+    this.listResource.reload();
   }
 
   protected cancelCreate(): void {
@@ -200,15 +220,18 @@ export class CasesPageComponent {
     }
     this.saving.set(true);
     this.formMessage.set('');
+    const previous = this.formPreviousCase();
     this.cases.create({
       typeId: this.formTypeId(),
       groupId: this.formGroupId(),
       dueAt: due.toISOString(),
       title: this.formTitle().trim(),
       description: this.formDescription().trim(),
+      ...(previous ? { previousCaseId: previous.id } : {}),
     }).pipe(finalize(() => this.saving.set(false))).subscribe({
       next: (result) => {
         if (result.status === 'ready') {
+          this.formPreviousCase.set(null);
           this.listResource.reload();
           this.select(result.data.case);
         } else if (result.status === 'validation-failed') {

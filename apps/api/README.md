@@ -1303,6 +1303,36 @@ its creator, the members of its **current** case group, anyone who ever accepted
   record's access); `links.thread` `{ assistantId, threadId, canOpen }`, `links.assistantIssue`
   `{ issueId, canOpen }` and `links.previousCase` `{ caseId, canOpen }` say only whether the caller can
   open them. **No response ever carries conversation text** — not the thread's title either.
+  `allowedActions` lists what the caller may do now (below) and `cancelReasonRequired` whether their
+  `:cancel` needs a reason.
+
+### Case actions (M7-4, #249)
+
+One action table, `CaseActionRules` (Application; M7 plan §3 D, decisions I and J). Each action is
+`POST /api/v1/cases/{id}:<action>` — or `POST /api/v1/cases/{id}/comments` for a comment — with the
+`eventCount` the screen showed, answers `200` with the detail and writes exactly one event:
+
+| action | body | who | statuses | result |
+| --- | --- | --- | --- | --- |
+| `accept` | — | a member of the current group | pending | in-progress; the caller becomes the case owner |
+| `request-info` | `note` (required) | the case owner | in-progress | awaiting-info |
+| `resume` | `note?` | the case owner | awaiting-info | in-progress |
+| `complete` | `resolution` (required) | the case owner | in-progress, awaiting-info | completed |
+| `cancel` | `reason` (required, except from the creator before acceptance) | pending: creator or manager; afterwards: case owner or manager | open | cancelled |
+| `transfer` | `groupId`, `note?` | the case owner or the manager (only the manager while pending) | open | pending in the new group, no owner |
+| `set-due` | `dueAt`, `note?` | the case owner | open | new due time |
+| comment | `note` (required) | the creator or the case owner | open | a note; the creator's note on an awaiting-info case also moves it back to in-progress |
+
+Checks, in order, and none writes anything: not visible (or an external customer) is the one `403
+case`; a missing `eventCount`, a text over 2,000 characters, a missing `groupId`/`dueAt` is `422`
+(no reason); another `eventCount` than the case's is **`409 case-changed`**; a status where no one may
+do the action — every closed case — is `409 case-changed`; a status where the caller may not is
+**`403 case-action`**; then `422 note-required` / `resolution-required` / `reason-required`, a
+transfer to an unknown (`case-group-not-found`), archived (`case-group-archived`) or the same group
+(`case-group-unchanged`), and a due time earlier than now (`due-in-past`). The case owner stays the
+owner after leaving the group. `Case.EventCount` is a concurrency token and `(CaseId, Ordinal)` is
+unique, so two people accepting the same version at once get one `200` and one `409`. A closed case
+is never reopened: 「另開新案」 is `POST /api/v1/cases` with `previousCaseId`.
 
 ## Retrieval preview and `KnowledgeRetriever`
 

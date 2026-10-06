@@ -25,6 +25,9 @@ export type CaseRecordLinkState = components['schemas']['CaseRecordLinkState'];
 /** `POST /api/v1/cases` 送出的欄位。 */
 export type CreateCaseRequest = components['schemas']['CreateCaseRequest'];
 
+/** 動作表的動作（issue #249）：`POST /api/v1/cases/{id}:<動作>`，補充是 `POST …/comments`。 */
+export type CaseAction = components['schemas']['CaseAction'];
+
 /** 清單的範圍：我看得到的全部、我建立的、我負責的、我的承辦組。 */
 export type CaseListScope = 'all' | 'created' | 'owned' | 'my-groups';
 
@@ -100,3 +103,35 @@ export const CASE_DUE_REQUIRED_MESSAGE = '請填寫處理時限。';
 export const CASE_DUE_IN_PAST_MESSAGE = '時限不能早於現在。';
 export const CASE_TYPE_INACTIVE_MESSAGE = '這個案件類型已停用或不存在，請選擇其他類型。';
 export const CASE_THREAD_UNAVAILABLE_TEXT = '這個對話無法開啟';
+
+const CASE_ACTION_LABELS: Readonly<Record<CaseAction, string>> = {
+  accept: '受理',
+  'request-info': '要求補件',
+  resume: '繼續處理',
+  complete: '完成',
+  cancel: '取消案件',
+  transfer: '轉組',
+  'set-due': '調整時限',
+  comment: '補充說明',
+};
+
+/** 詳情頁動作按鈕的文字。 */
+export function caseActionLabel(action: CaseAction): string {
+  return CASE_ACTION_LABELS[action];
+}
+
+/** 動作表的順序（與後端 `CaseActionRules.All` 相同）。 */
+export const CASE_ACTIONS: readonly CaseAction[] = Object.keys(CASE_ACTION_LABELS) as CaseAction[];
+
+/** 與後端 `CaseRules`／`CaseActionEndpoints` 相同的上限與訊息（issue #249）。 */
+export const CASE_NOTE_MAX_LENGTH = 2000;
+export const CASE_TEXT_TOO_LONG_MESSAGE = '請在 2,000 個字以內。';
+export const CASE_REQUEST_INFO_NOTE_REQUIRED_MESSAGE = '請說明需要補充哪些資料。';
+export const CASE_COMMENT_REQUIRED_MESSAGE = '請輸入補充內容。';
+export const CASE_RESOLUTION_REQUIRED_MESSAGE = '請填寫處理結果。';
+export const CASE_REASON_REQUIRED_MESSAGE = '請填寫取消原因。';
+export const CASE_GROUP_UNCHANGED_MESSAGE = '案件已經在這個承辦組，請選擇其他承辦組。';
+/** `409 case-changed`：畫面上的版本（`eventCount`）已過期，或別人剛改了狀態。 */
+export const CASE_CHANGED_MESSAGE = '這件案件剛被其他人更新，請重新整理後再試。';
+/** `403 case-action`：看得到案件，但這個動作不是你能做的。 */
+export const CASE_ACTION_DENIED_MESSAGE = '你不能對這件案件執行這個動作。';

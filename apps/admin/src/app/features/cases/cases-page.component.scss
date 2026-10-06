@@ -84,7 +84,10 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .case-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
 .case-facts div { min-width: 0; }
 .case-facts dt { color: var(--color-text-secondary); }
-.case-facts dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.case-facts dd { margin: var(--space-1) 0 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.case-facts__wide { grid-column: 1 / -1; }
+.case-closed { display: grid; gap: var(--space-3); justify-items: start; }
+.case-closed h4, .case-closed p { margin: 0; }
 .case-section { margin-top: var(--space-6); border-top: 1px solid var(--color-border); padding-top: var(--space-6); }
 .case-description { white-space: pre-wrap; overflow-wrap: anywhere; }
 .case-links { margin: 0; padding-inline-start: var(--space-6); display: grid; gap: var(--space-2); }

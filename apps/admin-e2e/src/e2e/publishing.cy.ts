@@ -164,7 +164,8 @@ describe('publishing channels', () => {
       cy.get('.checklist li').should('have.length', 3);
       cy.contains('.checklist li', 'Channel access token').should('have.attr', 'data-state', 'failed');
       cy.contains('.checklist li', '設定 Webhook 網址').should('have.attr', 'data-state', 'skipped');
-      cy.contains('.serving__label', '需要處理').should('be.visible');
+      // 狀態列在面板下方，可能被捲出捲動容器的可視範圍：先捲過去再檢查可見。
+      cy.contains('.serving__label', '需要處理').scrollIntoView().should('be.visible');
       cy.get('#line-webhook-url').should('contain', '/line/assistant-customer-service');
       cy.contains('本月補送次數').should('contain', '3');
 
@@ -191,8 +192,8 @@ describe('publishing channels', () => {
       cy.contains('.block--status button', '啟用').click();
     });
     inLineSetup(() => {
-      cy.contains('已啟用 LINE 頻道').should('be.visible');
-      cy.contains('.serving__reason', '服務中').should('be.visible');
+      cy.contains('已啟用 LINE 頻道').scrollIntoView().should('be.visible');
+      cy.contains('.serving__reason', '服務中').scrollIntoView().should('be.visible');
     });
     cy.contains('app-channel-card', 'LINE').should('contain', '已發布');
     cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
@@ -202,17 +203,17 @@ describe('publishing channels', () => {
       cy.contains('button', '暫停服務').click();
     });
     inLineSetup(() => {
-      cy.contains('已暫停 LINE').should('be.visible');
-      cy.contains('.serving__reason', '擁有者暫停中').should('be.visible');
+      cy.contains('已暫停 LINE').scrollIntoView().should('be.visible');
+      cy.contains('.serving__reason', '擁有者暫停中').scrollIntoView().should('be.visible');
       cy.contains('button', '恢復服務').click();
     });
     inLineSetup(() => {
-      cy.contains('.serving__reason', '服務中').should('be.visible');
+      cy.contains('.serving__reason', '服務中').scrollIntoView().should('be.visible');
       cy.contains('button', '取消啟用').click();
     });
     inLineSetup(() => {
-      cy.contains('已取消啟用').should('be.visible');
-      cy.contains('.serving__reason', '尚未啟用').should('be.visible');
+      cy.contains('已取消啟用').scrollIntoView().should('be.visible');
+      cy.contains('.serving__reason', '尚未啟用').scrollIntoView().should('be.visible');
     });
     cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
   });

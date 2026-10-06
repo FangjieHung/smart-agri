@@ -26,6 +26,7 @@
     },
     "test": {
       "executor": "nx:run-commands",
+      "dependsOn": ["typecheck"],
       "options": {
         "command": "vitest run --config apps/embed-loader/vitest.config.mts",
         "cwd": "{workspaceRoot}"

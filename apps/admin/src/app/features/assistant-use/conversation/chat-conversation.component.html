@@ -231,63 +231,46 @@
   }
 
   @if (pendingWithdrawal()) {
-    <div class="confirm-backdrop"></div>
-    <div
-      class="confirm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="withdraw-confirm-title"
-      aria-describedby="withdraw-confirm-detail"
-      cdkTrapFocus
-      (keydown.escape)="cancelWithdraw()"
-    >
-      <h2 class="confirm-title" id="withdraw-confirm-title">撤回這筆資料？</h2>
-      <p class="confirm-detail" id="withdraw-confirm-detail">
-        接收單位的收集紀錄會移除這筆資料的內容，也不再計入趨勢比較，只留下一筆「曾提交、已撤回」的軌跡（提交與撤回時間、來源）。這個動作無法復原。
-      </p>
-      <div class="confirm-actions">
-        <button #withdrawCancelButton type="button" class="confirm-cancel" (click)="cancelWithdraw()">取消</button>
-        <button type="button" class="confirm-withdraw" (click)="confirmWithdraw()">撤回</button>
-      </div>
-    </div>
+    <app-confirm-dialog
+      name="withdraw"
+      heading="撤回這筆資料？"
+      detail="接收單位的收集紀錄會移除這筆資料的內容，也不再計入趨勢比較，只留下一筆「曾提交、已撤回」的軌跡（提交與撤回時間、來源）。這個動作無法復原。"
+      confirmLabel="撤回"
+      confirmClass="confirm-withdraw"
+      (cancelled)="cancelWithdraw()"
+      (confirmed)="confirmWithdraw()"
+    />
   }
 
   @if (pendingLeave()) {
-    <div class="confirm-backdrop"></div>
-    <div
-      class="confirm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="leave-confirm-title"
-      aria-describedby="leave-confirm-detail"
-      cdkTrapFocus
-      (keydown.escape)="cancelLeave()"
-    >
-      <h2 class="confirm-title" id="leave-confirm-title">前往我送出的資料？</h2>
-      <p class="confirm-detail" id="leave-confirm-detail">離開會清除已填的內容。</p>
-      <div class="confirm-actions">
-        <button #leaveCancelButton type="button" class="confirm-cancel" (click)="cancelLeave()">繼續填寫</button>
-        <button type="button" (click)="confirmLeave()">離開</button>
-      </div>
-    </div>
+    <app-confirm-dialog
+      name="leave"
+      heading="前往我送出的資料？"
+      detail="離開會清除已填的內容。"
+      cancelLabel="繼續填寫"
+      confirmLabel="離開"
+      (cancelled)="cancelLeave()"
+      (confirmed)="confirmLeave()"
+    />
   }
 
   @if (pendingHandoff(); as exchange) {
-    <div class="confirm-backdrop"></div>
-    <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="handoff-confirm-title"
-      aria-describedby="handoff-confirm-detail" cdkTrapFocus (keydown.escape)="cancelHandoff()">
-      <h2 class="confirm-title" id="handoff-confirm-title">轉給專人確認</h2>
-      <p class="confirm-detail" id="handoff-confirm-detail">以下這一則問題與回覆的複本，會交給助理擁有者或被指派的處理人查看與處理。對方看不到你的其他對話內容。</p>
+    <app-confirm-dialog
+      name="handoff"
+      heading="轉給專人確認"
+      detail="以下這一則問題與回覆的複本，會交給助理擁有者或被指派的處理人查看與處理。對方看不到你的其他對話內容。"
+      [confirmLabel]="handoffBusy() ? '轉交中…' : '確認轉交'"
+      confirmClass="confirm-handoff"
+      [busy]="handoffBusy()"
+      (cancelled)="cancelHandoff()"
+      (confirmed)="confirmHandoff()"
+    >
       <dl class="handoff-preview">
         <div><dt>分享的問題</dt><dd>{{ exchange.question }}</dd></div>
         <div><dt>分享的回覆</dt><dd>{{ exchange.answer }}</dd></div>
         <div><dt>接收對象</dt><dd>助理擁有者或被指派的處理人</dd></div>
       </dl>
       @if (handoffError()) { <p role="alert">{{ handoffError() }}</p> }
-      <div class="confirm-actions">
-        <button #handoffCancelButton type="button" class="confirm-cancel" [disabled]="handoffBusy()" (click)="cancelHandoff()">取消</button>
-        <button type="button" class="confirm-handoff" [disabled]="handoffBusy()" (click)="confirmHandoff()">{{ handoffBusy() ? '轉交中…' : '確認轉交' }}</button>
-      </div>
-    </div>
+    </app-confirm-dialog>
   }
 }

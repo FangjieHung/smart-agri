@@ -1,0 +1,38 @@
+// 宿主不產生方塊：遮罩與對話框都是 fixed，放進 grid／flex 容器也不會多出一格或間距。
+:host { display: contents; }
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(28 39 51 / 45%);
+}
+.confirm {
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  z-index: 41;
+  display: grid;
+  gap: var(--space-3);
+  // 使用的元件可在宿主上改寬度（對話清單用 24rem）。
+  inline-size: min(var(--confirm-dialog-inline-size, 26rem), calc(100vw - var(--space-8)));
+  padding: var(--space-4);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(28 39 51 / 24%);
+  translate: -50% -50%;
+}
+.confirm-title { margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.confirm-detail { margin: 0; color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.confirm-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.confirm-actions button {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+.confirm-actions button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

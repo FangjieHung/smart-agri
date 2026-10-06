@@ -22,6 +22,11 @@ public class VisitorEndpointArchitectureTests
     [
         typeof(AssistantFormRequests),
         typeof(ChatFormRequestTool),
+        // M7-8: the proposal stage holds the form request now (and M7-9's case proposal).
+        typeof(ChatProposalStage),
+        typeof(IChatProposal),
+        typeof(ChatProposalCandidate),
+        typeof(ChatProposalReply),
         typeof(ChatDatabaseQueries),
         typeof(IChatDatabaseQueryRunner),
         typeof(ChatDatabaseQueryScope),
@@ -57,16 +62,21 @@ public class VisitorEndpointArchitectureTests
         offending.ShouldBeEmpty($"{endpoints.Name} must compose only the answer pipeline (plan §3 D)");
     }
 
-    /// <summary>The scan itself finds what it looks for: the member endpoint does use them.</summary>
+    /// <summary>The scan itself finds what it looks for: the member endpoint does use them (the form
+    /// services through the proposal stage since M7-8).</summary>
     [Fact]
     public void The_scan_finds_the_member_endpoints_form_and_query_services()
     {
         var referenced = ReferencedTypes(typeof(ChatRunEndpoints)).ToHashSet();
 
-        referenced.ShouldContain(typeof(AssistantFormRequests));
-        referenced.ShouldContain(typeof(ChatFormRequestTool));
+        referenced.ShouldContain(typeof(ChatProposalStage));
+        referenced.ShouldContain(typeof(ChatProposalCandidate));
         referenced.ShouldContain(typeof(ChatDatabaseQueries));
         referenced.ShouldContain(typeof(SmartAgri.Domain.Chat.ChatThread));
+
+        var proposals = ReferencedTypes(typeof(ChatFormRequestProposal)).ToHashSet();
+        proposals.ShouldContain(typeof(AssistantFormRequests));
+        proposals.ShouldContain(typeof(ChatFormRequestTool));
     }
 
     /// <summary>Every type <paramref name="root"/> and its nested (including compiler-generated)

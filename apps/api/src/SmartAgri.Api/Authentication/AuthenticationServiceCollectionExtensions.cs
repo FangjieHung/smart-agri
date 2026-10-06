@@ -184,11 +184,14 @@ public static class AuthenticationServiceCollectionExtensions
         services.AddScoped<IAccountPermissionSource, DatabaseAccountPermissionSource>();
         services.AddScoped<RequestAccountPermissions>();
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+        services.AddScoped<RequestAccountRole>();
+        services.AddScoped<IAuthorizationHandler, OrganizationAdminAuthorizationHandler>();
         services.AddScoped<IPasswordChangeRequirementSource, DatabasePasswordChangeRequirementSource>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, ApiAuthorizationResultHandler>();
         services
             .AddAuthorizationBuilder()
             .AddPermissionPolicies()
+            .AddOrganizationAdminPolicy()
             // Secure by default: an endpoint that declares nothing requires a signed-in
             // caller. Anonymous endpoints opt out explicitly with AllowAnonymous().
             .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());

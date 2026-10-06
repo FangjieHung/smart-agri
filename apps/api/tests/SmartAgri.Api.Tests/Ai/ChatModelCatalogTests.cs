@@ -219,17 +219,7 @@ public sealed class ChatModelCatalogTests
             .ShouldBe(new ResolvedChatModel(catalog.DeploymentDefault, ChatModelSource.Removed));
     }
 
-    [Fact]
-    public async Task Until_organizations_can_choose_every_one_gets_the_deployment_default()
-    {
-        using var catalog = Catalog(Default(models: [Entry("Fake", "fake-second", id: "second")]), environment: "Testing");
-        var resolver = new OrganizationChatModelResolver(catalog);
-
-        var resolved = await resolver.ResolveAsync(CancellationToken);
-
-        resolved.ShouldBe(new ResolvedChatModel(catalog.DeploymentDefault, ChatModelSource.DeploymentDefault));
-        (await resolver.ResolveAsync(CancellationToken)).ShouldBeSameAs(resolved, "one answer for the whole scope");
-    }
+    // Reading the organization's choice once per scope: OrganizationChatModelEndpointsTests (M6-2).
 
     [Fact]
     public async Task The_scoped_client_sends_and_records_every_call_to_the_resolved_model_resolving_once()

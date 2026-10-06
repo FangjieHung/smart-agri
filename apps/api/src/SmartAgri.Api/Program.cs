@@ -14,6 +14,7 @@ using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Knowledge.Evaluation;
 using SmartAgri.Api.Observability;
+using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Operations;
 using SmartAgri.Api.Organizations;
 using SmartAgri.Api.Reports;
@@ -49,6 +50,10 @@ builder.Services.AddOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>(
     .ValidateOnStart();
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>, SmartAgri.Api.PublicChannels.PublicChannelsOptions.Validator>();
 builder.Services.AddOrganizationTokenUsage();
+builder.Services.AddOptions<SmartAgri.Api.PublicChannels.WidgetOptions>()
+    .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.WidgetOptions.SectionName));
+builder.Services.AddSingleton<SmartAgri.Api.PublicChannels.WidgetIndexTemplate>();
+builder.Services.AddScoped<SmartAgri.Infrastructure.Assistants.PublicWebsiteChannelLookup>();
 builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.IChatDatabaseQueryRunner, SmartAgri.Api.Chat.FixedQueryChatRunner>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatDatabaseQueries>();
@@ -187,6 +192,7 @@ app.MapOrganizationUsageEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();
+app.MapWidgetEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API

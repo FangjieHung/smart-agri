@@ -30,8 +30,10 @@ Every entity implementing `IOrganizationScoped` (Domain) is isolated automatical
   throws `CrossOrganizationWriteException` (before any SQL is sent) for any add, change
   or delete of another organization's row, or of any scoped row with no organization.
   `OrganizationId` is also a concurrency token, so updates/deletes by key match on it.
-- **Turning the filter off** is allowed in one place only, `AccountLookup` (sign-in
-  lookup by organization code + login name); a source-scanning test enforces this.
+- **Turning the filter off** is allowed in two places only: `AccountLookup` (sign-in lookup by
+  organization code + login name) and `PublicWebsiteChannelLookup` (the page embedded in a
+  customer's website finds an assistant's website channel by its id; it returns nothing but the
+  channel's state and allowed domains). A source-scanning test enforces this.
 - **Raw SQL** (which neither the filter nor the write guard sees) is allowed in one place
   only, `JobClaimer` (claiming background jobs across organizations, see below); the
   same source-scanning test class enforces this.
@@ -745,6 +747,60 @@ website channel answers `422` with `errors["public-base-url"]`. Development uses
 `http://localhost:5153` (`appsettings.Development.json`); the customer compose file reads
 `PUBLIC_BASE_URL` from `deploy/.env`.
 
+### Serving the chat window and `embed.js` (M5a #201)
+
+The API itself serves what a visitor's browser loads, all anonymous and none under `/api`
+(so not in the OpenAPI document): the chat window `GET /use/{assistantId}`, its files
+`/widget/*`, and the loader `/embed.js`. The widget is `apps/widget`; the Dockerfile builds it in a
+Node 24 stage (`npx nx build widget --configuration=production`) and copies the result to
+`/app/wwwroot/widget` and `apps/embed-loader/src/embed.js` to `/app/wwwroot/embed.js`; the image still
+runs as the non-root `app` user. Widget and visitor API are the same origin, so the visitor API needs no CORS.
+
+| Setting | Meaning |
+| --- | --- |
+| `Widget:RootPath` | The widget build (`index.html`, hashed `main-*.js`, `chunk-*.js`, `styles-*.css`). Default `wwwroot/widget` (relative to the content root). |
+| `Widget:EmbedScriptPath` | The loader. Default `wwwroot/embed.js`. |
+| `PublicChannels:AllowLocalhostAncestors` | Development and Testing only: also allow `http://localhost:*` as an embedding page. `true` in any other environment refuses to start. |
+
+| Path | Answer |
+| --- | --- |
+| `/widget/*` | A file of the build; `Cache-Control: public, max-age=31536000, immutable` for hashed names (`main-V76QUCWD.js`), `no-cache` for others; known content types only; `X-Content-Type-Options: nosniff`. **`index.html` is never served here**: as a plain file it would be a copy of the page without `frame-ancestors`. |
+| `/embed.js` | The loader, `text/javascript; charset=utf-8`, `Cache-Control: public, max-age=300`. |
+| `/use/{assistantId}` | See below; never cached (`Cache-Control: no-store`). |
+
+Without a widget build (a Development checkout that never ran the build, or a broken image) `/use/{id}`
+answers `503` with a plain text explanation naming `Widget:RootPath`, for every id; a missing loader
+file is a `503` naming `Widget:EmbedScriptPath`. A rebuilt `index.html` is picked up without a restart.
+
+**`/use/{assistantId}` and `frame-ancestors`.** The page is `index.html` with a fresh random nonce on
+`<app-root ngCspNonce="…">` (Angular puts it on the `<style>` elements it inserts at run time), and:
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'nonce-<n>'; connect-src 'self'; img-src 'self' data:; base-uri 'self'; form-action 'none'; frame-ancestors https://a.example https://b.example
+Referrer-Policy: strict-origin
+X-Content-Type-Options: nosniff
+Cache-Control: no-store
+```
+
+- `frame-ancestors` is `https://<domain>` for each allowed domain (ordinal order), derived from the database
+  **on every request** — nothing is cached, so a domain removed in the settings is gone with the next
+  request — when the channel is `published` **or** `paused` and has at least one domain. The suspended
+  states (acceptance, knowledge, quota) serve the page too: the widget asks the visitor API and shows
+  「目前暫停服務」. `www.example.com` and `example.com` are separate entries; with
+  `AllowLocalhostAncestors`, `http://localhost:*` is appended (not to the unavailable page below).
+- Anything else — no such assistant (or an id that is not a GUID), another organization's assistant that
+  was never published, a draft, an empty domain list — is one fixed page 「這個對話視窗目前無法使用」
+  (`404`, `frame-ancestors 'none'`, no nonce): status, headers and body are byte-identical, so the response
+  does not say whether the assistant exists. The lookup (`PublicWebsiteChannelLookup`) has no organization to
+  work from, so it is the deliberate, narrow exception to organization isolation described above.
+- **Opened directly in a tab** (`Sec-Fetch-Dest: document`; M5a plan decision D): 「請從官網開啟這個對話視窗」
+  (`200`, `frame-ancestors 'none'`), decided before any lookup, so it is the same for every id. A missing
+  header is served normally. This is a courtesy, not a security boundary — a visitor controls that header;
+  the restriction on who can embed is `frame-ancestors`, and the real limits on abuse are the rate limits
+  and the monthly token limit.
+- The CSP deliberately allows no `unsafe-inline`: the page has no inline script or handler (the widget is
+  built with `inlineCritical: false`), and brand colours are set through the CSSOM.
+
 ## Monthly token limit: `set-token-limit`
 
 Every organization has a monthly budget of chat-model tokens (M5a #195;
@@ -1110,6 +1166,7 @@ nothing.
 cp deploy/.env.example deploy/.env   # then set a real POSTGRES_PASSWORD
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env up --build
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/health/ready
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/embed.js   # 200: the loader customers' pages include
 ```
 
 ## First install: `setup`

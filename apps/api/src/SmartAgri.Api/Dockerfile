@@ -1,5 +1,19 @@
-# Build context is the repository root (see deploy/docker-compose.yml) so global.json
-# is available; the root .dockerignore limits it to what is copied below.
+# Build context is the repository root (see deploy/docker-compose.yml) so global.json and the
+# widget's sources are available; the root .dockerignore limits it to what is copied below.
+# The chat window customers embed (apps/widget, M5a #201) is built here and served by the api
+# itself: its frame-ancestors depend on each assistant's allowed domains, which a static host
+# cannot do. Node 24 as in .nvmrc; --ignore-scripts keeps devDependencies' postinstall downloads
+# (Cypress) out of the image build.
+FROM node:24-slim AS widget
+WORKDIR /repo
+ENV NX_DAEMON=false NX_NO_CLOUD=true
+COPY package.json package-lock.json .npmrc ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY nx.json tsconfig.base.json ./
+COPY apps/widget apps/widget
+COPY libs/chat libs/chat
+RUN npx nx build widget --configuration=production --skip-nx-cache
+
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -21,6 +35,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
 COPY --from=build /app/publish .
+# Widget:RootPath and Widget:EmbedScriptPath default to these (relative to /app, the content root).
+# Both are served by GET /use/{id}, /widget/* and /embed.js, never as ordinary static files.
+COPY --from=widget /repo/dist/smart-agri-widget/browser ./wwwroot/widget
+COPY apps/embed-loader/src/embed.js ./wwwroot/embed.js
 COPY apps/api/src/SmartAgri.Api/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 

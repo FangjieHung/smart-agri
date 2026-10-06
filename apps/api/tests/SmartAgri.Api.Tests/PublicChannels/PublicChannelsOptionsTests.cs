@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting.Internal;
 using Shouldly;
 using SmartAgri.Api.PublicChannels;
 
@@ -19,7 +20,7 @@ public class PublicChannelsOptionsTests
 
         options.ResolvedPublicBaseUrl.ShouldBeNull();
         options.EmbedCode(AssistantId).ShouldBeNull();
-        new PublicChannelsOptions.Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+        Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
 
     [Theory]
@@ -34,7 +35,7 @@ public class PublicChannelsOptionsTests
         options.ResolvedPublicBaseUrl.ShouldBe(expectedBase);
         options.EmbedCode(AssistantId).ShouldBe(
             $"<script src=\"{expectedBase}/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" async></script>");
-        new PublicChannelsOptions.Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+        Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
 
     [Theory]
@@ -48,7 +49,7 @@ public class PublicChannelsOptionsTests
         var options = new PublicChannelsOptions { PublicBaseUrl = value };
 
         options.EmbedCode(AssistantId).ShouldBeNull();
-        new PublicChannelsOptions.Validator().Validate(null, options).Failed.ShouldBeTrue();
+        Validator().Validate(null, options).Failed.ShouldBeTrue();
     }
 
     // --- DefaultMonthlyTokenLimit (#195) ---------------------------------------------------------
@@ -68,7 +69,7 @@ public class PublicChannelsOptionsTests
 
         options.DefaultMonthlyTokenLimit.ShouldBeNull();
         options.EffectiveDefaultMonthlyTokenLimit.ShouldBe(2_000_000);
-        new PublicChannelsOptions.Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+        Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
 
     [Theory]
@@ -79,13 +80,13 @@ public class PublicChannelsOptionsTests
         var options = Bind(value);
 
         options.EffectiveDefaultMonthlyTokenLimit.ShouldBe(expected);
-        new PublicChannelsOptions.Validator().Validate(null, options).Succeeded.ShouldBeTrue();
+        Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
 
     [Fact]
     public void A_negative_limit_fails_startup_and_says_which_setting()
     {
-        var result = new PublicChannelsOptions.Validator().Validate(null, Bind("-1"));
+        var result = Validator().Validate(null, Bind("-1"));
 
         result.Failed.ShouldBeTrue();
         result.FailureMessage.ShouldContain("PublicChannels:DefaultMonthlyTokenLimit");
@@ -96,6 +97,46 @@ public class PublicChannelsOptionsTests
     {
         Should.Throw<InvalidOperationException>(() => Bind("lots"));
     }
+
+    // --- AllowLocalhostAncestors (#201) ----------------------------------------------------------
+
+    [Theory]
+    [InlineData("Development")]
+    [InlineData("Testing")]
+    public void Localhost_ancestors_are_allowed_in_development_and_testing(string environment)
+    {
+        Validator(environment).Validate(null, new PublicChannelsOptions { AllowLocalhostAncestors = true }).Succeeded.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Staging")]
+    [InlineData("")]
+    public void Localhost_ancestors_refuse_to_start_anywhere_else_and_say_why(string environment)
+    {
+        var result = Validator(environment).Validate(null, new PublicChannelsOptions { AllowLocalhostAncestors = true });
+
+        result.Failed.ShouldBeTrue();
+        result.FailureMessage.ShouldContain("PublicChannels:AllowLocalhostAncestors=true is only allowed in the Development and Testing environments");
+    }
+
+    [Theory]
+    [InlineData("Production")]
+    [InlineData("Development")]
+    public void Without_localhost_ancestors_every_environment_starts(string environment)
+    {
+        Validator(environment).Validate(null, new PublicChannelsOptions()).Succeeded.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Localhost_ancestors_default_to_off_and_a_blank_setting_binds_as_off()
+    {
+        new PublicChannelsOptions().AllowLocalhostAncestors.ShouldBeFalse();
+        Bind(null).AllowLocalhostAncestors.ShouldBeFalse();
+    }
+
+    private static PublicChannelsOptions.Validator Validator(string environment = "Development") =>
+        new(new HostingEnvironment { EnvironmentName = environment });
 
     private static PublicChannelsOptions Bind(string? limit)
     {

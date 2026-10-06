@@ -1,12 +1,13 @@
 using System.Text.Json;
 using Shouldly;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Domain.Assistants;
 
 namespace SmartAgri.Application.Tests.Assistants;
 
 /// <summary>
-/// <see cref="LineChannelRules"/> (issue #229): the connection fields' validation ported from the
-/// frontend mock, and the write-only credentials of a settings save.
+/// <see cref="LineChannelRules"/> (issues #229 and #230): the connection fields' validation ported from
+/// the frontend mock, the write-only credentials of a settings save, and the publishing gate.
 /// </summary>
 public sealed class LineChannelRulesTests
 {
@@ -124,6 +125,52 @@ public sealed class LineChannelRulesTests
     public void An_unknown_field_is_a_programming_error()
     {
         Should.Throw<ArgumentException>(() => LineChannelRules.ValidateField("welcomeMessage", "x"));
+    }
+
+    // --- Publishing gate (#230) ---------------------------------------------------------------------
+
+    [Fact]
+    public void A_channel_whose_connection_test_passed_may_be_enabled_when_the_shared_conditions_hold()
+    {
+        LineChannelRules.PublishFailures(true, AssistantAcceptanceStatus.Passed, AssistantStatus.Ready, [], true).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Every_failed_condition_is_listed_under_its_own_key_with_one_entry_per_non_owned_knowledge_base()
+    {
+        var failures = LineChannelRules.PublishFailures(
+            connectionChecksPassed: false,
+            AssistantAcceptanceStatus.Failed,
+            AssistantStatus.Paused,
+            [new WebsiteKnowledgeBaseRef(Guid.NewGuid(), "同仁的知識庫"), new WebsiteKnowledgeBaseRef(Guid.NewGuid(), "公開知識庫")],
+            publicBaseUrlConfigured: false);
+
+        failures.Select(failure => failure.Field).ShouldBe(
+            ["connection", "acceptance", "assistant-paused", "knowledge-ownership", "knowledge-ownership", "public-base-url"]);
+        failures[0].Message.ShouldBe(LineChannelRules.ConnectionNotPassedMessage);
+        failures.Where(failure => failure.Field == "knowledge-ownership").Select(failure => failure.Message).ShouldBe(
+        [
+            WebsiteChannelRules.KnowledgeNotOwnedMessage("同仁的知識庫"),
+            WebsiteChannelRules.KnowledgeNotOwnedMessage("公開知識庫"),
+        ]);
+        failures[^1].Message.ShouldContain("PublicChannels:PublicBaseUrl");
+    }
+
+    [Theory]
+    [InlineData(AssistantAcceptanceStatus.NotAccepted)]
+    [InlineData(AssistantAcceptanceStatus.Failed)]
+    [InlineData(AssistantAcceptanceStatus.Outdated)]
+    public void Acceptance_must_be_passed_now(AssistantAcceptanceStatus acceptance)
+    {
+        LineChannelRules.PublishFailures(true, acceptance, AssistantStatus.Ready, [], true)
+            .Select(failure => failure.Field).ShouldBe(["acceptance"]);
+    }
+
+    [Fact]
+    public void Only_the_connection_test_missing_is_connection_alone()
+    {
+        LineChannelRules.PublishFailures(false, AssistantAcceptanceStatus.Passed, AssistantStatus.Ready, [], true)
+            .Select(failure => failure.Field).ShouldBe(["connection"]);
     }
 
     private static List<JsonElement> SharedLineFieldCases()

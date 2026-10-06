@@ -92,6 +92,7 @@ import type { Observable } from 'rxjs';
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type { TeamMemberView, TeamView } from '../domain/team.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
+import type { OrganizationChatModelView } from '../domain/organization-settings.model';
 import type {
   AssistantChannelsView,
   AssistantPublishingView,
@@ -538,6 +539,26 @@ export interface LinePublishRefusedView {
 
 export type PublishLineResult = RepositoryView<LineSetupView> | LinePublishRefusedView;
 
+/**
+ * 組織設定的 `revision` 已經不是最新（`409 organization-settings-conflict`）：別人先存過，
+ * 這次完全沒有寫入，畫面要重新讀取後請使用者再選一次。
+ */
+export interface OrganizationSettingsConflictView {
+  readonly status: 'conflict';
+  readonly message: string;
+}
+
+/** `422`：`errors.modelId`（不在部署提供的清單中），什麼都沒有寫入。 */
+export interface OrganizationSettingsValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly message: string;
+}
+
+export type UpdateOrganizationChatModelResult =
+  | RepositoryView<OrganizationChatModelView>
+  | OrganizationSettingsConflictView
+  | OrganizationSettingsValidationFailedView;
+
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
 export type DemoKeyValueStorage = Pick<
   Storage,
@@ -665,6 +686,20 @@ export interface DemoRepository extends DemoScenarioController {
    * `publishing` permission-denied，畫面當成「不顯示」而不是錯誤。
    */
   getOrganizationUsage(): Observable<RepositoryView<OrganizationUsageView>>;
+  /**
+   * 組織的對話模型（issue #240，M6 計畫第 3 節 D）：組織內任何帳號都讀得到（驗收頁也讀它的
+   * `effective.model`），`canChange` 只有管理者是 true。
+   */
+  getOrganizationChatModel(): Observable<RepositoryView<OrganizationChatModelView>>;
+  /**
+   * 換組織的對話模型（只有管理者）：`modelId: null` 是改回部署預設；`revision` 是讀到的值。
+   * 非管理者是 `organization-settings` permission-denied；過時的 `revision` 是 conflict；
+   * 不在清單中的 id 是 validation-failed。與目前相同時不寫紀錄，直接回 ready。
+   */
+  updateOrganizationChatModel(
+    modelId: string | null,
+    revision: number,
+  ): Observable<UpdateOrganizationChatModelResult>;
   /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */
   listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**

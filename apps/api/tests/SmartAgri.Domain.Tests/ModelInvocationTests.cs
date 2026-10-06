@@ -40,7 +40,7 @@ public class ModelInvocationTests
         Should.Throw<ArgumentException>(() => ModelInvocation.Record(Guid.Empty, null, null, ModelInvocationPurpose.EmbedQuery, "fake", "m", null, null, 0, true, Now));
         Should.Throw<ArgumentException>(() => ModelInvocation.Record(Organization, Guid.Empty, null, ModelInvocationPurpose.EmbedQuery, "fake", "m", null, null, 0, true, Now));
         Should.Throw<ArgumentException>(() => ModelInvocation.Record(Organization, null, Guid.Empty, ModelInvocationPurpose.EmbedQuery, "fake", "m", null, null, 0, true, Now));
-        Should.Throw<ArgumentOutOfRangeException>(() => ModelInvocation.Record(Organization, null, null, (ModelInvocationPurpose)9, "fake", "m", null, null, 0, true, Now));
+        Should.Throw<ArgumentOutOfRangeException>(() => ModelInvocation.Record(Organization, null, null, (ModelInvocationPurpose)99, "fake", "m", null, null, 0, true, Now));
         Should.Throw<ArgumentException>(() => ModelInvocation.Record(Organization, null, null, ModelInvocationPurpose.EmbedQuery, " ", "m", null, null, 0, true, Now));
         Should.Throw<ArgumentException>(() => ModelInvocation.Record(Organization, null, null, ModelInvocationPurpose.EmbedQuery, "fake", new string('m', ModelInvocation.ModelMaxLength + 1), null, null, 0, true, Now));
         Should.Throw<ArgumentOutOfRangeException>(() => ModelInvocation.Record(Organization, null, null, ModelInvocationPurpose.EmbedQuery, "fake", "m", -1, null, 0, true, Now));
@@ -51,6 +51,6 @@ public class ModelInvocationTests
     [Fact]
     public void Purposes_have_the_plans_wire_names()
     {
-        WireNames<ModelInvocationPurpose>.All.ShouldBe(["embed-document", "embed-query", "generate-answer", "trial-answer", "assistant-test", "database-query", "generate-report-summary", "form-request", "public-answer"]);
+        WireNames<ModelInvocationPurpose>.All.ShouldBe(["embed-document", "embed-query", "generate-answer", "trial-answer", "assistant-test", "database-query", "generate-report-summary", "form-request", "public-answer", "line-answer"]);
     }
 }

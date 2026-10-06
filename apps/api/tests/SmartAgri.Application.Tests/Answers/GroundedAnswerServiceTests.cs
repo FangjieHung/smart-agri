@@ -503,6 +503,24 @@ public sealed class GroundedAnswerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task A_line_users_answer_has_no_account_and_records_the_line_channel()
+    {
+        TwoRelevantPassages();
+        _chat.Pieces = ["根據資料，收到商品後七天內可以退貨 [1]。"];
+        var lineUser = Request(Profile()) with { AccountId = null, Purpose = ModelInvocationPurpose.LineAnswer };
+
+        var result = await Service().AnswerAsync(lineUser, CancellationToken);
+
+        result.Reply.Kind.ShouldBe(GroundedReplyKind.CompanyData);
+        ModelInvocationAttribution.From(_chat.Calls.Single().Options)
+            .ShouldBe(new ModelInvocationAttribution(ModelInvocationPurpose.LineAnswer, null, _assistant));
+        _retriever.Queries.Single().AccountId.ShouldBeNull();
+        var outcome = _outcomes.Outcomes.ShouldHaveSingleItem();
+        outcome.Channel.ShouldBe(AnswerOutcomeChannel.Line);
+        outcome.AssistantId.ShouldBe(_assistant);
+    }
+
+    [Fact]
     public async Task No_organization_in_scope_records_nothing_instead_of_failing()
     {
         _retriever.Add(_policies.Id, "退貨政策.pdf", "第 1 頁", "營業時間為週一至週五。", 0.1);

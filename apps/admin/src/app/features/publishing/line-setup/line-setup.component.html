@@ -3,19 +3,19 @@
 <section class="channel-panel" aria-labelledby="line-title">
   <h3 id="line-title">LINE</h3>
   <ol class="guide" aria-label="LINE 設定步驟">
-    <li><span class="guide__icon" aria-hidden="true">①</span><span>在 LINE 官方帳號後台建立或選擇要使用的官方帳號。</span></li>
-    <li><span class="guide__icon" aria-hidden="true">②</span><span>開啟 Messaging API，把 Channel ID、Channel secret 與 access token 貼到下方。</span></li>
-    <li><span class="guide__icon" aria-hidden="true">③</span><span>把 Webhook 網址貼回 LINE 設定，儲存並檢查、傳送測試訊息後確認啟用。</span></li>
+    <li><span class="guide__icon" aria-hidden="true">①</span><span>在 LINE Developers Console 的官方帳號（Messaging API channel）取得 Channel ID、Channel secret，並發行「長效型」Channel access token。</span></li>
+    <li><span class="guide__icon" aria-hidden="true">②</span><span>把官方帳號 ID 與這三項資料填到下方並按「儲存」；Secret 與 Token 儲存後就不會再顯示，只留末四碼。</span></li>
+    <li><span class="guide__icon" aria-hidden="true">③</span><span>按「測試連線」：系統會自動把 Webhook 網址設定到 LINE 並驗證，不需要自己貼網址。三項檢查都通過、驗收通過後按「啟用」。</span></li>
   </ol>
 
   <form class="settings" aria-label="LINE 連接資訊" novalidate (submit)="save($event)">
-    @if (failedChecks().length > 0) {
+    @if (errors().length > 0) {
       <div class="error-summary" role="alert" aria-labelledby="line-error-title">
-        <p id="line-error-title">{{ failedChecks().length }} 個欄位未通過檢查：</p>
+        <p id="line-error-title">{{ errors().length }} 個欄位需要修正：</p>
         <ul>
-          @for (check of failedChecks(); track check.field) {
+          @for (error of errors(); track error.field) {
             <li>
-              <a [href]="'#line-' + check.field" (click)="focusField($event, check.field)">{{ check.label }}：{{ check.message }}</a>
+              <a [href]="'#line-' + error.field" (click)="focusField($event, error.field)">{{ labelFor(error.field) }}：{{ error.message }}</a>
             </li>
           }
         </ul>
@@ -24,56 +24,187 @@
 
     @for (field of fields; track field.id) {
       <div class="field">
-        <label [for]="'line-' + field.id">{{ field.label }}</label>
+        <label [attr.for]="labelTarget(field.id)" [id]="'line-' + field.id + '-label'">{{ field.label }}</label>
         <p class="caption" [id]="'line-' + field.id + '-hint'">{{ field.hint }}</p>
-        <div class="input-row">
-          <input [id]="'line-' + field.id" [type]="inputType(field.id, field.sensitive)" autocomplete="off" spellcheck="false"
-            [value]="values[field.id]" [attr.aria-invalid]="isFailed(field.id) ? 'true' : null"
-            [attr.aria-describedby]="describedBy(field.id)" (input)="setValue(field.id, $event)" />
-          @if (field.sensitive) {
-            <button type="button" class="secondary" [attr.aria-controls]="'line-' + field.id"
-              [attr.aria-pressed]="revealed().has(field.id)" (click)="toggleReveal(field.id)">
-              {{ revealed().has(field.id) ? '隱藏' : '顯示' }}<span class="visually-hidden"> {{ field.label }}</span>
-            </button>
+        @if (field.sensitive && (field.id === 'channelSecret' || field.id === 'accessToken')) {
+          @if (showsInput(field.id)) {
+            <div class="input-row">
+              <input [id]="'line-' + field.id" type="password" autocomplete="new-password" spellcheck="false"
+                [value]="secrets()[field.id]" [attr.aria-invalid]="hasError(field.id) ? 'true' : null"
+                [attr.aria-describedby]="describedBy(field.id)" (input)="setSecret(field.id, $event)" />
+              @if (current[field.id].configured) {
+                <button type="button" class="secondary" (click)="cancelReplace(field.id)">取消更換<span class="visually-hidden"> {{ field.label }}</span></button>
+              }
+            </div>
+            @if (current[field.id].configured) {
+              <p class="caption">留空表示不更換；目前{{ statusText(field.id) }}。</p>
+            }
+          } @else {
+            <div class="input-row">
+              <p class="secret-status" [id]="'line-' + field.id + '-status'">{{ statusText(field.id) }}</p>
+              <button type="button" class="secondary" [id]="'line-' + field.id + '-replace'" [disabled]="busy()"
+                [attr.aria-describedby]="'line-' + field.id + '-status'" (click)="startReplace(field.id)">更換<span class="visually-hidden"> {{ field.label }}</span></button>
+            </div>
           }
-        </div>
-        @if (isFailed(field.id)) {
-          <p class="error" [id]="'line-' + field.id + '-error'">{{ checkFor(field.id)?.message }}</p>
+        } @else {
+          <input [id]="'line-' + field.id" type="text" autocomplete="off" spellcheck="false"
+            [value]="field.id === 'officialAccountId' ? values.officialAccountId : values.channelId"
+            [attr.aria-invalid]="hasError(field.id) ? 'true' : null"
+            [attr.aria-describedby]="describedBy(field.id)"
+            (input)="setPlain(field.id === 'officialAccountId' ? 'officialAccountId' : 'channelId', $event)" />
+        }
+        @if (hasError(field.id)) {
+          <p class="error" [id]="'line-' + field.id + '-error'">{{ errorOf(field.id) }}</p>
         }
       </div>
     }
 
     <div class="field">
-      <span class="label">Webhook 網址（Demo）</span>
-      <code>{{ current.webhookUrl }}</code>
-    </div>
-
-    <div class="actions">
-      <button type="submit" class="ui-button">儲存並檢查</button>
-      <button type="button" class="secondary" [disabled]="!current.canSendTest" (click)="sendTest()">傳送測試訊息</button>
-      @if (current.canActivate) {
-        <button type="button" class="ui-button" (click)="activate()">確認啟用</button>
+      <label for="line-welcomeMessage">歡迎訊息</label>
+      <p class="caption" id="line-welcomeMessage-hint">使用者加好友、或官方帳號被邀進群組時送出；最多 {{ maxWelcome }} 字（目前 {{ values.welcomeMessage.length }} 字）。</p>
+      <textarea id="line-welcomeMessage" rows="2" [value]="values.welcomeMessage"
+        [attr.aria-invalid]="hasError('welcomeMessage') ? 'true' : null"
+        [attr.aria-describedby]="describedBy('welcomeMessage')" (input)="setPlain('welcomeMessage', $event)"></textarea>
+      @if (hasError('welcomeMessage')) {
+        <p class="error" id="line-welcomeMessage-error">{{ errorOf('welcomeMessage') }}</p>
       }
     </div>
-    <p class="feedback" aria-live="polite">{{ feedback() }}</p>
+
+    @if (conflictMessage()) {
+      <div class="error-summary" role="alert">
+        <p>{{ conflictMessage() }}</p>
+        <button type="button" class="secondary" (click)="reload()">重新載入最新設定</button>
+      </div>
+    }
+    <div class="actions"><button type="submit" class="ui-button" [disabled]="busy()">儲存</button></div>
+    <p class="feedback" role="status">{{ saveStatus() }}</p>
   </form>
 
-  <section class="block" aria-labelledby="line-checklist-title">
-    <h4 id="line-checklist-title">逐欄檢查</h4>
-    <ul class="checklist">
-      @for (check of current.checks; track check.field) {
+  <section class="block" aria-labelledby="line-test-title">
+    <h4 id="line-test-title">測試連線</h4>
+    <div class="field">
+      <span class="label">Webhook 網址</span>
+      @if (current.webhookUrl; as url) {
+        <p class="caption">測試連線時由系統設定到 LINE，這裡只供對照，不需要貼到任何地方。</p>
+        <div class="input-row">
+          <code id="line-webhook-url">{{ url }}</code>
+          <button type="button" class="secondary" (click)="copyWebhookUrl()">複製<span class="visually-hidden"> Webhook 網址</span></button>
+        </div>
+        <p class="feedback" role="status">{{ copyStatus() }}</p>
+      } @else {
+        <p class="caption" role="status">伺服器尚未設定對外網址，所以還沒有 Webhook 網址，也無法測試連線；請洽系統管理者。</p>
+      }
+    </div>
+
+    @if (testRefusals().length > 0) {
+      <div class="error-summary" role="alert" aria-labelledby="line-test-refused-title">
+        <p id="line-test-refused-title">目前還不能測試連線：</p>
+        <ul>
+          @for (refusal of testRefusals(); track $index) {
+            <li [attr.data-reason]="refusal.reason">{{ refusal.message }}</li>
+          }
+        </ul>
+      </div>
+    }
+
+    <div class="actions">
+      <button type="button" id="line-test" class="secondary" [disabled]="busy() || !saved()" (click)="testConnection()">測試連線</button>
+    </div>
+    @if (!saved()) {
+      <p class="caption">請先儲存連接資訊，才能測試連線。</p>
+    } @else if (dirty()) {
+      <p class="caption">有尚未儲存的變更；測試連線使用的是已儲存的設定。</p>
+    }
+    <p class="feedback" role="status">{{ testStatus() }}</p>
+
+    <ol class="checklist" aria-label="連線測試的三項檢查">
+      @for (check of current.checks; track check.check) {
         <li [attr.data-state]="check.state">
           <span class="checklist__symbol" aria-hidden="true">{{ checkText(check.state).symbol }}</span>
           <span><strong>{{ check.label }}</strong>：{{ checkText(check.state).label }}<br /><small>{{ check.message }}</small></span>
         </li>
       }
-    </ul>
-    <p class="test-result" aria-live="polite" [attr.data-outcome]="current.lastTest?.outcome ?? null">
-      @if (current.lastTest; as test) {
-        {{ test.outcome === 'delivered' ? '✓' : '✕' }} {{ test.message }}
-      } @else {
-        尚未傳送測試訊息（測試結果為模擬，不會連接 LINE）。
-      }
+    </ol>
+    @if (checkedAt()) {
+      <p class="caption">最近一次測試：{{ checkedAt() }}。儲存新的連接資訊後，需要重新測試。</p>
+    }
+  </section>
+
+  <section class="block block--status" aria-labelledby="line-status-title" [attr.data-serving]="current.servingState">
+    <h4 id="line-status-title">啟用狀態</h4>
+    <p class="serving">
+      <span class="serving__symbol" aria-hidden="true">{{ statusMeta().symbol }}</span>
+      <strong class="serving__label">{{ statusMeta().label }}</strong>
+      <span class="serving__reason">{{ servingLabel() }}</span>
     </p>
+    <p class="serving__detail">{{ current.channel.statusDetail }}</p>
+
+    @if (current.servingState === 'suspended-acceptance') {
+      <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'acceptance']">前往驗收題組頁處理</a></p>
+    }
+    @if (blocked()) {
+      <div class="blocked">
+        <p>下列知識庫不是助理擁有者自己的，對外發布時不能使用：</p>
+        <ul aria-label="不是擁有者自己的知識庫">
+          @for (knowledgeBase of current.nonOwnedKnowledgeBases; track knowledgeBase.id) {
+            <li>{{ knowledgeBase.name }}</li>
+          }
+        </ul>
+        <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'data-sources']">前往資料來源頁解除連接</a></p>
+      </div>
+    }
+
+    @if (publishFailures().length > 0) {
+      <div class="error-summary" role="alert" aria-labelledby="line-publish-failures-title">
+        <p id="line-publish-failures-title">{{ publishRefusedMessage() }}</p>
+        <ul>
+          @for (failure of publishFailures(); track $index) {
+            <li [attr.data-reason]="failure.reason">{{ failure.message }}</li>
+          }
+        </ul>
+        @if (hasFailure('connection')) {
+          <p><a class="next-step" href="#line-test" (click)="focusTest($event)">前往測試連線</a></p>
+        }
+        @if (hasFailure('acceptance')) {
+          <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'acceptance']">前往驗收題組頁</a></p>
+        }
+        @if (hasFailure('knowledge-ownership')) {
+          <p><a class="next-step" [routerLink]="['/app/assistants', assistantId(), 'data-sources']">前往資料來源頁解除連接</a></p>
+        }
+        @if (hasFailure('public-base-url')) {
+          <p>這是伺服器的設定，請洽系統管理者。</p>
+        }
+      </div>
+    }
+    @if (actionError()) {
+      <p class="error" role="alert">{{ actionError() }}</p>
+    }
+
+    <div class="actions">
+      @if (current.state === 'draft') {
+        <button type="button" class="ui-button" [disabled]="busy()" (click)="publish()">啟用</button>
+      } @else {
+        <button type="button" class="secondary" [disabled]="busy()" (click)="togglePause()">
+          {{ current.state === 'paused' ? '恢復服務' : '暫停服務' }}
+        </button>
+        <button type="button" class="secondary" [disabled]="busy()" (click)="unpublish()">取消啟用</button>
+      }
+    </div>
+    @if (dirty()) {
+      <p class="caption">有尚未儲存的變更；啟用使用的是已儲存的設定。</p>
+    }
+    <p class="feedback" role="status">{{ actionStatus() }}</p>
+  </section>
+
+  <section class="block" aria-labelledby="line-notes-title">
+    <h4 id="line-notes-title">用量與 LINE 後台設定</h4>
+    <p class="push-count">本月補送次數：<strong>{{ current.pushFallbackCount }}</strong> 次</p>
+    <p class="caption">助理在期限內沒能用 reply 回覆時，會改用 push 補送；push 會消耗官方帳號的訊息額度。群組裡逾時不補送。</p>
+    <p class="label" id="line-reminder-title">請到 LINE Official Account Manager 確認：</p>
+    <ul class="reminders" aria-labelledby="line-reminder-title">
+      <li>開啟「Webhook」。</li>
+      <li>關閉「自動回應訊息」，否則使用者會同時收到 LINE 的自動回應。</li>
+      <li>若要在群組使用，開啟「允許加入群組」；群組裡只有被 @ 時才會回答，而且群組成員都看得到彼此的問答。</li>
+    </ul>
   </section>
 </section>

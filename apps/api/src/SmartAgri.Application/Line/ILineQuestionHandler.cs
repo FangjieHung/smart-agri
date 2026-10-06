@@ -34,8 +34,9 @@ public sealed record LineQuestionContext(
 /// The handler owns the event's reply token (single use) and must not throw for an expected failure.
 /// </summary>
 /// <remarks>
-/// The webhook endpoint slice (#231) registers <see cref="NoLineQuestionHandler"/>, which answers
-/// nothing; LINE questions (#232) replace it with the grounded-answer pipeline.
+/// The Api registers the grounded-answer handler (#232, <c>LineQuestionHandler</c>);
+/// <see cref="NoLineQuestionHandler"/> answers nothing (#231's default, kept for hosts and tests that
+/// need no answers).
 /// </remarks>
 public interface ILineQuestionHandler
 {

@@ -7,6 +7,7 @@ import type { WebsiteEmbedSettings } from '../domain/publishing.model';
 import { DEMO_SEED } from './demo-seed';
 import { apiAssistantPublishingPath, apiAssistantWebsitePath, HybridDemoRepository } from './hybrid-demo-repository';
 import { createMemoryStorage } from './memory-storage';
+import { REAL_LINE_UNSAVED_JSON } from './line-channel-api.testing';
 import {
   REAL_AGGREGATE_SERVING_JSON,
   REAL_DRAFT_JSON,
@@ -59,6 +60,14 @@ function setUp() {
   return { repository, controller: TestBed.inject(HttpTestingController) };
 }
 
+/**
+ * `REAL_AGGREGATE_SERVING_JSON` 是 #202 錄的，當時 `line` 還是占位物件；#233 起 `line` 是真實的 LINE 頻道，
+ * 所以這裡換成實際錄下的「尚未儲存」LINE 回應（見 `line-channel-api.testing.ts`），官網與平台部分原樣。
+ */
+function aggregateJson(): string {
+  return JSON.stringify({ ...JSON.parse(REAL_AGGREGATE_SERVING_JSON), line: JSON.parse(REAL_LINE_UNSAVED_JSON) });
+}
+
 function respond(controller: HttpTestingController, method: string, url: string, json: string, status = 200) {
   const request = controller.expectOne({ method, url });
   request.flush(JSON.parse(json), { status, statusText: String(status) });
@@ -68,7 +77,7 @@ function respond(controller: HttpTestingController, method: string, url: string,
 async function website(json: string) {
   const { repository, controller } = setUp();
   const result = firstValueFrom(repository.getAssistantPublishing(ASSISTANT_ID));
-  const aggregate = JSON.parse(REAL_AGGREGATE_SERVING_JSON);
+  const aggregate = JSON.parse(aggregateJson());
   controller.expectOne({ method: 'GET', url: apiAssistantPublishingPath(ASSISTANT_ID) }).flush({ ...aggregate, website: JSON.parse(json) });
   const view = await result;
   controller.verify();
@@ -78,10 +87,10 @@ async function website(json: string) {
 
 describe('HybridDemoRepository website channel (issue #202)', () => {
   describe('reading', () => {
-    it('reads the real publishing response: real website channel, LINE not available, nothing of the #194 shim left', async () => {
+    it('reads the publishing response: real website channel and real LINE channel, nothing of the #194 shim left', async () => {
       const { repository, controller } = setUp();
       const result = firstValueFrom(repository.getAssistantPublishing(ASSISTANT_ID));
-      respond(controller, 'GET', apiAssistantPublishingPath(ASSISTANT_ID), REAL_AGGREGATE_SERVING_JSON);
+      respond(controller, 'GET', apiAssistantPublishingPath(ASSISTANT_ID), aggregateJson());
 
       const view = await result;
       if (view.status !== 'ready') throw new Error(`expected ready, got ${view.status}`);
@@ -93,8 +102,8 @@ describe('HybridDemoRepository website channel (issue #202)', () => {
         acceptanceStatus: 'passed',
         revision: 1,
       });
-      expect(view.data.line).toMatchObject({ availability: 'not-available', channel: { type: 'line', status: 'not-configured' } });
-      expect(JSON.stringify(view.data)).not.toContain('官網嵌入與 LINE');
+      expect(view.data.line).toMatchObject({ channel: { type: 'line', name: 'LINE', status: 'not-configured' }, revision: 0 });
+      expect(JSON.stringify(view.data)).not.toContain('將於後續版本開放');
       controller.verify();
     });
 
@@ -349,16 +358,6 @@ describe('HybridDemoRepository website channel (issue #202)', () => {
         status: 'ready',
         data: { state: 'draft', servingState: 'not-published', channel: { status: 'testing' }, allowedDomains: ['shop.example.com', 'www.example.com'] },
       });
-    });
-
-    it('still refuses LINE without calling the API', async () => {
-      const { repository, controller } = setUp();
-
-      expect(await firstValueFrom(repository.setPublishingChannelPaused(ASSISTANT_ID, 'line', true))).toMatchObject({
-        status: 'permission-denied',
-        reason: 'publishing',
-      });
-      controller.verify();
     });
   });
 });

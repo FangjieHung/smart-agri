@@ -88,7 +88,7 @@ public sealed record ConversationTurn(ConversationAuthor Author, string Text);
 /// (<see cref="Ai.ModelInvocationAttribution"/>); <see cref="ModelInvocationPurpose.GenerateAnswer"/>
 /// for an assistant conversation, <see cref="ModelInvocationPurpose.TrialAnswer"/> for a wizard
 /// trial question (#78), <see cref="ModelInvocationPurpose.PublicAnswer"/> for a website visitor
-/// (#196). Defaults to <see cref="ModelInvocationPurpose.GenerateAnswer"/> so
+/// (#196), <see cref="ModelInvocationPurpose.LineAnswer"/> for a LINE user (M5b #232). Defaults to <see cref="ModelInvocationPurpose.GenerateAnswer"/> so
 /// existing callers are unaffected.</param>
 public sealed record GroundedAnswerRequest(
     GroundedAnswerProfile Profile,

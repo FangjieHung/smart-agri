@@ -14,6 +14,7 @@ const ASSISTANT = 'assistant-customer-service';
 const VALID_LINE = {
   officialAccountId: '@anxin-demo',
   channelId: '12345' + '67890',
+  welcomeMessage: '您好！',
   channelSecret: ('abcdef' + '0123456789').repeat(2),
   accessToken: 'demo-access-token-value-that-is-long-enough-0001',
 };
@@ -68,9 +69,11 @@ describe('MockDemoRepository publishing permission', () => {
       await firstValueFrom(repository.publishWebsite(ASSISTANT)),
       await firstValueFrom(repository.unpublishWebsite(ASSISTANT)),
       await firstValueFrom(repository.setPublishingChannelPaused(ASSISTANT, 'website', true)),
-      repository.saveLineSettings(ADMIN, ASSISTANT, VALID_LINE),
-      repository.sendLineTestMessage(ADMIN, ASSISTANT),
-      repository.activateLineChannel(ADMIN, ASSISTANT),
+      await firstValueFrom(repository.saveLineSettings(ASSISTANT, VALID_LINE, 1)),
+      await firstValueFrom(repository.testLineConnection(ASSISTANT)),
+      await firstValueFrom(repository.publishLine(ASSISTANT)),
+      await firstValueFrom(repository.unpublishLine(ASSISTANT)),
+      await firstValueFrom(repository.setPublishingChannelPaused(ASSISTANT, 'line', true)),
       await firstValueFrom(repository.setPublishingChannelPaused(ASSISTANT, 'platform', true)),
     ];
 

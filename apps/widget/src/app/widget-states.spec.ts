@@ -158,6 +158,25 @@ describe('widget states', () => {
       expect(fake.runRequests).toHaveLength(2);
     });
 
+    it('lets the visitor try again after the owner resumes, without reloading the page (#205)', async () => {
+      const fake = server();
+      fake.runs.push(() => json(403, { reason: 'public-assistant' }), answer(companyReply));
+      const view = await mountReady(fake);
+      view.type(QUESTION);
+      view.send();
+      await view.until(() => view.text().includes('目前暫停服務'));
+
+      const again = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === '再試一次');
+      expect(again).toBeDefined();
+      again?.click();
+      await view.until(() => view.host.querySelector('textarea') !== null);
+      expect(view.host.querySelector('textarea')?.value).toBe(QUESTION);
+
+      view.send();
+      await view.until(() => view.host.querySelector('[data-kind="company-data"]') !== null);
+      expect(fake.runRequests).toHaveLength(2);
+    });
+
     it('is also what a 403 on the replacement session after a 401 becomes', async () => {
       const fake = new FakeServer();
       fake.sessions.push(session(), () => json(403, { reason: 'public-assistant' }));

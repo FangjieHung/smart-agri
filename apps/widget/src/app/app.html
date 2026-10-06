@@ -73,7 +73,10 @@
       <p class="visually-hidden" role="status">{{ store.run().phase === 'streaming' ? '助理正在回答' : '' }}</p>
 
       @if (store.phase() === 'paused') {
-        <p class="paused" role="status">{{ pausedText }}</p>
+        <div class="paused">
+          <p role="status">{{ pausedText }}</p>
+          <button type="button" class="retry" (click)="store.resumeAfterPause()">再試一次</button>
+        </div>
       } @else {
         <app-composer
           class="composer"

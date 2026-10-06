@@ -176,6 +176,60 @@ public static partial class LineChannelRules
         }
     }
 
+    /// <summary>The publishing gate's key for "the connection test has not passed".</summary>
+    public const string ConnectionGateField = "connection";
+
+    public const string ConnectionNotPassedMessage =
+        "請先測試連線，三項檢查（Token 與官方帳號、Webhook 網址、Webhook 連線測試）都通過後才能啟用。";
+
+    public const string PublicBaseUrlMissingMessage =
+        "伺服器尚未設定對外網址（PublicChannels:PublicBaseUrl），LINE 無法把訊息送到這個伺服器；請洽系統管理者。";
+
+    /// <summary>The summary message of a refused enable.</summary>
+    public const string PublishRefusedMessage = "目前還不能啟用 LINE 頻道，請先處理下列項目。";
+
+    /// <summary>
+    /// The LINE channel's publishing gate (<c>POST …/line:publish</c>; M5b plan §3 B): the website
+    /// channel's (<see cref="WebsiteChannelRules.PublishFailures"/> — acceptance <c>passed</c> now, the
+    /// assistant not paused, every connected knowledge base the owner's own, the server's public URL
+    /// known), with "every connection check passed" (<c>connection</c>) in place of "has an allowed
+    /// domain". Every reason under its own key, in that order; empty means it may be enabled.
+    /// </summary>
+    public static IReadOnlyList<ValidationFailure> PublishFailures(
+        bool connectionChecksPassed,
+        AssistantAcceptanceStatus acceptance,
+        AssistantStatus assistantStatus,
+        IReadOnlyList<WebsiteKnowledgeBaseRef> nonOwnedKnowledgeBases,
+        bool publicBaseUrlConfigured)
+    {
+        ArgumentNullException.ThrowIfNull(nonOwnedKnowledgeBases);
+        var failures = new List<ValidationFailure>();
+        if (!connectionChecksPassed)
+        {
+            failures.Add(new ValidationFailure(ConnectionGateField, ConnectionNotPassedMessage));
+        }
+
+        if (acceptance != AssistantAcceptanceStatus.Passed)
+        {
+            failures.Add(new ValidationFailure(WebsiteChannelRules.AcceptanceField, WebsiteChannelRules.AcceptanceNotPassedMessage));
+        }
+
+        if (assistantStatus == AssistantStatus.Paused)
+        {
+            failures.Add(new ValidationFailure(WebsiteChannelRules.AssistantPausedField, WebsiteChannelRules.AssistantPausedMessage));
+        }
+
+        failures.AddRange(nonOwnedKnowledgeBases.Select(knowledgeBase =>
+            new ValidationFailure(WebsiteChannelRules.KnowledgeOwnershipField, WebsiteChannelRules.KnowledgeNotOwnedMessage(knowledgeBase.Name))));
+
+        if (!publicBaseUrlConfigured)
+        {
+            failures.Add(new ValidationFailure(WebsiteChannelRules.PublicBaseUrlField, PublicBaseUrlMissingMessage));
+        }
+
+        return failures;
+    }
+
     /// <summary>ECMAScript's <c>WhiteSpace</c> and <c>LineTerminator</c> code points: what
     /// <c>trim()</c> removes and <c>\s</c> matches.</summary>
     public static bool IsJavaScriptWhiteSpace(char c) =>

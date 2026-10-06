@@ -6,8 +6,10 @@ using SmartAgri.Api.Errors;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Secrets;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Line;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Application.Secrets;
+using SmartAgri.Application.Validation;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Organizations;
@@ -91,21 +93,30 @@ public sealed record UpdateLineChannelRequest(
 public sealed record SetLinePausedRequest(bool Paused);
 
 /// <summary>
-/// The LINE channel's settings, pause and unpublish (M5b plan §5 Slice 1, issue #229): S+OWN+MP like
-/// the website channel — <c>manage-publishing</c> and the caller owning the assistant; an id that does
-/// not exist, belongs to another organization or to someone else gets the same <c>403 publishing</c>,
-/// byte for byte. Testing the connection and enabling (<c>:test</c>, <c>:publish</c>) are M5b #230.
+/// The LINE channel's settings, connection test, enabling, pause and unpublish (M5b plan §5 Slices 1
+/// and 2, issues #229 and #230): S+OWN+MP like the website channel — <c>manage-publishing</c> and the
+/// caller owning the assistant; an id that does not exist, belongs to another organization or to
+/// someone else gets the same <c>403 publishing</c>, byte for byte.
 /// </summary>
 /// <remarks>
 /// Rules live in <see cref="LineChannelRules"/>, <see cref="AssistantLineChannel"/> (the reset of the
-/// connection test on a credential change) and <see cref="LineChannelServing"/>, unit tested there;
-/// this class only loads, calls them, protects the credentials, writes and maps.
+/// connection test on a credential change), <see cref="LineChannelServing"/> and
+/// <see cref="LineConnectionTester"/> (the three checks, against <see cref="ILineMessagingClient"/>),
+/// unit tested there; this class only loads, calls them, protects and unprotects the credentials, writes and maps.
 /// </remarks>
 public static class AssistantLineChannelEndpoints
 {
     public const string RevisionConflictReason = "line-revision-conflict";
 
     public const string NotPublishedReason = "line-not-published";
+
+    /// <summary><c>:test</c> refused for this server's own preconditions (never for LINE failing).</summary>
+    public const string TestRefusedReason = "line-test-refused";
+
+    /// <summary><c>:test</c>'s <c>errors</c> key for "no settings saved yet".</summary>
+    public const string TestSettingsField = "settings";
+
+    public const string PublishRefusedReason = "line-publish-refused";
 
     public static IEndpointRouteBuilder MapAssistantLineChannelEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -124,6 +135,21 @@ public static class AssistantLineChannelEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status409Conflict)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        assistants.MapPost("/{id:guid}/publishing/line:test", TestConnectionAsync)
+            .RequirePermission(AccountPermission.ManagePublishing, ForbiddenReason.Publishing)
+            .Produces<LineChannelView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status409Conflict)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        assistants.MapPost("/{id:guid}/publishing/line:publish", PublishAsync)
+            .RequirePermission(AccountPermission.ManagePublishing, ForbiddenReason.Publishing)
+            .Produces<LineChannelView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
         assistants.MapPut("/{id:guid}/publishing/line/paused", SetPausedAsync)
@@ -251,6 +277,154 @@ public static class AssistantLineChannelEndpoints
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
+    }
+
+    /// <summary>
+    /// 「測試連線」 (M5b plan §3 B; <see cref="LineConnectionTester"/>): with the stored access token,
+    /// (1) <c>GET /v2/bot/info</c> — the token is accepted and belongs to the official account id
+    /// entered; (2) <c>PUT /v2/bot/channel/webhook/endpoint</c> — LINE's webhook URL becomes
+    /// <see cref="PublicChannelsOptions.LineWebhookUrl"/> (decision C); (3)
+    /// <c>POST /v2/bot/channel/webhook/test</c> — LINE delivers a signed test event there. A failed
+    /// check skips the ones after it. LINE failing is never an HTTP error here (mapping §3.4): the
+    /// answer is <c>200</c> with the channel view, whose <c>checks</c> say what passed and why not;
+    /// the results (and, when the token check passed, the bot's user id) are stored.
+    /// </summary>
+    /// <remarks>
+    /// Only this server's own preconditions are refused, with <c>422 line-test-refused</c> and nothing
+    /// called or written: no saved settings (<c>settings</c>), no
+    /// <c>PublicChannels:PublicBaseUrl</c> (<c>public-base-url</c>). A token that no longer decrypts
+    /// fails the token check without calling LINE. If the settings are saved again while LINE is being
+    /// called, the results describe settings that no longer exist: <c>409 line-revision-conflict</c>,
+    /// nothing stored.
+    /// </remarks>
+    internal static async Task<IResult> TestConnectionAsync(
+        Guid id,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        IOptions<PublicChannelsOptions> options,
+        OrganizationTokenUsage tokenUsage,
+        ISecretProtector secretProtector,
+        ILineMessagingClient lineClient,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await AssistantWebsiteChannelEndpoints.FindManageableAsync(
+            dbContext.Assistants, id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Publishing);
+        }
+
+        var channel = await dbContext.AssistantLineChannels
+            .SingleOrDefaultAsync(candidate => candidate.AssistantId == assistant.Id, cancellationToken);
+        var webhookUrl = options.Value.LineWebhookUrl(assistant.Id);
+        var refusals = new List<ValidationFailure>();
+        if (channel is null)
+        {
+            refusals.Add(new ValidationFailure(TestSettingsField, "請先填寫並儲存 LINE 官方帳號的連接資訊，再測試連線。"));
+        }
+
+        if (webhookUrl is null)
+        {
+            refusals.Add(new ValidationFailure(WebsiteChannelRules.PublicBaseUrlField, LineChannelRules.PublicBaseUrlMissingMessage));
+        }
+
+        if (refusals.Count > 0)
+        {
+            return ApiErrors.Refused(TestRefusedReason, "目前還不能測試連線，請先處理下列項目。", refusals);
+        }
+
+        var testedRevision = channel!.Revision;
+        string? accessToken = null;
+        try
+        {
+            accessToken = secretProtector.Unprotect(AssistantLineChannel.AccessTokenPurpose, channel.AccessToken);
+        }
+        catch (SecretUnprotectException)
+        {
+        }
+
+        var result = accessToken is null
+            ? LineConnectionTester.TokenUnreadable()
+            : await LineConnectionTester.RunAsync(lineClient, accessToken, channel.OfficialAccountId, webhookUrl!, cancellationToken);
+
+        // LINE took a while: a settings save in the meantime (another tab) makes these results stale.
+        var currentRevision = await dbContext.AssistantLineChannels
+            .AsNoTracking()
+            .Where(candidate => candidate.AssistantId == assistant.Id)
+            .Select(candidate => (int?)candidate.Revision)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (currentRevision != testedRevision)
+        {
+            return ApiErrors.WithReason(
+                StatusCodes.Status409Conflict,
+                RevisionConflictReason,
+                "測試連線期間 LINE 頻道的設定已在其他分頁被更新過，請重新載入後再測試一次。");
+        }
+
+        channel.RecordConnectionChecks(result.Checks, result.BotUserId, clock.GetUtcNow());
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
+    }
+
+    /// <summary>
+    /// 「啟用」: the publishing gate (<see cref="LineChannelRules.PublishFailures"/>) — every connection
+    /// check passed (<c>connection</c>), acceptance <c>passed</c> now (<c>acceptance</c>), the
+    /// assistant not paused (<c>assistant-paused</c>), every connected knowledge base the owner's own
+    /// (<c>knowledge-ownership</c>, one message per knowledge base), the server's public URL known
+    /// (<c>public-base-url</c>). On any failure <c>422 line-publish-refused</c> with every reason under
+    /// its own <c>errors</c> key, nothing written. Enabling an enabled channel changes nothing; a
+    /// paused one resumes.
+    /// </summary>
+    internal static async Task<IResult> PublishAsync(
+        Guid id,
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        IOptions<PublicChannelsOptions> options,
+        OrganizationTokenUsage tokenUsage,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (AccountClaims.GetAccountId(httpContext.User) is not { } callerId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        var assistant = await AssistantWebsiteChannelEndpoints.FindManageableAsync(
+            dbContext.Assistants, id, callerId, cancellationToken);
+        if (assistant is null)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Publishing);
+        }
+
+        var channel = await dbContext.AssistantLineChannels
+            .SingleOrDefaultAsync(candidate => candidate.AssistantId == assistant.Id, cancellationToken);
+        var acceptance = await AssistantWebsiteChannelEndpoints.AcceptanceAsync(dbContext, assistant.Id, cancellationToken);
+        var nonOwned = await AssistantWebsiteChannelEndpoints.NonOwnedKnowledgeBasesAsync(dbContext, assistant, cancellationToken);
+
+        var failures = LineChannelRules.PublishFailures(
+            channel?.ConnectionChecksPassed ?? false,
+            acceptance.Status,
+            assistant.Status,
+            nonOwned,
+            options.Value.ResolvedPublicBaseUrl is not null);
+        if (failures.Count > 0)
+        {
+            return ApiErrors.Refused(PublishRefusedReason, LineChannelRules.PublishRefusedMessage, failures);
+        }
+
+        // Every connection check passed, so the channel has its row.
+        if (channel!.Publish(callerId, clock.GetUtcNow()))
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
         return Results.Ok(await ViewAsync(dbContext, assistant, options.Value, tokenUsage, cancellationToken));
     }
 

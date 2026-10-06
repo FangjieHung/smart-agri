@@ -13,6 +13,7 @@ using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Knowledge;
 using SmartAgri.Api.Knowledge.Evaluation;
+using SmartAgri.Api.Line;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Operations;
@@ -50,6 +51,7 @@ builder.Services.AddOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>(
     .ValidateOnStart();
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<SmartAgri.Api.PublicChannels.PublicChannelsOptions>, SmartAgri.Api.PublicChannels.PublicChannelsOptions.Validator>();
 builder.Services.AddOrganizationTokenUsage();
+builder.Services.AddLineMessaging(builder.Configuration);
 builder.Services.AddOptions<SmartAgri.Api.PublicChannels.WidgetOptions>()
     .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.WidgetOptions.SectionName));
 builder.Services.AddSingleton<SmartAgri.Api.PublicChannels.WidgetIndexTemplate>();

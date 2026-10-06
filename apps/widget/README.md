@@ -12,7 +12,7 @@
 | `<base href>` | production 建置固定 `/widget/`。所以資產要掛在 `/widget/*`（根路徑，不含前綴）；API 掛在路徑前綴下時要自行改 `baseHref` 重新建置（`--base-href`）。 |
 | 靜態資產 | `/widget/main-*.js`、`chunk-*.js`（含延後載入的 `@ag-ui/client`）、`styles-*.css`，檔名含雜湊，可長期快取（`immutable`）。 |
 | 沒有 inline script／handler | production 建置關掉 critical CSS 內嵌（`optimization.styles.inlineCritical: false`），`index.html` 只有 `<link rel="stylesheet">`、`<link rel="modulepreload">` 與 `<script type="module" src>`；沒有 `onload` 屬性、沒有 inline `<script>`。 |
-| **CSP 的 `style-src`** | **`default-src 'self'` 不夠。** Angular 在執行期用 `<style>` 元素注入元件樣式（含 `libs/chat` 的元件），在只有 `default-src 'self'` 時會被擋，畫面完全沒有樣式（已在瀏覽器驗證，console 為 `Applying inline style violates … 'default-src 'self''`）。請送 `style-src 'self' 'unsafe-inline'`（`script-src` 仍是 `'self'`，不開 inline script），或改用 nonce：在 `<app-root ngCspNonce="{nonce}">` 帶入並於 `style-src 'nonce-{nonce}'` 寫同一個值（index.html 要逐請求輸出）。已用 `default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors *` 實測整個流程正常。 |
+| **CSP 的 `style-src`** | **`default-src 'self'` 不夠。** Angular 在執行期用 `<style>` 元素注入元件樣式（含 `libs/chat` 的元件），在只有 `default-src 'self'` 時會被擋，畫面完全沒有樣式（已在瀏覽器驗證，console 為 `Applying inline style violates … 'default-src 'self''`）。**API（#201）採用 nonce**：`index.html` 逐請求輸出，`<app-root ngCspNonce="{nonce}">` 帶入隨機 nonce，標頭是 `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-{nonce}'; connect-src 'self'; img-src 'self' data:; base-uri 'self'; form-action 'none'; frame-ancestors …`，不開 `unsafe-inline`（見 `apps/api/README.md`「Serving the chat window and `embed.js`」）。 |
 | 其他連線 | 只有同源的 `fetch`（`connect-src 'self'` 即可）：沒有字型、圖片、第三方網址。品牌色用 CSSOM（`style.setProperty`）設定，不寫 `style` 屬性。 |
 | 不用 cookie | 所有 `fetch` 都是 `credentials: 'omit'`；訪客 token 與前文只放 iframe 自己的 `sessionStorage`。 |
 

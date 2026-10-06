@@ -3,12 +3,12 @@ import { firstValueFrom, toArray } from 'rxjs';
 // 與 CI 的 `check-agui-stream.mjs` 解析的是同三份檔案。錄製檔是文字資料、不是程式模組，
 // 不適用 Nx 的專案邊界規則。
 /* eslint-disable @nx/enforce-module-boundaries */
-import companyDataSaved from '../../../../../../tools/agui-contract/fixtures/company-data-saved.sse' with { loader: 'text' };
-import failMidway from '../../../../../../tools/agui-contract/fixtures/fail-midway.sse' with { loader: 'text' };
-import noResultUnsaved from '../../../../../../tools/agui-contract/fixtures/no-result-unsaved.sse' with { loader: 'text' };
+import companyDataSaved from '../../../../tools/agui-contract/fixtures/company-data-saved.sse' with { loader: 'text' };
+import failMidway from '../../../../tools/agui-contract/fixtures/fail-midway.sse' with { loader: 'text' };
+import noResultUnsaved from '../../../../tools/agui-contract/fixtures/no-result-unsaved.sse' with { loader: 'text' };
 /* eslint-enable @nx/enforce-module-boundaries */
 import { AgUiChatRunner, apiChatRunsPath } from './ag-ui-chat-runner';
-import type { ChatRunEvent, ChatRunRequest } from './chat-runner';
+import type { ChatRunEvent, ChatRunRequest } from './chat-runner.types';
 
 const FIXTURES: Record<string, string> = {
   'company-data-saved.sse': companyDataSaved,
@@ -21,7 +21,6 @@ function fixture(name: string): string {
 }
 
 const REQUEST: ChatRunRequest = {
-  viewerId: 'account-smb-internal',
   assistantId: 'assistant-1',
   question: '收到商品後幾天內可以申請退貨？',
 };

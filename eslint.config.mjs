@@ -21,6 +21,12 @@ export default [
               sourceTag: '*',
               onlyDependOnLibsWithTags: ['*'],
             },
+            {
+              // libs/chat 是 admin 與官網訪客對話視窗（apps/widget）共用的對話元件：
+              // 不可依賴 admin 或其他 lib（Angular Material 的 theme-pack 與 ui 也不行）。
+              sourceTag: 'scope:chat',
+              onlyDependOnLibsWithTags: ['scope:chat'],
+            },
           ],
         },
       ],

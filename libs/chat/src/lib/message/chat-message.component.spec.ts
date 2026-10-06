@@ -1,7 +1,56 @@
 import { TestBed } from '@angular/core/testing';
-import type { ChatMessageView, ChatReplyView } from '../../../core/domain/conversation.model';
-import { replyFor } from '../assistant-use.testing';
+import type { ChatFormView, ChatMessageView, ChatReplyView } from '../chat-view.model';
 import { ChatMessageComponent } from './chat-message.component';
+
+/** 與 admin mock 的固定回覆相同內容的最小版本（lib 不依賴 admin 的 seed）。 */
+const COMPANY_DATA_REPLY: ChatReplyView = {
+  kind: 'company-data',
+  text: '收到商品後 7 天內可以申請退貨，商品需保持完整包裝；退款會在收到退貨後 5 個工作天內完成。',
+  citations: [
+    {
+      id: 'citation-1',
+      knowledgeBaseName: '退換貨政策',
+      documentName: '退換貨辦法 2026 版.pdf',
+      excerpt: '消費者於收受商品後七日內，得申請退貨，商品應保持原包裝完整。',
+      updatedLabel: '2026-09-18',
+    },
+  ],
+  citationNotice: null,
+};
+
+const GENERAL_KNOWLEDGE_REPLY: ChatReplyView = {
+  kind: 'general-knowledge',
+  text: '一般建議避免長時間日曬與潮濕，並定期使用皮革保養油。',
+  notice: '這不是組織資料，是一般知識補充，僅供參考。',
+};
+
+const NO_RESULT_REPLY: ChatReplyView = {
+  kind: 'no-result',
+  text: '我在目前的組織資料裡找不到這個問題的答案。',
+  nextSteps: ['換個方式描述問題', '聯絡客服人員'],
+};
+
+const ORDER_FORM: ChatFormView = {
+  id: 'database-orders',
+  title: '訂單問題回報',
+  formVersion: 1,
+  fields: [
+    { id: 'field-order-number', label: '訂單編號', type: 'text', required: true, options: [], scale: null, unit: '' },
+  ],
+  consent: {
+    recipient: '客服團隊',
+    purpose: '處理訂單問題',
+    viewers: ['客服團隊'],
+    sensitiveNotice: '請不要填寫身分證字號。',
+    withdrawalNotice: '送出後可以撤回。',
+  },
+};
+
+const FORM_REQUEST_REPLY: ChatReplyView = {
+  kind: 'form-request',
+  text: '可以的，請在下方表單填寫訂單資料。',
+  form: ORDER_FORM,
+};
 
 function render(message: ChatMessageView) {
   TestBed.configureTestingModule({ imports: [ChatMessageComponent] });
@@ -26,7 +75,7 @@ describe('ChatMessageComponent', () => {
   });
 
   it('labels company data answers and exposes their citations through a button', () => {
-    const { fixture, host } = render(assistant(replyFor('收到商品後幾天內可以退貨？')));
+    const { fixture, host } = render(assistant(COMPANY_DATA_REPLY));
     const emitted: unknown[] = [];
     fixture.componentInstance.openCitations.subscribe((value) => emitted.push(value));
 
@@ -55,7 +104,7 @@ describe('ChatMessageComponent', () => {
   });
 
   it('labels general knowledge separately and never shows a citation button for it', () => {
-    const { host } = render(assistant(replyFor('皮革商品平常要怎麼保養？')));
+    const { host } = render(assistant(GENERAL_KNOWLEDGE_REPLY));
 
     const bubble = host.querySelector('[data-kind="general-knowledge"]');
     expect(bubble?.textContent).toContain('一般知識補充');
@@ -64,7 +113,7 @@ describe('ChatMessageComponent', () => {
   });
 
   it('shows a no-result reply with next steps', () => {
-    const { host } = render(assistant(replyFor('可以幫我訂機票嗎？')));
+    const { host } = render(assistant(NO_RESULT_REPLY));
 
     const bubble = host.querySelector('[data-kind="no-result"]');
     expect(bubble?.textContent).toContain('查無資料');
@@ -126,7 +175,7 @@ describe('ChatMessageComponent', () => {
   });
 
   it('lets the user start the inline form from a form request', () => {
-    const { fixture, host } = render(assistant(replyFor('我要回報訂單問題')));
+    const { fixture, host } = render(assistant(FORM_REQUEST_REPLY));
     const started: unknown[] = [];
     fixture.componentInstance.startForm.subscribe((form) => started.push(form));
 

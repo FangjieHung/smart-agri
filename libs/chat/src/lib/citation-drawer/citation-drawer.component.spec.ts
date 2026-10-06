@@ -1,14 +1,29 @@
 import { TestBed } from '@angular/core/testing';
-import { replyFor } from '../assistant-use.testing';
+import type { ChatCitationView } from '../chat-view.model';
 import { CitationDrawerComponent } from './citation-drawer.component';
 
+const CITATIONS: readonly ChatCitationView[] = [
+  {
+    id: 'citation-1',
+    knowledgeBaseName: '退換貨政策',
+    documentName: '退換貨辦法 2026 版.pdf',
+    excerpt: '消費者於收受商品後七日內，得申請退貨，商品應保持原包裝完整。',
+    updatedLabel: '2026-09-18',
+  },
+  {
+    id: 'citation-2',
+    knowledgeBaseName: '退換貨政策',
+    documentName: '退款作業流程.docx',
+    excerpt: '倉儲確認退貨商品後，於五個工作天內完成退款作業。',
+    updatedLabel: '2026-09-18',
+  },
+];
+
 function render() {
-  const reply = replyFor('收到商品後幾天內可以退貨？');
-  if (reply.kind !== 'company-data') throw new Error('expected company data');
   TestBed.configureTestingModule({ imports: [CitationDrawerComponent] });
   const fixture = TestBed.createComponent(CitationDrawerComponent);
   document.body.appendChild(fixture.nativeElement);
-  fixture.componentRef.setInput('citations', reply.citations);
+  fixture.componentRef.setInput('citations', CITATIONS);
   fixture.detectChanges();
   return { fixture, host: fixture.nativeElement as HTMLElement };
 }

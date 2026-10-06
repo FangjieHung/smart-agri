@@ -1,10 +1,13 @@
 import type { AgentSubscriber, HttpAgent, Message } from '@ag-ui/client';
 import { Observable } from 'rxjs';
-import type { components } from '../api/api-schema';
-import { toChatMessage } from '../repositories/hybrid-demo-repository';
-import type { ChatRunError, ChatRunEvent, ChatRunner, ChatRunRequest } from './chat-runner';
-
-type ApiChatMessageView = components['schemas']['ChatMessageView'];
+import {
+  toChatMessage,
+  type ChatMessageWire,
+  type ChatReplyExtensionMapper,
+  type ChatReplyWire,
+} from './chat-message-mapper';
+import type { ChatRunError, ChatRunEvent, ChatRunner, ChatRunRequest } from './chat-runner.types';
+import type { ChatMessageView } from './chat-view.model';
 
 export const REPLY_EVENT = 'smartagri.reply';
 export const THREAD_EVENT = 'smartagri.thread';
@@ -24,6 +27,10 @@ export interface AgUiChatRunnerDeps {
   readonly fetch?: (url: string, init: RequestInit) => Promise<Response>;
   /** 測試用：換掉套件載入方式。正式環境以動態 import 載入，只進入對話頁的 lazy chunk。 */
   readonly loadClient?: () => Promise<{ readonly HttpAgent: typeof HttpAgent }>;
+  /** 串流端點；省略時是 admin 的 `POST /api/v1/assistants/{id}/chat/runs`（`apiChatRunsPath`）。 */
+  readonly runsPath?: (assistantId: string) => string;
+  /** 只有使用端才認得的回覆種類（見 `ChatReplyExtensionMapper`）；省略時只轉換通用的三種。 */
+  readonly replyExtension?: ChatReplyExtensionMapper;
 }
 
 /** 串流開始前的錯誤：`@ag-ui/client` 把非 2xx 轉成帶 `status`／`payload` 的 Error。 */
@@ -75,7 +82,7 @@ export class AgUiChatRunner implements ChatRunner {
         onCustomEvent: ({ event }) => {
           if (closed) return;
           if (event.name === REPLY_EVENT) {
-            const message = readReply(event.value);
+            const message = readReply(event.value, this.deps.replyExtension);
             if (message === null) {
               agent?.abortRun();
               finishWith({ kind: 'failed', message: FAILED_MESSAGE, retryable: true });
@@ -105,7 +112,7 @@ export class AgUiChatRunner implements ChatRunner {
           if (closed) return undefined;
           const token = this.deps.accessToken();
           agent = new Agent({
-            url: apiChatRunsPath(request.assistantId),
+            url: (this.deps.runsPath ?? apiChatRunsPath)(request.assistantId),
             // 必須明確設定：省略時 HttpAgent 會自產 uuid，後端回 403 chat-thread。
             threadId: request.threadId ?? '',
             headers: token === null ? {} : { Authorization: `Bearer ${token}` },
@@ -184,8 +191,8 @@ function runMessages(request: ChatRunRequest): Message[] {
   return [...history, { id: questionId, role: 'user', content: request.question }];
 }
 
-function readReply(value: unknown) {
-  const candidate = value as Partial<ApiChatMessageView> | null;
+function readReply(value: unknown, extension: ChatReplyExtensionMapper | undefined): ChatMessageView | null {
+  const candidate = value as Partial<ChatMessageWire> | null;
   if (
     candidate === null ||
     typeof candidate !== 'object' ||
@@ -196,7 +203,7 @@ function readReply(value: unknown) {
   ) {
     return null;
   }
-  return toChatMessage(candidate as ApiChatMessageView);
+  return toChatMessage(candidate as ChatMessageWire<ChatReplyWire>, extension);
 }
 
 function readThread(value: unknown): { threadId: string; title: string } | null {

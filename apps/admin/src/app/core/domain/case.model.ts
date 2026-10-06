@@ -90,6 +90,21 @@ export function caseRecordStateLabel(state: CaseRecordLinkState): string {
   return state === 'available' ? '紀錄可查看' : state === 'withdrawn' ? '紀錄已撤回' : '紀錄已不存在';
 }
 
+/**
+ * 詳情的「建立者」：有建立者時是他的名稱；數據庫送出後自動開的案件沒有建立者（決定 M），顯示
+ * 「由數據庫「X」自動建立」（issue #255）。`databaseName` 是可省略的（舊的回應沒有這個欄位）。
+ */
+export function caseCreatedByText(
+  item: Pick<CaseView, 'createdBy' | 'origin'>,
+  record: { readonly databaseName?: string | null } | null | undefined,
+): string {
+  if (item.createdBy) return item.createdBy.displayName;
+  if (item.origin === 'database-submission') {
+    return record?.databaseName ? `由數據庫「${record.databaseName}」自動建立` : '由數據庫送出自動建立';
+  }
+  return '系統自動建立';
+}
+
 /** 與後端 `CaseRules` 相同的上限與訊息（issue #248）。 */
 export const CASE_TITLE_MAX_LENGTH = 120;
 export const CASE_DESCRIPTION_MAX_LENGTH = 4000;

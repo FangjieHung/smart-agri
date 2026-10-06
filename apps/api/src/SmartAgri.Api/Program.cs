@@ -208,6 +208,7 @@ app.MapDatabaseEndpoints();
 app.MapDatabaseSubmissionEndpoints();
 app.MapDatabaseQueryEndpoints();
 app.MapDatabaseReportEndpoints();
+app.MapDatabaseAutoCaseEndpoints();
 app.MapAssistantEndpoints();
 app.MapAssistantWebsiteChannelEndpoints();
 app.MapAssistantLineChannelEndpoints();

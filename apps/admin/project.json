@@ -61,6 +61,29 @@
               "with": "apps/admin/src/environments/environment.api.ts"
             }
           ]
+        },
+        "production-api": {
+          "optimization": true,
+          "sourceMap": false,
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "600kB",
+              "maximumError": "1MB"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "6kB",
+              "maximumError": "10kB"
+            }
+          ],
+          "outputHashing": "all",
+          "fileReplacements": [
+            {
+              "replace": "apps/admin/src/environments/environment.ts",
+              "with": "apps/admin/src/environments/environment.api.ts"
+            }
+          ]
         }
       }
     },
@@ -76,6 +99,10 @@
         },
         "api": {
           "buildTarget": "admin:build:api",
+          "proxyConfig": "apps/admin/proxy.api.json"
+        },
+        "production-api": {
+          "buildTarget": "admin:build:production-api",
           "proxyConfig": "apps/admin/proxy.api.json"
         }
       }

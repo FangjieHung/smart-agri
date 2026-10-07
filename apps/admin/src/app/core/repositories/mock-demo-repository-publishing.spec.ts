@@ -153,7 +153,7 @@ describe('MockDemoRepository publishing channels', () => {
       'account-internal-employee',
       'account-external-customer',
     ]);
-    expect(initial.usagePath).toBe('/use/assistant-customer-service');
+    expect(initial.usagePath).toBe('/chat/assistant-customer-service');
 
     const invalid = await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, [ADMIN]);
     expect(invalid).toMatchObject({ status: 'validation-failed' });

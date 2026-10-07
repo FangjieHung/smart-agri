@@ -2,7 +2,7 @@ import { loginAs } from '../support/a11y';
 
 function fillOrderForm(): void {
   loginAs('外部客戶');
-  cy.visit('/use/assistant-customer-service');
+  cy.visit('/chat/assistant-customer-service');
   cy.contains('button.suggested-prompt', '回報訂單問題').click();
   cy.get('[role="log"] [data-kind="form-request"]').contains('button', '填寫表單').click();
 
@@ -72,7 +72,7 @@ describe('consented structured submission', () => {
       .and('contain', '配送延遲')
       .and('contain', '助理對話');
 
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.contains('DEMO-2001').should('not.exist');
   });
@@ -91,7 +91,7 @@ describe('consented structured submission', () => {
 
   it('refuses a form whose database was disconnected after it was offered, recording nothing (#148)', () => {
     loginAs('外部客戶');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.contains('button.suggested-prompt', '回報訂單問題').click();
     cy.get('[role="log"] [data-kind="form-request"]').should('be.visible');
 
@@ -103,7 +103,7 @@ describe('consented structured submission', () => {
 
     // 先前顯示的表單送出時被拒，畫面說明原因、不建立紀錄；新的要求不再出現表單。
     loginAs('外部客戶');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.get('[role="log"] [data-kind="form-request"]').last().contains('button', '填寫表單').click();
     cy.get('#chat-field-field-order-number').type('DEMO-4001');
     cy.contains('app-inline-form label', '配送延遲').click();
@@ -129,7 +129,7 @@ describe('consented structured submission', () => {
 
   it('lets the submitter withdraw a record, which leaves the records and the trend', () => {
     loginAs('外部客戶');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     submitOrder('DEMO-3001');
     submitOrder('DEMO-3002');
 
@@ -141,7 +141,7 @@ describe('consented structured submission', () => {
     cy.get('app-period-summary tr[data-row="record-count"]').should('exist');
 
     loginAs('外部客戶');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.get('[role="log"] [data-kind="submission-receipt"]')
       .first()
       .within(() => {
@@ -260,7 +260,7 @@ describe('consented structured submission', () => {
 
   it('gives the data manager no way to withdraw someone else’s record', () => {
     loginAs('外部客戶');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     submitOrder('DEMO-3003');
 
     loginAs('SMB 管理者');

@@ -168,16 +168,16 @@ describe('responsive layout', () => {
     it('fits the end user chat and keeps the composer reachable', () => {
       cy.viewport(...PHONE);
       loginAs('外部客戶');
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
       cy.contains('h1', '客服助理').should('be.visible');
       cy.get('#chat-input').should('be.visible');
       cy.get('form.composer button[type="submit"]').should('be.visible');
-      expectNoHorizontalOverflow('/use/assistant-customer-service', PHONE[0]);
+      expectNoHorizontalOverflow('/chat/assistant-customer-service', PHONE[0]);
 
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
       cy.get('form.composer button[type="submit"]').click();
       cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
-      expectNoHorizontalOverflow('/use/assistant-customer-service（回答後）', PHONE[0]);
+      expectNoHorizontalOverflow('/chat/assistant-customer-service（回答後）', PHONE[0]);
     });
   });
 

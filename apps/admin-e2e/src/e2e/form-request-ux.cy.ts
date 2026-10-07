@@ -49,7 +49,7 @@ describe('form-request experience (#171)', () => {
   afterEach(() => emulateReducedMotion('no-preference'));
 
   it('① shows the checking state only while the server checks, announced once as fixed text', () => {
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     askInChat('收到商品後幾天內可以退貨？');
 
     cy.get('[app-form-check-status]').within(() => {
@@ -70,7 +70,7 @@ describe('form-request experience (#171)', () => {
 
   it('① with reduced motion shows only the first sentence, without the shimmer', () => {
     emulateReducedMotion('reduce');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     askInChat('收到商品後幾天內可以退貨？');
 
     cy.get('[app-form-check-status] .phrase').first().should('be.visible').and('have.css', 'color', 'rgb(82, 97, 112)')
@@ -80,7 +80,7 @@ describe('form-request experience (#171)', () => {
   });
 
   it('① stop during the check keeps only the question', () => {
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     askInChat('收到商品後幾天內可以退貨？');
     cy.get('[app-form-check-status]').should('exist');
     cy.contains('button.stop', '停止回答').click();
@@ -90,7 +90,7 @@ describe('form-request experience (#171)', () => {
   });
 
   it('② × closes the offered form without sending anything and returns focus to the input', () => {
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     openOfferedForm();
     cy.focused().should('have.id', 'chat-field-field-order-number').type('DEMO-7101');
     auditA11y('app-inline-form');
@@ -115,7 +115,7 @@ describe('form-request experience (#171)', () => {
   });
 
   it('② 「不用了」 behaves the same', () => {
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     openOfferedForm();
     cy.get('app-inline-form .actions button').then((buttons) => {
       expect([...buttons].map((button) => button.textContent?.trim())).to.deep.equal(['下一步：確認同意', '不用了']);
@@ -127,7 +127,7 @@ describe('form-request experience (#171)', () => {
   });
 
   it('② confirms before leaving for 我送出的資料 with input, and goes straight there without', () => {
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     openOfferedForm();
     cy.get('app-inline-form .withdraw-hint').should('contain.text', '想撤回已送出的資料？');
     cy.get('#chat-field-field-order-number').type('DEMO-7201');
@@ -149,14 +149,14 @@ describe('form-request experience (#171)', () => {
     cy.location('pathname').should('eq', '/app/activity');
 
     // 沒有輸入：直接前往。
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     openOfferedForm();
     cy.contains('app-inline-form a', '前往我送出的資料').click();
     cy.location('pathname').should('eq', '/app/activity');
   });
 
   it('③ the 回報資料 entry opens the only form directly, left of the input', () => {
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.get('form.composer').children().first().should('match', 'app-form-entry');
     cy.contains('form.composer button', '回報資料').should('not.have.attr', 'aria-haspopup');
     cy.contains('form.composer button', '回報資料').find('svg').should('have.attr', 'aria-hidden', 'true');
@@ -183,7 +183,7 @@ describe('form-request experience (#171)', () => {
 
   it('③ on a 360px phone sits above the input and only 停止回答 shows while waiting', () => {
     cy.viewport(360, 740);
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.get('form.composer app-form-entry').should('not.exist');
     cy.get('.composer-area .entry-row').contains('button', '回報資料').should('be.visible');
     cy.get('.composer-area').children().first().should('have.class', 'entry-row');
@@ -204,7 +204,7 @@ describe('form-request experience (#171)', () => {
 
   it('shows neither the checking state nor the entry for an assistant without forms', () => {
     loginAs('SMB 管理者');
-    cy.visit('/use/assistant-internal-onboarding');
+    cy.visit('/chat/assistant-internal-onboarding');
     cy.get('#chat-input').should('be.visible');
     cy.contains('button', '回報資料').should('not.exist');
     askInChat('商品怎麼保養？');

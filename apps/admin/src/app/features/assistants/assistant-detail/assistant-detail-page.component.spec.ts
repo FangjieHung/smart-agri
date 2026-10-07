@@ -352,7 +352,7 @@ describe('AssistantDetailPageComponent', () => {
     const { page } = await renderTab('test');
     const link = Array.from(page.querySelectorAll('a')).find((anchor) => anchor.textContent?.includes('開啟使用者對話畫面'));
 
-    expect(link?.getAttribute('href')).toBe('/use/assistant-customer-service');
+    expect(link?.getAttribute('href')).toBe('/chat/assistant-customer-service');
   });
 
   it('shows the owner outcome-only usage counts without any conversation text', async () => {

@@ -23,6 +23,9 @@ jobs:
       - run: dotnet restore apps/api/SmartAgri.slnx --locked-mode
       - run: npx nx run-many -t lint test build
       - run: npx tsc -p apps/admin/tsconfig.spec.json --noEmit
+      # 由 api 容器一起提供的 admin（上線前計畫 §3 E）用 production-api 建置；budgets 與 production 相同，
+      # 超過 error 上限時這一步就失敗（超過 warning 只會印出警告）。輸出放在 runner 的暫存目錄，不覆蓋上一步產生的 dist/。
+      - run: npx nx build admin --configuration=production-api --output-path=${{ runner.temp }}/admin-production-api
       # @ag-ui/client 解析後端 AG-UI 串流的錄製檔（#77）；錄製檔與端點實際輸出不一致時，
       # 上一步的 ChatRunEndpointsTests 就會失敗，所以兩步合起來確認前後端協定相容。
       - run: node tools/agui-contract/check-agui-stream.mjs

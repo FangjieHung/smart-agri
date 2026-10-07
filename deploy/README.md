@@ -102,6 +102,12 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.limits.yml 
 > 指令中一旦用 `-f` 指定檔案，compose 就不會自動套用 `docker-compose.override.yml`，所以每次（含 `run`、`logs`、
 > `down`）都要把兩個 `-f` 帶齊。
 
+**檢索門檻**也沒有放進 `.env`，預設值是為 `text-embedding-3-small` 校正的：`Retrieval__MinScore`（0.406，段落分數達到才算相關）
+與 `Retrieval__CandidateMinScore`（暫定 0.30，上線前評估 P5 決定最終值）。沒有段落達到 `MinScore`、但有段落達到
+`CandidateMinScore` 時，只用組織資料的助理仍會把這些候選段落交給模型，模型判斷不足以回答就照常拒答。要調整時寫在同一個
+疊加的 compose 檔的 `environment` 裡；`CandidateMinScore` 必須介於 0 和 `MinScore` 之間，否則 api 拒絕啟動，設成空字串
+（`Retrieval__CandidateMinScore: ""`）就停用候選段落。換嵌入模型時兩個都要重新設定（`apps/api/README.md`「Retrieval preview」）。
+
 填完先檢查設定能不能展開（不會啟動任何東西；缺 `POSTGRES_PASSWORD` 會在這裡報錯）：
 
 ```sh

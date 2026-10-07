@@ -10,13 +10,16 @@ namespace SmartAgri.Api.Answers.Evaluation;
 /// <param name="TopScore">The closest retrieved passage's score, whether or not it reached the
 /// threshold (#303: a negative conclusion or a refusal is judged next to how close retrieval came);
 /// <see langword="null"/> when nothing was retrieved.</param>
+/// <param name="UsedCandidates">No passage reached <c>Retrieval:MinScore</c> and the model was asked
+/// with candidate passages instead (<c>Retrieval:CandidateMinScore</c>, #302), whatever it answered.</param>
 public sealed record AnswerEvalQuestionResult(
     AnswerEvalQuestion Question,
     GroundedReplyKind ActualKind,
     GroundedRejectionReason? RejectionReason,
     IReadOnlyList<string> CitedDocuments,
     string ReplyText,
-    double? TopScore)
+    double? TopScore,
+    bool UsedCandidates = false)
 {
     /// <summary>Whether the reply's kind is the one the question expects (the only two kinds a
     /// <c>company-data-only</c> profile ever produces: <c>company-data</c> or <c>no-result</c>).</summary>
@@ -45,6 +48,8 @@ public sealed record AnswerEvalQuestionResult(
 /// <param name="AverageInputTokens">Mean of <c>ModelInvocations.InputTokens</c> over every
 /// <c>generate-answer</c> call this run made; <see langword="null"/> when none reported it.</param>
 /// <param name="AverageOutputTokens">The same for <c>OutputTokens</c>.</param>
+/// <param name="CandidateAnswers">Questions answered (or refused by the model) from candidate passages
+/// (#302).</param>
 public sealed record AnswerEvalSummary(
     int Total,
     int ReplyKindCorrect,
@@ -54,7 +59,8 @@ public sealed record AnswerEvalSummary(
     double? CitationHitRate,
     IReadOnlyList<(GroundedRejectionReason Reason, int Count)> RejectionReasons,
     double? AverageInputTokens,
-    double? AverageOutputTokens);
+    double? AverageOutputTokens,
+    int CandidateAnswers = 0);
 
 /// <summary>
 /// How the answer evaluation (M3 plan Slice 13; ticket #83) judges and sums up what
@@ -66,8 +72,9 @@ public static class AnswerEvalScoring
 {
     /// <param name="passages">Every passage retrieval returned (<see cref="KnowledgeRetrievalResult.Passages"/>),
     /// whatever its score: only the closest one's score is kept.</param>
+    /// <param name="usedCandidates"><see cref="GroundedAnswerResult.UsedCandidates"/>.</param>
     public static AnswerEvalQuestionResult Judge(
-        AnswerEvalQuestion question, GroundedReply reply, IReadOnlyList<RetrievedKnowledgePassage> passages)
+        AnswerEvalQuestion question, GroundedReply reply, IReadOnlyList<RetrievedKnowledgePassage> passages, bool usedCandidates = false)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(reply);
@@ -78,7 +85,8 @@ public static class AnswerEvalScoring
             reply.RejectionReason,
             [.. reply.Citations.Select(citation => citation.DocumentName)],
             reply.Text,
-            passages.Count == 0 ? null : passages.Max(passage => passage.Score));
+            passages.Count == 0 ? null : passages.Max(passage => passage.Score),
+            usedCandidates);
     }
 
     public static AnswerEvalSummary Summarize(
@@ -104,6 +112,7 @@ public static class AnswerEvalScoring
             companyData.Count == 0 ? null : (double)companyData.Count(result => result.CitationHit == true) / companyData.Count,
             rejections,
             averageInputTokens,
-            averageOutputTokens);
+            averageOutputTokens,
+            results.Count(result => result.UsedCandidates));
     }
 }

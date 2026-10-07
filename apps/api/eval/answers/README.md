@@ -77,6 +77,11 @@ profile (no assistant of its own) and the deployment's configured `Retrieval:Min
   close it came; and **回覆內容**, the reply text on one line (`—` for `no-result`, which is always
   the refusal message). The settings also record **回答提示版本** (`GroundedAnswerPrompt.Version`),
   so runs before and after a prompt change can be told apart.
+- **候選段落** (#302): `是` when no passage reached `Retrieval:MinScore` and the model was asked with
+  candidate passages above `Retrieval:CandidateMinScore` instead (the settings show the value in
+  effect; `—` when there is no band); the summary counts them, split into answered and refused by
+  the model. A should-find-nothing question marked `是` was refused (or not) by the model, not by
+  the threshold.
 
 **With `Fake`** (both `Ai:Embedding` and `Ai:Chat`): the pipeline runs end to end and the report is
 byte-for-byte reproducible (`EvalAnswersIntegrationTests`), but scores and citations are not

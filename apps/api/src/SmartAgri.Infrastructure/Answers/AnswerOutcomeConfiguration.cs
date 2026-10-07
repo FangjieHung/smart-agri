@@ -54,6 +54,10 @@ internal sealed class AnswerOutcomeConfiguration : IEntityTypeConfiguration<Answ
                     name => name == null ? (AnswerDatabaseQueryResult?)null : WireNames<AnswerDatabaseQueryResult>.Parse(name)))
             .HasMaxLength(32);
 
+        // #302: whether candidate passages below the relevance threshold were used. Existing rows
+        // predate candidates: the migration fills them with false.
+        builder.Property(outcome => outcome.UsedCandidates).IsRequired();
+
         builder.Property(outcome => outcome.CitedDocumentIds)
             .HasConversion(
                 new ValueConverter<IReadOnlyList<Guid>, string>(

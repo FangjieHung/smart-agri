@@ -282,4 +282,7 @@ public sealed record GroundedAnswerRejected(GroundedRejectionReason Reason, Grou
 /// <summary><see cref="GroundedAnswerService.AnswerAsync"/>'s result: the final reply plus what
 /// retrieval found (every passage with its score, and the threshold used), so a wizard trial
 /// (#78) can show why it answered as it did.</summary>
-public sealed record GroundedAnswerResult(GroundedReply Reply, KnowledgeRetrievalResult Retrieval);
+/// <param name="UsedCandidates">No passage reached the threshold and the model was asked with
+/// candidate passages instead (<see cref="KnowledgeRetrievalSettings.CandidateMinScore"/>, #302),
+/// whatever it then answered.</param>
+public sealed record GroundedAnswerResult(GroundedReply Reply, KnowledgeRetrievalResult Retrieval, bool UsedCandidates = false);

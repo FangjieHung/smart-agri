@@ -37,11 +37,13 @@ public sealed class EfAnswerOutcomeRecorder : IAnswerOutcomeRecorder
         AnswerReplyKind replyKind,
         AnswerRejectionReason? rejectionReason,
         IReadOnlyCollection<Guid> citedDocumentIds,
+        bool usedCandidates,
         DateTimeOffset at,
         CancellationToken cancellationToken)
     {
         await SaveAsync(
-            () => AnswerOutcome.Record(organizationId, assistantId, channel, replyKind, rejectionReason, citedDocumentIds, at));
+            () => AnswerOutcome.Record(
+                organizationId, assistantId, channel, replyKind, rejectionReason, citedDocumentIds, at, usedCandidates));
     }
 
     /// <summary>Never throws, like <see cref="RecordAsync"/>.</summary>

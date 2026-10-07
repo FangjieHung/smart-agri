@@ -11,6 +11,8 @@ namespace SmartAgri.Api.Answers.Evaluation;
 /// <param name="SetName">How the set is shown: its path relative to the repository, when it is in it.</param>
 /// <param name="PromptVersion">The answer prompt's <see cref="GroundedAnswerPrompt.Version"/>, so
 /// runs before and after a wording change can be told apart.</param>
+/// <param name="CandidateMinScore">The candidate threshold in effect (#302): <c>Retrieval:CandidateMinScore</c>
+/// when it is set and below <paramref name="MinScore"/>; <see langword="null"/> for none.</param>
 public sealed record AnswerEvalRun(
     DateTimeOffset StartedAt,
     TimeSpan Duration,
@@ -19,6 +21,7 @@ public sealed record AnswerEvalRun(
     string ChatProvider,
     string ChatModel,
     double MinScore,
+    double? CandidateMinScore,
     string PromptVersion,
     string SetName,
     string SetFingerprint,
@@ -95,6 +98,7 @@ public static class AnswerEvalReport
         Row(text, "嵌入提供者／模型", $"`{run.EmbeddingProvider}` / `{run.EmbeddingModel}`");
         Row(text, "對話提供者／模型", $"`{run.ChatProvider}` / `{run.ChatModel}`");
         Row(text, "Retrieval:MinScore", Score(run.MinScore));
+        Row(text, "Retrieval:CandidateMinScore", run.CandidateMinScore is { } candidate ? Score(candidate) : "—（不使用候選段落）");
         Row(text, "回答提示版本", $"`{run.PromptVersion}`");
         Row(text, "題庫", $"`{run.SetName}`（{run.Results.Count} 題）");
         Row(text, "題庫指紋（SHA-256 前 12 碼）", $"`{run.SetFingerprint[..12]}`");
@@ -110,6 +114,10 @@ public static class AnswerEvalReport
         Row(text, "引用命中率（company-data 題）", summary.CitationHitRate is { } rate
             ? Rate(summary.CitationHits, summary.CompanyDataQuestions)
             : "—（題庫沒有 company-data 題）");
+        Row(text, "採用候選段落（低於 MinScore、交給模型判斷）", string.Create(
+            CultureInfo.InvariantCulture,
+            $"{summary.CandidateAnswers} 題（回答 {run.Results.Count(result => result.UsedCandidates && result.ActualKind == GroundedReplyKind.CompanyData)}、" +
+            $"模型拒答 {run.Results.Count(result => result.UsedCandidates && result.ActualKind == GroundedReplyKind.NoResult)}）"));
         Row(text, "平均輸入 token", summary.AverageInputTokens is { } input ? input.ToString("0.0", CultureInfo.InvariantCulture) : "—");
         Row(text, "平均輸出 token", summary.AverageOutputTokens is { } output ? output.ToString("0.0", CultureInfo.InvariantCulture) : "—");
         text.AppendLine();
@@ -134,8 +142,8 @@ public static class AnswerEvalReport
 
         text.AppendLine(Sections[3]);
         text.AppendLine();
-        text.AppendLine("| 題號 | 追問 | 問題 | 預期類型 | 實際類型 | 類型正確 | 預期引用 | 實際引用 | 引用命中 | 拒絕原因 | 最高分 | 回覆內容 |");
-        text.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
+        text.AppendLine("| 題號 | 追問 | 問題 | 預期類型 | 實際類型 | 類型正確 | 預期引用 | 實際引用 | 引用命中 | 拒絕原因 | 候選段落 | 最高分 | 回覆內容 |");
+        text.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
         foreach (var result in run.Results)
         {
             var question = result.Question;
@@ -144,7 +152,7 @@ public static class AnswerEvalReport
                 $"| {question.Id} | {question.FollowUpOf ?? "—"} | {Cell(question.Question)} | {WireName(question.ExpectedKind)} | " +
                 $"{WireName(result.ActualKind)} | {(result.KindCorrect ? "是" : "**否**")} | {Cell(string.Join("、", question.ExpectedCitedDocuments))} | " +
                 $"{Cell(string.Join("、", result.CitedDocuments))} | {(result.CitationHit is { } hit ? (hit ? "是" : "**否**") : "—")} | " +
-                $"{(result.RejectionReason is { } reason ? $"`{WireName(reason)}`" : "—")} | " +
+                $"{(result.RejectionReason is { } reason ? $"`{WireName(reason)}`" : "—")} | {(result.UsedCandidates ? "是" : "—")} | " +
                 $"{(result.TopScore is { } top ? Score(top) : "—")} | {ReplyCell(result)} |"));
         }
 

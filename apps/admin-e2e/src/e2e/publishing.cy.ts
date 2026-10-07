@@ -88,10 +88,14 @@ describe('publishing channels', () => {
       cy.get('#website-domain-input').clear().type('blog.anxin-demo.example');
       cy.contains('button', '加入網域').click();
       cy.get('.domain-list').should('contain', 'blog.anxin-demo.example');
+      cy.get('.embed-code').should('not.contain', 'data-brand');
+      cy.get('#website-color-ocean').check();
       cy.contains('button', '儲存官網設定').click();
       cy.get('.save-status').should('contain', '已儲存');
 
       cy.get('.embed-code').should('contain', '不可用於正式環境');
+      // 啟動按鈕的品牌色由載入器從網頁讀取，嵌入碼要帶出來（#225）。
+      cy.get('.embed-code').should('contain', 'data-brand="ocean"');
       cy.window().then((win) => {
         cy.stub(win.navigator.clipboard, 'writeText').resolves();
       });

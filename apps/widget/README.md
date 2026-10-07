@@ -26,6 +26,21 @@
 
 `AgUiChatRunner` 以 `runsPath`（訪客路徑）、`authorizationHeader`（`Visitor <token>`；#199 新增的向下相容選項，`accessToken` 仍包成 `Bearer`）與包過的 `fetch` 建立。`@ag-ui/client` 維持動態 import，送出第一個問題時才載入（獨立 chunk）。`429` 的 `Retry-After` 無法從 `@ag-ui/client` 的錯誤取得，所以由包過的 `fetch` 記下最近一次回應狀態。
 
+## 主控台裡預期中的錯誤訊息（#226）
+
+訪客遇到暫停服務（`403 public-assistant`）或問題太頻繁（`429`）時，畫面處理是對的（「目前暫停服務」／「問題太頻繁了，請稍後再試」＋倒數），但客戶的工程師打開瀏覽器開發者工具會看到紅色訊息。**這些是預期中的訊息，不代表服務壞了**，不需要處理。
+
+送出問題（`POST …/chat/runs`）時：
+
+| 情況 | 主控台的確切內容（`@ag-ui/client` 印的，後面接著堆疊） |
+| --- | --- |
+| 暫停服務（`403`） | `Agent execution failed: Error: HTTP 403: {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"public-assistant","message":"這個對話視窗目前無法使用。"}` |
+| 問題太頻繁（`429`） | `Agent execution failed: Error: HTTP 429: {"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"reason":"rate-limited","message":"問題太頻繁了，請稍後再試。"}` |
+
+此外瀏覽器自己會為每個非 2xx 的請求記一行網路錯誤，這一行無法由網頁關掉，措辭依瀏覽器而不同，例如 Chrome 的 `POST https://<api>/api/v1/public/assistants/<助理 id>/chat/runs 403 (Forbidden)` 或 `Failed to load resource: the server responded with a status of 403 ()`（`429` 同理）。開啟對話視窗時建立工作階段（`POST …/visitor-sessions`）若是 `403`／`429`，只有這一行瀏覽器的網路錯誤，沒有 `Agent execution failed`（那個請求不經過 `@ag-ui/client`）。訊息都在對話視窗的 iframe（`/use/<助理 id>`）裡；Chrome 的主控台預設會一起列出 iframe 的訊息。
+
+**為什麼不關掉**：`@ag-ui/client` 1.0.0 沒有正式的方式。`AbstractAgent.onError`（`src/agent/agent.ts` 第 649–707 行，`console.error("Agent execution failed:", error)` 在第 699 行）只要錯誤不是中止（abort）就直接呼叫 `console.error` 再拋出；`debug`／`debugLogger` 設定只控制它自己的除錯記錄，管不到這一行；`AgentSubscriber.onRunFailed` 的回傳型別刻意排除了 `stopPropagation`（`src/agent/subscriber.ts` 第 65–67 行），硬傳的話執行期雖然會跳過記錄，但也會把錯誤吞掉、`runAgent()` 改成正常結束，`libs/chat` 的 `AgUiChatRunner` 就拿不到狀態碼，等於改變狀態處理。1.0.2 的行為相同（第 742 行）。以上行號是套件附的 source map（`node_modules/@ag-ui/client/dist/index.mjs.map` 的 `sourcesContent`）裡的原始碼行號。我們也不改寫全域的 `console.error`。`widget-console.spec.ts` 用 spy 釘住上表的確切內容：升級 `@ag-ui/client` 後內容若改變，該測試會失敗，請同步更新這一節與 `deploy/README.md` 第 9 節。
+
 ## 預算
 
 `project.json` 的 production 預算：初始 `maximumWarning 120kB`／`maximumError 150kB`。目前的量測值見 PR 說明：Angular zoneless 的 hello world 單獨就是 96 kB（原始大小），預算實際上無法達成。

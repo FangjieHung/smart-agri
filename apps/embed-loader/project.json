@@ -27,6 +27,13 @@
     "test": {
       "executor": "nx:run-commands",
       "dependsOn": ["typecheck"],
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/apps/widget/src/app/brand-color.ts",
+        "{workspaceRoot}/apps/admin/src/app/core/domain/publishing.model.ts",
+        "{workspaceRoot}/apps/api/src/SmartAgri.Domain/Assistants/WebsiteBrandColor.cs"
+      ],
       "options": {
         "command": "vitest run --config apps/embed-loader/vitest.config.mts",
         "cwd": "{workspaceRoot}"

@@ -243,7 +243,7 @@ public sealed class EvalAnswersCommand
                 var request = new GroundedAnswerRequest(profile, question.Question, history, account.Id, AssistantId: null);
                 var answered = await answerService.AnswerAsync(request, cancellationToken);
                 replies[question.Id] = answered.Reply;
-                results.Add(AnswerEvalScoring.Judge(question, answered.Reply, answered.Retrieval.Passages, answered.UsedCandidates));
+                results.Add(AnswerEvalScoring.Judge(question, answered.Reply, answered.Retrieval.Passages, answered.UsedCandidates, answered.TableExpansion));
             }
 
             var (averageInput, averageOutput) = await AverageTokensAsync(organization.Id, cancellationToken);
@@ -273,7 +273,7 @@ public sealed class EvalAnswersCommand
                 CultureInfo.InvariantCulture,
                 $"回覆類型正確率 {summary.ReplyKindCorrect}/{summary.Total}；" +
                 $"引用命中率 {(summary.CitationHitRate is { } rate ? $"{summary.CitationHits}/{summary.CompanyDataQuestions}" : "—")}；" +
-                $"採用候選段落 {summary.CandidateAnswers} 題。"));
+                $"採用候選段落 {summary.CandidateAnswers} 題；同表補列 {summary.TableExpansions} 題。"));
             await output.WriteLineAsync($"報告：{path}");
             return ExitSuccess;
         }
@@ -393,7 +393,7 @@ public sealed class EvalAnswersCommand
             _clock);
         var chatClient = ChatServiceCollectionExtensions.CreateClient(_services, organization, new EfModelInvocationRecorder(_dbContextOptions, organization));
         var outcomes = ActivatorUtilities.CreateInstance<EfAnswerOutcomeRecorder>(_services, _dbContextOptions, organization);
-        return new GroundedAnswerService(new EfAnswerKnowledgeBases(dbContext), retriever, chatClient, _metrics, outcomes, organization, _clock);
+        return new GroundedAnswerService(new EfAnswerKnowledgeBases(dbContext), retriever, new EfKnowledgeTableRows(dbContext), chatClient, _metrics, outcomes, organization, _clock);
     }
 
     /// <summary>The mean <c>InputTokens</c>/<c>OutputTokens</c> of every <c>generate-answer</c>

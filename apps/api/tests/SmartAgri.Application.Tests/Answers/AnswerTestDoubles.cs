@@ -90,6 +90,45 @@ internal sealed class ScriptedRetriever : IKnowledgeRetriever
         Passages.Add(passage);
         return passage;
     }
+
+    /// <summary>A retrieved table row (#324): <paramref name="row"/>'s chunk and text, in
+    /// <paramref name="documentId"/>.</summary>
+    public RetrievedKnowledgePassage AddRow(
+        Guid knowledgeBaseId, Guid documentId, string documentName, string location, KnowledgeTableRow row, double score)
+    {
+        var passage = new RetrievedKnowledgePassage(
+            row.ChunkId, knowledgeBaseId, documentId, documentName, row.Table.VersionId, 1,
+            KnowledgeVersionState.Effective, location, row.Text, score, DateTimeOffset.UnixEpoch,
+            new KnowledgeTablePosition(row.Table.UnitOrdinal, row.Table.TableIndex, row.Ordinal));
+        Passages.Add(passage);
+        return passage;
+    }
+}
+
+/// <summary>Table rows in memory (#324): returns the not-excluded rows of the tables asked
+/// for, and remembers every read.</summary>
+internal sealed class InMemoryKnowledgeTableRows : IKnowledgeTableRows
+{
+    public List<(KnowledgeTableRow Row, bool Excluded)> Rows { get; } = [];
+
+    public List<IReadOnlyCollection<KnowledgeTableKey>> Reads { get; } = [];
+
+    public Task<IReadOnlyList<KnowledgeTableRow>> FindAsync(IReadOnlyCollection<KnowledgeTableKey> tables, CancellationToken cancellationToken)
+    {
+        Reads.Add(tables);
+        IReadOnlyList<KnowledgeTableRow> found = [.. Rows.Where(row => !row.Excluded && tables.Contains(row.Row.Table)).Select(row => row.Row)];
+        return Task.FromResult(found);
+    }
+
+    /// <summary>The rows of one table of <paramref name="versionId"/>'s unit
+    /// <paramref name="unitOrdinal"/>, ordinals <paramref name="firstOrdinal"/>, … in order.</summary>
+    public List<KnowledgeTableRow> AddTable(Guid versionId, int unitOrdinal, int tableIndex, int firstOrdinal, params string[] texts)
+    {
+        var table = new KnowledgeTableKey(versionId, unitOrdinal, tableIndex);
+        var rows = texts.Select((text, index) => new KnowledgeTableRow(Guid.CreateVersion7(), table, firstOrdinal + index, text)).ToList();
+        Rows.AddRange(rows.Select(row => (row, false)));
+        return rows;
+    }
 }
 
 /// <summary>Knowledge bases and shares in memory, judged by the real

@@ -43,6 +43,7 @@ public static class KnowledgeServiceCollectionExtensions
         services.AddSingleton<IValidateOptions<RetrievalOptions>, RetrievalOptionsValidator>();
         services.AddSingleton(provider => provider.GetRequiredService<IOptions<RetrievalOptions>>().Value.ToSettings());
         services.AddScoped<IKnowledgeVersionSources, EfKnowledgeVersionSources>();
+        services.AddScoped<IKnowledgeTableRows, EfKnowledgeTableRows>();
         services.AddScoped<KnowledgeRetriever>();
         services.AddScoped<IKnowledgeRetriever>(provider => provider.GetRequiredService<KnowledgeRetriever>());
         return services;

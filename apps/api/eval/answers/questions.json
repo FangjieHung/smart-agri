@@ -154,6 +154,32 @@
       "question": "外送要另外收運費嗎？",
       "expectedKind": "no-result",
       "note": "陷阱題：門市資訊只寫外送門檻與範圍，沒有寫外送費，應拒答；放寬推論後也不能自行推論。"
+    },
+    {
+      "id": "store-07",
+      "question": "門市星期日有開嗎？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "#304 補測、#324：store-04 的換句話說。公休日是每週三，星期日有營業（09:00–18:00），要看回覆文字；#304 時只送出公休日那一列，0/3。"
+    },
+    {
+      "id": "store-08",
+      "question": "星期三可以去門市買東西嗎？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "#304 補測、#324：store-05 的換句話說。每週三公休，目標是回答否定結論（當天不營業）並引用；要看回覆文字。#304 時公休日列 0.355 沒有送出，0/3。"
+    },
+    {
+      "id": "none-05",
+      "question": "員工請特休要怎麼申請？",
+      "expectedKind": "no-result",
+      "note": "#304 補測（eval-retrieval 的 none-06）：最接近的是「公休日」那一列，但文件沒有寫員工的請假規定，應拒答；命中表格列會送出整張基本資訊表，也不能拿來湊答案。"
+    },
+    {
+      "id": "none-06",
+      "question": "統一編號是多少？",
+      "expectedKind": "no-result",
+      "note": "#304 補測（eval-retrieval 的 none-07）：常見問題的統一編號是顧客報帳用的，文件沒有寫商行自己的統編，應拒答。"
     }
   ]
 }

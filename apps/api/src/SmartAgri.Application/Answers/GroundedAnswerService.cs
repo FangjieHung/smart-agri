@@ -35,6 +35,12 @@ namespace SmartAgri.Application.Answers;
 /// answer is <c>company-data</c> as usual. The outcome row records that candidates were used.
 /// <c>allow-general-knowledge</c> keeps the general-knowledge answer instead: a candidate refusal
 /// there would replace an answer it gives today with <c>no-result</c>.</item>
+/// <item><b>Tables</b> (#324). Once the passages to send are decided (relevant or candidates),
+/// each table row among them brings the rest of its table (<see cref="KnowledgeTableExpansion"/>,
+/// one <see cref="IKnowledgeTableRows"/> read per answer, none without a table row), so a row
+/// that matched the question is judged with the rows next to it. It changes neither which
+/// questions reach the model nor how many passages are numbered beyond merging rows of one
+/// table.</item>
 /// <item><b>Generation.</b> <see cref="GroundedAnswerPrompt"/>; one model call attributed
 /// <see cref="ModelInvocationPurpose.GenerateAnswer"/> to the asker and assistant.</item>
 /// <item><b>Validation.</b> <see cref="CitationMarkers"/> on the whole answer: a number outside
@@ -58,6 +64,7 @@ public sealed class GroundedAnswerService
 {
     private readonly IAnswerKnowledgeBases _knowledgeBases;
     private readonly IKnowledgeRetriever _retriever;
+    private readonly IKnowledgeTableRows _tableRows;
     private readonly IChatClient _chat;
     private readonly GroundedAnswerMetrics _metrics;
     private readonly IAnswerOutcomeRecorder _outcomes;
@@ -67,6 +74,7 @@ public sealed class GroundedAnswerService
     public GroundedAnswerService(
         IAnswerKnowledgeBases knowledgeBases,
         IKnowledgeRetriever retriever,
+        IKnowledgeTableRows tableRows,
         IChatClient chat,
         GroundedAnswerMetrics metrics,
         IAnswerOutcomeRecorder outcomes,
@@ -75,6 +83,7 @@ public sealed class GroundedAnswerService
     {
         ArgumentNullException.ThrowIfNull(knowledgeBases);
         ArgumentNullException.ThrowIfNull(retriever);
+        ArgumentNullException.ThrowIfNull(tableRows);
         ArgumentNullException.ThrowIfNull(chat);
         ArgumentNullException.ThrowIfNull(metrics);
         ArgumentNullException.ThrowIfNull(outcomes);
@@ -82,6 +91,7 @@ public sealed class GroundedAnswerService
         ArgumentNullException.ThrowIfNull(clock);
         _knowledgeBases = knowledgeBases;
         _retriever = retriever;
+        _tableRows = tableRows;
         _chat = chat;
         _metrics = metrics;
         _outcomes = outcomes;
@@ -168,12 +178,13 @@ public sealed class GroundedAnswerService
         }
 
         await FinishAsync(activity, reply, plan, request, cancellationToken);
-        return new GroundedAnswerResult(reply, plan.Retrieval, plan.UsedCandidates);
+        return new GroundedAnswerResult(reply, plan.Retrieval, plan.UsedCandidates, plan.TableExpansion);
     }
 
     /// <summary>What retrieval decided: the passages to ground on (k = their count) and the
     /// messages to send, or a refusal that needs no model call. <paramref name="UsedCandidates"/>:
-    /// the passages are candidates below the threshold (#302).</summary>
+    /// the passages are candidates below the threshold (#302). <paramref name="Passages"/> are
+    /// the ones sent, tables expanded (#324).</summary>
     private sealed record AnswerPlan(
         KnowledgeRetrievalResult Retrieval,
         IReadOnlyList<RetrievedKnowledgePassage> Passages,
@@ -181,7 +192,8 @@ public sealed class GroundedAnswerService
         bool Grounded,
         IReadOnlyList<ChatMessage>? Messages,
         GroundedReply? Refusal,
-        bool UsedCandidates = false);
+        bool UsedCandidates = false,
+        GroundedTableExpansion? TableExpansion = null);
 
     private async Task<AnswerPlan> PlanAsync(
         GroundedAnswerRequest request, string question, Activity? activity, CancellationToken cancellationToken)
@@ -222,8 +234,9 @@ public sealed class GroundedAnswerService
             {
                 activity?.SetTag(GroundedAnswerTelemetry.CandidateThresholdTag, candidateFloor);
                 activity?.SetTag(GroundedAnswerTelemetry.CandidatePassagesTag, candidates.Count);
-                return new AnswerPlan(retrieval, candidates, names, true,
-                    GroundedAnswerPrompt.Grounded(profile, candidates, request.History, question), null, UsedCandidates: true);
+                var (sentCandidates, candidateTables) = await WithTablesAsync(candidates, activity, cancellationToken);
+                return new AnswerPlan(retrieval, sentCandidates, names, true,
+                    GroundedAnswerPrompt.Grounded(profile, sentCandidates, request.History, question), null, UsedCandidates: true, candidateTables);
             }
         }
 
@@ -236,9 +249,29 @@ public sealed class GroundedAnswerService
                     GroundedAnswerPrompt.GeneralKnowledge(profile, request.History, question), null);
         }
 
-        // 4. The grounded prompt.
-        return new AnswerPlan(retrieval, relevant, names, true,
-            GroundedAnswerPrompt.Grounded(profile, relevant, request.History, question), null);
+        // 4. (#324) Selected table rows bring their tables, then the grounded prompt.
+        var (sent, tables) = await WithTablesAsync(relevant, activity, cancellationToken);
+        return new AnswerPlan(retrieval, sent, names, true,
+            GroundedAnswerPrompt.Grounded(profile, sent, request.History, question), null, TableExpansion: tables);
+    }
+
+    /// <summary>The passages to send with each table row's table (#324): one read of the tables'
+    /// rows, only when a passage is a table row; the span records what was added.</summary>
+    private async Task<(IReadOnlyList<RetrievedKnowledgePassage> Passages, GroundedTableExpansion Expansion)> WithTablesAsync(
+        IReadOnlyList<RetrievedKnowledgePassage> passages, Activity? activity, CancellationToken cancellationToken)
+    {
+        var tables = KnowledgeTableExpansion.TablesOf(passages);
+        if (tables.Count == 0)
+        {
+            return (passages, GroundedTableExpansion.None);
+        }
+
+        var rows = await _tableRows.FindAsync(tables, cancellationToken);
+        var (sent, expansion) = KnowledgeTableExpansion.Expand(passages, rows, GroundedAnswerPrompt.TableRowsMaxCharacters);
+        activity?.SetTag(GroundedAnswerTelemetry.TablesExpandedTag, expansion.Tables);
+        activity?.SetTag(GroundedAnswerTelemetry.TableRowsAddedTag, expansion.AddedRows);
+        activity?.SetTag(GroundedAnswerTelemetry.TableRowsTruncatedTag, expansion.Truncated);
+        return (sent, expansion);
     }
 
     /// <summary>5. The final reply for the model's whole <paramref name="answer"/>.</summary>

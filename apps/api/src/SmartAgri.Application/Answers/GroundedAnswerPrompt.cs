@@ -39,6 +39,12 @@ public static class GroundedAnswerPrompt
     /// <summary>The most earlier turns sent as context.</summary>
     public const int HistoryMaxTurns = 6;
 
+    /// <summary>The most characters (Unicode scalars) of table rows an answer sends besides the
+    /// rows retrieval selected (#324, <see cref="KnowledgeTableExpansion"/>): the same budget as
+    /// <see cref="HistoryMaxCharacters"/>, about two whole chunks (<c>ChunkingOptions.Default</c>'s
+    /// 1,000-character maximum), so a selected row's section table fits whole.</summary>
+    public const int TableRowsMaxCharacters = 2000;
+
     public const string PassageOpen = "<passage>";
 
     public const string PassageClose = "</passage>";

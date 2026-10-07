@@ -40,6 +40,8 @@ reserved `.example` domain).
   `store-05` 「營業時間是幾點到幾點？」 covers it now. Since #301 each table row is a chunk of its
   own, so the store questions' `evidence` is the row's 「內容：…」 line (「內容：每週三」), not the
   Markdown row (「| 公休日 | 每週三 |」) the #300 baseline matched; the questions are unchanged.
+  #324 added `store-09` 「門市星期日有開嗎？」 and `store-10` 「星期三可以去門市買東西嗎？」,
+  #304's weekday paraphrases (45 questions).
 - **Consistent with the frontend Demo** (`apps/admin/src/app/core/repositories/demo-seed.ts`):
   the knowledge bases have its names and purposes; its three trial questions are in the bank —
   「收到商品後幾天內可以申請退貨？」 expects the 2026 edition's seven days, and the two it answers

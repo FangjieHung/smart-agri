@@ -62,6 +62,15 @@ public sealed class KnowledgeChunk : IOrganizationScoped
 
     public string Text { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// For a chunk cut from a table row of a section (<see cref="KnowledgeChunkFormat.TableRows"/>):
+    /// which table of its unit, 0, 1, 2, … in reading order; the table's rows are the unit's chunks
+    /// with the same index, in <see cref="Ordinal"/> order (#324). <see langword="null"/> for every
+    /// other chunk — text, a worksheet's rows, an FAQ — and for table rows cut before
+    /// <see cref="KnowledgeChunkFormat.TableIdentity"/>, until <c>rechunk</c> fills it in.
+    /// </summary>
+    public int? TableIndex { get; private set; }
+
     /// <summary>Set by the owner: an excluded chunk is never retrieved.</summary>
     public bool Excluded { get; private set; }
 
@@ -86,11 +95,13 @@ public sealed class KnowledgeChunk : IOrganizationScoped
         int unitOrdinal,
         int ordinal,
         string locationLabel,
-        string text)
+        string text,
+        int? tableIndex = null)
     {
         ArgumentNullException.ThrowIfNull(version);
         ArgumentOutOfRangeException.ThrowIfNegative(unitOrdinal);
         ArgumentOutOfRangeException.ThrowIfNegative(ordinal);
+        RequireTableIndex(tableIndex);
         KnowledgeExtractedUnit.RequireLocationLabel(locationLabel);
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -108,6 +119,7 @@ public sealed class KnowledgeChunk : IOrganizationScoped
             Ordinal = ordinal,
             LocationLabel = locationLabel,
             Text = text,
+            TableIndex = tableIndex,
             Excluded = false,
             Version = version,
         };
@@ -132,6 +144,28 @@ public sealed class KnowledgeChunk : IOrganizationScoped
 
         Embedding = embedding;
         EmbeddingModel = model;
+    }
+
+    /// <summary>Sets which table of its unit the chunk is a row of (<c>rechunk</c> to
+    /// <see cref="KnowledgeChunkFormat.TableIdentity"/>); false when it already was.</summary>
+    public bool SetTableIndex(int? tableIndex)
+    {
+        RequireTableIndex(tableIndex);
+        if (TableIndex == tableIndex)
+        {
+            return false;
+        }
+
+        TableIndex = tableIndex;
+        return true;
+    }
+
+    private static void RequireTableIndex(int? tableIndex)
+    {
+        if (tableIndex is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tableIndex), tableIndex, "A table index is 0 or more.");
+        }
     }
 
     /// <summary>Excludes or includes the chunk; false when it already was.</summary>

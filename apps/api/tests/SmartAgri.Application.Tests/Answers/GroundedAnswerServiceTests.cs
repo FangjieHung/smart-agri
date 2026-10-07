@@ -589,6 +589,32 @@ public sealed class GroundedAnswerServiceTests : IDisposable
         text.Split(GroundedAnswerPrompt.PassageClose).Length.ShouldBe(2, "the passage cannot close its own wrapper early");
     }
 
+    [Fact]
+    public async Task The_rules_let_a_stated_condition_give_a_negative_conclusion_and_still_refuse_what_the_passages_do_not_cover()
+    {
+        // #303 (pre-launch plan §3 C): "received ten days ago, can I return it?" against a
+        // seven-day rule must be answerable with a cited "no", while rule 3 keeps refusing what no
+        // passage states.
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 2 頁", "收到商品後七天內可申請退貨。", 0.9);
+
+        await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        var text = _chat.Calls.Single().Messages[0].Text!;
+        var rules = text[..text.IndexOf("參考段落：", StringComparison.Ordinal)];
+        var refusal = $"3. 參考段落不足以回答問題時，只輸出 {ChatAnswerMarkers.CannotAnswer}，不要輸出任何其他文字。";
+        rules.ShouldContain(refusal, Case.Sensitive, "rule 3 stays as it was");
+        var inference = rules.IndexOf("4. 段落寫明了規則或條件", StringComparison.Ordinal);
+        inference.ShouldBeGreaterThan(rules.IndexOf(refusal, StringComparison.Ordinal), "the new rule follows rule 3 and refers back to it");
+        var rule = rules[inference..rules.IndexOf('\n', inference)];
+        rule.ShouldContain("包括否定的結論");
+        rule.ShouldContain("「已超過七天，無法退貨」");
+        rule.ShouldContain("標註依據的段落");
+        rule.ShouldContain("仍依第 3 條處理", Case.Sensitive, "what the passages do not state is still refused");
+        rules.ShouldNotMatch(@"\[\d+\]", "only the passages' own labels may carry a bracketed number (the fake chat model counts them)");
+        GroundedAnswerPrompt.Version.ShouldMatch(@"^grounded-answer/\d{4}-\d{2}-\d{2}\.\d+$");
+        GroundedAnswerPrompt.Version.ShouldNotBe("grounded-answer/2026-09-27.1", "the wording changed, so the version must too");
+    }
+
     // --- Helpers --------------------------------------------------------------------------------
 
     private GroundedAnswerService Service() =>

@@ -123,6 +123,58 @@ public class CaseProposalRulesTests
             .ShouldBe("冷藏庫要報修");
     }
 
+    [Fact]
+    public void The_case_call_also_offers_an_explicit_no_match_tool_with_no_parameters()
+    {
+        // #297: propose_case unchanged, then no_matching_type (an object with no properties).
+        var tools = CaseProposalRules.Declarations([Repair, Purchase]).OfType<AIFunctionDeclaration>().ToList();
+        tools.Select(tool => tool.Name).ShouldBe([CaseProposalRules.ToolName, CaseProposalRules.NoMatchToolName]);
+        tools[0].Description.ShouldBe(CaseProposalRules.Declaration([Repair, Purchase]).Description);
+        tools[0].JsonSchema.GetRawText().ShouldBe(CaseProposalRules.Declaration([Repair, Purchase]).JsonSchema.GetRawText());
+        tools[1].Description.ShouldBe(CaseProposalRules.NoMatchToolDescription);
+        tools[1].JsonSchema.GetProperty("properties").EnumerateObject().ShouldBeEmpty();
+        tools[1].JsonSchema.GetProperty("additionalProperties").GetBoolean().ShouldBeFalse();
+        Should.Throw<ArgumentException>(() => CaseProposalRules.Declarations([]));
+        Should.Throw<ArgumentException>(() => CaseProposalRules.NoMatchDeclaration(" "));
+
+        // The prompt tells the model to call it, not propose_case, when no type's description fits.
+        var system = CaseProposalRules.SelectionPrompt("冷藏庫壞了")[0].Text;
+        system.ShouldContain($"請呼叫 {CaseProposalRules.NoMatchToolName}，不要呼叫 propose_case");
+        system.ShouldContain("說明寫明不包括的事");
+    }
+
+    [Fact]
+    public void Choosing_no_match_is_no_proposal_whatever_its_arguments_and_only_the_first_call_counts()
+    {
+        IReadOnlyList<CaseProposalOffer> offers = [Repair];
+        CaseProposalRules.ParseCall(NoMatch(), offers, "葉子黃了").ShouldBe((CaseProposalCallMatch.NoMatch, (CaseProposalDraft?)null));
+        // Arguments it does not define (it has none) change nothing: it proposes nothing either way.
+        CaseProposalRules.ParseCall(NoMatch(new Dictionary<string, object?> { [CaseProposalRules.TypeIdParameter] = Repair.TypeId.ToString() }), offers, "問題")
+            .ShouldBe((CaseProposalCallMatch.NoMatch, (CaseProposalDraft?)null));
+
+        // The first call decides: no_matching_type then propose_case is still no proposal, and the other way round a proposal.
+        var noMatchFirst = new ChatResponse(new ChatMessage(ChatRole.Assistant,
+        [
+            new FunctionCallContent("1", CaseProposalRules.NoMatchToolName, new Dictionary<string, object?>()),
+            new FunctionCallContent("2", CaseProposalRules.ToolName, new Dictionary<string, object?> { [CaseProposalRules.TypeIdParameter] = Repair.TypeId.ToString() }),
+        ]));
+        CaseProposalRules.ParseCall(noMatchFirst, offers, "問題").Match.ShouldBe(CaseProposalCallMatch.NoMatch);
+        var proposalFirst = new ChatResponse(new ChatMessage(ChatRole.Assistant,
+        [
+            new FunctionCallContent("1", CaseProposalRules.ToolName, new Dictionary<string, object?> { [CaseProposalRules.TypeIdParameter] = Repair.TypeId.ToString() }),
+            new FunctionCallContent("2", CaseProposalRules.NoMatchToolName, new Dictionary<string, object?>()),
+        ]));
+        CaseProposalRules.ParseCall(proposalFirst, offers, "問題").Match.ShouldBe(CaseProposalCallMatch.Matched);
+
+        // A near-miss name is another tool: rejected, as before.
+        CaseProposalRules.ParseCall(new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                [new FunctionCallContent("1", "no_matching_types", new Dictionary<string, object?>())])), offers, "問題").Match
+            .ShouldBe(CaseProposalCallMatch.Rejected);
+    }
+
+    private static ChatResponse NoMatch(Dictionary<string, object?>? arguments = null) =>
+        new(new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call-1", CaseProposalRules.NoMatchToolName, arguments ?? new Dictionary<string, object?>())]));
+
     private static ChatResponse Call(string name, string typeId, string title, string description) =>
         new(new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call-1", name, new Dictionary<string, object?>
         {

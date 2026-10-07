@@ -122,7 +122,9 @@ internal static class ChatCaseProposals
 /// decision said no, one more selection call (<see cref="ModelInvocationPurpose.CaseProposal"/>, counted)
 /// offers the assistant's proposable types by name and description; the model picks one and drafts the
 /// title and description; the server accepts only an offered type and truncates the draft
-/// (<see cref="CaseProposalRules.ParseCall"/>). Follows <see cref="ChatFormRequestTool"/>.
+/// (<see cref="CaseProposalRules.ParseCall"/>). Follows <see cref="ChatFormRequestTool"/>. The call also
+/// offers <see cref="CaseProposalRules.NoMatchToolName"/> (#297): the model choosing it is no proposal (the
+/// answer pipeline answers), not a failure — the same call, purpose and usage.
 /// </summary>
 /// <remarks>
 /// <b>Failure.</b> When the model call fails, the keyword rule decides instead
@@ -151,7 +153,7 @@ public sealed class ChatCaseProposalTool
         using var activity = SmartAgriActivitySource.Instance.StartActivity(ActivityName);
 
         var options = new ModelInvocationAttribution(ModelInvocationPurpose.CaseProposal, askerId, assistantId).ToChatOptions();
-        options.Tools = [CaseProposalRules.Declaration(offers)];
+        options.Tools = CaseProposalRules.Declarations(offers);
         options.ToolMode = ChatToolMode.Auto;
         options.AllowMultipleToolCalls = false;
 
@@ -174,6 +176,7 @@ public sealed class ChatCaseProposalTool
         {
             CaseProposalCallMatch.Matched => "proposed",
             CaseProposalCallMatch.NoCall => "no-tool",
+            CaseProposalCallMatch.NoMatch => "no-match",
             _ => "rejected",
         });
         return draft;

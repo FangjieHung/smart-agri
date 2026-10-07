@@ -23,7 +23,9 @@ public sealed record ChatProposalSelection(ChatFormRequestView? Form, CasePropos
 /// <c>Chat:FormRequests:Trigger = Model</c>, when this request may be offered both the assistant's form
 /// target and at least one case type, <b>one</b> model call offers both tools and the model calls one of
 /// them or neither. Follows <see cref="ChatFormRequestTool"/> and <see cref="ChatCaseProposalTool"/>, which
-/// still make the single call when only one of the two is offered (unchanged).
+/// still make the single call when only one of the two is offered (unchanged). The call also offers
+/// <see cref="CaseProposalRules.NoMatchToolName"/> (#297): the model choosing it is neither the form nor a case
+/// (the answer pipeline answers) — the same call, purpose, usage and <c>smartagri.form-check</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -99,6 +101,7 @@ public sealed class ChatProposalSelectionTool
                 ProposalSelectionCallMatch.Form => "form",
                 ProposalSelectionCallMatch.Case => "case",
                 ProposalSelectionCallMatch.NoCall => "no-tool",
+                ProposalSelectionCallMatch.NoMatch => "no-match",
                 _ => "rejected",
             };
         }

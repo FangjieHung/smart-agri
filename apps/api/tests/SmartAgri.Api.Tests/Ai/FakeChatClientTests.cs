@@ -215,6 +215,37 @@ public sealed class FakeChatClientTests
         (await CallAsync($"冷藏庫壞了要報修 {FakeChatDirectives.NoCase}")).ShouldBeNull();
     }
 
+    [Fact]
+    public async Task It_calls_the_no_match_tool_only_when_told_to_and_only_when_offered()
+    {
+        using var client = new FakeChatClient("fake-chat");
+        var formId = Guid.NewGuid();
+        var typeId = Guid.NewGuid();
+        IReadOnlyList<SmartAgri.Application.Cases.CaseProposalOffer> types = [new(typeId, "設備報修", "設備故障")];
+
+        async Task<FunctionCallContent?> CallAsync(IList<AITool> tools, string question) =>
+            (await client.GetResponseAsync([new ChatMessage(ChatRole.User, question)], new ChatOptions { Tools = tools }, CancellationToken))
+                .Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().SingleOrDefault();
+
+        // #297: in both selection calls, #no-match wins over the form and case words.
+        foreach (var tools in new[]
+                 {
+                     SmartAgri.Application.Cases.CaseProposalRules.Declarations(types),
+                     SmartAgri.Application.Chat.ProposalSelectionRules.Declarations([new(formId, "田間異常回報", "記錄異常")], types),
+                 })
+        {
+            var call = (await CallAsync(tools, $"我要回報冷藏庫壞了要報修 {FakeChatDirectives.NoMatch}")).ShouldNotBeNull();
+            call.Name.ShouldBe(SmartAgri.Application.Cases.CaseProposalRules.NoMatchToolName);
+            call.Arguments.ShouldNotBeNull().ShouldBeEmpty();
+            // Without the directive it never calls it: declining stays a text answer.
+            (await CallAsync(tools, "番茄葉子黃了是什麼原因？")).ShouldBeNull();
+        }
+
+        // Not offered (the case tool alone, as before #297): the directive changes nothing.
+        (await CallAsync([SmartAgri.Application.Cases.CaseProposalRules.Declaration(types)], $"冷藏庫壞了要報修 {FakeChatDirectives.NoMatch}"))
+            .ShouldNotBeNull().Name.ShouldBe(SmartAgri.Application.Cases.CaseProposalRules.ToolName);
+    }
+
     private static List<ChatMessage> WithPassages(int count, string question)
     {
         var passages = string.Join('\n', Enumerable.Range(1, count).Select(index => $"[{index}] 段落內容 {index}"));

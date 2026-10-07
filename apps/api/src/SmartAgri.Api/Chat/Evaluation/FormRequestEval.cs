@@ -160,7 +160,8 @@ public sealed record FormRequestEvalResult(
     bool ModelCallRejected,
     FormRequestEvalDecision? Combined = null,
     string? CombinedCaseKey = null,
-    bool CombinedCallRejected = false);
+    bool CombinedCallRejected = false,
+    bool CombinedNoMatch = false);
 
 /// <summary>The rates of one trigger. Rates are over judged questions (errors excluded); a category
 /// with no judged question has a <see langword="null"/> rate.</summary>
@@ -271,7 +272,7 @@ public static class FormRequestEvalReport
 
         if (run.CaseTypes is { } caseTypes)
         {
-            text.AppendLine("- 合成呼叫（#286）：表單工具之外，同時提供這些可提議的案件類型（正式環境中助理同時有表單與可提議類型時的路徑）：");
+            text.AppendLine($"- 合成呼叫（#286）：表單工具之外，同時提供這些可提議的案件類型（正式環境中助理同時有表單與可提議類型時的路徑），以及明確的「都不符合」工具 `{SmartAgri.Application.Cases.CaseProposalRules.NoMatchToolName}`（#297）：");
             foreach (var type in caseTypes)
             {
                 text.AppendLine($"  - `{type.Key}`＝「{type.Name}」：{type.Description}");
@@ -302,6 +303,10 @@ public static class FormRequestEvalReport
                 $"合成呼叫改提議案件（沒有給表單）的有 {cases.Count} 題：正題 {cases.Count(result => result.Question.Category == FormRequestEvalSet.Positive)}、" +
                 $"反題 {cases.Count(result => result.Question.Category == FormRequestEvalSet.Negative)}、模糊題 {cases.Count(result => result.Question.Category == FormRequestEvalSet.Ambiguous)}" +
                 (cases.Count > 0 ? $"（{string.Join("、", cases.Select(result => $"{result.Question.Id}→{result.CombinedCaseKey}"))}）。" : "。"));
+            var noMatch = run.Results.Where(result => result.CombinedNoMatch).ToList();
+            text.AppendLine().AppendLine(
+                $"合成呼叫明確選「都不符合」的有 {noMatch.Count} 題：正題 {noMatch.Count(result => result.Question.Category == FormRequestEvalSet.Positive)}、" +
+                $"反題 {noMatch.Count(result => result.Question.Category == FormRequestEvalSet.Negative)}、模糊題 {noMatch.Count(result => result.Question.Category == FormRequestEvalSet.Ambiguous)}。");
             if (run.CombinedAverageInputTokens is { } combinedInput && run.CombinedAverageOutputTokens is { } combinedOutput)
             {
                 text.AppendLine().AppendLine(
@@ -323,7 +328,7 @@ public static class FormRequestEvalReport
                 ? $" {Mark(question, decision)}{(result.ModelCallRejected ? "（工具參數不合法）" : string.Empty)} |"
                 : string.Empty;
             var combined = result.Combined is { } combinedDecision
-                ? $" {Mark(question, combinedDecision, result.CombinedCaseKey)}{(result.CombinedCallRejected ? "（工具參數不合法）" : string.Empty)} |"
+                ? $" {Mark(question, combinedDecision, result.CombinedCaseKey)}{(result.CombinedCallRejected ? "（工具參數不合法）" : result.CombinedNoMatch ? "（都不符合）" : string.Empty)} |"
                 : string.Empty;
             text.AppendLine(
                 $"| {question.Id} | {question.Category} | {question.Expected} | {Mark(question, result.Keyword)} |{model}{combined} {question.Question.Replace("|", "\\|", StringComparison.Ordinal)} |");

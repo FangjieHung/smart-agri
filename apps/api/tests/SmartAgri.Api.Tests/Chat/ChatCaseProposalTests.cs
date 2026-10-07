@@ -446,6 +446,64 @@ public class ChatCaseProposalTests : IClassFixture<AuthHostFixture>
         (await InvocationsAsync(formOnly.Org, ModelInvocationPurpose.CaseProposal)).ShouldBeEmpty();
     }
 
+    // --- The explicit 「都不符合」 (#297) --------------------------------------------------------------
+
+    [Fact]
+    public async Task Choosing_no_match_in_the_case_call_is_no_proposal_and_the_answer_pipeline_answers()
+    {
+        await using var model = _host.Factory.WithWebHostBuilder(builder => builder.UseSetting("Chat:FormRequests:Trigger", "model"));
+        var setup = await CreateSetupAsync(model);
+        await AddTypeAsync(setup, setup.RepairTypeId);
+
+        // The keyword rule would propose this one (a case word, one type): choosing no_matching_type is not a failure,
+        // so no keyword fallback either.
+        var declined = await RunAsync(setup.Member, setup.AssistantId, $"{RepairQuestion} {FakeChatDirectives.NoMatch}");
+        Kind(declined).ShouldNotBeNull().ShouldNotBeOneOf("form-request", "case-proposal");
+        declined.Reply!.Value.GetProperty("reply").GetProperty("caseProposal").ValueKind.ShouldBe(JsonValueKind.Null);
+        declined.Body.ShouldNotContain(ChatRunEndpoints.FormCheckEventName);
+        (await ChatAsync(setup.Member, setup.AssistantId, declined.ThreadId!.Value)).GetRawText().ShouldNotContain("\"case-proposal\"");
+
+        // Still the one counted case-proposal call, with its usage — no other purpose.
+        var calls = await InvocationsAsync(setup.Org, ModelInvocationPurpose.CaseProposal);
+        calls.Count.ShouldBe(1);
+        calls.ShouldAllBe(invocation => invocation.AccountId == setup.Org.Member.Id && invocation.AssistantId == setup.AssistantId
+            && invocation.Succeeded && invocation.InputTokens > 0 && invocation.OutputTokens > 0);
+        (await InvocationsAsync(setup.Org, ModelInvocationPurpose.ProposalSelection)).ShouldBeEmpty();
+        OrganizationTokenUsageRulesShouldCount();
+        (await CaseCountAsync(setup.Org)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Choosing_no_match_in_the_combined_call_is_neither_the_form_nor_a_case()
+    {
+        await using var model = _host.Factory.WithWebHostBuilder(builder => builder.UseSetting("Chat:FormRequests:Trigger", "model"));
+        var setup = await CreateSetupAsync(model);
+        await AddTypeAsync(setup, setup.RepairTypeId);
+        await ConnectFormAsync(setup);
+
+        // Both the form gate and the case rule would fire on this question; no_matching_type means neither.
+        var declined = await RunAsync(setup.Member, setup.AssistantId, $"我要回報冷藏庫故障，需要報修 {FakeChatDirectives.NoMatch}");
+        Kind(declined).ShouldNotBeNull().ShouldNotBeOneOf("form-request", "case-proposal");
+        declined.Reply!.Value.GetProperty("reply").GetProperty("form").ValueKind.ShouldBe(JsonValueKind.Null);
+        declined.Reply!.Value.GetProperty("reply").GetProperty("caseProposal").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        // form-check unchanged: exactly once, right before the call (the call offers the form).
+        var types = declined.Events.Select(e => e.GetProperty("type").GetString() == "CUSTOM" ? $"CUSTOM {e.GetProperty("name").GetString()}" : e.GetProperty("type").GetString()).ToList();
+        types.Count(type => type == $"CUSTOM {ChatRunEndpoints.FormCheckEventName}").ShouldBe(1, string.Join(", ", types));
+        var check = types.IndexOf($"CUSTOM {ChatRunEndpoints.FormCheckEventName}");
+        check.ShouldBeGreaterThan(types.IndexOf("TEXT_MESSAGE_START"));
+        check.ShouldBeLessThan(types.IndexOf("TEXT_MESSAGE_CONTENT"));
+
+        // One counted proposal-selection call with its usage; never form-request or case-proposal.
+        var calls = await InvocationsAsync(setup.Org, ModelInvocationPurpose.ProposalSelection);
+        calls.Count.ShouldBe(1);
+        calls.ShouldAllBe(invocation => invocation.AccountId == setup.Org.Member.Id && invocation.AssistantId == setup.AssistantId
+            && invocation.Succeeded && invocation.InputTokens > 0 && invocation.OutputTokens > 0);
+        (await InvocationsAsync(setup.Org, ModelInvocationPurpose.FormRequest)).ShouldBeEmpty();
+        (await InvocationsAsync(setup.Org, ModelInvocationPurpose.CaseProposal)).ShouldBeEmpty();
+        (await CaseCountAsync(setup.Org)).ShouldBe(0);
+    }
+
     // --- Settings (decision U) --------------------------------------------------------------------
 
     [Fact]

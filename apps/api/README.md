@@ -816,7 +816,10 @@ offered both the form and at least one case type, there is one call, not two** (
 one of them or neither (`ProposalSelectionRules`, `ChatProposalSelectionTool`). Precedence stays query →
 form → case → answer, at most one proposal per reply; the server accepts only an offered form id (then
 re-authorized) or type id; a failed call falls back to the form gate, then the case keyword rule. All
-three purposes count toward the monthly token limit.
+three purposes count toward the monthly token limit. Both the case-only call and the combined call also
+offer `no_matching_type` (#297, no parameters): the model's explicit "none of these fits" — no proposal,
+the answer pipeline answers, same call, purpose, usage and `form-check` (`CaseProposalRules.Declarations`,
+`ProposalSelectionRules.Declarations`; not a failure, so no keyword fallback).
 
 In `Model` mode, a run that is about to make that selection call first sends `CUSTOM smartagri.form-check`
 (empty value; #171) so the client can show a "checking" state; keyword mode and assistants without a form

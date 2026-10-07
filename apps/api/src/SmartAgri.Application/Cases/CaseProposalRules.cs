@@ -26,6 +26,11 @@ public enum CaseProposalCallMatch
 
     /// <summary>Any other tool, or the case tool with a missing, malformed or unoffered type id.</summary>
     Rejected,
+
+    /// <summary><see cref="CaseProposalRules.NoMatchToolName"/> (#297): the model said, explicitly, that no
+    /// offered type fits. No proposal, exactly like <see cref="NoCall"/> — never a failure, so never the keyword
+    /// fallback.</summary>
+    NoMatch,
 }
 
 /// <summary>
@@ -36,10 +41,11 @@ public enum CaseProposalCallMatch
 /// either contains an offered type's name or the assistant offers exactly one type; the title is the
 /// question's first <see cref="Case.TitleMaxLength"/> characters and the description is left for the
 /// asker to write (no conversation text is copied beyond the title).</item>
-/// <item><b>Model</b>: one selection call (<see cref="Declaration"/>, <see cref="SelectionPrompt"/>) when the
+/// <item><b>Model</b>: one selection call (<see cref="Declarations"/>, <see cref="SelectionPrompt"/>) when the
 /// assistant has no form to offer, or the case tool next to the form tool in the one combined selection call
 /// (<c>ProposalSelectionRules</c>, #286); <see cref="ParseCall"/> accepts only an offered type id and
-/// truncates the model's draft to the case's limits.</item>
+/// truncates the model's draft to the case's limits. Both calls also offer the explicit 「都不符合」 tool
+/// (<see cref="NoMatchToolName"/>, #297).</item>
 /// </list>
 /// The asker always confirms (and may edit) before any case exists.
 /// </summary>
@@ -53,6 +59,16 @@ public static partial class CaseProposalRules
     public const string TitleParameter = "title";
 
     public const string DescriptionParameter = "description";
+
+    /// <summary>
+    /// The explicit 「都不符合」 tool (#297), offered next to <see cref="ToolName"/> in the case selection call and
+    /// in the combined selection call: calling it means no proposal. #293's evaluation found that a model offered
+    /// <see cref="ToolName"/> alone nearly always calls it — the type descriptions only changed which type it
+    /// picked (crop pests 6 of 6 proposed as 設備報修, even with 「不包括作物病蟲害」 written in) — while the same
+    /// questions offered a second tool (the form) went to that tool 6 of 6. So declining gets a tool of its own,
+    /// not just a sentence in the prompt. It takes no parameters (nothing to validate, nothing kept).
+    /// </summary>
+    public const string NoMatchToolName = "no_matching_type";
 
     /// <summary>The model's draft description is cut to this many characters (the asker may write more).</summary>
     public const int DraftDescriptionMaxLength = 1000;
@@ -108,6 +124,29 @@ public static partial class CaseProposalRules
     {
         ArgumentNullException.ThrowIfNull(question);
         return Truncate(Whitespace().Replace(question.Trim(), " "), Case.TitleMaxLength);
+    }
+
+    /// <summary>The tools of the case selection call (<see cref="SelectionPrompt"/>): <see cref="Declaration"/>,
+    /// then <see cref="NoMatchDeclaration"/> (#297).</summary>
+    public static IList<AITool> Declarations(IReadOnlyList<CaseProposalOffer> offers) =>
+        [Declaration(offers), NoMatchDeclaration(NoMatchToolDescription)];
+
+    /// <summary><see cref="NoMatchToolName"/>'s description in the case selection call.</summary>
+    public const string NoMatchToolDescription =
+        "當使用者說的事不符合 propose_case 列出的任何案件類型說明（包括說明寫明不包括的事），或屬於不需要開案的情況時，呼叫這個工具，表示不提議案件。不需要任何參數。";
+
+    /// <summary><see cref="NoMatchToolName"/> with <paramref name="description"/> (the combined selection
+    /// describes it for both the form and the case types): an object with no properties, <c>additionalProperties</c> false.</summary>
+    public static AIFunctionDeclaration NoMatchDeclaration(string description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        var schema = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject(),
+            ["additionalProperties"] = false,
+        };
+        return AIFunctionFactory.CreateDeclaration(NoMatchToolName, description, JsonSerializer.Deserialize<JsonElement>(schema.ToJsonString()));
     }
 
     /// <summary>The case tool as offered to a model: <see cref="TypeIdParameter"/> is an <c>enum</c> of the
@@ -168,10 +207,23 @@ public static partial class CaseProposalRules
         "只是抱怨或陳述狀況而沒有要求任何人處理。" +
         "只有當這件事符合某個類型的說明時才提議；不屬於任何列出類型的事（例如作物病蟲害），不要套用最接近的類型。";
 
+    /// <summary>
+    /// What still counts as "needs handling" now that declining has a tool of its own (#297): with
+    /// <see cref="NoMatchToolName"/> offered, the first evaluation run read <see cref="SelectionBoundaries"/>'
+    /// 「只是陳述狀況」 so strictly that a bare report of something broken (no one named to handle it) was declined
+    /// too. Something an offered type's description covers is proposed even when the asker does not say who should
+    /// handle it — the asker confirms before any case exists; declining is for what no description covers. Part of
+    /// <see cref="SelectionPrompt"/> and of the combined selection's prompt.
+    /// </summary>
+    public const string ProposeWhenItFits =
+        "使用者說某樣東西壞了、出了問題，或表示要報修、要申請，而且符合某個類型的說明時，即使沒有說要誰來處理，也算需要處理，請提議。" +
+        NoMatchToolName + " 只用在這件事不屬於任何類型的說明，或屬於上面列出不要提議的情況。";
+
     /// <summary>The messages of the case selection call: the role (propose only for something someone has
     /// to act on, matching an offered type; never for a question or a request already answered), the
-    /// boundaries (<see cref="SelectionBoundaries"/>, #286) and the question. Only the offered types go with
-    /// the call (in the tool's definition).</summary>
+    /// boundaries (<see cref="SelectionBoundaries"/>, #286), the explicit way to decline
+    /// (<see cref="NoMatchToolName"/>, #297) and the question. Only the offered types go with the call (in the
+    /// tool's definition).</summary>
     public static IReadOnlyList<ChatMessage> SelectionPrompt(string question)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(question);
@@ -180,14 +232,18 @@ public static partial class CaseProposalRules
             "而且這件事符合工具中列出的某個案件類型時，才呼叫 propose_case，並且只能使用工具定義列出的類型 id；" +
             "標題與說明只根據使用者這次說的內容草擬，使用者確認前不會建立任何案件。" +
             SelectionBoundaries +
-            "如果使用者只是在詢問知識、規則、進度，或想做的事與這些類型無關，請不要呼叫工具，直接回覆「不需要開案」。" +
+            "請先判斷這件事是否落在某個類型說明的範圍內；如果不符合任何類型的說明（包括說明寫明不包括的事）、屬於上面不要提議的情況，" +
+            "或使用者只是在詢問知識、規則、進度，請呼叫 " + NoMatchToolName + "，不要呼叫 propose_case。" +
+            ProposeWhenItFits +
+            "每次只呼叫 propose_case 或 " + NoMatchToolName + " 其中一個。" +
             "你不能變更任何案件的狀態，也不能產生未定義的參數。";
         return [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, question.Trim())];
     }
 
     /// <summary>
     /// Matches a model's reply back to <paramref name="offers"/>: the first function call, if any, must
-    /// be <see cref="ToolName"/> with an offered <see cref="TypeIdParameter"/>. The title is trimmed and
+    /// be <see cref="ToolName"/> with an offered <see cref="TypeIdParameter"/>, or <see cref="NoMatchToolName"/>
+    /// (<see cref="CaseProposalCallMatch.NoMatch"/>, whatever its arguments: it proposes nothing). The title is trimmed and
     /// cut to <see cref="Case.TitleMaxLength"/> (an empty one becomes <see cref="TitleFromQuestion"/>);
     /// the description to <see cref="DraftDescriptionMaxLength"/>.
     /// </summary>
@@ -201,6 +257,11 @@ public static partial class CaseProposalRules
         if (call is null)
         {
             return (CaseProposalCallMatch.NoCall, null);
+        }
+
+        if (string.Equals(call.Name, NoMatchToolName, StringComparison.Ordinal))
+        {
+            return (CaseProposalCallMatch.NoMatch, null);
         }
 
         if (!string.Equals(call.Name, ToolName, StringComparison.Ordinal)

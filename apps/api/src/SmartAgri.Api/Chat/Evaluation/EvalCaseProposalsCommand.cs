@@ -16,8 +16,9 @@ namespace SmartAgri.Api.Chat.Evaluation;
 /// form or the database query) or picks the wrong type — the keyword rule
 /// (<see cref="CaseProposalRules.KeywordProposal"/>, decision T) and the model choosing
 /// <c>propose_case</c> with the same declaration and prompt production uses
-/// (<see cref="CaseProposalRules.Declaration"/>, <see cref="CaseProposalRules.SelectionPrompt"/>,
-/// <see cref="CaseProposalRules.ParseCall"/>; <see cref="ChatCaseProposalTool"/>).
+/// (<see cref="CaseProposalRules.Declarations"/>, <see cref="CaseProposalRules.SelectionPrompt"/>,
+/// <see cref="CaseProposalRules.ParseCall"/>; <see cref="ChatCaseProposalTool"/>), including the explicit
+/// 「都不符合」 tool (#297), whose calls the report counts.
 /// </summary>
 /// <remarks>
 /// Each question is judged for the case layer alone and for the whole proposal stage (decision L):
@@ -205,10 +206,10 @@ public sealed partial class EvalCaseProposalsCommand
             CaseProposalEvalUsage? usage = null;
             if (runModel)
             {
-                var (selection, selectionRejected, selectionUsage) = await SelectCombinedAsync(set, question, formOffers, error, cancellationToken);
-                var (caseLayer, caseRejected, caseUsage) = await SelectCaseAsync(set, question, error, cancellationToken);
+                var (selection, selectionRejected, selectionNoMatch, selectionUsage) = await SelectCombinedAsync(set, question, formOffers, error, cancellationToken);
+                var (caseLayer, caseRejected, caseNoMatch, caseUsage) = await SelectCaseAsync(set, question, error, cancellationToken);
                 model = new CaseProposalEvalDecisions(
-                    caseLayer, CaseProposalEvalScoring.Stage(asksForStatistics, selection), caseRejected, selectionRejected);
+                    caseLayer, CaseProposalEvalScoring.Stage(asksForStatistics, selection), caseRejected, selectionRejected, caseNoMatch, selectionNoMatch);
                 usage = new CaseProposalEvalUsage(
                     selectionUsage?.InputTokenCount, selectionUsage?.OutputTokenCount, caseUsage?.InputTokenCount, caseUsage?.OutputTokenCount);
             }
@@ -245,7 +246,7 @@ public sealed partial class EvalCaseProposalsCommand
 
     /// <summary>The combined selection (#286), exactly as <see cref="ChatProposalSelectionTool.SelectAsync"/> calls it
     /// (minus the keyword fallback: a failure is counted here, not judged).</summary>
-    private async Task<(CaseProposalEvalOutcome Outcome, bool Rejected, UsageDetails? Usage)> SelectCombinedAsync(
+    private async Task<(CaseProposalEvalOutcome Outcome, bool Rejected, bool NoMatch, UsageDetails? Usage)> SelectCombinedAsync(
         CaseProposalEvalSet set, CaseProposalEvalQuestion question, IReadOnlyList<AssistantFormToolOffer> formOffers, TextWriter error, CancellationToken cancellationToken)
     {
         var options = new ChatOptions
@@ -264,23 +265,23 @@ public sealed partial class EvalCaseProposalsCommand
                 ProposalSelectionCallMatch.Case => CaseProposalEvalOutcome.Case(set.KeyOf(call.CaseDraft!.Offer.TypeId), call.CaseDraft.Title),
                 _ => CaseProposalEvalOutcome.None,
             };
-            return (outcome, call.Match == ProposalSelectionCallMatch.Rejected, response.Usage);
+            return (outcome, call.Match == ProposalSelectionCallMatch.Rejected, call.Match == ProposalSelectionCallMatch.NoMatch, response.Usage);
         }
         catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
             await error.WriteLineAsync($"  {question.Id}：合成選擇呼叫失敗（{Describe(exception)}）");
-            return (CaseProposalEvalOutcome.Error, false, null);
+            return (CaseProposalEvalOutcome.Error, false, false, null);
         }
     }
 
     /// <summary>The case selection, exactly as <see cref="ChatCaseProposalTool.SelectAsync"/> calls it
     /// (minus the keyword fallback: a failure is counted here, not judged).</summary>
-    private async Task<(CaseProposalEvalOutcome Outcome, bool Rejected, UsageDetails? Usage)> SelectCaseAsync(
+    private async Task<(CaseProposalEvalOutcome Outcome, bool Rejected, bool NoMatch, UsageDetails? Usage)> SelectCaseAsync(
         CaseProposalEvalSet set, CaseProposalEvalQuestion question, TextWriter error, CancellationToken cancellationToken)
     {
         var options = new ChatOptions
         {
-            Tools = [CaseProposalRules.Declaration(set.Offers)],
+            Tools = CaseProposalRules.Declarations(set.Offers),
             ToolMode = ChatToolMode.Auto,
             AllowMultipleToolCalls = false,
         };
@@ -291,12 +292,12 @@ public sealed partial class EvalCaseProposalsCommand
             var outcome = draft is not null
                 ? CaseProposalEvalOutcome.Case(set.KeyOf(draft.Offer.TypeId), draft.Title)
                 : CaseProposalEvalOutcome.None;
-            return (outcome, match == CaseProposalCallMatch.Rejected, response.Usage);
+            return (outcome, match == CaseProposalCallMatch.Rejected, match == CaseProposalCallMatch.NoMatch, response.Usage);
         }
         catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
             await error.WriteLineAsync($"  {question.Id}：案件選擇呼叫失敗（{Describe(exception)}）");
-            return (CaseProposalEvalOutcome.Error, false, null);
+            return (CaseProposalEvalOutcome.Error, false, false, null);
         }
     }
 

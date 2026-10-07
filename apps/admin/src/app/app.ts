@@ -1,4 +1,4 @@
-import { DOCUMENT } from '@angular/common';
+import { DOCUMENT, Location } from '@angular/common';
 import { Component, ElementRef, inject, Injector, OnInit, signal, ViewChild } from '@angular/core';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { ConnectedPosition } from '@angular/cdk/overlay';
@@ -51,7 +51,12 @@ export class App implements OnInit {
   protected currentGroupLabel: string | null = null;
   protected openGroupLabel: string | null = null;
   protected collapsed = false;
-  protected isWorkspace = false;
+  /**
+   * 整頁載入時 App 比第一次導覽早渲染，那時 `router.url` 還是 `/`；一開始就看網址列的路徑決定要不要 shell，
+   * 路由頁面才會直接建立在 shell 裡的 outlet。以前先建立在 shell 外的 outlet、NavigationEnd 後再搬進 shell
+   * 重建一次，第一份在 DOM 裡停留一個畫格就被移除，e2e 抓到它會一直等不到內容（issue #277）。
+   */
+  protected isWorkspace = inject(Location).path().startsWith('/app');
 
   protected readonly flyoutPositions: ConnectedPosition[] = [
     { originX: 'end', originY: 'top', overlayX: 'start', overlayY: 'top', offsetX: 8 },
@@ -75,7 +80,6 @@ export class App implements OnInit {
   private readonly injector = inject(Injector);
 
   ngOnInit(): void {
-    this.isWorkspace = this.router.url.startsWith('/app');
     this.breakpointObserver.observe(['(max-width: 900px)']).subscribe((result) => {
       this.isMobile = result.matches;
       this.isSidenavOpen = !result.matches;

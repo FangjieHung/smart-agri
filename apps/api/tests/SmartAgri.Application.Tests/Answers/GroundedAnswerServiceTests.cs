@@ -618,7 +618,7 @@ public sealed class GroundedAnswerServiceTests : IDisposable
 
     // --- Candidate passages (pre-launch plan §3 B, #302) ---------------------------------------
 
-    /// <summary>The deployment's defaults plus the provisional candidate threshold.</summary>
+    /// <summary>The deployment's defaults plus a candidate threshold (#302's provisional 0.3).</summary>
     private static readonly KnowledgeRetrievalSettings WithCandidates = new(KnowledgeRetrievalSettings.DefaultMinScore, KnowledgeRetrievalSettings.DefaultTop, 0.3);
 
     [Fact]

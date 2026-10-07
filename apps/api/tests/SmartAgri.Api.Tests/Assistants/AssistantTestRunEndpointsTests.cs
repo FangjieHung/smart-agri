@@ -132,7 +132,7 @@ public sealed partial class AssistantTestRunEndpointsTests : IClassFixture<AuthH
     [Fact]
     public async Task A_run_records_the_candidate_threshold_in_effect_and_each_outcome_whether_candidates_were_used()
     {
-        // Development (MinScore 0.3, appsettings.json's CandidateMinScore 0.30): no candidate band.
+        // Development (MinScore 0.3, CandidateMinScore turned off): no candidate band.
         var plain = await CreateOwnerWithAssistantAsync();
         await UploadAndApproveAsync(plain, "退貨政策.md", ReturnClause);
         await CreateTestCaseAsync(plain, UnrelatedQuestion, "no-result", []);

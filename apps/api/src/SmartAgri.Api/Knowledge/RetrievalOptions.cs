@@ -22,7 +22,8 @@ public sealed class RetrievalOptions
     /// exactly as before it existed. When no passage reaches <see cref="MinScore"/> but some reach
     /// this, a <c>company-data-only</c> assistant still asks the model with those passages and
     /// refuses (<c>cannot-answer</c>) if the model says they do not answer the question.
-    /// <c>appsettings.json</c> sets 0.30 provisionally (P5 decides the final value). Like
+    /// <c>appsettings.json</c> sets 0.35 (the P5 evaluation, #304); <c>appsettings.Development.json</c>
+    /// turns it off, because it is above Development's <see cref="MinScore"/>. Like
     /// <see cref="MinScore"/>, it depends on the embedding model.</summary>
     public double? CandidateMinScore { get; set; }
 

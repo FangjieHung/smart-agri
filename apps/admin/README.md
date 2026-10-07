@@ -61,6 +61,10 @@ npx nx build admin
 npx nx build admin --output-path=/tmp/admin-build
 ```
 
+正式部署用的是 `--configuration=production-api`（API 模式、檔名帶 hash）：api 的 Docker 映像檔在 Node 階段建置它，
+放進 `wwwroot/admin`，由 api 自己提供（`Admin:RootPath`，見 `apps/api/README.md`「Serving the admin」與
+`deploy/README.md` 第 1 節），所以管理介面與 API 同一個網址。
+
 ## Lint
 
 ```bash

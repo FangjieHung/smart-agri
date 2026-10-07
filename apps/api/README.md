@@ -111,7 +111,8 @@ letter, a digit and a symbol. Identity's messages are in Traditional Chinese
 **The `admin-spa` client** is written to the database by the `migrate` subcommand (never
 on web startup), from `Authentication:AdminSpa:Origins` — each origin gets
 `{origin}/auth/callback` and `{origin}/login` as redirect URIs. Development defaults to
-`http://localhost:4200`. If you apply migrations with `dotnet ef database update`
+`http://localhost:4200`. Blank entries are ignored; with none left and the admin served by the Api
+(`Admin:RootPath`, see "Serving the admin"), the origin of `PublicChannels:PublicBaseUrl` is used. If you apply migrations with `dotnet ef database update`
 instead, also run `dotnet run --project apps/api/src/SmartAgri.Api -- migrate` once so
 the client exists.
 
@@ -138,7 +139,7 @@ openssl pkcs12 -export -inkey encryption.key -in encryption.crt -out deploy/cert
 ```
 
 `deploy/docker-compose.yml` mounts `deploy/certs/` (git-ignored) and reads the passwords
-and `ADMIN_SPA_ORIGIN` from `deploy/.env`. Outside Development OpenIddict also requires
+and the optional `ADMIN_SPA_ORIGIN` from `deploy/.env`. Outside Development OpenIddict also requires
 HTTPS on `/connect/*`. The api container runs as a non-root user (uid 1654 in the .NET
 images), so every `.pfx` in `deploy/certs/` must be readable by it — `openssl` writes them
 `600` for the user who ran it, so `chmod 644 deploy/certs/*.pfx` (the passwords stay in
@@ -1029,6 +1030,35 @@ Cache-Control: no-store
 - The CSP deliberately allows no `unsafe-inline`: the page has no inline script or handler (the widget is
   built with `inlineCritical: false`), and brand colours are set through the CSSOM.
 
+### Serving the admin (pre-launch #306)
+
+With `Admin:RootPath` set, the Api also serves the admin SPA from its own origin, so one address
+(`PublicChannels:PublicBaseUrl`) serves the admin, the API, LINE and the website embed. The admin is built in
+API mode (`npx nx build admin --configuration=production-api`) in the Dockerfile's Node stage and copied to
+`/app/wwwroot/admin`; the image sets `Admin__RootPath=wwwroot/admin`. Unset (the default for `dotnet run`),
+nothing changes: no admin is served, and a path without an endpoint is still `401` from the fallback policy.
+
+| Setting | Meaning |
+| --- | --- |
+| `Admin:RootPath` | The admin build (`index.html`, hashed `main-*.js`, `chunk-*.js`, `styles-*.css`, `favicon.ico`), relative to the content root or absolute. Set but not a folder with an `index.html`: the Api refuses to start. Blank: no admin. |
+
+`AdminSpaHosting` is a middleware before authorization. It answers only a `GET`/`HEAD` that **no endpoint
+matched** (a known path with another method keeps its `405`) and whose first segment is not one of the Api's:
+`api`, `connect`, `.well-known`, `health`, `use`, `widget`, `embed.js`, `openapi`, plus the first literal
+segment of every mapped route (read from the endpoint data sources, so a new endpoint group is excluded
+automatically). Every Api answer, including `401` for an unknown `/api/...` path, is unchanged. Then:
+
+| Request | Answer |
+| --- | --- |
+| A file of the build | The file; `Cache-Control: public, max-age=31536000, immutable` for hashed names (`main-V76QUCWD.js`), `no-cache` for others (`favicon.ico`); known content types only; `X-Content-Type-Options: nosniff`. |
+| A missing path whose last segment has an extension (`/chunk-OLD12345.js`) | `404`, never the page, so a stale chunk fails loudly instead of being parsed as HTML. |
+| Anything else (`/`, `/login`, `/auth/callback`, `/app/...`, `/chat/{id}`) | `index.html`, `Cache-Control: no-cache` (a new deployment is picked up at the next navigation). |
+
+**Default admin origin.** When the admin is served this way and `Authentication:AdminSpa:Origins` has no
+non-blank entry, `migrate` registers the origin of `PublicChannels:PublicBaseUrl` (`{origin}/auth/callback`,
+`{origin}/login`); a `PublicBaseUrl` with a path gives no default (the admin is served at the root). Explicit
+origins always win. `AdminSpaClientRegistrar.EffectiveOrigins` is the rule.
+
 ## LINE channel: settings, connection test and enabling (M5b)
 
 An assistant's LINE channel (M5b, `SmartAgri.Api.Assistants.AssistantLineChannelEndpoints`, issues
@@ -1788,8 +1818,8 @@ A fresh deployment has no organization and no account. The first organization an
 administrator are created once with the `setup` subcommand (on-prem-packaging ADR) —
 never by seed data, a web wizard or a password in configuration:
 
-1. Prepare `deploy/.env` (real `POSTGRES_PASSWORD`, `ADMIN_SPA_ORIGIN`, certificate
-   passwords) and put `signing.pfx` / `encryption.pfx` / `dataprotection.pfx` in
+1. Prepare `deploy/.env` (real `POSTGRES_PASSWORD`, `PUBLIC_BASE_URL` — the admin is served
+   there, see "Serving the admin" — certificate passwords) and put `signing.pfx` / `encryption.pfx` / `dataprotection.pfx` in
    `deploy/certs/` (see "Sign-in and tokens" and "Data Protection key ring"). `setup`
    builds the same host as the web server, so outside Development it also refuses to run
    without the certificates.
@@ -1821,7 +1851,7 @@ never by seed data, a web wizard or a password in configuration:
    shown again. It goes to the container's stdout, which `run --rm` discards with the
    container; if the Docker daemon ships container output to a remote logging driver,
    keep this in mind.
-5. Start the stack (`docker compose ... up -d`), sign in to the admin SPA as the
+5. Start the stack (`docker compose ... up -d`), sign in to the admin SPA (`PUBLIC_BASE_URL`) as the
    administrator with the one-time password, and set a new password when asked. Until
    then the API only allows `GET /api/v1/me` and `POST /api/v1/auth/change-password`.
 

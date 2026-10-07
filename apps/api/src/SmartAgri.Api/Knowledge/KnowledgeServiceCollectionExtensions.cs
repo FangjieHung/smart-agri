@@ -13,7 +13,8 @@ public static class KnowledgeServiceCollectionExtensions
     /// <summary>
     /// Registers what the knowledge endpoints need beyond the database: <see cref="KnowledgeOptions"/>
     /// from the <c>Knowledge</c> section (validated on start), the text extractors, the
-    /// handler of <see cref="ProcessKnowledgeVersionJob.Kind"/> jobs, and retrieval —
+    /// handler of <see cref="ProcessKnowledgeVersionJob.Kind"/> jobs, the <c>rechunk</c>
+    /// subcommand (<see cref="RechunkCommand"/>), and retrieval —
     /// <see cref="RetrievalOptions"/> from the <c>Retrieval</c> section (validated on start) and,
     /// per scope, <see cref="KnowledgeRetriever"/>. Requires <c>AddBackgroundJobs</c> and
     /// <c>AddEmbeddings</c> (the retriever's embedder and vector collection).
@@ -31,6 +32,9 @@ public static class KnowledgeServiceCollectionExtensions
         services.AddSingleton<IDocumentTextExtractor, XlsxTextExtractor>();
         services.AddSingleton<IDocumentTextExtractor, PlainTextExtractor>();
         services.AddJobHandler<ProcessKnowledgeVersionHandler>(ProcessKnowledgeVersionJob.Kind);
+
+        // The rechunk subcommand (#301): cuts processed versions of an older chunk format again.
+        services.AddScoped<RechunkCommand>();
 
         // Retrieval (Slice 9): the one search path, for the preview now and conversations in M3.
         services.AddOptions<RetrievalOptions>()

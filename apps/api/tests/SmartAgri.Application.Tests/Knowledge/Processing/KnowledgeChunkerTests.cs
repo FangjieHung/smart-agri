@@ -185,6 +185,57 @@ public class KnowledgeChunkerTests
         chunks.Count.ShouldBeGreaterThan(3);
     }
 
+    // --- #301: table rows -------------------------------------------------------------------
+
+    [Fact]
+    public void Every_table_row_is_a_chunk_of_column_name_and_value_lines_after_the_text_outside_tables()
+    {
+        var table = new ExtractedTable(
+            ["項目", "內容", "備註"],
+            [["地址", "示範縣青禾鄉安和路 18 號"], ["電話", "", "請於營業時間來電"], ["", ""], ["公休日", "每週三", "", "國定假日照常"]]);
+        var unit = ExtractedUnit.Section(["青禾門市", "基本資訊"], "門市資料如下。\n| 表格 |", "門市資料如下。", [table]);
+
+        KnowledgeChunker.Chunk(unit, Options).ShouldBe(
+        [
+            new KnowledgeTextChunk("青禾門市 › 基本資訊", "門市資料如下。"),
+            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：地址\n內容：示範縣青禾鄉安和路 18 號"),
+            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：電話\n備註：請於營業時間來電"),
+            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：公休日\n內容：每週三\n國定假日照常"),
+        ]);
+    }
+
+    [Fact]
+    public void A_single_column_table_keys_its_rows_by_the_header_and_a_table_alone_has_no_text_chunk()
+    {
+        var unit = ExtractedUnit.Section(["品項"], "| 品項 |\n|---|\n| 糙米飯糰 |", string.Empty, [new ExtractedTable(["品項"], [["糙米飯糰"], ["現打蔬果汁"]])]);
+
+        KnowledgeChunker.Chunk(unit, Options).Select(chunk => chunk.Text).ShouldBe(["品項：糙米飯糰", "品項：現打蔬果汁"]);
+    }
+
+    [Fact]
+    public void A_row_too_long_for_one_chunk_is_split_as_text()
+    {
+        var unit = ExtractedUnit.Section(["說明"], "x", string.Empty, [new ExtractedTable(["說明"], [[ChineseProse(120)]])]);
+
+        var chunks = KnowledgeChunker.Chunk(unit, Options);
+
+        chunks.Count.ShouldBeGreaterThan(1);
+        chunks.ShouldAllBe(chunk => Runes(chunk.Text) <= Options.MaxCharacters && chunk.LocationLabel == "說明");
+        chunks[0].Text.ShouldStartWith("說明：");
+    }
+
+    [Fact]
+    public void Text_without_tables_chunks_exactly_as_before()
+    {
+        // A section built the old way and one built with no tables cut the same chunks.
+        var text = ChineseProse(150);
+        var before = KnowledgeChunker.Chunk(ExtractedUnit.Section(["退換貨"], text), Options);
+        var now = KnowledgeChunker.Chunk(ExtractedUnit.Section(["退換貨"], text, text, []), Options);
+
+        now.ShouldBe(before);
+        before.Select(chunk => chunk.Text).ShouldBe(KnowledgeChunker.SplitText(text, Options));
+    }
+
     [Fact]
     public void Options_refuse_an_overlap_that_would_not_let_splitting_move_forward()
     {

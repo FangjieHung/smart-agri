@@ -17,6 +17,12 @@ namespace SmartAgri.Infrastructure.Knowledge.Extraction;
 /// </summary>
 /// <remarks>
 /// <para>
+/// A table of at least two non-empty rows is also read as a table (<see cref="ExtractedTable"/>):
+/// its first row names the columns and every other row is chunked on its own (#301). A
+/// one-row table (often a box around a note) has no data rows to give names to, so it stays
+/// text, as before.
+/// </para>
+/// <para>
 /// A paragraph is a heading of level 1–3 when its outline level (<c>w:outlineLvl</c> 0–2) says
 /// so — set on the paragraph itself, or on its style or a style that one is based on — or when
 /// its style is a built-in heading by name (<c>heading 1</c>, which Word writes in every
@@ -180,6 +186,8 @@ public sealed partial class DocxTextExtractor : IDocumentTextExtractor
         private readonly CancellationToken _cancellationToken;
         private readonly string?[] _path = new string?[SectionHeadingLevels];
         private readonly List<string> _lines = [];
+        private readonly List<bool> _tableLines = [];
+        private readonly List<ExtractedTable> _tables = [];
         private readonly List<ExtractedUnit> _units = [];
         private bool _truncated;
 
@@ -244,11 +252,13 @@ public sealed partial class DocxTextExtractor : IDocumentTextExtractor
             if (!string.IsNullOrWhiteSpace(text))
             {
                 _lines.Add(text);
+                _tableLines.Add(false);
             }
         }
 
         private void ReadTable(Table table)
         {
+            var rows = new List<List<string>>();
             foreach (var row in table.Elements<TableRow>())
             {
                 var cells = row.Elements<TableCell>().Select(cell => ExtractedText.CleanLine(ParagraphText(cell))).ToList();
@@ -259,15 +269,31 @@ public sealed partial class DocxTextExtractor : IDocumentTextExtractor
 
                 if (cells.Count > 0)
                 {
-                    _lines.Add(string.Join(SheetRow.CellSeparator, cells));
+                    rows.Add(cells);
                 }
+            }
+
+            var isTable = rows.Count >= 2;
+            foreach (var cells in rows)
+            {
+                _lines.Add(string.Join(SheetRow.CellSeparator, cells));
+                _tableLines.Add(isTable);
+            }
+
+            if (isTable)
+            {
+                _tables.Add(new ExtractedTable(rows[0], [.. rows.Skip(1)]));
             }
         }
 
         private void Flush()
         {
             var text = string.Join('\n', _lines);
+            var outside = string.Join('\n', _lines.Where((_, index) => !_tableLines[index]));
+            List<ExtractedTable> tables = [.. _tables];
             _lines.Clear();
+            _tableLines.Clear();
+            _tables.Clear();
             if (string.IsNullOrWhiteSpace(text))
             {
                 return;
@@ -279,7 +305,7 @@ public sealed partial class DocxTextExtractor : IDocumentTextExtractor
                 return;
             }
 
-            _units.Add(ExtractedUnit.Section([.. _path.OfType<string>()], text));
+            _units.Add(ExtractedUnit.Section([.. _path.OfType<string>()], text, outside, tables));
         }
     }
 }

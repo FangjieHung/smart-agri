@@ -1,4 +1,5 @@
 using System.Text;
+using SmartAgri.Domain.Knowledge;
 
 namespace SmartAgri.Application.Knowledge.Processing;
 
@@ -61,6 +62,15 @@ public sealed record KnowledgeTextChunk(string LocationLabel, string Text);
 /// before the previous one ended. Chunks are exact substrings of the text.
 /// </para>
 /// <para>
+/// <b>Tables</b> in a section (<see cref="KnowledgeChunkFormat.TableRows"/>, #301): the
+/// section's text outside its tables is chunked as text, exactly as a section without tables
+/// is; then every data row of every table, in order, is a chunk of its own, one
+/// 「欄名：值」 line per non-empty cell (<see cref="ExtractedTable.RowText"/>) under the
+/// section's label — a short question (「電話幾號？」) matches one row far better than a whole
+/// table. A row with no non-empty cell is no chunk, nor is a table without data rows; a row
+/// too long for one chunk is split as text.
+/// </para>
+/// <para>
 /// <b>Worksheets</b>: whole rows (never a part of one, unless a single row is too long for a
 /// chunk), each chunk starting with the header row and labelled with its rows
 /// (「工作表『配送時間』第 2–30 列」). Rows are records, not prose, so they do not overlap:
@@ -78,9 +88,23 @@ public static class KnowledgeChunker
         ArgumentNullException.ThrowIfNull(unit);
         ArgumentNullException.ThrowIfNull(options);
 
-        return unit.Sheet is { } sheet
-            ? ChunkSheet(sheet, options)
-            : [.. SplitText(unit.Text, options).Select(text => new KnowledgeTextChunk(unit.LocationLabel, text))];
+        if (unit.Sheet is { } sheet)
+        {
+            return ChunkSheet(sheet, options);
+        }
+
+        var chunks = SplitText(unit.TextOutsideTables, options)
+            .Select(text => new KnowledgeTextChunk(unit.LocationLabel, text))
+            .ToList();
+        foreach (var table in unit.Tables)
+        {
+            for (var row = 0; row < table.Rows.Count; row++)
+            {
+                chunks.AddRange(SplitText(table.RowText(row), options).Select(text => new KnowledgeTextChunk(unit.LocationLabel, text)));
+            }
+        }
+
+        return chunks;
     }
 
     /// <summary>The text's chunks (see the remarks); none for a text that is only white space.</summary>

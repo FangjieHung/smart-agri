@@ -17,6 +17,8 @@ public class KnowledgeEmbeddingTextTests
             .ShouldBe("退款將於五個工作天內退回。");
         KnowledgeEmbeddingText.For(KnowledgeUnitLocationKind.Faq, "FAQ", "問：可以退貨嗎？\n答：七天內可以。")
             .ShouldBe("問：可以退貨嗎？\n答：七天內可以。", "an FAQ's text starts with its question already");
+        KnowledgeEmbeddingText.For(KnowledgeUnitLocationKind.Section, "青禾門市 AI 客服參考資料 › 基本資訊", "項目：電話\n內容：(03) 012-3456")
+            .ShouldBe("青禾門市 AI 客服參考資料 › 基本資訊\n項目：電話\n內容：(03) 012-3456", "a table row's chunk (#301) is led by its section's heading path too");
         Should.Throw<ArgumentOutOfRangeException>(() => KnowledgeEmbeddingText.For((KnowledgeUnitLocationKind)99, "x", "y"));
     }
 }

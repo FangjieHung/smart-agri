@@ -35,9 +35,10 @@ set meals (the sheet says there are none). `trap-01`–`trap-04` ask what no doc
 promotions, seat count, who pays return shipping, a delivery fee) next to passages that nearly
 answer them, and must be refused. The format has no way to say "the reply must conclude *no*":
 `returns-05`, `store-05` and `store-06` expect `company-data` citing the right document, and whether
-the reply's conclusion is actually negative is judged by reading the reply (their `note` says so).
-`returns-05` and `store-05` are the target behaviour after the pre-launch plan's P4; the baseline
-before it is expected to refuse them.
+the reply's conclusion is actually negative is judged by reading the reply in the report's
+**回覆內容** column (their `note` says so). `returns-05` and `store-05` are the target behaviour
+after the pre-launch plan's P4 (#303's prompt rule 4); the baseline before it is expected to
+refuse them.
 
 ## Format
 
@@ -70,7 +71,12 @@ profile (no assistant of its own) and the deployment's configured `Retrieval:Min
 - **拒絕原因分布**: how many `no-result` replies carried each rejection reason.
 - **平均輸入／輸出 token**: the mean of `ModelInvocations.InputTokens`/`OutputTokens` over this
   run's `generate-answer` calls; `—` when none reported a number.
-- Every question's expected and actual reply, side by side.
+- Every question's expected and actual reply, side by side, with two columns for reading the
+  replies (#303): **最高分**, the closest retrieved passage's score whether or not it reached
+  `Retrieval:MinScore` (`—` when nothing was retrieved), so a `below-threshold` refusal shows how
+  close it came; and **回覆內容**, the reply text on one line (`—` for `no-result`, which is always
+  the refusal message). The settings also record **回答提示版本** (`GroundedAnswerPrompt.Version`),
+  so runs before and after a prompt change can be told apart.
 
 **With `Fake`** (both `Ai:Embedding` and `Ai:Chat`): the pipeline runs end to end and the report is
 byte-for-byte reproducible (`EvalAnswersIntegrationTests`), but scores and citations are not
@@ -78,7 +84,10 @@ meaningful — `Fake` embeddings are hashes and `FakeChatClient` always cites th
 given, whatever it says. **Never calibrate `Retrieval:MinScore` or the prompt from a `Fake` run.**
 
 **With a real model**: run with the owner's OpenAI key (`apps/api/README.md`, "Evaluating
-retrieval" for loading it): `docs/evals/2026-10-06-answers-gpt-6-luna.md` (12 questions) and the
-#300 baseline `docs/evals/2026-10-07-300-answers-baseline.md` (24 questions). Each run is also when
+retrieval" for loading it): `docs/evals/2026-10-06-answers-gpt-6-luna.md` (12 questions), the
+#300 baseline `docs/evals/2026-10-07-300-answers-baseline.md` (24 questions), and after the
+pre-launch plan's P4 inference rule `docs/evals/2026-10-07-303-answers-inference.md`. `gpt-6-luna`
+varies from run to run on questions that reach the model, so run the bank at least three times
+and compare how many runs each question got right. Each run is also when
 the prompt-injection question (`notice-01`) and the negative conclusions above should be checked by
 a person, not just by the pipeline.

@@ -1,4 +1,5 @@
 using SmartAgri.Application.Answers;
+using SmartAgri.Application.Knowledge.Retrieval;
 
 namespace SmartAgri.Api.Answers.Evaluation;
 
@@ -6,12 +7,16 @@ namespace SmartAgri.Api.Answers.Evaluation;
 /// <param name="ReplyText">The final reply text (the refusal message for <c>no-result</c>).</param>
 /// <param name="CitedDocuments">The document names the reply actually cited, in citation order;
 /// empty unless the reply is <see cref="GroundedReplyKind.CompanyData"/>.</param>
+/// <param name="TopScore">The closest retrieved passage's score, whether or not it reached the
+/// threshold (#303: a negative conclusion or a refusal is judged next to how close retrieval came);
+/// <see langword="null"/> when nothing was retrieved.</param>
 public sealed record AnswerEvalQuestionResult(
     AnswerEvalQuestion Question,
     GroundedReplyKind ActualKind,
     GroundedRejectionReason? RejectionReason,
     IReadOnlyList<string> CitedDocuments,
-    string ReplyText)
+    string ReplyText,
+    double? TopScore)
 {
     /// <summary>Whether the reply's kind is the one the question expects (the only two kinds a
     /// <c>company-data-only</c> profile ever produces: <c>company-data</c> or <c>no-result</c>).</summary>
@@ -59,16 +64,21 @@ public sealed record AnswerEvalSummary(
 /// </summary>
 public static class AnswerEvalScoring
 {
-    public static AnswerEvalQuestionResult Judge(AnswerEvalQuestion question, GroundedReply reply)
+    /// <param name="passages">Every passage retrieval returned (<see cref="KnowledgeRetrievalResult.Passages"/>),
+    /// whatever its score: only the closest one's score is kept.</param>
+    public static AnswerEvalQuestionResult Judge(
+        AnswerEvalQuestion question, GroundedReply reply, IReadOnlyList<RetrievedKnowledgePassage> passages)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(reply);
+        ArgumentNullException.ThrowIfNull(passages);
         return new AnswerEvalQuestionResult(
             question,
             reply.Kind,
             reply.RejectionReason,
             [.. reply.Citations.Select(citation => citation.DocumentName)],
-            reply.Text);
+            reply.Text,
+            passages.Count == 0 ? null : passages.Max(passage => passage.Score));
     }
 
     public static AnswerEvalSummary Summarize(

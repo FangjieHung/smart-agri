@@ -9,6 +9,8 @@ namespace SmartAgri.Api.Answers.Evaluation;
 /// <param name="EmbeddingProvider">The retrieval embedding's stored provider name.</param>
 /// <param name="ChatProvider">The chat model's stored provider name (<c>openai</c>, <c>fake</c>, …).</param>
 /// <param name="SetName">How the set is shown: its path relative to the repository, when it is in it.</param>
+/// <param name="PromptVersion">The answer prompt's <see cref="GroundedAnswerPrompt.Version"/>, so
+/// runs before and after a wording change can be told apart.</param>
 public sealed record AnswerEvalRun(
     DateTimeOffset StartedAt,
     TimeSpan Duration,
@@ -17,6 +19,7 @@ public sealed record AnswerEvalRun(
     string ChatProvider,
     string ChatModel,
     double MinScore,
+    string PromptVersion,
     string SetName,
     string SetFingerprint,
     int KnowledgeBaseCount,
@@ -28,7 +31,9 @@ public sealed record AnswerEvalRun(
 /// The Markdown report of an <c>eval-answers</c> run (M3 plan Slice 13; ticket #83), in
 /// Traditional Chinese like the rest of <c>docs/</c>: the run's settings, the summary (reply-kind
 /// accuracy, citation hit rate, average token usage), the rejection reason distribution, and every
-/// question with its expected and actual reply.
+/// question with its expected and actual reply, the closest passage's score and the reply text
+/// (#303: whether a conclusion is negative, or a refusal came from the threshold or from the model,
+/// is judged from these).
 /// </summary>
 public static class AnswerEvalReport
 {
@@ -90,6 +95,7 @@ public static class AnswerEvalReport
         Row(text, "嵌入提供者／模型", $"`{run.EmbeddingProvider}` / `{run.EmbeddingModel}`");
         Row(text, "對話提供者／模型", $"`{run.ChatProvider}` / `{run.ChatModel}`");
         Row(text, "Retrieval:MinScore", Score(run.MinScore));
+        Row(text, "回答提示版本", $"`{run.PromptVersion}`");
         Row(text, "題庫", $"`{run.SetName}`（{run.Results.Count} 題）");
         Row(text, "題庫指紋（SHA-256 前 12 碼）", $"`{run.SetFingerprint[..12]}`");
         Row(text, "資料", $"{run.KnowledgeBaseCount} 個知識庫、{run.DocumentCount} 份文件");
@@ -128,8 +134,8 @@ public static class AnswerEvalReport
 
         text.AppendLine(Sections[3]);
         text.AppendLine();
-        text.AppendLine("| 題號 | 追問 | 問題 | 預期類型 | 實際類型 | 類型正確 | 預期引用 | 實際引用 | 引用命中 | 拒絕原因 |");
-        text.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+        text.AppendLine("| 題號 | 追問 | 問題 | 預期類型 | 實際類型 | 類型正確 | 預期引用 | 實際引用 | 引用命中 | 拒絕原因 | 最高分 | 回覆內容 |");
+        text.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
         foreach (var result in run.Results)
         {
             var question = result.Question;
@@ -138,7 +144,8 @@ public static class AnswerEvalReport
                 $"| {question.Id} | {question.FollowUpOf ?? "—"} | {Cell(question.Question)} | {WireName(question.ExpectedKind)} | " +
                 $"{WireName(result.ActualKind)} | {(result.KindCorrect ? "是" : "**否**")} | {Cell(string.Join("、", question.ExpectedCitedDocuments))} | " +
                 $"{Cell(string.Join("、", result.CitedDocuments))} | {(result.CitationHit is { } hit ? (hit ? "是" : "**否**") : "—")} | " +
-                $"{(result.RejectionReason is { } reason ? $"`{WireName(reason)}`" : "—")} |"));
+                $"{(result.RejectionReason is { } reason ? $"`{WireName(reason)}`" : "—")} | " +
+                $"{(result.TopScore is { } top ? Score(top) : "—")} | {ReplyCell(result)} |"));
         }
 
         return text.ToString();
@@ -154,6 +161,13 @@ public static class AnswerEvalReport
         total == 0
             ? "—"
             : string.Create(CultureInfo.InvariantCulture, $"{hits}/{total} = {100.0 * hits / total:0.0}%");
+
+    /// <summary>The reply text, or <c>—</c> for a <c>no-result</c> reply (always the profile's
+    /// refusal message, whichever the reason).</summary>
+    private static string ReplyCell(AnswerEvalQuestionResult result) =>
+        result.ActualKind == GroundedReplyKind.NoResult || string.IsNullOrWhiteSpace(result.ReplyText)
+            ? "—"
+            : Cell(result.ReplyText.Trim());
 
     /// <summary>A table cell: no line breaks, and <c>|</c> escaped.</summary>
     private static string Cell(string value) => value.ReplaceLineEndings(" ").Replace("|", "\\|", StringComparison.Ordinal);

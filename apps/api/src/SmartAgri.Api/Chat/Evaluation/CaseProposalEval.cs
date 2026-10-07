@@ -326,8 +326,15 @@ public enum CaseProposalEvalFormDecision
 /// <param name="Stage">Decision L: query → form → case → none (the model's: query → the combined selection, #286).</param>
 /// <param name="CaseCallRejected">The model called a tool, but not <c>propose_case</c> with an offered id.</param>
 /// <param name="SelectionCallRejected">The combined call named another tool or an unoffered id.</param>
+/// <param name="CaseNoMatch">The case-only call chose the explicit 「都不符合」 tool (#297).</param>
+/// <param name="SelectionNoMatch">The combined call chose the explicit 「都不符合」 tool (#297).</param>
 public sealed record CaseProposalEvalDecisions(
-    CaseProposalEvalOutcome CaseLayer, CaseProposalEvalOutcome Stage, bool CaseCallRejected = false, bool SelectionCallRejected = false);
+    CaseProposalEvalOutcome CaseLayer,
+    CaseProposalEvalOutcome Stage,
+    bool CaseCallRejected = false,
+    bool SelectionCallRejected = false,
+    bool CaseNoMatch = false,
+    bool SelectionNoMatch = false);
 
 /// <summary>The model's token usage for one question (<see langword="null"/> when the provider reported none):
 /// the combined selection call (#286) and the case-only call.</summary>
@@ -556,6 +563,7 @@ public static class CaseProposalEvalReport
         if (hasModel)
         {
             text.AppendLine("- 模型的整條提議階段走正式環境的合成選擇呼叫（#286）：同時提供表單工具與案件工具，模型最多選一個；模型的案件層是只提供案件工具的單一呼叫（助理沒有表單時的正式路徑）。");
+            text.AppendLine($"- 兩種呼叫都另外提供明確的「都不符合」工具 `{CaseProposalRules.NoMatchToolName}`（#297），模型選它就是不提議；逐題結果以「（都不符合）」標出。");
         }
 
         text.AppendLine().AppendLine("## 摘要：整條提議階段（決定 L：數據庫查詢 → 表單 → 案件）").AppendLine();
@@ -564,6 +572,17 @@ public static class CaseProposalEvalReport
         AppendSummaryTable(text, [run.KeywordCaseLayer, run.ModelCaseLayer]);
 
         text.AppendLine().AppendLine("漏觸＝應提議案件卻沒有提議；誤觸＝不應提議、應給表單或應走查詢的題目卻提議了案件；選錯類型的分母是有提議案件的應提議題。");
+        if (hasModel)
+        {
+            var caseNoMatch = run.Results.Where(result => result.Model!.CaseNoMatch).Select(result => result.Question.Id).ToList();
+            var selectionNoMatch = run.Results.Where(result => result.Model!.SelectionNoMatch).Select(result => result.Question.Id).ToList();
+            text.AppendLine().AppendLine(
+                $"模型明確選「都不符合」（`{CaseProposalRules.NoMatchToolName}`）：案件層 {caseNoMatch.Count}/{run.Results.Count} 題" +
+                (caseNoMatch.Count > 0 ? $"（{string.Join("、", caseNoMatch)}）" : string.Empty) +
+                $"；合成選擇 {selectionNoMatch.Count}/{run.Results.Count} 題" +
+                (selectionNoMatch.Count > 0 ? $"（{string.Join("、", selectionNoMatch)}）" : string.Empty) +
+                "。合成選擇對統計問題也照樣呼叫，但整條提議階段由查詢層接走。");
+        }
 
         var named = CaseProposalEvalScoring.NamesTypeWithCaseWord(run.Results, set.Offers);
         text.AppendLine().AppendLine("## 類型名稱本身含開案關鍵字").AppendLine();
@@ -595,8 +614,8 @@ public static class CaseProposalEvalReport
                 $"| {Mark(question, result.Keyword.CaseLayer, false)} | {Mark(question, result.Keyword.Stage, true)} |");
             if (result.Model is { } model)
             {
-                var caseRejected = model.CaseCallRejected ? "（案件工具參數不合法）" : string.Empty;
-                var selectionRejected = model.SelectionCallRejected ? "（合成呼叫的工具或參數不合法）" : string.Empty;
+                var caseRejected = model.CaseCallRejected ? "（案件工具參數不合法）" : model.CaseNoMatch ? "（都不符合）" : string.Empty;
+                var selectionRejected = model.SelectionCallRejected ? "（合成呼叫的工具或參數不合法）" : model.SelectionNoMatch ? "（都不符合）" : string.Empty;
                 row.Append($" {Mark(question, model.CaseLayer, false)}{caseRejected} | {Mark(question, model.Stage, true)}{selectionRejected} " +
                     $"| {Tokens(result.Usage?.SelectionInput, result.Usage?.SelectionOutput)} | {Tokens(result.Usage?.CaseInput, result.Usage?.CaseOutput)} |");
             }
@@ -663,6 +682,7 @@ public static class CaseProposalEvalReport
         text.AppendLine($"| 案件選擇（只有 propose_case，案件層） | {caseIn.Reported} | {caseIn.Total} | {caseOut.Total} | {Average(caseIn)}／{Average(caseOut)} |");
         text.AppendLine($"| 合計 | {selectionIn.Reported + caseIn.Reported} | {selectionIn.Total + caseIn.Total} | {selectionOut.Total + caseOut.Total} | — |");
         text.AppendLine().AppendLine("正式環境中，同時有表單與可提議類型的助理每題只做一次合成選擇（統計問題連這次也不做）；案件選擇是為了單獨評測案件層才另外呼叫的。");
+        text.AppendLine().AppendLine($"#297 起兩種呼叫都另外提供 `{CaseProposalRules.NoMatchToolName}`，上表的用量已包含它的定義。");
     }
 
     private static string Average((long Total, int Reported) value) =>

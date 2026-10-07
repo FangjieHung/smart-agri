@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Accounts;
+using SmartAgri.Api.AdminSpa;
 using SmartAgri.Api.Ai;
 using SmartAgri.Api.Answers;
 using SmartAgri.Api.Answers.Evaluation;
@@ -57,6 +58,7 @@ builder.Services.AddLineWebhook();
 builder.Services.AddOptions<SmartAgri.Api.PublicChannels.WidgetOptions>()
     .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.WidgetOptions.SectionName));
 builder.Services.AddSingleton<SmartAgri.Api.PublicChannels.WidgetIndexTemplate>();
+builder.Services.AddAdminSpa(builder.Configuration);
 builder.Services.AddScoped<SmartAgri.Infrastructure.Assistants.PublicWebsiteChannelLookup>();
 builder.Services.AddScoped<SmartAgri.Api.Assistants.AssistantFormRequests>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.IChatDatabaseQueryRunner, SmartAgri.Api.Chat.FixedQueryChatRunner>();
@@ -210,6 +212,11 @@ app.UseTrustedProxies();
 // The visitor API answers only its own chat window (M5a #196): any other Origin is refused
 // before authentication. No CORS policy is registered anywhere.
 app.UsePublicOriginGuard();
+
+// The admin SPA (#306), when Admin:RootPath is set: a GET/HEAD that no endpoint matched and that is not
+// under one of the Api's own paths gets the admin's file or index.html. Before authorization, whose
+// fallback policy would answer 401 to it.
+app.UseAdminSpa();
 app.UseAuthentication();
 app.UseAuthorization();
 

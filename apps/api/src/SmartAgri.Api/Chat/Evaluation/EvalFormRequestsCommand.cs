@@ -245,6 +245,7 @@ public sealed class EvalFormRequestsCommand
             FormRequestEvalDecision? combined = null;
             string? combinedCase = null;
             var combinedRejected = false;
+            var combinedNoMatch = false;
             if (caseTypes is not null)
             {
                 var options = new ChatOptions
@@ -266,6 +267,7 @@ public sealed class EvalFormRequestsCommand
                     };
                     combinedCase = call.CaseDraft is { } draft ? caseTypes.KeyOf(draft.Offer.TypeId) : null;
                     combinedRejected = call.Match == ProposalSelectionCallMatch.Rejected;
+                    combinedNoMatch = call.Match == ProposalSelectionCallMatch.NoMatch;
                     if (response.Usage is { } usage)
                     {
                         combinedInput += usage.InputTokenCount ?? 0;
@@ -280,7 +282,7 @@ public sealed class EvalFormRequestsCommand
                 }
             }
 
-            results.Add(new FormRequestEvalResult(question, keyword, model, rejected, combined, combinedCase, combinedRejected));
+            results.Add(new FormRequestEvalResult(question, keyword, model, rejected, combined, combinedCase, combinedRejected, combinedNoMatch));
         }
 
         var run = new FormRequestEvalRun(

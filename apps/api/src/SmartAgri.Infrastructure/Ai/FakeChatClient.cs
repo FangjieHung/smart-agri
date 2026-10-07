@@ -37,7 +37,9 @@ namespace SmartAgri.Infrastructure.Ai;
 /// <see cref="FakeChatDirectives.NoCase"/> and <see cref="CaseProposalRules.AsksForCase"/>: the first
 /// offered type, a title 「模型草擬：…」 from the question and a fixed description. With both tools offered
 /// (the combined selection, #286) it decides the form first and calls the case tool only when it would not
-/// call the form tool — the same order as two separate calls.
+/// call the form tool — the same order as two separate calls. The explicit 「都不符合」 tool (#297,
+/// <see cref="CaseProposalRules.NoMatchToolName"/>) is called only with <see cref="FakeChatDirectives.NoMatch"/>,
+/// before anything else is decided; otherwise declining stays a text answer, as before.
 /// </para>
 /// <para>
 /// Streaming always splits the answer into at least two chunks, and — whenever the answer
@@ -238,6 +240,13 @@ internal static class FakeToolChoice
             }
 
             return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, name, arguments)]);
+        }
+
+        // #297: the explicit "none of these fits" tool, only when told to (before the form and the case).
+        if (question.Contains(FakeChatDirectives.NoMatch, StringComparison.Ordinal)
+            && tools.FirstOrDefault(tool => tool.Name == CaseProposalRules.NoMatchToolName) is { } noMatchTool)
+        {
+            return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, noMatchTool.Name, new Dictionary<string, object?>(StringComparer.Ordinal))]);
         }
 
         // With both the form and the case tool offered (the combined selection, #286), the form is decided

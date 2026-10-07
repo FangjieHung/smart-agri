@@ -191,9 +191,10 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         var exit = await command.RunAsync(new EvalCaseProposalsCommand.Arguments("model", _directory, report, false), new StringWriter(), new StringWriter(), CancellationToken);
 
         exit.ShouldBe(EvalCaseProposalsCommand.ExitSuccess);
-        // #286: one combined call (both production tools) and one case-only call per question.
-        client.Tools.Count(names => names == "request_database_form+propose_case").ShouldBe(3);
-        client.Tools.Count(names => names == "propose_case").ShouldBe(3);
+        // #286: one combined call (both production tools) and one case-only call per question; #297 added
+        // no_matching_type to both, as production offers it.
+        client.Tools.Count(names => names == "request_database_form+propose_case+no_matching_type").ShouldBe(3);
+        client.Tools.Count(names => names == "propose_case+no_matching_type").ShouldBe(3);
         client.Tools.ShouldNotContain("request_database_form");
         var text = await File.ReadAllTextAsync(report, CancellationToken);
         text.ShouldContain("| c1 | case | case:repair | none ✗ | none ✗ | case:repair ✓ | case:repair ✓ | 300／30 | 200／20 |");
@@ -204,6 +205,32 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         text.ShouldContain("| 案件選擇（只有 propose_case，案件層） | 3 | 600 | 60 | 200.0／20.0 |");
         text.ShouldContain("合成選擇呼叫（#286）");
         text.ShouldContain("| c1 | repair | 模型草擬：噴霧機故障 |");
+    }
+
+    [Fact]
+    public async Task Choosing_no_match_is_judged_as_no_proposal_and_counted_in_the_report()
+    {
+        File.WriteAllText(Path.Combine(_directory, "questions.json"), """
+            {
+              "form": { "title": "田間異常回報", "purpose": "記錄病蟲害。" },
+              "caseTypes": [ { "key": "repair", "name": "設備報修", "description": "設備故障。" } ],
+              "questions": [
+                { "id": "c1", "question": "噴霧機壞了", "expected": "case:repair", "category": "case" },
+                { "id": "f1", "question": "番茄有黃斑", "expected": "form", "category": "form" }
+              ]
+            }
+            """);
+        var report = Path.Combine(_directory, "no-match.md");
+        var command = new EvalCaseProposalsCommand(new ChatClientProvider(new NoMatchChatClient(), "openai", "openai", "declining", null), TimeProvider.System);
+
+        var exit = await command.RunAsync(new EvalCaseProposalsCommand.Arguments("model", _directory, report, false), new StringWriter(), new StringWriter(), CancellationToken);
+
+        exit.ShouldBe(EvalCaseProposalsCommand.ExitSuccess);
+        var text = await File.ReadAllTextAsync(report, CancellationToken);
+        // #297: not a failure and not a rejected call — no proposal, marked as the explicit choice.
+        text.ShouldContain("| c1 | case | case:repair | none ✗ | none ✗ | none ✗（都不符合） | none ✗（都不符合） |");
+        text.ShouldContain("| f1 | form | form | none ✓ | none ✗ | none ✓（都不符合） | none ✗（都不符合） |");
+        text.ShouldContain("模型明確選「都不符合」（`no_matching_type`）：案件層 2/2 題（c1、f1）；合成選擇 2/2 題（c1、f1）。");
     }
 
     [Fact]
@@ -369,13 +396,14 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         {
             var tools = options!.Tools!.OfType<AIFunctionDeclaration>().ToList();
             Tools.Add(string.Join('+', tools.Select(declaration => declaration.Name)));
-            var tool = tools[^1];
+            // By name: since #297 both calls end with no_matching_type, which this client never calls.
+            var tool = tools.Single(declaration => declaration.Name == "propose_case");
             Descriptions.Add(tool.Description);
             var question = messages.Last().Text;
             var ids = tool.JsonSchema.GetProperty("properties").EnumerateObject().First().Value.GetProperty("enum");
             ChatMessage reply;
             UsageDetails usage;
-            if (tools.Count == 2)
+            if (tools.Any(declaration => declaration.Name == "request_database_form"))
             {
                 usage = new UsageDetails { InputTokenCount = 300, OutputTokenCount = 30 };
                 var form = tools[0];
@@ -404,6 +432,28 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
             }
 
             return Task.FromResult(new ChatResponse(reply) { Usage = usage });
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>Always calls no_matching_type (#297), which both calls must offer.</summary>
+    private sealed class NoMatchChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            var noMatch = options!.Tools!.OfType<AIFunctionDeclaration>().Single(declaration => declaration.Name == "no_matching_type");
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("1", noMatch.Name, new Dictionary<string, object?>())]))
+            {
+                Usage = new UsageDetails { InputTokenCount = 100, OutputTokenCount = 5 },
+            });
         }
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>

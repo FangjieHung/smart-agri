@@ -47,7 +47,12 @@ services:
       DataProtection__KeysPath: /app/keys
       DataProtection__CertificatePath: /app/certs/dataprotection.pfx
       DataProtection__CertificatePassword: ${DATA_PROTECTION_CERTIFICATE_PASSWORD:-}
-      # Origin the admin SPA is served from; `migrate` registers {origin}/auth/callback.
+      # The admin SPA is part of the image and served by this api (deploy/README.md, section 1): every
+      # GET that is not one of the api's own paths gets the admin. Empty = no admin from this container.
+      Admin__RootPath: wwwroot/admin
+      # Optional. Origin the admin SPA is served from; `migrate` registers {origin}/auth/callback and
+      # {origin}/login. Empty = the origin of PUBLIC_BASE_URL (the admin served above). Only needed when
+      # the admin is deployed somewhere else.
       Authentication__AdminSpa__Origins__0: ${ADMIN_SPA_ORIGIN:-}
       # Embedding model (apps/api/README.md, "Embeddings and vector search"). Without a
       # provider the api starts but cannot process uploaded documents. Fake is refused here.

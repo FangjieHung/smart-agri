@@ -615,6 +615,187 @@ public sealed class GroundedAnswerServiceTests : IDisposable
         GroundedAnswerPrompt.Version.ShouldNotBe("grounded-answer/2026-09-27.1", "the wording changed, so the version must too");
     }
 
+    // --- Candidate passages (pre-launch plan §3 B, #302) ---------------------------------------
+
+    /// <summary>The deployment's defaults plus the provisional candidate threshold.</summary>
+    private static readonly KnowledgeRetrievalSettings WithCandidates = new(KnowledgeRetrievalSettings.DefaultMinScore, KnowledgeRetrievalSettings.DefaultTop, 0.3);
+
+    [Fact]
+    public async Task With_a_passage_at_or_above_the_threshold_only_those_are_sent_and_no_candidate_is_used()
+    {
+        _retriever.Settings = WithCandidates;
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 2 頁", "收到商品後七天內可申請退貨。", 0.5);
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 3 頁", "生鮮蔬果恕不接受退貨。", 0.35);
+        _chat.Pieces = ["收到商品後七天內可申請退貨。[1]"];
+
+        var result = await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        var prompt = _chat.Calls.ShouldHaveSingleItem().Messages[0].Text!;
+        prompt.ShouldContain("收到商品後七天內可申請退貨。");
+        prompt.ShouldNotContain("生鮮蔬果恕不接受退貨。", Case.Sensitive, "a candidate is never added to a relevant passage");
+        (result.Reply.Kind, result.UsedCandidates).ShouldBe((GroundedReplyKind.CompanyData, false));
+        _outcomes.Outcomes.ShouldHaveSingleItem().UsedCandidates.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task With_only_candidates_the_model_answers_from_them_with_citations_and_the_outcome_says_so()
+    {
+        _retriever.Settings = WithCandidates;
+        var address = _retriever.Add(_policies.Id, "門市資訊.md", "基本資訊", "項目：地址\n內容：示範縣示範市一路 1 號", 0.38);
+        _retriever.Add(_policies.Id, "門市資訊.md", "基本資訊", "項目：電話\n內容：(03) 012-3456", 0.31);
+        _retriever.Add(_policies.Id, "常見問題.md", "連假", "連假期間照常出貨。", 0.29);
+        _chat.Pieces = ["地址是示範縣示", "範市一路 1 號。[1]"];
+
+        var events = await StreamAsync(Request(Profile()));
+        var result = await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        _chat.CallCount.ShouldBe(2, "both calls asked the model");
+        var prompt = _chat.Calls[0].Messages[0].Text!;
+        prompt.ShouldContain("示範縣示範市一路 1 號");
+        prompt.ShouldContain("(03) 012-3456", Case.Sensitive, "every candidate at or above CandidateMinScore, closest first");
+        prompt.ShouldNotContain("連假期間照常出貨。", Case.Sensitive, "below the candidate threshold too");
+        foreach (var reply in new[] { events[^1].ShouldBeOfType<GroundedAnswerCompleted>().Reply, result.Reply })
+        {
+            reply.Kind.ShouldBe(GroundedReplyKind.CompanyData);
+            reply.Text.ShouldBe("地址是示範縣示範市一路 1 號。[1]");
+            var citation = reply.Citations.ShouldHaveSingleItem();
+            (citation.ChunkId, citation.Score).ShouldBe((address.ChunkId, 0.38));
+        }
+
+        result.UsedCandidates.ShouldBeTrue();
+        (result.Retrieval.Threshold, result.Retrieval.BelowThreshold).ShouldBe((KnowledgeRetrievalSettings.DefaultMinScore, true));
+        _outcomes.Outcomes.Count.ShouldBe(2);
+        _outcomes.Outcomes.ShouldAllBe(outcome =>
+            outcome.UsedCandidates && outcome.ReplyKind == AnswerReplyKind.CompanyData && outcome.CitedDocumentIds.Single() == address.DocumentId);
+        Replies().ShouldBe(["company-data", "company-data"]);
+    }
+
+    [Fact]
+    public async Task With_only_candidates_a_model_refusal_is_cannot_answer_and_the_marker_is_never_streamed()
+    {
+        _retriever.Settings = WithCandidates;
+        _retriever.Add(_policies.Id, "常見問題.md", "會員點數", "每消費 100 元累積 1 點。", 0.349);
+        _chat.Pieces = [ChatAnswerMarkers.CannotAnswer[..3], ChatAnswerMarkers.CannotAnswer[3..]];
+
+        var events = await StreamAsync(Request(Profile()));
+        var result = await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        events.OfType<GroundedAnswerTextDelta>().ShouldBeEmpty();
+        var rejected = events.ShouldHaveSingleItem().ShouldBeOfType<GroundedAnswerRejected>();
+        rejected.Reason.ShouldBe(GroundedRejectionReason.CannotAnswer);
+        (result.Reply.Kind, result.Reply.Text, result.Reply.RejectionReason, result.UsedCandidates)
+            .ShouldBe((GroundedReplyKind.NoResult, RefusalMessage, GroundedRejectionReason.CannotAnswer, true));
+        _outcomes.Outcomes.ShouldAllBe(outcome => outcome.UsedCandidates && outcome.RejectionReason == AnswerRejectionReason.CannotAnswer);
+        Rejections().ShouldBe(["cannot-answer", "cannot-answer"]);
+    }
+
+    [Fact]
+    public async Task Below_both_thresholds_is_below_threshold_without_a_model_call_as_before()
+    {
+        _retriever.Settings = WithCandidates;
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 1 頁", "營業時間為週一至週五。", 0.29);
+
+        var result = await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        _chat.CallCount.ShouldBe(0);
+        (result.Reply.RejectionReason, result.UsedCandidates).ShouldBe((GroundedRejectionReason.BelowThreshold, false));
+        var outcome = _outcomes.Outcomes.ShouldHaveSingleItem();
+        (outcome.RejectionReason, outcome.UsedCandidates).ShouldBe((AnswerRejectionReason.BelowThreshold, false));
+    }
+
+    [Fact]
+    public async Task Without_a_candidate_threshold_a_passage_between_the_two_is_below_threshold_exactly_as_before()
+    {
+        _retriever.Settings.CandidateMinScore.ShouldBeNull("the default: no candidate band");
+        _retriever.Add(_policies.Id, "門市資訊.md", "基本資訊", "項目：地址\n內容：示範縣示範市一路 1 號", 0.38);
+
+        var result = await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        _chat.CallCount.ShouldBe(0);
+        (result.Reply.RejectionReason, result.UsedCandidates).ShouldBe((GroundedRejectionReason.BelowThreshold, false));
+    }
+
+    [Fact]
+    public async Task Allow_general_knowledge_never_uses_candidates_and_still_asks_without_passages()
+    {
+        _retriever.Settings = WithCandidates;
+        _retriever.Add(_policies.Id, "門市資訊.md", "基本資訊", "項目：地址\n內容：示範縣示範市一路 1 號", 0.38);
+        _chat.Pieces = ["一般來說，可以查詢地圖。"];
+
+        var result = await Service().AnswerAsync(Request(Profile(AssistantKnowledgeScope.AllowGeneralKnowledge)), CancellationToken);
+
+        _chat.Calls.Single().Messages[0].Text!.ShouldNotContain("示範縣示範市一路 1 號");
+        (result.Reply.Kind, result.UsedCandidates).ShouldBe((GroundedReplyKind.GeneralKnowledge, false));
+    }
+
+    [Theory]
+    [InlineData(0.5, 0.45, true)] // the assistant's stricter threshold: the band is [0.3, 0.5)
+    [InlineData(0.3, 0.29, false)] // equal to the candidate threshold: no band
+    [InlineData(0.25, 0.27, false)] // relevant at the assistant's own looser threshold: no candidate
+    public async Task The_band_runs_from_the_candidate_threshold_up_to_the_assistants_own_threshold(
+        double assistantMinScore, double score, bool usesCandidates)
+    {
+        _retriever.Settings = WithCandidates;
+        _retriever.Add(_policies.Id, "退貨政策.pdf", "第 2 頁", "收到商品後七天內可申請退貨。", score);
+        _chat.Pieces = ["七天內可申請退貨。[1]"];
+
+        var result = await Service().AnswerAsync(Request(Profile() with { MinScore = assistantMinScore }), CancellationToken);
+
+        result.UsedCandidates.ShouldBe(usesCandidates);
+        _chat.CallCount.ShouldBe(usesCandidates || score >= assistantMinScore ? 1 : 0);
+    }
+
+    [Fact]
+    public async Task A_candidate_of_a_knowledge_base_not_checked_is_ignored_whatever_the_retriever_returns()
+    {
+        _retriever.Settings = WithCandidates;
+        var stranger = AddKnowledgeBase("別人的私人知識庫", Guid.CreateVersion7());
+        _retriever.Add(stranger.Id, "機密.pdf", "第 1 頁", "機密內容。", 0.38);
+
+        var result = await new GroundedAnswerService(
+                _knowledgeBases, new LeakyRetriever(_retriever), _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+                new FixedOrganizationContext(Organization), TimeProvider.System)
+            .AnswerAsync(Request(Profile() with { KnowledgeBaseIds = [_policies.Id, stranger.Id] }), CancellationToken);
+
+        (result.Reply.RejectionReason, result.UsedCandidates).ShouldBe((GroundedRejectionReason.BelowThreshold, false));
+        _chat.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task A_candidate_answers_span_carries_the_candidate_threshold_and_count()
+    {
+        _retriever.Settings = WithCandidates;
+        _retriever.Add(_policies.Id, "門市資訊.md", "基本資訊", "項目：地址\n內容：示範縣示範市一路 1 號", 0.38);
+        _chat.Pieces = ["示範縣示範市一路 1 號。[1]"];
+        var spans = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == SmartAgriActivitySource.Name,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                lock (spans)
+                {
+                    spans.Add(activity);
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var parent = new Activity("test").Start();
+
+        await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        Activity span;
+        lock (spans)
+        {
+            span = spans.Single(candidate => candidate.OperationName == GroundedAnswerTelemetry.ActivityName && candidate.TraceId == parent.TraceId);
+        }
+
+        span.GetTagItem(GroundedAnswerTelemetry.RelevantPassagesTag).ShouldBe(0);
+        span.GetTagItem(GroundedAnswerTelemetry.CandidateThresholdTag).ShouldBe(0.3);
+        span.GetTagItem(GroundedAnswerTelemetry.CandidatePassagesTag).ShouldBe(1);
+    }
+
     // --- Helpers --------------------------------------------------------------------------------
 
     private GroundedAnswerService Service() =>

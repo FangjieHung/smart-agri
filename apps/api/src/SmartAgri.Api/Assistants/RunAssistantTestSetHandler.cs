@@ -87,6 +87,7 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
         if (run.Status == AssistantTestRunStatus.Queued)
         {
             var minScore = assistant.MinScore ?? _retrieval.MinScore;
+            var candidateMinScore = _retrieval.CandidateFloor(minScore);
 
             // The model the organization's calls of this scope go to (M6 plan §3 B), not the
             // deployment's: what the run records is what answered it.
@@ -100,7 +101,7 @@ internal sealed class RunAssistantTestSetHandler : IJobHandler
                         return false;
                     }
 
-                    current.Start(GroundedAnswerPrompt.Version, model, minScore, _clock.GetUtcNow());
+                    current.Start(GroundedAnswerPrompt.Version, model, minScore, _clock.GetUtcNow(), candidateMinScore);
                     return true;
                 },
                 cancellationToken);

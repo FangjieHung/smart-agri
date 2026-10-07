@@ -17,10 +17,23 @@ public sealed class AssistantTestRunTests
 
         run.Start("prompt/1", "fake-chat", 0.3, Now.AddSeconds(1));
         (run.Status, run.PromptVersion, run.Model, run.MinScore).ShouldBe((AssistantTestRunStatus.Running, "prompt/1", "fake-chat", (double?)0.3));
+        run.CandidateMinScore.ShouldBeNull("no candidate band given");
 
         run.Complete(passedCount: 2, failedCount: 1, Now.AddSeconds(2));
         (run.Status, run.IsActive, run.PassedCount, run.FailedCount, run.CompletedAt)
             .ShouldBe((AssistantTestRunStatus.Completed, false, 2, 1, (DateTimeOffset?)Now.AddSeconds(2)));
+    }
+
+    [Fact]
+    public void A_run_records_the_candidate_threshold_it_ran_with_which_is_below_its_minimum_score()
+    {
+        var run = AssistantTestRun.Queue(Guid.NewGuid(), Guid.NewGuid(), AssistantTestRunTrigger.Manual, Now);
+        Should.Throw<ArgumentOutOfRangeException>(() => run.Start("prompt/1", "fake-chat", 0.406, Now, candidateMinScore: 0.406));
+        Should.Throw<ArgumentOutOfRangeException>(() => run.Start("prompt/1", "fake-chat", 0.406, Now, candidateMinScore: -0.1));
+        run.Status.ShouldBe(AssistantTestRunStatus.Queued, "a refused start changes nothing");
+
+        run.Start("prompt/1", "fake-chat", 0.406, Now, candidateMinScore: 0.3);
+        (run.MinScore, run.CandidateMinScore).ShouldBe(((double?)0.406, (double?)0.3));
     }
 
     [Fact]

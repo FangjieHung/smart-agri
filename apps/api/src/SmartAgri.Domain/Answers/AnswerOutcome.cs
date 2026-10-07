@@ -57,6 +57,16 @@ public sealed class AnswerOutcome : IOrganizationScoped
 
     public DateTimeOffset At { get; private set; }
 
+    /// <summary>
+    /// No passage reached the relevance threshold, and the model was asked with candidate
+    /// passages above <c>Retrieval:CandidateMinScore</c> instead (pre-launch plan §3 B, #302) —
+    /// so a wrong answer from a loose match can be found. Only ever set on a reply the model
+    /// produced from passages: a <c>company-data</c> reply, or a <c>no-result</c> the model's
+    /// answer caused (never <see cref="AnswerRejectionReason.BelowThreshold"/>, which calls no model).
+    /// </summary>
+    public bool UsedCandidates { get; private set; }
+
+    /// <param name="usedCandidates"><see cref="UsedCandidates"/>.</param>
     public static AnswerOutcome Record(
         Guid organizationId,
         Guid? assistantId,
@@ -64,7 +74,8 @@ public sealed class AnswerOutcome : IOrganizationScoped
         AnswerReplyKind replyKind,
         AnswerRejectionReason? rejectionReason,
         IReadOnlyCollection<Guid> citedDocumentIds,
-        DateTimeOffset at)
+        DateTimeOffset at,
+        bool usedCandidates = false)
     {
         if (organizationId == Guid.Empty)
         {
@@ -106,6 +117,13 @@ public sealed class AnswerOutcome : IOrganizationScoped
 
         ArgumentNullException.ThrowIfNull(citedDocumentIds);
 
+        if (usedCandidates
+            && (replyKind == AnswerReplyKind.GeneralKnowledge || rejectionReason is AnswerRejectionReason.BelowThreshold or AnswerRejectionReason.EmptyAnswer))
+        {
+            throw new ArgumentException(
+                "Candidate passages are only ever used for a reply the model produced from passages.", nameof(usedCandidates));
+        }
+
         var outcome = new AnswerOutcome
         {
             Id = Guid.CreateVersion7(),
@@ -115,6 +133,7 @@ public sealed class AnswerOutcome : IOrganizationScoped
             ReplyKind = replyKind,
             RejectionReason = rejectionReason,
             At = at,
+            UsedCandidates = usedCandidates,
         };
         outcome._citedDocumentIds.AddRange(citedDocumentIds.Distinct());
         return outcome;

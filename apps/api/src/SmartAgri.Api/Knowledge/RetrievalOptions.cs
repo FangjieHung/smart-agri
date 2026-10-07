@@ -17,6 +17,15 @@ public sealed class RetrievalOptions
     /// <summary>Passages per search when the caller does not say, 1–<see cref="KnowledgeRetrievalSettings.MaxTop"/>.</summary>
     public int Top { get; set; } = KnowledgeRetrievalSettings.DefaultTop;
 
+    /// <summary>The candidate threshold (pre-launch plan §3 B, #302), a cosine similarity of 0 up
+    /// to <see cref="MinScore"/>; unset (the default, or an empty value) for none, which behaves
+    /// exactly as before it existed. When no passage reaches <see cref="MinScore"/> but some reach
+    /// this, a <c>company-data-only</c> assistant still asks the model with those passages and
+    /// refuses (<c>cannot-answer</c>) if the model says they do not answer the question.
+    /// <c>appsettings.json</c> sets 0.30 provisionally (P5 decides the final value). Like
+    /// <see cref="MinScore"/>, it depends on the embedding model.</summary>
+    public double? CandidateMinScore { get; set; }
+
     /// <summary>Why these options are unusable, or <see langword="null"/>.</summary>
     public string? Validate()
     {
@@ -25,10 +34,16 @@ public sealed class RetrievalOptions
             return $"{SectionName}:{nameof(MinScore)} must be a cosine similarity of 0-1 (got {MinScore.ToString(CultureInfo.InvariantCulture)}).";
         }
 
-        return Top is < 1 or > KnowledgeRetrievalSettings.MaxTop
-            ? $"{SectionName}:{nameof(Top)} must be 1-{KnowledgeRetrievalSettings.MaxTop}."
+        if (Top is < 1 or > KnowledgeRetrievalSettings.MaxTop)
+        {
+            return $"{SectionName}:{nameof(Top)} must be 1-{KnowledgeRetrievalSettings.MaxTop}.";
+        }
+
+        return CandidateMinScore is { } candidate && !(double.IsFinite(candidate) && candidate >= 0 && candidate <= MinScore)
+            ? $"{SectionName}:{nameof(CandidateMinScore)} must be 0 up to {SectionName}:{nameof(MinScore)} " +
+              $"({MinScore.ToString(CultureInfo.InvariantCulture)}), or unset (got {candidate.ToString(CultureInfo.InvariantCulture)})."
             : null;
     }
 
-    public KnowledgeRetrievalSettings ToSettings() => new(MinScore, Top);
+    public KnowledgeRetrievalSettings ToSettings() => new(MinScore, Top, CandidateMinScore);
 }

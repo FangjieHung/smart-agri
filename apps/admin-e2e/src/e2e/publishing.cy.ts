@@ -1,4 +1,4 @@
-import { loginAs } from '../support/a11y';
+import { auditA11y, forEachColorTheme, loginAs } from '../support/a11y';
 import { SHORT_WINDOWS, expectFullyOnScreen, expectScrollingBody } from '../support/on-screen';
 
 const VALID_TOKEN = 'demo-token-not-for-production-0123456789abcdefghij';
@@ -173,9 +173,9 @@ describe('publishing channels', () => {
       expectScrollingBody('.publish-panel .publish-detail');
       // 捲動區裡沒有可聚焦的元素，它自己要能聚焦，鍵盤使用者才捲得動（axe 的 scrollable-region-focusable）。
       cy.get('.publish-panel .publish-detail').should('have.attr', 'tabindex', '0');
-      // 只跑這一條規則；這個對話框的其他規則（例如色彩對比）不在 #288 的範圍內。
-      cy.injectAxe();
-      cy.checkA11y('.publish-panel', { runOnly: { type: 'rule', values: ['scrollable-region-focusable'] } });
+      // 完整的 axe 檢查（issue #294），淺色與深色主題都跑。先前只跑 scrollable-region-focusable，因為 axe 在
+      // 對話框 150ms 的 opacity 轉場中取色，報出 1.3–2.7:1 的假違規；auditA11y 現在先讓動畫結束再掃描。
+      forEachColorTheme(() => auditA11y('.mat-mdc-dialog-container'));
 
       cy.get(confirm).should('contain', '確認發布').click({ scrollBehavior: false });
       cy.get('.publish-panel').should('not.exist');

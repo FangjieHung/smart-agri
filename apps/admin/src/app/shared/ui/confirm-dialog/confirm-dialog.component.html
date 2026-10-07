@@ -18,6 +18,6 @@
   <ng-content />
   <div class="confirm-actions">
     <button #cancelButton type="button" class="confirm-cancel" [disabled]="busy()" (click)="cancelled.emit()">{{ cancelLabel() }}</button>
-    <button type="button" [class]="confirmClass()" [disabled]="busy() || confirmDisabled()" (click)="confirmed.emit()">{{ confirmLabel() }}</button>
+    <button type="button" [class]="confirmClass()" [attr.data-tone]="confirmTone()" [disabled]="busy() || confirmDisabled()" (click)="confirmed.emit()">{{ confirmLabel() }}</button>
   </div>
 </div>

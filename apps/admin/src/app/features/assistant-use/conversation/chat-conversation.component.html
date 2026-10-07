@@ -259,6 +259,7 @@
       detail="接收單位的收集紀錄會移除這筆資料的內容，也不再計入趨勢比較，只留下一筆「曾提交、已撤回」的軌跡（提交與撤回時間、來源）。這個動作無法復原。"
       confirmLabel="撤回"
       confirmClass="confirm-withdraw"
+      confirmTone="danger"
       (cancelled)="cancelWithdraw()"
       (confirmed)="confirmWithdraw()"
     />
@@ -302,6 +303,7 @@
       detail="以下這一則問題與回覆的複本，會交給助理擁有者或被指派的處理人查看與處理。對方看不到你的其他對話內容。"
       [confirmLabel]="handoffBusy() ? '轉交中…' : '確認轉交'"
       confirmClass="confirm-handoff"
+      confirmTone="accent"
       [busy]="handoffBusy()"
       (cancelled)="cancelHandoff()"
       (confirmed)="confirmHandoff()"

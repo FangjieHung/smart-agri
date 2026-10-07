@@ -44,10 +44,11 @@ public sealed partial class EvalCaseProposalsCommand
     public static IReadOnlyList<string> Environments => ChatModelOptions.FakeEnvironments;
 
     public const string Usage =
-        "用法：eval-case-proposals [--trigger keyword|model|both] [--set <題庫目錄>] [--report <報告檔路徑>]\n" +
+        "用法：eval-case-proposals [--trigger keyword|model|both] [--set <題庫目錄>] [--types <類型說明檔>] [--report <報告檔路徑>]\n" +
         "評測對話中提議開案的觸發方式（#257）：關鍵字與模型選擇工具的漏觸、誤觸、選錯類型比率，寫出 Markdown 報告。只能在 Development 或 Testing 環境執行，不需要資料庫。\n" +
         "  --trigger  keyword 只評測關鍵字（不需要模型）；model 或 both 需要設定對話模型（Ai:Chat），預設 both。\n" +
         "  --set      題庫目錄（questions.json），預設為隨程式附帶的題庫（apps/api/eval/case-proposals）。\n" +
+        "  --types    改用另一組案件類型說明（JSON，caseTypes 的 key 與順序要和題庫相同），例如 types-with-exclusions.json；相對路徑先找工作目錄、再找題庫目錄。預設用題庫內建的說明。\n" +
         "  --report   報告檔路徑，預設為 <repo>/docs/evals/<日期>-case-proposals-<模型或 keyword>.md，已存在就覆寫。";
 
     private readonly ChatClientProvider _chatProvider;
@@ -59,7 +60,9 @@ public sealed partial class EvalCaseProposalsCommand
         _clock = clock;
     }
 
-    public sealed record Arguments(string Trigger, string? SetDirectory, string? ReportPath, bool Help);
+    /// <param name="TypesPath">#293: a file whose <c>caseTypes</c> replace the set's own names and
+    /// descriptions (<see cref="CaseProposalEvalSet.WithTypes"/>); <see langword="null"/> keeps them.</param>
+    public sealed record Arguments(string Trigger, string? SetDirectory, string? ReportPath, bool Help, string? TypesPath = null);
 
     public static async Task<int> RunAsync(
         IServiceProvider services, IReadOnlyList<string> args, TextWriter output, TextWriter error, CancellationToken cancellationToken = default)
@@ -97,7 +100,7 @@ public sealed partial class EvalCaseProposalsCommand
     {
         ArgumentNullException.ThrowIfNull(args);
         string trigger = Both;
-        string? set = null, report = null;
+        string? set = null, report = null, types = null;
         var help = false;
         error = null;
         for (var index = 0; index < args.Count; index++)
@@ -109,7 +112,7 @@ public sealed partial class EvalCaseProposalsCommand
                 continue;
             }
 
-            if (name is not ("--trigger" or "--set" or "--report"))
+            if (name is not ("--trigger" or "--set" or "--types" or "--report"))
             {
                 error = $"不認得的參數：{name}";
                 break;
@@ -133,6 +136,9 @@ public sealed partial class EvalCaseProposalsCommand
                 case "--set":
                     set = value;
                     break;
+                case "--types":
+                    types = value;
+                    break;
                 default:
                     report = value;
                     break;
@@ -144,7 +150,7 @@ public sealed partial class EvalCaseProposalsCommand
             }
         }
 
-        arguments = new Arguments(trigger, set, report, help);
+        arguments = new Arguments(trigger, set, report, help, types);
         return error is null;
     }
 
@@ -162,6 +168,10 @@ public sealed partial class EvalCaseProposalsCommand
         try
         {
             set = CaseProposalEvalSet.Load(arguments.SetDirectory ?? CaseProposalEvalSet.DefaultDirectory);
+            if (arguments.TypesPath is not null)
+            {
+                set = set.WithTypes(arguments.TypesPath);
+            }
         }
         catch (CaseProposalEvalSetException exception)
         {
@@ -174,6 +184,10 @@ public sealed partial class EvalCaseProposalsCommand
         await output.WriteLineAsync(runModel
             ? $"以對話模型 {_chatProvider.Model}（{_chatProvider.Name}）與關鍵字評測 {set.Questions.Count} 題…"
             : $"以關鍵字評測 {set.Questions.Count} 題…");
+        if (set.TypesPath is not null)
+        {
+            await output.WriteLineAsync($"案件類型說明取自 {set.TypesPath}（指紋 {set.TypesFingerprint}）。");
+        }
 
         IReadOnlyList<AssistantFormToolOffer> formOffers = [new AssistantFormToolOffer(CaseProposalEvalSet.SampleFormId, set.SampleForm.Title, set.SampleForm.Purpose)];
         var results = new List<CaseProposalEvalResult>(set.Questions.Count);
@@ -209,7 +223,8 @@ public sealed partial class EvalCaseProposalsCommand
             set,
             runModel ? _chatProvider.Name : null,
             runModel ? _chatProvider.Model : null,
-            results);
+            results,
+            set.TypesPath is null ? null : TypesDisplayName(set));
 
         var path = Path.GetFullPath(arguments.ReportPath ?? Path.Combine(
             EvalAnswersCommand.RepositoryRoot(), "docs", "evals", CaseProposalEvalReport.FileName(startedAt, runModel ? _chatProvider.Model : null)));
@@ -292,6 +307,16 @@ public sealed partial class EvalCaseProposalsCommand
 
     [System.Text.RegularExpressions.GeneratedRegex(@"\bs[k]-[^\s'\"",;]*")]
     private static partial System.Text.RegularExpressions.Regex KeyLike();
+
+    /// <summary>The types file as the report names it: next to the set under the set's display name, else
+    /// relative to the repository, else the full path.</summary>
+    private static string TypesDisplayName(CaseProposalEvalSet set)
+    {
+        var path = set.TypesPath!;
+        return string.Equals(Path.GetDirectoryName(path), Path.GetFullPath(set.Directory), StringComparison.Ordinal)
+            ? $"{DisplayName(set.Directory)}/{Path.GetFileName(path)}"
+            : DisplayName(path);
+    }
 
     private static string DisplayName(string directory)
     {

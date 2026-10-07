@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using SmartAgri.Application.Cases;
+using SmartAgri.Domain.Cases;
 
 namespace SmartAgri.Api.Chat.Evaluation;
 
@@ -50,13 +51,21 @@ public sealed class CaseProposalEvalSet
     };
 
     private CaseProposalEvalSet(
-        string directory, FormRequestEvalForm form, IReadOnlyList<CaseProposalEvalType> types, IReadOnlyList<CaseProposalEvalQuestion> questions, string fingerprint)
+        string directory,
+        FormRequestEvalForm form,
+        IReadOnlyList<CaseProposalEvalType> types,
+        IReadOnlyList<CaseProposalEvalQuestion> questions,
+        string fingerprint,
+        string? typesPath = null,
+        string? typesFingerprint = null)
     {
         Directory = directory;
         SampleForm = form;
         CaseTypes = types;
         Questions = questions;
         Fingerprint = fingerprint;
+        TypesPath = typesPath;
+        TypesFingerprint = typesFingerprint;
         Offers = [.. types.Select((type, index) => new CaseProposalOffer(TypeId(index), type.Name, type.Description ?? string.Empty))];
     }
 
@@ -75,6 +84,13 @@ public sealed class CaseProposalEvalSet
 
     /// <summary>The first 12 hex digits of <c>questions.json</c>'s SHA-256: which set a report judged.</summary>
     public string Fingerprint { get; }
+
+    /// <summary>The full path of the types file that replaced <c>questions.json</c>'s own <c>caseTypes</c>
+    /// (<see cref="WithTypes"/>, #293), or <see langword="null"/> when the set's own types are offered.</summary>
+    public string? TypesPath { get; }
+
+    /// <summary>The first 12 hex digits of the types file's SHA-256, when one replaced the set's types.</summary>
+    public string? TypesFingerprint { get; }
 
     /// <summary>The fixed id of the <paramref name="index"/>-th type.</summary>
     public static Guid TypeId(int index) => Guid.Parse($"0199a000-0257-7000-8000-{index + 1:D12}");
@@ -191,7 +207,70 @@ public sealed class CaseProposalEvalSet
         return new CaseProposalEvalSet(root, document!.Form!, types, questions, fingerprint);
     }
 
+    /// <summary>
+    /// This set with its case types' names and descriptions taken from another file (#293: the same
+    /// questions judged against differently worded descriptions). The file is JSON (comments allowed)
+    /// with one <c>caseTypes</c> array in <c>questions.json</c>'s format; its keys must be the set's keys,
+    /// in the same order, so every label and every fixed type id still means the same type. A relative
+    /// <paramref name="path"/> is resolved against the working directory, then against the set's directory
+    /// (so <c>--types types-with-exclusions.json</c> finds the file shipped next to <c>questions.json</c>).
+    /// </summary>
+    public CaseProposalEvalSet WithTypes(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var full = Path.IsPathRooted(path) || File.Exists(Path.GetFullPath(path))
+            ? Path.GetFullPath(path)
+            : Path.GetFullPath(Path.Combine(Directory, path));
+        if (!File.Exists(full))
+        {
+            throw new CaseProposalEvalSetException(full, ["找不到類型說明檔（--types）。"]);
+        }
+
+        var bytes = File.ReadAllBytes(full);
+        TypesDocument? document;
+        try
+        {
+            document = JsonSerializer.Deserialize<TypesDocument>(bytes, JsonOptions);
+        }
+        catch (JsonException exception)
+        {
+            throw new CaseProposalEvalSetException(full, [$"類型說明檔不是正確的 JSON：{exception.Message}"]);
+        }
+
+        var types = document?.CaseTypes ?? [];
+        var problems = new List<string>();
+        foreach (var type in types)
+        {
+            if (string.IsNullOrWhiteSpace(type.Key) || string.IsNullOrWhiteSpace(type.Name))
+            {
+                problems.Add($"案件類型「{type.Key}」：需要 key 與 name。");
+            }
+
+            if ((type.Description ?? string.Empty).Length > CaseType.DescriptionMaxLength)
+            {
+                problems.Add($"案件類型「{type.Key}」：說明超過 {CaseType.DescriptionMaxLength} 字（正式環境的上限）。");
+            }
+        }
+
+        if (!types.Select(type => type.Key).SequenceEqual(CaseTypes.Select(type => type.Key), StringComparer.Ordinal))
+        {
+            problems.Add(
+                $"caseTypes 的 key 必須與題庫相同、順序也相同（題庫：{string.Join("、", CaseTypes.Select(type => type.Key))}；" +
+                $"這個檔案：{(types.Count == 0 ? "沒有類型" : string.Join("、", types.Select(type => type.Key)))}）。");
+        }
+
+        if (problems.Count > 0)
+        {
+            throw new CaseProposalEvalSetException(full, problems);
+        }
+
+        var fingerprint = Convert.ToHexStringLower(SHA256.HashData(bytes))[..12];
+        return new CaseProposalEvalSet(Directory, SampleForm, types, Questions, Fingerprint, full, fingerprint);
+    }
+
     private sealed record Document(FormRequestEvalForm? Form, List<CaseProposalEvalType>? CaseTypes, List<CaseProposalEvalQuestion>? Questions);
+
+    private sealed record TypesDocument(List<CaseProposalEvalType>? CaseTypes);
 }
 
 /// <summary>What a run answered one question with.</summary>
@@ -416,7 +495,8 @@ public sealed record CaseProposalEvalRun(
     CaseProposalEvalSet Set,
     string? ChatProvider,
     string? ChatModel,
-    IReadOnlyList<CaseProposalEvalResult> Results)
+    IReadOnlyList<CaseProposalEvalResult> Results,
+    string? TypesDisplayName = null)
 {
     public CaseProposalEvalSummary KeywordCaseLayer => Summary(EvalCaseProposalsCommand.Keyword, stage: false);
 
@@ -458,7 +538,9 @@ public static class CaseProposalEvalReport
         text.AppendLine($"- 執行時間：{run.StartedAt:yyyy-MM-dd HH:mm:ss zzz}（{run.Duration.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} 秒）");
         text.AppendLine($"- 題庫：`{run.SetDisplayName}`（指紋 `{set.Fingerprint}`，{run.Results.Count} 題）");
         text.AppendLine($"- 範例表單：「{set.SampleForm.Title}」，收集目的：{set.SampleForm.Purpose}");
-        text.AppendLine("- 可提議的案件類型（依序提供）：");
+        text.AppendLine(set.TypesPath is null
+            ? "- 可提議的案件類型（依序提供；說明為題庫內建）："
+            : $"- 可提議的案件類型（依序提供；說明取自 `{run.TypesDisplayName ?? set.TypesPath}`，指紋 `{set.TypesFingerprint}`，取代題庫內建的說明）：");
         foreach (var type in set.CaseTypes)
         {
             text.AppendLine($"  - `{type.Key}`＝「{type.Name}」：{type.Description}");

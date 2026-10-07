@@ -131,6 +131,9 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         var text = await File.ReadAllTextAsync(report, CancellationToken);
         text.ShouldContain("| keyword |");
         text.ShouldContain("對話模型：未執行");
+        // Without --types the set's own descriptions are offered (#293), as before.
+        text.ShouldContain("可提議的案件類型（依序提供；說明為題庫內建）");
+        text.ShouldContain("`repair`＝「設備報修」：農機、灌溉、溫室、冷藏庫等設備故障或損壞，需要派人到場維修。");
         text.ShouldNotContain("| model |");
         text.ShouldNotContain("Token 用量");
         // Decision T with three types: a case word without a type name proposes nothing …
@@ -225,11 +228,118 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         error.ToString().ShouldNotContain(FailingChatClient.KeyLike);
     }
 
+    [Fact]
+    public void The_committed_exclusions_file_rewords_every_type_with_what_it_covers_and_what_it_does_not()
+    {
+        var set = CaseProposalEvalSet.Load(CaseProposalEvalSet.DefaultDirectory);
+
+        var reworded = set.WithTypes("types-with-exclusions.json");
+
+        reworded.TypesPath.ShouldBe(Path.Combine(set.Directory, "types-with-exclusions.json"));
+        reworded.TypesFingerprint!.Length.ShouldBe(12);
+        reworded.Fingerprint.ShouldBe(set.Fingerprint);
+        reworded.Questions.ShouldBe(set.Questions);
+        reworded.CaseTypes.Select(type => type.Key).ShouldBe(set.CaseTypes.Select(type => type.Key));
+        reworded.CaseTypes.Select(type => type.Name).ShouldBe(set.CaseTypes.Select(type => type.Name));
+        foreach (var type in reworded.CaseTypes)
+        {
+            type.Description.ShouldNotBeNull();
+            System.Text.RegularExpressions.Regex.IsMatch(type.Description, "(?<!不)包括").ShouldBeTrue(type.Key);
+            type.Description.ShouldContain("不包括", Case.Sensitive, type.Key);
+            type.Description.Length.ShouldBeLessThanOrEqualTo(SmartAgri.Domain.Cases.CaseType.DescriptionMaxLength);
+        }
+
+        reworded.CaseTypes[0].Description!.ShouldContain("不包括作物病蟲害、作物生長異常");
+        reworded.Offers.Select(offer => offer.TypeId).ShouldBe(set.Offers.Select(offer => offer.TypeId));
+        reworded.Offers[0].Description.ShouldBe(reworded.CaseTypes[0].Description);
+        set.TypesPath.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task A_types_file_whose_keys_differ_from_the_set_or_that_is_missing_is_refused()
+    {
+        var types = Path.Combine(_directory, "types.json");
+        File.WriteAllText(types, $$"""
+            {
+              // keys out of order, and one description longer than production allows
+              "caseTypes": [
+                { "key": "purchase", "name": "採購申請", "description": "{{new string('長', 501)}}" },
+                { "key": "repair", "name": "設備報修" },
+                { "key": "return", "name": "客戶退貨" }
+              ]
+            }
+            """);
+        var command = new EvalCaseProposalsCommand(ChatClientProvider.Create(new ChatModelOptions()), TimeProvider.System);
+        var error = new StringWriter();
+
+        var exit = await command.RunAsync(
+            new EvalCaseProposalsCommand.Arguments("keyword", null, Path.Combine(_directory, "r.md"), false, types), new StringWriter(), error, CancellationToken);
+
+        exit.ShouldBe(EvalCaseProposalsCommand.ExitUsage);
+        error.ToString().ShouldContain("key 必須與題庫相同、順序也相同（題庫：repair、purchase、return；這個檔案：purchase、repair、return）");
+        error.ToString().ShouldContain("說明超過 500 字");
+        File.Exists(Path.Combine(_directory, "r.md")).ShouldBeFalse();
+
+        error = new StringWriter();
+        (await command.RunAsync(
+            new EvalCaseProposalsCommand.Arguments("keyword", null, Path.Combine(_directory, "r.md"), false, "no-such-types.json"), new StringWriter(), error, CancellationToken))
+            .ShouldBe(EvalCaseProposalsCommand.ExitUsage);
+        error.ToString().ShouldContain("找不到類型說明檔");
+    }
+
+    [Fact]
+    public async Task A_types_file_replaces_the_descriptions_offered_to_both_calls_and_the_report_names_it()
+    {
+        File.WriteAllText(Path.Combine(_directory, "questions.json"), """
+            {
+              "form": { "title": "田間異常回報", "purpose": "記錄病蟲害。" },
+              "caseTypes": [ { "key": "repair", "name": "設備報修", "description": "設備故障。" } ],
+              "questions": [
+                { "id": "c1", "question": "噴霧機壞了", "expected": "case:repair", "category": "case" },
+                { "id": "f1", "question": "番茄有黃斑", "expected": "form", "category": "form" }
+              ]
+            }
+            """);
+        File.WriteAllText(Path.Combine(_directory, "exclusions.json"), """
+            { "caseTypes": [ { "key": "repair", "name": "設備報修", "description": "設備故障。不包括作物病蟲害，請用田間異常回報。" } ] }
+            """);
+        var report = Path.Combine(_directory, "types.md");
+        var client = new ScriptedChatClient();
+        var command = new EvalCaseProposalsCommand(new ChatClientProvider(client, "openai", "openai", "scripted", null), TimeProvider.System);
+        var output = new StringWriter();
+
+        // A bare file name is found next to questions.json.
+        var exit = await command.RunAsync(
+            new EvalCaseProposalsCommand.Arguments("both", _directory, report, false, "exclusions.json"), output, new StringWriter(), CancellationToken);
+
+        exit.ShouldBe(EvalCaseProposalsCommand.ExitSuccess);
+        client.Descriptions.Count.ShouldBe(4);
+        client.Descriptions.ShouldAllBe(description => description.Contains("（設備故障。不包括作物病蟲害，請用田間異常回報。）"));
+        var text = await File.ReadAllTextAsync(report, CancellationToken);
+        text.ShouldContain("說明取自 `");
+        text.ShouldContain("exclusions.json`，指紋 `");
+        text.ShouldContain("取代題庫內建的說明）");
+        text.ShouldContain("`repair`＝「設備報修」：設備故障。不包括作物病蟲害，請用田間異常回報。");
+        output.ToString().ShouldContain("案件類型說明取自");
+    }
+
+    [Theory]
+    [InlineData(new[] { "--types", "types-with-exclusions.json", "--trigger", "model" }, "types-with-exclusions.json")]
+    [InlineData(new[] { "--trigger", "model" }, null)]
+    public void The_types_argument_is_optional(string[] args, string? types)
+    {
+        EvalCaseProposalsCommand.TryParse(args, out var arguments, out var error).ShouldBeTrue();
+        error.ShouldBeNull();
+        arguments.TypesPath.ShouldBe(types);
+        arguments.Trigger.ShouldBe("model");
+    }
+
     [Theory]
     [InlineData(new string[0], "both", true)]
     [InlineData(new[] { "--trigger", "keyword" }, "keyword", true)]
     [InlineData(new[] { "--trigger", "sometimes" }, "both", false)]
     [InlineData(new[] { "--set" }, "both", false)]
+    [InlineData(new[] { "--types" }, "both", false)]
     [InlineData(new[] { "--unknown" }, "both", false)]
     public void Arguments_are_parsed(string[] args, string trigger, bool valid)
     {
@@ -252,11 +362,15 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
     {
         public List<string> Tools { get; } = [];
 
+        /// <summary>The case tool's description (it lists the offered types with their descriptions), per call.</summary>
+        public List<string> Descriptions { get; } = [];
+
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
         {
             var tools = options!.Tools!.OfType<AIFunctionDeclaration>().ToList();
             Tools.Add(string.Join('+', tools.Select(declaration => declaration.Name)));
             var tool = tools[^1];
+            Descriptions.Add(tool.Description);
             var question = messages.Last().Text;
             var ids = tool.JsonSchema.GetProperty("properties").EnumerateObject().First().Value.GetProperty("enum");
             ChatMessage reply;

@@ -29,6 +29,27 @@ person, farm or place.
   - `ambiguous`: any of the above; `expected` is the labeller's best judgement. Reported on its own
     (agreement), never in the missed/false-trigger rates.
 
+## A second set of type descriptions (`--types`, #293)
+
+`types-with-exclusions.json` holds the same three types (same keys, same order) with descriptions
+that say both what the type covers and what it does not, naming where the excluded things go
+(「不包括作物病蟲害、作物生長異常……這些請用田間異常回報」). It measures the admin-side fix of
+#257's recommendation 3 without changing a prompt:
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --types types-with-exclusions.json --report "$PWD/docs/evals/<date>-case-proposals-<model>-<ticket>.md"
+```
+
+- The file is JSON (comments allowed) with one `caseTypes` array in `questions.json`'s format. Its
+  keys must be the set's keys in the same order (labels and the fixed type ids refer to them); names
+  and descriptions may differ. A description longer than production's limit (500 characters) is
+  refused.
+- A relative path is looked up in the working directory, then next to `questions.json`.
+- Without `--types` the set's own descriptions are offered, exactly as before. The report names the
+  types file and its own fingerprint next to the set's.
+- Write the descriptions the way an admin would — a sentence or two of scope, then the confusions —
+  not as a list of this set's questions; otherwise the run measures the questions, not the advice.
+
 ## How a run is judged
 
 Each question is decided twice per trigger:

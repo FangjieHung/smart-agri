@@ -1590,6 +1590,7 @@ proposal, the form, or the database query) or pick the wrong case type, on the l
 dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --trigger keyword   # no model needed
 dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals                     # keyword and model (Ai:Chat)
 dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --report /tmp/case.md --set <dir> --trigger model
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --types types-with-exclusions.json --report /tmp/case.md
 ```
 
 - **Development and Testing only**, same arguments and exit codes as `eval-form-requests`. A relative
@@ -1603,9 +1604,18 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --report 
   that combined call and one case-only call (the case layer) with the production declarations and
   prompts, calling the configured chat model directly (not in `ModelInvocations`; the report has every
   question's tokens).
+- `--types <file>` (#293) offers the same questions another wording of the case types: a JSON file
+  with a `caseTypes` array whose keys and order match the set's (names and descriptions may differ;
+  at most 500 characters, production's limit). A relative path is looked up in the working
+  directory, then next to `questions.json`; `types-with-exclusions.json` there writes what each type
+  does not cover. Without it the set's own descriptions are used, as before. The report names the file
+  and its fingerprint.
 - A reasoning model such as `gpt-6-luna` needs `Ai__Chat__ReasoningEffort=None` (see "Chat model").
+- The default report name has no ticket number, so a second run on the same day overwrites the first;
+  pass `--report` to keep both.
 - Results and recommendations: `docs/evals/2026-10-07-257-case-proposal-trigger.md`; after the combined
-  call, `docs/evals/2026-10-07-286-combined-proposal-call.md`.
+  call, `docs/evals/2026-10-07-286-combined-proposal-call.md`; type descriptions that say what they
+  exclude, `docs/evals/2026-10-07-293-case-type-exclusions.md`.
 
 ## Development seed data
 

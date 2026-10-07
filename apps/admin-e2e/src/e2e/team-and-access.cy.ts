@@ -8,6 +8,20 @@ import { SHORT_WINDOWS, expectFullyOnScreen, expectScrollingBody } from '../supp
  * 帳號層級的「查看同意提交的紀錄」在團隊設定，資料庫層級的資料管理者指定在權限頁籤。
  * 權限存在 `localStorage`（`sme-demo:` 開頭），所以切換身分後仍然生效。
  */
+/**
+ * 打開系統設定頁，等每個區塊都讀完（issue #277）。
+ *
+ * 五個區塊各自讀取，資料晚一個畫格才出現。上面的區塊還在「正在載入」時就把下面的區塊捲進畫面，
+ * 上面的區塊讀完長高後，捲到的區塊又被推出捲動容器的可視範圍，`be.visible` 會因為被裁切而失敗。
+ * 對話模型區塊每個身分都讀得到，出現「上次變更」就代表它讀完了；mock 的各區塊在同一個畫格讀完，
+ * 再確認沒有任何區塊還停在「正在載入」。
+ */
+function visitSettings(): void {
+  cy.visit('/app/settings');
+  cy.get('[data-chat-model-last-change]').should('exist');
+  cy.get('app-settings-page [data-state="loading"]').should('not.exist');
+}
+
 describe('team management and data access', () => {
   beforeEach(() => {
     cy.clearLocalStorage();
@@ -15,7 +29,7 @@ describe('team management and data access', () => {
 
   it('lists the team with each role and what that role can do', () => {
     loginAs('SMB 管理者');
-    cy.visit('/app/settings');
+    visitSettings();
 
     cy.contains('h2', '團隊與權限').should('be.visible');
     cy.contains('不是真實的身分管理').should('be.visible');
@@ -27,7 +41,7 @@ describe('team management and data access', () => {
 
   it('refuses the team editor to a non-admin persona without naming anyone', () => {
     loginAs('內部使用者');
-    cy.visit('/app/settings');
+    visitSettings();
 
     cy.contains('無法查看團隊設定').should('be.visible');
     cy.get('.member').should('not.exist');
@@ -40,7 +54,7 @@ describe('team management and data access', () => {
   it('shows the single mock chat model to every persona without a menu (issue #240)', () => {
     for (const persona of ['SMB 管理者', '內部使用者']) {
       loginAs(persona);
-      cy.visit('/app/settings');
+      visitSettings();
       // 設定頁在捲動容器裡：先捲到區塊，否則 `be.visible` 會因為被裁切而假失敗。
       cy.get('[data-chat-model-panel]').scrollIntoView().within(() => {
         cy.contains('h2', '對話模型').should('be.visible');
@@ -52,12 +66,12 @@ describe('team management and data access', () => {
 
   it('lets only the manager manage case groups, with internal accounts as the only members (issue #246)', () => {
     loginAs('內部使用者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.contains('h2', '外觀設定').should('exist');
     cy.get('[data-case-groups-panel]').should('not.exist');
 
     loginAs('SMB 管理者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.get('[data-case-groups-panel]').scrollIntoView().within(() => {
       cy.contains('h2', '承辦組').should('be.visible');
       cy.get('[data-case-group="舊倉儲組"]').should('contain', '已封存');
@@ -87,7 +101,7 @@ describe('team management and data access', () => {
 
   it('shortens the retention through a confirmation, shows the buffer and goes back (issue #243)', () => {
     loginAs('SMB 管理者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.get('[data-conversation-retention]').scrollIntoView().within(() => {
       cy.contains('h2', '對話保存').should('be.visible');
       cy.contains('已轉給專人的問答會保留在處理事項中').should('be.visible');
@@ -116,7 +130,7 @@ describe('team management and data access', () => {
     cy.get('form.composer button[type="submit"]').click();
     cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
 
-    cy.visit('/app/settings');
+    visitSettings();
     cy.get('[data-assistant-row="assistant-customer-service"]').scrollIntoView().within(() => {
       cy.contains('客服助理').should('be.visible');
       cy.get('[data-keep-state]').should('contain', '開啟');
@@ -140,7 +154,7 @@ describe('team management and data access', () => {
 
   it('shows the retention read-only to a member (issue #243)', () => {
     loginAs('內部使用者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.get('[data-conversation-retention]').scrollIntoView().within(() => {
       cy.contains('h3', '保存期限：永久').should('be.visible');
       cy.contains('只有管理者可以變更保存期限').should('be.visible');
@@ -152,12 +166,12 @@ describe('team management and data access', () => {
 
   it('lets only the manager define case types, entering the handling time in days or hours (issue #247)', () => {
     loginAs('內部使用者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.contains('h2', '外觀設定').should('exist');
     cy.get('[data-case-types-panel]').should('not.exist');
 
     loginAs('SMB 管理者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.get('[data-case-types-panel]').scrollIntoView().within(() => {
       cy.contains('h2', '案件類型').should('be.visible');
       cy.get('[data-case-type="設備故障報修"]').should('contain', '預設承辦組：設備組').and('contain', '3 天');
@@ -200,7 +214,7 @@ describe('team management and data access', () => {
     it(`keeps the add-member buttons on screen and clickable in a ${width}×${height} window (issues #283, #284)`, () => {
       cy.viewport(width, height);
       loginAs('SMB 管理者');
-      cy.visit('/app/settings');
+      visitSettings();
       cy.contains('button', '新增成員').click();
 
       cy.get('form.create-panel[aria-labelledby="add-member-title"]').should('be.visible').within(() => {
@@ -229,7 +243,7 @@ describe('team management and data access', () => {
 
   it('will not let the admin lock themselves out of the team screen', () => {
     loginAs('SMB 管理者');
-    cy.visit('/app/settings');
+    visitSettings();
 
     cy.contains('button', '變更 安心商行管理者 的權限').click();
     cy.get('#permission-account-smb-admin-manage-assistants')
@@ -246,7 +260,7 @@ describe('team management and data access', () => {
     cy.get('.access-list').should('contain', '可查看收集紀錄與趨勢比較');
 
     loginAs('SMB 管理者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.contains('button', '變更 安心商行客服同仁 的權限').click();
     cy.get('#permission-account-internal-employee-read-consented-submissions')
       .should('be.checked')
@@ -263,7 +277,7 @@ describe('team management and data access', () => {
 
     // 加回來就恢復：權限變更沒有刪掉任何東西。
     loginAs('SMB 管理者');
-    cy.visit('/app/settings');
+    visitSettings();
     cy.contains('button', '變更 安心商行客服同仁 的權限').click();
     cy.get('#permission-account-internal-employee-read-consented-submissions').click();
     cy.contains('button', '儲存 安心商行客服同仁 的權限').click();
@@ -321,7 +335,7 @@ describe('team management and data access', () => {
     cy.visit('/app/channels');
     cy.contains('客服助理').should('be.visible');
 
-    cy.visit('/app/settings');
+    visitSettings();
     cy.contains('button', '變更 安心商行管理者 的權限').click();
     cy.get('#permission-account-smb-admin-manage-publishing').should('be.checked').click();
     cy.contains('button', '儲存 安心商行管理者 的權限').click();

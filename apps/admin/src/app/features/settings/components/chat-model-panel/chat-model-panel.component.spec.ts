@@ -1,14 +1,19 @@
 import { signal, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../../../../core/domain/account.model';
-import type { ChatModelOptionView } from '../../../../core/domain/organization-settings.model';
+import type {
+  ChatModelOptionView,
+  OrganizationChatModelView,
+} from '../../../../core/domain/organization-settings.model';
+import type { RepositoryView } from '../../../../core/repositories/demo-repository';
 import { DEMO_SEED } from '../../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../../core/repositories/memory-storage';
 import { MockDemoRepository } from '../../../../core/repositories/mock-demo-repository';
 import { DEMO_REPOSITORY } from '../../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../../core/session/demo-session.service';
+import { OrganizationSettingsChanges } from '../../organization-settings-changes.service';
 import { ChatModelPanelComponent } from './chat-model-panel.component';
 
 const TWO_MODELS: readonly ChatModelOptionView[] = [
@@ -20,6 +25,8 @@ async function render(options: {
   accountId?: AccountId;
   chatModels?: readonly ChatModelOptionView[];
   storage?: ReturnType<typeof createMemoryStorage>;
+  /** 放在系統設定頁裡：提供各區塊之間的「剛存好」通知（issue #243）。 */
+  settingsChanges?: OrganizationSettingsChanges;
 } = {}) {
   const activeAccountId = signal<AccountId | null>(options.accountId ?? 'account-smb-admin');
   const repository = new MockDemoRepository(DEMO_SEED, {
@@ -31,6 +38,7 @@ async function render(options: {
   const providers: Provider[] = [
     { provide: DEMO_REPOSITORY, useValue: repository },
     { provide: DemoSessionService, useValue: { activeAccountId } },
+    ...(options.settingsChanges ? [{ provide: OrganizationSettingsChanges, useValue: options.settingsChanges }] : []),
   ];
   TestBed.configureTestingModule({ imports: [ChatModelPanelComponent], providers });
   const fixture = TestBed.createComponent(ChatModelPanelComponent);
@@ -187,6 +195,45 @@ describe('ChatModelPanelComponent (issue #240)', () => {
 
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('目前無法儲存對話模型');
     expect(requiredSelect(host).value).toBe('fake-chat-dev');
+  });
+
+  it('re-reads after another block saves without going back to loading or replacing the panel (issue #277)', async () => {
+    const settingsChanges = new OrganizationSettingsChanges();
+    const { fixture, host, repository } = await render({ settingsChanges });
+    const panel = host.querySelector('[data-chat-model-panel]');
+    const pending = new Subject<RepositoryView<OrganizationChatModelView>>();
+    const reads = vi.spyOn(repository, 'getOrganizationChatModel').mockReturnValue(pending);
+
+    settingsChanges.announce({});
+    // 讀取還沒回來時 `whenStable()` 會一直等它；只跑一輪變更偵測（含 effect）。
+    TestBed.tick();
+    fixture.detectChanges();
+
+    // 重新讀取還沒回來：照舊顯示上一次的內容，不是「正在載入」，區塊也還是同一個元素。
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('目前使用：fake-chat-dev');
+    expect(host.textContent).not.toContain('正在載入對話模型');
+    expect(host.querySelector('[data-chat-model-panel]')).toBe(panel);
+
+    const fresh = new MockDemoRepository(DEMO_SEED, { storage: createMemoryStorage(), viewer: () => 'account-smb-admin' });
+    fresh.getOrganizationChatModel().subscribe((view) => pending.next(view));
+    pending.complete();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(host.textContent).toContain('目前使用：fake-chat-dev');
+    expect(host.querySelector('[data-chat-model-panel]')).toBe(panel);
+  });
+
+  it('does not re-read after its own save', async () => {
+    const settingsChanges = new OrganizationSettingsChanges();
+    const { fixture, host, repository } = await render({ chatModels: TWO_MODELS, settingsChanges });
+    const reads = vi.spyOn(repository, 'getOrganizationChatModel');
+
+    await choose(fixture, host, 'second');
+
+    expect(settingsChanges.saved()?.by).toBe(fixture.componentInstance);
+    expect(reads).not.toHaveBeenCalled();
   });
 
   it('shows an error panel when the setting cannot be read', async () => {

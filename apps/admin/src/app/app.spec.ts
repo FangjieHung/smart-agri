@@ -3,7 +3,9 @@ import { TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 import { vi } from 'vitest';
 import { BreakpointObserver } from '@angular/cdk/layout';
-import { RouterOutlet, Router } from '@angular/router';
+import { Location } from '@angular/common';
+import { provideLocationMocks } from '@angular/common/testing';
+import { RouterOutlet, Router, provideRouter } from '@angular/router';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { of, Subject } from 'rxjs';
 import { App } from './app';
@@ -68,6 +70,8 @@ describe('App', () => {
       providers: [
         ...(extraProviders as never[]),
         { provide: Router, useValue: fakeRouter },
+        // 整頁載入時 App 看網址列決定要不要 shell（issue #277）；這裡的網址列就是假 Router 一開始的網址。
+        { provide: Location, useValue: { path: () => fakeRouter.url } },
         {
           provide: BreakpointObserver,
           useValue: { observe: () => of({ matches: false, breakpoints: {} }) },
@@ -119,6 +123,85 @@ describe('App', () => {
     fixture.detectChanges();
 
     expect(content.scrollTop).toBe(88);
+  });
+
+  describe('a full page load of a workspace URL (issue #277)', () => {
+    /** 每建立一次就記一筆，看得出路由頁面是不是被建立了兩次。 */
+    const created: string[] = [];
+
+    @Component({ selector: 'app-counting-page', standalone: true, template: '<section data-counting-page>頁面</section>' })
+    class CountingPage {
+      constructor() {
+        created.push('page');
+      }
+    }
+
+    @Component({ selector: 'app-counting-login', standalone: true, template: '<p data-counting-login>登入</p>' })
+    class CountingLogin {
+      constructor() {
+        created.push('login');
+      }
+    }
+
+    /**
+     * 與瀏覽器整頁載入相同：網址已經是 `path`，Router 還沒做第一次導覽（`router.url` 仍是 `/`），
+     * App 先渲染，之後才由 `initialNavigation()` 啟用路由頁面。
+     */
+    async function loadAt(path: string) {
+      created.length = 0;
+      await TestBed.configureTestingModule({
+        imports: [App],
+        providers: [
+          provideRouter([
+            { path: 'app/settings', component: CountingPage },
+            { path: 'login', component: CountingLogin },
+          ]),
+          provideLocationMocks(),
+          {
+            provide: BreakpointObserver,
+            useValue: { observe: () => of({ matches: false, breakpoints: {} }) },
+          },
+        ],
+      })
+        .overrideComponent(App, {
+          set: { imports: [RouterOutlet, MatSidenavModule, StubSideNav, StubHeader, StubFooter] },
+        })
+        .compileComponents();
+      TestBed.inject(Location).go(path);
+      const router = TestBed.inject(Router);
+      expect(router.url).toBe('/');
+
+      const fixture = TestBed.createComponent(App);
+      (fixture.componentInstance as unknown as { refreshCaseOverdueCount: (url: string) => void }).refreshCaseOverdueCount = () => undefined;
+      fixture.detectChanges();
+      const shellBeforeNavigation = fixture.nativeElement.querySelector('.app-shell') !== null;
+
+      router.initialNavigation();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      return { fixture, host: fixture.nativeElement as HTMLElement, shellBeforeNavigation };
+    }
+
+    it('renders the shell before the first navigation, so the routed page is created only once inside it', async () => {
+      const { host, shellBeforeNavigation } = await loadAt('/app/settings');
+
+      // 以前 App 用 `router.url`（整頁載入時還是 `/`）決定要不要有 shell：頁面先建立在 shell 外面的
+      // outlet，NavigationEnd 之後才換到 shell 裡的 outlet，又建立一次；第一份在 DOM 裡停留一個畫格就被
+      // 移除，e2e 抓到它就一直等不到內容（CI 偶發逾時）。
+      expect(created).toEqual(['page']);
+      expect(shellBeforeNavigation).toBe(true);
+      expect(host.querySelectorAll('[data-counting-page]')).toHaveLength(1);
+      expect(host.querySelector('.app-shell [data-counting-page]')).not.toBeNull();
+    });
+
+    it('keeps pages outside the workspace without the shell', async () => {
+      const { host, shellBeforeNavigation } = await loadAt('/login');
+
+      expect(shellBeforeNavigation).toBe(false);
+      expect(created).toEqual(['login']);
+      expect(host.querySelector('.app-shell')).toBeNull();
+      expect(host.querySelector('[data-counting-login]')).not.toBeNull();
+    });
   });
 
   describe('the overdue number beside 案件 (issue #250)', () => {

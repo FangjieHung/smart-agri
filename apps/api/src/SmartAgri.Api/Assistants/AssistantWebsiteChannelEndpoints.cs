@@ -418,7 +418,7 @@ public static class AssistantWebsiteChannelEndpoints
             message,
             acceptance.Status,
             [.. nonOwned.Select(knowledgeBase => new WebsiteKnowledgeBaseView(knowledgeBase.Id, knowledgeBase.Name))],
-            options.EmbedCode(assistant.Id, settings.Position),
+            options.EmbedCode(assistant.Id, settings.Position, settings.BrandColor),
             channel?.PublishedAt,
             channel?.Revision ?? 0);
     }

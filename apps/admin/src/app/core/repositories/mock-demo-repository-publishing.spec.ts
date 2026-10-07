@@ -206,6 +206,24 @@ describe('MockDemoRepository publishing channels', () => {
     expect(saved.channel.status).toBe('published');
   });
 
+  it('writes the saved position and a non-default brand color into the demo embed code like the API (#225)', async () => {
+    const repository = createRepository();
+    const publishing = dataOf(await publishingAs(repository, ADMIN, CUSTOMER_SERVICE));
+    expect(publishing.website.brandColor).toBe('forest');
+    expect(publishing.website.embedCode).toContain(`data-assistant="${CUSTOMER_SERVICE}" async>`);
+
+    const saved = dataOf(
+      await firstValueFrom(
+        repository.updateWebsiteEmbed(
+          CUSTOMER_SERVICE,
+          websiteSettings(publishing, { brandColor: 'ocean', position: 'bottom-left' }),
+          publishing.website.revision,
+        ),
+      ),
+    );
+    expect(saved.embedCode).toContain(`data-assistant="${CUSTOMER_SERVICE}" data-position="left" data-brand="ocean" async>`);
+  });
+
   it('pauses and resumes one channel without touching the others and keeps changes per account storage', async () => {
     const storage = createMemoryStorage();
     const repository = createRepository(storage);

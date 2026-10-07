@@ -50,6 +50,33 @@ public class PublicChannelsOptionsTests
             "<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" async></script>");
     }
 
+    [Theory]
+    [InlineData(WebsiteBrandColor.Ocean, "ocean")]
+    [InlineData(WebsiteBrandColor.Amber, "amber")]
+    [InlineData(WebsiteBrandColor.Plum, "plum")]
+    public void A_brand_colour_is_written_into_the_embed_code_because_the_loader_reads_it_from_the_page(
+        WebsiteBrandColor brandColor, string wireName)
+    {
+        var options = new PublicChannelsOptions { PublicBaseUrl = "https://assistant.example.org" };
+
+        options.EmbedCode(AssistantId, WebsiteLauncherPosition.BottomRight, brandColor).ShouldBe(
+            $"<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" data-brand=\"{wireName}\" async></script>");
+        options.EmbedCode(AssistantId, WebsiteLauncherPosition.BottomLeft, brandColor).ShouldBe(
+            $"<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" data-position=\"left\" data-brand=\"{wireName}\" async></script>");
+    }
+
+    [Fact]
+    public void The_default_forest_brand_colour_is_left_out_like_a_line_pasted_before_225()
+    {
+        var options = new PublicChannelsOptions { PublicBaseUrl = "https://assistant.example.org" };
+
+        options.EmbedCode(AssistantId, WebsiteLauncherPosition.BottomRight, WebsiteBrandColor.Forest).ShouldBe(
+            "<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" async></script>");
+        options.EmbedCode(AssistantId, WebsiteLauncherPosition.BottomLeft, WebsiteBrandColor.Forest).ShouldBe(
+            "<script src=\"https://assistant.example.org/embed.js\" data-assistant=\"01a10194-0000-7000-8000-000000000001\" data-position=\"left\" async></script>");
+        Enum.GetValues<WebsiteBrandColor>().Length.ShouldBe(4, "a new brand colour also needs embed.js's table (apps/embed-loader/src/embed.js)");
+    }
+
     [Fact]
     public void The_line_webhook_url_is_under_the_public_base_url_and_null_without_it()
     {

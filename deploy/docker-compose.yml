@@ -11,6 +11,8 @@ name: smartagri
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg18
+    # Come back after a reboot or a Docker restart; `docker compose stop` still keeps it stopped.
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-smartagri}
       POSTGRES_USER: ${POSTGRES_USER:-smartagri}
@@ -27,6 +29,8 @@ services:
       retries: 10
 
   api:
+    # Same as postgres. One-off commands (`docker compose run --rm api migrate|setup`) are not restarted.
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: apps/api/src/SmartAgri.Api/Dockerfile

@@ -260,6 +260,9 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
    ```
 
    嵌入碼的網址來自 `PUBLIC_BASE_URL`；畫面上寫「伺服器尚未設定對外網址」時，請系統管理者補上並重啟 api。
+   顯示位置選「左下角」時嵌入碼會多 `data-position="left"`，品牌色不是預設的森林綠時會多 `data-brand="ocean"` 之類的屬性：
+   官網上的啟動按鈕只從網頁讀這兩個設定，所以**之後改了位置或品牌色，要重新複製嵌入碼貼到網站上**，按鈕才會跟著變
+   （對話視窗裡的顏色、名稱與歡迎語則是即時的，不必重貼）。舊的嵌入碼沒有這些屬性，會維持右下角、森林綠。
 6. **看「安裝偵測」。** 網頁第一次載入對話視窗時，該網域的「最後偵測到」時間就會更新。這是被動偵測（伺服器不會去連客戶網站），
    僅供參考，不是安全判斷。
 7. **之後的狀態會自動判斷**：驗收「未通過」或「尚未驗收」、連接了別人的知識庫、組織本月用量用完，對外回覆都會自動暫停，
@@ -293,6 +296,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 | 客戶官網上看不到對話按鈕 | 該網站的網域不在允許清單（注意 `www.`）；或頻道未發布、已暫停。用瀏覽器開發者工具看 console 是否有 `frame-ancestors` 的 CSP 錯誤。 |
 | 直接用瀏覽器開 `/use/<id>` 看到「請從官網開啟這個對話視窗」 | 正常：對話視窗只能從允許的網站嵌入；預覽請用 admin 的 `/app/chat/<助理 id>`。 |
 | 訪客看到「目前暫停服務」 | 到發布頁看狀態：驗收未通過、連接了別人的知識庫、本月用量用完，或擁有者暫停。 |
+| 官網的啟動按鈕顏色或位置沒有跟著發布頁的設定改變 | 網站上貼的還是舊的嵌入碼：到發布頁重新複製嵌入碼貼上（第 7 節第 5 步）。 |
+| 客戶的工程師在開發者工具看到紅色的 `Agent execution failed: Error: HTTP 403: …` 或 `HTTP 429: …` | **預期中的訊息，不是故障**：訪客遇到暫停服務（`403`）或問題太頻繁（`429`）時，對話視窗使用的 `@ag-ui/client` 套件會自己印這一行，而且沒有正式的方式關掉；訪客畫面上看到的是「目前暫停服務」或「問題太頻繁了，請稍後再試」。確切內容：`Agent execution failed: Error: HTTP 403: {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"public-assistant","message":"這個對話視窗目前無法使用。"}`，以及 `Agent execution failed: Error: HTTP 429: {"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"reason":"rate-limited","message":"問題太頻繁了，請稍後再試。"}`。瀏覽器另外會為同一個請求記一行網路錯誤（例如 Chrome 的 `POST https://<api>/api/v1/public/assistants/<助理 id>/chat/runs 403 (Forbidden)` 或 `Failed to load resource: the server responded with a status of 403 ()`），這一行網頁無法關掉。只有訪客沒看到上述畫面時才需要追查（先看發布頁的狀態）。說明與原始碼位置見 `apps/widget/README.md`「主控台裡預期中的錯誤訊息」。 |
 | 重建容器後所有人被登出 | 金鑰 volume 沒有掛上或被刪（第 4 節）。 |
 | LINE 使用者收到兩則回覆，或一則罐頭回覆加一則助理回答 | Official Account Manager 的「自動回應訊息」沒關（第 10.2 節）。 |
 | LINE 的「測試連線」第三項（webhook-test）失敗 | `PUBLIC_BASE_URL` 不是 LINE 連得到的公開 HTTPS 網址，或反向代理沒轉發 `/api/v1/line/webhook/*`；網址變了要重按「測試連線」（第 10.1 節）。 |

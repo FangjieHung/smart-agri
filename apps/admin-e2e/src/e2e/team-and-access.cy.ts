@@ -1,4 +1,5 @@
 import { loginAs } from '../support/a11y';
+import { SHORT_WINDOWS, expectFullyOnScreen, expectScrollingBody } from '../support/on-screen';
 
 /**
  * 團隊與權限（`/app/settings`）與資料庫的「權限」頁籤。
@@ -195,7 +196,7 @@ describe('team management and data access', () => {
 
   // issue #284：權限清單讓「新增成員」對話框比矮視窗還高，而且不能捲動，送出鈕被裁掉。
   // 現在只有中間的欄位捲動；這裡全程不用 scrollIntoView，按鈕也用 scrollBehavior: false 直接點。
-  for (const [width, height] of [[1000, 660], [390, 700]] as const) {
+  for (const [width, height] of SHORT_WINDOWS) {
     it(`keeps the add-member buttons on screen and clickable in a ${width}×${height} window (issues #283, #284)`, () => {
       cy.viewport(width, height);
       loginAs('SMB 管理者');
@@ -206,11 +207,8 @@ describe('team management and data access', () => {
         // issue #283：一打開顯示的就是元件預設、權限最小的內部同仁。
         cy.get('#new-member-role').should('have.value', 'internal-employee')
           .find('option:selected').should('have.text', '內部同仁');
-        // 內容比可用的高度多，所以中間那段真的在捲動，而不是整個對話框被撐高。
-        cy.get('.create-panel__body').should(($body) => {
-          expect($body[0].scrollHeight, 'scrollable body').to.be.greaterThan($body[0].clientHeight);
-        });
       });
+      expectScrollingBody('form.create-panel[aria-labelledby="add-member-title"] .create-panel__body');
       expectFullyOnScreen('#add-member-title');
       expectFullyOnScreen('form.create-panel button[type="submit"]');
       expectFullyOnScreen('form.create-panel button[type="button"]');
@@ -340,18 +338,3 @@ describe('team management and data access', () => {
     cy.contains('客服助理').should('be.visible');
   });
 });
-
-/** 元素整個落在視窗內，而且視窗在它中心點命中的就是它自己（沒有被裁掉或蓋住）。 */
-function expectFullyOnScreen(selector: string): void {
-  cy.get(selector).then(($element) => {
-    const element = $element[0];
-    const rect = element.getBoundingClientRect();
-    const win = element.ownerDocument.defaultView as Window;
-    expect(rect.top, `${selector} top`).to.be.at.least(0);
-    expect(rect.left, `${selector} left`).to.be.at.least(0);
-    expect(rect.bottom, `${selector} bottom`).to.be.at.most(win.innerHeight);
-    expect(rect.right, `${selector} right`).to.be.at.most(win.innerWidth);
-    const hit = element.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    expect(hit === element || element.contains(hit), `${selector} is the element at its own center`).to.eq(true);
-  });
-}

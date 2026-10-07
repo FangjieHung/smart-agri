@@ -1,3 +1,5 @@
+@use '../../../../styles/dialog-scroll';
+
 :host { display: block; }
 
 .workspace-page { display: grid; gap: var(--space-6); }
@@ -11,6 +13,8 @@ h2 { font-size: var(--font-size-heading); line-height: var(--line-height-heading
   border: var(--border-default);
   border-radius: var(--radius-container);
   background: var(--color-surface);
+  // 新增資料庫對話框限制在視窗高度內，只有模板清單捲動（issue #288，比照 #284 的新增成員）。
+  @include dialog-scroll.scrolling-panel('.create-panel__body');
 }
 
 .template-picker { min-inline-size: 0; margin: 0; padding: 0; border: 0; }

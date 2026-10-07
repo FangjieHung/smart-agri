@@ -1,3 +1,5 @@
+@use '../../../../styles/dialog-scroll';
+
 :host { display: block; }
 
 .channel-panel, .settings, .block { display: grid; gap: var(--space-4); }
@@ -108,5 +110,8 @@ a.next-step { display: inline-flex; align-items: center; min-block-size: var(--t
 .publish-panel h2 { margin: 0; font-size: var(--font-size-heading); }
 .publish-panel p { margin: 0; line-height: var(--line-height-body); }
 .publish-detail { display: grid; gap: var(--space-3); }
+// 知識庫清單由 @for 產生、可能很長：對話框限制在視窗高度內，只有說明那段捲動（issue #288）。
+.publish-panel { @include dialog-scroll.scrolling-panel('.publish-detail'); }
+.publish-detail:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
 .dialog-actions a.ui-button { display: inline-flex; align-items: center; text-decoration: none; }

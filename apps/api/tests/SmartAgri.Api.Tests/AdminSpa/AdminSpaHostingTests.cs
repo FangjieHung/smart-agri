@@ -95,6 +95,8 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
         response.Content.Headers.ContentType!.ToString().ShouldBe("text/html; charset=utf-8");
         Header(response, "Cache-Control").ShouldBe("no-cache");
         Header(response, "X-Content-Type-Options").ShouldBe("nosniff");
+        // Only the admin's own origin may frame it (clickjacking); sites embed /use/{id} instead.
+        Header(response, "Content-Security-Policy").ShouldBe("frame-ancestors 'self'");
         (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBe(AdminIndex);
     }
 

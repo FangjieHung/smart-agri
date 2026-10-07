@@ -151,6 +151,12 @@ public static partial class AdminSpaHosting
     {
         context.Response.Headers.CacheControl = cacheControl;
         context.Response.Headers.XContentTypeOptions = "nosniff";
+        if (contentType.StartsWith("text/html", StringComparison.Ordinal))
+        {
+            // The admin (its sign-in page included) must not be framed by another site (clickjacking);
+            // customer sites embed the API's own /use/{id} page instead (WidgetEndpoints).
+            context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'self'";
+        }
         return Results.File(file, contentType, lastModified: File.GetLastWriteTimeUtc(file)).ExecuteAsync(context);
     }
 

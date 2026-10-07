@@ -78,27 +78,30 @@
 <ng-template #createDialog>
     <form class="create-panel" aria-labelledby="create-title" (submit)="create($event)" novalidate>
       <h2 id="create-title">建立資料庫</h2>
-      <fieldset class="template-picker" [disabled]="creating()">
-        <legend>你要收集什麼？</legend>
-        <div class="template-grid">
-          @for (template of templates(); track template.id) {
-            <label class="template-option">
-              <input
-                type="radio"
-                name="database-template"
-                [value]="template.id"
-                [checked]="templateId() === template.id"
-                (change)="chooseTemplate(template)"
-              />
-              <span>
-                <strong>{{ template.name }}</strong>
-                <small>{{ template.description }}</small>
-                <small class="template-fields">{{ template.fields.length }} 個欄位</small>
-              </span>
-            </label>
-          }
-        </div>
-      </fieldset>
+      <!-- 矮視窗只有模板清單捲動，名稱欄位、按鈕列與錯誤訊息一直看得到（issue #288）。 -->
+      <div class="create-panel__body">
+        <fieldset class="template-picker" [disabled]="creating()">
+          <legend>你要收集什麼？</legend>
+          <div class="template-grid">
+            @for (template of templates(); track template.id) {
+              <label class="template-option">
+                <input
+                  type="radio"
+                  name="database-template"
+                  [value]="template.id"
+                  [checked]="templateId() === template.id"
+                  (change)="chooseTemplate(template)"
+                />
+                <span>
+                  <strong>{{ template.name }}</strong>
+                  <small>{{ template.description }}</small>
+                  <small class="template-fields">{{ template.fields.length }} 個欄位</small>
+                </span>
+              </label>
+            }
+          </div>
+        </fieldset>
+      </div>
       <div class="name-row">
         <div class="control">
           <label for="database-name">資料庫名稱</label>

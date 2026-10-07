@@ -1,17 +1,3 @@
-@if (recentThreads(); as recent) {
-  <section class="recent-chats" aria-labelledby="recent-chats-title">
-    <h2 id="recent-chats-title">Chats</h2>
-    @if (recent.length > 0) {
-      <ul>
-        @for (thread of recent; track thread.assistantId + ':' + thread.id) {
-          <li><button type="button" (click)="selectRecentThread.emit(thread)">
-            <span>{{ thread.title }}</span><small>{{ thread.assistantName }}</small>
-          </button></li>
-        }
-      </ul>
-    } @else { <p>尚無對話紀錄</p> }
-  </section>
-} @else {
 <div class="rail-inner">
   <div class="rail-head">
     <h2 class="rail-title" id="conversation-rail-title">對話紀錄</h2>
@@ -95,5 +81,4 @@
     (cancelled)="cancelDelete()"
     (confirmed)="confirmDelete()"
   />
-}
 }

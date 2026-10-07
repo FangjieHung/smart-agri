@@ -13,7 +13,7 @@ import { NavEntry, NavGroup, NavLeaf, isNavGroup } from './nav-item.model';
 import { repositoryResource } from '../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { ChatHistoryRevisionService } from '../../core/session/chat-history-revision.service';
-import { ConversationRailComponent, type RecentChatThreadView } from '../../features/assistant-use/conversation-rail/conversation-rail.component';
+import { RecentChatsComponent, type RecentChatThreadView } from './recent-chats/recent-chats.component';
 
 @Component({
   selector: 'app-side-nav',
@@ -24,7 +24,7 @@ import { ConversationRailComponent, type RecentChatThreadView } from '../../feat
     MatMenuModule,
     MatTooltipModule,
     OverlayModule,
-    ConversationRailComponent,
+    RecentChatsComponent,
   ],
   templateUrl: './side-nav.component.html',
   styleUrl: './side-nav.component.scss',

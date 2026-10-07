@@ -38,8 +38,10 @@ Each question is decided twice per trigger:
   layers before it had said no.
 - **The whole proposal stage** (decision L: database query → form → case → answer): the query layer
   is `DatabaseQueryTools.AsksForStatistics` (the gate that offers the query tools; the query model's
-  own choice is not judged here); the form layer is `AssistantFormRequestRules.AsksForForm` in keyword
-  mode and one `request_database_form` call (#164) in model mode; then the case layer.
+  own choice is not judged here); in keyword mode `AssistantFormRequestRules.AsksForForm` and then the
+  case layer; in model mode, since #286, the one combined call production makes for an assistant with a
+  form and case types (`ProposalSelectionRules`: `request_database_form` and `propose_case` offered
+  together, the model calls one or neither).
 
 Missed = a `case` question with no case proposal; false trigger = a `none`, `form` or `query` question
 with one; wrong type = a `case` question proposed under another type. A failed model call is counted,

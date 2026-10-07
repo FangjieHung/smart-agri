@@ -187,6 +187,34 @@ public sealed class FakeChatClientTests
         (await CallAsync($"我要回報 {FakeChatDirectives.NoQuery}")).ShouldNotBeNull();
     }
 
+    [Fact]
+    public async Task With_the_form_and_the_case_tool_it_decides_the_form_first_then_the_case_then_none()
+    {
+        using var client = new FakeChatClient("fake-chat");
+        var formId = Guid.NewGuid();
+        var typeId = Guid.NewGuid();
+        var options = new ChatOptions
+        {
+            Tools = SmartAgri.Application.Chat.ProposalSelectionRules.Declarations(
+                [new(formId, "田間異常回報", "記錄異常")], [new SmartAgri.Application.Cases.CaseProposalOffer(typeId, "設備報修", "設備故障")]),
+        };
+
+        async Task<FunctionCallContent?> CallAsync(string question) =>
+            (await client.GetResponseAsync([new ChatMessage(ChatRole.User, question)], options, CancellationToken))
+                .Messages.SelectMany(message => message.Contents).OfType<FunctionCallContent>().SingleOrDefault();
+
+        // #286: the form when the form gate (or its directive) says so, even with a case word.
+        (await CallAsync("我要回報冷藏庫壞了要報修")).ShouldNotBeNull().Name.ShouldBe("request_database_form");
+        // Otherwise the case, in the same call.
+        var proposed = (await CallAsync("冷藏庫壞了要報修")).ShouldNotBeNull();
+        proposed.Name.ShouldBe("propose_case");
+        proposed.Arguments!["caseTypeId"].ShouldBe(typeId.ToString());
+        (await CallAsync($"我要回報冷藏庫壞了 {FakeChatDirectives.NoForm} {FakeChatDirectives.CaseProposal}")).ShouldNotBeNull().Name.ShouldBe("propose_case");
+        // Or neither.
+        (await CallAsync("番茄葉子黃了是什麼原因？")).ShouldBeNull();
+        (await CallAsync($"冷藏庫壞了要報修 {FakeChatDirectives.NoCase}")).ShouldBeNull();
+    }
+
     private static List<ChatMessage> WithPassages(int count, string question)
     {
         var passages = string.Join('\n', Enumerable.Range(1, count).Select(index => $"[{index}] 段落內容 {index}"));

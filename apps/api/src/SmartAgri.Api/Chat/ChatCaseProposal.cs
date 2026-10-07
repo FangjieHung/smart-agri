@@ -215,8 +215,10 @@ internal sealed class ChatCaseProposal(AppDbContext dbContext, RequestAccountRol
             : null;
     }
 
-    private static CaseProposalReply Reply(CaseProposalDraft draft, IReadOnlyList<ProposableCaseType> proposable) =>
-        new(draft, proposable.Single(type => type.Offer.TypeId == draft.Offer.TypeId));
+    /// <summary>The reply of <paramref name="draft"/>, one of <paramref name="proposable"/>'s types (also the
+    /// combined selection's case reply, #286).</summary>
+    internal static ChatProposalReply Reply(CaseProposalDraft draft, IReadOnlyList<ProposableCaseType> proposable) =>
+        new CaseProposalReply(draft, proposable.Single(type => type.Offer.TypeId == draft.Offer.TypeId));
 
     /// <summary>Keyword mode: already decided in step 1, no model call.</summary>
     private sealed class Decided(ChatProposalReply reply) : ChatProposalCandidate
@@ -225,13 +227,20 @@ internal sealed class ChatCaseProposal(AppDbContext dbContext, RequestAccountRol
             Task.FromResult<ChatProposalReply?>(reply);
     }
 
-    /// <summary>Model mode: one selection call, only when the proposals before it said no.</summary>
-    private sealed class ModelSelection(
+    /// <summary>Model mode: one selection call, only when the proposals before it said no — or, when the form
+    /// is offered too, folded into the combined selection by <see cref="ChatProposalStage"/> (#286).</summary>
+    internal sealed class ModelSelection(
         ChatCaseProposalTool tool,
         ChatProposalContext context,
         IReadOnlyList<ProposableCaseType> proposable,
         IReadOnlyList<CaseProposalOffer> offers) : ChatProposalCandidate
     {
+        /// <summary>The types the assistant may propose now (re-read for this request).</summary>
+        public IReadOnlyList<ProposableCaseType> Proposable => proposable;
+
+        /// <summary><see cref="Proposable"/> as offered to the rules and the model.</summary>
+        public IReadOnlyList<CaseProposalOffer> Offers => offers;
+
         public override async Task<ChatProposalReply?> DecideAsync(CancellationToken cancellationToken) =>
             await tool.SelectAsync(context.Assistant.Id, offers, context.Question, context.AskerId, cancellationToken) is { } draft
                 ? Reply(draft, proposable)

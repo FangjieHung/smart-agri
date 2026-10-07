@@ -335,26 +335,115 @@ public class ChatCaseProposalTests : IClassFixture<AuthHostFixture>
         after.Count(invocation => !invocation.Succeeded).ShouldBe(1);
     }
 
+    // --- Model mode with the form and a type: one combined call (#286) ------------------------------
+
     [Fact]
-    public async Task Model_mode_asks_about_the_form_first_and_about_the_case_only_when_the_form_says_no()
+    public async Task With_the_form_and_a_type_model_mode_makes_one_counted_combined_call_for_the_form_the_case_or_neither()
     {
         await using var model = _host.Factory.WithWebHostBuilder(builder => builder.UseSetting("Chat:FormRequests:Trigger", "model"));
         var setup = await CreateSetupAsync(model);
         await AddTypeAsync(setup, setup.RepairTypeId);
-        var databaseId = await CreateDatabaseAsync(setup.Admin, "設備問題資料庫");
-        (await setup.Admin.Spa.PutAsync($"{AssistantsPath}/{setup.AssistantId}/sources/database/{databaseId}", setup.Admin.Token, new { }))
-            .StatusCode.ShouldBe(HttpStatusCode.OK);
-        (await setup.Admin.Spa.PatchAsync($"{AssistantsPath}/{setup.AssistantId}/settings", setup.Admin.Token, new
+        await ConnectFormAsync(setup);
+
+        // The model chooses the form (the fake decides the form first, like decision L) …
+        var form = await RunAsync(setup.Member, setup.AssistantId, $"{RepairQuestion} {FakeChatDirectives.FormRequest}");
+        Kind(form).ShouldBe("form-request");
+        form.Reply!.Value.GetProperty("reply").GetProperty("caseProposal").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        // … the case (no form words: the fake calls propose_case in the same call) …
+        var proposed = await RunAsync(setup.Member, setup.AssistantId, RepairQuestion);
+        Proposal(proposed).GetProperty("typeId").GetGuid().ShouldBe(setup.RepairTypeId);
+        Proposal(proposed).GetProperty("title").GetString().ShouldBe($"模型草擬：{RepairQuestion}");
+        proposed.Reply!.Value.GetProperty("reply").GetProperty("form").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        // … or neither: the answer pipeline answers.
+        var neither = await RunAsync(setup.Member, setup.AssistantId, "今天下午適合噴藥嗎？");
+        Kind(neither).ShouldNotBeNull().ShouldNotBeOneOf("form-request", "case-proposal");
+
+        // One reply, one proposal at most, and one form-check right before the call (#171's place and value).
+        foreach (var run in new[] { form, proposed, neither })
         {
-            rules = new { dataWriteDatabaseId = databaseId.ToString(), dataWritePurpose = "記錄設備問題，方便追蹤。" },
-        })).StatusCode.ShouldBe(HttpStatusCode.OK);
+            var types = run.Events.Select(e => e.GetProperty("type").GetString() == "CUSTOM" ? $"CUSTOM {e.GetProperty("name").GetString()}" : e.GetProperty("type").GetString()).ToList();
+            types.Count(type => type == $"CUSTOM {ChatRunEndpoints.FormCheckEventName}").ShouldBe(1, string.Join(", ", types));
+            types.Count(type => type == "CUSTOM smartagri.reply").ShouldBe(1);
+            var check = types.IndexOf($"CUSTOM {ChatRunEndpoints.FormCheckEventName}");
+            check.ShouldBeGreaterThan(types.IndexOf("TEXT_MESSAGE_START"));
+            check.ShouldBeLessThan(types.IndexOf("TEXT_MESSAGE_CONTENT"));
+            run.Events[check].GetProperty("value").EnumerateObject().ShouldBeEmpty();
+        }
 
-        Kind(await RunAsync(setup.Member, setup.AssistantId, $"{RepairQuestion} {FakeChatDirectives.FormRequest}")).ShouldBe("form-request");
+        // Exactly one model call per reply, as proposal-selection — never form-request or case-proposal.
+        var calls = await InvocationsAsync(setup.Org, ModelInvocationPurpose.ProposalSelection);
+        calls.Count.ShouldBe(3);
+        calls.ShouldAllBe(invocation => invocation.AccountId == setup.Org.Member.Id && invocation.AssistantId == setup.AssistantId && invocation.Succeeded);
+        (await InvocationsAsync(setup.Org, ModelInvocationPurpose.FormRequest)).ShouldBeEmpty();
         (await InvocationsAsync(setup.Org, ModelInvocationPurpose.CaseProposal)).ShouldBeEmpty();
+        SmartAgri.Application.Organizations.OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.ProposalSelection);
+    }
 
-        Kind(await RunAsync(setup.Member, setup.AssistantId, RepairQuestion)).ShouldBe("case-proposal");
-        (await InvocationsAsync(setup.Org, ModelInvocationPurpose.FormRequest)).Count.ShouldBe(2);
-        (await InvocationsAsync(setup.Org, ModelInvocationPurpose.CaseProposal)).Count.ShouldBe(1);
+    [Fact]
+    public async Task The_combined_call_accepts_only_what_was_offered_and_falls_back_to_the_form_gate_then_the_case_rule()
+    {
+        await using var model = _host.Factory.WithWebHostBuilder(builder => builder.UseSetting("Chat:FormRequests:Trigger", "model"));
+        var setup = await CreateSetupAsync(model);
+        await AddTypeAsync(setup, setup.RepairTypeId);
+        var databaseId = await ConnectFormAsync(setup);
+
+        // An unoffered type, an unoffered form, another tool: no proposal of either kind.
+        foreach (var call in new[]
+        {
+            CaseCall(setup.PurchaseTypeId),
+            FakeChatDirectives.Query + JsonSerializer.Serialize(new { name = AssistantFormRequestRulesToolName, arguments = new { databaseId = Guid.CreateVersion7() } }),
+            CaseCall(setup.RepairTypeId, name: "propose_something"),
+        })
+        {
+            Kind(await RunAsync(setup.Member, setup.AssistantId, $"{RepairQuestion} {call}")).ShouldNotBeNull().ShouldNotBeOneOf("form-request", "case-proposal");
+        }
+
+        // The offered ones, named explicitly, are accepted (the form re-authorized for that id).
+        var named = FakeChatDirectives.Query + JsonSerializer.Serialize(new { name = AssistantFormRequestRulesToolName, arguments = new { databaseId } });
+        Kind(await RunAsync(setup.Member, setup.AssistantId, $"今天的事 {named}")).ShouldBe("form-request");
+
+        // A model failure: the form gate first, then the case rule — and the failed call is still recorded.
+        Kind(await RunAsync(setup.Member, setup.AssistantId, $"我要回報冷藏庫故障，需要報修 {FakeChatDirectives.FailMidway}")).ShouldBe("form-request");
+        var fallback = await RunAsync(setup.Member, setup.AssistantId, $"{RepairQuestion} {FakeChatDirectives.FailMidway}");
+        Proposal(fallback).GetProperty("title").GetString().ShouldBe($"{RepairQuestion} {FakeChatDirectives.FailMidway}");
+        Kind(await RunAsync(setup.Member, setup.AssistantId, $"今天下午適合噴藥嗎？ {FakeChatDirectives.FailMidway}")).ShouldNotBeOneOf("form-request", "case-proposal");
+
+        var calls = await InvocationsAsync(setup.Org, ModelInvocationPurpose.ProposalSelection);
+        calls.Count.ShouldBe(7);
+        calls.Count(invocation => !invocation.Succeeded).ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task With_only_one_of_the_two_the_single_call_of_before_is_made()
+    {
+        await using var model = _host.Factory.WithWebHostBuilder(builder => builder.UseSetting("Chat:FormRequests:Trigger", "model"));
+
+        // Only a type: #254's case-proposal call, and no form-check (no form is offered).
+        var caseOnly = await CreateSetupAsync(model);
+        await AddTypeAsync(caseOnly, caseOnly.RepairTypeId);
+        var proposed = await RunAsync(caseOnly.Member, caseOnly.AssistantId, RepairQuestion);
+        Kind(proposed).ShouldBe("case-proposal");
+        proposed.Body.ShouldNotContain(ChatRunEndpoints.FormCheckEventName);
+        (await InvocationsAsync(caseOnly.Org, ModelInvocationPurpose.CaseProposal)).Count.ShouldBe(1);
+        (await InvocationsAsync(caseOnly.Org, ModelInvocationPurpose.ProposalSelection)).ShouldBeEmpty();
+
+        // Only the form (no type on the list): #164's form-request call, after form-check.
+        var formOnly = await CreateSetupAsync(model);
+        await ConnectFormAsync(formOnly);
+        var form = await RunAsync(formOnly.Member, formOnly.AssistantId, "我要回報冷藏庫故障");
+        Kind(form).ShouldBe("form-request");
+        form.Body.ShouldContain(ChatRunEndpoints.FormCheckEventName);
+        Kind(await RunAsync(formOnly.Member, formOnly.AssistantId, RepairQuestion)).ShouldNotBe("case-proposal");
+        (await InvocationsAsync(formOnly.Org, ModelInvocationPurpose.FormRequest)).Count.ShouldBe(2);
+        (await InvocationsAsync(formOnly.Org, ModelInvocationPurpose.ProposalSelection)).ShouldBeEmpty();
+
+        // Both set up, but the asker is an external customer (never a case): never the combined call.
+        await AddTypeAsync(formOnly, formOnly.RepairTypeId);
+        Kind(await RunAsync(formOnly.External, formOnly.AssistantId, RepairQuestion)).ShouldNotBe("case-proposal");
+        (await InvocationsAsync(formOnly.Org, ModelInvocationPurpose.ProposalSelection)).ShouldBeEmpty();
+        (await InvocationsAsync(formOnly.Org, ModelInvocationPurpose.CaseProposal)).ShouldBeEmpty();
     }
 
     // --- Settings (decision U) --------------------------------------------------------------------
@@ -410,6 +499,22 @@ public class ChatCaseProposalTests : IClassFixture<AuthHostFixture>
 
     private static void OrganizationTokenUsageRulesShouldCount() =>
         SmartAgri.Application.Organizations.OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.CaseProposal);
+
+    private const string AssistantFormRequestRulesToolName = SmartAgri.Application.Assistants.AssistantFormRequestRules.ToolName;
+
+    /// <summary>Makes a new database the assistant's form target (the admin owns both); its id.</summary>
+    private static async Task<Guid> ConnectFormAsync(Setup setup)
+    {
+        var databaseId = await CreateDatabaseAsync(setup.Admin, "設備問題資料庫");
+        (await setup.Admin.Spa.PutAsync($"{AssistantsPath}/{setup.AssistantId}/sources/database/{databaseId}", setup.Admin.Token, new { }))
+            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        var target = await setup.Admin.Spa.PatchAsync($"{AssistantsPath}/{setup.AssistantId}/settings", setup.Admin.Token, new
+        {
+            rules = new { dataWriteDatabaseId = databaseId.ToString(), dataWritePurpose = "記錄設備問題，方便追蹤。" },
+        });
+        target.StatusCode.ShouldBe(HttpStatusCode.OK, await target.Content.ReadAsStringAsync(CancellationToken));
+        return databaseId;
+    }
 
     private static string CaseCall(Guid caseTypeId, string name = CaseProposalRules.ToolName) =>
         FakeChatDirectives.Query + JsonSerializer.Serialize(new { name, arguments = new { caseTypeId, title = "標題", description = "說明" } });

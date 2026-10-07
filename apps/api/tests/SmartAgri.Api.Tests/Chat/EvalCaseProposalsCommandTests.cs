@@ -79,6 +79,12 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         CaseProposalEvalScoring.Stage(false, CaseProposalEvalFormDecision.Error, proposal).ShouldBe(CaseProposalEvalOutcome.Error);
         CaseProposalEvalScoring.Stage(false, CaseProposalEvalFormDecision.None, proposal).ShouldBe(proposal);
         CaseProposalEvalScoring.Stage(false, CaseProposalEvalFormDecision.None, CaseProposalEvalOutcome.None).ShouldBe(CaseProposalEvalOutcome.None);
+
+        // The model's stage (#286): the query layer, then the combined selection's own outcome.
+        CaseProposalEvalScoring.Stage(true, proposal).ShouldBe(CaseProposalEvalOutcome.Query);
+        CaseProposalEvalScoring.Stage(false, proposal).ShouldBe(proposal);
+        CaseProposalEvalScoring.Stage(false, CaseProposalEvalOutcome.Form).ShouldBe(CaseProposalEvalOutcome.Form);
+        CaseProposalEvalScoring.Stage(false, CaseProposalEvalOutcome.Error).ShouldBe(CaseProposalEvalOutcome.Error);
     }
 
     [Fact]
@@ -182,15 +188,18 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         var exit = await command.RunAsync(new EvalCaseProposalsCommand.Arguments("model", _directory, report, false), new StringWriter(), new StringWriter(), CancellationToken);
 
         exit.ShouldBe(EvalCaseProposalsCommand.ExitSuccess);
-        // One form call and one case call per question, with the production tools.
-        client.Tools.Count(name => name == "request_database_form").ShouldBe(3);
-        client.Tools.Count(name => name == "propose_case").ShouldBe(3);
+        // #286: one combined call (both production tools) and one case-only call per question.
+        client.Tools.Count(names => names == "request_database_form+propose_case").ShouldBe(3);
+        client.Tools.Count(names => names == "propose_case").ShouldBe(3);
+        client.Tools.ShouldNotContain("request_database_form");
         var text = await File.ReadAllTextAsync(report, CancellationToken);
-        text.ShouldContain("| c1 | case | case:repair | none ✗ | none ✗ | case:repair ✓ | case:repair ✓ | 100／10 | 200／20 |");
-        // The form layer took f1 first, although the case layer alone would have proposed (a false trigger there).
+        text.ShouldContain("| c1 | case | case:repair | none ✗ | none ✗ | case:repair ✓ | case:repair ✓ | 300／30 | 200／20 |");
+        // The combined call gave f1 the form, although the case layer alone would have proposed (a false trigger there).
         text.ShouldContain("| f1 | form | form | none ✓ | none ✗ | case:repair ✗ | form ✓ |");
-        text.ShouldContain("| n1 | none | none | none ✓ | none ✓ | none ✓（案件工具參數不合法） | none ✓ |");
-        text.ShouldContain("| 案件選擇（propose_case） | 3 | 600 | 60 | 200.0／20.0 |");
+        text.ShouldContain("| n1 | none | none | none ✓ | none ✓ | none ✓（案件工具參數不合法） | none ✓（合成呼叫的工具或參數不合法） |");
+        text.ShouldContain("| 合成選擇（request_database_form＋propose_case） | 3 | 900 | 90 | 300.0／30.0 |");
+        text.ShouldContain("| 案件選擇（只有 propose_case，案件層） | 3 | 600 | 60 | 200.0／20.0 |");
+        text.ShouldContain("合成選擇呼叫（#286）");
         text.ShouldContain("| c1 | repair | 模型草擬：噴霧機故障 |");
     }
 
@@ -236,26 +245,35 @@ public sealed class EvalCaseProposalsCommandTests : IDisposable
         }
     }
 
-    /// <summary>Gives the form only for 「黃斑」, proposes the first offered type for 「壞了」 and 「黃斑」, and
-    /// calls the case tool with an unoffered id otherwise; reports fixed usage per tool.</summary>
+    /// <summary>The case-only call proposes the first offered type for 「壞了」 and 「黃斑」 and calls the case tool
+    /// with an unoffered id otherwise; the combined call gives the form for 「黃斑」, the case for 「壞了」 and an
+    /// unoffered id otherwise. Fixed usage per kind of call.</summary>
     private sealed class ScriptedChatClient : IChatClient
     {
         public List<string> Tools { get; } = [];
 
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
         {
-            var tool = options!.Tools!.OfType<AIFunctionDeclaration>().Single();
-            Tools.Add(tool.Name);
+            var tools = options!.Tools!.OfType<AIFunctionDeclaration>().ToList();
+            Tools.Add(string.Join('+', tools.Select(declaration => declaration.Name)));
+            var tool = tools[^1];
             var question = messages.Last().Text;
             var ids = tool.JsonSchema.GetProperty("properties").EnumerateObject().First().Value.GetProperty("enum");
             ChatMessage reply;
             UsageDetails usage;
-            if (tool.Name == "request_database_form")
+            if (tools.Count == 2)
             {
-                usage = new UsageDetails { InputTokenCount = 100, OutputTokenCount = 10 };
+                usage = new UsageDetails { InputTokenCount = 300, OutputTokenCount = 30 };
+                var form = tools[0];
+                var formIds = form.JsonSchema.GetProperty("properties").GetProperty("databaseId").GetProperty("enum");
                 reply = question.Contains("黃斑", StringComparison.Ordinal)
-                    ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("1", tool.Name, new Dictionary<string, object?> { ["databaseId"] = ids[0].GetString() })])
-                    : new ChatMessage(ChatRole.Assistant, "不需要表單");
+                    ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("1", form.Name, new Dictionary<string, object?> { ["databaseId"] = formIds[0].GetString() })])
+                    : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("2", tool.Name, new Dictionary<string, object?>
+                    {
+                        ["caseTypeId"] = question.Contains("壞了", StringComparison.Ordinal) ? ids[0].GetString() : Guid.Empty.ToString(),
+                        ["title"] = "模型草擬：噴霧機故障",
+                        ["description"] = "說明",
+                    })]);
             }
             else
             {

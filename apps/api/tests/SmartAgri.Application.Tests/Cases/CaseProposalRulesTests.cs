@@ -61,6 +61,20 @@ public class CaseProposalRulesTests
     }
 
     [Fact]
+    public void The_selection_prompt_has_286s_boundaries()
+    {
+        var prompt = CaseProposalRules.SelectionPrompt("  冷藏庫壞了  ");
+        prompt.Count.ShouldBe(2);
+        prompt[0].Text.ShouldContain(CaseProposalRules.SelectionBoundaries);
+        foreach (var boundary in new[] { "進度", "取消已經送出的申請", "統計數字", "只是抱怨或陳述狀況", "作物病蟲害", "不要套用最接近的類型" })
+        {
+            CaseProposalRules.SelectionBoundaries.ShouldContain(boundary);
+        }
+
+        prompt[1].Text.ShouldBe("冷藏庫壞了");
+    }
+
+    [Fact]
     public void The_text_names_the_type() =>
         CaseProposalRules.ProposalText("設備報修").ShouldBe("這件事可以開一件「設備報修」案件，請確認內容。");
 

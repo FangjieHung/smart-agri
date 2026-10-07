@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Cases;
+using SmartAgri.Application.Chat;
 using SmartAgri.Application.Databases;
 using SmartAgri.Infrastructure.Ai;
 
@@ -20,10 +21,12 @@ namespace SmartAgri.Api.Chat.Evaluation;
 /// </summary>
 /// <remarks>
 /// Each question is judged for the case layer alone and for the whole proposal stage (decision L):
-/// the query layer is the <see cref="DatabaseQueryTools.AsksForStatistics"/> gate; the form layer is
-/// <see cref="AssistantFormRequestRules.AsksForForm"/> (keyword) or one #164 selection call (model).
-/// In model mode every question gets one form call and one case call, so the case layer can be judged
-/// on its own. The calls go to the configured chat model (<c>Ai:Chat</c>) directly; they touch no
+/// the query layer is the <see cref="DatabaseQueryTools.AsksForStatistics"/> gate; then, by keyword,
+/// <see cref="AssistantFormRequestRules.AsksForForm"/> and the case rule in order, or, by model, the one
+/// combined selection call production makes when the assistant has both a form and case types (#286,
+/// <see cref="ProposalSelectionRules"/>, as <see cref="ChatProposalSelectionTool"/> calls it). In model mode
+/// every question gets that combined call and one case-only call (the case layer, judged on its own, is
+/// production's call for an assistant without a form). The calls go to the configured chat model (<c>Ai:Chat</c>) directly; they touch no
 /// database and no organization, so they are not in <c>ModelInvocations</c> (the report has the token
 /// usage). Development and Testing only, like the other evaluations. With <c>Fake</c> the model columns
 /// only prove the pipeline (the fake follows the keyword words), and the report says so.
@@ -188,11 +191,12 @@ public sealed partial class EvalCaseProposalsCommand
             CaseProposalEvalUsage? usage = null;
             if (runModel)
             {
-                var (form, formRejected, formUsage) = await SelectFormAsync(question, formOffers, error, cancellationToken);
+                var (selection, selectionRejected, selectionUsage) = await SelectCombinedAsync(set, question, formOffers, error, cancellationToken);
                 var (caseLayer, caseRejected, caseUsage) = await SelectCaseAsync(set, question, error, cancellationToken);
                 model = new CaseProposalEvalDecisions(
-                    caseLayer, CaseProposalEvalScoring.Stage(asksForStatistics, form, caseLayer), caseRejected, formRejected);
-                usage = new CaseProposalEvalUsage(formUsage?.InputTokenCount, formUsage?.OutputTokenCount, caseUsage?.InputTokenCount, caseUsage?.OutputTokenCount);
+                    caseLayer, CaseProposalEvalScoring.Stage(asksForStatistics, selection), caseRejected, selectionRejected);
+                usage = new CaseProposalEvalUsage(
+                    selectionUsage?.InputTokenCount, selectionUsage?.OutputTokenCount, caseUsage?.InputTokenCount, caseUsage?.OutputTokenCount);
             }
 
             results.Add(new CaseProposalEvalResult(question, keyword, model, usage));
@@ -224,27 +228,33 @@ public sealed partial class EvalCaseProposalsCommand
         return run.ModelStage is { Errors: > 0 } || run.ModelCaseLayer is { Errors: > 0 } ? ExitFailed : ExitSuccess;
     }
 
-    /// <summary>The #164 form selection, exactly as <see cref="ChatFormRequestTool"/> calls it.</summary>
-    private async Task<(CaseProposalEvalFormDecision Decision, bool Rejected, UsageDetails? Usage)> SelectFormAsync(
-        CaseProposalEvalQuestion question, IReadOnlyList<AssistantFormToolOffer> offers, TextWriter error, CancellationToken cancellationToken)
+    /// <summary>The combined selection (#286), exactly as <see cref="ChatProposalSelectionTool.SelectAsync"/> calls it
+    /// (minus the keyword fallback: a failure is counted here, not judged).</summary>
+    private async Task<(CaseProposalEvalOutcome Outcome, bool Rejected, UsageDetails? Usage)> SelectCombinedAsync(
+        CaseProposalEvalSet set, CaseProposalEvalQuestion question, IReadOnlyList<AssistantFormToolOffer> formOffers, TextWriter error, CancellationToken cancellationToken)
     {
         var options = new ChatOptions
         {
-            Tools = [AssistantFormRequestRules.Declaration(offers)],
+            Tools = ProposalSelectionRules.Declarations(formOffers, set.Offers),
             ToolMode = ChatToolMode.Auto,
             AllowMultipleToolCalls = false,
         };
         try
         {
-            var response = await _chatProvider.Client.GetResponseAsync(AssistantFormRequestRules.SelectionPrompt(question.Question), options, cancellationToken);
-            var (match, _) = AssistantFormRequestRules.ParseCall(response, offers);
-            return (match == AssistantFormToolCallMatch.Matched ? CaseProposalEvalFormDecision.Form : CaseProposalEvalFormDecision.None,
-                match == AssistantFormToolCallMatch.Rejected, response.Usage);
+            var response = await _chatProvider.Client.GetResponseAsync(ProposalSelectionRules.SelectionPrompt(question.Question), options, cancellationToken);
+            var call = ProposalSelectionRules.ParseCall(response, formOffers, set.Offers, question.Question);
+            var outcome = call.Match switch
+            {
+                ProposalSelectionCallMatch.Form => CaseProposalEvalOutcome.Form,
+                ProposalSelectionCallMatch.Case => CaseProposalEvalOutcome.Case(set.KeyOf(call.CaseDraft!.Offer.TypeId), call.CaseDraft.Title),
+                _ => CaseProposalEvalOutcome.None,
+            };
+            return (outcome, call.Match == ProposalSelectionCallMatch.Rejected, response.Usage);
         }
         catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
-            await error.WriteLineAsync($"  {question.Id}：表單選擇呼叫失敗（{Describe(exception)}）");
-            return (CaseProposalEvalFormDecision.Error, false, null);
+            await error.WriteLineAsync($"  {question.Id}：合成選擇呼叫失敗（{Describe(exception)}）");
+            return (CaseProposalEvalOutcome.Error, false, null);
         }
     }
 

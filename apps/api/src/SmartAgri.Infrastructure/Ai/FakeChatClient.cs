@@ -35,7 +35,9 @@ namespace SmartAgri.Infrastructure.Ai;
 /// would — so the model path is deterministic and, without directives, matches keyword mode. The case
 /// tool (M7-9 #254) works the same way with <see cref="FakeChatDirectives.CaseProposal"/> /
 /// <see cref="FakeChatDirectives.NoCase"/> and <see cref="CaseProposalRules.AsksForCase"/>: the first
-/// offered type, a title 「模型草擬：…」 from the question and a fixed description.
+/// offered type, a title 「模型草擬：…」 from the question and a fixed description. With both tools offered
+/// (the combined selection, #286) it decides the form first and calls the case tool only when it would not
+/// call the form tool — the same order as two separate calls.
 /// </para>
 /// <para>
 /// Streaming always splits the answer into at least two chunks, and — whenever the answer
@@ -238,16 +240,25 @@ internal static class FakeToolChoice
             return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, name, arguments)]);
         }
 
+        // With both the form and the case tool offered (the combined selection, #286), the form is decided
+        // first (decision L) and the case tool only when the form says no.
+        var offersCase = tools.Any(tool => tool.Name == CaseProposalRules.ToolName);
         if (tools.FirstOrDefault(tool => tool.Name == AssistantFormRequestRules.ToolName) is { } formTool)
         {
             var wantsForm = !question.Contains(FakeChatDirectives.NoForm, StringComparison.Ordinal)
                 && (question.Contains(FakeChatDirectives.FormRequest, StringComparison.Ordinal) || AssistantFormRequestRules.AsksForForm(question));
-            return wantsForm
-                ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, formTool.Name, new Dictionary<string, object?>(StringComparer.Ordinal)
+            if (wantsForm)
+            {
+                return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, formTool.Name, new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
                     [AssistantFormRequestRules.FormIdParameter] = FirstEnum(formTool.JsonSchema.GetProperty("properties"), AssistantFormRequestRules.FormIdParameter),
-                })])
-                : new ChatMessage(ChatRole.Assistant, "不需要表單。");
+                })]);
+            }
+
+            if (!offersCase)
+            {
+                return new ChatMessage(ChatRole.Assistant, "不需要表單。");
+            }
         }
 
         if (tools.FirstOrDefault(tool => tool.Name == CaseProposalRules.ToolName) is { } caseTool)

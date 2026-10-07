@@ -98,7 +98,9 @@ public sealed record ChatRunThreadView(Guid ThreadId, string Title);
 /// before the selection call — after <c>TEXT_MESSAGE_START</c> and after a statistics query that did
 /// not answer — so the client can show that it is checking for a form. Keyword mode and assistants
 /// without a form target never send it. Since M7-8 the form request is the first proposal of the
-/// <see cref="ChatProposalStage"/> (find, decide by the trigger, compose and save), unchanged.
+/// <see cref="ChatProposalStage"/> (find, decide by the trigger, compose and save), unchanged; since
+/// #286 a request that may also get a case proposal makes one combined call for both
+/// (<see cref="ChatProposalSelectionTool"/>, purpose <c>proposal-selection</c>).
 /// </para>
 /// <para>
 /// <b>Database queries</b> (M4 #149, <see cref="ChatDatabaseQueries"/>). When the question asks for a
@@ -129,7 +131,9 @@ public static class ChatRunEndpoints
     /// <summary>
     /// The custom event sent just before model mode's form selection call (M4 #171): only with
     /// <c>Chat:FormRequests:Trigger = Model</c> and a form target the assistant may use right now;
-    /// never in keyword mode or for an assistant without one. Its value is an empty object.
+    /// never in keyword mode or for an assistant without one. Its value is an empty object. Since
+    /// #286 the selection call may also offer case types (the combined call): the event is the same,
+    /// at the same place; a case-only call sends none (<see cref="ChatProposalStage"/>).
     /// </summary>
     public const string FormCheckEventName = "smartagri.form-check";
 

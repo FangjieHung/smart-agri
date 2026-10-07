@@ -68,6 +68,7 @@ builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<Chat
 builder.Services.AddScoped<ChatFormRequestTool>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatFormRequestProposal>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatCaseProposalTool>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.ChatProposalSelectionTool>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatCaseProposal>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatProposalStage>();
 builder.Services.AddPeriodicReports();

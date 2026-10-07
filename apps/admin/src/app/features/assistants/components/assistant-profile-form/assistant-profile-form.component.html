@@ -56,7 +56,6 @@
     />
     <span>內部員工<small>團隊同仁在平台內使用</small></span>
   </label>
-  @if (externalAudienceAvailable()) {
   <label class="check">
     <input
       id="audience-external"
@@ -69,9 +68,6 @@
     />
     <span>外部客戶<small>透過官網、LINE 或專屬連結使用</small></span>
   </label>
-  } @else {
-    <p class="hint">外部客戶（官網、LINE）使用將於後續版本開放，目前只能給組織內部成員使用。</p>
-  }
   @if (problems.audience) {
     <p id="audience-error" class="error">{{ problems.audience }}</p>
   }

@@ -50,6 +50,10 @@ public sealed class Assistant : IOrganizationScoped
 
     public AssistantTone Tone { get; private set; }
 
+    /// <summary>Who it is meant for (服務對象, issue #224). Shown and edited only — not an access
+    /// rule and not a publishing condition (see <see cref="AssistantAudience"/>).</summary>
+    public AssistantAudience Audience { get; private set; }
+
     /// <summary>Free-text role/persona instructions (角色設定); may be empty.</summary>
     public string RoleInstructions { get; private set; } = string.Empty;
 
@@ -80,7 +84,8 @@ public sealed class Assistant : IOrganizationScoped
     public DateTimeOffset UpdatedAt { get; private set; }
 
     /// <summary>A new, <see cref="AssistantStatus.Ready"/> assistant owned by
-    /// <paramref name="ownerAccountId"/>.</summary>
+    /// <paramref name="ownerAccountId"/>. <paramref name="audience"/> defaults to
+    /// <see cref="AssistantAudience.AccountMembers"/>, the value every assistant had before #224.</summary>
     public static Assistant Create(
         Guid organizationId,
         Guid ownerAccountId,
@@ -93,7 +98,8 @@ public sealed class Assistant : IOrganizationScoped
         string refusalMessage,
         bool showCitations,
         bool keepConversations,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        AssistantAudience audience = AssistantAudience.AccountMembers)
     {
         RequireId(organizationId, nameof(organizationId));
         RequireId(ownerAccountId, nameof(ownerAccountId));
@@ -108,7 +114,7 @@ public sealed class Assistant : IOrganizationScoped
             CreatedAt = now,
         };
         assistant.ApplySettings(
-            name, purpose, tone, roleInstructions, knowledgeScope, refusalMessage, showCitations, keepConversations, now);
+            name, purpose, tone, roleInstructions, knowledgeScope, refusalMessage, showCitations, keepConversations, now, audience);
         assistant.UpdatedAt = now;
         return assistant;
     }
@@ -116,7 +122,8 @@ public sealed class Assistant : IOrganizationScoped
     /// <summary>
     /// Sets every settings field at once (all validated and trimmed by the caller — see
     /// <c>AssistantSettingsRules</c>). Returns the names of the fields that actually changed;
-    /// when none did, nothing is touched, <see cref="UpdatedAt"/> included.
+    /// when none did, nothing is touched, <see cref="UpdatedAt"/> included. A
+    /// <see langword="null"/> <paramref name="audience"/> keeps the current one.
     /// </summary>
     public IReadOnlyList<string> ApplySettings(
         string name,
@@ -127,7 +134,8 @@ public sealed class Assistant : IOrganizationScoped
         string refusalMessage,
         bool showCitations,
         bool keepConversations,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        AssistantAudience? audience = null)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(purpose);
@@ -169,7 +177,12 @@ public sealed class Assistant : IOrganizationScoped
             throw new ArgumentOutOfRangeException(nameof(knowledgeScope), knowledgeScope, "Not a declared knowledge scope.");
         }
 
-        var changed = new List<string>(8);
+        if (audience is { } declared && !Enum.IsDefined(declared))
+        {
+            throw new ArgumentOutOfRangeException(nameof(audience), audience, "Not a declared audience.");
+        }
+
+        var changed = new List<string>(9);
 
         if (!string.Equals(Name, trimmedName, StringComparison.Ordinal))
         {
@@ -217,6 +230,12 @@ public sealed class Assistant : IOrganizationScoped
         {
             KeepConversations = keepConversations;
             changed.Add("keepConversations");
+        }
+
+        if (audience is { } newAudience && Audience != newAudience)
+        {
+            Audience = newAudience;
+            changed.Add("audience");
         }
 
         if (changed.Count > 0)

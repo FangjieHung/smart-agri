@@ -106,6 +106,45 @@ public class AssistantTests
     }
 
     [Fact]
+    public void A_new_assistant_is_for_account_members_unless_another_audience_is_given()
+    {
+        CreateWith().Audience.ShouldBe(AssistantAudience.AccountMembers);
+
+        var external = Assistant.Create(
+            Organization, Owner, "對外助理", "回答客戶問題", null, AssistantTone.Friendly, string.Empty,
+            AssistantKnowledgeScope.CompanyDataOnly, "找不到答案。", true, true, Created,
+            AssistantAudience.AuthorizedExternalCustomers);
+
+        external.Audience.ShouldBe(AssistantAudience.AuthorizedExternalCustomers);
+        external.UpdatedAt.ShouldBe(Created);
+    }
+
+    [Fact]
+    public void Changing_the_audience_is_reported_and_a_null_one_keeps_it()
+    {
+        var assistant = CreateWith();
+        var later = Created.AddHours(1);
+
+        assistant.ApplySettings(
+                assistant.Name, assistant.Purpose, assistant.Tone, assistant.RoleInstructions, assistant.KnowledgeScope,
+                assistant.RefusalMessage, assistant.ShowCitations, assistant.KeepConversations, later, audience: null)
+            .ShouldBeEmpty();
+        assistant.Audience.ShouldBe(AssistantAudience.AccountMembers);
+
+        var changed = assistant.ApplySettings(
+            assistant.Name, assistant.Purpose, assistant.Tone, assistant.RoleInstructions, assistant.KnowledgeScope,
+            assistant.RefusalMessage, assistant.ShowCitations, assistant.KeepConversations, later,
+            AssistantAudience.MembersAndExternalCustomers);
+
+        changed.ShouldBe(["audience"]);
+        assistant.Audience.ShouldBe(AssistantAudience.MembersAndExternalCustomers);
+        assistant.UpdatedAt.ShouldBe(later);
+        Should.Throw<ArgumentOutOfRangeException>(() => assistant.ApplySettings(
+            assistant.Name, assistant.Purpose, assistant.Tone, assistant.RoleInstructions, assistant.KnowledgeScope,
+            assistant.RefusalMessage, assistant.ShowCitations, assistant.KeepConversations, later, (AssistantAudience)99));
+    }
+
+    [Fact]
     public void A_knowledge_base_connection_must_share_the_assistants_organization()
     {
         var assistant = CreateWith();

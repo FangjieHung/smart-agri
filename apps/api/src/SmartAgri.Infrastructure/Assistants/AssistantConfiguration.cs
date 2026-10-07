@@ -25,6 +25,10 @@ internal sealed class AssistantConfiguration : IEntityTypeConfiguration<Assistan
             .HasConversion<WireNameConverter<AssistantTone>>()
             .HasMaxLength(32)
             .IsRequired();
+        builder.Property(assistant => assistant.Audience)
+            .HasConversion<WireNameConverter<AssistantAudience>>()
+            .HasMaxLength(64)
+            .IsRequired();
         builder.Property(assistant => assistant.RoleInstructions)
             .HasMaxLength(Assistant.RoleInstructionsMaxLength)
             .IsRequired();

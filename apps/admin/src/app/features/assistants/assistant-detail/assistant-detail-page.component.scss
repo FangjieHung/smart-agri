@@ -51,6 +51,7 @@ p { color: var(--color-text-secondary); line-height: var(--line-height-body); }
 
 .created-banner { display: grid; gap: var(--space-2); padding: var(--space-4) var(--space-6); border: 1px solid color-mix(in srgb, var(--color-success) 40%, var(--color-border)); border-inline-start: var(--space-1) solid var(--color-success); border-radius: var(--radius-container); background: var(--color-surface); }
 .created-banner a { color: var(--color-accent); font-weight: 700; }
+.created-banner__links { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin: 0; }
 .created-banner a:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); border-radius: var(--radius-control); }
 
 /* 測試頁籤：把目前的回答規則換成「試問時會看到什麼」。 */

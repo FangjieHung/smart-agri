@@ -28,8 +28,22 @@
     @if (justCreated) {
       <section class="created-banner" role="status" aria-labelledby="created-title">
         <h2 id="created-title">助理已建立</h2>
-        <p>下一步建議設定發布管道，讓團隊或客戶開始使用；也可以先回到測試頁多試問幾題。</p>
-        <a [routerLink]="['/app/assistants', assistantId(), 'publishing']">前往發布設定 <span aria-hidden="true">→</span></a>
+        @if (servesExternalCustomers(assistant.audience)) {
+          <p>使用對象包含外部客戶：到發布頁設定官網嵌入或 LINE，客戶就能在官網或 LINE 上使用；也可以先回到測試頁多試問幾題。</p>
+          <p class="created-banner__links">
+            <a
+              [routerLink]="['/app/assistants', assistantId(), 'publishing']"
+              [queryParams]="{ channel: 'website' }"
+            >設定官網嵌入 <span aria-hidden="true">→</span></a>
+            <a
+              [routerLink]="['/app/assistants', assistantId(), 'publishing']"
+              [queryParams]="{ channel: 'line' }"
+            >設定 LINE <span aria-hidden="true">→</span></a>
+          </p>
+        } @else {
+          <p>下一步建議設定發布管道，讓團隊或客戶開始使用；也可以先回到測試頁多試問幾題。</p>
+          <a [routerLink]="['/app/assistants', assistantId(), 'publishing']">前往發布設定 <span aria-hidden="true">→</span></a>
+        }
       </section>
     }
 

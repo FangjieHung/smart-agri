@@ -61,6 +61,10 @@ describe('create assistant wizard', () => {
     cy.location('pathname').should('match', /^\/app\/assistants\/assistant-created-\d+\/overview$/);
     cy.contains('h1', '客戶問答助理').should('be.visible');
     cy.contains('助理已建立').should('be.visible');
+    // 使用對象包含外部客戶（#224）：提示到發布頁設定官網嵌入或 LINE。
+    cy.get('.created-banner').should('contain', '到發布頁設定官網嵌入或 LINE');
+    cy.get('.created-banner a[href$="/publishing?channel=website"]').should('contain', '設定官網嵌入');
+    cy.get('.created-banner a[href$="/publishing?channel=line"]').should('contain', '設定 LINE');
 
     cy.contains('a', '返回我的助理').click();
     cy.contains('客戶問答助理').should('be.visible');

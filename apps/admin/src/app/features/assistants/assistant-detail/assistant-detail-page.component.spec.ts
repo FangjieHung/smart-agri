@@ -1,7 +1,9 @@
+import { Location } from '@angular/common';
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter, Router } from '@angular/router';
 import { BehaviorSubject, firstValueFrom, NEVER, throwError } from 'rxjs';
+import { vi } from 'vitest';
 import type { AccountId } from '../../../core/domain/account.model';
 import { DEMO_SEED } from '../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../core/repositories/memory-storage';
@@ -135,6 +137,8 @@ describe('AssistantDetailPageComponent', () => {
       readonly repository?: MockDemoRepository;
       readonly apiMode?: boolean;
       readonly channel?: string;
+      /** 從建立精靈導過來（導覽狀態 `assistantCreated: true`）。 */
+      readonly created?: boolean;
       /** false：不等資料落地（讀取永遠不會完成時，`whenStable()` 也不會完成）。 */
       readonly waitForData?: boolean;
     } = {},
@@ -179,6 +183,7 @@ describe('AssistantDetailPageComponent', () => {
         ...(options.apiMode ? [{ provide: ApiSessionService, useValue: { apiMode: true } }] : []),
       ],
     }).compileComponents();
+    if (options.created) vi.spyOn(TestBed.inject(Location), 'getState').mockReturnValue({ assistantCreated: true });
     const fixture = TestBed.createComponent(AssistantDetailPageComponent);
     const settle = async () => {
       fixture.detectChanges();
@@ -251,6 +256,43 @@ describe('AssistantDetailPageComponent', () => {
     expect(activity.page.querySelector('.usage-summary')).not.toBeNull();
     expect(activity.page.textContent).toContain('回覆總數');
     expect(activity.page.textContent).toContain('不含問題、回答、帳號或對話內容');
+  });
+
+  it('right after creation, points an assistant for external customers to the website and LINE setup (#224)', async () => {
+    // 種子助理的使用對象是「內部員工與外部客戶」。
+    const { page } = await renderTab('overview', { created: true, apiMode: true });
+
+    const banner = page.querySelector('.created-banner') as HTMLElement;
+    expect(banner.textContent).toContain('助理已建立');
+    expect(banner.textContent).toContain('到發布頁設定官網嵌入或 LINE');
+    expect(banner.textContent).not.toContain('將於後續版本開放');
+    const hrefs = Array.from(banner.querySelectorAll('a')).map((anchor) => anchor.getAttribute('href'));
+    expect(hrefs).toEqual([
+      '/app/assistants/assistant-customer-service/publishing?channel=website',
+      '/app/assistants/assistant-customer-service/publishing?channel=line',
+    ]);
+  });
+
+  it('right after creation, keeps the general publishing hint for an assistant only for members', async () => {
+    const storage = createMemoryStorage();
+    const repository = new MockDemoRepository(DEMO_SEED, { storage, viewer: () => 'account-smb-admin' });
+    await firstValueFrom(repository.updateAssistantSettings('assistant-customer-service', { audience: 'account-members' }));
+
+    const { page } = await renderTab('overview', { created: true, repository });
+
+    const banner = page.querySelector('.created-banner') as HTMLElement;
+    expect(banner.textContent).toContain('下一步建議設定發布管道');
+    expect(banner.textContent).not.toContain('官網嵌入');
+    expect(Array.from(banner.querySelectorAll('a')).map((anchor) => anchor.getAttribute('href'))).toEqual([
+      '/app/assistants/assistant-customer-service/publishing',
+    ]);
+  });
+
+  it('offers the external-customer audience in API mode too (#224)', async () => {
+    const { page } = await renderTab('overview', { apiMode: true });
+
+    expect((page.querySelector('#audience-external') as HTMLInputElement).checked).toBe(true);
+    expect(page.textContent).not.toContain('將於後續版本開放');
   });
 
   it('edits the audience from the overview tab and keeps it after the page is rebuilt', async () => {

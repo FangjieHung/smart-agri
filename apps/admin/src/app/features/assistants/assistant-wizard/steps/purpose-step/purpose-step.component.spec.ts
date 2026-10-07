@@ -1,12 +1,17 @@
 import { TestBed } from '@angular/core/testing';
+import { ApiSessionService } from '../../../../../core/session/api-session.service';
 import { AssistantDraftStore } from '../../assistant-draft.store';
 import { provideWizardTesting } from '../../assistant-wizard.testing';
 import { PurposeStepComponent } from './purpose-step.component';
 
-async function render() {
+async function render(options: { readonly apiMode?: boolean } = {}) {
   TestBed.configureTestingModule({
     imports: [PurposeStepComponent],
-    providers: [AssistantDraftStore, ...provideWizardTesting().providers],
+    providers: [
+      AssistantDraftStore,
+      ...provideWizardTesting().providers,
+      ...(options.apiMode ? [{ provide: ApiSessionService, useValue: { apiMode: true } }] : []),
+    ],
   });
   const fixture = TestBed.createComponent(PurposeStepComponent);
   fixture.detectChanges();
@@ -37,6 +42,16 @@ describe('PurposeStepComponent', () => {
     fixture.detectChanges();
 
     expect(store.draft().audience).toBe('members-and-external-customers');
+  });
+
+  it('offers the external-customer audience in API mode too, without the old 後續版本開放 note (#224)', async () => {
+    const { fixture, page, store } = await render({ apiMode: true });
+
+    expect(page.textContent).not.toContain('將於後續版本開放');
+    (page.querySelector('#audience-external') as HTMLInputElement).click();
+    fixture.detectChanges();
+
+    expect(store.draft().audience).toBe('authorized-external-customers');
   });
 
   it('keeps advanced role instructions collapsed by default', async () => {

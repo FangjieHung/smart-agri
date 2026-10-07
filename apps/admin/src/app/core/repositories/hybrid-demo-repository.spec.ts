@@ -2048,6 +2048,7 @@ function apiConfiguration(overrides: Partial<ApiAssistantConfiguration> = {}): A
     name: '門市問答助理',
     purpose: '回答門市作業問題',
     status: 'ready',
+    audience: 'account-members',
     viewerCanManage: true,
     createdAt: '2026-09-28T01:00:00+00:00',
     updatedAt: '2026-09-28T01:00:00+00:00',
@@ -2328,9 +2329,10 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     );
 
     const request = controller.expectOne({ method: 'PATCH', url: apiAssistantSettingsPath(ASSISTANT_ID) });
-    // 使用對象不送；收集目的（#148）與定期報表（#150）照送。
+    // 使用對象（#224）、收集目的（#148）與定期報表（#150）都照送。
     expect(request.request.body).toEqual({
       name: '新名稱',
+      audience: 'members-and-external-customers',
       rules: { keepConversations: true, dataWritePurpose: '收集', periodicReport: 'weekly' },
     });
     request.flush(apiSettings({ configuration: apiConfiguration({ name: '新名稱', updatedAt: '2026-09-28T04:00:00+00:00' }) }));
@@ -2575,7 +2577,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
     controller.expectOne(API_ASSISTANTS_PATH).flush(
       validationFailed('草稿裡的知識庫無法連接，可能已不存在、屬於其他組織，或已被收回分享。', {
         sources: ['草稿裡的知識庫無法連接，可能已不存在、屬於其他組織，或已被收回分享。'],
-        audience: ['對外發布將於後續版本開放，目前僅支援組織內使用。'],
+        audience: ['使用對象設定不正確。'],
         tone: ['語氣設定不正確。'],
       }),
       { status: 422, statusText: 'Unprocessable Entity' },
@@ -2586,7 +2588,7 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
       message: '草稿裡的知識庫無法連接，可能已不存在、屬於其他組織，或已被收回分享。',
       errors: [
         { field: 'sources', message: '草稿裡的知識庫無法連接，可能已不存在、屬於其他組織，或已被收回分享。' },
-        { field: 'audience', message: '對外發布將於後續版本開放，目前僅支援組織內使用。' },
+        { field: 'audience', message: '使用對象設定不正確。' },
         { field: 'tone', message: '語氣設定不正確。' },
       ],
     });

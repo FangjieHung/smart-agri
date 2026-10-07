@@ -29,11 +29,12 @@ namespace SmartAgri.Api.Assistants;
 // - ids are GUIDs;
 // - viewerCanManage / viewerIsOwner are added (M2 plan §3, carried over), so the frontend
 //   never compares owner ids itself;
-// - audience / sharedWithAccountIds (on AssistantConfigurationView) are absent (databaseIds and
-//   the database-write rules exist since M4 #148 and periodicReport since #150):
-//   the frontend mock models an audience-role gate that is not part of the M3 plan's data
-//   model (§4) — "who may use it" here is ownership + AssistantShare + use-shared-assistants
-//   only (AssistantUseAccess.UsableBy), not audience/role;
+// - sharedWithAccountIds (on AssistantConfigurationView) is absent (databaseIds and the
+//   database-write rules exist since M4 #148 and periodicReport since #150);
+// - audience is stored and editable since #224, but only shown: the frontend mock models an
+//   audience-role gate that is not part of the M3 plan's data model (§4) — "who may use it" here
+//   is ownership + AssistantShare + use-shared-assistants only (AssistantUseAccess.UsableBy), not
+//   audience/role — and it is not a publishing condition either (M5a plan §3 C);
 // - minScore is a backend-only field (grounded-answers ADR), not in the frontend model, and
 //   is not exposed by this slice's PATCH endpoint;
 // - AssistantPublishingView.website is the real WebsiteChannelView since M5a #194
@@ -49,12 +50,15 @@ namespace SmartAgri.Api.Assistants;
 /// <c>KnowledgeBaseSummaryView</c> includes it.</param>
 /// <param name="AcceptanceStatus">Derived from its test set and runs (M3.5 plan §3, issue #125;
 /// <see cref="AssistantAcceptanceRules"/>); shown only, it does not restrict use.</param>
+/// <param name="Audience">Who it is meant for (#224); shown only, it does not restrict use or
+/// publishing (<see cref="AssistantAudience"/>).</param>
 public sealed record AssistantConfigurationView(
     Guid Id,
     Guid OwnerAccountId,
     string Name,
     string Purpose,
     AssistantStatus Status,
+    AssistantAudience Audience,
     bool ViewerCanManage,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
@@ -67,7 +71,9 @@ public sealed record AssistantConfigurationView(
 /// <c>AssistantSummaryView.permission</c> (<c>'use' | 'configure' | 'publish'</c>) does not
 /// apply here (M3's data model has no per-assistant publish/configure grant separate from
 /// ownership, §4), so this is a plain owner/shared flag instead.</param>
-public sealed record AssistantSummaryView(Guid Id, string Name, string Purpose, AssistantStatus Status, bool ViewerIsOwner);
+/// <param name="Audience">Who it is meant for (#224); shown on the card only.</param>
+public sealed record AssistantSummaryView(
+    Guid Id, string Name, string Purpose, AssistantStatus Status, AssistantAudience Audience, bool ViewerIsOwner);
 
 /// <summary>One publishing channel's status, shaped like the frontend's
 /// <c>PublishingChannelView</c>. <see cref="Id"/> follows the frontend's
@@ -167,16 +173,19 @@ public sealed record PeriodicReportAutoDisabledView(
     string Message);
 
 /// <summary><c>PATCH /api/v1/assistants/{id}/settings</c> request: a <see langword="null"/>
-/// (or absent) field, at any level, is left unchanged. <see cref="Tone"/> and
-/// <see cref="AssistantAnswerRulesPatch.KnowledgeScope"/> are plain strings on purpose (as in
+/// (or absent) field, at any level, is left unchanged. <see cref="Tone"/>, <see cref="Audience"/>
+/// and <see cref="AssistantAnswerRulesPatch.KnowledgeScope"/> are plain strings on purpose (as in
 /// <c>UpdateKnowledgeSharingRequest</c>): an unknown value is this endpoint's own <c>422</c>,
 /// not a model-binding failure.</summary>
+/// <param name="Audience">Who it is meant for (#224): <c>account-members</c>,
+/// <c>authorized-external-customers</c> or <c>members-and-external-customers</c>.</param>
 public sealed record UpdateAssistantSettingsRequest(
     string? Name = null,
     string? Purpose = null,
     string? Tone = null,
     string? RoleInstructions = null,
-    AssistantAnswerRulesPatch? Rules = null);
+    AssistantAnswerRulesPatch? Rules = null,
+    string? Audience = null);
 
 /// <summary>The <c>rules</c> part of <see cref="UpdateAssistantSettingsRequest"/>; every field optional.</summary>
 /// <param name="DataWriteDatabaseId">A connected database's id to make it the form target, <c>""</c>
@@ -442,7 +451,8 @@ public static class AssistantEndpoints
             value.RefusalMessage,
             value.ShowCitations,
             value.KeepConversations,
-            now);
+            now,
+            value.Audience);
         dbContext.Assistants.Add(assistant);
 
         var knowledgeBasesById = await dbContext.KnowledgeBases
@@ -519,7 +529,8 @@ public static class AssistantEndpoints
             assistant.KnowledgeScope,
             assistant.RefusalMessage,
             assistant.ShowCitations,
-            assistant.KeepConversations);
+            assistant.KeepConversations,
+            assistant.Audience);
 
         var validated = AssistantSettingsRules.ForUpdate(
             current,
@@ -530,7 +541,8 @@ public static class AssistantEndpoints
             request.Rules?.KnowledgeScope,
             request.Rules?.RefusalMessage,
             request.Rules?.ShowCitations,
-            request.Rules?.KeepConversations);
+            request.Rules?.KeepConversations,
+            request.Audience);
         if (!validated.IsValid)
         {
             return ApiErrors.ValidationFailed(validated.Failures);
@@ -598,7 +610,8 @@ public static class AssistantEndpoints
             value.RefusalMessage,
             value.ShowCitations,
             value.KeepConversations,
-            now);
+            now,
+            value.Audience);
         var targetChanged = formTarget is not null
             && (formTarget.DatabaseId != currentTarget?.DatabaseId
                 || (formTarget.DatabaseId is not null && formTarget.Purpose != currentTarget?.CollectionPurpose));
@@ -1304,13 +1317,14 @@ public static class AssistantEndpoints
             assistant.Name,
             assistant.Purpose,
             assistant.Status,
+            assistant.Audience,
             AssistantAccess.CanManage(assistant, viewerId),
             assistant.CreatedAt,
             assistant.UpdatedAt,
             acceptanceStatus);
 
     private static AssistantSummaryView ToSummary(Assistant assistant, Guid viewerId) =>
-        new(assistant.Id, assistant.Name, assistant.Purpose, assistant.Status, assistant.OwnerAccountId == viewerId);
+        new(assistant.Id, assistant.Name, assistant.Purpose, assistant.Status, assistant.Audience, assistant.OwnerAccountId == viewerId);
 
     private static AssistantSettingsView ToSettings(
         Assistant assistant,

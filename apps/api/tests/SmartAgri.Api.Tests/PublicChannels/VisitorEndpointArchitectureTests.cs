@@ -30,6 +30,9 @@ public class VisitorEndpointArchitectureTests
         // M7-9: the case proposal, its tool, its endpoints and the case types an assistant may propose.
         typeof(ChatCaseProposal),
         typeof(ChatCaseProposalTool),
+        typeof(ChatProposalSelectionTool),
+        typeof(ChatProposalSelection),
+        typeof(SmartAgri.Application.Chat.ProposalSelectionRules),
         typeof(ChatCaseProposalView),
         typeof(ChatCaseProposalEndpoints),
         typeof(ConfirmChatCaseProposalRequest),
@@ -94,6 +97,7 @@ public class VisitorEndpointArchitectureTests
         // M7-9: the stage holds the case proposal after the form, and the case proposal its tool.
         ReferencedTypes(typeof(ChatProposalStage)).ShouldContain(typeof(ChatCaseProposal));
         ReferencedTypes(typeof(ChatCaseProposal)).ShouldContain(typeof(ChatCaseProposalTool));
+        ReferencedTypes(typeof(ChatProposalStage)).ShouldContain(typeof(ChatProposalSelectionTool));
     }
 
     /// <summary>Every type <paramref name="root"/> and its nested (including compiler-generated)

@@ -94,10 +94,11 @@ public sealed class OrganizationTokenUsageSourceTests : IAsyncLifetime
         var usage = await Usage(at).GetAsync(organization.Id, CancellationToken);
 
         usage.UsedTokens.ShouldBe(expected);
-        OrganizationTokenUsageRules.CountedPurposes.Count.ShouldBe(9);
+        OrganizationTokenUsageRules.CountedPurposes.Count.ShouldBe(10);
         OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.PublicAnswer, "website visitors' answers count (#196)");
         OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.LineAnswer, "LINE users' answers count (#232)");
         OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.CaseProposal, "case-proposal decisions count (#254)");
+        OrganizationTokenUsageRules.CountedPurposes.ShouldContain(ModelInvocationPurpose.ProposalSelection, "the combined form-or-case selection counts (#286)");
     }
 
     [Fact]

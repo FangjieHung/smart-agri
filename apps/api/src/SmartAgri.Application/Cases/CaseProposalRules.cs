@@ -36,9 +36,10 @@ public enum CaseProposalCallMatch
 /// either contains an offered type's name or the assistant offers exactly one type; the title is the
 /// question's first <see cref="Case.TitleMaxLength"/> characters and the description is left for the
 /// asker to write (no conversation text is copied beyond the title).</item>
-/// <item><b>Model</b>: one selection call (<see cref="Declaration"/>, <see cref="SelectionPrompt"/>) after
-/// the form decision said no; <see cref="ParseCall"/> accepts only an offered type id and truncates the
-/// model's draft to the case's limits.</item>
+/// <item><b>Model</b>: one selection call (<see cref="Declaration"/>, <see cref="SelectionPrompt"/>) when the
+/// assistant has no form to offer, or the case tool next to the form tool in the one combined selection call
+/// (<c>ProposalSelectionRules</c>, #286); <see cref="ParseCall"/> accepts only an offered type id and
+/// truncates the model's draft to the case's limits.</item>
 /// </list>
 /// The asker always confirms (and may edit) before any case exists.
 /// </summary>
@@ -154,9 +155,23 @@ public static partial class CaseProposalRules
             JsonSerializer.Deserialize<JsonElement>(schema.ToJsonString()));
     }
 
+    /// <summary>
+    /// When <see cref="ToolName"/> must <b>not</b> be called even though the question sounds like a case
+    /// (issue #286, from #257's evaluation): asking how an existing case or request is doing, cancelling one
+    /// already sent, asking for statistics, or only complaining or describing something without asking
+    /// anyone to handle it; and something no offered type covers (crop pests, say) is never forced into the
+    /// closest type. Part of <see cref="SelectionPrompt"/> and of the combined selection's prompt
+    /// (<c>ProposalSelectionRules.SelectionPrompt</c>).
+    /// </summary>
+    public const string SelectionBoundaries =
+        "以下情況不要呼叫 propose_case：詢問既有案件或申請的進度或結果、想取消已經送出的申請、詢問統計數字或筆數、" +
+        "只是抱怨或陳述狀況而沒有要求任何人處理。" +
+        "只有當這件事符合某個類型的說明時才提議；不屬於任何列出類型的事（例如作物病蟲害），不要套用最接近的類型。";
+
     /// <summary>The messages of the case selection call: the role (propose only for something someone has
-    /// to act on, matching an offered type; never for a question or a request already answered) and the
-    /// question. Only the offered types go with the call (in the tool's definition).</summary>
+    /// to act on, matching an offered type; never for a question or a request already answered), the
+    /// boundaries (<see cref="SelectionBoundaries"/>, #286) and the question. Only the offered types go with
+    /// the call (in the tool's definition).</summary>
     public static IReadOnlyList<ChatMessage> SelectionPrompt(string question)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(question);
@@ -164,6 +179,7 @@ public static partial class CaseProposalRules
             "你是農業與小型企業助理的開案工具選擇器。只有在使用者描述一件需要組織內的人後續處理、追蹤的事情，" +
             "而且這件事符合工具中列出的某個案件類型時，才呼叫 propose_case，並且只能使用工具定義列出的類型 id；" +
             "標題與說明只根據使用者這次說的內容草擬，使用者確認前不會建立任何案件。" +
+            SelectionBoundaries +
             "如果使用者只是在詢問知識、規則、進度，或想做的事與這些類型無關，請不要呼叫工具，直接回覆「不需要開案」。" +
             "你不能變更任何案件的狀態，也不能產生未定義的參數。";
         return [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, question.Trim())];

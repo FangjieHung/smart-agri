@@ -243,15 +243,16 @@ public enum CaseProposalEvalFormDecision
 }
 
 /// <summary>One trigger's decisions for one question: the case layer alone, and the whole stage.</summary>
-/// <param name="CaseLayer">The case layer as if the layers before it had said no.</param>
-/// <param name="Stage">Decision L: query → form → case → none.</param>
+/// <param name="CaseLayer">The case layer as if the layers before it had said no (the model's: the case-only call).</param>
+/// <param name="Stage">Decision L: query → form → case → none (the model's: query → the combined selection, #286).</param>
 /// <param name="CaseCallRejected">The model called a tool, but not <c>propose_case</c> with an offered id.</param>
-/// <param name="FormCallRejected">The same for the form call.</param>
+/// <param name="SelectionCallRejected">The combined call named another tool or an unoffered id.</param>
 public sealed record CaseProposalEvalDecisions(
-    CaseProposalEvalOutcome CaseLayer, CaseProposalEvalOutcome Stage, bool CaseCallRejected = false, bool FormCallRejected = false);
+    CaseProposalEvalOutcome CaseLayer, CaseProposalEvalOutcome Stage, bool CaseCallRejected = false, bool SelectionCallRejected = false);
 
-/// <summary>The model's token usage for one question (<see langword="null"/> when the provider reported none).</summary>
-public sealed record CaseProposalEvalUsage(long? FormInput, long? FormOutput, long? CaseInput, long? CaseOutput);
+/// <summary>The model's token usage for one question (<see langword="null"/> when the provider reported none):
+/// the combined selection call (#286) and the case-only call.</summary>
+public sealed record CaseProposalEvalUsage(long? SelectionInput, long? SelectionOutput, long? CaseInput, long? CaseOutput);
 
 /// <summary>One question's decisions: the keyword trigger's, and the model's when it ran.</summary>
 public sealed record CaseProposalEvalResult(
@@ -297,7 +298,14 @@ public sealed record CaseProposalEvalSummary(
 /// <summary>Combining and judging (pure).</summary>
 public static partial class CaseProposalEvalScoring
 {
-    /// <summary>Decision L: the query layer, then the form, then the case layer's outcome.</summary>
+    /// <summary>The model's stage (#286): the query layer, then the combined selection's outcome (form, case or none).</summary>
+    public static CaseProposalEvalOutcome Stage(bool asksForStatistics, CaseProposalEvalOutcome selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return asksForStatistics ? CaseProposalEvalOutcome.Query : selection;
+    }
+
+    /// <summary>Decision L by keyword: the query layer, then the form, then the case layer's outcome.</summary>
     public static CaseProposalEvalOutcome Stage(bool asksForStatistics, CaseProposalEvalFormDecision form, CaseProposalEvalOutcome caseLayer)
     {
         ArgumentNullException.ThrowIfNull(caseLayer);
@@ -446,7 +454,7 @@ public static class CaseProposalEvalReport
         var set = run.Set;
         var hasModel = run.ChatModel is not null;
         var text = new StringBuilder();
-        text.AppendLine("# 案件提議觸發評測（#257）").AppendLine();
+        text.AppendLine("# 案件提議觸發評測（#257；#286 起整條提議階段走合成選擇）").AppendLine();
         text.AppendLine($"- 執行時間：{run.StartedAt:yyyy-MM-dd HH:mm:ss zzz}（{run.Duration.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture)} 秒）");
         text.AppendLine($"- 題庫：`{run.SetDisplayName}`（指紋 `{set.Fingerprint}`，{run.Results.Count} 題）");
         text.AppendLine($"- 範例表單：「{set.SampleForm.Title}」，收集目的：{set.SampleForm.Purpose}");
@@ -463,6 +471,10 @@ public static class CaseProposalEvalReport
         }
 
         text.AppendLine("- 查詢層一律以 `DatabaseQueryTools.AsksForStatistics`（提供查詢工具的前置檢查）判定，不呼叫查詢模型。");
+        if (hasModel)
+        {
+            text.AppendLine("- 模型的整條提議階段走正式環境的合成選擇呼叫（#286）：同時提供表單工具與案件工具，模型最多選一個；模型的案件層是只提供案件工具的單一呼叫（助理沒有表單時的正式路徑）。");
+        }
 
         text.AppendLine().AppendLine("## 摘要：整條提議階段（決定 L：數據庫查詢 → 表單 → 案件）").AppendLine();
         AppendSummaryTable(text, [run.KeywordStage, run.ModelStage]);
@@ -491,7 +503,7 @@ public static class CaseProposalEvalReport
 
         text.AppendLine().AppendLine("## 逐題結果").AppendLine();
         text.AppendLine(hasModel
-            ? "| id | 類別 | 標記 | 關鍵字：案件層 | 關鍵字：提議階段 | 模型：案件層 | 模型：提議階段 | tokens 表單（入／出） | tokens 案件（入／出） | 問題 |"
+            ? "| id | 類別 | 標記 | 關鍵字：案件層 | 關鍵字：提議階段 | 模型：案件層 | 模型：提議階段 | tokens 合成（入／出） | tokens 案件（入／出） | 問題 |"
             : "| id | 類別 | 標記 | 關鍵字：案件層 | 關鍵字：提議階段 | 問題 |");
         text.AppendLine(hasModel ? "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |" : "| --- | --- | --- | --- | --- | --- |");
         foreach (var result in run.Results)
@@ -501,9 +513,10 @@ public static class CaseProposalEvalReport
                 $"| {Mark(question, result.Keyword.CaseLayer, false)} | {Mark(question, result.Keyword.Stage, true)} |");
             if (result.Model is { } model)
             {
-                var rejected = (model.CaseCallRejected ? "（案件工具參數不合法）" : string.Empty) + (model.FormCallRejected ? "（表單工具參數不合法）" : string.Empty);
-                row.Append($" {Mark(question, model.CaseLayer, false)}{rejected} | {Mark(question, model.Stage, true)} " +
-                    $"| {Tokens(result.Usage?.FormInput, result.Usage?.FormOutput)} | {Tokens(result.Usage?.CaseInput, result.Usage?.CaseOutput)} |");
+                var caseRejected = model.CaseCallRejected ? "（案件工具參數不合法）" : string.Empty;
+                var selectionRejected = model.SelectionCallRejected ? "（合成呼叫的工具或參數不合法）" : string.Empty;
+                row.Append($" {Mark(question, model.CaseLayer, false)}{caseRejected} | {Mark(question, model.Stage, true)}{selectionRejected} " +
+                    $"| {Tokens(result.Usage?.SelectionInput, result.Usage?.SelectionOutput)} | {Tokens(result.Usage?.CaseInput, result.Usage?.CaseOutput)} |");
             }
 
             row.Append($" {Cell(question.Question)} |");
@@ -557,17 +570,17 @@ public static class CaseProposalEvalReport
         }
 
         var usages = results.Select(result => result.Usage).OfType<CaseProposalEvalUsage>().ToList();
-        var formIn = Sum(usages.Select(usage => usage.FormInput));
-        var formOut = Sum(usages.Select(usage => usage.FormOutput));
+        var selectionIn = Sum(usages.Select(usage => usage.SelectionInput));
+        var selectionOut = Sum(usages.Select(usage => usage.SelectionOutput));
         var caseIn = Sum(usages.Select(usage => usage.CaseInput));
         var caseOut = Sum(usages.Select(usage => usage.CaseOutput));
         text.AppendLine().AppendLine("## Token 用量").AppendLine();
         text.AppendLine("| 呼叫 | 次數（有回報用量） | 輸入合計 | 輸出合計 | 每次平均（入／出） |");
         text.AppendLine("| --- | --- | --- | --- | --- |");
-        text.AppendLine($"| 表單選擇（request_database_form） | {formIn.Reported} | {formIn.Total} | {formOut.Total} | {Average(formIn)}／{Average(formOut)} |");
-        text.AppendLine($"| 案件選擇（propose_case） | {caseIn.Reported} | {caseIn.Total} | {caseOut.Total} | {Average(caseIn)}／{Average(caseOut)} |");
-        text.AppendLine($"| 合計 | {formIn.Reported + caseIn.Reported} | {formIn.Total + caseIn.Total} | {formOut.Total + caseOut.Total} | — |");
-        text.AppendLine().AppendLine("每題都呼叫表單與案件各一次（案件層要單獨評測），所以合計是正式環境的上限：正式環境只有表單沒有成立時才做案件選擇，而統計問題兩者都不做。");
+        text.AppendLine($"| 合成選擇（request_database_form＋propose_case） | {selectionIn.Reported} | {selectionIn.Total} | {selectionOut.Total} | {Average(selectionIn)}／{Average(selectionOut)} |");
+        text.AppendLine($"| 案件選擇（只有 propose_case，案件層） | {caseIn.Reported} | {caseIn.Total} | {caseOut.Total} | {Average(caseIn)}／{Average(caseOut)} |");
+        text.AppendLine($"| 合計 | {selectionIn.Reported + caseIn.Reported} | {selectionIn.Total + caseIn.Total} | {selectionOut.Total + caseOut.Total} | — |");
+        text.AppendLine().AppendLine("正式環境中，同時有表單與可提議類型的助理每題只做一次合成選擇（統計問題連這次也不做）；案件選擇是為了單獨評測案件層才另外呼叫的。");
     }
 
     private static string Average((long Total, int Reported) value) =>

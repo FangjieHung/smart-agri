@@ -147,11 +147,20 @@ public enum FormRequestEvalDecision
 
     /// <summary>The model call failed: not judged (production would fall back to the keywords).</summary>
     Error,
+
+    /// <summary>The combined selection (#286) proposed a case instead: no form.</summary>
+    Case,
 }
 
 /// <summary>One question's decisions: the keyword gate's, and the model's when it ran.</summary>
 public sealed record FormRequestEvalResult(
-    FormRequestEvalQuestion Question, FormRequestEvalDecision Keyword, FormRequestEvalDecision? Model, bool ModelCallRejected);
+    FormRequestEvalQuestion Question,
+    FormRequestEvalDecision Keyword,
+    FormRequestEvalDecision? Model,
+    bool ModelCallRejected,
+    FormRequestEvalDecision? Combined = null,
+    string? CombinedCaseKey = null,
+    bool CombinedCallRejected = false);
 
 /// <summary>The rates of one trigger. Rates are over judged questions (errors excluded); a category
 /// with no judged question has a <see langword="null"/> rate.</summary>
@@ -224,7 +233,11 @@ public sealed record FormRequestEvalRun(
     FormRequestEvalSummary Keyword,
     FormRequestEvalSummary? Model,
     double? AverageInputTokens,
-    double? AverageOutputTokens);
+    double? AverageOutputTokens,
+    FormRequestEvalSummary? Combined = null,
+    double? CombinedAverageInputTokens = null,
+    double? CombinedAverageOutputTokens = null,
+    IReadOnlyList<CaseProposalEvalType>? CaseTypes = null);
 
 /// <summary>The Markdown report of <c>eval-form-requests</c>, in Traditional Chinese like the rest of <c>docs/</c>.</summary>
 public static class FormRequestEvalReport
@@ -256,10 +269,19 @@ public static class FormRequestEvalReport
             text.AppendLine("- **注意：對話模型是 `fake`，它在沒有指示詞時照關鍵字門檻決定，模型欄的數字只證明流程可以執行，不代表真實模型的表現。**");
         }
 
+        if (run.CaseTypes is { } caseTypes)
+        {
+            text.AppendLine("- 合成呼叫（#286）：表單工具之外，同時提供這些可提議的案件類型（正式環境中助理同時有表單與可提議類型時的路徑）：");
+            foreach (var type in caseTypes)
+            {
+                text.AppendLine($"  - `{type.Key}`＝「{type.Name}」：{type.Description}");
+            }
+        }
+
         text.AppendLine().AppendLine("## 摘要").AppendLine();
         text.AppendLine("| 觸發方式 | 漏觸（應給表單卻沒給） | 誤觸（不應給卻給了） | 正反題正確率 | 模糊題與標記一致 | 模型呼叫失敗 |");
         text.AppendLine("| --- | --- | --- | --- | --- | --- |");
-        foreach (var summary in new[] { run.Keyword, run.Model }.OfType<FormRequestEvalSummary>())
+        foreach (var summary in new[] { run.Keyword, run.Model, run.Combined }.OfType<FormRequestEvalSummary>())
         {
             text.AppendLine(
                 $"| {summary.Trigger} | {summary.Missed}/{summary.Positives}（{Percent(summary.MissedRate)}） " +
@@ -273,25 +295,48 @@ public static class FormRequestEvalReport
                 $"模型每題平均用量：輸入 {input.ToString("0.0", CultureInfo.InvariantCulture)}、輸出 {output.ToString("0.0", CultureInfo.InvariantCulture)} tokens。");
         }
 
+        if (run.Combined is not null)
+        {
+            var cases = run.Results.Where(result => result.Combined == FormRequestEvalDecision.Case).ToList();
+            text.AppendLine().AppendLine(
+                $"合成呼叫改提議案件（沒有給表單）的有 {cases.Count} 題：正題 {cases.Count(result => result.Question.Category == FormRequestEvalSet.Positive)}、" +
+                $"反題 {cases.Count(result => result.Question.Category == FormRequestEvalSet.Negative)}、模糊題 {cases.Count(result => result.Question.Category == FormRequestEvalSet.Ambiguous)}" +
+                (cases.Count > 0 ? $"（{string.Join("、", cases.Select(result => $"{result.Question.Id}→{result.CombinedCaseKey}"))}）。" : "。"));
+            if (run.CombinedAverageInputTokens is { } combinedInput && run.CombinedAverageOutputTokens is { } combinedOutput)
+            {
+                text.AppendLine().AppendLine(
+                    $"合成呼叫每題平均用量：輸入 {combinedInput.ToString("0.0", CultureInfo.InvariantCulture)}、輸出 {combinedOutput.ToString("0.0", CultureInfo.InvariantCulture)} tokens。");
+            }
+        }
+
         text.AppendLine().AppendLine("## 逐題結果").AppendLine();
-        text.AppendLine(run.Model is null ? "| id | 類別 | 標記 | 關鍵字 | 問題 |" : "| id | 類別 | 標記 | 關鍵字 | 模型 | 問題 |");
-        text.AppendLine(run.Model is null ? "| --- | --- | --- | --- | --- |" : "| --- | --- | --- | --- | --- | --- |");
+        text.AppendLine(run.Model is null ? "| id | 類別 | 標記 | 關鍵字 | 問題 |"
+            : run.Combined is null ? "| id | 類別 | 標記 | 關鍵字 | 模型 | 問題 |"
+            : "| id | 類別 | 標記 | 關鍵字 | 模型 | 合成呼叫 | 問題 |");
+        text.AppendLine(run.Model is null ? "| --- | --- | --- | --- | --- |"
+            : run.Combined is null ? "| --- | --- | --- | --- | --- | --- |"
+            : "| --- | --- | --- | --- | --- | --- | --- |");
         foreach (var result in run.Results)
         {
             var question = result.Question;
             var model = result.Model is { } decision
                 ? $" {Mark(question, decision)}{(result.ModelCallRejected ? "（工具參數不合法）" : string.Empty)} |"
                 : string.Empty;
+            var combined = result.Combined is { } combinedDecision
+                ? $" {Mark(question, combinedDecision, result.CombinedCaseKey)}{(result.CombinedCallRejected ? "（工具參數不合法）" : string.Empty)} |"
+                : string.Empty;
             text.AppendLine(
-                $"| {question.Id} | {question.Category} | {question.Expected} | {Mark(question, result.Keyword)} |{model} {question.Question.Replace("|", "\\|", StringComparison.Ordinal)} |");
+                $"| {question.Id} | {question.Category} | {question.Expected} | {Mark(question, result.Keyword)} |{model}{combined} {question.Question.Replace("|", "\\|", StringComparison.Ordinal)} |");
         }
 
         return text.ToString();
     }
 
-    private static string Mark(FormRequestEvalQuestion question, FormRequestEvalDecision decision) => decision switch
+    private static string Mark(FormRequestEvalQuestion question, FormRequestEvalDecision decision, string? caseKey = null) => decision switch
     {
         FormRequestEvalDecision.Error => "錯誤",
+        // A case instead of the form: a miss for a form question; flagged (not a form) for any other.
+        FormRequestEvalDecision.Case => question.ExpectsForm ? $"case:{caseKey} ✗" : $"case:{caseKey} ⚠",
         FormRequestEvalDecision.Form => question.ExpectsForm ? "form ✓" : "form ✗",
         _ => question.ExpectsForm ? "none ✗" : "none ✓",
     };

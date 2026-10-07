@@ -2,6 +2,8 @@ using System.Diagnostics;
 using Microsoft.Extensions.AI;
 using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Cases;
+using SmartAgri.Application.Chat;
 using SmartAgri.Infrastructure.Ai;
 
 namespace SmartAgri.Api.Chat.Evaluation;
@@ -20,6 +22,12 @@ namespace SmartAgri.Api.Chat.Evaluation;
 /// and no organization, so these calls are not in <c>ModelInvocations</c> (the report has the token
 /// usage). Development and Testing only, like the other evaluations. With <c>Fake</c> the model column
 /// only proves the pipeline (the fake follows the keyword gate), and the report says so.
+/// <para>
+/// <c>--case-types &lt;dir&gt;</c> (#286) adds, per question, the combined selection call production makes
+/// when the assistant also has case types to propose (<see cref="ProposalSelectionRules"/>, the form tool
+/// next to the case tool with <c>dir</c>'s <c>caseTypes</c> — normally the case-proposal set's): whether the
+/// form is still given, or a case is proposed instead.
+/// </para>
 /// </remarks>
 public sealed class EvalFormRequestsCommand
 {
@@ -31,16 +39,20 @@ public sealed class EvalFormRequestsCommand
     public const string Model = "model";
     public const string Both = "both";
 
+    /// <summary>The combined selection's row (#286, <c>--case-types</c>).</summary>
+    public const string Combined = "model＋案件類型（合成呼叫）";
+
     /// <summary>The id the sample form is offered under (any fixed GUID; nothing is looked up).</summary>
     public static readonly Guid SampleFormId = Guid.Parse("0199a000-0164-7000-8000-000000000164");
 
     public static IReadOnlyList<string> Environments => ChatModelOptions.FakeEnvironments;
 
     public const string Usage =
-        "用法：eval-form-requests [--trigger keyword|model|both] [--set <題庫目錄>] [--report <報告檔路徑>]\n" +
+        "用法：eval-form-requests [--trigger keyword|model|both] [--set <題庫目錄>] [--case-types <題庫目錄>] [--report <報告檔路徑>]\n" +
         "評測對話表單請求的觸發方式（#164）：關鍵字門檻與模型選擇工具的漏觸、誤觸率，寫出 Markdown 報告。只能在 Development 或 Testing 環境執行。\n" +
         "  --trigger  keyword 只評測關鍵字（不需要模型）；model 或 both 需要設定對話模型（Ai:Chat），預設 both。\n" +
         "  --set      題庫目錄（questions.json），預設為隨程式附帶的題庫（apps/api/eval/form-requests）。\n" +
+        "  --case-types 另外以正式環境的合成選擇呼叫（#286）評測：表單工具之外再提供這個題庫目錄（例如 apps/api/eval/case-proposals）的 caseTypes，需要模型觸發。\n" +
         "  --report   報告檔路徑，預設為 <repo>/docs/evals/<日期>-form-requests-<模型或 keyword>.md，已存在就覆寫。";
 
     private readonly ChatClientProvider _chatProvider;
@@ -52,7 +64,7 @@ public sealed class EvalFormRequestsCommand
         _clock = clock;
     }
 
-    public sealed record Arguments(string Trigger, string? SetDirectory, string? ReportPath, bool Help);
+    public sealed record Arguments(string Trigger, string? SetDirectory, string? ReportPath, bool Help, string? CaseTypesDirectory = null);
 
     public static async Task<int> RunAsync(
         IServiceProvider services, IReadOnlyList<string> args, TextWriter output, TextWriter error, CancellationToken cancellationToken = default)
@@ -90,7 +102,7 @@ public sealed class EvalFormRequestsCommand
     {
         ArgumentNullException.ThrowIfNull(args);
         string trigger = Both;
-        string? set = null, report = null;
+        string? set = null, report = null, caseTypes = null;
         var help = false;
         error = null;
         for (var index = 0; index < args.Count; index++)
@@ -102,7 +114,7 @@ public sealed class EvalFormRequestsCommand
                 continue;
             }
 
-            if (name is not ("--trigger" or "--set" or "--report"))
+            if (name is not ("--trigger" or "--set" or "--report" or "--case-types"))
             {
                 error = $"不認得的參數：{name}";
                 break;
@@ -126,6 +138,9 @@ public sealed class EvalFormRequestsCommand
                 case "--set":
                     set = value;
                     break;
+                case "--case-types":
+                    caseTypes = value;
+                    break;
                 default:
                     report = value;
                     break;
@@ -137,7 +152,7 @@ public sealed class EvalFormRequestsCommand
             }
         }
 
-        arguments = new Arguments(trigger, set, report, help);
+        arguments = new Arguments(trigger, set, report, help, caseTypes);
         return error is null;
     }
 
@@ -162,6 +177,26 @@ public sealed class EvalFormRequestsCommand
             return ExitUsage;
         }
 
+        CaseProposalEvalSet? caseTypes = null;
+        if (arguments.CaseTypesDirectory is not null)
+        {
+            if (!runModel)
+            {
+                await error.WriteLineAsync("--case-types 評測的是模型的合成選擇呼叫，不能與 --trigger keyword 一起使用。");
+                return ExitUsage;
+            }
+
+            try
+            {
+                caseTypes = CaseProposalEvalSet.Load(arguments.CaseTypesDirectory);
+            }
+            catch (CaseProposalEvalSetException exception)
+            {
+                await error.WriteLineAsync(exception.Message);
+                return ExitUsage;
+            }
+        }
+
         var startedAt = _clock.GetLocalNow();
         var stopwatch = Stopwatch.StartNew();
         await output.WriteLineAsync(runModel
@@ -170,8 +205,9 @@ public sealed class EvalFormRequestsCommand
 
         IReadOnlyList<AssistantFormToolOffer> offers = [new AssistantFormToolOffer(SampleFormId, set.SampleForm.Title, set.SampleForm.Purpose)];
         var results = new List<FormRequestEvalResult>(set.Questions.Count);
-        long inputTokens = 0, outputTokens = 0;
+        long inputTokens = 0, outputTokens = 0, combinedInput = 0, combinedOutput = 0;
         var usageReported = 0;
+        var combinedReported = 0;
         foreach (var question in set.Questions)
         {
             var keyword = AssistantFormRequestRules.AsksForForm(question.Question) ? FormRequestEvalDecision.Form : FormRequestEvalDecision.None;
@@ -201,12 +237,50 @@ public sealed class EvalFormRequestsCommand
                 }
                 catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
                 {
-                    await error.WriteLineAsync($"  {question.Id}：模型呼叫失敗（{exception.GetType().Name}：{exception.Message}）");
+                    await error.WriteLineAsync($"  {question.Id}：模型呼叫失敗（{EvalCaseProposalsCommand.Describe(exception)}）");
                     model = FormRequestEvalDecision.Error;
                 }
             }
 
-            results.Add(new FormRequestEvalResult(question, keyword, model, rejected));
+            FormRequestEvalDecision? combined = null;
+            string? combinedCase = null;
+            var combinedRejected = false;
+            if (caseTypes is not null)
+            {
+                var options = new ChatOptions
+                {
+                    Tools = ProposalSelectionRules.Declarations(offers, caseTypes.Offers),
+                    ToolMode = ChatToolMode.Auto,
+                    AllowMultipleToolCalls = false,
+                };
+                try
+                {
+                    var response = await _chatProvider.Client.GetResponseAsync(
+                        ProposalSelectionRules.SelectionPrompt(question.Question), options, cancellationToken);
+                    var call = ProposalSelectionRules.ParseCall(response, offers, caseTypes.Offers, question.Question);
+                    combined = call.Match switch
+                    {
+                        ProposalSelectionCallMatch.Form => FormRequestEvalDecision.Form,
+                        ProposalSelectionCallMatch.Case => FormRequestEvalDecision.Case,
+                        _ => FormRequestEvalDecision.None,
+                    };
+                    combinedCase = call.CaseDraft is { } draft ? caseTypes.KeyOf(draft.Offer.TypeId) : null;
+                    combinedRejected = call.Match == ProposalSelectionCallMatch.Rejected;
+                    if (response.Usage is { } usage)
+                    {
+                        combinedInput += usage.InputTokenCount ?? 0;
+                        combinedOutput += usage.OutputTokenCount ?? 0;
+                        combinedReported++;
+                    }
+                }
+                catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
+                {
+                    await error.WriteLineAsync($"  {question.Id}：合成選擇呼叫失敗（{EvalCaseProposalsCommand.Describe(exception)}）");
+                    combined = FormRequestEvalDecision.Error;
+                }
+            }
+
+            results.Add(new FormRequestEvalResult(question, keyword, model, rejected, combined, combinedCase, combinedRejected));
         }
 
         var run = new FormRequestEvalRun(
@@ -221,14 +295,18 @@ public sealed class EvalFormRequestsCommand
             FormRequestEvalScoring.Summarize(Keyword, results.Select(result => (result.Question, result.Keyword))),
             runModel ? FormRequestEvalScoring.Summarize(Model, results.Select(result => (result.Question, result.Model!.Value))) : null,
             usageReported == 0 ? null : (double)inputTokens / usageReported,
-            usageReported == 0 ? null : (double)outputTokens / usageReported);
+            usageReported == 0 ? null : (double)outputTokens / usageReported,
+            caseTypes is null ? null : FormRequestEvalScoring.Summarize(Combined, results.Select(result => (result.Question, result.Combined!.Value))),
+            combinedReported == 0 ? null : (double)combinedInput / combinedReported,
+            combinedReported == 0 ? null : (double)combinedOutput / combinedReported,
+            caseTypes?.CaseTypes);
 
         var path = Path.GetFullPath(arguments.ReportPath ?? Path.Combine(
             EvalAnswersCommand.RepositoryRoot(), "docs", "evals", FormRequestEvalReport.FileName(startedAt, runModel ? _chatProvider.Model : null)));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, FormRequestEvalReport.Render(run), cancellationToken);
 
-        foreach (var summary in new[] { run.Keyword, run.Model }.OfType<FormRequestEvalSummary>())
+        foreach (var summary in new[] { run.Keyword, run.Model, run.Combined }.OfType<FormRequestEvalSummary>())
         {
             await output.WriteLineAsync(
                 $"{summary.Trigger}：漏觸 {summary.Missed}/{summary.Positives}，誤觸 {summary.FalseTriggers}/{summary.Negatives}，" +
@@ -236,7 +314,7 @@ public sealed class EvalFormRequestsCommand
         }
 
         await output.WriteLineAsync($"報告：{path}");
-        return run.Model is { Errors: > 0 } ? ExitFailed : ExitSuccess;
+        return run.Model is { Errors: > 0 } || run.Combined is { Errors: > 0 } ? ExitFailed : ExitSuccess;
     }
 
     private static string DisplayName(string directory)

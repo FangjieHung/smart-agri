@@ -751,9 +751,19 @@ form (`request_database_form`, #148) is decided by:
 
 Anything else fails startup. `eval-form-requests` (below) compares the two on a labelled set.
 
+The same trigger decides case proposals (M7-9 #254, `propose_case`): in `Model` mode an assistant with
+case types it may propose (and no form target) makes one `case-proposal` call. **When a request may be
+offered both the form and at least one case type, there is one call, not two** (#286): purpose
+`proposal-selection`, offered `request_database_form` and `propose_case` together, and the model calls
+one of them or neither (`ProposalSelectionRules`, `ChatProposalSelectionTool`). Precedence stays query →
+form → case → answer, at most one proposal per reply; the server accepts only an offered form id (then
+re-authorized) or type id; a failed call falls back to the form gate, then the case keyword rule. All
+three purposes count toward the monthly token limit.
+
 In `Model` mode, a run that is about to make that selection call first sends `CUSTOM smartagri.form-check`
 (empty value; #171) so the client can show a "checking" state; keyword mode and assistants without a form
-target never send it. `GET /api/v1/assistants/{id}/chat/forms` lists the form(s) the caller may open from
+target never send it. The combined call (#286) offers the form too, so it sends the same event at the
+same place; a case-only call sends none. `GET /api/v1/assistants/{id}/chat/forms` lists the form(s) the caller may open from
 the conversation's 「回報資料」 entry (the same `ChatFormRequestView` a form request carries; empty when
 none), and `POST …/chat/forms/{databaseId}/dismissals` records that the member closed an offered form
 (`ChatFormDismissals`: assistant, form, time — no account, conversation or content). Contracts: M4 design
@@ -1561,8 +1571,12 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-form-requests --report /
   every question side by side. Exit codes: `0` done, `1` no chat model for `model`/`both` or a model
   call failed, `2` bad arguments, environment or set.
 - With `Fake`, the model column only proves the pipeline (the fake follows the keyword gate unless a
-  directive says otherwise), and the report says so. The real-model run is pending a key; see
-  `docs/evals/2026-10-05-164-form-request-trigger.md`.
+  directive says otherwise), and the report says so. Results: `docs/evals/2026-10-05-164-form-request-trigger.md`
+  and, after #286, `docs/evals/2026-10-07-286-combined-proposal-call.md`.
+- `--case-types <dir>` (#286, model trigger only) also makes, per question, the combined selection call
+  production makes when the assistant has case types too — the form tool next to `propose_case` with
+  `<dir>`'s `caseTypes` (normally `apps/api/eval/case-proposals`) — and reports whether the form is still
+  given or a case is proposed instead.
 
 ## Evaluating case-proposal triggers: `eval-case-proposals`
 
@@ -1583,12 +1597,15 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --report 
   project directory), so pass an absolute path or omit it.
 - Each question is judged twice per trigger: the **case layer alone**, and the **whole proposal stage**
   (decision L: database query → form → case). The query layer is the `DatabaseQueryTools.AsksForStatistics`
-  gate (the query model is not called); the form layer is `AssistantFormRequestRules.AsksForForm`
-  (keyword) or one `request_database_form` call (model, #164). In model mode every question gets one
-  form call and one case call with the production declarations and prompts, calling the configured
-  chat model directly (not in `ModelInvocations`; the report has every question's tokens).
+  gate (the query model is not called); then `AssistantFormRequestRules.AsksForForm` and the case keyword
+  rule (keyword), or — since #286, as production does for an assistant with both a form and case types —
+  one combined `request_database_form` + `propose_case` call (model). In model mode every question gets
+  that combined call and one case-only call (the case layer) with the production declarations and
+  prompts, calling the configured chat model directly (not in `ModelInvocations`; the report has every
+  question's tokens).
 - A reasoning model such as `gpt-6-luna` needs `Ai__Chat__ReasoningEffort=None` (see "Chat model").
-- Results and recommendations: `docs/evals/2026-10-07-257-case-proposal-trigger.md`.
+- Results and recommendations: `docs/evals/2026-10-07-257-case-proposal-trigger.md`; after the combined
+  call, `docs/evals/2026-10-07-286-combined-proposal-call.md`.
 
 ## Development seed data
 

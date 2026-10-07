@@ -66,4 +66,13 @@ public enum ModelInvocationPurpose
     /// the server re-checks the type and truncates the draft. Counted toward the monthly token limit.</summary>
     [JsonStringEnumMemberName("case-proposal")]
     CaseProposal,
+
+    /// <summary>Choosing, in one call, between the assistant's form and a case proposal — or neither — for a
+    /// conversation question (issue #286, only with <c>Chat:FormRequests:Trigger = Model</c>, and only when the
+    /// request may be offered both the form and at least one case type; with only one of them the call is
+    /// <see cref="FormRequest"/> or <see cref="CaseProposal"/> as before). The model only chooses among what the
+    /// server offers; the server re-checks the form or type and builds the reply. Counted toward the monthly
+    /// token limit like both.</summary>
+    [JsonStringEnumMemberName("proposal-selection")]
+    ProposalSelection,
 }

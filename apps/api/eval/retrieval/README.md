@@ -23,7 +23,7 @@ reserved `.example` domain).
 | `files/return-policy-v2.pdf` (34,562 bytes) | 退換貨辦法 2026 版.pdf | 退換貨政策 | The 2026 edition: **seven** days, no fresh produce, refunds in five working days; page 1 lists the changes | version 2 of the same document, **in effect** |
 | `files/delivery-timetable.xlsx` (3,693 bytes) | 運費與配送時間表.xlsx | 配送常見問題 | Sheets 「配送時間」 (22 regions: days with a 天 unit column, cut-off `h:mm`, method) and 「運費」 (4 methods: fees and free-shipping thresholds in 元, `#,##0`) | version 1 in effect; one chunk per sheet, header first |
 | `files/faq.md` (1,357 bytes) | 常見問題.md | 配送常見問題 | Eight questions and answers under `#`/`##`/`###` headings, UTF-8 without a byte order mark | version 1 in effect; labelled 「常見問題 › 配送 › 連假期間會出貨嗎？」 |
-| `files/store-info.md` (1010 bytes) | 門市資訊.md | 配送常見問題 | The shop's own "AI reference" sheet, written the way a small shop writes one (#300): Markdown **tables** under `##` headings — 基本資訊 (店名, 地址, 電話, 營業時間, 公休日 每週三), 外送與團購, 門市餐點 (單點, 沒有套餐) — and a parking line | version 1 in effect; labelled 「青禾門市 AI 客服參考資料 › 基本資訊」 |
+| `files/store-info.md` (1010 bytes) | 門市資訊.md | 配送常見問題 | The shop's own "AI reference" sheet, written the way a small shop writes one (#300): Markdown **tables** under `##` headings — 基本資訊 (店名, 地址, 電話, 營業時間, 公休日 每週三), 外送與團購, 門市餐點 (單點, 沒有套餐) — and a parking line | version 1 in effect; labelled 「青禾門市 AI 客服參考資料 › 基本資訊」; since #301 one chunk per table row (「項目：公休日\n內容：每週三」) |
 
 - The two editions of the return policy say different things in the same places, so the bank can
   tell which version a passage came from: every question about the policy expects version 2 and a
@@ -37,7 +37,9 @@ reserved `.example` domain).
   number does; it is not any real shop's document. It sits in 配送常見問題 because the set's
   knowledge bases must be the frontend Demo's (below). Since it gives the shop's opening hours,
   the former should-find-nothing question none-04 「門市的營業時間是幾點到幾點？」 was removed:
-  `store-05` 「營業時間是幾點到幾點？」 covers it now.
+  `store-05` 「營業時間是幾點到幾點？」 covers it now. Since #301 each table row is a chunk of its
+  own, so the store questions' `evidence` is the row's 「內容：…」 line (「內容：每週三」), not the
+  Markdown row (「| 公休日 | 每週三 |」) the #300 baseline matched; the questions are unchanged.
 - **Consistent with the frontend Demo** (`apps/admin/src/app/core/repositories/demo-seed.ts`):
   the knowledge bases have its names and purposes; its three trial questions are in the bank —
   「收到商品後幾天內可以申請退貨？」 expects the 2026 edition's seven days, and the two it answers

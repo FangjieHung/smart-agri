@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + set-token-limit + retention-cleanup subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + rechunk + set-token-limit + retention-cleanup subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -417,6 +417,19 @@ each uploaded version and writes what it read, in one transaction with the versi
   1000 characters (Unicode scalars, so one Chinese character is one), 100 overlapping. Each
   worksheet chunk is whole rows headed by the sheet's header row, labelled
   「工作表『配送時間』第 2–30 列」.
+- **Tables** in a Markdown or DOCX section (#301): every data row is a chunk of its own, one
+  `欄名：值` line per non-empty cell (「項目：電話\n內容：(03) 012-3456」), labelled with the
+  section's heading path like the rest of the section, whose text outside its tables is chunked
+  exactly as before. A Markdown table is a GitHub-style pipe table with its `| --- |` delimiter
+  row (without one, or inside fenced code, it stays text; a table with only a header row gives
+  nothing); a DOCX table needs two non-empty rows, the first naming the columns (a one-row
+  table stays text). The unit's text, which the preview shows, keeps the table as written. A
+  short question (「電話幾號？」) matches one row far better than a whole table (#292).
+- **Chunk format** (`KnowledgeDocumentVersions.ChunkFormat`, `KnowledgeChunkFormat`): which
+  chunking rules cut a version's chunks — `1` before #301 (tables inside their section's text;
+  what the migration gives every existing version), `2` with table rows. Processing writes the
+  current one; `rechunk` ("Changing the chunking rules: `rechunk`" below) brings older ones up
+  to date.
 - A password-protected PDF, non-UTF-8 text (e.g. Big5) or a damaged file fails the job at once
   (`PermanentJobFailure`, one attempt) with an issue telling the owner what to do.
 
@@ -535,7 +548,7 @@ ADRs). Code only ever sees `IEmbeddingGenerator<string, Embedding<float>>`
   「嵌入模型暫時無法使用，請稍後重試」.
 - **Audit:** every model call goes through `ModelInvocationRecordingEmbeddingGenerator`, which
   writes one `ModelInvocations` row — organization, account (the uploader during processing,
-  the asker for a question, none for `reindex`), assistant (M3), purpose (`embed-document`/`embed-query`), provider,
+  the asker for a question, none for `reindex` and `rechunk`), assistant (M3), purpose (`embed-document`/`embed-query`), provider,
   model, input tokens when the provider reports them, duration, success, time — and **never
   any content**. A call without an organization or an attribution is refused before it reaches
   the provider. It also emits one client span `embeddings {model}` with `gen_ai.*` attributes
@@ -602,6 +615,50 @@ model is unreachable; what was saved stays), `2` bad arguments or unusable confi
 Until it has finished, the retrieval preview (and M3's answers) find nothing of the chunks not
 yet re-embedded. Similarity scores are model-specific too: set `Retrieval:MinScore` for the new
 model ("Retrieval preview" below).
+
+### Changing the chunking rules: `rechunk`
+
+When the chunker changes what it cuts from a file already stored (`KnowledgeChunkFormat.Current`
+raised — #301's table rows), versions processed before keep their old chunks until they are cut
+again from their original files. After deploying, preview, then run:
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- rechunk --dry-run          # what it would do; writes nothing
+dotnet run --project apps/api/src/SmartAgri.Api -- rechunk                    # every organization
+dotnet run --project apps/api/src/SmartAgri.Api -- rechunk --organization anxin
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api rechunk --dry-run
+```
+
+It takes every `ready` or `partially-readable` version whose `ChunkFormat` is older than the
+current one, organization by organization (each through a context acting for that organization,
+like `reindex`), reads its stored file with today's extractors and chunker, and compares unit by
+unit (`KnowledgeRechunking`):
+
+- A unit whose chunks come out the same keeps them — ids (which citations point back to),
+  vectors and exclusions — so a PDF, a worksheet or a section without tables costs no model call;
+  such a version only has its format updated.
+- A changed unit's chunks are embedded with the configured model (in `Ai:Embedding:BatchSize`
+  batches, recorded as the organization's `embed-document` calls with no account), **before**
+  any transaction, so the old chunks keep serving meanwhile. Then one repeatable-read transaction
+  deletes that unit's old chunks, inserts the new ones and sets the format; it first checks the
+  version is still in the old format and the chunks are still the ones planned with, so an
+  owner's exclusion made at that moment fails the swap (reported, run it again) instead of being
+  lost.
+- **Exclusions carry over** where they can be mapped: a new chunk with the same text as an
+  excluded one, or whose every line (for a table row, every value) is inside an excluded old
+  chunk of the same unit — so excluding a whole table's section keeps all its rows excluded. An
+  excluded chunk nothing maps to is listed with 「！」 (location, ordinal and id, never its text);
+  the new chunks are not excluded, so check them in the extraction preview.
+- A version whose file now reads differently from what is stored (other units or another status,
+  e.g. after `Knowledge:MaxExtractedUnits` changed) is skipped, listed with 「！」, and stays in the
+  old format.
+
+`--dry-run` prints the same per-version lines (chunks before → after, how many would be
+embedded, exclusions carried over or not) and calls no model. Running it again after it finished
+does nothing. Exit codes: `0` done, `1` stopped (e.g. the model is unreachable; versions finished
+stay finished) or a version was left in the old format, `2` bad arguments or unusable
+configuration. Run `reindex` first if the embedding model changed too: `rechunk` leaves unchanged
+chunks' vectors alone.
 
 ## Chat model
 

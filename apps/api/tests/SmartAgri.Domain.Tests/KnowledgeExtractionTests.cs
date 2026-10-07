@@ -45,6 +45,25 @@ public class KnowledgeExtractionTests
     }
 
     [Fact]
+    public void Processing_writes_the_current_chunk_format_and_only_a_processed_readable_version_is_rechunked()
+    {
+        var version = Processing();
+        version.ChunkFormat.ShouldBe(KnowledgeChunkFormat.Current, "a new upload is processed by the current rules");
+        version.CompleteProcessing(KnowledgeDocumentStatus.Ready, null, Now.AddMinutes(1));
+        version.ChunkFormat.ShouldBe(KnowledgeChunkFormat.Current);
+        KnowledgeChunkFormat.Current.ShouldBeGreaterThan(KnowledgeChunkFormat.SectionTables);
+
+        version.MarkRechunked();
+        version.ChunkFormat.ShouldBe(KnowledgeChunkFormat.Current);
+        version.UpdatedAt.ShouldBe(Now.AddMinutes(1), "cutting chunks again is no change to the upload or its status");
+
+        Should.Throw<InvalidOperationException>(() => Processing().MarkRechunked());
+        var failed = Processing();
+        failed.CompleteProcessing(KnowledgeDocumentStatus.Failed, "找不到可讀文字", Now);
+        Should.Throw<InvalidOperationException>(() => failed.MarkRechunked());
+    }
+
+    [Fact]
     public void A_unit_belongs_to_its_version_and_is_unreadable_exactly_when_its_issue_says_so()
     {
         var version = Processing();

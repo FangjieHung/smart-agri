@@ -38,6 +38,33 @@ public class DocxTextExtractorTests
             ("2 退換貨 › 2.2 運費", "地區 | 運費 | 免運門檻\n本島 | 100 元 | 1,500 元\n離島 | 150 元 | 3,000 元"),
             ("3 聯絡我們", "客服信箱：service@anxin.example"),
         ]);
+
+        // The table is also read as one (#301): its first row names the columns.
+        var fees = document.Units.Single(unit => unit.LocationLabel == "2 退換貨 › 2.2 運費");
+        fees.TextOutsideTables.ShouldBeEmpty();
+        fees.Tables.Count.ShouldBe(1);
+        fees.Tables[0].Header.ShouldBe(["地區", "運費", "免運門檻"]);
+        fees.Tables[0].Rows.ShouldBe([["本島", "100 元", "1,500 元"], ["離島", "150 元", "3,000 元"]]);
+        document.Units.Where(unit => unit != fees).ShouldAllBe(unit => unit.Tables.Count == 0 && unit.TextOutsideTables == unit.Text);
+    }
+
+    [Fact]
+    public void Tables_of_two_rows_or_more_are_tables_and_a_one_row_table_stays_text()
+    {
+        var content = Docx(
+            Heading("門市"),
+            Body("說明在表格前。"),
+            Table(["項目", "內容"], ["地址", "示範縣安和路 18 號"], ["電話", ""], ["", ""]),
+            Table(["注意：公休日請勿來電"]),
+            Body("表格後的備註。"));
+
+        var unit = Extractor.Extract(KnowledgeFileFormat.Docx, content, ExtractionLimits.Default, CancellationToken).Units.ShouldHaveSingleItem();
+
+        unit.Text.ShouldBe("說明在表格前。\n項目 | 內容\n地址 | 示範縣安和路 18 號\n電話\n注意：公休日請勿來電\n表格後的備註。", "the preview's text is as before");
+        unit.TextOutsideTables.ShouldBe("說明在表格前。\n注意：公休日請勿來電\n表格後的備註。");
+        var table = unit.Tables.ShouldHaveSingleItem();
+        table.Header.ShouldBe(["項目", "內容"]);
+        table.Rows.ShouldBe([["地址", "示範縣安和路 18 號"], ["電話"]], "an empty row is no row; trailing empty cells are dropped");
     }
 
     [Fact]
@@ -115,6 +142,9 @@ public class DocxTextExtractorTests
         new(new ParagraphProperties(new ParagraphStyleId { Val = styleId }), new Run(new Text(text)));
 
     private static Paragraph Body(string text) => new(new Run(new Text(text)));
+
+    private static Table Table(params string[][] rows) =>
+        new(rows.Select(cells => new TableRow(cells.Select(cell => new TableCell(Body(cell))))));
 
     private static Style Style(string id, string name, string? basedOn = null)
     {

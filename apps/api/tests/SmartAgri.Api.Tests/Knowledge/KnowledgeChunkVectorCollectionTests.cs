@@ -46,9 +46,9 @@ public sealed class KnowledgeChunkVectorCollectionTests : IClassFixture<AuthHost
         var versionId = await owner.UploadAsync(KnowledgeFixtures.ProductGuideDocx);
         await RunJobsAsync();
         var chunks = await ChunksAsync(owner, versionId);
-        chunks.Count.ShouldBe(7);
+        chunks.Count.ShouldBe(8);
         chunks.ShouldAllBe(chunk => chunk.EmbeddingModel == AuthHostFixture.EmbeddingModel);
-        var target = chunks.Single(chunk => chunk.LocationLabel == "2 退換貨 › 2.2 運費");
+        var target = chunks.First(chunk => chunk.LocationLabel == "2 退換貨 › 2.2 運費");
         var targetText = KnowledgeEmbeddingText.For(KnowledgeUnitLocationKind.Section, target.LocationLabel, target.Text);
 
         // An excluded chunk is re-embedded too, and stays excluded.
@@ -66,10 +66,10 @@ public sealed class KnowledgeChunkVectorCollectionTests : IClassFixture<AuthHost
         var exit = await ReindexCommand.RunAsync(switched.Services, ["--organization", owner.Organization.Code, "--batch-size", "3"], output, error, CancellationToken);
 
         exit.ShouldBe(ReindexCommand.ExitSuccess, error.ToString());
-        output.ToString().ShouldContain($"組織 {owner.Organization.Code}（{owner.Organization.Name}）：7 個段落需要重新嵌入。");
-        output.ToString().ShouldContain("  3/7");
-        output.ToString().ShouldContain("  7/7");
-        output.ToString().ShouldContain("完成：共重新嵌入 7 個段落。");
+        output.ToString().ShouldContain($"組織 {owner.Organization.Code}（{owner.Organization.Name}）：8 個段落需要重新嵌入。");
+        output.ToString().ShouldContain("  3/8");
+        output.ToString().ShouldContain("  8/8");
+        output.ToString().ShouldContain("完成：共重新嵌入 8 個段落。");
 
         var reindexed = await ChunksAsync(owner, versionId);
         reindexed.ShouldAllBe(chunk => chunk.EmbeddingModel == OtherModel);
@@ -82,7 +82,7 @@ public sealed class KnowledgeChunkVectorCollectionTests : IClassFixture<AuthHost
         found.First().Score!.Value.ShouldBe(1, 1e-5);
         (await SearchAsync(owner, AuthHostFixture.EmbeddingModel, targetText)).ShouldBeEmpty();
 
-        // Three calls (3 + 3 + 1), recorded for the organization with no account.
+        // Three calls (3 + 3 + 2), recorded for the organization with no account.
         await using (var dbContext = _host.Postgres.CreateDbContext(owner.Organization.Id))
         {
             var calls = await dbContext.ModelInvocations.AsNoTracking().Where(invocation => invocation.Model == OtherModel).ToListAsync(CancellationToken);

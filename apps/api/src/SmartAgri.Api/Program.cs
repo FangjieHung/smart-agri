@@ -135,6 +135,14 @@ if (args is [SmartAgriCommands.Reindex, .. var reindexArgs])
     return;
 }
 
+// `rechunk` is one-shot too: cut processed versions of an older chunk format again from their
+// stored files, embed what changed and swap it in, per organization, then exit (#301).
+if (args is [SmartAgriCommands.Rechunk, .. var rechunkArgs])
+{
+    Environment.ExitCode = await RechunkCommand.RunAsync(app.Services, rechunkArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `eval-retrieval` is one-shot too, Development only: import the retrieval evaluation set into an
 // organization of its own, run every question through KnowledgeRetriever with the configured
 // embedding model and write a Markdown report, then exit (M2 plan, Slice 16).
@@ -279,6 +287,7 @@ internal static class SmartAgriCommands
     public const string Migrate = "migrate";
     public const string Setup = "setup";
     public const string Reindex = "reindex";
+    public const string Rechunk = "rechunk";
     public const string EvalRetrieval = "eval-retrieval";
     public const string EvalAnswers = "eval-answers";
     public const string EvalFormRequests = "eval-form-requests";

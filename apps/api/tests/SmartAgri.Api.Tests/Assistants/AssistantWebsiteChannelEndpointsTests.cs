@@ -80,6 +80,9 @@ public class AssistantWebsiteChannelEndpointsTests : IClassFixture<AuthHostFixtu
         view.GetProperty("domains").EnumerateArray().All(item => item.GetProperty("lastSeenAt").ValueKind == JsonValueKind.Null)
             .ShouldBeTrue();
         view.GetProperty("channel").GetProperty("status").GetString().ShouldBe("testing");
+        // The saved brand colour reaches the loader through the embed code (#225).
+        view.GetProperty("embedCode").GetString()
+            .ShouldBe($"<script src=\"http://localhost:5153/embed.js\" data-assistant=\"{assistantId}\" data-brand=\"ocean\" async></script>");
 
         var second = await SaveAsync(org, assistantId, 1, "安心客服", ["www.example.com"]);
         second.StatusCode.ShouldBe(HttpStatusCode.OK);

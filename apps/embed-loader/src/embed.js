@@ -23,14 +23,19 @@
   const url = new URL(script.src, location.href);
   const base = url.origin + url.pathname.replace(/\/embed\.js$/, '');
   const left = script.dataset.position === 'left';
+  // data-brand: same table as the widget's brand-color.ts (spec checks); unknown or missing = forest.
+  /** @type {Record<string, string>} */
+  const colors = { forest: '#1f6f5c', ocean: '#1d5fa8', amber: '#a3520c', plum: '#6b3fa0' };
+  const brand = script.dataset.brand || '';
+  const color = Object.prototype.hasOwnProperty.call(colors, brand) ? colors[brand] : colors.forest;
 
   const css =
     '.smartagri-root,.smartagri-launcher,.smartagri-frame{all:initial;box-sizing:border-box}' +
     '.smartagri-root{position:fixed;bottom:20px;' + (left ? 'left' : 'right') + ':20px;z-index:2147483000;' +
     'font-family:system-ui,sans-serif}' +
     '.smartagri-launcher{display:flex;align-items:center;justify-content:center;width:56px;height:56px;' +
-    'border-radius:50%;background:#1f6f5c;color:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3)}' +
-    '.smartagri-launcher:focus-visible{outline:3px solid #fff;box-shadow:0 0 0 6px #1f6f5c}' +
+    'border-radius:50%;background:' + color + ';color:#fff;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.3)}' +
+    '.smartagri-launcher:focus-visible{outline:3px solid #fff;box-shadow:0 0 0 6px ' + color + '}' +
     '.smartagri-launcher svg{display:block;width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;' +
     'stroke-linecap:round;stroke-linejoin:round}' +
     '.smartagri-launcher .smartagri-x{display:none}' +

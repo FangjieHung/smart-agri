@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SmartAgri.Application.Organizations;
+using SmartAgri.Domain;
 using SmartAgri.Domain.Assistants;
 
 namespace SmartAgri.Api.PublicChannels;
@@ -101,13 +102,28 @@ public sealed class PublicChannelsOptions
         TryResolve(PublicBaseUrl, out var resolved) ? resolved : null;
 
     /// <summary>The <c>&lt;script&gt;</c> line a customer pastes into their site, or
-    /// <see langword="null"/> without <see cref="PublicBaseUrl"/>. The loader reads its position
-    /// only from the page (<c>apps/embed-loader/README.md</c>), so a bottom-left launcher is written
-    /// into the line as <c>data-position="left"</c> (#205: it was dropped before).</summary>
-    public string? EmbedCode(Guid assistantId, WebsiteLauncherPosition position = WebsiteLauncherPosition.BottomRight) =>
-        ResolvedPublicBaseUrl is { } baseUrl
-            ? $"<script src=\"{baseUrl}/embed.js\" data-assistant=\"{assistantId}\"{(position == WebsiteLauncherPosition.BottomLeft ? " data-position=\"left\"" : "")} async></script>"
-            : null;
+    /// <see langword="null"/> without <see cref="PublicBaseUrl"/>. The loader reads the launcher's
+    /// position and colour only from the page (<c>apps/embed-loader/README.md</c>), so a bottom-left
+    /// launcher is written into the line as <c>data-position="left"</c> (#205: it was dropped before)
+    /// and a brand colour other than the default <see cref="WebsiteBrandColor.Forest"/> as
+    /// <c>data-brand="{wire name}"</c> (#225). Leaving out the defaults keeps the line unchanged for
+    /// the common case, and a line pasted before either attribute existed still means the defaults.</summary>
+    public string? EmbedCode(
+        Guid assistantId,
+        WebsiteLauncherPosition position = WebsiteLauncherPosition.BottomRight,
+        WebsiteBrandColor brandColor = WebsiteBrandColor.Forest)
+    {
+        if (ResolvedPublicBaseUrl is not { } baseUrl)
+        {
+            return null;
+        }
+
+        var positionAttribute = position == WebsiteLauncherPosition.BottomLeft ? " data-position=\"left\"" : "";
+        var brandAttribute = brandColor == WebsiteBrandColor.Forest
+            ? ""
+            : $" data-brand=\"{WireNames<WebsiteBrandColor>.ToWire(brandColor)}\"";
+        return $"<script src=\"{baseUrl}/embed.js\" data-assistant=\"{assistantId}\"{positionAttribute}{brandAttribute} async></script>";
+    }
 
     /// <summary>The address LINE delivers an assistant's webhook events to (M5b plan §3 B, decision C:
     /// the connection test sets it on the LINE channel), or <see langword="null"/> without

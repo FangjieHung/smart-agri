@@ -277,11 +277,21 @@ export function websitePublishFailures(
   return failures;
 }
 
-/** 示範嵌入碼：網址只供畫面展示（對應 API 的 `PublicChannels:PublicBaseUrl`），不可用於正式環境。 */
-export function demoEmbedCode(assistantId: string): string {
+/**
+ * 示範嵌入碼：網址只供畫面展示（對應 API 的 `PublicChannels:PublicBaseUrl`），不可用於正式環境。
+ * 屬性與 API 的 `PublicChannelsOptions.EmbedCode` 相同：靠左寫 `data-position="left"`，
+ * 品牌色不是預設的 `forest` 時寫 `data-brand`（#225；載入器只從網頁讀這兩個設定）。
+ */
+export function demoEmbedCode(
+  assistantId: string,
+  position: WebsiteEmbedSettings['position'] = 'bottom-right',
+  brandColor: WebsiteEmbedSettings['brandColor'] = 'forest',
+): string {
+  const positionAttribute = position === 'bottom-left' ? ' data-position="left"' : '';
+  const brandAttribute = brandColor === 'forest' ? '' : ` data-brand="${brandColor}"`;
   return [
     '<!-- Demo 嵌入碼：僅供展示，不可用於正式環境，也不會連接外部服務 -->',
-    `<script src="https://widget.demo.invalid/embed.js" data-assistant="${assistantId}" async></script>`,
+    `<script src="https://widget.demo.invalid/embed.js" data-assistant="${assistantId}"${positionAttribute}${brandAttribute} async></script>`,
   ].join('\n');
 }
 
@@ -641,7 +651,7 @@ export function toAssistantPublishingView(
     acceptanceStatus: websiteContext.acceptanceStatus,
     domains: allowedDomains.map((domain) => ({ domain, lastSeenAt: lastSeenAt[domain] ?? null })),
     nonOwnedKnowledgeBases: websiteContext.nonOwnedKnowledgeBases,
-    embedCode: demoEmbedCode(assistant.id),
+    embedCode: demoEmbedCode(assistant.id, position, brandColor),
     publishedAt,
     revision,
   };

@@ -13,7 +13,17 @@ API（#201）原樣提供 `apps/embed-loader/src/embed.js`；widget（#199，`ap
 ## 載入器行為
 
 - **API 基底**：`document.currentScript.src`；取不到時（例如以動態方式載入）退回第一個帶 `data-assistant` 且 `src`（不含 query／hash）以 `/embed.js` 結尾的 `<script>`。基底是 `origin + 路徑去掉結尾的 /embed.js`，所以 API 掛在路徑前綴下也成立。
-- **設定屬性**（只讀這兩個）：`data-assistant`（必填，沒有就什麼都不做）、`data-position`（`left` 靠左；其他值或未設定為靠右）。品牌色、顯示名稱、歡迎訊息**不**從頁面讀取，由 widget 自己向 API 取得。啟動按鈕固定使用預設色 `#1f6f5c`。
+- **設定屬性**（只讀這三個）：`data-assistant`（必填，沒有就什麼都不做）、`data-position`（`left` 靠左；其他值或未設定為靠右）、`data-brand`（啟動按鈕與其焦點框的顏色，#225）。顯示名稱、歡迎訊息**不**從頁面讀取，由 widget 自己向 API 取得；對話視窗裡的品牌色也只來自 API，`data-brand` 只影響載入器自己畫的啟動按鈕。
+- **`data-brand` 對照表**：與 widget 的 `apps/widget/src/app/brand-color.ts`、admin 的 `WEBSITE_BRAND_COLORS`、後端的 `WebsiteBrandColor` 是同一份（`embed.spec.ts` 檢查四處一致）。按鈕圖示是白色，四種顏色與白色的對比都 ≥ 4.5:1（非文字元件的要求是 3:1）。
+
+  | `data-brand` | 顏色 |
+  | --- | --- |
+  | `forest`（預設） | `#1f6f5c` |
+  | `ocean` | `#1d5fa8` |
+  | `amber` | `#a3520c` |
+  | `plum` | `#6b3fa0` |
+
+  未設定、空字串或不認得的值一律用 `forest`，所以 #225 之前貼上的嵌入程式碼（沒有這個屬性）維持原本的綠色。伺服器產生嵌入程式碼時（`PublicChannelsOptions.EmbedCode`）只在品牌色不是 `forest` 時寫入 `data-brand`，與 `data-position` 一樣：擁有者改了品牌色或位置後，客戶網站上的程式碼要重新複製貼上才會生效。
 - **冪等**：以 `window.__smartagriEmbed` 為旗標，同一頁貼多次（含不同助理 id）只初始化第一個。
 - **延遲建立 iframe**：第一次開啟時才建立；之後只切換顯示，不重建（widget 的狀態保留到頁面離開）。
 - **不使用** cookie、`localStorage`、`sessionStorage`，不發任何網路請求（iframe 除外）。

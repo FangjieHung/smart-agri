@@ -36,6 +36,11 @@
           "versions": [
             { "file": "files/faq.md", "fileName": "常見問題.md" }
           ]
+        },
+        {
+          "versions": [
+            { "file": "files/store-info.md", "fileName": "門市資訊.md" }
+          ]
         }
       ]
     }

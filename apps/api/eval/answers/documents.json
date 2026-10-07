@@ -37,6 +37,17 @@
           ]
         }
       ]
+    },
+    {
+      "name": "門市資訊",
+      "purpose": "門市的地址、電話、營業時間、外送與餐點",
+      "documents": [
+        {
+          "versions": [
+            { "file": "files/store-info.md", "fileName": "門市資訊.md" }
+          ]
+        }
+      ]
     }
   ]
 }

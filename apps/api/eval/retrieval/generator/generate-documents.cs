@@ -41,6 +41,7 @@ switch (args)
         Write(outputDirectory, "return-policy-v2.pdf", Documents.ReturnPolicyPdf(font, Documents.ReturnPolicyV2, "第 2 版"));
         Write(outputDirectory, "delivery-timetable.xlsx", Documents.DeliveryTimetableXlsx());
         Write(outputDirectory, "faq.md", Encoding.UTF8.GetBytes(Documents.FaqMarkdown));
+        Write(outputDirectory, "store-info.md", Encoding.UTF8.GetBytes(Documents.StoreInfoMarkdown));
         return 0;
 
     default:
@@ -385,6 +386,53 @@ internal static class Documents
         ### 會員點數怎麼使用？
 
         每消費 100 元累積 1 點，每點可折抵 1 元，點數自取得日起一年內有效。
+
+        """;
+
+    // --- 青禾門市 AI 客服參考資料: Markdown tables under ## headings, UTF-8 without a byte order mark
+    // A small shop's basic information, delivery and group-order rules, food and parking, written
+    // the way a shop writes it for an AI assistant (#300; pre-launch plan §3 D). The address is in an
+    // invented county and the telephone number starts with 0 after the area code, which no Taiwanese
+    // local number does.
+
+    public const string StoreInfoMarkdown =
+        """
+        # 青禾門市 AI 客服參考資料
+
+        這份資料給門市的 AI 客服參考。商品、退換貨與宅配的規定，請以商品使用指南、退換貨辦法與運費與配送時間表為準。
+
+        ## 基本資訊
+
+        | 項目 | 內容 |
+        | --- | --- |
+        | 店名 | 安心商行青禾門市 |
+        | 地址 | 示範縣青禾鄉安和路 18 號 |
+        | 電話 | (03) 012-3456 |
+        | 營業時間 | 09:00–18:00 |
+        | 公休日 | 每週三 |
+
+        ## 外送與團購
+
+        | 項目 | 規則 |
+        | --- | --- |
+        | 外送範圍 | 門市周邊 3 公里內 |
+        | 外送門檻 | 單筆滿 500 元 |
+        | 外送時段 | 營業日 10:00–17:00，下單後約 1 小時送達 |
+        | 團購 | 10 份以上，請於 3 天前來電預訂 |
+
+        ## 門市餐點
+
+        | 品項 | 價格 |
+        | --- | --- |
+        | 當日蔬菜湯 | 60 元 |
+        | 糙米飯糰 | 45 元 |
+        | 現打蔬果汁 | 70 元 |
+
+        餐點都是單點，沒有套餐；可以內用或外帶。
+
+        ## 停車
+
+        門市沒有專屬停車場，汽車請停在對面的公有停車場（收費）；門口有機車停車格。
 
         """;
 }

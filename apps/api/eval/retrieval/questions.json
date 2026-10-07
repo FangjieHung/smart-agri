@@ -223,6 +223,76 @@
       ]
     },
     {
+      "id": "store-01",
+      "category": "store",
+      "question": "地址在哪裡？",
+      "note": "#292：表格式店家資料的口語短問題，修改前實機最高分是「停車」段的 0.322，不是基本資訊表格。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "示範縣青禾鄉安和路 18 號" }
+      ]
+    },
+    {
+      "id": "store-02",
+      "category": "store",
+      "question": "電話幾號？",
+      "note": "#292：實機 0.303。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "(03) 012-3456" }
+      ]
+    },
+    {
+      "id": "store-03",
+      "category": "store",
+      "question": "週二有營業嗎？",
+      "note": "公休日是週三，答案是「有營業」，要從公休日推論；#292 實機 0.392。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "| 公休日 | 每週三 |" }
+      ]
+    },
+    {
+      "id": "store-04",
+      "category": "store",
+      "question": "每週哪一天公休？",
+      "note": "#292：實機 0.343。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "| 公休日 | 每週三 |" }
+      ]
+    },
+    {
+      "id": "store-05",
+      "category": "store",
+      "question": "營業時間是幾點到幾點？",
+      "note": "#292：實機 0.455。原本的 none-04「門市的營業時間是幾點到幾點？」在加入門市資訊後有答案了，改由這題涵蓋。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "| 營業時間 | 09:00–18:00 |" }
+      ]
+    },
+    {
+      "id": "store-06",
+      "category": "store",
+      "question": "可以外送嗎？",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "外送與團購", "evidence": "外送範圍" }
+      ]
+    },
+    {
+      "id": "store-07",
+      "category": "store",
+      "question": "有停車場嗎？",
+      "note": "#292：實機 0.611。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "停車", "evidence": "公有停車場" }
+      ]
+    },
+    {
+      "id": "store-08",
+      "category": "store",
+      "question": "團購要提前幾天訂？",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "外送與團購", "evidence": "3 天前來電預訂" }
+      ]
+    },
+    {
       "id": "none-01",
       "category": "unanswerable",
       "question": "可以幫我訂下週的機票嗎？",
@@ -243,12 +313,6 @@
       "expected": []
     },
     {
-      "id": "none-04",
-      "category": "unanswerable",
-      "question": "門市的營業時間是幾點到幾點？",
-      "expected": []
-    },
-    {
       "id": "none-05",
       "category": "unanswerable",
       "question": "你們有賣寵物飼料嗎？",
@@ -265,6 +329,20 @@
       "category": "unanswerable",
       "question": "安心商行的統一編號是多少？",
       "note": "「統一編號」也出現在常見問題裡，但那是顧客的統編，不是商行自己的：容易誤判的題目。",
+      "expected": []
+    },
+    {
+      "id": "none-08",
+      "category": "unanswerable",
+      "question": "現在有什麼優惠活動嗎？",
+      "note": "門市資訊與其他文件都沒有寫目前的優惠活動；商品使用指南的企業訂購折扣不是活動。",
+      "expected": []
+    },
+    {
+      "id": "none-09",
+      "category": "unanswerable",
+      "question": "店裡有幾個座位？",
+      "note": "門市資訊寫了可以內用，但沒有寫座位數。",
       "expected": []
     }
   ]

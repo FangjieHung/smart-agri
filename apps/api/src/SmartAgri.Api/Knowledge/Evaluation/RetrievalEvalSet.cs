@@ -87,6 +87,7 @@ public sealed class RetrievalEvalSet
         ["product"] = "商品",
         ["delivery"] = "配送",
         ["faq"] = "常見問題",
+        ["store"] = "店家資訊",
         [Unanswerable] = "應查無結果",
     };
 

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Shouldly;
@@ -31,16 +32,16 @@ public sealed partial class RetrievalEvalSetTests
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
     [Fact]
-    public void The_committed_set_has_about_thirty_questions_with_at_least_five_that_should_find_nothing()
+    public void The_committed_set_has_thirty_to_fifty_questions_with_at_least_five_that_should_find_nothing()
     {
-        Set.Questions.Count.ShouldBeInRange(30, 40);
+        Set.Questions.Count.ShouldBeInRange(30, 50);
         Set.Questions.Count(question => question.ExpectsNothing).ShouldBeGreaterThanOrEqualTo(5);
         Set.Questions.Select(question => question.Category).Distinct().ShouldBe(RetrievalEvalSet.Categories.Keys, ignoreOrder: true, "every category has questions");
         Set.Fingerprint.ShouldMatch("^[0-9a-f]{64}$");
     }
 
     [Fact]
-    public void The_set_has_a_product_guide_a_return_policy_in_two_versions_a_delivery_timetable_and_a_faq()
+    public void The_set_has_a_product_guide_a_return_policy_in_two_versions_a_delivery_timetable_a_faq_and_a_store_sheet()
     {
         Set.KnowledgeBases.Select(knowledgeBase => knowledgeBase.Name).ShouldBe(["商品使用指南", "退換貨政策", "配送常見問題"]);
         Set.Documents.Select(document => (document.Name, document.Versions.Count)).ShouldBe(
@@ -49,7 +50,27 @@ public sealed partial class RetrievalEvalSetTests
             ("退換貨辦法.pdf", 2),
             ("運費與配送時間表.xlsx", 1),
             ("常見問題.md", 1),
+            ("門市資訊.md", 1),
         ]);
+    }
+
+    [Fact]
+    public void The_store_sheet_is_markdown_tables_and_the_bank_asks_what_292_measured()
+    {
+        // #292 / pre-launch plan §3 D: a shop's basic information as a table, asked the short way
+        // customers ask it; the baseline before table rows get chunks of their own (#300).
+        var sheet = Set.Documents.Single(document => document.Name == "門市資訊.md").Versions.Single();
+        var text = Encoding.UTF8.GetString(sheet.Content);
+        text.ShouldContain("## 基本資訊\n\n| 項目 | 內容 |", Case.Sensitive);
+        foreach (var row in new[] { "| 地址 |", "| 電話 |", "| 營業時間 |", "| 公休日 |" })
+        {
+            text.ShouldContain(row, Case.Sensitive);
+        }
+
+        var store = Set.Questions.Where(question => question.Category == "store").ToList();
+        new[] { "地址在哪裡？", "電話幾號？", "週二有營業嗎？", "每週哪一天公休？", "營業時間是幾點到幾點？", "有停車場嗎？" }
+            .ShouldBeSubsetOf(store.Select(question => question.Question));
+        store.ShouldAllBe(question => question.Expected.All(expected => expected.Document == "門市資訊.md"));
     }
 
     [Fact]

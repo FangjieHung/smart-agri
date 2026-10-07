@@ -204,7 +204,8 @@
 <ng-template #publishDialog>
   <section class="publish-panel">
     <h2 id="website-publish-title">發布官網嵌入？</h2>
-    <div id="website-publish-detail" class="publish-detail">
+    <!-- 知識庫很多時只有這段捲動，按鈕列一直看得到（issue #288）；裡面沒有可聚焦的元素，所以自己可以聚焦，鍵盤才捲得動。 -->
+    <div id="website-publish-detail" class="publish-detail" tabindex="0">
       @if (blocked()) {
         <p><strong>目前還不能發布。</strong>助理連接了不是擁有者自己的知識庫，這些知識庫的擁有者同意的是「組織內分享」，不是公開到網路上：</p>
         <ul aria-label="不是擁有者自己的知識庫">

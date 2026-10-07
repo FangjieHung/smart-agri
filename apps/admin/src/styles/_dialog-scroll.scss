@@ -1,0 +1,25 @@
+// 矮視窗裡的對話框（issues #284、#288）：整個對話框限制在視窗高度內，只有中間那一段捲動，
+// 標題、錯誤訊息與按鈕列一直看得到。只有 mixin、不輸出任何規則，所以各元件 @use 後才編進
+// 自己的（lazy）chunk，不會加到初始 bundle。
+//
+// 用法：在對話框的根元素 `@include scrolling-panel('.捲動區的 class');`，
+// 捲動區必須是根元素的直接子元素。
+
+@mixin scrolling-panel($body) {
+  display: flex;
+  flex-direction: column;
+  max-block-size: calc(100dvh - var(--space-8));
+  box-sizing: border-box;
+
+  > * { flex: none; }
+
+  > #{$body} {
+    flex: 0 1 auto;
+    min-block-size: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    // 留出焦點外框（3px 線 + 3px 間距）的空間，捲動區邊緣的欄位外框才不會被裁掉。
+    margin: calc(-1 * var(--space-2));
+    padding: var(--space-2);
+  }
+}

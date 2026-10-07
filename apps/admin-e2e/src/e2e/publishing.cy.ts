@@ -1,4 +1,5 @@
 import { loginAs } from '../support/a11y';
+import { SHORT_WINDOWS, expectFullyOnScreen, expectScrollingBody } from '../support/on-screen';
 
 const VALID_TOKEN = 'demo-token-not-for-production-0123456789abcdefghij';
 const ASSISTANT = 'assistant-customer-service';
@@ -129,6 +130,58 @@ describe('publishing channels', () => {
       cy.get('.serving__label').should('contain', '已發布');
     });
   });
+
+  // issue #288：發布確認對話框的知識庫清單由 @for 產生，連接的知識庫很多時會把按鈕推出矮視窗。
+  // 現在只有說明那段捲動；寫法比照 team-and-access.cy.ts 的 #284。
+  for (const [width, height] of SHORT_WINDOWS) {
+    it(`keeps the website publish confirmation on screen with many knowledge bases in a ${width}×${height} window (issue #288)`, () => {
+      const names = Array.from({ length: 16 }, (_, index) => `矮視窗知識庫 ${String(index + 1).padStart(2, '0')}`);
+      loginAs('SMB 管理者');
+      // 在這台瀏覽器建立的知識庫（mock 的 `sme-demo:created-knowledge-bases`），再從資料來源頁逐一連接到助理。
+      cy.window().then((win) =>
+        win.localStorage.setItem(
+          'sme-demo:created-knowledge-bases',
+          JSON.stringify(
+            names.map((name, index) => ({
+              id: `knowledge-short-window-${index + 1}`,
+              ownerAccountId: 'account-smb-admin',
+              name,
+              purpose: '矮視窗測試用的知識庫',
+              lastSyncedAt: '2026-10-07T00:00:00.000Z',
+            })),
+          ),
+        ),
+      );
+      cy.visit(`/app/assistants/${ASSISTANT}/data-sources`);
+      for (const name of names) {
+        cy.contains('.source-row', name).find('button.source-toggle').click().should('have.attr', 'aria-pressed', 'true');
+      }
+
+      cy.viewport(width, height);
+      cy.visit(`/app/assistants/${ASSISTANT}/publishing?channel=website`);
+      cy.get('app-website-embed').within(() => {
+        cy.contains('button', '取消發布').click();
+        cy.get('.action-status').should('contain', '已取消發布');
+        cy.contains('button', '發布官網嵌入').click();
+      });
+
+      const confirm = '.publish-panel .dialog-actions button.ui-button:not(.secondary)';
+      cy.get('.publish-panel ul[aria-label="訪客可以檢索的知識庫"] li').should('have.length.at.least', names.length);
+      expectFullyOnScreen('#website-publish-title');
+      expectFullyOnScreen('.publish-panel .dialog-actions button.secondary');
+      expectFullyOnScreen(confirm);
+      expectScrollingBody('.publish-panel .publish-detail');
+      // 捲動區裡沒有可聚焦的元素，它自己要能聚焦，鍵盤使用者才捲得動（axe 的 scrollable-region-focusable）。
+      cy.get('.publish-panel .publish-detail').should('have.attr', 'tabindex', '0');
+      // 只跑這一條規則；這個對話框的其他規則（例如色彩對比）不在 #288 的範圍內。
+      cy.injectAxe();
+      cy.checkA11y('.publish-panel', { runOnly: { type: 'rule', values: ['scrollable-region-focusable'] } });
+
+      cy.get(confirm).should('contain', '確認發布').click({ scrollBehavior: false });
+      cy.get('.publish-panel').should('not.exist');
+      cy.get('app-website-embed .action-status').should('contain', '已發布官網嵌入');
+    });
+  }
 
   it('refuses to publish a draft whose acceptance has not passed and links to the assistant’s test-set tab', () => {
     loginAs('SMB 管理者');

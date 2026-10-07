@@ -1,4 +1,5 @@
 import { loginAs } from '../support/a11y';
+import { SHORT_WINDOWS, expectFullyOnScreen, expectScrollingBody } from '../support/on-screen';
 
 function loginAsAdmin(): void {
   loginAs('SMB 管理者');
@@ -10,6 +11,41 @@ describe('structured data and tracking', () => {
     cy.clearLocalStorage();
     loginAsAdmin();
   });
+
+  // issue #288：模板清單讓「新增資料庫」對話框比矮視窗還高，而且不能捲動，送出鈕被裁掉。
+  // 現在只有模板清單捲動；寫法比照 team-and-access.cy.ts 的 #284：不用 scrollIntoView，按鈕用 scrollBehavior: false 直接點。
+  for (const [width, height] of SHORT_WINDOWS) {
+    it(`keeps the create-database buttons on screen and clickable in a ${width}×${height} window (issue #288)`, () => {
+      const form = 'form.create-panel[aria-labelledby="create-title"]';
+      const submit = `${form} button[type="submit"]`;
+      cy.viewport(width, height);
+      cy.visit('/app/databases');
+      cy.contains('button', '新增資料庫').click({ scrollBehavior: false });
+
+      cy.get(form).should('be.visible');
+      expectFullyOnScreen('#create-title');
+      expectFullyOnScreen(submit);
+      expectFullyOnScreen(`${form} button[type="button"]`);
+      expectScrollingBody(`${form} .create-panel__body`);
+
+      // 捲到清單最後，挑最後一個模板：捲動區真的能把每個模板帶進畫面。
+      cy.get(`${form} .create-panel__body`).scrollTo('bottom', { ensureScrollable: true });
+      expectFullyOnScreen(`${form} .template-option:last-of-type`);
+      cy.get(`${form} .template-option:last-of-type input`).click({ scrollBehavior: false }).should('be.checked');
+
+      // 空白名稱送出：按得到，錯誤訊息出現後它與按鈕都仍在畫面內。
+      cy.get('#database-name').clear({ scrollBehavior: false });
+      cy.get(submit).click({ scrollBehavior: false });
+      cy.get('#database-name-error').should('contain', '請輸入資料庫名稱。');
+      expectFullyOnScreen('#database-name-error');
+      expectFullyOnScreen(submit);
+
+      cy.get('#database-name').type('矮視窗資料庫', { scrollBehavior: false });
+      cy.get(submit).click({ scrollBehavior: false });
+      cy.location('pathname').should('match', /^\/app\/databases\/database-created-\d+\/form$/);
+      cy.contains('h1', '矮視窗資料庫').should('be.visible');
+    });
+  }
 
   it('creates a database from a template, edits common fields and trial-fills the form', () => {
     // 側邊導覽項目已從「資料庫」改名為「數據庫」（workspace navigation refresh）。

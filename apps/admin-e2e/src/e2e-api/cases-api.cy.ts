@@ -104,7 +104,7 @@ function addMember(member: Member, permissions: readonly string[]): Cypress.Chai
   cy.get('form.create-panel[aria-labelledby="add-member-title"]').should('be.visible').within(() => {
     cy.get('#new-member-login-name').type(member.login);
     cy.get('#new-member-display-name').type(member.name);
-    // 明確選「內部同仁」：選單一開啟時顯示的是第一個選項，不一定是元件預設的角色（見 #256 回報）。
+    // 明確選「內部同仁」：預設已經是內部同仁（#283），明確選是為了不依賴預設值。
     cy.get('#new-member-role').select('internal-employee').should('have.value', 'internal-employee');
     // 權限是畫成開關的 checkbox（本身看不到），與 assistant-acceptance-api.cy.ts 一樣用 force。
     for (const permission of permissions) cy.get(`#new-member-permission-${permission}`).check({ force: true }).should('be.checked');
@@ -174,8 +174,6 @@ describe('cases: groups, the case flow, proposals, issues, automatic cases and o
     const { members, equipment, purchasingGroup, type } = n();
     const passwords: Partial<Record<MemberKey, string>> = {};
     loginToApi(ORGANIZATION, 'admin');
-    // 「新增成員」對話框比預設的 660px 視窗高，而且不能捲動（送出鈕被裁掉，見 #256 回報）：新增成員時用高一點的視窗。
-    cy.viewport(1000, 1400);
     cy.visit('/app/settings');
     cy.get('#team-title', { timeout: 20000 }).should('exist');
     // 一般同仁會用分享的助理、會從表單連結送出紀錄；承辦組的成員只需要能登入。
@@ -192,7 +190,6 @@ describe('cases: groups, the case flow, proposals, issues, automatic cases and o
       passwords.purchasing = value;
     });
     for (const member of Object.values(members)) cy.contains('li.member', member.name).should('exist');
-    cy.viewport(1000, 660);
 
     // 重新載入：承辦組的成員候選名單包含剛新增的同仁。
     cy.visit('/app/settings');

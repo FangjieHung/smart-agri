@@ -239,7 +239,8 @@ public sealed class EvalRetrievalCommand
                 set.Documents.Sum(document => document.Versions.Count),
                 chunks,
                 results,
-                summary));
+                summary,
+                _retrieval.CandidateFloor(_retrieval.MinScore)));
 
             var path = Path.GetFullPath(arguments.ReportPath ?? Path.Combine(RepositoryRoot(), "docs", "evals", RetrievalEvalReport.FileName(startedAt, _embedding.Model)));
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);

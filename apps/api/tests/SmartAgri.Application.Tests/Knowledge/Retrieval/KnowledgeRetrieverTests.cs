@@ -199,6 +199,24 @@ public class KnowledgeRetrieverTests
         Should.Throw<ArgumentOutOfRangeException>(() => new KnowledgeRetrievalSettings(0.3, KnowledgeRetrievalSettings.MaxTop + 1));
     }
 
+    [Fact]
+    public void A_candidate_threshold_is_optional_between_zero_and_the_minimum_score_and_gives_a_band_only_below_the_threshold_used()
+    {
+        KnowledgeRetrievalSettings.Default.CandidateMinScore.ShouldBeNull("unset by default: behaviour as before #302");
+        KnowledgeRetrievalSettings.Default.CandidateFloor(0.406).ShouldBeNull();
+        new KnowledgeRetrievalSettings(0.406, 5, 0).CandidateMinScore.ShouldBe(0);
+        new KnowledgeRetrievalSettings(0.406, 5, 0.406).CandidateMinScore.ShouldBe(0.406);
+        Should.Throw<ArgumentOutOfRangeException>(() => new KnowledgeRetrievalSettings(0.406, 5, 0.41));
+        Should.Throw<ArgumentOutOfRangeException>(() => new KnowledgeRetrievalSettings(0.406, 5, -0.01));
+        Should.Throw<ArgumentOutOfRangeException>(() => new KnowledgeRetrievalSettings(0.406, 5, double.NaN));
+
+        var settings = new KnowledgeRetrievalSettings(0.406, 5, 0.3);
+        settings.CandidateFloor(0.406).ShouldBe(0.3);
+        settings.CandidateFloor(0.5).ShouldBe(0.3, "an assistant's stricter threshold keeps the band");
+        settings.CandidateFloor(0.3).ShouldBeNull("an assistant at the candidate threshold has no band");
+        settings.CandidateFloor(0.25).ShouldBeNull();
+    }
+
     /// <summary>Two knowledge bases of one organization, their documents and chunks.</summary>
     private sealed class World
     {

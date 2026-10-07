@@ -25,7 +25,8 @@ public class ProposalSelectionRulesTests
     {
         var tools = ProposalSelectionRules.Declarations(Forms, Cases).OfType<AIFunctionDeclaration>().ToList();
 
-        tools.Select(tool => tool.Name).ShouldBe([AssistantFormRequestRules.ToolName, CaseProposalRules.ToolName]);
+        // #297 added the third tool, the explicit 「都不符合」 (see the no-match tests below); the first two are unchanged.
+        tools.Select(tool => tool.Name).ShouldBe([AssistantFormRequestRules.ToolName, CaseProposalRules.ToolName, CaseProposalRules.NoMatchToolName]);
         tools[0].Description.ShouldBe(AssistantFormRequestRules.Declaration(Forms).Description);
         tools[1].Description.ShouldBe(CaseProposalRules.Declaration(Cases).Description);
         Should.Throw<ArgumentException>(() => ProposalSelectionRules.Declarations(Forms, []));
@@ -82,6 +83,39 @@ public class ProposalSelectionRulesTests
             new FunctionCallContent("2", AssistantFormRequestRules.ToolName, new Dictionary<string, object?> { ["databaseId"] = Form.DatabaseId.ToString() }),
         ]));
         ProposalSelectionRules.ParseCall(both, Forms, Cases, "問題").Match.ShouldBe(ProposalSelectionCallMatch.Case);
+    }
+
+    [Fact]
+    public void The_combined_call_offers_no_match_for_neither_the_form_nor_a_case()
+    {
+        var noMatch = ProposalSelectionRules.Declarations(Forms, Cases).OfType<AIFunctionDeclaration>().Last();
+        noMatch.Name.ShouldBe(CaseProposalRules.NoMatchToolName);
+        noMatch.Description.ShouldBe(ProposalSelectionRules.NoMatchToolDescription);
+        noMatch.Description.ShouldContain(AssistantFormRequestRules.ToolName);
+        noMatch.Description.ShouldContain(CaseProposalRules.ToolName);
+        noMatch.JsonSchema.GetProperty("properties").EnumerateObject().ShouldBeEmpty();
+        noMatch.JsonSchema.GetProperty("additionalProperties").GetBoolean().ShouldBeFalse();
+
+        var system = ProposalSelectionRules.SelectionPrompt("葉子黃了")[0].Text;
+        system.ShouldContain($"請呼叫 {CaseProposalRules.NoMatchToolName}，表單與案件都不提議");
+        system.ShouldContain("每次只呼叫其中一個");
+    }
+
+    [Fact]
+    public void Choosing_no_match_in_the_combined_call_is_neither_the_form_nor_a_case()
+    {
+        ProposalSelectionRules.ParseCall(Call(CaseProposalRules.NoMatchToolName, new()), Forms, Cases, "葉子黃了")
+            .ShouldBe(ProposalSelectionCall.NoMatch);
+        ProposalSelectionCall.NoMatch.ShouldBe(new ProposalSelectionCall(ProposalSelectionCallMatch.NoMatch, null, null));
+        // Whatever it is sent with, and only the first call counts.
+        ProposalSelectionRules.ParseCall(Call(CaseProposalRules.NoMatchToolName, new() { ["databaseId"] = Form.DatabaseId.ToString() }), Forms, Cases, "問題")
+            .ShouldBe(ProposalSelectionCall.NoMatch);
+        var noMatchFirst = new ChatResponse(new ChatMessage(ChatRole.Assistant,
+        [
+            new FunctionCallContent("1", CaseProposalRules.NoMatchToolName, new Dictionary<string, object?>()),
+            new FunctionCallContent("2", AssistantFormRequestRules.ToolName, new Dictionary<string, object?> { ["databaseId"] = Form.DatabaseId.ToString() }),
+        ]));
+        ProposalSelectionRules.ParseCall(noMatchFirst, Forms, Cases, "問題").ShouldBe(ProposalSelectionCall.NoMatch);
     }
 
     [Fact]

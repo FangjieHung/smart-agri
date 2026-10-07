@@ -79,6 +79,12 @@ public sealed class AssistantTestRun : IOrganizationScoped
     /// set when it starts.</summary>
     public double? MinScore { get; private set; }
 
+    /// <summary>The candidate threshold in effect for the run (pre-launch plan §3 B, #302): the
+    /// deployment's <c>Retrieval:CandidateMinScore</c> when it is set and below
+    /// <see cref="MinScore"/>; <see langword="null"/> when the run had no candidate band (or has not
+    /// started).</summary>
+    public double? CandidateMinScore { get; private set; }
+
     public bool IsActive => Status is AssistantTestRunStatus.Queued or AssistantTestRunStatus.Running;
 
     public static AssistantTestRun Queue(Guid organizationId, Guid assistantId, AssistantTestRunTrigger trigger, DateTimeOffset now)
@@ -133,10 +139,18 @@ public sealed class AssistantTestRun : IOrganizationScoped
     /// <summary><see cref="AssistantTestRunStatus.Queued"/> → <see cref="AssistantTestRunStatus.Running"/>,
     /// recording what it runs with. Clears <see cref="RerunRequested"/>: a rerun asked for before
     /// the start is satisfied by this run.</summary>
-    public void Start(string promptVersion, string model, double minScore, DateTimeOffset now)
+    /// <param name="candidateMinScore"><see cref="CandidateMinScore"/>: below
+    /// <paramref name="minScore"/>, or <see langword="null"/>.</param>
+    public void Start(string promptVersion, string model, double minScore, DateTimeOffset now, double? candidateMinScore = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(promptVersion);
         ArgumentNullException.ThrowIfNull(model);
+        if (candidateMinScore is { } candidate && !(candidate >= 0 && candidate < minScore))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(candidateMinScore), candidateMinScore, "A candidate threshold is at least 0 and below the minimum score.");
+        }
+
         if (Status != AssistantTestRunStatus.Queued)
         {
             throw new InvalidOperationException("Only a queued test run can start.");
@@ -149,6 +163,7 @@ public sealed class AssistantTestRun : IOrganizationScoped
         PromptVersion = Truncate(promptVersion, PromptVersionMaxLength);
         Model = Truncate(model, ModelMaxLength);
         MinScore = minScore;
+        CandidateMinScore = candidateMinScore;
     }
 
     public void Complete(int passedCount, int failedCount, DateTimeOffset now)

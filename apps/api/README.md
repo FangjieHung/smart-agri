@@ -111,7 +111,8 @@ letter, a digit and a symbol. Identity's messages are in Traditional Chinese
 **The `admin-spa` client** is written to the database by the `migrate` subcommand (never
 on web startup), from `Authentication:AdminSpa:Origins` — each origin gets
 `{origin}/auth/callback` and `{origin}/login` as redirect URIs. Development defaults to
-`http://localhost:4200`. If you apply migrations with `dotnet ef database update`
+`http://localhost:4200`. Blank entries are ignored; with none left and the admin served by the Api
+(`Admin:RootPath`, see "Serving the admin"), the origin of `PublicChannels:PublicBaseUrl` is used. If you apply migrations with `dotnet ef database update`
 instead, also run `dotnet run --project apps/api/src/SmartAgri.Api -- migrate` once so
 the client exists.
 
@@ -138,7 +139,7 @@ openssl pkcs12 -export -inkey encryption.key -in encryption.crt -out deploy/cert
 ```
 
 `deploy/docker-compose.yml` mounts `deploy/certs/` (git-ignored) and reads the passwords
-and `ADMIN_SPA_ORIGIN` from `deploy/.env`. Outside Development OpenIddict also requires
+and the optional `ADMIN_SPA_ORIGIN` from `deploy/.env`. Outside Development OpenIddict also requires
 HTTPS on `/connect/*`. The api container runs as a non-root user (uid 1654 in the .NET
 images), so every `.pfx` in `deploy/certs/` must be readable by it — `openssl` writes them
 `600` for the user who ran it, so `chmod 644 deploy/certs/*.pfx` (the passwords stay in
@@ -815,7 +816,10 @@ offered both the form and at least one case type, there is one call, not two** (
 one of them or neither (`ProposalSelectionRules`, `ChatProposalSelectionTool`). Precedence stays query →
 form → case → answer, at most one proposal per reply; the server accepts only an offered form id (then
 re-authorized) or type id; a failed call falls back to the form gate, then the case keyword rule. All
-three purposes count toward the monthly token limit.
+three purposes count toward the monthly token limit. Both the case-only call and the combined call also
+offer `no_matching_type` (#297, no parameters): the model's explicit "none of these fits" — no proposal,
+the answer pipeline answers, same call, purpose, usage and `form-check` (`CaseProposalRules.Declarations`,
+`ProposalSelectionRules.Declarations`; not a failure, so no keyword fallback).
 
 In `Model` mode, a run that is about to make that selection call first sends `CUSTOM smartagri.form-check`
 (empty value; #171) so the client can show a "checking" state; keyword mode and assistants without a form
@@ -1028,6 +1032,35 @@ Cache-Control: no-store
   and the monthly token limit.
 - The CSP deliberately allows no `unsafe-inline`: the page has no inline script or handler (the widget is
   built with `inlineCritical: false`), and brand colours are set through the CSSOM.
+
+### Serving the admin (pre-launch #306)
+
+With `Admin:RootPath` set, the Api also serves the admin SPA from its own origin, so one address
+(`PublicChannels:PublicBaseUrl`) serves the admin, the API, LINE and the website embed. The admin is built in
+API mode (`npx nx build admin --configuration=production-api`) in the Dockerfile's Node stage and copied to
+`/app/wwwroot/admin`; the image sets `Admin__RootPath=wwwroot/admin`. Unset (the default for `dotnet run`),
+nothing changes: no admin is served, and a path without an endpoint is still `401` from the fallback policy.
+
+| Setting | Meaning |
+| --- | --- |
+| `Admin:RootPath` | The admin build (`index.html`, hashed `main-*.js`, `chunk-*.js`, `styles-*.css`, `favicon.ico`), relative to the content root or absolute. Set but not a folder with an `index.html`: the Api refuses to start. Blank: no admin. |
+
+`AdminSpaHosting` is a middleware before authorization. It answers only a `GET`/`HEAD` that **no endpoint
+matched** (a known path with another method keeps its `405`) and whose first segment is not one of the Api's:
+`api`, `connect`, `.well-known`, `health`, `use`, `widget`, `embed.js`, `openapi`, plus the first literal
+segment of every mapped route (read from the endpoint data sources, so a new endpoint group is excluded
+automatically). Every Api answer, including `401` for an unknown `/api/...` path, is unchanged. Then:
+
+| Request | Answer |
+| --- | --- |
+| A file of the build | The file; `Cache-Control: public, max-age=31536000, immutable` for hashed names (`main-V76QUCWD.js`), `no-cache` for others (`favicon.ico`); known content types only; `X-Content-Type-Options: nosniff`. |
+| A missing path whose last segment has an extension (`/chunk-OLD12345.js`) | `404`, never the page, so a stale chunk fails loudly instead of being parsed as HTML. |
+| Anything else (`/`, `/login`, `/auth/callback`, `/app/...`, `/chat/{id}`) | `index.html`, `Cache-Control: no-cache` (a new deployment is picked up at the next navigation). |
+
+**Default admin origin.** When the admin is served this way and `Authentication:AdminSpa:Origins` has no
+non-blank entry, `migrate` registers the origin of `PublicChannels:PublicBaseUrl` (`{origin}/auth/callback`,
+`{origin}/login`); a `PublicBaseUrl` with a path gives no default (the admin is served at the root). Explicit
+origins always win. `AdminSpaClientRegistrar.EffectiveOrigins` is the rule.
 
 ## LINE channel: settings, connection test and enabling (M5b)
 
@@ -1439,8 +1472,8 @@ question cannot be embedded; no knowledge base ids means no model call and no pa
 
 `BelowThreshold` is true when no passage reaches the threshold (or nothing was found): an
 assistant restricted to the organization's data then answers 「查無結果」 without calling a model
-(grounded-answers ADR). The passages are returned anyway, so a person can see how close the
-nearest ones came.
+(grounded-answers ADR) — unless some passage reaches `Retrieval:CandidateMinScore` (below). The
+passages are returned anyway, so a person can see how close the nearest ones came.
 
 **`includePending`** (the preview only — never for answering) adds, per document, its **newest
 approvable version**: the highest-numbered version still `pending-review` and processed
@@ -1479,6 +1512,7 @@ Configuration (section `Retrieval`; written out in `appsettings.json`, override 
 | --- | --- | --- |
 | `MinScore` | `0.406` | The relevance threshold, a cosine similarity of 0–1. **Calibrated for OpenAI `text-embedding-3-small`** by the retrieval evaluation (`docs/evals/2026-10-06-retrieval-text-embedding-3-small.md`, #192). It depends on the model (the e5 family scores almost everything above 0.7), so set it again when `Ai:Embedding:Model` changes. `appsettings.Development.json` sets `0.3`, because the `Fake` model scores the fixture's matching page at about 0.32 and unrelated text below 0.1 — so with a real model in Development, also set `Retrieval__MinScore`. An assistant can tune its own. |
 | `Top` | `5` | Passages per search when the caller does not say, 1–20. |
+| `CandidateMinScore` | unset in code; `0.30` in `appsettings.json` (**provisional**, #302 — the pre-launch P5 evaluation decides the final value) | The candidate threshold (pre-launch plan §3 B). When **no** passage reaches `MinScore` but some reach this, a `company-data-only` assistant still asks the model, with those candidates (at most `Top`, closest first), and the prompt's refusal marker decides: a refusal is `no-result` with reason `cannot-answer`, an answer is `company-data` with citations as usual. Below both, `below-threshold` without a model call, as before. Passages at or above `MinScore` are always sent alone, as before. `allow-general-knowledge` assistants ignore it (they keep answering from general knowledge). Every caller of `GroundedAnswerService` — staff chat, website visitors, LINE, test runs, trial answers, `eval-answers` — behaves the same. The startup check requires `0 ≤ CandidateMinScore ≤ MinScore`: if you lower `MinScore` below it, lower it too, or turn it off with an empty value (`Retrieval__CandidateMinScore=`); unset, behaviour is exactly as before #302. An assistant whose own threshold is at or below it has no candidate band. Each `AnswerOutcome` records `UsedCandidates`, each test run the `CandidateMinScore` it ran with (`null` when it had no band). Model-specific, like `MinScore`. `appsettings.Development.json` leaves `MinScore` at `0.3`, so in Development the band is empty and the `Fake`-model tests answer as before. |
 
 ## Evaluating retrieval: `eval-retrieval`
 
@@ -1508,7 +1542,8 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-retrieval --report /tmp/
 - The report has the run's settings, hit@5 and hit@1 overall and per category, the highest score
   among questions that should find nothing, the lowest score of a correct hit, a suggested
   threshold with how many questions it and the current `Retrieval:MinScore` judge correctly,
-  every question's result, and the passages of each miss and of each should-find-nothing
+  when a candidate band is in effect how many should-find-nothing questions fall in it (they
+  reach the model) and how many answerable ones only hit inside it (#302), every question's result, and the passages of each miss and of each should-find-nothing
   question. It goes to `docs/evals/<date>-retrieval-<model>.md` under the repository the current
   directory is in (overwritten by a second run the same day), or to `--report`. Exit codes: `0`
   done, `1` the model or processing failed (e.g. a wrong key: the queue retries until
@@ -1579,7 +1614,7 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-answers --report /tmp/ev
   organization, **`answers-eval`** (「回答評測（安心商行示範資料）」), reset and reimported through the
   normal pipeline on every run exactly as `eval-retrieval` does, then answers every question
   through `GroundedAnswerService.AnswerAsync` with a `company-data-only` profile of its own (no
-  assistant) and the deployment's `Retrieval:MinScore`. A question with `followUpOf` is answered
+  assistant) and the deployment's `Retrieval:MinScore` and `Retrieval:CandidateMinScore`. A question with `followUpOf` is answered
   with the referenced question and the reply it actually got as one-turn conversation history (M3
   plan §7 decision D), so the retrieval query for it joins both questions.
 - The report has the run's settings, reply-kind accuracy, citation hit rate (of the `company-data`
@@ -1589,7 +1624,9 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-answers --report /tmp/ev
   none reported a number), and every question's expected and actual reply side by side with the
   closest passage's score (`最高分`, whatever the threshold) and the reply text (`回覆內容`, `—` for
   `no-result`) — #303, so negative conclusions are judged without a temporary hack; the settings
-  also show the prompt version (`回答提示版本`). It goes to
+  also show the prompt version (`回答提示版本`). With a candidate band (#302) the settings show
+  `Retrieval:CandidateMinScore`, the summary how many questions were answered or refused from
+  candidate passages, and each question whether it was (`候選段落`). It goes to
   `docs/evals/<date>-answers-<chat model>.md` (overwritten by a second run the same day), or to
   `--report`. Exit codes: `0` done, `1` a model or processing failed, `2` bad arguments,
   environment, set or configuration.
@@ -1794,8 +1831,8 @@ A fresh deployment has no organization and no account. The first organization an
 administrator are created once with the `setup` subcommand (on-prem-packaging ADR) —
 never by seed data, a web wizard or a password in configuration:
 
-1. Prepare `deploy/.env` (real `POSTGRES_PASSWORD`, `ADMIN_SPA_ORIGIN`, certificate
-   passwords) and put `signing.pfx` / `encryption.pfx` / `dataprotection.pfx` in
+1. Prepare `deploy/.env` (real `POSTGRES_PASSWORD`, `PUBLIC_BASE_URL` — the admin is served
+   there, see "Serving the admin" — certificate passwords) and put `signing.pfx` / `encryption.pfx` / `dataprotection.pfx` in
    `deploy/certs/` (see "Sign-in and tokens" and "Data Protection key ring"). `setup`
    builds the same host as the web server, so outside Development it also refuses to run
    without the certificates.
@@ -1827,7 +1864,7 @@ never by seed data, a web wizard or a password in configuration:
    shown again. It goes to the container's stdout, which `run --rm` discards with the
    container; if the Docker daemon ships container output to a remote logging driver,
    keep this in mind.
-5. Start the stack (`docker compose ... up -d`), sign in to the admin SPA as the
+5. Start the stack (`docker compose ... up -d`), sign in to the admin SPA (`PUBLIC_BASE_URL`) as the
    administrator with the one-time password, and set a new password when asked. Until
    then the API only allows `GET /api/v1/me` and `POST /api/v1/auth/change-password`.
 

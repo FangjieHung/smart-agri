@@ -41,6 +41,23 @@ public class AnswerOutcomeTests
     }
 
     [Fact]
+    public void Candidate_use_is_recorded_only_for_a_reply_the_model_made_from_passages()
+    {
+        AnswerOutcome.Record(Organization, Assistant, AnswerOutcomeChannel.Chat, AnswerReplyKind.CompanyData, null, [], Now)
+            .UsedCandidates.ShouldBeFalse("the default");
+        AnswerOutcome.Record(Organization, Assistant, AnswerOutcomeChannel.Chat, AnswerReplyKind.CompanyData, null, [], Now, usedCandidates: true)
+            .UsedCandidates.ShouldBeTrue();
+        AnswerOutcome.Record(
+                Organization, Assistant, AnswerOutcomeChannel.Website, AnswerReplyKind.NoResult, AnswerRejectionReason.CannotAnswer, [], Now, usedCandidates: true)
+            .UsedCandidates.ShouldBeTrue("the model refused the candidates");
+
+        Should.Throw<ArgumentException>(() => AnswerOutcome.Record(
+            Organization, Assistant, AnswerOutcomeChannel.Chat, AnswerReplyKind.NoResult, AnswerRejectionReason.BelowThreshold, [], Now, usedCandidates: true));
+        Should.Throw<ArgumentException>(() => AnswerOutcome.Record(
+            Organization, Assistant, AnswerOutcomeChannel.Chat, AnswerReplyKind.GeneralKnowledge, null, [], Now, usedCandidates: true));
+    }
+
+    [Fact]
     public void A_trial_answer_has_no_assistant()
     {
         var trial = AnswerOutcome.Record(

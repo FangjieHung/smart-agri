@@ -54,4 +54,9 @@ public static class FakeChatDirectives
 
     /// <summary>When the call offers the case tool (M7-9 #254): call none, even with a case word.</summary>
     public const string NoCase = "#case-none";
+
+    /// <summary>When the call offers the explicit 「都不符合」 tool (#297, <c>no_matching_type</c>, in the case
+    /// selection and the combined selection): call it, even with a fill-in or case word (a model deciding that
+    /// nothing offered fits). Without this the fake never calls it — it answers with text instead.</summary>
+    public const string NoMatch = "#no-match";
 }

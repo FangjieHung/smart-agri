@@ -55,14 +55,17 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --types t
 Each question is decided twice per trigger:
 
 - **The case layer alone**: the keyword rule, or one `propose_case` call with the production
-  declaration and prompt (`CaseProposalRules.Declaration`, `SelectionPrompt`, `ParseCall`), as if the
-  layers before it had said no.
+  declarations and prompt (`CaseProposalRules.Declarations`, `SelectionPrompt`, `ParseCall`; since #297
+  `no_matching_type` is offered next to `propose_case`), as if the layers before it had said no.
 - **The whole proposal stage** (decision L: database query → form → case → answer): the query layer
   is `DatabaseQueryTools.AsksForStatistics` (the gate that offers the query tools; the query model's
   own choice is not judged here); in keyword mode `AssistantFormRequestRules.AsksForForm` and then the
   case layer; in model mode, since #286, the one combined call production makes for an assistant with a
-  form and case types (`ProposalSelectionRules`: `request_database_form` and `propose_case` offered
-  together, the model calls one or neither).
+  form and case types (`ProposalSelectionRules`: `request_database_form`, `propose_case` and, since #297,
+  `no_matching_type` offered together; the model calls one, or none).
+
+The report counts how often the model chose `no_matching_type` in each call and marks those rows
+「（都不符合）」.
 
 Missed = a `case` question with no case proposal; false trigger = a `none`, `form` or `query` question
 with one; wrong type = a `case` question proposed under another type. A failed model call is counted,

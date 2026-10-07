@@ -3,7 +3,7 @@
 這份文件寫給**部署與維運系統的人**：把助理放上客戶官網（M5a「官網嵌入」）或客戶的 LINE 官方帳號（M5b，第 10 節）之前，伺服器端要準備什麼、
 `deploy/.env` 要填什麼、哪些東西要備份、出問題時看哪裡。第一次安裝（建立第一個組織與管理者）、
 各設定的完整行為與錯誤碼，請看英文的 [`apps/api/README.md`](../apps/api/README.md)；本文只照操作順序串起來，
-並在每一節標出該去哪一節看細節。
+並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節。
 
 ## 1. 這個部署長什麼樣子
 
@@ -26,7 +26,7 @@
 | --- | --- |
 | 公開的 HTTPS 網址 | 訪客瀏覽器連得到的網址，例如 `https://assistant.example.org`，指向反向代理，再轉到 `api` 容器的 8080。憑證用公開 CA 簽發（Let's Encrypt 等）；自簽憑證的網址，客戶官網的訪客瀏覽器會拒絕載入。 |
 | 三個 `.pfx` 憑證 | `deploy/certs/signing.pfx`、`encryption.pfx`、`dataprotection.pfx`。這三個是**API 自己用的金鑰憑證，不是網站的 TLS 憑證**，自簽即可，產生方式見下一節與 `apps/api/README.md`「Sign-in and tokens」。 |
-| 對話模型與嵌入模型 | `CHAT_*` 與 `EMBEDDING_*` 都要設好（見 `deploy/.env.example`）。沒有對話模型時，訪客看到的是無法回覆；建議使用會回傳 token 用量的供應商，否則每月用量上限算不到（見第 6 節）。 |
+| 對話模型與嵌入模型 | `CHAT_*` 與 `EMBEDDING_*` 都要設好（見 `deploy/.env.example`）；要讓組織選第二個對話模型時再填 `CHAT_MODELS_0_*`（第 11 節）。沒有對話模型時，訪客看到的是無法回覆；建議使用會回傳 token 用量的供應商，否則每月用量上限算不到（見第 6 節）。 |
 | 第一個組織與管理者 | 已經跑過 `setup`（`apps/api/README.md`「First install: `setup`」）。 |
 
 ### 產生三個 `.pfx`
@@ -407,7 +407,130 @@ Messaging API 的基底網址（`Line__ApiBaseUrl`）**Production 不要設定**
 api 會拒絕啟動，因為 Channel access token 會被送到那個位址。只有測試與 E2E 會把它指到假的 LINE 伺服器；compose 與 `.env.example`
 都沒有這個變數，也不需要新增。
 
-## 11. 哪些指令必須在真實部署上才能驗證
+## 11. 對話模型清單（M6）
+
+一個部署可以提供不只一個對話模型，讓每個組織的管理者在「系統設定 → 對話模型」自己選。細節（API、錯誤碼、啟動驗證）見
+`apps/api/README.md`「Chat model」。
+
+### 11.1 寫法：部署預設與額外的模型
+
+- **`CHAT_*`（`Ai:Chat`）是部署預設。** 每個組織在管理者選別的模型之前都用它；設定頁選單的第一項就是它，標示「（部署預設）」。
+  沒有填任何額外模型時，跟 M6 之前完全一樣：一個模型、設定頁只有一個選項，既有的 `.env` 不用改。
+- **`CHAT_MODELS_0_*`（`Ai:Chat:Models:0`）是額外的模型。** compose 預留了一組，全部空白（或舊的 `.env` 根本沒有這些變數）時整組略過。
+  只要 `CHAT_MODELS_0_PROVIDER` 有值，這一組就會被驗證、出現在設定頁；它有自己的金鑰、輸出上限、逾時與推理強度，與部署預設互不影響。
+- 要第三個以上，照第 3 節「頻率限制」的作法另寫一個 compose 檔疊上去，用 `Ai__Chat__Models__1__Provider`、`Ai__Chat__Models__1__Model`…
+  （每個欄位與下表相同，編號從 1 往上加，中間不要跳號）。
+
+每個欄位的意思（兩組相同）：
+
+| 部署預設 | 額外的模型 | 說明 |
+| --- | --- | --- |
+| `CHAT_PROVIDER` | `CHAT_MODELS_0_PROVIDER` | `OpenAI`、`AzureOpenAI` 或 `OpenAICompatible`；`Fake` 在 Production 會拒絕啟動。額外的模型空白 = 這組不存在。**有額外的模型時，部署預設不可空白**（拒絕啟動）。 |
+| `CHAT_ENDPOINT` | `CHAT_MODELS_0_ENDPOINT` | `AzureOpenAI`、`OpenAICompatible` 必填；`OpenAI` 可空白。 |
+| `CHAT_MODEL` | `CHAT_MODELS_0_MODEL` | 有供應商時必填，例如 `gpt-6-luna`（Azure 填部署名稱）。紀錄（`ModelInvocations`、題組紀錄、報表摘要）記的是這個名稱。 |
+| `CHAT_API_KEY` | `CHAT_MODELS_0_API_KEY` | `OpenAI`、`AzureOpenAI` 必填。只放在 `deploy/.env`，不要 commit；啟動 log 與 API 都不會顯示金鑰。 |
+| `CHAT_ID` | `CHAT_MODELS_0_ID` | 這個模型的 id，組織的選擇存的就是它。空白 = 模型名稱。只能用英數字、`-`、`_`、`.`，最多 64 字；**id 重複會拒絕啟動**。組織選了之後不要再改（見 11.4）。 |
+| `CHAT_DISPLAY_NAME` | `CHAT_MODELS_0_DISPLAY_NAME` | 設定頁顯示的名稱，例如「gpt-5.6-terra（進階）」。空白 = 模型名稱。 |
+| `CHAT_MAX_OUTPUT_TOKENS` | `CHAT_MODELS_0_MAX_OUTPUT_TOKENS` | 每次呼叫的輸出上限；空白 = 供應商預設。 |
+| `CHAT_TIMEOUT_SECONDS` | `CHAT_MODELS_0_TIMEOUT_SECONDS` | 呼叫逾時秒數；空白 = 用戶端預設。 |
+| `CHAT_REASONING_EFFORT` | `CHAT_MODELS_0_REASONING_EFFORT` | `None`、`Low`、`Medium`、`High`、`ExtraHigh`；空白 = 供應商預設。見 11.2。 |
+
+範例（2026-10-07 實機驗收用的組合，金鑰換成你自己的）：
+
+```sh
+CHAT_PROVIDER=OpenAI
+CHAT_MODEL=gpt-6-luna
+CHAT_API_KEY=<OpenAI 金鑰>
+CHAT_REASONING_EFFORT=None
+
+CHAT_MODELS_0_PROVIDER=OpenAI
+CHAT_MODELS_0_MODEL=gpt-5.6-terra
+CHAT_MODELS_0_API_KEY=<OpenAI 金鑰>
+CHAT_MODELS_0_ID=gpt-5.6-terra
+CHAT_MODELS_0_DISPLAY_NAME=gpt-5.6-terra（進階）
+CHAT_MODELS_0_REASONING_EFFORT=None
+```
+
+啟動後，api 的 log 會逐一列出每個模型（不含金鑰），可以用來確認第二組有沒有被讀到：
+
+```text
+Chat: model gpt-6-luna (deployment default): provider openai, model gpt-6-luna.
+Chat: model gpt-5.6-terra: provider openai, model gpt-5.6-terra.
+```
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs api | grep 'Chat: model'
+```
+
+### 11.2 推理強度：要用工具的模型一定要設 `None`
+
+推理強度是**每個項目各自設定**的。系統有三種呼叫會把「工具」交給模型：數據庫查詢（固定查詢）、表單請求，以及案件提議。
+`gpt-6-luna` 與 `gpt-5.6-terra` 在 Chat Completions 上**只有推理強度是 `None` 時才接受工具**；沒設或設成其他值，供應商回
+HTTP 400（「Function tools with reasoning_effort are not supported … in /v1/chat/completions」），結果是：
+
+- 數據庫查詢：使用者看到錯誤（`chat-unavailable`），統計問題答不出來；
+- 表單請求與案件提議：退回關鍵字判斷，使用者沒有明講「填表」就不會出現表單；
+- 一般回答、題組重跑、報表摘要不帶工具，照常可用，所以**只看一般問答會以為設定正確**。
+
+所以這兩個模型都要設 `CHAT_REASONING_EFFORT=None`、`CHAT_MODELS_0_REASONING_EFFORT=None`。換成其他模型前，先用它問一題統計問題與一題
+需要表單的問題，確認兩種工具呼叫都成功（2026-10-07 的驗收方法見
+[`docs/evals/2026-10-07-245-model-switch-acceptance.md`](../docs/evals/2026-10-07-245-model-switch-acceptance.md)）。
+
+### 11.3 組織換模型之後
+
+- 管理者在設定頁換模型後，**下一次**呼叫就用新模型：對話、精靈試問、題組重跑、數據庫查詢、表單請求、案件提議、報表摘要
+  （背景工作在執行時才決定模型），官網與 LINE 也一樣。已經在跑的那一次不受影響。
+- 呼叫紀錄（`ModelInvocations`）、題組紀錄（`AssistantTestRuns.Model`）與報表的 AI 摘要（`SummaryModel`）都記實際用到的模型名稱。
+- 驗收頁比對「最近一次題組重跑的模型」與「目前生效的模型」，不同時提示「上次測試使用模型 X，現在是 Y。建議重跑題組。」
+- 每月 token 上限（第 6 節）是**所有對話模型合計**，不分模型。不同模型的價格不同，換到較貴的模型時，上限要自己重新估算。
+- 評測指令（`eval-answers`、`eval-form-requests`、`eval-case-proposals`）一律用部署預設。
+
+### 11.4 移除或更改模型的影響
+
+- **移除一個額外的模型**（清空 `CHAT_MODELS_0_PROVIDER` 再重啟），或**改掉它的 id**：選了它的組織會**自動改用部署預設**，不會壞掉；
+  設定頁顯示「原本選的模型已不再提供，目前使用部署預設 X」，直到管理者重新選擇。組織原本的選擇仍保存著：同一個 id 之後再加回來，
+  這些組織就自動回到它。移除前，先通知選了它的組織。
+- **換部署預設的模型**（改 `CHAT_MODEL`）：在設定頁選「部署預設」的組織跟著換。若 `CHAT_ID` 是空白，部署預設的 id 也會跟著變成新的模型名稱。
+- **改一個項目的模型名稱、id 不變**：選了它的組織直接用新模型；驗收頁會因為模型名稱不同而提示重跑題組。
+- 不管哪一種，換模型後都建議各助理重跑一次題組。
+
+### 11.5 同一個模型名稱放兩個項目
+
+可以，例如同一個模型設兩種推理強度，但兩個項目**一定要有不同的 id**（id 預設是模型名稱，重複會拒絕啟動），也請給不同的顯示名稱。限制：
+
+- 驗收頁的提示與所有紀錄（`ModelInvocations.Model`、`AssistantTestRuns.Model`、報表 `SummaryModel`）都只記**模型名稱**。在這兩個項目之間切換，
+  驗收頁**不會**提示重跑題組，事後也無法從紀錄分辨是哪一個項目回答的。
+- 需要分辨時，請改用不同的模型（或 Azure 上不同名稱的部署），不要靠同名的兩個項目。
+
+## 12. 對話保存期限與每日清理（M6）
+
+每個組織的管理者在「系統設定 → 對話保存」選對話要保存多久：30、90、180、365 天，或永久（預設永久）。細節見 `apps/api/README.md`
+「Conversation retention and the daily cleanup」。部署端沒有要填的變數，但營運人員要知道下面幾件事。
+
+- **縮短有 7 天緩衝期。** 從永久改成有天數、或改成更短的天數時，新的期限在 7 天後才生效，期間不刪除任何東西，管理者也可以改回。
+  延長（含改回永久）立即生效。
+- **每日清理**：每個組織每天在 `STATISTICS_TIME_ZONE`（預設 `Asia/Taipei`）的 **03:00** 執行一次（時間固定，不能設定），由 api 容器內的背景工作執行，
+  compose 不需要另外的服務。清理會刪除最後一則訊息早於「當地今天 00:00 減 N 天」的整串對話（含訊息與引用），以及同樣早於這個時間的回答紀錄
+  （所有通道，含官網）。每批 1,000 串、各自一個交易。
+- **不受影響**：模型呼叫紀錄、處理事項裡的問答副本、定期報表、數據庫紀錄與題組紀錄。
+- **第一次啟用時的離峰提醒**：一個用了很久的組織第一次縮短期限時，緩衝期過後的第一次清理可能一次刪掉大量對話，資料庫的 WAL 與磁碟用量會短暫升高。
+  - 先確認磁碟有餘裕，並在緩衝期內做一次資料庫備份（第 4 節）。
+  - 清理固定在 03:00，若客戶的離峰不是凌晨，請和管理者約好變更的時間點，讓第一次清理落在可以接受的時段。
+  - 要手動提早執行（下方指令），也請選在離峰。
+- 清理有刪除時會在組織活動紀錄寫一筆「刪除 N 串對話、M 筆回答紀錄」，設定頁的「上次變更」也看得到；每次執行都會記 OpenTelemetry 指標
+  `smartagri.retention.cleanup.runs` 與 `smartagri.retention.cleanup.deleted`，指標長時間沒有增加就代表清理沒有在跑。
+- **安全網**：清理工作重試用完失敗時，這個組織的每日清理就停了。重啟 api 會自動為「有天數卻沒有待執行清理」的組織補排一次。
+- 立即執行一次某個組織的清理（不影響每天的排程）：
+
+  ```sh
+  docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api retention-cleanup --organization <組織代碼>
+  ```
+
+  結束碼 `0` 完成、`1` 組織不存在或清理失敗、`2` 參數錯誤。`--as-of`（模擬未來時間）只給開發與測試用，Production 會拒絕。
+- **立即刪除既有對話**：管理者可以在「系統設定 → 對話保存」對單一助理立即刪除所有成員已保存的對話，不等保存期限；處理事項裡的問答副本與回答紀錄不受影響。
+  這是管理介面的操作，不需要營運人員介入，但刪除後無法復原，資料庫備份是唯一的救回方式。
+
+## 13. 哪些指令必須在真實部署上才能驗證
 
 本文的 `openssl`、`docker compose config`、`set-token-limit`（含說明、未知組織、參數錯誤與實際設定）與 nginx 設定語法，
 都已在本機實際執行過。需要真實伺服器、公開網域與 TLS 才能驗證的是：`docker compose up`、對外網址的 `curl`、
@@ -416,3 +539,9 @@ api 會拒絕啟動，因為 Channel access token 會被送到那個位址。只
 LINE 部分已在真實的 LINE 官方帳號上以 Cloudflare 通道與真實模型驗收過（一對一、群組、歡迎訊息、非文字訊息、暫停與恢復、逾時補送、
 自動回應訊息未關閉時的行為），紀錄見 [`docs/evals/2026-10-07-235-line-acceptance.md`](../docs/evals/2026-10-07-235-line-acceptance.md)。
 客戶自己的官方帳號、公開網域與方案額度仍需在交付時各自確認（第 10 節）。
+
+對話模型清單（第 11 節）已在本機以兩個真實模型（部署預設 `gpt-6-luna`、額外的 `gpt-5.6-terra`，推理強度都是 `None`）實際切換驗收：
+試問、題組重跑、表單請求、數據庫查詢與報表摘要都記到切換後的模型，兩個模型都完成了表單與數據庫查詢的工具呼叫，紀錄見
+[`docs/evals/2026-10-07-245-model-switch-acceptance.md`](../docs/evals/2026-10-07-245-model-switch-acceptance.md)。compose 預留的
+`CHAT_MODELS_0_*` 空白與填寫兩種情況由啟動測試（`ChatModelCatalogStartupTests`）解析 compose 檔驗證，`docker compose config` 也實際展開過；
+填了之後在真實部署上 `up`、看設定頁出現兩個模型，仍需在交付時確認。

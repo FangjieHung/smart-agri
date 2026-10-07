@@ -712,7 +712,13 @@ through from `deploy/.env` (see `deploy/.env.example`): `CHAT_PROVIDER`, `CHAT_E
 while the code default stays `Keyword`); `STATISTICS_TIME_ZONE` → `Statistics__TimeZone` (default
 `Asia/Taipei`). Blank values are fine: an empty provider means "no chat model yet", and empty
 `MaxOutputTokens`/`TimeoutSeconds`/`ReasoningEffort` bind as unset. A reasoning model such as
-`gpt-6-luna` needs `CHAT_REASONING_EFFORT=None`. In `Model` mode without a configured chat model, the
+`gpt-6-luna` needs `CHAT_REASONING_EFFORT=None`. `CHAT_ID` / `CHAT_DISPLAY_NAME` → `Ai__Chat__Id` / `Ai__Chat__DisplayName`
+(optional), and one reserved second model, `CHAT_MODELS_0_PROVIDER`, `_ENDPOINT`, `_MODEL`, `_API_KEY`,
+`_ID`, `_DISPLAY_NAME`, `_MAX_OUTPUT_TOKENS`, `_TIMEOUT_SECONDS`, `_REASONING_EFFORT` →
+`Ai__Chat__Models__0__*`: all blank (or absent from an older `.env`) binds a blank provider and the entry
+is skipped (#245; `ChatModelCatalogStartupTests` parses the compose file for both cases). `gpt-5.6-terra`
+needs `None` too. Operator guide (Traditional Chinese): `deploy/README.md`, sections 11 and 12; the
+two-real-model switch acceptance: `docs/evals/2026-10-07-245-model-switch-acceptance.md`. In `Model` mode without a configured chat model, the
 selection call throws, is caught, and the keyword gate decides (`ChatFormRequestTool.SelectAsync`), so
 the form still appears when a member asks for it in so many words; the answer itself still
 returns `503 chat-not-configured`.

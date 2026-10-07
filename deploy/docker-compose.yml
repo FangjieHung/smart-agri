@@ -68,6 +68,21 @@ services:
       Ai__Chat__TimeoutSeconds: ${CHAT_TIMEOUT_SECONDS:-}
       # None/Low/Medium/High/ExtraHigh. Reasoning models (e.g. gpt-6-luna) need None.
       Ai__Chat__ReasoningEffort: ${CHAT_REASONING_EFFORT:-}
+      # The deployment default's id (what an organization's choice is stored as) and the name
+      # people see in the settings; blank = the model name (deploy/README.md, section 11).
+      Ai__Chat__Id: ${CHAT_ID:-}
+      Ai__Chat__DisplayName: ${CHAT_DISPLAY_NAME:-}
+      # A second chat model organizations may choose instead of the default (M6, deploy/README.md,
+      # section 11). Blank CHAT_MODELS_0_PROVIDER = no second model: the entry is skipped.
+      Ai__Chat__Models__0__Provider: ${CHAT_MODELS_0_PROVIDER:-}
+      Ai__Chat__Models__0__Endpoint: ${CHAT_MODELS_0_ENDPOINT:-}
+      Ai__Chat__Models__0__Model: ${CHAT_MODELS_0_MODEL:-}
+      Ai__Chat__Models__0__ApiKey: ${CHAT_MODELS_0_API_KEY:-}
+      Ai__Chat__Models__0__Id: ${CHAT_MODELS_0_ID:-}
+      Ai__Chat__Models__0__DisplayName: ${CHAT_MODELS_0_DISPLAY_NAME:-}
+      Ai__Chat__Models__0__MaxOutputTokens: ${CHAT_MODELS_0_MAX_OUTPUT_TOKENS:-}
+      Ai__Chat__Models__0__TimeoutSeconds: ${CHAT_MODELS_0_TIMEOUT_SECONDS:-}
+      Ai__Chat__Models__0__ReasoningEffort: ${CHAT_MODELS_0_REASONING_EFFORT:-}
       # Who decides whether a question gets the assistant's form: Model (the chat model picks,
       # keyword gate as fallback) or Keyword. Model is the customer-deploy default (#164 eval).
       Chat__FormRequests__Trigger: ${CHAT_FORM_REQUEST_TRIGGER:-Model}

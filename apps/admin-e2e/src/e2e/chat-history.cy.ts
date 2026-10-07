@@ -129,14 +129,14 @@ describe('chat history sidebar', () => {
     cy.contains('.forwarded__list li', '收到商品後幾天內可以退貨？').should('contain', '待處理');
   });
 
-  it('keeps /use single column and strips the page chrome when embedded', () => {
+  it('keeps /chat single column and strips the page chrome when embedded', () => {
     loginAs('外部客戶');
-    cy.visit(`/use/${ASSISTANT}`);
+    cy.visit(`/chat/${ASSISTANT}`);
     cy.get('app-conversation-rail').should('not.exist');
     cy.get('.chat-header').should('be.visible');
     cy.contains('a', '返回首頁').should('be.visible');
 
-    cy.visit(`/use/${ASSISTANT}?embed=1`);
+    cy.visit(`/chat/${ASSISTANT}?embed=1`);
     cy.get('.chat-header').should('not.exist');
     cy.contains('a', '返回首頁').should('not.exist');
     cy.get('app-conversation-rail').should('not.exist');

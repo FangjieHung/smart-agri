@@ -129,7 +129,7 @@ describe('accessibility', () => {
     beforeEach(() => loginAs('外部客戶'));
 
     it('has no critical or serious violations in the assistant chat', () => {
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
       cy.contains('h1', '客服助理').should('be.visible');
       auditA11y();
 
@@ -145,7 +145,7 @@ describe('accessibility', () => {
     it('keeps the suggested prompt row keyboard-scrollable while a reply is streaming', () => {
       // 360px 手機寬度：建議問題列一定會橫向捲動；助理有表單時，送出後約 1.5 秒內都在等待判斷（串流中）。
       cy.viewport(360, 740);
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
       cy.get('.suggestions .suggested-prompt').should('have.length.greaterThan', 1);
       cy.injectAxe();
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
@@ -162,7 +162,7 @@ describe('accessibility', () => {
     });
 
     it('traps focus inside the citation drawer and returns it on close', () => {
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
       cy.get('form.composer button[type="submit"]').click();
       cy.contains('button', '查看引用來源').click();
@@ -182,7 +182,7 @@ describe('accessibility', () => {
     });
 
     it('has no critical or serious violations in the withdrawal confirmation', () => {
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
       cy.contains('button.suggested-prompt', '回報訂單問題').click();
       cy.get('[role="log"] [data-kind="form-request"]').contains('button', '填寫表單').click();
       cy.get('#chat-field-field-order-number').type('DEMO-5001');
@@ -292,7 +292,7 @@ describe('accessibility', () => {
 
   describe('embedded chat as an anonymous visitor', () => {
     it('has no critical or serious violations without any demo persona', () => {
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
       cy.contains('h1', '客服助理').should('be.visible');
       auditA11y();
 
@@ -304,13 +304,13 @@ describe('accessibility', () => {
       cy.get('button.stop').should('not.exist');
       auditA11y();
 
-      cy.visit('/use/assistant-customer-service?embed=1');
+      cy.visit('/chat/assistant-customer-service?embed=1');
       cy.get('#chat-input').should('be.visible');
       auditA11y();
     });
 
     it('has no critical or serious violations on the refusal state', () => {
-      cy.visit('/use/assistant-internal-onboarding');
+      cy.visit('/chat/assistant-internal-onboarding');
       cy.contains('無法開啟這個助理').should('be.visible');
       auditA11y();
     });

@@ -16,7 +16,7 @@ describe('private conversations and trustworthy answers', () => {
     // 沒有 manage-assistants 權限：首頁不提供「建立新助理」入口（issue #54）。
     cy.get('a[href="/app/assistants/new/purpose"]').should('not.exist');
     cy.get('section[aria-labelledby="usable-title"]').contains('a', '客服助理').click();
-    // 首頁「開始對話」改進工作區流程（issue #79）：`/use/:assistantId` 留給對外發布。
+    // 首頁「開始對話」改進工作區流程（issue #79）：`/chat/:assistantId` 留給對外發布。
     cy.location('pathname').should('eq', '/app/chat/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('.privacy-notice').should('contain', '助理建立者');
@@ -50,7 +50,7 @@ describe('private conversations and trustworthy answers', () => {
 
   it('replaces a streamed answer that fails citation checks with no-result', () => {
     loginAs('外部客戶');
-    cy.visit('/use/assistant-customer-service?demoScenario=answer-rejected');
+    cy.visit('/chat/assistant-customer-service?demoScenario=answer-rejected');
     ask('收到商品後幾天內可以退貨？');
 
     // 串流中的草稿（含引用標記）最後被整則換成查無資料；串流中的樣式由元件測試涵蓋。
@@ -62,17 +62,17 @@ describe('private conversations and trustworthy answers', () => {
 
   it('keeps a conversation private from other accounts and from the assistant owner', () => {
     loginAs('外部客戶');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     ask('我的私人問題：退貨要幾天？');
     cy.get('[role="log"]').should('contain', '我的私人問題');
 
     loginAs('內部使用者');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('[role="log"]').should('not.contain', '我的私人問題');
 
     loginAs('SMB 管理者');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('[role="log"]').should('not.contain', '我的私人問題');
 
@@ -84,7 +84,7 @@ describe('private conversations and trustworthy answers', () => {
 
   it('does not reveal an assistant the account cannot use', () => {
     loginAs('外部客戶');
-    cy.visit('/use/assistant-internal-onboarding');
+    cy.visit('/chat/assistant-internal-onboarding');
     cy.contains('無法使用這個助理').should('be.visible');
     cy.contains('內部教育訓練助理').should('not.exist');
     cy.get('#chat-input').should('not.exist');

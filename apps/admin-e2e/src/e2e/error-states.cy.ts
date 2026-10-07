@@ -79,7 +79,7 @@ describe('demo states', () => {
   describe('無結果', () => {
     it('answers with an explicit no-result state and next steps', () => {
       loginAs('外部客戶');
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
 
       cy.get('#chat-input').type('可以幫我訂下週的機票嗎？');
       cy.get('form.composer button[type="submit"]').click();
@@ -218,13 +218,13 @@ describe('demo states', () => {
 
     it('does not leak a private conversation to the next account in the same tab', () => {
       loginAs('外部客戶');
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
       cy.get('#chat-input').type('我的私人問題：退貨要幾天？');
       cy.get('form.composer button[type="submit"]').click();
       cy.get('[role="log"]').should('contain.text', '我的私人問題');
 
       loginAs('SMB 管理者');
-      cy.visit('/use/assistant-customer-service');
+      cy.visit('/chat/assistant-customer-service');
 
       cy.contains('h1', '客服助理').should('be.visible');
       cy.get('[role="log"]').should('not.contain.text', '我的私人問題');

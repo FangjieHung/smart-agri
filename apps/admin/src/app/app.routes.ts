@@ -170,9 +170,10 @@ export const routes: Routes = [
         (m) => m.WorkspaceChatPageComponent,
       ),
   },
-  // 嵌入客戶官網與 LINE 的入口：未登入訪客也要能直接開啟，所以不掛工作區守衛。
+  // 使用助理的單欄對話頁（mock 模式也是嵌入官網與 LINE 的 Demo 入口）：未登入訪客也要能直接開啟，
+  // 所以不掛工作區守衛。正式環境的 `/use/*` 屬於 API 提供的訪客對話頁（issue #305），admin 的舊網址只轉址。
   {
-    path: 'use/:assistantId',
+    path: 'chat/:assistantId',
     canActivate: [embeddedChatGuard],
     loadComponent: () =>
       import('./features/assistant-use/chat-shell/chat-shell-page.component').then(
@@ -187,6 +188,7 @@ export const routes: Routes = [
         (m) => m.SettingsPageComponent,
       ),
   },
+  { path: 'use/:assistantId', redirectTo: 'chat/:assistantId', pathMatch: 'full' },
   { path: 'settings', redirectTo: 'app/settings', pathMatch: 'full' },
   { path: 'dashboard', redirectTo: 'app/home', pathMatch: 'full' },
   { path: '**', redirectTo: '' },

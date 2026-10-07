@@ -37,7 +37,7 @@
       [routerLink]="
         assistant().permission === 'configure'
           ? ['/app/assistants', assistant().id, 'overview']
-          : ['/use', assistant().id]
+          : ['/chat', assistant().id]
       "
     >
       {{ assistant().permission === 'configure' ? '查看設定' : '開始使用' }}

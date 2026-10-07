@@ -85,7 +85,7 @@
               }
             </p>
           }
-          <a class="panel-link" [routerLink]="apiMode ? ['/app/chat', assistantId()] : ['/use', assistantId()]">開啟使用者對話畫面 <span aria-hidden="true">→</span></a>
+          <a class="panel-link" [routerLink]="apiMode ? ['/app/chat', assistantId()] : ['/chat', assistantId()]">開啟使用者對話畫面 <span aria-hidden="true">→</span></a>
         }
         @case ('activity') {
           @if (analytics(); as usage) {

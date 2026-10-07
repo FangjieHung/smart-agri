@@ -1,4 +1,6 @@
-import { Route } from '@angular/router';
+import { Component } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { Route, Router, provideRouter } from '@angular/router';
 import { DatabaseListPageComponent } from './features/databases/database-list/database-list-page.component';
 import { demoSessionGuard } from './core/session/demo-session.guard';
 import { embeddedChatGuard } from './core/session/embedded-chat.guard';
@@ -48,12 +50,30 @@ describe('app routes', () => {
   });
 
   it('opens the end-user chat for an assistant without requiring a demo persona', async () => {
-    const use = routes.find((route) => route.path === 'use/:assistantId');
-    expect(use?.canActivate).toEqual([embeddedChatGuard]);
+    const chat = routes.find((route) => route.path === 'chat/:assistantId');
+    expect(chat?.canActivate).toEqual([embeddedChatGuard]);
     const { ChatShellPageComponent } = await import(
       './features/assistant-use/chat-shell/chat-shell-page.component'
     );
-    expect(await use?.loadComponent?.()).toBe(ChatShellPageComponent);
+    expect(await chat?.loadComponent?.()).toBe(ChatShellPageComponent);
+  });
+
+  // issue #305：正式環境的 `/use/*` 屬於 API 的訪客對話頁，admin 的舊網址只剩轉址，不再載入任何畫面。
+  it('redirects the legacy /use/:assistantId address to /chat/:assistantId, keeping the id and query', async () => {
+    const legacy = routes.find((route) => route.path === 'use/:assistantId');
+    expect(legacy?.redirectTo).toBe('chat/:assistantId');
+    expect(legacy?.loadComponent).toBeUndefined();
+
+    @Component({ template: '' })
+    class ChatStubComponent {}
+    TestBed.configureTestingModule({
+      providers: [provideRouter([legacy as Route, { path: 'chat/:assistantId', component: ChatStubComponent }])],
+    });
+    const router = TestBed.inject(Router);
+
+    await router.navigateByUrl('/use/assistant-customer-service?embed=1');
+
+    expect(router.url).toBe('/chat/assistant-customer-service?embed=1');
   });
 
   it('keeps every workspace route behind the demo session guard', () => {

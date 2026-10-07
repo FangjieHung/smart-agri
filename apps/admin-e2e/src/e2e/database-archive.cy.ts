@@ -55,7 +55,7 @@ describe('database archive', () => {
     cy.visit('/app/forms/database-orders');
     cy.contains('無法填寫這份表單').should('be.visible');
     cy.contains('訂單資料庫').should('not.exist');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     askInChat('我要回報訂單問題');
     cy.get('[role="log"] [data-kind="no-result"]').should('exist');
     cy.get('[role="log"] [data-kind="form-request"]').should('not.exist');
@@ -72,7 +72,7 @@ describe('database archive', () => {
     loginAs('外部客戶');
     cy.visit('/app/forms/database-orders');
     cy.contains('h1', '訂單資料庫').should('be.visible');
-    cy.visit('/use/assistant-customer-service');
+    cy.visit('/chat/assistant-customer-service');
     askInChat('我要回報訂單問題');
     cy.get('[role="log"] [data-kind="form-request"]').should('exist');
   });

@@ -89,6 +89,11 @@
       next to the assembly (FormRequestEvalSet.DefaultDirectory). Development-only, never published.
     -->
     <None Include="..\..\eval\form-requests\**\*" Exclude="..\..\eval\form-requests\README.md" LinkBase="eval\form-requests" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+    <!--
+      The case-proposal trigger set (M7-12 #257): `eval-case-proposals` reads it from eval/case-proposals
+      next to the assembly (CaseProposalEvalSet.DefaultDirectory). Development-only, never published.
+    -->
+    <None Include="..\..\eval\case-proposals\**\*" Exclude="..\..\eval\case-proposals\README.md" LinkBase="eval\case-proposals" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <!--

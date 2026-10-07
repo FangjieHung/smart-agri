@@ -15,7 +15,8 @@ import { defineConfig } from 'cypress';
  *   website-embed-api.cy.ts 直接開 API 提供的對話視窗 `/use/{id}`，並以 `cy.request` 檢查它的標頭。
  * - `SEED_DEMO_PASSWORD`：`migrate` 建立示範帳號時用的密碼，spec 用它登入；沒有設定時 spec 直接失敗。
  * - `ADMIN_E2E_FAKE_LINE_URL`：假的 LINE 伺服器（tools/fake-line-server/server.mjs，預設 http://127.0.0.1:5180），
- *   也就是 API 的 `Line:ApiBaseUrl`；line-api.cy.ts 透過下面的 `line*` task 設定它、讀它收到的 reply／push。
+ *   也就是 API 的 `Line:ApiBaseUrl`；line-api.cy.ts 透過下面的 `line*` task 設定它、讀它收到的 reply／push，
+ *   並以 `lineSendText`／`lineSendNonText` 模擬 LINE 使用者傳文字或貼圖、圖片。
  */
 const API_URL = (process.env['ADMIN_E2E_API_URL'] || 'http://localhost:5153').replace(/\/$/, '');
 const FAKE_LINE_URL = (process.env['ADMIN_E2E_FAKE_LINE_URL'] || 'http://127.0.0.1:5180').replace(/\/$/, '');
@@ -55,6 +56,53 @@ interface LineTextEvent {
   readonly groupId?: string;
   readonly mention?: string;
 }
+
+/**
+ * `lineSendNonText` 的參數（#291）：一位 LINE 使用者傳來的貼圖或圖片，依序放進同一次 webhook 送達；後端依序處理
+ * 同一次送達的事件，所以「後一則的 reply 到了」就表示前一則已經處理完。`groupId` 有值的那則是群組訊息。
+ */
+interface LineNonTextDelivery {
+  readonly assistantId: string;
+  readonly channelSecret: string;
+  readonly destination: string;
+  readonly userId: string;
+  readonly messages: ReadonlyArray<{ readonly type: 'sticker' | 'image'; readonly groupId?: string }>;
+}
+
+/** 一則訊息事件；每個事件的 webhookEventId 都不同（後端依它去重）。 */
+function messageEvent(userId: string, groupId: string | undefined, message: Record<string, unknown>) {
+  const replyToken = randomBytes(16).toString('hex');
+  return {
+    replyToken,
+    event: {
+      type: 'message',
+      mode: 'active',
+      timestamp: Date.now(),
+      webhookEventId: newWebhookEventId(),
+      deliveryContext: { isRedelivery: false },
+      replyToken,
+      source: groupId ? { type: 'group', groupId, userId } : { type: 'user', userId },
+      message,
+    },
+  };
+}
+
+/**
+ * 模擬 LINE 平台送 webhook：以 Channel secret 對「實際送出的位元組」算 HMAC-SHA256（base64，放在
+ * `x-line-signature`），送到 `{API}/api/v1/line/webhook/{assistantId}`；回傳 HTTP 狀態。
+ */
+async function postWebhook(assistantId: string, channelSecret: string, payload: unknown): Promise<number> {
+  const raw = Buffer.from(JSON.stringify(payload), 'utf8');
+  const signature = createHmac('sha256', channelSecret).update(raw).digest('base64');
+  const response = await fetch(`${API_URL}/api/v1/line/webhook/${encodeURIComponent(assistantId)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=utf-8', 'x-line-signature': signature },
+    body: raw,
+  });
+  await response.arrayBuffer();
+  return response.status;
+}
+
 export default defineConfig({
   e2e: {
     baseUrl: process.env['ADMIN_E2E_API_BASE_URL'] || 'http://localhost:4200',
@@ -100,13 +148,10 @@ export default defineConfig({
           return fakeLine<object>('POST', `/__control/reset?accessToken=${encodeURIComponent(accessToken)}`).then(() => null);
         },
         /**
-         * 模擬 LINE 平台把一則文字訊息送到助理的 webhook：在 Node 這一側組事件、以 Channel secret 對「實際送出的
-         * 位元組」算 HMAC-SHA256（base64，放在 `x-line-signature`），送到 `{API}/api/v1/line/webhook/{assistantId}`。
-         * 回傳 HTTP 狀態與這個事件的 replyToken（後端回覆時會帶上它）。每個事件的 webhookEventId 都不同（後端依它去重）。
+         * 模擬 LINE 平台把一則文字訊息送到助理的 webhook（在 Node 這一側組事件並簽章，見 `postWebhook`）。
+         * 回傳 HTTP 狀態與這個事件的 replyToken（後端回覆時會帶上它）。
          */
         async lineSendText(event: LineTextEvent) {
-          const replyToken = randomBytes(16).toString('hex');
-          const webhookEventId = newWebhookEventId();
           const text = event.mention ? `${event.mention} ${event.text}` : event.text;
           const message: Record<string, unknown> = {
             id: String(Date.now()),
@@ -119,30 +164,31 @@ export default defineConfig({
               mentionees: [{ index: 0, length: event.mention.length, type: 'user', userId: event.destination, isSelf: true }],
             };
           }
-          const payload = {
+          const { replyToken, event: lineEvent } = messageEvent(event.userId, event.groupId, message);
+          const status = await postWebhook(event.assistantId, event.channelSecret, {
             destination: event.destination,
-            events: [{
-              type: 'message',
-              mode: 'active',
-              timestamp: Date.now(),
-              webhookEventId,
-              deliveryContext: { isRedelivery: false },
-              replyToken,
-              source: event.groupId
-                ? { type: 'group', groupId: event.groupId, userId: event.userId }
-                : { type: 'user', userId: event.userId },
-              message,
-            }],
-          };
-          const raw = Buffer.from(JSON.stringify(payload), 'utf8');
-          const signature = createHmac('sha256', event.channelSecret).update(raw).digest('base64');
-          const response = await fetch(`${API_URL}/api/v1/line/webhook/${encodeURIComponent(event.assistantId)}`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json; charset=utf-8', 'x-line-signature': signature },
-            body: raw,
+            events: [lineEvent],
           });
-          await response.arrayBuffer();
-          return { status: response.status, replyToken, webhookEventId };
+          return { status, replyToken, webhookEventId: lineEvent.webhookEventId };
+        },
+        /**
+         * 模擬 LINE 使用者傳貼圖或圖片（#291），全部放在同一次 webhook 送達、依給的順序；回傳 HTTP 狀態與每則的 replyToken。
+         */
+        async lineSendNonText(delivery: LineNonTextDelivery) {
+          const sent = delivery.messages.map((message, index) =>
+            messageEvent(
+              delivery.userId,
+              message.groupId,
+              message.type === 'sticker'
+                ? { id: `${Date.now()}${index}`, type: 'sticker', quoteToken: randomBytes(16).toString('hex'), packageId: '446', stickerId: '1988', stickerResourceType: 'STATIC' }
+                : { id: `${Date.now()}${index}`, type: 'image', quoteToken: randomBytes(16).toString('hex'), contentProvider: { type: 'line' } },
+            ),
+          );
+          const status = await postWebhook(delivery.assistantId, delivery.channelSecret, {
+            destination: delivery.destination,
+            events: sent.map(({ event }) => event),
+          });
+          return { status, replyTokens: sent.map(({ replyToken }) => replyToken) };
         },
       });
     },

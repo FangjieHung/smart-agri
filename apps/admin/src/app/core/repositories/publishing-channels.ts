@@ -3,6 +3,7 @@ import type { AssistantAcceptanceStatus } from '../domain/assistant-acceptance.m
 import { audienceAllowsRole, type AssistantConfigurationView } from '../domain/assistant.model';
 import {
   LINE_FIELDS,
+  MAX_LINE_NON_TEXT_REPLY_LENGTH,
   MAX_LINE_WELCOME_LENGTH,
   MAX_WEBSITE_NAME_LENGTH,
   MAX_WELCOME_LENGTH,
@@ -30,6 +31,7 @@ import {
 } from '../domain/publishing.model';
 import { ACCOUNT_ROLE_LABELS } from '../domain/team.model';
 import {
+  DEFAULT_LINE_NON_TEXT_REPLY,
   emptyLineRecord,
   EXPIRED_DEMO_LINE_TOKEN,
   LINE_CHECK_LABELS,
@@ -83,12 +85,16 @@ export function isPublishingRecord(value: unknown): value is PublishingRecord {
 
 /**
  * 讀回保存的記錄：舊版（#233 前）的 LINE 欄位把 Secret 與 Token 的原文存在瀏覽器裡，
- * 這裡轉成只有「已設定」與末四碼的新形狀（原文就此丟掉，連線測試結果要重測）；已經是新形狀的原樣回傳。
+ * 這裡轉成只有「已設定」與末四碼的新形狀（原文就此丟掉，連線測試結果要重測）；#291 前的記錄沒有
+ * 「收到非文字訊息時的回覆」，補上預設值（與 API 的 migration 相同）；已經是新形狀的原樣回傳。
  * 回傳的第二個值表示有轉換過，呼叫端要把轉換後的記錄寫回去。
  */
 export function upgradePublishingRecord(record: PublishingRecord): readonly [PublishingRecord, boolean] {
   const line = record.line as unknown as Record<string, unknown>;
-  if (typeof line['channelSecret'] !== 'string' || typeof line['accessToken'] !== 'string') return [record, false];
+  if (typeof line['channelSecret'] !== 'string' || typeof line['accessToken'] !== 'string') {
+    if (typeof line['nonTextReply'] === 'string') return [record, false];
+    return [{ ...record, line: { ...record.line, nonTextReply: DEFAULT_LINE_NON_TEXT_REPLY } }, true];
+  }
 
   const old = line as unknown as {
     officialAccountId: string;
@@ -346,7 +352,20 @@ export function validateLineField(field: LineField, raw: string): string | null 
 }
 
 /**
- * 驗證並正規化 LINE 設定（與 API 的 `LineChannelRules.ForUpdate` 同規則）：官方帳號 ID、Channel ID 與歡迎訊息一定要填；
+ * 收到非文字訊息時的回覆（#291；與 API 的 `LineChannelRules.ValidateNonTextReply` 同規則與訊息，共用
+ * `line-field-cases.json`）：`trim()` 後不可空白、最多 500 個 UTF-16 字元（emoji 算 2）；中間的換行與 emoji 原樣保留。
+ */
+export function validateLineNonTextReply(raw: string): string | null {
+  const value = trimLineValue(raw);
+  if (value.length === 0) return '請填寫收到非文字訊息時的回覆。';
+  return value.length > MAX_LINE_NON_TEXT_REPLY_LENGTH
+    ? `收到非文字訊息時的回覆請在 ${MAX_LINE_NON_TEXT_REPLY_LENGTH} 個字以內。`
+    : null;
+}
+
+/**
+ * 驗證並正規化 LINE 設定（與 API 的 `LineChannelRules.ForUpdate` 同規則）：官方帳號 ID、Channel ID、歡迎訊息與
+ * 收到非文字訊息時的回覆一定要填；
  * Secret 與 Token 空白表示「不變更」，只有還沒設定過時才必填。錯誤依畫面欄位順序排列。
  */
 export function validateLineSettings(
@@ -372,6 +391,8 @@ export function validateLineSettings(
   else if (welcomeMessage.length > MAX_LINE_WELCOME_LENGTH) {
     errors.push({ field: 'welcomeMessage', message: `歡迎訊息請在 ${MAX_LINE_WELCOME_LENGTH} 個字以內。` });
   }
+  const nonTextReplyError = validateLineNonTextReply(input.nonTextReply);
+  if (nonTextReplyError !== null) errors.push({ field: 'nonTextReply', message: nonTextReplyError });
 
   return {
     errors,
@@ -379,6 +400,7 @@ export function validateLineSettings(
       officialAccountId: trimLineValue(input.officialAccountId),
       channelId: trimLineValue(input.channelId),
       welcomeMessage,
+      nonTextReply: trimLineValue(input.nonTextReply),
       channelSecret,
       accessToken,
     },
@@ -387,7 +409,7 @@ export function validateLineSettings(
 
 /**
  * 儲存設定後的記錄：憑證只留狀態（原文在這裡就丟掉）；官方帳號 ID、Channel ID 或憑證有變，
- * 清除連線測試結果，已啟用的退回草稿（與 API 的 `TryApplySettings` 相同）；只改歡迎訊息不影響。
+ * 清除連線測試結果，已啟用的退回草稿（與 API 的 `TryApplySettings` 相同）；只改歡迎訊息或非文字訊息的回覆不影響。
  */
 export function applyLineSettings(
   line: PublishingRecord['line'],
@@ -407,6 +429,7 @@ export function applyLineSettings(
     officialAccountId: settings.officialAccountId,
     channelId: settings.channelId,
     welcomeMessage: settings.welcomeMessage,
+    nonTextReply: settings.nonTextReply,
     channelSecret: newSecret ? secretStatusOf(settings.channelSecret, now) : line.channelSecret,
     accessToken: newToken ? secretStatusOf(settings.accessToken, now) : line.accessToken,
     tokenExpired: newToken ? settings.accessToken === EXPIRED_DEMO_LINE_TOKEN : line.tokenExpired,
@@ -628,6 +651,7 @@ export function toAssistantPublishingView(
     officialAccountId: record.line.officialAccountId,
     channelId: record.line.channelId,
     welcomeMessage: record.line.welcomeMessage,
+    nonTextReply: record.line.nonTextReply,
     channelSecret: record.line.channelSecret,
     accessToken: record.line.accessToken,
     webhookUrl: demoLineWebhookUrl(assistant.id),

@@ -7,12 +7,14 @@ namespace SmartAgri.Application.Tests.Assistants;
 
 /// <summary>
 /// <see cref="LineChannelRules"/> (issues #229 and #230): the connection fields' validation ported from
-/// the frontend mock, the write-only credentials of a settings save, and the publishing gate.
+/// the frontend mock, the non-text reply (#291), the write-only credentials of a settings save, and the
+/// publishing gate.
 /// </summary>
 public sealed class LineChannelRulesTests
 {
     private const string Secret = "ffffffffffffffffffffffffffffffff";
     private static readonly string Token = new('A', 40);
+    private const string Reply = AssistantLineChannel.DefaultNonTextReply;
 
     // --- The same cases as the frontend's lineChecks() spec --------------------------------------
 
@@ -24,7 +26,7 @@ public sealed class LineChannelRulesTests
         var cases = SharedLineFieldCases();
         cases.Count.ShouldBeGreaterThan(30);
         cases.Select(testCase => testCase.GetProperty("field").GetString()).Distinct()
-            .ShouldBe(LineChannelRules.Fields.Select(field => field.Field), ignoreOrder: true);
+            .ShouldBe([.. LineChannelRules.Fields.Select(field => field.Field), "nonTextReply"], ignoreOrder: true);
 
         foreach (var testCase in cases)
         {
@@ -33,7 +35,9 @@ public sealed class LineChannelRulesTests
             var value = testCase.GetProperty("value").GetString()!;
             var expected = testCase.GetProperty("error");
 
-            var error = LineChannelRules.ValidateField(field, value);
+            var error = field == LineChannelRules.NonTextReplyField
+                ? LineChannelRules.ValidateNonTextReply(value)
+                : LineChannelRules.ValidateField(field, value);
 
             if (expected.ValueKind == JsonValueKind.Null)
             {
@@ -52,11 +56,11 @@ public sealed class LineChannelRulesTests
     [Fact]
     public void The_first_save_needs_every_field_and_reports_them_all_at_once()
     {
-        var result = LineChannelRules.ForUpdate(null, " ", null, "", null, credentialsStored: false);
+        var result = LineChannelRules.ForUpdate(null, " ", null, "", null, null, credentialsStored: false);
 
         result.IsValid.ShouldBeFalse();
         result.Failures.Select(failure => failure.Field).ShouldBe(
-            ["officialAccountId", "channelId", "channelSecret", "accessToken", "welcomeMessage"]);
+            ["officialAccountId", "channelId", "channelSecret", "accessToken", "welcomeMessage", "nonTextReply"]);
         result.Failures.Select(failure => failure.Message).ShouldBe(
         [
             "請填寫 官方帳號 ID。",
@@ -64,13 +68,14 @@ public sealed class LineChannelRulesTests
             "請填寫 Channel secret。",
             "請填寫 Channel access token。",
             "請填寫歡迎訊息。",
+            "請填寫收到非文字訊息時的回覆。",
         ]);
     }
 
     [Fact]
     public void A_valid_first_save_is_trimmed()
     {
-        var result = LineChannelRules.ForUpdate(" @anxin-demo ", "1650000000 ", $" {Secret}", $"{Token}\n", " 歡迎 ", credentialsStored: false);
+        var result = LineChannelRules.ForUpdate(" @anxin-demo ", "1650000000 ", $" {Secret}", $"{Token}\n", " 歡迎 ", " 收到圖片了 📷\n請改用文字問我。\n", credentialsStored: false);
 
         result.IsValid.ShouldBeTrue();
         result.Value.OfficialAccountId.ShouldBe("@anxin-demo");
@@ -78,6 +83,7 @@ public sealed class LineChannelRulesTests
         result.Value.ChannelSecret.ShouldBe(Secret);
         result.Value.AccessToken.ShouldBe(Token);
         result.Value.WelcomeMessage.ShouldBe("歡迎");
+        result.Value.NonTextReply.ShouldBe("收到圖片了 📷\n請改用文字問我。");
     }
 
     [Theory]
@@ -86,7 +92,7 @@ public sealed class LineChannelRulesTests
     [InlineData("   ")]
     public void Once_stored_an_empty_credential_keeps_the_stored_one(string? empty)
     {
-        var result = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", empty, empty, "歡迎", credentialsStored: true);
+        var result = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", empty, empty, "歡迎", Reply, credentialsStored: true);
 
         result.IsValid.ShouldBeTrue();
         result.Value.ChannelSecret.ShouldBeNull();
@@ -96,7 +102,7 @@ public sealed class LineChannelRulesTests
     [Fact]
     public void Once_stored_a_new_credential_is_still_validated()
     {
-        var result = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", "not-hex", "short token", "歡迎", credentialsStored: true);
+        var result = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", "not-hex", "short token", "歡迎", Reply, credentialsStored: true);
 
         result.Failures.Select(failure => failure.Field).ShouldBe(["channelSecret", "accessToken"]);
     }
@@ -104,18 +110,33 @@ public sealed class LineChannelRulesTests
     [Fact]
     public void The_welcome_message_is_at_most_120_characters()
     {
-        LineChannelRules.ForUpdate("@anxin-demo", "1650000000", null, null, new string('歡', 120), credentialsStored: true)
+        LineChannelRules.ForUpdate("@anxin-demo", "1650000000", null, null, new string('歡', 120), Reply, credentialsStored: true)
             .IsValid.ShouldBeTrue();
 
-        var tooLong = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", null, null, new string('歡', 121), credentialsStored: true);
+        var tooLong = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", null, null, new string('歡', 121), Reply, credentialsStored: true);
         tooLong.Failures.Single().Field.ShouldBe("welcomeMessage");
         tooLong.Failures.Single().Message.ShouldBe("歡迎訊息請在 120 個字以內。");
     }
 
     [Fact]
+    public void The_non_text_reply_is_required_and_at_most_500_characters()
+    {
+        LineChannelRules.ForUpdate("@anxin-demo", "1650000000", null, null, "歡迎", new string('收', 500), credentialsStored: true)
+            .IsValid.ShouldBeTrue();
+
+        var tooLong = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", null, null, "歡迎", new string('收', 501), credentialsStored: true);
+        tooLong.Failures.Single().Field.ShouldBe("nonTextReply");
+        tooLong.Failures.Single().Message.ShouldBe("收到非文字訊息時的回覆請在 500 個字以內。");
+
+        var blank = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", null, null, "歡迎", " \n ", credentialsStored: true);
+        blank.Failures.Single().Field.ShouldBe("nonTextReply");
+        blank.Failures.Single().Message.ShouldBe("請填寫收到非文字訊息時的回覆。");
+    }
+
+    [Fact]
     public void Settings_never_print_a_credential()
     {
-        var settings = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", Secret, Token, "歡迎", credentialsStored: false).Value;
+        var settings = LineChannelRules.ForUpdate("@anxin-demo", "1650000000", Secret, Token, "歡迎", Reply, credentialsStored: false).Value;
 
         settings.ToString().ShouldNotContain(Secret);
         settings.ToString().ShouldNotContain(Token);
@@ -125,6 +146,7 @@ public sealed class LineChannelRulesTests
     public void An_unknown_field_is_a_programming_error()
     {
         Should.Throw<ArgumentException>(() => LineChannelRules.ValidateField("welcomeMessage", "x"));
+        Should.Throw<ArgumentException>(() => LineChannelRules.ValidateField("nonTextReply", "x"));
     }
 
     // --- Publishing gate (#230) ---------------------------------------------------------------------

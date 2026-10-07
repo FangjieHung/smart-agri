@@ -43,6 +43,9 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
 
     private static string LinePath(Guid id) => $"{BasePath}/{id}/publishing/line";
 
+    /// <summary>#291: the owner's own wording, line breaks and emoji included.</summary>
+    private const string CustomNonTextReply = "收到您的照片了 📷\n目前只能看懂文字，\n請用文字描述問題 🙏";
+
     // --- Settings ------------------------------------------------------------------------------
 
     [Fact]
@@ -60,6 +63,7 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
         view.GetProperty("officialAccountId").GetString().ShouldBe(string.Empty);
         view.GetProperty("channelId").GetString().ShouldBe(string.Empty);
         view.GetProperty("welcomeMessage").GetString().ShouldBe("您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。");
+        view.GetProperty("nonTextReply").GetString().ShouldBe("目前只能回答文字問題。");
         AssertSecretStatus(view.GetProperty("channelSecret"), configured: false, lastFour: null);
         AssertSecretStatus(view.GetProperty("accessToken"), configured: false, lastFour: null);
         view.GetProperty("webhookUrl").GetString().ShouldBe($"http://localhost:5153/api/v1/line/webhook/{assistantId}");
@@ -156,10 +160,12 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
         _host.Clock.Advance(TimeSpan.FromMinutes(5));
         foreach (var (revision, empty) in new[] { (1, (string?)null), (2, string.Empty) })
         {
-            var response = await SaveAsync(org, assistantId, revision, "@anxin-demo", "1650000000", empty, empty, "新的歡迎訊息");
+            var response = await SaveAsync(
+                org, assistantId, revision, "@anxin-demo", "1650000000", empty, empty, "新的歡迎訊息", $" {CustomNonTextReply}\n");
             response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(CancellationToken));
             var view = await BodyJsonAsync(response);
             view.GetProperty("welcomeMessage").GetString().ShouldBe("新的歡迎訊息");
+            view.GetProperty("nonTextReply").GetString().ShouldBe(CustomNonTextReply);
             view.GetProperty("state").GetString().ShouldBe("published");
             view.GetProperty("servingState").GetString().ShouldBe("serving");
             AssertChecks(view, "passed", "passed", "passed");
@@ -168,6 +174,9 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
         }
 
         (await StoredCredentialsAsync(org, assistantId)).ShouldBe(before);
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        (await dbContext.AssistantLineChannels.AsNoTracking().SingleAsync(row => row.AssistantId == assistantId, CancellationToken))
+            .NonTextReply.ShouldBe(CustomNonTextReply);
     }
 
     [Fact]
@@ -247,21 +256,41 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
         (await SaveAsync(org, assistantId, 0, "@anxin-demo", "1650000000", Secret1, Token1)).StatusCode.ShouldBe(HttpStatusCode.OK);
         var before = await StoredCredentialsAsync(org, assistantId);
 
-        var response = await SaveAsync(org, assistantId, 1, "anxin-demo", "165000000a", "xyz", "short token", new string('歡', 121));
+        var response = await SaveAsync(org, assistantId, 1, "anxin-demo", "165000000a", "xyz", "short token", new string('歡', 121), " \n ");
 
         response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
         var errors = (await BodyJsonAsync(response)).GetProperty("errors");
         errors.EnumerateObject().Select(property => property.Name)
-            .ShouldBe(["officialAccountId", "channelId", "channelSecret", "accessToken", "welcomeMessage"], ignoreOrder: true);
+            .ShouldBe(["officialAccountId", "channelId", "channelSecret", "accessToken", "welcomeMessage", "nonTextReply"], ignoreOrder: true);
         errors.GetProperty("officialAccountId")[0].GetString().ShouldBe("官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。");
         errors.GetProperty("channelId")[0].GetString().ShouldBe("Channel ID應為 10 位數字。");
         errors.GetProperty("channelSecret")[0].GetString().ShouldBe("Channel secret應為 32 個英數字（0–9、a–f）。");
         errors.GetProperty("accessToken")[0].GetString().ShouldBe("Channel access token至少 40 個字元且不含空白。");
         errors.GetProperty("welcomeMessage")[0].GetString().ShouldBe("歡迎訊息請在 120 個字以內。");
+        errors.GetProperty("nonTextReply")[0].GetString().ShouldBe("請填寫收到非文字訊息時的回覆。");
+
+        // Omitted is blank too (a full replace), and 501 characters is too long.
+        var omitted = await org.Admin.Spa.PutAsync(LinePath(assistantId), org.Admin.Token, new
+        {
+            officialAccountId = "@anxin-demo",
+            channelId = "1650000000",
+            welcomeMessage = "歡迎",
+            revision = 1,
+        });
+        omitted.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(omitted)).GetProperty("errors").GetProperty("nonTextReply")[0].GetString()
+            .ShouldBe("請填寫收到非文字訊息時的回覆。");
+        var tooLong = await SaveAsync(
+            org, assistantId, 1, "@anxin-demo", "1650000000", null, null, nonTextReply: new string('收', 501));
+        tooLong.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var tooLongErrors = (await BodyJsonAsync(tooLong)).GetProperty("errors");
+        tooLongErrors.EnumerateObject().Select(property => property.Name).ShouldBe(["nonTextReply"]);
+        tooLongErrors.GetProperty("nonTextReply")[0].GetString().ShouldBe("收到非文字訊息時的回覆請在 500 個字以內。");
 
         var view = await GetLineAsync(org, assistantId);
         view.GetProperty("revision").GetInt32().ShouldBe(1);
         view.GetProperty("channelId").GetString().ShouldBe("1650000000");
+        view.GetProperty("nonTextReply").GetString().ShouldBe(AssistantLineChannel.DefaultNonTextReply);
         (await StoredCredentialsAsync(org, assistantId)).ShouldBe(before);
     }
 
@@ -498,7 +527,8 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
         string channelId,
         string? channelSecret,
         string? accessToken,
-        string welcomeMessage = "您好！歡迎加入。") =>
+        string welcomeMessage = "您好！歡迎加入。",
+        string nonTextReply = AssistantLineChannel.DefaultNonTextReply) =>
         org.Admin.Spa.PutAsync(LinePath(assistantId), org.Admin.Token, new
         {
             officialAccountId,
@@ -506,6 +536,7 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
             channelSecret,
             accessToken,
             welcomeMessage,
+            nonTextReply,
             revision,
         });
 
@@ -574,6 +605,7 @@ public partial class AssistantLineChannelEndpointsTests : IClassFixture<AuthHost
             channelSecret = Secret2,
             accessToken = Token2,
             welcomeMessage = "歡迎",
+            nonTextReply = "只收文字",
             revision = 1,
         })),
         ("PUT paused", id => caller.Spa.PutAsync($"{LinePath(id)}/paused", caller.Token, new { paused = true })),

@@ -209,7 +209,9 @@ public partial class AssistantLineChannelEndpointsTests
             var channel = await dbContext.AssistantLineChannels.SingleAsync(row => row.AssistantId == assistantId, CancellationToken);
             var foreign = _host.Factory.Services.GetRequiredService<ISecretProtector>()
                 .Protect("some.other-purpose", bot.AccessToken, _host.Clock.GetUtcNow());
-            channel.TryApplySettings(channel.OfficialAccountId, channel.ChannelId, null, foreign, channel.WelcomeMessage, channel.Revision, _host.Clock.GetUtcNow())
+            channel.TryApplySettings(
+                    channel.OfficialAccountId, channel.ChannelId, null, foreign, channel.WelcomeMessage, channel.NonTextReply,
+                    channel.Revision, _host.Clock.GetUtcNow())
                 .ShouldBeTrue();
             await dbContext.SaveChangesAsync(CancellationToken);
         }
@@ -238,7 +240,9 @@ public partial class AssistantLineChannelEndpointsTests
                 // Another tab saves the settings (only the welcome message) meanwhile.
                 await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
                 var channel = await dbContext.AssistantLineChannels.SingleAsync(row => row.AssistantId == assistantId, CancellationToken);
-                channel.TryApplySettings(channel.OfficialAccountId, channel.ChannelId, null, null, "另一個分頁的歡迎訊息", channel.Revision, _host.Clock.GetUtcNow())
+                channel.TryApplySettings(
+                        channel.OfficialAccountId, channel.ChannelId, null, null, "另一個分頁的歡迎訊息", channel.NonTextReply,
+                        channel.Revision, _host.Clock.GetUtcNow())
                     .ShouldBeTrue();
                 await dbContext.SaveChangesAsync(CancellationToken);
             }
@@ -399,6 +403,7 @@ public partial class AssistantLineChannelEndpointsTests
             channelSecret = sentinelSecret,
             accessToken = sentinelToken,
             welcomeMessage = "您好！",
+            nonTextReply = "只收文字",
             revision = 0,
         });
         save.StatusCode.ShouldBe(HttpStatusCode.OK);

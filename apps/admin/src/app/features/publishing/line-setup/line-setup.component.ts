@@ -17,6 +17,7 @@ import { RouterLink } from '@angular/router';
 import type { Observable } from 'rxjs';
 import {
   LINE_FIELDS,
+  MAX_LINE_NON_TEXT_REPLY_LENGTH,
   MAX_LINE_WELCOME_LENGTH,
   PUBLISHING_STATUS_META,
   type LineConnectionCheckState,
@@ -57,6 +58,7 @@ const FIELD_LABELS: Readonly<Record<LineErrorField, string>> = {
   channelSecret: 'Channel secret',
   accessToken: 'Channel access token',
   welcomeMessage: '歡迎訊息',
+  nonTextReply: '收到非文字訊息時的回覆',
 };
 
 /**
@@ -82,9 +84,10 @@ export class LineSetupComponent {
 
   protected readonly fields = LINE_FIELDS;
   protected readonly maxWelcome = MAX_LINE_WELCOME_LENGTH;
+  protected readonly maxNonTextReply = MAX_LINE_NON_TEXT_REPLY_LENGTH;
   protected readonly draft = linkedSignal(() => {
-    const { officialAccountId, channelId, welcomeMessage } = this.view();
-    return { officialAccountId, channelId, welcomeMessage };
+    const { officialAccountId, channelId, welcomeMessage, nonTextReply } = this.view();
+    return { officialAccountId, channelId, welcomeMessage, nonTextReply };
   });
   /** 新的 Secret／Token：只存在於這個元件的輸入中，儲存後（或取消更換時）立刻清掉；從不從 `view` 帶回。 */
   protected readonly secrets = signal<Readonly<Record<SecretField, string>>>({ channelSecret: '', accessToken: '' });
@@ -121,6 +124,7 @@ export class LineSetupComponent {
       draft.officialAccountId !== view.officialAccountId ||
       draft.channelId !== view.channelId ||
       draft.welcomeMessage !== view.welcomeMessage ||
+      draft.nonTextReply !== view.nonTextReply ||
       secrets.channelSecret.length > 0 ||
       secrets.accessToken.length > 0
     );
@@ -158,7 +162,7 @@ export class LineSetupComponent {
     return this.publishFailures().some((failure) => failure.reason === reason);
   }
 
-  protected setPlain(field: 'officialAccountId' | 'channelId' | 'welcomeMessage', event: Event): void {
+  protected setPlain(field: 'officialAccountId' | 'channelId' | 'welcomeMessage' | 'nonTextReply', event: Event): void {
     const value = (event.target as HTMLInputElement | HTMLTextAreaElement).value;
     this.draft.update((draft) => ({ ...draft, [field]: value }));
   }

@@ -20,6 +20,7 @@ const VALID_LINE: LineSettingsInput = {
   officialAccountId: '@anxin-demo',
   channelId: DEMO_LINE_CHANNEL_ID,
   welcomeMessage: '您好！歡迎加入。',
+  nonTextReply: '目前只能回答文字問題。',
   channelSecret: DEMO_LINE_CHANNEL_SECRET,
   accessToken: 'demo-token-not-for-production-0123456789abcdefghij',
 };

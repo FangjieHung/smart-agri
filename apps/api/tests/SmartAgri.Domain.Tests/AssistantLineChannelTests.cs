@@ -19,7 +19,7 @@ public class AssistantLineChannelTests
 
     private static AssistantLineChannel NewChannel(Assistant? assistant = null) =>
         new(assistant ?? NewAssistant(), "@anxin-demo", "1650000000", Secret("s001", T0), Secret("t001", T0),
-            AssistantLineChannel.DefaultWelcomeMessage, T0);
+            AssistantLineChannel.DefaultWelcomeMessage, AssistantLineChannel.DefaultNonTextReply, T0);
 
     private static IReadOnlyList<LineConnectionCheck> AllPassed() =>
         [.. LineConnectionCheck.All.Select(kind => new LineConnectionCheck(kind, LineConnectionCheckState.Passed, "通過。"))];
@@ -50,6 +50,7 @@ public class AssistantLineChannelTests
         channel.PublishedAt.ShouldBeNull();
         channel.PushFallbackCount.ShouldBe(0);
         channel.WelcomeMessage.ShouldBe("您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。");
+        channel.NonTextReply.ShouldBe("目前只能回答文字問題。");
         channel.ChannelSecret.LastFour.ShouldBe("s001");
         channel.AccessToken.LastFour.ShouldBe("t001");
     }
@@ -59,27 +60,41 @@ public class AssistantLineChannelTests
     {
         var channel = NewChannel();
 
-        channel.TryApplySettings("@other", "1650000001", null, null, "歡迎", 2, T0.AddMinutes(1)).ShouldBeFalse();
+        channel.TryApplySettings("@other", "1650000001", null, null, "歡迎", "只收文字", 2, T0.AddMinutes(1)).ShouldBeFalse();
         channel.OfficialAccountId.ShouldBe("@anxin-demo");
+        channel.NonTextReply.ShouldBe(AssistantLineChannel.DefaultNonTextReply);
         channel.Revision.ShouldBe(1);
 
-        channel.TryApplySettings("@other", "1650000001", null, null, "歡迎", 1, T0.AddMinutes(1)).ShouldBeTrue();
+        channel.TryApplySettings("@other", "1650000001", null, null, "歡迎", "只收文字", 1, T0.AddMinutes(1)).ShouldBeTrue();
         channel.OfficialAccountId.ShouldBe("@other");
         channel.ChannelId.ShouldBe("1650000001");
         channel.WelcomeMessage.ShouldBe("歡迎");
+        channel.NonTextReply.ShouldBe("只收文字");
         channel.Revision.ShouldBe(2);
         channel.UpdatedAt.ShouldBe(T0.AddMinutes(1));
     }
 
-    [Fact]
-    public void Changing_only_the_welcome_message_keeps_the_credentials_the_test_and_the_publication()
+    [Theory]
+    [InlineData("welcome")]
+    [InlineData("non-text-reply")]
+    public void Changing_only_a_message_keeps_the_credentials_the_test_and_the_publication(string change)
     {
         var channel = PublishedChannel();
         var secret = channel.ChannelSecret;
         var token = channel.AccessToken;
 
-        channel.TryApplySettings("@anxin-demo", "1650000000", null, null, "新的歡迎訊息", 1, T0.AddMinutes(3)).ShouldBeTrue();
+        channel.TryApplySettings(
+                "@anxin-demo",
+                "1650000000",
+                null,
+                null,
+                change == "welcome" ? "新的歡迎訊息" : AssistantLineChannel.DefaultWelcomeMessage,
+                change == "non-text-reply" ? "照片收到囉 📷\n請用文字描述問題。" : AssistantLineChannel.DefaultNonTextReply,
+                1,
+                T0.AddMinutes(3))
+            .ShouldBeTrue();
 
+        channel.Revision.ShouldBe(2);
         channel.ChannelSecret.ShouldBe(secret);
         channel.AccessToken.ShouldBe(token);
         channel.State.ShouldBe(LineChannelState.Published);
@@ -110,6 +125,7 @@ public class AssistantLineChannelTests
                     change == "secret" ? Secret("s002", later) : null,
                     change == "token" ? Secret("t002", later) : null,
                     AssistantLineChannel.DefaultWelcomeMessage,
+                    AssistantLineChannel.DefaultNonTextReply,
                     1,
                     later)
                 .ShouldBeTrue();
@@ -131,12 +147,44 @@ public class AssistantLineChannelTests
         var channel = NewChannel();
         var secret = channel.ChannelSecret;
 
-        channel.TryApplySettings("@anxin-demo", "1650000000", null, Secret("t002", T0.AddMinutes(1)), "歡迎", 1, T0.AddMinutes(1))
+        channel.TryApplySettings("@anxin-demo", "1650000000", null, Secret("t002", T0.AddMinutes(1)), "歡迎", "只收文字", 1, T0.AddMinutes(1))
             .ShouldBeTrue();
 
         channel.ChannelSecret.ShouldBe(secret);
         channel.AccessToken.LastFour.ShouldBe("t002");
         channel.AccessToken.SetAt.ShouldBe(T0.AddMinutes(1));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" \n ")]
+    public void A_blank_non_text_reply_is_refused(string nonTextReply)
+    {
+        Should.Throw<ArgumentException>(() => new AssistantLineChannel(
+            NewAssistant(), "@anxin-demo", "1650000000", Secret("s001", T0), Secret("t001", T0),
+            AssistantLineChannel.DefaultWelcomeMessage, nonTextReply, T0));
+
+        var channel = NewChannel();
+        Should.Throw<ArgumentException>(() => channel.TryApplySettings(
+            "@anxin-demo", "1650000000", null, null, AssistantLineChannel.DefaultWelcomeMessage, nonTextReply, 1, T0));
+        channel.NonTextReply.ShouldBe(AssistantLineChannel.DefaultNonTextReply);
+        channel.Revision.ShouldBe(1);
+    }
+
+    [Fact]
+    public void A_non_text_reply_holds_at_most_500_characters_with_line_breaks_and_emoji_kept()
+    {
+        AssistantLineChannel.NonTextReplyMaxLength.ShouldBe(500);
+        var channel = NewChannel();
+        var longest = "🌱\n" + new string('收', AssistantLineChannel.NonTextReplyMaxLength - 3);
+        longest.Length.ShouldBe(500);
+
+        channel.TryApplySettings("@anxin-demo", "1650000000", null, null, "歡迎", longest, 1, T0).ShouldBeTrue();
+        channel.NonTextReply.ShouldBe(longest);
+
+        Should.Throw<ArgumentException>(() => channel.TryApplySettings(
+            "@anxin-demo", "1650000000", null, null, "歡迎", longest + "!", 2, T0));
+        channel.NonTextReply.ShouldBe(longest);
     }
 
     [Fact]

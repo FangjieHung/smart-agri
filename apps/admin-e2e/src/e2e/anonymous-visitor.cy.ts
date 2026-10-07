@@ -34,9 +34,9 @@ describe('anonymous visitor on the embedded chat page', () => {
   });
 
   it('opens an externally published assistant without choosing a demo persona', () => {
-    cy.visit(`/use/${PUBLISHED}`);
+    cy.visit(`/chat/${PUBLISHED}`);
 
-    cy.location('pathname').should('eq', `/use/${PUBLISHED}`);
+    cy.location('pathname').should('eq', `/chat/${PUBLISHED}`);
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('.demo-notice').should('be.visible').and('contain', 'Demo');
     cy.get('.privacy-notice').should('contain', '關閉這個分頁');
@@ -49,13 +49,23 @@ describe('anonymous visitor on the embedded chat page', () => {
     cy.get('[role="log"] [data-kind="company-data"]').should('contain', '7 天');
   });
 
+  // issue #305：正式環境的 `/use/*` 屬於 API 的訪客對話頁；admin 的舊網址只轉址，id 與查詢字串都要帶過去。
+  it('redirects the legacy /use address to /chat with the same id and query', () => {
+    cy.visit(`/use/${PUBLISHED}?embed=1`);
+
+    cy.location('pathname').should('eq', `/chat/${PUBLISHED}`);
+    cy.location('search').should('eq', '?embed=1');
+    cy.get('#chat-input').should('be.visible');
+    cy.get('.chat-header').should('not.exist');
+  });
+
   it('keeps the visitor conversation invisible to every demo persona', () => {
-    visitAs('visitor-e2e-first', `/use/${PUBLISHED}`);
+    visitAs('visitor-e2e-first', `/chat/${PUBLISHED}`);
     ask('我的訪客問題：退貨要幾天？');
     cy.get('[role="log"]').should('contain', '我的訪客問題');
 
     loginAs('SMB 管理者');
-    cy.visit(`/use/${PUBLISHED}`);
+    cy.visit(`/chat/${PUBLISHED}`);
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('[role="log"]').should('not.contain', '我的訪客問題');
 
@@ -65,18 +75,18 @@ describe('anonymous visitor on the embedded chat page', () => {
   });
 
   it('keeps two visitors in the same browser apart', () => {
-    visitAs('visitor-e2e-first', `/use/${PUBLISHED}`);
+    visitAs('visitor-e2e-first', `/chat/${PUBLISHED}`);
     ask('我的訪客問題：退貨要幾天？');
     cy.get('[role="log"]').should('contain', '我的訪客問題');
 
-    visitAs('visitor-e2e-second', `/use/${PUBLISHED}`);
+    visitAs('visitor-e2e-second', `/chat/${PUBLISHED}`);
     cy.contains('h1', '客服助理').should('be.visible');
     cy.get('[role="log"] app-chat-message').should('have.length', 0);
     cy.contains('我的訪客問題').should('not.exist');
   });
 
   it('refuses an assistant with no external channel without leaking its name', () => {
-    cy.visit(`/use/${INTERNAL_ONLY}`);
+    cy.visit(`/chat/${INTERNAL_ONLY}`);
 
     cy.contains('無法開啟這個助理').should('be.visible');
     cy.contains('內部教育訓練助理').should('not.exist');
@@ -86,7 +96,7 @@ describe('anonymous visitor on the embedded chat page', () => {
   });
 
   it('shows no workspace chrome and no workspace links in embed mode', () => {
-    cy.visit(`/use/${PUBLISHED}?embed=1`);
+    cy.visit(`/chat/${PUBLISHED}?embed=1`);
 
     cy.get('.chat-header').should('not.exist');
     cy.get('app-conversation-rail').should('not.exist');
@@ -100,7 +110,7 @@ describe('anonymous visitor on the embedded chat page', () => {
   });
 
   it('sends an anonymous consented submission to the data manager’s collection records', () => {
-    cy.visit(`/use/${PUBLISHED}?embed=1`);
+    cy.visit(`/chat/${PUBLISHED}?embed=1`);
     fillOrderForm('DEMO-4001');
 
     cy.get('app-consent-confirmation').within(() => {
@@ -132,7 +142,7 @@ describe('anonymous visitor on the embedded chat page', () => {
   });
 
   it('lets a visitor withdraw within the same tab session and says the record is lost with it', () => {
-    visitAs('visitor-e2e-withdraw', `/use/${PUBLISHED}?embed=1`);
+    visitAs('visitor-e2e-withdraw', `/chat/${PUBLISHED}?embed=1`);
     fillOrderForm('DEMO-4002');
     cy.get('#consent-agree').check();
     cy.contains('button', '同意並送出').click();

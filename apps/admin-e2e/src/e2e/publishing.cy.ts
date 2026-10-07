@@ -314,7 +314,7 @@ describe('publishing channels', () => {
     // 同仁立刻失去權限，拒絕訊息不提助理名稱。
     loginAs('內部使用者');
     cy.get('section[aria-labelledby="usable-title"]').should('not.exist');
-    cy.visit(`/use/${ASSISTANT}`);
+    cy.visit(`/chat/${ASSISTANT}`);
     cy.contains('無法使用這個助理').should('be.visible');
     cy.contains('客服助理').should('not.exist');
     cy.get('#chat-input').should('not.exist');

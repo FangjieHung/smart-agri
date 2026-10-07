@@ -4,7 +4,7 @@ import { ActivatedRoute } from '@angular/router';
 import { ChatConversationComponent } from '../conversation/chat-conversation.component';
 
 /**
- * 終端使用者的助理對話頁（`/use/:assistantId`）：單欄、沒有對話紀錄側欄，
+ * 終端使用者的助理對話頁（`/chat/:assistantId`）：單欄、沒有對話紀錄側欄，
  * 因為這個網址會被嵌入客戶官網、也會從 LINE 開啟，不能出現工作區外框。
  * `?embed=1` 會再收起頁首與返回連結，只留下對話本身——這是匿名訪客的主要入口。
  *

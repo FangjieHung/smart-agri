@@ -74,6 +74,86 @@
       "followUpOf": "none-03",
       "expectedKind": "no-result",
       "note": "追問：延續上一題「查無結果」的脈絡，確認多輪對話下應查無結果的題目仍然正確判斷。"
+    },
+    {
+      "id": "returns-04",
+      "question": "收到 5 天了可以退嗎？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["退換貨辦法.md"],
+      "note": "條件判斷題（#292 ①）：退貨期限七天，五天在期限內，應回答可以並引用。"
+    },
+    {
+      "id": "returns-05",
+      "question": "收到 10 天了可以退嗎？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["退換貨辦法.md"],
+      "note": "條件判斷題（#292 ①）：十天已超過七天，目標是回答否定結論（不能退）並引用；修改前（#300 基準）預期是 cannot-answer。題庫只判斷類型與引用，否定結論要看回覆文字。"
+    },
+    {
+      "id": "store-01",
+      "question": "地址在哪裡？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "表格式店家資料（#292 ②）：基本資訊表格的「地址」列。"
+    },
+    {
+      "id": "store-02",
+      "question": "電話幾號？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "表格式店家資料（#292 ②）：「電話」列。"
+    },
+    {
+      "id": "store-03",
+      "question": "每週哪一天公休？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "表格式店家資料（#292 ②）：「公休日」列，每週三。"
+    },
+    {
+      "id": "store-04",
+      "question": "週二有營業嗎？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "營業日（#292 ①②）：公休日是週三，週二有營業，要從公休日推論。"
+    },
+    {
+      "id": "store-05",
+      "question": "週三有營業嗎？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "公休日（#292 ①②）：週三公休，目標是回答否定結論（不營業）並引用；要看回覆文字。"
+    },
+    {
+      "id": "store-06",
+      "question": "有套餐嗎？",
+      "expectedKind": "company-data",
+      "expectedCitedDocuments": ["門市資訊.md"],
+      "note": "有無套餐：門市資訊寫明「餐點都是單點，沒有套餐」，應照文件回答沒有並引用；要看回覆文字。"
+    },
+    {
+      "id": "trap-01",
+      "question": "現在有什麼優惠活動嗎？",
+      "expectedKind": "no-result",
+      "note": "陷阱題：所有文件都沒有寫優惠活動，應拒答；若模型拿會員點數或其他內容湊答案就是誤答。"
+    },
+    {
+      "id": "trap-02",
+      "question": "店裡有幾個座位？",
+      "expectedKind": "no-result",
+      "note": "陷阱題：門市資訊寫了可以內用，但沒有寫座位數，應拒答。"
+    },
+    {
+      "id": "trap-03",
+      "question": "退貨的運費要自己付嗎？",
+      "expectedKind": "no-result",
+      "note": "陷阱題：退換貨辦法沒有寫退貨運費由誰負擔，應拒答；放寬推論（#292 ③）後也不能自行推論。"
+    },
+    {
+      "id": "trap-04",
+      "question": "外送要另外收運費嗎？",
+      "expectedKind": "no-result",
+      "note": "陷阱題：門市資訊只寫外送門檻與範圍，沒有寫外送費，應拒答；放寬推論後也不能自行推論。"
     }
   ]
 }

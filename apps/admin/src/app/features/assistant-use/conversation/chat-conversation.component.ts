@@ -146,7 +146,7 @@ interface HandoffExchange {
 }
 
 /**
- * 助理對話的單一實作：`/use/:assistantId`（嵌入用）與工作區的 `/app/chat` 都用這個元件，
+ * 助理對話的單一實作：`/chat/:assistantId`（嵌入用）與工作區的 `/app/chat` 都用這個元件，
  * 只靠 `header` 決定要不要顯示頁面外框。回覆全部來自 fixtures。
  *
  * 對話只屬於「目前的發起者」：可能是已選擇的 Demo 身分，也可能是 `allowAnonymous`
@@ -186,13 +186,13 @@ export class ChatConversationComponent {
   /** null 代表開啟最後一次使用的對話；沒有任何對話時是一段還沒建立的空白對話。 */
   readonly threadId = input<string | null>(null);
   /**
-   * full：頁首含返回連結、助理名稱與用途（`/use`）。
-   * minimal：只保留視覺隱藏的標題（`/use?embed=1`，嵌入網站時不顯示品牌外框）。
+   * full：頁首含返回連結、助理名稱與用途（`/chat/:assistantId`）。
+   * minimal：只保留視覺隱藏的標題（`/chat/:assistantId?embed=1`，嵌入網站時不顯示品牌外框）。
    * none：完全不顯示，由外層頁面提供標題（工作區）。
    */
   readonly header = input<'full' | 'minimal' | 'none'>('full');
   /**
-   * 允許未登入的官網訪客使用（只有 `/use/:assistantId` 會開啟）。
+   * 允許未登入的官網訪客使用（只有 `/chat/:assistantId` 會開啟）。
    * 開啟後沒有 Demo 身分時改用這個分頁的匿名訪客 id，畫面也不再出現任何工作區連結。
    */
   readonly allowAnonymous = input(false);

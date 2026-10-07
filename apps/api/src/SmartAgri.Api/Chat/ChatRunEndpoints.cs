@@ -19,6 +19,7 @@ using SmartAgri.Application.Chat;
 using SmartAgri.Application.Databases;
 using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Application.Knowledge.Processing;
+using SmartAgri.Application.Observability;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Chat;
 using SmartAgri.Infrastructure;
@@ -442,7 +443,8 @@ public static class ChatRunEndpoints
         {
             // Unexpected (e.g. the database failed while saving the reply): the stream has
             // started, so the only way left to say so is a final RUN_ERROR.
-            run.Logger.LogError(exception, "A chat run failed after its stream started.");
+            // Only types: a question is in flight, and an exception message can quote it.
+            run.Logger.LogError("A chat run failed after its stream started: {Failure}", ExceptionSummary.Of(exception));
             await formatter.WriteAsync(
                 Single(new RunErrorEvent { Code = InternalErrorCode, Message = InternalErrorMessage }),
                 response.Body,
@@ -498,7 +500,8 @@ public static class ChatRunEndpoints
                 }
                 catch (ChatGenerationException exception)
                 {
-                    Logger.LogWarning(exception.InnerException, "A chat run's query selection failed: {Issue}", exception.Message);
+                    Logger.LogWarning(
+                        "A chat run's query selection failed: {Issue} ({Cause})", exception.Message, ExceptionSummary.Of(exception.InnerException));
                     queryError = new RunErrorEvent
                     {
                         Code = exception.ProviderNotConfigured ? ChatErrors.ChatNotConfiguredReason : ChatErrors.ChatUnavailableReason,
@@ -575,7 +578,8 @@ public static class ChatRunEndpoints
                     }
                     catch (KnowledgeEmbeddingException exception)
                     {
-                        Logger.LogWarning(exception.InnerException, "A chat run could not embed the question: {Issue}", exception.Message);
+                        Logger.LogWarning(
+                            "A chat run could not embed the question: {Issue} ({Cause})", exception.Message, ExceptionSummary.Of(exception.InnerException));
                         error = new RunErrorEvent
                         {
                             Code = exception.ProviderNotConfigured
@@ -587,7 +591,8 @@ public static class ChatRunEndpoints
                     }
                     catch (ChatGenerationException exception)
                     {
-                        Logger.LogWarning(exception.InnerException, "A chat run's model call failed: {Issue}", exception.Message);
+                        Logger.LogWarning(
+                            "A chat run's model call failed: {Issue} ({Cause})", exception.Message, ExceptionSummary.Of(exception.InnerException));
                         error = new RunErrorEvent
                         {
                             Code = exception.ProviderNotConfigured ? ChatErrors.ChatNotConfiguredReason : ChatErrors.ChatUnavailableReason,

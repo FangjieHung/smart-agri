@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Application.Line;
+using SmartAgri.Application.Observability;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Application.Secrets;
 using SmartAgri.Domain.Assistants;
@@ -91,8 +92,10 @@ internal sealed class LineWebhookEventHandler
             }
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
+                // Only types: whatever failed was handling a LINE user's message, and a message can quote it.
                 _logger.LogError(
-                    exception, "A LINE {EventType} event for assistant {AssistantId} failed and was dropped.", lineEvent.Type, assistant.Id);
+                    "A LINE {EventType} event for assistant {AssistantId} failed and was dropped: {Failure}",
+                    lineEvent.Type, assistant.Id, ExceptionSummary.Of(exception));
             }
         }
     }

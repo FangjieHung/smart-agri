@@ -590,7 +590,7 @@ export function toAssistantPublishingView(
 ): AssistantPublishingView {
   const platform: PlatformSharingView = {
     channel: channelView(assistant, 'platform', platformStatus(record), record.platform.updatedAt),
-    usagePath: `/use/${assistant.id}`,
+    usagePath: `/chat/${assistant.id}`,
     allowedAccountIds: record.platform.allowedAccountIds,
     candidates: platformCandidates(assistant, accounts).map((account) => ({
       id: account.id,

@@ -1,14 +1,18 @@
 # 路由 × 畫面 × 狀態 × e2e 對照表
 
-**路由定義**：`apps/admin/src/app/app.routes.ts`（M5a 時共 23 筆設定：17 筆 `loadComponent` 路由、5 筆 redirect、1 筆 wildcard；2026-10-07 重數為 30 筆 `path` 設定，其中 23 筆 `loadComponent`、17 筆掛 `demoSessionGuard`。M5a 之後新增的 `/app/operations`、`/app/issues`、`/app/forms/:databaseId`、`/app/assistants/drafts/:draftId/:step`、`/auth/callback`、`/change-password` 與 M7 的 **`/app/cases`** 中，只有 `/app/cases` 收進第 3.2 節；其餘尚未補，列為待確認）。
-**守衛**：工作區用 `apps/admin/src/app/core/session/demo-session.guard.ts:9-12`；`/use/:assistantId` 用
+**路由定義**：`apps/admin/src/app/app.routes.ts`（M5a 時共 23 筆設定：17 筆 `loadComponent` 路由、5 筆 redirect、1 筆 wildcard；2026-10-07 重數為 30 筆 `path` 設定，其中 23 筆 `loadComponent`、17 筆掛 `demoSessionGuard`；#305 再加 1 筆 redirect，`/use/:assistantId` → `/chat/:assistantId`。M5a 之後新增的 `/app/operations`、`/app/issues`、`/app/forms/:databaseId`、`/app/assistants/drafts/:draftId/:step`、`/auth/callback`、`/change-password` 與 M7 的 **`/app/cases`** 中，只有 `/app/cases` 收進第 3.2 節；其餘尚未補，列為待確認）。
+**守衛**：工作區用 `apps/admin/src/app/core/session/demo-session.guard.ts:9-12`；`/chat/:assistantId` 用
 `apps/admin/src/app/core/session/embedded-chat.guard.ts`（mock 模式的示範用守衛；API 模式一律轉址，見第 1 節）。
 
 > **M5a 之後的 `/use`（2026-10-06）**：真正給官網訪客的對話視窗是獨立的 Nx app `apps/widget`，由 **API** 在
 > `GET /use/{assistantId}` 提供（`/widget/*` 是它的檔案、`/embed.js` 是客戶貼的載入器），不在 admin 的路由表裡，
 > 也不是這份文件的 23 筆路由之一；它送出依助理允許網域動態產生的 `frame-ancestors`。admin 的
-> `/use/:assistantId` 只剩 **mock 模式的 Demo 畫面**（API 模式轉址，不再是訪客入口）。詳見第 5.2 節與
+> `/chat/:assistantId` 只剩 **mock 模式的 Demo 畫面**（API 模式轉址，不再是訪客入口）。詳見第 5.2 節與
 > `docs/plans/2026-10-06-backend-milestone-5a-website-embed.md`。
+>
+> **#305（2026-10-07）**：admin 的「使用助理」頁從 `/use/:assistantId` 改成 **`/chat/:assistantId`**，因為 admin 與 API
+> 合併在同一個網址提供時，`/use/*` 一律屬於 API 的訪客對話頁。admin 內的舊網址 `/use/:assistantId` 只剩一筆
+> redirect（id 與查詢字串照帶，例 `?embed=1`）；下文的 `/chat/:assistantId` 指的都是這個 admin 頁，`/use/{id}` 指 API 的訪客頁。
 
 這份文件回答「**哪個網址會長出哪個畫面、它會呼叫誰、它可能變成什麼樣子、誰在測它**」。每個方法的 endpoint 與錯誤分類在 `docs/handoff/mock-to-api-mapping.md`；每個功能區的型別與規則在 `docs/handoff/tasks-6-10-backend-handoff.md`。
 
@@ -22,7 +26,7 @@
 return session.refreshActivity() ? true : inject(Router).createUrlTree(['/login']);
 ```
 
-`embeddedChatGuard`（`core/session/embedded-chat.guard.ts`）只掛在 `/use/:assistantId` 一筆上，行為依模式而異：
+`embeddedChatGuard`（`core/session/embedded-chat.guard.ts`）只掛在 `/chat/:assistantId` 一筆上，行為依模式而異：
 
 - **mock 模式（Demo）**：**永遠回 `true`、永遠不轉址**：
 
@@ -38,7 +42,7 @@ return session.refreshActivity() ? true : inject(Router).createUrlTree(['/login'
 
 **重要限制**：這個守衛**不檢查任何權限**，只檢查「有沒有選過 Demo 身分」。下表「權限」欄寫的是**畫面實際會呈現什麼**——權限判斷全部發生在 repository 層，由 `permission-denied` 的 `reason` 驅動，而不是路由層。正式版若要在路由層擋，必須另外設計 guard，並且**不能因此洩漏資源存在性**（見 `tasks-6-10-backend-handoff.md` 第 1.6 節）。
 
-`/` 與 `/login` 是**唯二完全沒有 `canActivate`** 的路由。`/use/:assistantId` 有 `embeddedChatGuard`：mock 模式下它不會把任何人擋在外面（實務上是公開的）；API 模式下它把所有人轉址走——見第 5.2 節。
+`/` 與 `/login` 是**唯二完全沒有 `canActivate`** 的路由。`/chat/:assistantId` 有 `embeddedChatGuard`：mock 模式下它不會把任何人擋在外面（實務上是公開的）；API 模式下它把所有人轉址走——見第 5.2 節。
 
 ---
 
@@ -56,7 +60,7 @@ return session.refreshActivity() ? true : inject(Router).createUrlTree(['/login'
 | 權限不足 | `status === 'permission-denied'` | `demo-repository.ts:121-125`，11 種 `reason`（`:90-103`） |
 | 處理失敗 | 文件狀態 `failed` / `partially-readable` | 知識庫專屬，見 `tasks-6-10-backend-handoff.md` 第 3.3 節 |
 | 連線失敗 | 管道狀態 `needs-attention` | 發布專屬，由 `?demoScenario=disconnected-channel` 觸發（`mock-demo-repository.ts:1080`、`:3087`） |
-| 登入逾時 | 守衛回傳 `UrlTree('/login')` | `demo-session.guard.ts:11`；`/login` 顯示逾時說明（`demo-login-page.component.ts:26-31`）。**mock 模式的 `/use/:assistantId` 沒有這個狀態**：逾時後會直接變成未登入訪客（`embedded-chat.guard.ts`）；API 模式的 `/use` 本來就轉址，API 提供的訪客視窗則用 12 小時的訪客憑證，過期時自動重建工作階段 |
+| 登入逾時 | 守衛回傳 `UrlTree('/login')` | `demo-session.guard.ts:11`；`/login` 顯示逾時說明（`demo-login-page.component.ts:26-31`）。**mock 模式的 `/chat/:assistantId` 沒有這個狀態**：逾時後會直接變成未登入訪客（`embedded-chat.guard.ts`）；API 模式的 `/chat/:assistantId` 本來就轉址，API 提供的訪客視窗則用 12 小時的訪客憑證，過期時自動重建工作階段 |
 
 **登入逾時對每一條有守衛的路由都成立**，下表不再逐列重複。
 
@@ -113,11 +117,11 @@ return session.refreshActivity() ? true : inject(Router).createUrlTree(['/login'
 | `/app/chat` `:99` | `workspace-chat-page.component.ts`（無 assistantId：顯示助理選擇） | `listUsableAssistants` `:86` | 空白（沒有可用助理）、成功、部分成功、登入逾時 | `chat-history.cy.ts` |
 | `/app/chat/:assistantId` `:107` | 同上＋對話紀錄側欄 `conversation-rail.component.ts`，內容區為 `conversation/chat-conversation.component.ts` | `listChatThreads` `:64`；`listUsableAssistants` `:86`；`createChatThread` `:112`；`renameChatThread` `:124`；`deleteChatThread` `:134`；`getAssistantChat` `:100`；`sendChatMessage` `:137`；`reviewChatForm` `:183`；`submitChatForm` `:205`；**開案提議卡片**（M7，`chat-conversation.component.html:81`、`:107` 的 `app-case-proposal-card`）：`confirmChatCaseProposal` `chat-conversation.component.ts:869`、`dismissChatCaseProposal` `:879`（外部客戶與訪客永遠不會收到提議） | **空白**（`.html:21` 側欄空狀態／`conversation-rail.component.html:13`）、載入中（`.html:33`）、成功、部分成功、**無結果**、權限不足（`.html:20`＝`assistant-use`／`.html:37`＝`chat-thread`）、登入逾時 | `chat-history.cy.ts`；開案提議由 `case-proposal.cy.ts` 涵蓋 |
 | `/app/chat/:assistantId/:conversationId` `:115` | 同上，直接開啟指定對話 | 同上（`getAssistantChat` 帶 `threadId`） | 同上，另含「對話不存在或屬於其他帳號」→ `403 chat-thread` | `chat-history.cy.ts` |
-| `/use/:assistantId` `:125`（**mock 模式的 Demo**；API 模式轉址，見下方註） | `features/assistant-use/chat-shell/chat-shell-page.component.ts` → `chat-conversation.component.ts`（`chat-shell-page.component.ts:22` 把 `allowAnonymous` 固定為 `true`），**單欄、無側欄** | `chat-conversation.component.ts` 的 `getAssistantChat` `:121`（**永遠不帶 `threadId`**）；`sendChatMessage` `:158`；`reviewChatForm` `:204`；`submitChatForm` `:226` | 空白、載入中（`chat-conversation.component.html:4`）、成功、部分成功、**無結果**、權限不足（`.html:8`）。**沒有登入逾時**——逾時後變成未登入訪客 | `anonymous-visitor.cy.ts`、`private-conversations.cy.ts`、`consented-submission.cy.ts`、`chat-history.cy.ts`、`error-states.cy.ts`、`accessibility.cy.ts`、`responsive.cy.ts` |
-| `/use/:assistantId?embed=1` | 同上，`header` 由 `full` 切成 `minimal`（`chat-shell-page.component.ts:21`、`:42`） | 同上 | 同上，但**沒有頁首、返回連結與品牌外框**；標題只留視覺隱藏版（`chat-conversation.component.html:32`） | `anonymous-visitor.cy.ts`、`chat-history.cy.ts` |
-| `/use/:assistantId`（**未登入訪客**） | 同上。沒有 Demo 身分時改用這個分頁的匿名訪客 id（`chat-conversation.component.ts:103-111`）；`.chat-header` 的返回連結與拒絕畫面的復原按鈕都不顯示（`.html:21`、`chat-conversation.component.ts:254-262`），並加上一段 Demo 聲明（`.html:37-41`） | 同上，第一個參數是 `VisitorId` | 成功、**無結果**、**拒絕**（助理沒有對外發布或不存在，兩者同一則訊息：`mock-demo-repository.ts:2019-2024`） | `anonymous-visitor.cy.ts`、`accessibility.cy.ts` |
+| `/chat/:assistantId` `:176`（**mock 模式的 Demo**；API 模式轉址，見下方註） | `features/assistant-use/chat-shell/chat-shell-page.component.ts` → `chat-conversation.component.ts`（`chat-shell-page.component.ts:22` 把 `allowAnonymous` 固定為 `true`），**單欄、無側欄** | `chat-conversation.component.ts` 的 `getAssistantChat` `:121`（**永遠不帶 `threadId`**）；`sendChatMessage` `:158`；`reviewChatForm` `:204`；`submitChatForm` `:226` | 空白、載入中（`chat-conversation.component.html:4`）、成功、部分成功、**無結果**、權限不足（`.html:8`）。**沒有登入逾時**——逾時後變成未登入訪客 | `anonymous-visitor.cy.ts`、`private-conversations.cy.ts`、`consented-submission.cy.ts`、`chat-history.cy.ts`、`error-states.cy.ts`、`accessibility.cy.ts`、`responsive.cy.ts` |
+| `/chat/:assistantId?embed=1` | 同上，`header` 由 `full` 切成 `minimal`（`chat-shell-page.component.ts:21`、`:42`） | 同上 | 同上，但**沒有頁首、返回連結與品牌外框**；標題只留視覺隱藏版（`chat-conversation.component.html:32`） | `anonymous-visitor.cy.ts`、`chat-history.cy.ts` |
+| `/chat/:assistantId`（**未登入訪客**） | 同上。沒有 Demo 身分時改用這個分頁的匿名訪客 id（`chat-conversation.component.ts:103-111`）；`.chat-header` 的返回連結與拒絕畫面的復原按鈕都不顯示（`.html:21`、`chat-conversation.component.ts:254-262`），並加上一段 Demo 聲明（`.html:37-41`） | 同上，第一個參數是 `VisitorId` | 成功、**無結果**、**拒絕**（助理沒有對外發布或不存在，兩者同一則訊息：`mock-demo-repository.ts:2019-2024`） | `anonymous-visitor.cy.ts`、`accessibility.cy.ts` |
 
-**`/use/:assistantId` 在 API 模式**：`embeddedChatGuard` 轉到 `/app/chat/:assistantId`（已登入）或 `/login`、`/change-password`，上表三筆 `/use` 列描述的是 mock 模式。官網訪客真正看到的畫面是 `apps/widget`，由 API 在 `GET /use/{assistantId}` 提供，不屬於 admin 路由表；它的狀態是：對話中、查無資料（助理的 `refusalMessage`）、「目前暫停服務」（未發布以外的任何不服務狀態，不揭露原因）、「這個對話視窗目前無法使用」（助理不存在、未發布或沒有允許網域，`404`，三者同一頁）、「請從官網開啟這個對話視窗」（不在 iframe 裡直接開啟）、「問題太頻繁了，請稍後再試」（`429`）。e2e：`apps/admin-e2e/src/e2e-api/website-embed-api.cy.ts`；widget 本身的測試在 `apps/widget`。
+**`/chat/:assistantId` 在 API 模式**：`embeddedChatGuard` 轉到 `/app/chat/:assistantId`（已登入）或 `/login`、`/change-password`，上表三筆 `/chat` 列描述的是 mock 模式。官網訪客真正看到的畫面是 `apps/widget`，由 API 在 `GET /use/{assistantId}` 提供，不屬於 admin 路由表；它的狀態是：對話中、查無資料（助理的 `refusalMessage`）、「目前暫停服務」（未發布以外的任何不服務狀態，不揭露原因）、「這個對話視窗目前無法使用」（助理不存在、未發布或沒有允許網域，`404`，三者同一頁）、「請從官網開啟這個對話視窗」（不在 iframe 裡直接開啟）、「問題太頻繁了，請稍後再試」（`429`）。e2e：`apps/admin-e2e/src/e2e-api/website-embed-api.cy.ts`；widget 本身的測試在 `apps/widget`。
 
 `/app/chat/:assistantId/:conversationId` 的第三段參數名稱是 **`conversationId`**（`app.routes.ts:116`），但 repository 契約叫它 `threadId`（`demo-repository.ts:551`）。同一個東西兩個名字，正式版應該統一。
 
@@ -146,7 +150,7 @@ wildcard 導回 `/` 而不是 `/login`，所以未登入使用者看到的是產
 | `knowledge.cy.ts` | 知識庫清單與分頁、模擬新增文件、失敗文件重試、分享範圍需明確儲存、權限不足不洩漏名稱 |
 | `tracking.cy.ts` | 從範本建資料庫、表單試填、時間軸與趨勢比較、資料不足不下結論、權限不足 |
 | `publishing.cy.ts` | 三種管道卡片與五種統一狀態、平台分享限定帳號、網站 widget 預覽／網域驗證／嵌入碼、LINE 逐欄驗證與遮罩、跨帳號設定隔離 |
-| `chat-history.cy.ts` | 對話側欄多對話切換／改名／刪除、跨帳號不外洩、不儲存對話的助理說明、`/use` 單欄與 `?embed=1` 去 chrome、手機版 rail 收合 |
+| `chat-history.cy.ts` | 對話側欄多對話切換／改名／刪除、跨帳號不外洩、不儲存對話的助理說明、`/chat/:assistantId` 單欄與 `?embed=1` 去 chrome、手機版 rail 收合 |
 | `anonymous-visitor.cy.ts` | 未登入訪客開啟已對外發布的助理、對話對每個 Demo 身分與另一位訪客皆不可見、沒有對外管道的助理不揭露名稱、`?embed=1` 無工作區外框與 `/app` 連結、匿名同意送出進入資料管理者的收集紀錄、訪客可在同一分頁內撤回 |
 | `private-conversations.cy.ts` | 回答分類（組織資料含引用／一般知識／無結果）、對話對其他帳號與助理擁有者皆私密、無權限助理不揭露 |
 | `consented-submission.cy.ts` | 同意前不可送出、揭露接收方／目的／可見者／敏感資料、送出紀錄僅指定資料管理者可見、提交者可從收據撤回（紀錄離開收集紀錄與趨勢、只留不含內容的軌跡、撤不了第二次）、資料管理者沒有代為撤回的入口 |
@@ -180,9 +184,9 @@ wildcard 導回 `/` 而不是 `/login`，所以未登入使用者看到的是產
 
 **任何人都能用網址把畫面切成「權限不足」或「部分失敗」**，這只是預覽機制，不代表後端行為。移除方式見 `mock-to-api-mapping.md` 第 2.8 節。移除後 `error-states.cy.ts` 與 `accessibility.cy.ts` 中所有帶 `?demoScenario=` 的案例都要改成用 `cy.intercept` 偽造回應。
 
-### 5.2 官網訪客的對話視窗（M5a 已實作；admin 的 `/use/:assistantId` 只剩 mock 模式的 Demo）
+### 5.2 官網訪客的對話視窗（M5a 已實作；admin 的 `/chat/:assistantId` 只剩 mock 模式的 Demo）
 
-**現況（M5a，2026-10-06）**：訪客入口不再是 admin 的路由，而是 API 提供的 `apps/widget`（`GET /use/{assistantId}`、`/widget/*`、`/embed.js`）；admin 的 `/use/:assistantId` 在 API 模式轉址（第 1 節），只在 mock 模式保留 Demo。下表是 **Demo 的做法**（mock 模式仍然如此），保留作為 mock 的行為紀錄；正式版的對應決定見表後的「M5a 的決定」。
+**現況（M5a，2026-10-06）**：訪客入口不再是 admin 的路由，而是 API 提供的 `apps/widget`（`GET /use/{assistantId}`、`/widget/*`、`/embed.js`）；admin 的 `/chat/:assistantId` 在 API 模式轉址（第 1 節），只在 mock 模式保留 Demo。下表是 **Demo 的做法**（mock 模式仍然如此），保留作為 mock 的行為紀錄；正式版的對應決定見表後的「M5a 的決定」。
 
 這條路由原本的用途是**嵌入客戶官網的 iframe** 與**從 LINE 開啟**（元件註解 `chat-shell-page.component.ts:6-14`；LINE 留到 M5b），所以它掛 `embeddedChatGuard`（`app.routes.ts:126`），mock 模式下未登入訪客可以直接開啟。Demo 的做法：
 
@@ -214,7 +218,7 @@ wildcard 導回 `/` 而不是 `/login`，所以未登入使用者看到的是產
 
 ### 5.3 所有 `:id` 參數都未經驗證就丟給 repository
 
-`/app/knowledge/:id/:tab`、`/app/databases/:id/:tab`、`/app/assistants/:id/:tab`、`/use/:assistantId`、`/app/chat/:assistantId/:conversationId` 的 id 全部直接來自網址。契約上這些方法的 id 參數型別是 `string` 而非字面值 union（例 `demo-repository.ts:294`、`:433`、`:475`），**這是刻意的**——因為「不存在」與「無權限」要回同一個結果，前端不能先在本地判斷 id 是否合法。正式版必須維持這個性質。
+`/app/knowledge/:id/:tab`、`/app/databases/:id/:tab`、`/app/assistants/:id/:tab`、`/chat/:assistantId`、`/app/chat/:assistantId/:conversationId` 的 id 全部直接來自網址。契約上這些方法的 id 參數型別是 `string` 而非字面值 union（例 `demo-repository.ts:294`、`:433`、`:475`），**這是刻意的**——因為「不存在」與「無權限」要回同一個結果，前端不能先在本地判斷 id 是否合法。正式版必須維持這個性質。
 
 ### 5.4 沒有任何路由層的權限檢查
 

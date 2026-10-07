@@ -19,7 +19,7 @@ const MOBILE_QUERY = '(max-width: 900px)';
 
 /**
  * 工作區內的助理對話（`/app/chat/:assistantId[/:conversationId]`）：
- * 左側是對話紀錄，右側是對話本身。對話元件與 `/use` 共用同一個實作。
+ * 左側是對話紀錄，右側是對話本身。對話元件與 `/chat/:assistantId` 共用同一個實作。
  *
  * 對話串的讀取與管理是非同步契約（issue #79）：清單用 `repositoryResource` 讀取，
  * 寫入（開新對話、改名、刪除）改成訂閱，並用進行中旗標擋重複送出。

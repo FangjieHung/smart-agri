@@ -5,6 +5,7 @@ using SmartAgri.Application.Ai;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Cases;
 using SmartAgri.Application.Chat;
+using SmartAgri.Application.Observability;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Observability;
@@ -107,7 +108,8 @@ public sealed class ChatProposalSelectionTool
         }
         catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
-            _logger.LogWarning(exception, "A conversation's combined proposal selection failed; the keywords decide instead.");
+            // Only types: the model provider's error can quote the question it rejected.
+            _logger.LogWarning("A conversation's combined proposal selection failed; the keywords decide instead: {Failure}", ExceptionSummary.Of(exception));
             activity?.SetStatus(ActivityStatusCode.Error);
             var fallback = ProposalSelectionRules.KeywordFallback(question, formOffers, caseOffers);
             activity?.SetTag("smartagri.proposal_selection.status", fallback.Match switch

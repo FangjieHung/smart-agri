@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Options;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Tenancy;
+using SmartAgri.Application.Observability;
 using SmartAgri.Domain.Organizations;
 
 namespace SmartAgri.Api.Line;
@@ -118,7 +119,10 @@ internal sealed class LineWebhookProcessor : BackgroundService
         }
         catch (Exception exception)
         {
-            _logger.LogError(exception, "A LINE webhook delivery for assistant {AssistantId} failed; its events are dropped.", delivery.AssistantId);
+            // Only types: the delivery holds LINE users' messages, and an exception message can quote them.
+            _logger.LogError(
+                "A LINE webhook delivery for assistant {AssistantId} failed; its events are dropped: {Failure}",
+                delivery.AssistantId, ExceptionSummary.Of(exception));
         }
         finally
         {

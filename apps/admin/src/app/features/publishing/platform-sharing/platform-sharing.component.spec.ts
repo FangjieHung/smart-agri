@@ -23,7 +23,7 @@ describe('PlatformSharingComponent', () => {
     expect(boxes).toHaveLength(2);
     expect(boxes.every((box) => box.checked)).toBe(true);
     expect(host.querySelector(`label[for="${boxes[0].id}"]`)?.textContent).toContain('安心商行客服同仁');
-    expect(host.textContent).toContain('/use/assistant-customer-service');
+    expect(host.textContent).toContain('/chat/assistant-customer-service');
     expect(host.textContent).toContain('獨立對話紀錄');
     expect(host.textContent).toContain('不能查看設定');
   });

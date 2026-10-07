@@ -23,12 +23,21 @@ reserved `.example` domain).
 | `files/return-policy-v2.pdf` (34,562 bytes) | 退換貨辦法 2026 版.pdf | 退換貨政策 | The 2026 edition: **seven** days, no fresh produce, refunds in five working days; page 1 lists the changes | version 2 of the same document, **in effect** |
 | `files/delivery-timetable.xlsx` (3,693 bytes) | 運費與配送時間表.xlsx | 配送常見問題 | Sheets 「配送時間」 (22 regions: days with a 天 unit column, cut-off `h:mm`, method) and 「運費」 (4 methods: fees and free-shipping thresholds in 元, `#,##0`) | version 1 in effect; one chunk per sheet, header first |
 | `files/faq.md` (1,357 bytes) | 常見問題.md | 配送常見問題 | Eight questions and answers under `#`/`##`/`###` headings, UTF-8 without a byte order mark | version 1 in effect; labelled 「常見問題 › 配送 › 連假期間會出貨嗎？」 |
+| `files/store-info.md` (1010 bytes) | 門市資訊.md | 配送常見問題 | The shop's own "AI reference" sheet, written the way a small shop writes one (#300): Markdown **tables** under `##` headings — 基本資訊 (店名, 地址, 電話, 營業時間, 公休日 每週三), 外送與團購, 門市餐點 (單點, 沒有套餐) — and a parking line | version 1 in effect; labelled 「青禾門市 AI 客服參考資料 › 基本資訊」 |
 
 - The two editions of the return policy say different things in the same places, so the bank can
   tell which version a passage came from: every question about the policy expects version 2 and a
   phrase that version 1 does not contain (a test checks this), and a leak of the archived version
   shows up in the report's 「取回非有效版本的段落」.
 - **FAQ entries** are #44's; until they exist, the FAQ is this Markdown document.
+- **The store sheet** (#300, pre-launch plan §3 D) is the shape #292 found in a real shop's
+  documents: short colloquial questions (「地址在哪裡？」「電話幾號？」「週二有營業嗎？」) scored
+  0.30–0.39 against a table like this, below `Retrieval:MinScore`. Its address is in an invented
+  county and its telephone number starts with 0 after the area code, which no Taiwanese local
+  number does; it is not any real shop's document. It sits in 配送常見問題 because the set's
+  knowledge bases must be the frontend Demo's (below). Since it gives the shop's opening hours,
+  the former should-find-nothing question none-04 「門市的營業時間是幾點到幾點？」 was removed:
+  `store-05` 「營業時間是幾點到幾點？」 covers it now.
 - **Consistent with the frontend Demo** (`apps/admin/src/app/core/repositories/demo-seed.ts`):
   the knowledge bases have its names and purposes; its three trial questions are in the bank —
   「收到商品後幾天內可以申請退貨？」 expects the 2026 edition's seven days, and the two it answers
@@ -57,14 +66,16 @@ the upload rules.
 | Field | |
 | --- | --- |
 | `id` | Unique, e.g. `returns-01`. |
-| `category` | `returns`, `product`, `delivery`, `faq`, or `unanswerable` for a question the organization's data should not answer. The report sums up hits per category. |
+| `category` | `returns`, `product`, `delivery`, `faq`, `store` (the store sheet), or `unanswerable` for a question the organization's data should not answer. The report sums up hits per category. |
 | `question` | 1–500 characters, as a customer would ask it. |
 | `expected` | The passages that answer it, any one of which in the top 5 is a hit: `{ document, version, location, evidence? }`. `document` a document's name; `version` its **effective** (last) version — an archived one is never retrieved; `location` text the passage's location label must contain (「第 2 頁」, a heading path, 「工作表『運費』」 for any rows of that sheet); `evidence` an optional phrase the passage's text must contain, required for documents with several versions. Empty for `unanswerable`, and only then. |
 | `note` | Optional: why the question is there. |
 
-The committed bank has 34 questions: 7 `returns`, 8 `product`, 6 `delivery`, 6 `faq` and 7
-`unanswerable` — among them 「安心商行的統一編號是多少？」, whose words appear in the FAQ about a
-customer's tax number, to catch a threshold set too low.
+The committed bank has 43 questions: 7 `returns`, 8 `product`, 6 `delivery`, 6 `faq`, 8 `store`
+and 8 `unanswerable` — among them 「安心商行的統一編號是多少？」, whose words appear in the FAQ about a
+customer's tax number, to catch a threshold set too low, and two the store sheet nearly answers
+(「現在有什麼優惠活動嗎？」, 「店裡有幾個座位？」). The ids none-01 to none-07 keep their 2026-10-06
+meaning except none-04, removed (above).
 
 ## How a run is judged
 

@@ -16,6 +16,7 @@ using SmartAgri.Application.Answers;
 using SmartAgri.Application.Chat;
 using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Application.Knowledge.Processing;
+using SmartAgri.Application.Observability;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
@@ -177,7 +178,8 @@ public static class VisitorChatRunEndpoints
         }
         catch (Exception exception) when (!run.Ended)
         {
-            run.Logger.LogError(exception, "A website visitor's chat run failed after its stream started.");
+            // Only types: a visitor's question is in flight, and an exception message can quote it.
+            run.Logger.LogError("A website visitor's chat run failed after its stream started: {Failure}", ExceptionSummary.Of(exception));
             await formatter.WriteAsync(
                 Single(new RunErrorEvent { Code = ChatRunEndpoints.InternalErrorCode, Message = InternalErrorMessage }),
                 response.Body,
@@ -233,7 +235,8 @@ public static class VisitorChatRunEndpoints
                     }
                     catch (KnowledgeEmbeddingException exception)
                     {
-                        Logger.LogWarning(exception.InnerException, "A visitor run could not embed the question: {Issue}", exception.Message);
+                        Logger.LogWarning(
+                            "A visitor run could not embed the question: {Issue} ({Cause})", exception.Message, ExceptionSummary.Of(exception.InnerException));
                         error = new RunErrorEvent
                         {
                             Code = exception.ProviderNotConfigured
@@ -245,7 +248,8 @@ public static class VisitorChatRunEndpoints
                     }
                     catch (ChatGenerationException exception)
                     {
-                        Logger.LogWarning(exception.InnerException, "A visitor run's model call failed: {Issue}", exception.Message);
+                        Logger.LogWarning(
+                            "A visitor run's model call failed: {Issue} ({Cause})", exception.Message, ExceptionSummary.Of(exception.InnerException));
                         error = new RunErrorEvent
                         {
                             Code = exception.ProviderNotConfigured ? ChatErrors.ChatNotConfiguredReason : ChatErrors.ChatUnavailableReason,

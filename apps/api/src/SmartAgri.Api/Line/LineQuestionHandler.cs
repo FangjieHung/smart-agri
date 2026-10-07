@@ -8,6 +8,7 @@ using SmartAgri.Application.Answers;
 using SmartAgri.Application.Chat;
 using SmartAgri.Application.Knowledge.Embeddings;
 using SmartAgri.Application.Line;
+using SmartAgri.Application.Observability;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
@@ -160,8 +161,10 @@ internal sealed class LineQuestionHandler : ILineQuestionHandler
         }
         catch (Exception exception) when (exception is ChatGenerationException or KnowledgeEmbeddingException)
         {
+            // Only types: the provider's own error (the inner exception) can quote the question or the passages.
             _logger.LogWarning(
-                exception.InnerException, "A LINE question for assistant {AssistantId} could not be answered: {Issue}", assistant.Id, exception.Message);
+                "A LINE question for assistant {AssistantId} could not be answered: {Issue} ({Cause})",
+                assistant.Id, exception.Message, ExceptionSummary.Of(exception.InnerException));
             await ReplyTextAsync(context, LineAnswerMessages.FailedReply, "answer-failed", cancellationToken);
             return;
         }

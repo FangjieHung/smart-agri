@@ -8,6 +8,7 @@ using SmartAgri.Api.Databases;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Databases;
+using SmartAgri.Application.Observability;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Answers;
@@ -246,7 +247,9 @@ public sealed class ChatDatabaseQueries
         }
         catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
-            _logger.LogWarning(exception, "A conversation's fixed query {Query} failed.", WireNames<DatabaseQueryKind>.ToWire(matched.Kind));
+            // Only types: the database's own error can quote the values of the query it refused.
+            _logger.LogWarning(
+                "A conversation's fixed query {Query} failed: {Failure}", WireNames<DatabaseQueryKind>.ToWire(matched.Kind), ExceptionSummary.Of(exception));
             activity?.SetStatus(ActivityStatusCode.Error);
             return await FinishAsync(activity, matched, DatabaseQueryTools.Failed(), assistantId);
         }

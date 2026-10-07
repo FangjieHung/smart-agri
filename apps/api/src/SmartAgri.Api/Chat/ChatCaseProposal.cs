@@ -5,6 +5,7 @@ using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Cases;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Cases;
+using SmartAgri.Application.Observability;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Chat;
@@ -162,7 +163,8 @@ public sealed class ChatCaseProposalTool
         }
         catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
-            _logger.LogWarning(exception, "A conversation's case-proposal selection failed; the keyword rule decides instead.");
+            // Only types: the model provider's error can quote the question it rejected.
+            _logger.LogWarning("A conversation's case-proposal selection failed; the keyword rule decides instead: {Failure}", ExceptionSummary.Of(exception));
             activity?.SetStatus(ActivityStatusCode.Error);
             var fallback = CaseProposalRules.KeywordProposal(question, offers);
             activity?.SetTag("smartagri.case_proposal.status", fallback is null ? "fallback-none" : "fallback-keyword");

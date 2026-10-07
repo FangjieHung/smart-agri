@@ -243,7 +243,7 @@ public sealed class EvalAnswersCommand
                 var request = new GroundedAnswerRequest(profile, question.Question, history, account.Id, AssistantId: null);
                 var answered = await answerService.AnswerAsync(request, cancellationToken);
                 replies[question.Id] = answered.Reply;
-                results.Add(AnswerEvalScoring.Judge(question, answered.Reply, answered.Retrieval.Passages));
+                results.Add(AnswerEvalScoring.Judge(question, answered.Reply, answered.Retrieval.Passages, answered.UsedCandidates));
             }
 
             var (averageInput, averageOutput) = await AverageTokensAsync(organization.Id, cancellationToken);
@@ -256,6 +256,7 @@ public sealed class EvalAnswersCommand
                 _chatProvider.Name,
                 _chatProvider.Model,
                 _retrieval.MinScore,
+                _retrieval.CandidateFloor(_retrieval.MinScore),
                 GroundedAnswerPrompt.Version,
                 DisplayName(set.Directory),
                 set.Fingerprint,
@@ -271,7 +272,8 @@ public sealed class EvalAnswersCommand
             await output.WriteLineAsync(string.Create(
                 CultureInfo.InvariantCulture,
                 $"回覆類型正確率 {summary.ReplyKindCorrect}/{summary.Total}；" +
-                $"引用命中率 {(summary.CitationHitRate is { } rate ? $"{summary.CitationHits}/{summary.CompanyDataQuestions}" : "—")}。"));
+                $"引用命中率 {(summary.CitationHitRate is { } rate ? $"{summary.CitationHits}/{summary.CompanyDataQuestions}" : "—")}；" +
+                $"採用候選段落 {summary.CandidateAnswers} 題。"));
             await output.WriteLineAsync($"報告：{path}");
             return ExitSuccess;
         }

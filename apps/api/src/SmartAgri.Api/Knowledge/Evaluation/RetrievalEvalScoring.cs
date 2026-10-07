@@ -129,6 +129,24 @@ public static class RetrievalEvalScoring
         return new EvalQuestionResult(question, passages, null);
     }
 
+    /// <summary>
+    /// The questions the candidate band [<paramref name="candidateMinScore"/>, <paramref name="minScore"/>)
+    /// sends to the model although no passage reaches <paramref name="minScore"/> (#302): those
+    /// that should find nothing (the model must refuse them), and answerable ones whose expected
+    /// passage scores in the band (the band can rescue them). Question ids in the set's order.
+    /// </summary>
+    public static (IReadOnlyList<string> Unanswerable, IReadOnlyList<string> Rescued) InCandidateBand(
+        IReadOnlyList<EvalQuestionResult> results, double minScore, double candidateMinScore)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        var belowThreshold = results
+            .Where(result => result.TopScore is { } top && top < minScore && top >= candidateMinScore)
+            .ToList();
+        return (
+            [.. belowThreshold.Where(result => result.Question.ExpectsNothing).Select(result => result.Question.Id)],
+            [.. belowThreshold.Where(result => !result.Question.ExpectsNothing && result.HitScore >= candidateMinScore).Select(result => result.Question.Id)]);
+    }
+
     /// <summary>How many of <paramref name="results"/> <paramref name="threshold"/> judges
     /// correctly (see <see cref="EvalThreshold"/>).</summary>
     public static int CorrectAt(IReadOnlyList<EvalQuestionResult> results, double threshold)

@@ -14,6 +14,7 @@ public interface IAnswerOutcomeRecorder
     /// depend on, or roll back with, the caller's own transaction). Never throws for the
     /// caller: implementations only ever fail loudly through logging — a write failure here must
     /// not fail the conversation or trial answer it is about (M3.5 issue #128).
+    /// <paramref name="usedCandidates"/>: <see cref="AnswerOutcome.UsedCandidates"/> (#302).
     /// </summary>
     Task RecordAsync(
         Guid organizationId,
@@ -22,6 +23,7 @@ public interface IAnswerOutcomeRecorder
         AnswerReplyKind replyKind,
         AnswerRejectionReason? rejectionReason,
         IReadOnlyCollection<Guid> citedDocumentIds,
+        bool usedCandidates,
         DateTimeOffset at,
         CancellationToken cancellationToken);
 

@@ -27,6 +27,14 @@ namespace SmartAgri.Application.Answers;
 /// <item><b>Threshold.</b> Below it, <c>company-data-only</c> answers <c>no-result</c> without
 /// calling the model; <c>allow-general-knowledge</c> asks the model with no passage and answers
 /// <c>general-knowledge</c> (plan §7 B).</item>
+/// <item><b>Candidates</b> (pre-launch plan §3 B, #302). When no passage reaches the threshold but
+/// some reach the deployment's <see cref="KnowledgeRetrievalSettings.CandidateMinScore"/>
+/// (<see cref="KnowledgeRetrievalSettings.CandidateFloor"/>), <c>company-data-only</c> asks the
+/// model with those candidates (at most <c>Top</c>, closest first) instead of refusing: the
+/// model's <see cref="ChatAnswerMarkers.CannotAnswer"/> then refuses (<c>cannot-answer</c>), and an
+/// answer is <c>company-data</c> as usual. The outcome row records that candidates were used.
+/// <c>allow-general-knowledge</c> keeps the general-knowledge answer instead: a candidate refusal
+/// there would replace an answer it gives today with <c>no-result</c>.</item>
 /// <item><b>Generation.</b> <see cref="GroundedAnswerPrompt"/>; one model call attributed
 /// <see cref="ModelInvocationPurpose.GenerateAnswer"/> to the asker and assistant.</item>
 /// <item><b>Validation.</b> <see cref="CitationMarkers"/> on the whole answer: a number outside
@@ -97,7 +105,7 @@ public sealed class GroundedAnswerService
 
         if (plan.Refusal is { } refusal)
         {
-            yield return await FinishAsync(activity, refusal, request, cancellationToken);
+            yield return await FinishAsync(activity, refusal, plan, request, cancellationToken);
             yield break;
         }
 
@@ -128,7 +136,7 @@ public sealed class GroundedAnswerService
             yield return new GroundedAnswerTextDelta(delta);
         }
 
-        yield return await FinishAsync(activity, Judge(plan, answer.ToString(), request.Profile), request, cancellationToken);
+        yield return await FinishAsync(activity, Judge(plan, answer.ToString(), request.Profile), plan, request, cancellationToken);
     }
 
     /// <summary>Answers <paramref name="request"/> in one call (no streaming), with what retrieval
@@ -159,19 +167,21 @@ public sealed class GroundedAnswerService
             reply = Judge(plan, response.Text, request.Profile);
         }
 
-        await FinishAsync(activity, reply, request, cancellationToken);
-        return new GroundedAnswerResult(reply, plan.Retrieval);
+        await FinishAsync(activity, reply, plan, request, cancellationToken);
+        return new GroundedAnswerResult(reply, plan.Retrieval, plan.UsedCandidates);
     }
 
     /// <summary>What retrieval decided: the passages to ground on (k = their count) and the
-    /// messages to send, or a refusal that needs no model call.</summary>
+    /// messages to send, or a refusal that needs no model call. <paramref name="UsedCandidates"/>:
+    /// the passages are candidates below the threshold (#302).</summary>
     private sealed record AnswerPlan(
         KnowledgeRetrievalResult Retrieval,
         IReadOnlyList<RetrievedKnowledgePassage> Passages,
         IReadOnlyDictionary<Guid, string> KnowledgeBaseNames,
         bool Grounded,
         IReadOnlyList<ChatMessage>? Messages,
-        GroundedReply? Refusal);
+        GroundedReply? Refusal,
+        bool UsedCandidates = false);
 
     private async Task<AnswerPlan> PlanAsync(
         GroundedAnswerRequest request, string question, Activity? activity, CancellationToken cancellationToken)
@@ -200,7 +210,23 @@ public sealed class GroundedAnswerService
         activity?.SetTag(GroundedAnswerTelemetry.ThresholdTag, retrieval.Threshold);
         activity?.SetTag(GroundedAnswerTelemetry.RelevantPassagesTag, relevant.Count);
 
-        // 3. Threshold.
+        // 3. Threshold, then (#302) candidates: company-data-only only, and only when none is relevant.
+        if (relevant.Count == 0
+            && profile.KnowledgeScope == AssistantKnowledgeScope.CompanyDataOnly
+            && _retriever.Settings.CandidateFloor(retrieval.Threshold) is { } candidateFloor)
+        {
+            var candidates = retrieval.Passages
+                .Where(passage => passage.Score >= candidateFloor && names.ContainsKey(passage.KnowledgeBaseId))
+                .ToList();
+            if (candidates.Count > 0)
+            {
+                activity?.SetTag(GroundedAnswerTelemetry.CandidateThresholdTag, candidateFloor);
+                activity?.SetTag(GroundedAnswerTelemetry.CandidatePassagesTag, candidates.Count);
+                return new AnswerPlan(retrieval, candidates, names, true,
+                    GroundedAnswerPrompt.Grounded(profile, candidates, request.History, question), null, UsedCandidates: true);
+            }
+        }
+
         if (relevant.Count == 0)
         {
             return profile.KnowledgeScope == AssistantKnowledgeScope.CompanyDataOnly
@@ -343,7 +369,7 @@ public sealed class GroundedAnswerService
     /// actually going to reach the caller — never on a mid-stream failure or cancellation, so an
     /// outcome is written exactly when the answer it is about is (M3.5 issue #128).</summary>
     private async Task<GroundedAnswerEvent> FinishAsync(
-        Activity? activity, GroundedReply reply, GroundedAnswerRequest request, CancellationToken cancellationToken)
+        Activity? activity, GroundedReply reply, AnswerPlan plan, GroundedAnswerRequest request, CancellationToken cancellationToken)
     {
         _metrics.Record(reply);
         activity?.SetTag(GroundedAnswerTelemetry.ReplyKindTag, GroundedAnswerTelemetry.WireName(reply.Kind));
@@ -351,18 +377,19 @@ public sealed class GroundedAnswerService
         if (reply.RejectionReason is { } reason)
         {
             activity?.SetTag(GroundedAnswerTelemetry.RejectionReasonTag, GroundedAnswerTelemetry.WireName(reason));
-            await RecordOutcomeAsync(reply, request, cancellationToken);
+            await RecordOutcomeAsync(reply, plan.UsedCandidates, request, cancellationToken);
             return new GroundedAnswerRejected(reason, reply);
         }
 
-        await RecordOutcomeAsync(reply, request, cancellationToken);
+        await RecordOutcomeAsync(reply, plan.UsedCandidates, request, cancellationToken);
         return new GroundedAnswerCompleted(reply);
     }
 
     /// <summary>Writes the outcome row. <see cref="IAnswerOutcomeRecorder"/> never throws for its
     /// caller — a failure to write is its own concern (logged there), never the conversation's or
     /// trial answer's.</summary>
-    private async Task RecordOutcomeAsync(GroundedReply reply, GroundedAnswerRequest request, CancellationToken cancellationToken)
+    private async Task RecordOutcomeAsync(
+        GroundedReply reply, bool usedCandidates, GroundedAnswerRequest request, CancellationToken cancellationToken)
     {
         if (_organization.OrganizationId is not { } organizationId)
         {
@@ -378,6 +405,7 @@ public sealed class GroundedAnswerService
             AnswerKinds.ToReplyKind(reply.Kind),
             reply.RejectionReason is { } reason ? AnswerKinds.ToRejectionReason(reason) : null,
             [.. reply.Citations.Select(citation => citation.DocumentId).Distinct()],
+            usedCandidates,
             _clock.GetUtcNow(),
             cancellationToken);
     }

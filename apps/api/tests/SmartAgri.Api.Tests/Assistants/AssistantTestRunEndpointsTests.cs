@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
@@ -9,6 +10,7 @@ using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Knowledge.Retrieval;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Answers;
@@ -123,6 +125,48 @@ public sealed partial class AssistantTestRunEndpointsTests : IClassFixture<AuthH
         historyBody.GetArrayLength().ShouldBe(1);
         OpenApiContract.AssertKeysMatchSchema(historyBody[0], "AssistantTestRunView");
         historyBody[0].GetProperty("id").GetGuid().ShouldBe(runId);
+    }
+
+    // --- #302: the candidate threshold a run used ---------------------------------------------
+
+    [Fact]
+    public async Task A_run_records_the_candidate_threshold_in_effect_and_each_outcome_whether_candidates_were_used()
+    {
+        // Development (MinScore 0.3, appsettings.json's CandidateMinScore 0.30): no candidate band.
+        var plain = await CreateOwnerWithAssistantAsync();
+        await UploadAndApproveAsync(plain, "退貨政策.md", ReturnClause);
+        await CreateTestCaseAsync(plain, UnrelatedQuestion, "no-result", []);
+        await RequestRunAsync(plain);
+        await RunJobsAsync();
+
+        // A deployment whose threshold nothing reaches, with candidates from 0: every passage is a candidate.
+        var banded = await CreateOwnerWithAssistantAsync();
+        var returnDocument = await UploadAndApproveAsync(banded, "退貨政策.md", ReturnClause);
+        await CreateTestCaseAsync(banded, ReturnQuestion, "company-data", [returnDocument]);
+        await RequestRunAsync(banded);
+        await using (var candidates = _host.Factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton(new KnowledgeRetrievalSettings(MinScore: 0.99, Top: 5, CandidateMinScore: 0)))))
+        {
+            await candidates.Services.GetRequiredService<JobRunner>().RunUntilIdleAsync(CancellationToken);
+        }
+
+        await using (var dbContext = _host.Postgres.CreateDbContext(plain.Organization.Id))
+        {
+            var run = await dbContext.AssistantTestRuns.AsNoTracking().SingleAsync(candidate => candidate.AssistantId == plain.AssistantId, CancellationToken);
+            (run.Status, run.MinScore, run.CandidateMinScore).ShouldBe((AssistantTestRunStatus.Completed, (double?)0.3, (double?)null));
+            var outcome = await dbContext.AnswerOutcomes.AsNoTracking()
+                .SingleAsync(candidate => candidate.AssistantId == plain.AssistantId && candidate.Channel == AnswerOutcomeChannel.TestRun, CancellationToken);
+            (outcome.RejectionReason, outcome.UsedCandidates).ShouldBe((AnswerRejectionReason.BelowThreshold, false));
+        }
+
+        await using var bandedContext = _host.Postgres.CreateDbContext(banded.Organization.Id);
+        var bandedRun = await bandedContext.AssistantTestRuns.AsNoTracking().SingleAsync(run => run.AssistantId == banded.AssistantId, CancellationToken);
+        (bandedRun.Status, bandedRun.MinScore, bandedRun.CandidateMinScore, bandedRun.PassedCount)
+            .ShouldBe((AssistantTestRunStatus.Completed, (double?)0.99, (double?)0, 1));
+        var bandedOutcome = await bandedContext.AnswerOutcomes.AsNoTracking()
+            .SingleAsync(outcome => outcome.AssistantId == banded.AssistantId && outcome.Channel == AnswerOutcomeChannel.TestRun, CancellationToken);
+        (bandedOutcome.ReplyKind, bandedOutcome.UsedCandidates).ShouldBe((AnswerReplyKind.CompanyData, true));
+        bandedOutcome.CitedDocumentIds.ShouldBe([returnDocument]);
     }
 
     // --- Acceptance: a queued run only gets RerunRequested --------------------------------------

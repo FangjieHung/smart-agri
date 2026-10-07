@@ -9,7 +9,11 @@ namespace SmartAgri.Application.Knowledge.Retrieval;
 /// </summary>
 /// <param name="MinScore">The lowest cosine similarity (0–1) that counts as relevant.</param>
 /// <param name="Top">How many passages a search returns, 1–<see cref="MaxTop"/>.</param>
-public sealed record KnowledgeRetrievalSettings(double MinScore, int Top)
+/// <param name="CandidateMinScore">The candidate threshold (pre-launch plan §3 B, #302), 0 ≤ it ≤
+/// <paramref name="MinScore"/>, or <see langword="null"/> for none. When no passage reaches the
+/// relevance threshold but some reach this one, the answer pipeline still asks the model with
+/// those candidates and lets its refusal marker decide (<see cref="CandidateFloor"/>).</param>
+public sealed record KnowledgeRetrievalSettings(double MinScore, int Top, double? CandidateMinScore = null)
 {
     /// <summary>
     /// Calibrated for OpenAI's <c>text-embedding-3-small</c> by the retrieval evaluation
@@ -37,6 +41,20 @@ public sealed record KnowledgeRetrievalSettings(double MinScore, int Top)
     public int Top { get; } = Top is >= 1 and <= MaxTop
         ? Top
         : throw new ArgumentOutOfRangeException(nameof(Top), Top, $"A search returns 1-{MaxTop} passages.");
+
+    public double? CandidateMinScore { get; } = CandidateMinScore is not { } candidate || (candidate >= 0 && candidate <= MinScore)
+        ? CandidateMinScore
+        : throw new ArgumentOutOfRangeException(
+            nameof(CandidateMinScore), CandidateMinScore, "A candidate threshold is a cosine similarity of 0 up to the minimum score.");
+
+    /// <summary>
+    /// The candidate threshold in effect for a search judged by <paramref name="threshold"/> (the
+    /// assistant's own <c>MinScore</c>, or this deployment's): <see cref="CandidateMinScore"/> when it
+    /// is set and below <paramref name="threshold"/>, otherwise <see langword="null"/> — an assistant
+    /// whose own threshold is at or below the candidate threshold has no candidate band.
+    /// </summary>
+    public double? CandidateFloor(double threshold) =>
+        CandidateMinScore is { } candidate && candidate < threshold ? candidate : null;
 
     /// <summary><see cref="DefaultMinScore"/> and <see cref="DefaultTop"/>.</summary>
     public static KnowledgeRetrievalSettings Default { get; } = new(DefaultMinScore, DefaultTop);

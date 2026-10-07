@@ -1,8 +1,12 @@
+using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Application.Knowledge.Retrieval;
 using SmartAgri.Domain.Ai;
 
 namespace SmartAgri.Api.Tests.Answers.Evaluation;
@@ -54,6 +58,8 @@ public sealed class EvalAnswersIntegrationTests : IClassFixture<AuthHostFixture>
 
         report.ShouldContain("這是 `Fake` 模型的結果", Case.Sensitive, "the Fake warning");
         report.ShouldContain($"（{Set.Questions.Count} 題）", Case.Sensitive);
+        report.ShouldContain("| Retrieval:CandidateMinScore | —（不使用候選段落） |", Case.Sensitive, "Development's MinScore equals the candidate threshold: no band");
+        report.ShouldContain("| 採用候選段落（低於 MinScore、交給模型判斷） | 0 題（回答 0、模型拒答 0） |", Case.Sensitive);
         foreach (var question in Set.Questions)
         {
             report.ShouldContain($"| {question.Id} | ", Case.Sensitive, question.Id);
@@ -83,6 +89,41 @@ public sealed class EvalAnswersIntegrationTests : IClassFixture<AuthHostFixture>
         var again = await File.ReadAllTextAsync(againPath, CancellationToken);
         Section(again, "## 結果摘要").ShouldBe(Section(report, "## 結果摘要"));
         Section(again, "## 拒絕原因分布").ShouldBe(Section(report, "## 拒絕原因分布"));
+        Section(again, "## 逐題結果").ShouldBe(Section(report, "## 逐題結果"));
+    }
+
+    [Fact]
+    public async Task With_a_candidate_band_the_report_marks_and_counts_candidate_answers_reproducibly_and_the_outcomes_record_them()
+    {
+        // A threshold nothing reaches and candidates from 0: every question with a passage is
+        // answered from candidates (#302).
+        await using var candidates = _host.Factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddSingleton(new KnowledgeRetrievalSettings(MinScore: 0.99, Top: 5, CandidateMinScore: 0))));
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var reportPath = Path.Combine(_reports.FullName, "candidates.md");
+
+        (await EvalAnswersCommand.RunAsync(candidates.Services, ["--report", reportPath], output, error, CancellationToken))
+            .ShouldBe(EvalAnswersCommand.ExitSuccess, error.ToString());
+
+        var used = int.Parse(Regex.Match(output.ToString(), "採用候選段落 (\\d+) 題").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        used.ShouldBeGreaterThan(0);
+        var report = await File.ReadAllTextAsync(reportPath, CancellationToken);
+        report.ShouldContain("| Retrieval:MinScore | 0.990 |", Case.Sensitive);
+        report.ShouldContain("| Retrieval:CandidateMinScore | 0.000 |", Case.Sensitive);
+        report.ShouldContain($"| 採用候選段落（低於 MinScore、交給模型判斷） | {used} 題（", Case.Sensitive);
+
+        var organizationId = await OrganizationIdAsync();
+        await using (var dbContext = _host.Postgres.CreateDbContext(organizationId))
+        {
+            (await dbContext.AnswerOutcomes.CountAsync(outcome => outcome.UsedCandidates, CancellationToken)).ShouldBe(used);
+        }
+
+        var againPath = Path.Combine(_reports.FullName, "candidates-again.md");
+        (await EvalAnswersCommand.RunAsync(candidates.Services, ["--report", againPath], TextWriter.Null, error, CancellationToken))
+            .ShouldBe(EvalAnswersCommand.ExitSuccess, error.ToString());
+        var again = await File.ReadAllTextAsync(againPath, CancellationToken);
+        Section(again, "## 結果摘要").ShouldBe(Section(report, "## 結果摘要"));
         Section(again, "## 逐題結果").ShouldBe(Section(report, "## 逐題結果"));
     }
 

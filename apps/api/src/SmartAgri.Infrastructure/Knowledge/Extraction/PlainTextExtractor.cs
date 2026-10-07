@@ -13,6 +13,14 @@ namespace SmartAgri.Infrastructure.Knowledge.Extraction;
 /// <c>###</c>; deeper headings stay in the text), ignoring <c>#</c> lines inside fenced code
 /// blocks. The Markdown itself is kept as written.
 /// </summary>
+/// <remarks>
+/// A Markdown section's pipe tables (GitHub Flavored Markdown: a header row, then a delimiter
+/// row of <c>---</c> cells, <c>:</c> for alignment, as many as the header has) are also read as
+/// tables (<see cref="ExtractedTable"/>), so each data row is chunked on its own (#301). Rows
+/// continue while lines contain a <c>|</c>; leading and trailing pipes are optional and
+/// <c>\|</c> is a pipe inside a cell. Lines that look like a table without that delimiter row,
+/// and anything inside a fenced code block, stay text.
+/// </remarks>
 public sealed partial class PlainTextExtractor : IDocumentTextExtractor
 {
     private const int SectionHeadingLevels = 3;
@@ -63,6 +71,7 @@ public sealed partial class PlainTextExtractor : IDocumentTextExtractor
         var units = new List<ExtractedUnit>();
         var headings = new string?[SectionHeadingLevels];
         var body = new List<string>();
+        var fenced = new List<bool>();
         string? fence = null;
         var truncated = false;
 
@@ -71,7 +80,7 @@ public sealed partial class PlainTextExtractor : IDocumentTextExtractor
             cancellationToken.ThrowIfCancellationRequested();
             if (fence is not null)
             {
-                body.Add(line);
+                Add(line, inFence: true);
                 if (ClosesFence(line, fence))
                 {
                     fence = null;
@@ -83,7 +92,7 @@ public sealed partial class PlainTextExtractor : IDocumentTextExtractor
             if (FenceOpening().Match(line) is { Success: true } opening)
             {
                 fence = opening.Groups["fence"].Value;
-                body.Add(line);
+                Add(line, inFence: true);
                 continue;
             }
 
@@ -101,7 +110,7 @@ public sealed partial class PlainTextExtractor : IDocumentTextExtractor
                 continue;
             }
 
-            body.Add(line);
+            Add(line, inFence: false);
         }
 
         if (!truncated && !Flush())
@@ -111,11 +120,19 @@ public sealed partial class PlainTextExtractor : IDocumentTextExtractor
 
         return new ExtractedDocument(units, truncated);
 
+        void Add(string line, bool inFence)
+        {
+            body.Add(line);
+            fenced.Add(inFence);
+        }
+
         // Ends the current section; false when it had text but there is no room for it.
         bool Flush()
         {
             var sectionText = string.Join('\n', body);
+            var (tables, outside) = Tables(body, fenced);
             body.Clear();
+            fenced.Clear();
             if (string.IsNullOrWhiteSpace(sectionText))
             {
                 return true;
@@ -126,10 +143,106 @@ public sealed partial class PlainTextExtractor : IDocumentTextExtractor
                 return false;
             }
 
-            units.Add(ExtractedUnit.Section([.. headings.OfType<string>()], sectionText));
+            units.Add(ExtractedUnit.Section([.. headings.OfType<string>()], sectionText, string.Join('\n', outside), tables));
             return true;
         }
     }
+
+    /// <summary>The section's pipe tables, and its lines that are not part of one.</summary>
+    private static (List<ExtractedTable> Tables, List<string> Outside) Tables(List<string> lines, List<bool> fenced)
+    {
+        var tables = new List<ExtractedTable>();
+        var outside = new List<string>(lines.Count);
+        var index = 0;
+        while (index < lines.Count)
+        {
+            if (!fenced[index]
+                && index + 1 < lines.Count
+                && !fenced[index + 1]
+                && TableRowCells(lines[index]) is { } header
+                && IsDelimiterRow(lines[index + 1], header.Count))
+            {
+                var rows = new List<IReadOnlyList<string>>();
+                index += 2;
+                while (index < lines.Count && !fenced[index] && TableRowCells(lines[index]) is { } cells)
+                {
+                    rows.Add(cells);
+                    index++;
+                }
+
+                if (rows.Count > 0)
+                {
+                    tables.Add(new ExtractedTable(header, rows));
+                }
+
+                continue;
+            }
+
+            outside.Add(lines[index]);
+            index++;
+        }
+
+        return (tables, outside);
+    }
+
+    /// <summary>A table row's cells, or null for a line that cannot be one (blank, no pipe, or
+    /// indented as code).</summary>
+    private static List<string>? TableRowCells(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line) || line.StartsWith("    ", StringComparison.Ordinal) || line.StartsWith('\t'))
+        {
+            return null;
+        }
+
+        var trimmed = line.Trim();
+        var cells = new List<string>();
+        var cell = new StringBuilder();
+        var pipes = 0;
+        for (var i = 0; i < trimmed.Length; i++)
+        {
+            var character = trimmed[i];
+            if (character == '\\' && i + 1 < trimmed.Length && trimmed[i + 1] == '|')
+            {
+                cell.Append('|');
+                i++;
+            }
+            else if (character == '|')
+            {
+                pipes++;
+                cells.Add(cell.ToString().Trim());
+                cell.Clear();
+            }
+            else
+            {
+                cell.Append(character);
+            }
+        }
+
+        if (pipes == 0)
+        {
+            return null;
+        }
+
+        cells.Add(cell.ToString().Trim());
+
+        // The optional leading and trailing pipes leave an empty cell outside them.
+        if (trimmed[0] == '|')
+        {
+            cells.RemoveAt(0);
+        }
+
+        if (trimmed.Length > 1 && trimmed[^1] == '|' && !trimmed.EndsWith("\\|", StringComparison.Ordinal))
+        {
+            cells.RemoveAt(cells.Count - 1);
+        }
+
+        return cells.Count > 0 ? cells : null;
+    }
+
+    private static bool IsDelimiterRow(string line, int columns) =>
+        TableRowCells(line) is { } cells
+        && cells.Count == columns
+        && cells.All(cell => DelimiterCell().IsMatch(cell));
 
     private static bool ClosesFence(string line, string fence)
     {
@@ -144,4 +257,7 @@ public sealed partial class PlainTextExtractor : IDocumentTextExtractor
 
     [GeneratedRegex(@"^ {0,3}(?<fence>`{3,}|~{3,})")]
     private static partial Regex FenceOpening();
+
+    [GeneratedRegex(@"^:?-+:?$")]
+    private static partial Regex DelimiterCell();
 }

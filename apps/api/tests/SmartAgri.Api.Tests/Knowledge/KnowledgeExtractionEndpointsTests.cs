@@ -138,7 +138,7 @@ public partial class KnowledgeExtractionEndpointsTests : IClassFixture<AuthHostF
         preview.GetProperty("units").GetArrayLength().ShouldBe(0);
     }
 
-    // --- Acceptance: DOCX chunks carry heading paths; every XLSX chunk repeats its header ----
+    // --- Acceptance: DOCX chunks carry heading paths, a table row each; every XLSX chunk repeats its header ----
 
     [Fact]
     public async Task Docx_chunks_are_located_by_their_heading_paths()
@@ -160,10 +160,16 @@ public partial class KnowledgeExtractionEndpointsTests : IClassFixture<AuthHostF
             "2 退換貨 › 2.1 退貨條件",
             "2 退換貨 › 2.1 退貨條件 › 2.1.1 退貨流程",
             "2 退換貨 › 2.2 運費",
+            "2 退換貨 › 2.2 運費",
             "3 聯絡我們",
         ]);
-        Chunks(preview).Single(chunk => chunk.GetProperty("locationLabel").GetString() == "2 退換貨 › 2.2 運費")
+
+        // The section's text is the table as before; each data row is a chunk of its own (#301).
+        units.Single(unit => unit.GetProperty("locationLabel").GetString() == "2 退換貨 › 2.2 運費")
             .GetProperty("text").GetString().ShouldBe("地區 | 運費 | 免運門檻\n本島 | 100 元 | 1,500 元\n離島 | 150 元 | 3,000 元");
+        Chunks(preview).Where(chunk => chunk.GetProperty("locationLabel").GetString() == "2 退換貨 › 2.2 運費")
+            .Select(chunk => chunk.GetProperty("text").GetString())
+            .ShouldBe(["地區：本島\n運費：100 元\n免運門檻：1,500 元", "地區：離島\n運費：150 元\n免運門檻：3,000 元"]);
     }
 
     [Fact]

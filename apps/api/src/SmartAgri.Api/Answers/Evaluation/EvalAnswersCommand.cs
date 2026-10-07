@@ -243,7 +243,7 @@ public sealed class EvalAnswersCommand
                 var request = new GroundedAnswerRequest(profile, question.Question, history, account.Id, AssistantId: null);
                 var answered = await answerService.AnswerAsync(request, cancellationToken);
                 replies[question.Id] = answered.Reply;
-                results.Add(AnswerEvalScoring.Judge(question, answered.Reply));
+                results.Add(AnswerEvalScoring.Judge(question, answered.Reply, answered.Retrieval.Passages));
             }
 
             var (averageInput, averageOutput) = await AverageTokensAsync(organization.Id, cancellationToken);
@@ -256,6 +256,7 @@ public sealed class EvalAnswersCommand
                 _chatProvider.Name,
                 _chatProvider.Model,
                 _retrieval.MinScore,
+                GroundedAnswerPrompt.Version,
                 DisplayName(set.Directory),
                 set.Fingerprint,
                 set.KnowledgeBases.Count,

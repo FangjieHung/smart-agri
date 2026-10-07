@@ -12,13 +12,7 @@ import type {
   ChatHistoryMode,
   ChatThreadSummaryView,
 } from '../../../core/domain/conversation.model';
-import type { AssistantId } from '../../../core/domain/assistant.model';
 import { ConfirmDialogComponent } from '../../../shared/ui/confirm-dialog/confirm-dialog.component';
-
-export interface RecentChatThreadView extends ChatThreadSummaryView {
-  readonly assistantId: AssistantId;
-  readonly assistantName: string;
-}
 
 /**
  * 對話紀錄側欄：列出目前帳號與這個助理的所有對話，可開新對話、切換、改名與刪除。
@@ -36,7 +30,6 @@ export class ConversationRailComponent {
   readonly activeThreadId = input<string | null>(null);
   readonly historyMode = input<ChatHistoryMode>('saved');
   readonly historyNotice = input('');
-  readonly recentThreads = input<readonly RecentChatThreadView[] | null>(null);
   /** 改名被 repository 拒絕時由外層傳入的訊息。 */
   readonly renameError = input('');
   /** 有寫入請求進行中（開新對話、改名、刪除）：擋掉「開新對話」的重複送出。 */
@@ -46,7 +39,6 @@ export class ConversationRailComponent {
   readonly selectThread = output<string>();
   readonly renameThread = output<{ readonly id: string; readonly title: string }>();
   readonly deleteThread = output<string>();
-  readonly selectRecentThread = output<RecentChatThreadView>();
 
   protected readonly renamingId = signal<string | null>(null);
   protected readonly pendingDelete = signal<ChatThreadSummaryView | null>(null);

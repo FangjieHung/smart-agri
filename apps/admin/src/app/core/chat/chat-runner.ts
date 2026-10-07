@@ -9,6 +9,7 @@ import type {
 import type { Observable } from 'rxjs';
 import type { ChatViewerId } from '../domain/account.model';
 import { DEMO_REPOSITORY } from '../repositories/tokens';
+import { API_CHAT_RUNNER } from './api-chat-runner';
 import { MockChatRunner } from './mock-chat-runner';
 
 // 事件與錯誤的型別住在 `@smart-agri/chat`（官網訪客的對話視窗也用同一組事件）；
@@ -34,8 +35,11 @@ export interface ChatRunner {
   run(request: ChatRunRequest): Observable<ChatRunEvent>;
 }
 
-/** 預設是 Mock（含 GitHub Pages）；API 模式由 `provideApiMode()` 換成 AG-UI 的實作。 */
+/**
+ * 預設是 Mock（含 GitHub Pages）；API 模式由 `provideApiMode()` 經 `API_CHAT_RUNNER` 換成 AG-UI 的實作
+ * （不直接覆寫這個 token，見 `api-chat-runner.ts`）。
+ */
 export const CHAT_RUNNER = new InjectionToken<ChatRunner>('CHAT_RUNNER', {
   providedIn: 'root',
-  factory: () => new MockChatRunner(inject(DEMO_REPOSITORY)),
+  factory: () => inject(API_CHAT_RUNNER) ?? new MockChatRunner(inject(DEMO_REPOSITORY)),
 });

@@ -1,0 +1,24 @@
+{
+  // #293: the same three case types as questions.json, each description written the way README.md
+  // ("A second set of type descriptions") recommends — what the type covers and what it does not,
+  // naming where the excluded things go. Use with: eval-case-proposals --types types-with-exclusions.json
+  // Keys and order must match questions.json (labels refer to the keys). Do not tune these to the
+  // questions: they are meant to read like what an admin would write on the case type.
+  "caseTypes": [
+    {
+      "key": "repair",
+      "name": "設備報修",
+      "description": "農機、灌溉、溫室、冷藏庫、感測器等設備故障或損壞，需要派人到場檢查或維修。包括機器不能運轉、管線漏水、溫控或電控失靈。不包括作物病蟲害、作物生長異常，例如葉子變色、枯萎、長蟲，這些請用田間異常回報，由技術人員追蹤。"
+    },
+    {
+      "key": "purchase",
+      "name": "採購申請",
+      "description": "向廠商購買肥料、農藥、種苗、包材等資材或設備，需要主管核准後才能下單。包括庫存不足要補貨、要添購新的工具或機器。不包括設備壞了要修理，請用設備報修；也不包括客戶向我們訂貨。發現病蟲害時請先做田間異常回報，由技術人員判斷要不要用藥，再提採購。"
+    },
+    {
+      "key": "return",
+      "name": "客戶退貨",
+      "description": "客戶收到我們出貨的農產品有品質問題、數量不符或寄錯，要求退貨、換貨或退款。包括商品損壞、變質、少件或重量不足。不包括客戶只是反映意見、沒有要求退換或退款，這類請直接回覆客戶；也不包括我們把資材退回給供應商。"
+    }
+  ]
+}

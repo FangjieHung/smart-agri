@@ -5,6 +5,8 @@
       [writableDatabases]="store.writableDatabases()"
       [errors]="errors()"
       [live]="true"
+      [assistantId]="settings.configuration.id"
+      [assistantName]="settings.configuration.name"
       [autoDisabled]="settings.periodicReportAutoDisabled"
       [resuming]="store.busy()"
       (changed)="store.updateRules($event)"

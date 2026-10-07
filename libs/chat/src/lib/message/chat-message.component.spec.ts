@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import type { ChatFormView, ChatMessageView, ChatReplyView } from '../chat-view.model';
+import { REPLY_KIND_LABELS, type ChatFormView, type ChatMessageView, type ChatReplyView } from '../chat-view.model';
 import { ChatMessageComponent } from './chat-message.component';
 
 /** 與 admin mock 的固定回覆相同內容的最小版本（lib 不依賴 admin 的 seed）。 */
@@ -181,5 +181,24 @@ describe('ChatMessageComponent', () => {
 
     host.querySelector<HTMLButtonElement>('button.form-start')?.click();
     expect(started).toHaveLength(1);
+  });
+
+  it('shows a case proposal (#254) as its label and text only: the card belongs to the admin conversation', () => {
+    const { host } = render(
+      assistant({
+        kind: 'case-proposal',
+        text: '這件事可以開一件「設備故障報修」案件，請確認內容。',
+        proposal: {
+          typeId: 'case-type-equipment-repair', typeName: '設備故障報修', title: '冷藏庫報修', description: '',
+          status: 'proposed', available: true, group: { id: 'case-group-equipment', name: '設備組', archived: false },
+          dueHours: 72, caseId: null,
+        },
+      }),
+    );
+
+    const bubble = host.querySelector('[data-kind="case-proposal"]');
+    expect(bubble?.querySelector('.kind')?.textContent).toContain(REPLY_KIND_LABELS['case-proposal']);
+    expect(bubble?.textContent).toContain('這件事可以開一件「設備故障報修」案件，請確認內容。');
+    expect(bubble?.querySelector('button, input, textarea, a')).toBeNull();
   });
 });

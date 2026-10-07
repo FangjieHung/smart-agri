@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
@@ -19,6 +20,9 @@ namespace SmartAgri.Api.Assistants;
 /// <param name="ViewerIsAssistantOwner">The caller owns the assistant (and may manage
 /// assistants); the frontend never compares ids itself.</param>
 /// <param name="ViewerIsAssignee">The caller is the assignee (and may handle issues).</param>
+/// <param name="ResolutionKind">How it was resolved (M7-7): <c>fixed</c>, or <c>not-assistant-issue</c>
+/// (「非助理問題」) when a case was opened from it; <see langword="null"/> unless resolved.</param>
+/// <param name="LinkedCaseId">The case opened from it (with <c>not-assistant-issue</c>).</param>
 public sealed record AssistantIssueView(
     Guid Id,
     Guid AssistantId,
@@ -42,12 +46,16 @@ public sealed record AssistantIssueView(
     DateTimeOffset? ResolvedAt,
     bool ViewerIsAssistantOwner,
     bool ViewerIsAssignee,
-    bool HandoffUnverified);
+    bool HandoffUnverified,
+    AssistantIssueResolutionKind? ResolutionKind,
+    Guid? LinkedCaseId);
 
-/// <summary>Only the state and outcome of a member's own forwarded handoff.</summary>
+/// <summary>Only the state and outcome of a member's own forwarded handoff (with M7-7's
+/// <paramref name="ResolutionKind"/>, never the case itself: the member may not see it).</summary>
 public sealed record ForwardedAssistantIssueView(
     Guid Id, Guid AssistantId, string AssistantName, AssistantIssueStatus Status,
-    string? ResolutionNote, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? ResolvedAt);
+    string? ResolutionNote, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, DateTimeOffset? ResolvedAt,
+    AssistantIssueResolutionKind? ResolutionKind);
 
 /// <summary>One entry of an issue's handling history, oldest first.</summary>
 /// <param name="AssigneeAccountId">For <c>assigned</c> (and <c>created</c>): the assignee
@@ -66,9 +74,15 @@ public sealed record AssistantIssueEventView(
     AssistantIssueStatus? Status,
     DateTimeOffset? DueAt);
 
+/// <summary>The case opened from an issue (M7-7): only whether <b>you</b> can open it now (the case's
+/// own visibility, <c>CaseVisibility</c>), never what it holds.</summary>
+public sealed record AssistantIssueCaseLinkView(Guid CaseId, bool CanOpen);
+
 /// <summary><c>GET /api/v1/issues/{id}</c> (and <c>PATCH</c>'s response): the issue and its
 /// whole history.</summary>
-public sealed record AssistantIssueDetailView(AssistantIssueView Issue, IReadOnlyList<AssistantIssueEventView> Events);
+/// <param name="LinkedCase">The case opened from it (M7-7); <see langword="null"/> when there is none.</param>
+public sealed record AssistantIssueDetailView(
+    AssistantIssueView Issue, IReadOnlyList<AssistantIssueEventView> Events, AssistantIssueCaseLinkView? LinkedCase);
 
 /// <summary><c>GET /api/v1/issues/summary</c>: counts of the unresolved issues the caller can
 /// see (the same set as <c>GET /api/v1/issues</c>'s default scope), for the home page's
@@ -121,7 +135,7 @@ public sealed record UpdateAssistantIssueRequest(
 /// records an <see cref="AssistantIssueEvent"/>.
 /// </para>
 /// </remarks>
-public static class AssistantIssueEndpoints
+public static partial class AssistantIssueEndpoints
 {
     public const string TestResultNotFoundReason = "test-result-not-found";
     public const string TestResultPassedReason = "test-result-passed";
@@ -172,6 +186,7 @@ public static class AssistantIssueEndpoints
             .Produces(StatusCodes.Status409Conflict)
             .Produces(StatusCodes.Status422UnprocessableEntity);
 
+        MapOpenCase(issues);
         return endpoints;
     }
 
@@ -365,7 +380,7 @@ public static class AssistantIssueEndpoints
             return Results.Ok(new { Issue = limited[0], Events = Array.Empty<object>() });
         }
 
-        return Results.Ok(await ToDetailAsync(dbContext, issue, callerId, canManage, canHandle, cancellationToken));
+        return Results.Ok(await ToDetailAsync(httpContext, dbContext, issue, callerId, canManage, canHandle, cancellationToken));
     }
 
     /// <summary>Assigns, changes the due date, changes the status and/or adds a note, recording
@@ -470,7 +485,7 @@ public static class AssistantIssueEndpoints
             return Changed();
         }
 
-        return Results.Ok(await ToDetailAsync(dbContext, issue, callerId, canManage, canHandle, cancellationToken));
+        return Results.Ok(await ToDetailAsync(httpContext, dbContext, issue, callerId, canManage, canHandle, cancellationToken));
     }
 
     /// <summary>Unresolved issues (not <c>resolved</c>) across the organization, and the average
@@ -491,6 +506,16 @@ public static class AssistantIssueEndpoints
             ? null
             : resolved.Average(issue => (issue.ResolvedAt - issue.CreatedAt).TotalHours);
         return (openCount, average);
+    }
+
+    /// <summary>Whether <paramref name="callerId"/> could open issue <paramref name="issueId"/> now (the
+    /// same rule as <c>GET /api/v1/issues/{id}</c>): a case's link to its issue (M7 plan §3 C) only
+    /// says this, never what the issue holds.</summary>
+    internal static async Task<bool> CanOpenAsync(
+        HttpContext httpContext, AppDbContext dbContext, Guid callerId, Guid issueId, CancellationToken cancellationToken)
+    {
+        var (canManage, canHandle) = await PermissionsAsync(httpContext, callerId, cancellationToken);
+        return await Visible(dbContext, callerId, canManage, canHandle).AnyAsync(issue => issue.Id == issueId, cancellationToken);
     }
 
     /// <summary>The issues the caller may open and change: its own assistants' (with
@@ -552,13 +577,19 @@ public static class AssistantIssueEndpoints
         ApiErrors.WithReason(StatusCodes.Status409Conflict, IssueChangedReason, IssueChangedMessage);
 
     private static async Task<AssistantIssueDetailView> ToDetailAsync(
-        AppDbContext dbContext, AssistantIssue issue, Guid callerId, bool canManage, bool canHandle, CancellationToken cancellationToken)
+        HttpContext httpContext,
+        AppDbContext dbContext,
+        AssistantIssue issue,
+        Guid callerId,
+        bool canManage,
+        bool canHandle,
+        CancellationToken cancellationToken)
     {
         var events = await dbContext.AssistantIssueEvents.AsNoTracking()
             .Where(issueEvent => issueEvent.IssueId == issue.Id)
             .OrderBy(issueEvent => issueEvent.Ordinal)
             .ToListAsync(cancellationToken);
-        var names = await AccountNamesAsync(
+        var names = await AccountNames.LoadAsync(
             dbContext,
             events.Select(issueEvent => (Guid?)issueEvent.ActorAccountId).Concat(events.Select(issueEvent => issueEvent.AssigneeAccountId)),
             cancellationToken);
@@ -569,13 +600,16 @@ public static class AssistantIssueEndpoints
                 issueEvent.Id,
                 issueEvent.Action,
                 issueEvent.ActorAccountId,
-                names.GetValueOrDefault(issueEvent.ActorAccountId, string.Empty),
+                names.NameOf(issueEvent.ActorAccountId),
                 issueEvent.At,
                 issueEvent.Note,
                 issueEvent.AssigneeAccountId,
-                issueEvent.AssigneeAccountId is { } assignee ? names.GetValueOrDefault(assignee) : null,
+                names.NameOf(issueEvent.AssigneeAccountId),
                 issueEvent.Status,
-                issueEvent.DueAt)));
+                issueEvent.DueAt)),
+            issue.LinkedCaseId is { } caseId
+                ? new AssistantIssueCaseLinkView(caseId, await CanOpenCaseAsync(httpContext, dbContext, caseId, cancellationToken))
+                : null);
     }
 
     private static async Task<List<AssistantIssueView>> ToViewsAsync(
@@ -591,7 +625,7 @@ public static class AssistantIssueEndpoints
             .Where(assistant => assistantIds.Contains(assistant.Id))
             .Select(assistant => new { assistant.Id, assistant.Name, assistant.OwnerAccountId })
             .ToDictionaryAsync(assistant => assistant.Id, cancellationToken);
-        var names = await AccountNamesAsync(
+        var names = await AccountNames.LoadAsync(
             dbContext, issues.Select(issue => issue.AssigneeAccountId).Concat(issues.Select(issue => issue.ReporterAccountId)), cancellationToken);
 
         return [.. issues.Select(issue =>
@@ -605,9 +639,9 @@ public static class AssistantIssueEndpoints
                 issue.Status,
                 issue.Title,
                 issue.AssigneeAccountId,
-                issue.AssigneeAccountId is { } assignee ? names.GetValueOrDefault(assignee) : null,
+                names.NameOf(issue.AssigneeAccountId),
                 issue.ReporterAccountId,
-                issue.ReporterAccountId is { } reporter ? names.GetValueOrDefault(reporter) : null,
+                names.NameOf(issue.ReporterAccountId),
                 issue.DueAt,
                 issue.TestRunId,
                 issue.TestResultId,
@@ -620,7 +654,9 @@ public static class AssistantIssueEndpoints
                 issue.ResolvedAt,
                 canManage && assistant is not null && assistant.OwnerAccountId == callerId,
                 canHandle && issue.AssigneeAccountId == callerId,
-                issue.HandoffUnverified);
+                issue.HandoffUnverified,
+                issue.ResolutionKind,
+                issue.LinkedCaseId);
         })];
     }
 
@@ -633,20 +669,6 @@ public static class AssistantIssueEndpoints
             .ToDictionaryAsync(assistant => assistant.Id, assistant => assistant.Name, cancellationToken);
         return [.. issues.Select(issue => new ForwardedAssistantIssueView(
             issue.Id, issue.AssistantId, names.GetValueOrDefault(issue.AssistantId, string.Empty),
-            issue.Status, issue.ResolutionNote, issue.CreatedAt, issue.UpdatedAt, issue.ResolvedAt))];
-    }
-
-    private static async Task<Dictionary<Guid, string>> AccountNamesAsync(
-        AppDbContext dbContext, IEnumerable<Guid?> accountIds, CancellationToken cancellationToken)
-    {
-        var ids = accountIds.OfType<Guid>().Distinct().ToList();
-        if (ids.Count == 0)
-        {
-            return [];
-        }
-
-        return await dbContext.Accounts.AsNoTracking()
-            .Where(account => ids.Contains(account.Id))
-            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
+            issue.Status, issue.ResolutionNote, issue.CreatedAt, issue.UpdatedAt, issue.ResolvedAt, issue.ResolutionKind))];
     }
 }

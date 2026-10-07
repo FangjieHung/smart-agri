@@ -27,6 +27,19 @@ public class VisitorEndpointArchitectureTests
         typeof(IChatProposal),
         typeof(ChatProposalCandidate),
         typeof(ChatProposalReply),
+        // M7-9: the case proposal, its tool, its endpoints and the case types an assistant may propose.
+        typeof(ChatCaseProposal),
+        typeof(ChatCaseProposalTool),
+        typeof(ChatProposalSelectionTool),
+        typeof(ChatProposalSelection),
+        typeof(SmartAgri.Application.Chat.ProposalSelectionRules),
+        typeof(ChatCaseProposalView),
+        typeof(ChatCaseProposalEndpoints),
+        typeof(ConfirmChatCaseProposalRequest),
+        typeof(AssistantCaseType),
+        typeof(SmartAgri.Domain.Chat.ChatCaseProposalSnapshot),
+        typeof(SmartAgri.Domain.Cases.Case),
+        typeof(SmartAgri.Domain.Cases.CaseType),
         typeof(ChatDatabaseQueries),
         typeof(IChatDatabaseQueryRunner),
         typeof(ChatDatabaseQueryScope),
@@ -50,6 +63,9 @@ public class VisitorEndpointArchitectureTests
     [Theory]
     [InlineData(typeof(VisitorChatRunEndpoints))]
     [InlineData(typeof(VisitorSessionEndpoints))]
+    // M7-9: LINE answers through its own handler, which must not reach the proposal stage either.
+    [InlineData(typeof(SmartAgri.Api.Line.LineQuestionHandler))]
+    [InlineData(typeof(SmartAgri.Api.Line.LineWebhookProcessor))]
     public void The_visitor_handlers_depend_on_no_form_query_or_handoff_service(Type endpoints)
     {
         var offending = ReferencedTypes(endpoints)
@@ -77,6 +93,11 @@ public class VisitorEndpointArchitectureTests
         var proposals = ReferencedTypes(typeof(ChatFormRequestProposal)).ToHashSet();
         proposals.ShouldContain(typeof(AssistantFormRequests));
         proposals.ShouldContain(typeof(ChatFormRequestTool));
+
+        // M7-9: the stage holds the case proposal after the form, and the case proposal its tool.
+        ReferencedTypes(typeof(ChatProposalStage)).ShouldContain(typeof(ChatCaseProposal));
+        ReferencedTypes(typeof(ChatCaseProposal)).ShouldContain(typeof(ChatCaseProposalTool));
+        ReferencedTypes(typeof(ChatProposalStage)).ShouldContain(typeof(ChatProposalSelectionTool));
     }
 
     /// <summary>Every type <paramref name="root"/> and its nested (including compiler-generated)

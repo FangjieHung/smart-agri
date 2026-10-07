@@ -2,17 +2,26 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
-import type { AssistantIssueEventView, AssistantIssueScope, AssistantIssueStatus, AssistantIssueView, UpdateAssistantIssueRequest } from '../../core/domain/assistant-issue.model';
+import {
+  issueResolutionKindLabel,
+  type AssistantIssueEventView,
+  type AssistantIssueOpenedCaseView,
+  type AssistantIssueScope,
+  type AssistantIssueStatus,
+  type AssistantIssueView,
+  type UpdateAssistantIssueRequest,
+} from '../../core/domain/assistant-issue.model';
 import { AssistantIssuesRepository } from '../../core/repositories/assistant-issues.repository';
 import { repositoryResource } from '../../core/repositories/repository-resource';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../shared/ui/state-panel/state-panel.component';
+import { OpenCaseDialogComponent, type OpenCaseConflict } from './open-case-dialog/open-case-dialog.component';
 
 @Component({
   selector: 'app-issues-page',
-  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent],
+  imports: [DatePipe, RouterLink, PageHeaderComponent, StatePanelComponent, OpenCaseDialogComponent],
   templateUrl: './issues-page.component.html',
   styleUrl: './issues-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -33,6 +42,11 @@ export class IssuesPageComponent {
   protected readonly dueChoice = signal('');
   protected readonly clearDue = signal(false);
   protected readonly note = signal('');
+  /** 「另開案件」對話框是否開著（issue #252）；`caseNotice` 是結果訊息，`noticeCaseId` 是可以打開的案件。 */
+  protected readonly openingCase = signal(false);
+  protected readonly caseNotice = signal('');
+  protected readonly noticeCaseId = signal<string | null>(null);
+  protected readonly resolutionKindLabel = issueResolutionKindLabel;
 
   protected readonly listResource = repositoryResource({
     params: () => {
@@ -65,6 +79,37 @@ export class IssuesPageComponent {
     this.resetForm();
   }
 
+  protected startOpenCase(): void {
+    this.caseNotice.set('');
+    this.noticeCaseId.set(null);
+    this.openingCase.set(true);
+  }
+
+  /** 對話框關閉後把焦點還給「另開案件」按鈕（按鈕還在時）或詳情標題。 */
+  protected closeOpenCase(): void {
+    this.openingCase.set(false);
+    this.restoreFocus();
+  }
+
+  protected caseOpened(result: AssistantIssueOpenedCaseView): void {
+    this.openingCase.set(false);
+    this.caseNotice.set('已另開案件，這個處理事項以「非助理問題」結案。');
+    this.noticeCaseId.set(result.issue.linkedCase?.canOpen ? result.caseId : null);
+    this.listResource.reload();
+    this.detailResource.reload();
+    this.restoreFocus();
+  }
+
+  /** `409`：已另開過（帶既有案件）或剛被別人改過；重新整理詳情。 */
+  protected caseConflicted(conflict: OpenCaseConflict): void {
+    this.openingCase.set(false);
+    this.caseNotice.set(conflict.message);
+    this.noticeCaseId.set(conflict.caseId ?? null);
+    this.listResource.reload();
+    this.detailResource.reload();
+    this.restoreFocus();
+  }
+
   protected statusLabel(status: AssistantIssueStatus): string {
     return status === 'open' ? '待處理' : status === 'in-progress' ? '處理中' : '已解決';
   }
@@ -84,6 +129,7 @@ export class IssuesPageComponent {
       case 'status-changed': return '更新狀態';
       case 'commented': return '新增處理紀錄';
       case 'due-date-changed': return '變更到期日';
+      case 'case-opened': return '另開案件（非助理問題）';
     }
   }
 
@@ -123,7 +169,18 @@ export class IssuesPageComponent {
     });
   }
 
+  private restoreFocus(): void {
+    queueMicrotask(() => {
+      const target = document.querySelector<HTMLElement>('[data-issue-open-case]') ?? document.querySelector<HTMLElement>('#issue-detail-title');
+      target?.focus();
+    });
+  }
+
   private resetForm(clearMessage = true): void {
+    if (clearMessage) {
+      this.caseNotice.set('');
+      this.noticeCaseId.set(null);
+    }
     this.statusChoice.set('');
     this.assigneeChoice.set('');
     this.dueChoice.set('');

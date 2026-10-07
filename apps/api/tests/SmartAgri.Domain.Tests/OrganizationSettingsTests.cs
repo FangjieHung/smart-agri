@@ -79,7 +79,49 @@ public class OrganizationSettingsTests
     [Fact]
     public void Activity_actions_have_wire_names()
     {
-        WireNames<OrganizationActivityAction>.All.ShouldBe(["chat-model-changed"]);
+        WireNames<OrganizationActivityAction>.All.ShouldBe(
+            [
+                "chat-model-changed", "retention-changed", "retention-change-cancelled", "retention-took-effect", "retention-cleanup",
+                "conversations-purged",
+                "case-group-created", "case-group-renamed", "case-group-archived", "case-group-unarchived",
+                "case-type-created", "case-type-updated",
+                "database-auto-case-changed",
+            ]);
+    }
+
+    [Fact]
+    public void A_database_auto_case_change_records_the_database_and_both_types_by_id_and_name_only()
+    {
+        var organizationId = Guid.CreateVersion7();
+        var actorId = Guid.CreateVersion7();
+        var databaseId = Guid.CreateVersion7();
+        var typeId = Guid.CreateVersion7();
+
+        var turnedOn = OrganizationActivity.DatabaseAutoCaseChanged(
+            organizationId, actorId, At, databaseId, "客戶資料庫", from: null, to: new AutoCaseTypeRef(typeId, "設備故障報修"));
+
+        (turnedOn.Action, turnedOn.ActorAccountId).ShouldBe((OrganizationActivityAction.DatabaseAutoCaseChanged, (Guid?)actorId));
+        using (var detail = JsonDocument.Parse(turnedOn.Detail!))
+        {
+            detail.RootElement.EnumerateObject().Select(property => property.Name).ShouldBe(["databaseId", "databaseName", "from", "to"]);
+            detail.RootElement.GetProperty("databaseId").GetGuid().ShouldBe(databaseId);
+            detail.RootElement.GetProperty("databaseName").GetString().ShouldBe("客戶資料庫");
+            detail.RootElement.GetProperty("from").ValueKind.ShouldBe(JsonValueKind.Null);
+            detail.RootElement.GetProperty("to").GetProperty("id").GetGuid().ShouldBe(typeId);
+            detail.RootElement.GetProperty("to").GetProperty("name").GetString().ShouldBe("設備故障報修");
+        }
+
+        var turnedOff = OrganizationActivity.DatabaseAutoCaseChanged(
+            organizationId, actorId, At, databaseId, "客戶資料庫", new AutoCaseTypeRef(typeId, "設備故障報修"), to: null);
+        using (var detail = JsonDocument.Parse(turnedOff.Detail!))
+        {
+            detail.RootElement.GetProperty("to").ValueKind.ShouldBe(JsonValueKind.Null);
+        }
+
+        Should.Throw<ArgumentException>(() => OrganizationActivity.DatabaseAutoCaseChanged(
+            organizationId, actorId, At, databaseId, "客戶資料庫", null, null));
+        Should.Throw<ArgumentException>(() => OrganizationActivity.DatabaseAutoCaseChanged(
+            organizationId, actorId, At, databaseId, "客戶資料庫", new AutoCaseTypeRef(typeId, "設備故障報修"), new AutoCaseTypeRef(typeId, "設備故障報修")));
     }
 
     private static Organization NewOrganization() => new(Guid.CreateVersion7(), "模型商行", "models");

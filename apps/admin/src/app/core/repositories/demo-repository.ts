@@ -63,6 +63,7 @@ import type {
   ChatFormSubmission,
   ChatFormSubmissionResultView,
   ChatFormView,
+  ChatMessageView,
   ChatThreadListView,
   ChatThreadSummaryView,
   ConversationId,
@@ -92,7 +93,14 @@ import type { Observable } from 'rxjs';
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
 import type { TeamMemberView, TeamView } from '../domain/team.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
-import type { OrganizationChatModelView } from '../domain/organization-settings.model';
+import type {
+  AssistantConversationPurgeView,
+  AssistantConversationSummaryView,
+  OrganizationChatModelView,
+  OrganizationRetentionAssistantView,
+  OrganizationRetentionPreviewView,
+  OrganizationRetentionView,
+} from '../domain/organization-settings.model';
 import type {
   AssistantChannelsView,
   AssistantPublishingView,
@@ -148,6 +156,10 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'assistant-issue',
   /** 組織設定（issue #239）：只有管理者（`smb-admin`）可以變更組織的對話模型等設定。 */
   'organization-settings',
+  /** 案件功能（issue #246）：外部客戶讀取承辦組（之後的案件類型、案件）一律拒絕。 */
+  'case',
+  /** 案件動作（issue #249）：看得到案件，但這個動作在這個狀態不是你能做的（例如別人受理的案件你不能完成）。 */
+  'case-action',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
   'password-change-required',
 ] as const;
@@ -415,6 +427,34 @@ export type ReviewChatFormResult =
  * 這個資料庫、分享或權限被收回；`conflict`：表單已改版或提交編號已用在別的內容。任何非
  * `ready` 的結果都沒有建立紀錄。
  */
+/** 確認案件提議時送出的內容（issue #254）：案件只保存這兩項。 */
+export interface ChatCaseProposalConfirmation {
+  readonly title: string;
+  readonly description: string;
+}
+
+/**
+ * 確認被拒絕（`422`）：`reason` 是後端的原因（`case-type-not-proposable`、`case-group-archived`；欄位錯誤是 null），
+ * `fieldErrors` 是標題與說明各自的第一則錯誤。沒有建立任何東西。
+ */
+export interface ChatCaseProposalValidationFailedView {
+  readonly status: 'validation-failed';
+  readonly reason: string | null;
+  readonly message: string;
+  readonly fieldErrors: Readonly<Partial<Record<'title' | 'description', string>>>;
+}
+
+/** 這則提議已經確認或選了「不用了」（`409 case-proposal-closed`）。 */
+export interface ChatCaseProposalConflictView {
+  readonly status: 'conflict';
+  readonly message: string;
+}
+
+export type ChatCaseProposalResult =
+  | RepositoryView<ChatMessageView>
+  | ChatCaseProposalValidationFailedView
+  | ChatCaseProposalConflictView;
+
 export type SubmitChatFormResult =
   | RepositoryView<ChatFormSubmissionResultView>
   | DatabaseFieldsValidationFailedView
@@ -559,6 +599,17 @@ export type UpdateOrganizationChatModelResult =
   | OrganizationSettingsConflictView
   | OrganizationSettingsValidationFailedView;
 
+/** 保存期限的 `PUT`（issue #243）：`422` 是 `errors.days`（不在選項內），`409` 是 revision 過時。 */
+export type UpdateOrganizationRetentionResult =
+  | RepositoryView<OrganizationRetentionView>
+  | OrganizationSettingsConflictView
+  | OrganizationSettingsValidationFailedView;
+
+/** 保存期限的預覽（issue #243）：`422` 是 `errors.days`；非管理者是 `organization-settings` permission-denied。 */
+export type PreviewOrganizationRetentionResult =
+  | RepositoryView<OrganizationRetentionPreviewView>
+  | OrganizationSettingsValidationFailedView;
+
 /** 只需要 Web Storage 的讀寫子集，方便測試替換成記憶體實作。 */
 export type DemoKeyValueStorage = Pick<
   Storage,
@@ -646,6 +697,16 @@ export interface DemoRepository extends DemoScenarioController {
     connected: boolean,
   ): Observable<UpdateAssistantSettingsResult>;
   /**
+   * 加入或移除一個「可提議的案件類型」（issue #254，決定 U；API 是
+   * `PUT`／`DELETE .../sources/case-type/{id}`）：只有擁有者，只能加入啟用中的類型（否則 validation-failed，
+   * `caseTypeIds` 欄位）。移除不在清單上的類型什麼都不變。
+   */
+  setAssistantCaseType(
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
+  ): Observable<UpdateAssistantSettingsResult>;
+  /**
    * 刪除助理，連同**所有成員**與它的對話紀錄（M3 計畫決定 G）；無法復原。
    * 不存在或非擁有者回傳 `assistant-configuration` permission-denied。
    */
@@ -700,6 +761,41 @@ export interface DemoRepository extends DemoScenarioController {
     modelId: string | null,
     revision: number,
   ): Observable<UpdateOrganizationChatModelResult>;
+  /**
+   * 組織的對話保存期限（issue #243，M6 計畫第 3 節 F）：組織內任何帳號都讀得到，`canChange`
+   * 只有管理者是 true。
+   */
+  getOrganizationRetention(): Observable<RepositoryView<OrganizationRetentionView>>;
+  /**
+   * 期限改成 `days` 天時，現在的每日清理大約會刪除幾串對話（只有管理者）。不在選項內是
+   * validation-failed；非管理者是 `organization-settings` permission-denied。
+   */
+  previewOrganizationRetention(days: number): Observable<PreviewOrganizationRetentionResult>;
+  /**
+   * 變更保存期限（只有管理者）：縮短存成 `pending`（7 天後生效），延長立即生效並清掉 `pending`，
+   * 送出目前生效的值是「改回」。不在選項內是 validation-failed；過時的 `revision` 是 conflict
+   * （先檢查 `days` 再檢查 `revision`，與後端相同）；不改變任何東西時直接回 ready。
+   */
+  updateOrganizationRetention(
+    days: number | null,
+    revision: number,
+  ): Observable<UpdateOrganizationRetentionResult>;
+  /**
+   * 各助理已保存的對話（issue #242，只有管理者）：組織內每個助理一列，只有數字。非管理者是
+   * `organization-settings` permission-denied，畫面當成「不顯示」。
+   */
+  listRetentionAssistants(): Observable<RepositoryView<readonly OrganizationRetentionAssistantView[]>>;
+  /**
+   * 單一助理已保存的對話串數與成員數：管理者，或可管理這個助理的擁有者。其他人、不存在的 id 一律是
+   * 相同的 `assistant-configuration` permission-denied。建立精靈裡助理還不存在，不要呼叫。
+   */
+  getAssistantConversationSummary(assistantId: string): Observable<RepositoryView<AssistantConversationSummaryView>>;
+  /**
+   * 立即刪除這個助理所有成員已保存的對話（只有管理者；「保存對話」開或關都可以）。非管理者（含擁有者）、
+   * 不存在或別的組織的助理一律是相同的 `organization-settings` permission-denied。處理事項的問答副本
+   * 不受影響，也不通知受影響的成員。
+   */
+  purgeAssistantConversations(assistantId: string): Observable<RepositoryView<AssistantConversationPurgeView>>;
   /** 發布管道總覽：依助理分組，每個助理固定平台內、官網與 LINE 三個管道。 */
   listChannelOverview(): Observable<RepositoryView<readonly AssistantChannelsView[]>>;
   /**
@@ -1191,6 +1287,24 @@ export interface DemoRepository extends DemoScenarioController {
     formId: DatabaseId,
     threadId?: string,
   ): Observable<RepositoryView<null>>;
+  /**
+   * 確認助理提議的案件（issue #254，API 是 `POST .../chat/case-proposals/{messageId}:confirm`）：以使用者確認
+   * （可修改）的標題與說明建立案件，連結這個對話串；`ready` 帶回這則提議更新後的樣子（已建立、案件 id）。
+   * 欄位錯誤或類型已停用、已不在助理的清單上是 validation-failed；已確認或已選「不用了」是 conflict。
+   * 不是自己的對話是 `chat-thread`，外部客戶是 `case`。5xx 與連線中斷以 error 傳出，案件沒有建立。
+   */
+  confirmChatCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation,
+  ): Observable<ChatCaseProposalResult>;
+  /** 「不用了」（issue #254，`:dismiss`）：只記下來，不建立案件；已處理過是 conflict。 */
+  dismissChatCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+  ): Observable<ChatCaseProposalResult>;
 }
 
 export const DEMO_SECURITY_NOTICE =

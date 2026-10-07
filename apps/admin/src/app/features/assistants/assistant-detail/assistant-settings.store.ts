@@ -28,7 +28,8 @@ type SaveState =
 /** 排隊中的一次寫入：欄位變更可以合併，來源連接一次一個。 */
 type SettingsWrite =
   | { readonly kind: 'patch'; readonly patch: AssistantSettingsPatch }
-  | { readonly kind: 'source'; readonly source: AssistantSourceReference; readonly connect: boolean };
+  | { readonly kind: 'source'; readonly source: AssistantSourceReference; readonly connect: boolean }
+  | { readonly kind: 'case-type'; readonly caseTypeId: string; readonly proposable: boolean };
 
 const SAVE_FAILED_MESSAGE = '目前無法儲存這項變更，請稍後再試。';
 
@@ -234,6 +235,12 @@ export class AssistantSettingsStore {
     this.enqueue({ kind: 'source', source: reference, connect });
   }
 
+  /** 加入或移除一個可提議的案件類型（#254）；等伺服器回應才更新畫面。 */
+  toggleCaseType(caseTypeId: string): void {
+    const proposable = !(this.settings()?.caseTypeIds ?? []).includes(caseTypeId);
+    this.enqueue({ kind: 'case-type', caseTypeId, proposable });
+  }
+
   /** 由畫面擋下、根本沒有送出的變更；只留一則說明，不改動任何設定。 */
   note(message: string): void {
     this.notice.set(message);
@@ -267,7 +274,9 @@ export class AssistantSettingsStore {
     const request: Observable<UpdateAssistantSettingsResult> =
       write.kind === 'patch'
         ? this.repository.updateAssistantSettings(assistantId, write.patch)
-        : this.repository.setAssistantSourceConnection(assistantId, write.source, write.connect);
+        : write.kind === 'source'
+          ? this.repository.setAssistantSourceConnection(assistantId, write.source, write.connect)
+          : this.repository.setAssistantCaseType(assistantId, write.caseTypeId, write.proposable);
 
     request.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (result) => this.settle(result),

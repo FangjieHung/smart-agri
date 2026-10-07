@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, ElementRef, inject, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, inject, Injector, OnInit, signal, ViewChild } from '@angular/core';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { ConnectedPosition } from '@angular/cdk/overlay';
 import { MatSidenavContainer, MatSidenavModule } from '@angular/material/sidenav';
@@ -26,6 +26,9 @@ import { FooterComponent } from './layout/footer/footer.component';
 export class App implements OnInit {
   protected readonly t = ZH_TW;
 
+  /** 側欄「案件」旁的逾期數字（issue #250）：shell 只有這個 signal，換頁時由動態載入的程式更新。 */
+  protected readonly caseOverdueCount = signal(0);
+
   protected readonly navItems: NavEntry[] = [
     { route: '/app/home', label: '首頁', icon: 'home' },
     { route: '/app/assistants', label: '我的助理', icon: 'smart_toy' },
@@ -34,6 +37,7 @@ export class App implements OnInit {
     { route: '/app/activity', label: '對話與回報紀錄', icon: 'forum' },
     { route: '/app/operations', label: '營運追蹤', icon: 'monitoring' },
     { route: '/app/issues', label: '處理事項', icon: 'task_alt' },
+    { route: '/app/cases', label: '案件', icon: 'assignment', count: this.caseOverdueCount },
     { route: '/app/settings', label: '團隊與設定', icon: 'settings' },
   ];
 
@@ -68,6 +72,7 @@ export class App implements OnInit {
   private readonly document = inject(DOCUMENT);
   private readonly breakpointObserver = inject(BreakpointObserver);
   private readonly router = inject(Router);
+  private readonly injector = inject(Injector);
 
   ngOnInit(): void {
     this.isWorkspace = this.router.url.startsWith('/app');
@@ -105,8 +110,19 @@ export class App implements OnInit {
         }
 
         this.resetContentScroll();
+        this.refreshCaseOverdueCount(url);
       });
   }
+
+  /**
+   * 換頁時更新逾期數字（決定 R：不設計時器）。讀取的程式以動態 `import()` 載入首頁的 lazy chunk：首頁為了
+   * 「案件」卡片本來就帶著 `CasesRepository`，並轉出 `refreshCaseOverdueCount`；另開一個只用到 core／HTTP
+   * 的新 chunk，會讓 esbuild 把初始 bundle 的共用 chunk 再切成兩塊（實測多出約 0.9 kB）。工作區以外不載入
+   * （側欄也不顯示）；外部客戶與沒有身分時是 0、不發請求，由讀取的程式判斷。測試會替換這個欄位。
+   */
+  protected refreshCaseOverdueCount = (url: string): void => {
+    if (url.startsWith('/app')) void import('./features/home/home-page.component').then((m) => m.refreshCaseOverdueCount(this.injector, this.caseOverdueCount));
+  };
 
   /**
    * 把主內容捲動容器捲回頂端。瀏覽器只會把舊的 `scrollTop` 夾在新內容的可捲動

@@ -21,6 +21,7 @@
 | 終端對話與同意流程 | 第 5 節 |
 | 發布管道 | 第 6 節 |
 | 尚未被畫面呼叫的方法 | 第 7 節 |
+| 案件（M7，獨立的 repository） | 本文件第 2.9 節；規則與決定見 `docs/plans/2026-10-06-backend-milestone-7-cases.md`（第 3 節共同規則）與 ADR `docs/adr/2026-10-06-cases-and-handoff.md`；觸發方式評測見 `docs/evals/2026-10-07-257-case-proposal-trigger.md` |
 | 後端必須自行決定的缺口 | 第 8 節 |
 | 共用回應契約與 `permission-denied` 硬規則 | 第 1.5、1.6 節 |
 
@@ -45,6 +46,8 @@
 | `S+RC` | 另需 `read-consented-submissions` 權限 | `account.model.ts:27` |
 | `S+AF` | 另需 `submit-authorized-forms` 權限 | `account.model.ts:29` |
 | `S+USE` | 另需對該助理有**使用**權限（擁有／團隊分享／開放外部客戶） | `tasks-6-10-backend-handoff.md` 第 5.4 節 |
+| `S+INT` | 另需是**內部帳號**（角色 `smb-admin` 或 `internal-employee`）；外部客戶一律 `403 case` | `apps/api/src/SmartAgri.Application/Cases/CaseGroupRules.cs` 的 `IsEligibleMember`（`CaseEndpoints.CallerAsync` 的 `IsInternal`） |
+| `S+ADM` | 另需是**管理者**（角色 `smb-admin`）；不是管理者、資源不存在、別的組織三者同一則 `403 organization-settings` | `RequireOrganizationAdmin(ForbiddenReason.OrganizationSettings)`（`apps/api/src/SmartAgri.Api/Authorization/OrganizationAdmin.cs`） |
 | `—` | Demo 專用，**正式 API 不得提供** | — |
 
 > **`manage-publishing` 已經真的被檢查了**（`account.model.ts:26`）。判斷點是 `canManagePublishing()`（`publishing-channels.ts:116-124`），規則為**擁有者 ＋ 這個權限**，由 `publishingTarget()`（`mock-demo-repository.ts:3034-3041`）套用到三個管道的所有讀寫與 `/app/channels` 總覽，所以下表的發布類方法一律標 `S+OWN+MP`。收回權限**不影響**已經在用的人：那一題仍由 `canOpenInPlatform()` 決定。
@@ -314,6 +317,98 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 
 HTTP adapter 可把三者實作成 no-op，或在正式建置中把整個 `DemoScenarioController` 從 `DemoRepository` 的 extends 清單拿掉（`demo-repository.ts:258`）。後者會讓 `?demoScenario=` 完全失效，這是預期行為。
 
+### 2.9 案件（M7，獨立的 repository，不在 DemoRepository）
+
+案件相關的前端資料入口**不是 `DemoRepository`**，而是兩個獨立的 Angular service：`CasesRepository`（`apps/admin/src/app/core/repositories/cases.repository.ts`）與 `CaseSettingsRepository`（`case-settings.repository.ts`），加上 `AssistantIssuesRepository.openCase`（`assistant-issues.repository.ts`）。它們各自依 `API_DEMO_REPOSITORY_FACTORY` 判斷是否為 API 模式：API 模式直接用 `HttpClient` 打下表的**真實 endpoint（M7 已實作）**，Demo 模式用本機範例資料。所以下表的 endpoint 不是「建議」，而是 `apps/api/src/SmartAgri.Api/` 現有的路由。只有兩處（對話提議、助理可提議的案件類型）掛在 `DemoRepository` 介面上，列在最後兩小段。
+
+深度：`docs/plans/2026-10-06-backend-milestone-7-cases.md` 第 3 節；ADR `docs/adr/2026-10-06-cases-and-handoff.md`。
+
+**共同規則**（計畫第 3 節）：所有端點都要登入；案件端點另需 `S+INT`。看不到、不存在、別的組織、外部客戶一律同一則 `403 case`；看得到但這個動作不是你能做的才是 `403 case-action`。`403` 的 `reason` 由 `cases.repository.ts` 的 `denied()` 原樣帶回畫面（`case`、`case-action`、`organization-settings`、`password-change-required`，其餘當成 `case`）。
+
+#### 承辦組（`CaseSettingsRepository`，路由 `CaseGroupEndpoints.cs`）
+
+| 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `listCaseGroups({ includeArchived })` `case-settings.repository.ts:218` | `GET /api/v1/case-groups?includeArchived=true` | `S+INT`（`includeArchived` 只有管理者有效，其他人永遠只看到未封存的組） | `200` `CaseGroupListView`（`groups`、`canManage`、`candidates`；候選人只給管理者） | — | `401`／`403 case`（外部客戶）／`5xx` | `features/settings/components/case-groups-panel/case-groups-panel.component.ts:69`；`features/cases/cases-page.component.ts:171`；`features/issues/open-case-dialog/open-case-dialog.component.ts:76` |
+| `createCaseGroup(name)` `:242` | `POST /api/v1/case-groups` `{ name }` | `S+ADM` | `201` `CaseGroupView`＋`Location` | `422`（`errors.name`：空白或超過 40 字）／`422 case-group-name-taken` | `401`／`403 organization-settings`／`5xx` | `case-groups-panel.component.ts:117` |
+| `renameCaseGroup(id, name)` `:260` | `PUT /api/v1/case-groups/{id}` `{ name }` | `S+ADM` | `200` `CaseGroupView`（同名不寫入） | `422`／`422 case-group-name-taken` | `401`／`403 organization-settings`（不存在與別組織同一則）／`5xx` | `case-groups-panel.component.ts:147` |
+| `setCaseGroupArchived(id, archive)` `:282` | `POST /api/v1/case-groups/{id}:archive`／`:unarchive` | `S+ADM` | `200` `CaseGroupView`（已是該狀態不寫入） | `422 case-group-in-use`（封存時：仍是啟用中案件類型的預設承辦組，欄位 `caseTypes`；或仍有未結案案件，欄位 `cases`） | `401`／`403 organization-settings`／`5xx` | `case-groups-panel.component.ts:165` |
+| `updateCaseGroupMembers(id, accountIds)` `:311` | `PUT /api/v1/case-groups/{id}/members` `{ accountIds }`（完整名單） | `S+ADM` | `200` `CaseGroupView`（沒有變動不寫入；每個加入／移除各寫一筆異動紀錄） | `422 member-not-eligible`（欄位 `accountIds`：含外部客戶、不存在或別組織的帳號，整份不儲存）／`422`（沒有帶 `accountIds`）／`409 case-group-members-conflict`（兩人同時改） | `401`／`403 organization-settings`／`5xx` | `case-groups-panel.component.ts:204` |
+| `listCaseGroupMemberChanges(id)` `:351` | `GET /api/v1/case-groups/{id}/member-changes` | `S+ADM` | `200` `CaseGroupMemberChangeView[]`（新到舊） | — | `401`／`403 organization-settings`／`5xx` | `case-groups-panel.component.ts:220` |
+
+#### 案件類型（`CaseSettingsRepository`，路由 `CaseTypeEndpoints.cs`）
+
+| 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `listCaseTypes({ includeInactive })` `case-settings.repository.ts:379` | `GET /api/v1/case-types?includeInactive=true` | `S+INT`（`includeInactive` 只有管理者有效，其他人只看到啟用中的） | `200` `CaseTypeListView`（`types`、`canManage`） | — | `401`／`403 case`／`5xx` | `features/settings/components/case-types-panel/case-types-panel.component.ts:91`；`features/cases/cases-page.component.ts:167`；`features/issues/open-case-dialog/open-case-dialog.component.ts:75`；`features/assistants/components/proposable-case-types/proposable-case-types.component.ts:33` |
+| `createCaseType(input)` `:399` | `POST /api/v1/case-types` `{ name, description, defaultGroupId, defaultDueHours, isActive? }` | `S+ADM` | `201` `CaseTypeView`＋`Location` | `422`（逐欄；名稱 1–40 字、說明 0–500 字、時限 1–2,160 小時）／`422 case-type-name-taken`／`422 case-group-not-found`／`422 case-group-archived` | `401`／`403 organization-settings`／`5xx` | `case-types-panel.component.ts:224` |
+| `updateCaseType(id, input)` `:418` | `PUT /api/v1/case-types/{id}`（每個欄位都要帶） | `S+ADM` | `200` `CaseTypeView`（沒有變動不寫入；停用也是這條，`isActive: false`） | 同上，另加 `422 case-type-in-use`（停用一個仍有資料庫設定自動開案的類型，欄位 `databases`） | `401`／`403 organization-settings`／`5xx` | `case-types-panel.component.ts:224`、`:234`（停用／啟用按鈕） |
+
+#### 案件、流轉、逾期、統計（`CasesRepository`，路由 `CaseEndpoints.cs`、`CaseActionEndpoints.cs`、`CaseStatisticsEndpoints.cs`）
+
+| 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `list(filter)` `cases.repository.ts:282` | `GET /api/v1/cases?scope=&status=&typeId=&groupId=&overdue=true&closedFrom=&closedTo=`（`scope`：`all`／`created`／`owned`／`my-groups`；`status` 預設 `open`，另有 `closed`、`all` 與各狀態；不分頁、新到舊） | `S+INT` | `200` `CaseSummaryView[]` | `422`（未知的 `scope`／`status`；`422 invalid-date-range`：`closedFrom`／`closedTo` 不合法，只有手改網址才會遇到） | `401`／`403 case`／`5xx` | `features/cases/cases-page.component.ts:142` |
+| `get(id)` `:391` | `GET /api/v1/cases/{id}` | `S+INT` ＋看得到這件案件 | `200` `CaseDetailView`（案件、事件時間軸、連結、`allowedActions`、`cancelReasonRequired`） | — | `401`／`403 case`（看不到＝不存在＝別組織＝外部客戶，同一則）／`5xx` | `cases-page.component.ts:160` |
+| `create(request)` `:406` | `POST /api/v1/cases` `{ typeId, groupId, dueAt, title, description, databaseId?, submissionId?, assistantId?, threadId?, previousCaseId? }` | `S+INT` | `201` `CaseDetailView`（狀態 `pending`、來源 `manual`） | `422`（逐欄）／`422 due-in-past`／`422 case-type-inactive`（停用、不存在、別組織同一則）／`422 case-group-not-found`／`422 case-group-archived`／`422 link-not-available`（紀錄你讀不到、對話不是你的、前案看不到或未結案） | `401`／`403 case`／`5xx` | `cases-page.component.ts:286` |
+| `act(id, 'accept', input)` `:470` | `POST /api/v1/cases/{id}:accept` `{ eventCount }` | `S+INT` ＋看得到；誰能做由 `CaseActionRules` 決定 | `200` `CaseDetailView` | `409 case-changed`（`eventCount` 過期、同時被改、或狀態已不能做這個動作） | `401`／`403 case`／`403 case-action`／`5xx` | `features/cases/case-actions.component.ts:163` |
+| `act(id, 'request-info', input)` `:470` | `POST /api/v1/cases/{id}:request-info` `{ eventCount, note }` | 同上 | `200`（待補件） | `422 note-required`／`409 case-changed` | 同上 | `case-actions.component.ts:163` |
+| `act(id, 'resume', input)` `:470` | `POST /api/v1/cases/{id}:resume` `{ eventCount, note? }` | 同上 | `200`（繼續處理） | `409 case-changed` | 同上 | `case-actions.component.ts:163` |
+| `act(id, 'complete', input)` `:470` | `POST /api/v1/cases/{id}:complete` `{ eventCount, resolution }` | 同上 | `200`（已完成） | `422 resolution-required`／`409 case-changed` | 同上 | `case-actions.component.ts:163` |
+| `act(id, 'cancel', input)` `:470` | `POST /api/v1/cases/{id}:cancel` `{ eventCount, reason? }` | 同上 | `200`（已取消） | `422 reason-required`（建立者在受理前取消可免填，其餘必填）／`409 case-changed` | 同上 | `case-actions.component.ts:163` |
+| `act(id, 'transfer', input)` `:470` | `POST /api/v1/cases/{id}:transfer` `{ eventCount, groupId, note? }` | 同上 | `200`（換承辦組；轉組後原承辦組成員只要是曾經的負責人仍看得到） | `422`（沒有 `groupId`）／`422 case-group-not-found`／`422 case-group-archived`／`422 case-group-unchanged`／`409 case-changed` | 同上 | `case-actions.component.ts:163` |
+| `act(id, 'set-due', input)` `:470` | `POST /api/v1/cases/{id}:set-due` `{ eventCount, dueAt, note? }` | 同上 | `200` | `422`（沒有 `dueAt`）／`422 due-in-past`／`409 case-changed` | 同上 | `case-actions.component.ts:163` |
+| `act(id, 'comment', input)` `:470` | `POST /api/v1/cases/{id}/comments` `{ eventCount, note }` | 同上 | `200`（補充） | `422 note-required`／`409 case-changed` | 同上 | `case-actions.component.ts:163` |
+| `attention()` `:327` | `GET /api/v1/cases/attention` | `S+INT`（管理者不因為是管理者而多算） | `200` `CaseAttentionView`（`overdueCount`、`ownedOverdueCount`、`groupPendingOverdueCount`、`pendingForMeCount`） | — | `401`／`403 case`（外部客戶；側欄本來就不會替外部客戶發出這個請求）／`5xx` | `features/cases/case-attention.loader.ts:25`（側欄「案件」旁的數字，由 `app.ts:123` 在換頁時動態載入）；`features/home/home-page.component.ts:62`（首頁卡片） |
+| `list({ overdue: true, scope })` `:282` | 同 `GET /api/v1/cases?scope=owned&overdue=true`；承辦組版是 `?scope=my-groups&status=pending&overdue=true`（`home-page.component.html:92`、`:95`） | `S+INT` | `200` `CaseSummaryView[]`，筆數與 `attention()` 的對應數字相同 | 同上 | 同上 | 首頁卡片的兩個連結帶網址參數進 `/app/cases`，由 `cases-page.component.ts:142` 讀取 |
+| `statistics(range)` `:357` | `GET /api/v1/cases/statistics?from=&to=`（預設最近 30 天、上限 180 天、UTC 日） | `S+ADM` | `200` `CaseStatisticsView`（`from`、`to`、`rows`：類型 × 承辦組的未結案、逾期、完成、取消、平均處理時間） | `422 invalid-date-range`（欄位 `to`） | `401`／`403 organization-settings`（非管理者，含外部客戶）／`5xx` | `features/cases/case-statistics.component.ts:64` |
+
+統計裡的每個數字都會帶網址參數回案件清單（`status=completed`／`cancelled`＋`closedFrom`／`closedTo`，或 `overdue=true`），所以清單的筆數必須等於統計那一格的數字；e2e 以 `cases.cy.ts` 鎖住。
+
+#### 對話裡的開案提議（掛在 `DemoRepository`，路由 `Chat/ChatCaseProposalEndpoints.cs`）
+
+| 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `confirmChatCaseProposal(viewer, assistantId, messageId, { title, description })` `demo-repository.ts:1296` | `POST /api/v1/assistants/{id}/chat/case-proposals/{messageId}:confirm` `{ title, description }` | `S+USE`＋`S+INT` | `200` `ChatMessageView`（提議更新為「已建立」並帶案件 id）；案件建立者是提問者、來源 `chat-proposal`、連結這個對話串、時限從現在起算 | `422`（標題或說明欄位錯誤）／`422 case-type-not-proposable`（類型已停用，或助理已不再提議它）／`422 case-group-archived`／`409 case-proposal-closed`（已確認或已選「不用了」，不會建立第二件） | `401`／`403 assistant-use`（不能使用這個助理，與不存在同一則）／`403 case`（外部客戶）／`403 chat-thread`（不是自己的對話，與不存在同一則）／`5xx`（案件沒有建立） | `features/assistant-use/conversation/chat-conversation.component.ts:869` |
+| `dismissChatCaseProposal(viewer, assistantId, messageId)` `demo-repository.ts:1303` | `POST /api/v1/assistants/{id}/chat/case-proposals/{messageId}:dismiss` | 同上 | `200` `ChatMessageView`（只記下「不用了」，不建立案件） | `409 case-proposal-closed` | 同上 | `chat-conversation.component.ts:879` |
+
+前端 API 模式的實作是 `hybrid-demo-repository.ts:2323`、`:2336`（409 轉成 `conflict`）；Demo 模式在 `mock-demo-repository.ts:5156`、`:5165`，確認建立的案件放在 `mock-chat-cases.ts`（只存在這次工作階段，`CasesRepository` 的 mock 會一併列出）。
+
+#### 助理可提議的案件類型（掛在 `DemoRepository`，路由 `Assistants/AssistantEndpoints.cs:293`、`:300`）
+
+| 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `setAssistantCaseType(assistantId, caseTypeId, true)` `demo-repository.ts:704` | `PUT /api/v1/assistants/{id}/sources/case-type/{caseTypeId}`（無請求本文） | `S+OWN`＋`S+MA`（比照數據庫的連結；不需管理者核准） | `200` `AssistantSettingsView`（`caseTypeIds`；已在清單上則不重複寫入） | `422 case-type-inactive`（欄位 `caseTypeIds`：停用、不存在、別組織、格式不合同一則） | `401`／`403 assistant-configuration`（不是擁有者，與不存在同一則）／`5xx` | `features/assistants/assistant-detail/assistant-settings.store.ts:279`（畫面是 `features/assistants/components/proposable-case-types/`） |
+| `setAssistantCaseType(assistantId, caseTypeId, false)` `demo-repository.ts:704` | `DELETE /api/v1/assistants/{id}/sources/case-type/{caseTypeId}` | 同上 | `200` `AssistantSettingsView`（不在清單上或格式不合法是 no-op；已顯示的提議之後讀回為「無法建立」） | — | 同上 | `assistant-settings.store.ts:279` |
+
+前端 API 模式實作：`hybrid-demo-repository.ts:985`（`proposable` 為 true 用 `PUT`、false 用 `DELETE`）。
+
+#### 數據庫送出後自動開案（`CaseSettingsRepository`，路由 `Databases/DatabaseAutoCaseEndpoints.cs`）
+
+| 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `getDatabaseAutoCase(databaseId)` `case-settings.repository.ts:446` | `GET /api/v1/databases/{id}/auto-case` | `S+ADM`（管理者，不論是不是這個資料庫的擁有者） | `200` `DatabaseAutoCaseView`（`caseTypeId`、`options`：啟用中的類型與承辦組、「承辦組中有 N 人無法讀取這個資料庫的紀錄」的人數） | — | `401`／`403 organization-settings`（非管理者、資料庫不存在、別組織同一則）／`5xx` | `features/databases/database-auto-case/database-auto-case.component.ts:52` |
+| `setDatabaseAutoCase(databaseId, caseTypeId \| null)` `:460` | `PUT /api/v1/databases/{id}/auto-case` `{ caseTypeId }`（`null` 代表不開案） | `S+ADM` | `200` `DatabaseAutoCaseView`（選擇已設定的值不寫入；有變動寫一筆 `database-auto-case-changed` 組織紀錄） | `422 case-type-inactive`（欄位 `caseTypeId`） | `401`／`403 organization-settings`／`5xx` | `database-auto-case.component.ts:97` |
+
+#### 處理事項另開案件（`AssistantIssuesRepository`，路由 `Assistants/AssistantIssueEndpoints.OpenCase.cs`）
+
+| 方法（契約行號） | 建議 endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `openCase(issueId, request, options)` `assistant-issues.repository.ts:283` | `POST /api/v1/issues/{issueId}:open-case` `{ typeId, groupId, dueAt, title, description }` | `S+INT`＋能改這個處理事項的人（助理擁有者且有 `manage-assistants`，或被指派者且有 `handle-assistant-issues`） | `201` `{ caseId, issue }`＋`Location`（案件來源 `assistant-issue`、建立者是呼叫者、連結這個處理事項；處理事項同一個交易內被標成「非助理問題」並連結案件） | `422`（與 `POST /api/v1/cases` 相同的欄位檢查與原因，順序相同）／`409 case-already-opened`（回應帶 `caseId`，一個處理事項只能開一件，重新開啟後也一樣）／`409 issue-changed`（處理事項已解決或同時被改） | `401`／`403 assistant-issue`（外部客戶、看不到、不存在、別組織同一則）／`5xx` | `features/issues/open-case-dialog/open-case-dialog.component.ts:141`（對話框掛在 `features/issues/issues-page.component.html:179`） |
+
+#### 行為備忘
+
+- **看不到與不存在回同樣的 `403 case`**：外部客戶、不存在、別的組織、看得到性不足（建立者、目前承辦組成員、曾任負責人的人、管理者才看得到）一律逐位元組相同；`403 case-action` 只在「看得到、但這個動作不是你能做的」才出現。
+- **狀態動作一律帶 `eventCount`**：它是畫面上那一版的事件數，也是併發控制的 token。不一致、同時有兩個動作、或狀態已不允許（例如已結案的案件做任何動作），都是 `409 case-changed`，什麼都不寫入；前端把它變成 `CaseChangedView`，請使用者重新整理。每個動作成功恰好寫一筆事件，回應是整份新的詳情。
+- **管理者不因為是管理者而多算逾期**：`attention` 只算「我負責的逾期」與「我的承辦組待受理的逾期」（兩者不重疊）以及「待我受理」。逾期是 `dueAt < 現在` 且狀態不是已完成、已取消；待補件照樣計時。
+- **自動開案的案件沒有建立者、不複製紀錄內容**：由送出表單的流程在**同一次儲存**開案（來源 `database-submission`，畫面標示「數據庫送出後自動建立」，`case.model.ts:83`；領域規則是來源為 `database-submission` 時 `createdByAccountId` 必為空，`Case.cs:160`），只連結那筆紀錄；紀錄被撤回後案件仍在，只顯示「紀錄已撤回」。任何案件回應都不帶對話文字或紀錄內容；看得到案件**不代表**讀得到紀錄（承辦組成員未必是資料管理者，所以設定畫面要顯示 N 人無法讀取）。
+- **訪客頻道永遠不提議案件**：官網與 LINE 走 `VisitorChatRunEndpoints`，不經過提議階段；外部客戶在工作區對話也不提議。提議的優先順序是數據庫查詢 → 表單 → 案件，每則回覆最多一個提議。
+- **提議的觸發方式與表單請求共用 `Chat:FormRequests:Trigger`**（環境變數 `CHAT_FORM_REQUEST_TRIGGER` 不改名）：`Keyword` 模式看開案關鍵字加類型名稱（或助理只有一個可提議類型）；`Model` 模式在表單沒有成立時再做一次選擇呼叫（用途 `case-proposal`，計入用量），模型失敗退回關鍵字。誤觸、漏觸與選錯類型的評測在 `docs/evals/2026-10-07-257-case-proposal-trigger.md`（逐題報告：`docs/evals/2026-10-07-case-proposals-gpt-6-luna.md`）。
+- **每次提議與確認都重新檢查類型**：類型仍啟用、仍在助理的清單上、提問者是內部帳號；否則確認回 `422 case-type-not-proposable`，已顯示的卡片讀回為「無法建立」。
+- **管理者只能停用、不能刪除類型或承辦組**（決定 G、O）：被啟用中類型當預設的承辦組不能封存、有未結案案件的承辦組不能封存、被資料庫自動開案使用的類型不能停用。
+- **前端特例**：`cases.repository.ts` 的 `viewerIsManager()`（`:385`）以 Demo 身分的角色判斷要不要顯示「瓶頸統計」分頁；API 模式的真正判斷在後端的 `403 organization-settings`。
+- **Demo 模式的案件資料只存在這次工作階段**，且刻意**不放進 `demo-seed.ts`**（後端有測試會讀它）；範例資料在 `cases.repository.ts` 的 `MOCK_SEEDS`、`case-settings.repository.ts`、`mock-chat-cases.ts`、`mock-issue-cases.ts`。
+
 ---
 
 ## 3. 每個方法的「Demo 特有行為」速查
@@ -473,3 +568,9 @@ grep -nE "^  [a-zA-Z]+(\(|<)" apps/admin/src/app/core/repositories/demo-reposito
 ```
 
 輸出的每一個方法名稱都必須能在本文件搜尋到。
+
+**M7 之後的補充**：
+
+- 案件的兩個獨立 repository（`CasesRepository` 6 個公開方法加 `viewerIsManager()`、`CaseSettingsRepository` 11 個方法）與 `AssistantIssuesRepository.openCase` **不計入上表的 `DemoRepository` 數字**，另在第 2.9 節單獨對照；上面的驗證指令也不會列出它們，要另跑 `grep -nE "^  [a-zA-Z]+\(" apps/admin/src/app/core/repositories/cases.repository.ts apps/admin/src/app/core/repositories/case-settings.repository.ts`（含 `private` 輔助方法，需人工略過）。
+- M7 在 `DemoRepository` 新增的 3 個方法（`setAssistantCaseType` `:704`、`confirmChatCaseProposal` `:1296`、`dismissChatCaseProposal` `:1303`）已列在第 2.9 節。
+- **待確認**：上表的 60／57／47／10 是 M7 之前的數字。2026-10-07 實際跑上面的指令得到 116 行，且除了案件的 3 個方法，還有許多後來新增的方法（例如驗收題庫 `*AssistantTestCase*`／`*AssistantTestRun*`、命名草稿 `*NamedAssistantDraft`、`createKnowledgeBase`／`uploadKnowledgeDocument` 系列、`getOrganizationRetention` 系列、`publishLine`／`testLineConnection`、`archiveDatabase`、`listChatForms`／`dismissChatForm` 等）在本文件搜尋不到。這些不是 M7-12 的範圍，本次沒有重算總數，也沒有補進對照表；要全面更新請另開工作。

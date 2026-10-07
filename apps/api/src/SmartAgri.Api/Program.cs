@@ -6,6 +6,7 @@ using SmartAgri.Api.Ai;
 using SmartAgri.Api.Answers;
 using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Api.Assistants;
+using SmartAgri.Api.Cases;
 using SmartAgri.Api.Chat;
 using SmartAgri.Api.Databases;
 using SmartAgri.Api.DataProtection;
@@ -66,8 +67,12 @@ builder.Services.AddOptions<ChatFormRequestOptions>()
 builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<ChatFormRequestOptions>, ChatFormRequestOptions.Validator>();
 builder.Services.AddScoped<ChatFormRequestTool>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatFormRequestProposal>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.ChatCaseProposalTool>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.ChatProposalSelectionTool>();
+builder.Services.AddScoped<SmartAgri.Api.Chat.ChatCaseProposal>();
 builder.Services.AddScoped<SmartAgri.Api.Chat.ChatProposalStage>();
 builder.Services.AddPeriodicReports();
+builder.Services.AddConversationRetention();
 builder.AddSmartAgriAuthentication();
 builder.AddSmartAgriDataProtection();
 builder.Services.AddVisitorAuthentication();
@@ -155,11 +160,38 @@ if (args is [SmartAgriCommands.EvalFormRequests, .. var evalFormArgs])
     return;
 }
 
+// `eval-case-proposals` is one-shot too, Development only: judge how often the keyword rule and the
+// model choosing `propose_case` miss, false-trigger or pick the wrong case type on a labelled question
+// set, alone and after the query and form layers (decision L), and write a Markdown report, then exit
+// (M7-12 #257). The keyword trigger needs no model; neither needs a database.
+if (args is [SmartAgriCommands.EvalCaseProposals, .. var evalCaseArgs])
+{
+    Environment.ExitCode = await SmartAgri.Api.Chat.Evaluation.EvalCaseProposalsCommand.RunAsync(app.Services, evalCaseArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `set-token-limit` is one-shot too, in any environment: set an organization's monthly chat-model
 // token limit (or send it back to the deployment default) and exit (M5a #195).
 if (args is [SmartAgriCommands.SetTokenLimit, .. var setTokenLimitArgs])
 {
     Environment.ExitCode = await SetTokenLimitCommand.RunAsync(app.Services, setTokenLimitArgs, Console.Out, Console.Error);
+    return;
+}
+
+// `retention-cleanup` is one-shot too, in any environment: run one organization's conversation
+// cleanup now, by its retention, and exit (M6-4 #241). `--as-of` only in Development/Testing.
+if (args is [SmartAgriCommands.RetentionCleanup, .. var retentionCleanupArgs])
+{
+    Environment.ExitCode = await RetentionCleanupCommand.RunAsync(app.Services, retentionCleanupArgs, Console.Out, Console.Error);
+    return;
+}
+
+// `case-set-due` is one-shot too, Development/Testing only: move one open case's due time (also into
+// the past, which the API refuses) with an actor-less due-changed event, and exit (M7-11 #256). The
+// API-mode E2E runs it to make a case overdue.
+if (args is [SmartAgriCommands.CaseSetDue, .. var caseSetDueArgs])
+{
+    Environment.ExitCode = await CaseSetDueCommand.RunAsync(app.Services, caseSetDueArgs, Console.Out, Console.Error);
     return;
 }
 
@@ -198,6 +230,7 @@ app.MapDatabaseEndpoints();
 app.MapDatabaseSubmissionEndpoints();
 app.MapDatabaseQueryEndpoints();
 app.MapDatabaseReportEndpoints();
+app.MapDatabaseAutoCaseEndpoints();
 app.MapAssistantEndpoints();
 app.MapAssistantWebsiteChannelEndpoints();
 app.MapAssistantLineChannelEndpoints();
@@ -210,9 +243,16 @@ app.MapAssistantAnalyticsEndpoints();
 app.MapOperationsSummaryEndpoints();
 app.MapOrganizationUsageEndpoints();
 app.MapOrganizationChatModelEndpoints();
+app.MapOrganizationRetentionEndpoints();
+app.MapConversationPurgeEndpoints();
+app.MapCaseGroupEndpoints();
+app.MapCaseTypeEndpoints();
+app.MapCaseEndpoints();
+app.MapCaseStatisticsEndpoints();
 app.MapChatEndpoints();
 app.MapChatRunEndpoints();
 app.MapChatFormEndpoints();
+app.MapChatCaseProposalEndpoints();
 app.MapVisitorEndpoints();
 app.MapWidgetEndpoints();
 app.MapLineWebhookEndpoints();
@@ -235,7 +275,10 @@ internal static class SmartAgriCommands
     public const string EvalRetrieval = "eval-retrieval";
     public const string EvalAnswers = "eval-answers";
     public const string EvalFormRequests = "eval-form-requests";
+    public const string EvalCaseProposals = "eval-case-proposals";
     public const string SetTokenLimit = "set-token-limit";
+    public const string RetentionCleanup = "retention-cleanup";
+    public const string CaseSetDue = "case-set-due";
 }
 
 namespace SmartAgri.Api

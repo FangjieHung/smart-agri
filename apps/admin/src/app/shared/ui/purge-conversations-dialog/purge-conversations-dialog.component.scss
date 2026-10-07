@@ -1,0 +1,20 @@
+:host { display: contents; }
+
+// 投影進確認框的內容（帶著本元件的 _ngcontent 屬性，所以這裡的規則套得到）。
+.purge-confirm__note { margin: 0; color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.purge-confirm__acknowledge {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-block-size: var(--target-size);
+  font-weight: 700;
+  line-height: var(--line-height-body);
+  cursor: pointer;
+}
+.purge-confirm__acknowledge input {
+  flex: none;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  margin: 0;
+}
+.purge-confirm__acknowledge input:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

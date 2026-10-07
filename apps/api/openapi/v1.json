@@ -554,6 +554,182 @@
         }
       }
     },
+    "/api/v1/organization/retention": {
+      "get": {
+        "tags": [
+          "OrganizationRetentionEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRetentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "OrganizationRetentionEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationRetentionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRetentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/organization/retention/preview": {
+      "get": {
+        "tags": [
+          "OrganizationRetentionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationRetentionPreviewView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/organization/retention/assistants": {
+      "get": {
+        "tags": [
+          "ConversationPurgeEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationRetentionAssistantView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/statistics": {
+      "get": {
+        "tags": [
+          "CaseStatisticsEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseStatisticsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/chat/recent-conversations": {
       "get": {
         "tags": [
@@ -2725,6 +2901,89 @@
         }
       }
     },
+    "/api/v1/databases/{id}/auto-case": {
+      "get": {
+        "tags": [
+          "DatabaseAutoCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseAutoCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "DatabaseAutoCaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDatabaseAutoCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseAutoCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants": {
       "get": {
         "tags": [
@@ -3092,6 +3351,95 @@
           },
           "422": {
             "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/sources/case-type/{caseTypeId}": {
+      "put": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "caseTypeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSettingsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "AssistantEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "caseTypeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantSettingsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -4516,6 +4864,1133 @@
         }
       }
     },
+    "/api/v1/issues/{issueId}:open-case": {
+      "post": {
+        "tags": [
+          "AssistantIssueEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenCaseFromIssueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantIssueOpenedCaseView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/conversations/summary": {
+      "get": {
+        "tags": [
+          "ConversationPurgeEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/conversations:purge": {
+      "post": {
+        "tags": [
+          "ConversationPurgeEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantConversationPurgeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/case-groups": {
+      "get": {
+        "tags": [
+          "CaseGroupEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseGroupListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CaseGroupEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseGroupNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseGroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/case-groups/{id}": {
+      "put": {
+        "tags": [
+          "CaseGroupEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseGroupNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseGroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/case-groups/{id}:archive": {
+      "post": {
+        "tags": [
+          "CaseGroupEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseGroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/case-groups/{id}:unarchive": {
+      "post": {
+        "tags": [
+          "CaseGroupEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseGroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/case-groups/{id}/members": {
+      "put": {
+        "tags": [
+          "CaseGroupEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCaseGroupMembersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseGroupView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/case-groups/{id}/member-changes": {
+      "get": {
+        "tags": [
+          "CaseGroupEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CaseGroupMemberChangeView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/case-types": {
+      "get": {
+        "tags": [
+          "CaseTypeEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "includeInactive",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTypeListView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CaseTypeEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseTypeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTypeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/case-types/{id}": {
+      "put": {
+        "tags": [
+          "CaseTypeEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseTypeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseTypeView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases": {
+      "post": {
+        "tags": [
+          "CaseEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "CaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "typeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "groupId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "closedFrom",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "closedTo",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CaseSummaryView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/attention": {
+      "get": {
+        "tags": [
+          "CaseEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseAttentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}": {
+      "get": {
+        "tags": [
+          "CaseEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}:accept": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}:request-info": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}:resume": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseNoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}:complete": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}:cancel": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}:transfer": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferCaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}:set-due": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCaseDueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/cases/{id}/comments": {
+      "post": {
+        "tags": [
+          "CaseActionEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseCommentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/assistants/{id}/chat/conversations": {
       "get": {
         "tags": [
@@ -4975,6 +6450,117 @@
         }
       }
     },
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:confirm": {
+      "post": {
+        "tags": [
+          "ChatCaseProposalEndpoints"
+        ],
+        "summary": "Create the case an assistant proposed, with the title and description the asker confirmed (#254)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmChatCaseProposalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatMessageView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:dismiss": {
+      "post": {
+        "tags": [
+          "ChatCaseProposalEndpoints"
+        ],
+        "summary": "Record that the asker declined an assistant's case proposal (#254)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "messageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatMessageView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Conflict"
+          }
+        }
+      }
+    },
     "/api/v1/public/assistants/{id}/visitor-sessions": {
       "post": {
         "tags": [
@@ -5084,6 +6670,21 @@
   },
   "components": {
     "schemas": {
+      "AcceptCaseRequest": {
+        "required": [
+          "eventCount"
+        ],
+        "type": "object",
+        "properties": {
+          "eventCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "AccountPermission": {
         "enum": [
           "manage-assistants",
@@ -5458,6 +7059,39 @@
           }
         }
       },
+      "AssistantConversationPurgeView": {
+        "required": [
+          "deletedThreadCount"
+        ],
+        "type": "object",
+        "properties": {
+          "deletedThreadCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AssistantConversationSummaryView": {
+        "required": [
+          "threadCount",
+          "accountCount",
+          "canPurge"
+        ],
+        "type": "object",
+        "properties": {
+          "threadCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accountCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "canPurge": {
+            "type": "boolean"
+          }
+        }
+      },
       "AssistantDraftView": {
         "required": [
           "id",
@@ -5489,10 +7123,27 @@
           }
         }
       },
+      "AssistantIssueCaseLinkView": {
+        "required": [
+          "caseId",
+          "canOpen"
+        ],
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canOpen": {
+            "type": "boolean"
+          }
+        }
+      },
       "AssistantIssueDetailView": {
         "required": [
           "issue",
-          "events"
+          "events",
+          "linkedCase"
         ],
         "type": "object",
         "properties": {
@@ -5504,6 +7155,16 @@
             "items": {
               "$ref": "#/components/schemas/AssistantIssueEventView"
             }
+          },
+          "linkedCase": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantIssueCaseLinkView"
+              }
+            ]
           }
         }
       },
@@ -5513,7 +7174,8 @@
           "assigned",
           "status-changed",
           "commented",
-          "due-date-changed"
+          "due-date-changed",
+          "case-opened"
         ]
       },
       "AssistantIssueEventView": {
@@ -5587,6 +7249,29 @@
           }
         }
       },
+      "AssistantIssueOpenedCaseView": {
+        "required": [
+          "caseId",
+          "issue"
+        ],
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issue": {
+            "$ref": "#/components/schemas/AssistantIssueDetailView"
+          }
+        }
+      },
+      "AssistantIssueResolutionKind": {
+        "enum": [
+          "fixed",
+          "not-assistant-issue",
+          null
+        ]
+      },
       "AssistantIssueSource": {
         "enum": [
           "test-failure",
@@ -5651,7 +7336,9 @@
           "resolvedAt",
           "viewerIsAssistantOwner",
           "viewerIsAssignee",
-          "handoffUnverified"
+          "handoffUnverified",
+          "resolutionKind",
+          "linkedCaseId"
         ],
         "type": "object",
         "properties": {
@@ -5773,6 +7460,23 @@
           },
           "handoffUnverified": {
             "type": "boolean"
+          },
+          "resolutionKind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssistantIssueResolutionKind"
+              }
+            ]
+          },
+          "linkedCaseId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -5846,6 +7550,7 @@
           "configuration",
           "knowledgeBaseIds",
           "databaseIds",
+          "caseTypeIds",
           "tone",
           "roleInstructions",
           "rules",
@@ -5864,6 +7569,13 @@
             }
           },
           "databaseIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "caseTypeIds": {
             "type": "array",
             "items": {
               "type": "string",
@@ -6305,6 +8017,991 @@
           "concise"
         ]
       },
+      "CancelCaseRequest": {
+        "required": [
+          "eventCount",
+          "reason"
+        ],
+        "type": "object",
+        "properties": {
+          "eventCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CaseAccountView": {
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "CaseAction": {
+        "enum": [
+          "accept",
+          "request-info",
+          "resume",
+          "complete",
+          "cancel",
+          "transfer",
+          "set-due",
+          "comment"
+        ]
+      },
+      "CaseAttentionView": {
+        "required": [
+          "overdueCount",
+          "ownedOverdueCount",
+          "groupPendingOverdueCount",
+          "pendingForMeCount"
+        ],
+        "type": "object",
+        "properties": {
+          "overdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "ownedOverdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "groupPendingOverdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pendingForMeCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "CaseCommentRequest": {
+        "required": [
+          "eventCount",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "eventCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CaseDetailView": {
+        "required": [
+          "case",
+          "events",
+          "links",
+          "allowedActions",
+          "cancelReasonRequired"
+        ],
+        "type": "object",
+        "properties": {
+          "case": {
+            "$ref": "#/components/schemas/CaseView"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseEventView"
+            }
+          },
+          "links": {
+            "$ref": "#/components/schemas/CaseLinksView"
+          },
+          "allowedActions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseAction"
+            }
+          },
+          "cancelReasonRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CaseEventAction": {
+        "enum": [
+          "created",
+          "accepted",
+          "info-requested",
+          "commented",
+          "resumed",
+          "completed",
+          "cancelled",
+          "transferred",
+          "due-changed"
+        ]
+      },
+      "CaseEventView": {
+        "required": [
+          "id",
+          "ordinal",
+          "action",
+          "actor",
+          "at",
+          "note",
+          "status",
+          "owner",
+          "fromGroup",
+          "toGroup",
+          "dueAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "action": {
+            "$ref": "#/components/schemas/CaseEventAction"
+          },
+          "actor": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseAccountView"
+              }
+            ]
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseStatus"
+              }
+            ]
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseAccountView"
+              }
+            ]
+          },
+          "fromGroup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseGroupRefView"
+              }
+            ]
+          },
+          "toGroup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseGroupRefView"
+              }
+            ]
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "CaseGroupAccountView": {
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "CaseGroupCandidateView": {
+        "required": [
+          "id",
+          "displayName",
+          "role"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccountRole"
+          }
+        }
+      },
+      "CaseGroupListView": {
+        "required": [
+          "groups",
+          "canManage",
+          "candidates"
+        ],
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseGroupView"
+            }
+          },
+          "canManage": {
+            "type": "boolean"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseGroupCandidateView"
+            }
+          }
+        }
+      },
+      "CaseGroupMemberChangeView": {
+        "required": [
+          "id",
+          "account",
+          "added",
+          "changedBy",
+          "changedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account": {
+            "$ref": "#/components/schemas/CaseGroupAccountView"
+          },
+          "added": {
+            "type": "boolean"
+          },
+          "changedBy": {
+            "$ref": "#/components/schemas/CaseGroupAccountView"
+          },
+          "changedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CaseGroupNameRequest": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CaseGroupRefView": {
+        "required": [
+          "id",
+          "name",
+          "archived"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CaseGroupView": {
+        "required": [
+          "id",
+          "name",
+          "archived",
+          "archivedAt",
+          "members",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseGroupAccountView"
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CaseIssueLinkView": {
+        "required": [
+          "issueId",
+          "canOpen"
+        ],
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canOpen": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CaseLinksView": {
+        "required": [
+          "record",
+          "thread",
+          "assistantIssue",
+          "previousCase"
+        ],
+        "type": "object",
+        "properties": {
+          "record": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseRecordLinkView"
+              }
+            ]
+          },
+          "thread": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseThreadLinkView"
+              }
+            ]
+          },
+          "assistantIssue": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseIssueLinkView"
+              }
+            ]
+          },
+          "previousCase": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CasePreviousLinkView"
+              }
+            ]
+          }
+        }
+      },
+      "CaseNoteRequest": {
+        "required": [
+          "eventCount",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "eventCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CaseOrigin": {
+        "enum": [
+          "manual",
+          "chat-proposal",
+          "database-submission",
+          "assistant-issue"
+        ]
+      },
+      "CasePreviousLinkView": {
+        "required": [
+          "caseId",
+          "canOpen"
+        ],
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canOpen": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CaseRecordLinkState": {
+        "enum": [
+          "available",
+          "withdrawn",
+          "unavailable"
+        ]
+      },
+      "CaseRecordLinkView": {
+        "required": [
+          "databaseId",
+          "submissionId",
+          "state",
+          "canRead",
+          "databaseName"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "submissionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CaseRecordLinkState"
+          },
+          "canRead": {
+            "type": "boolean"
+          },
+          "databaseName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CaseStatisticsRowView": {
+        "required": [
+          "type",
+          "group",
+          "openCount",
+          "overdueCount",
+          "completedCount",
+          "cancelledCount",
+          "averageHandlingHours"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/CaseTypeRefView"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseGroupRefView"
+          },
+          "openCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "overdueCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "completedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cancelledCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageHandlingHours": {
+            "type": [
+              "null",
+              "number"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "CaseStatisticsView": {
+        "required": [
+          "from",
+          "to",
+          "rows"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseStatisticsRowView"
+            }
+          }
+        }
+      },
+      "CaseStatus": {
+        "enum": [
+          "pending",
+          "in-progress",
+          "awaiting-info",
+          "completed",
+          "cancelled"
+        ]
+      },
+      "CaseSummaryView": {
+        "required": [
+          "id",
+          "title",
+          "status",
+          "origin",
+          "type",
+          "group",
+          "createdBy",
+          "owner",
+          "dueAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin"
+          },
+          "type": {
+            "$ref": "#/components/schemas/CaseTypeRefView"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseGroupRefView"
+          },
+          "createdBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseAccountView"
+              }
+            ]
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseAccountView"
+              }
+            ]
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CaseThreadLinkView": {
+        "required": [
+          "assistantId",
+          "threadId",
+          "canOpen"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canOpen": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CaseTypeGroupView": {
+        "required": [
+          "id",
+          "name",
+          "archived"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CaseTypeListView": {
+        "required": [
+          "types",
+          "canManage"
+        ],
+        "type": "object",
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CaseTypeView"
+            }
+          },
+          "canManage": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CaseTypeRefView": {
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "CaseTypeRequest": {
+        "required": [
+          "name",
+          "description",
+          "defaultGroupId",
+          "defaultDueHours",
+          "isActive"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "defaultGroupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "defaultDueHours": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "isActive": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "CaseTypeView": {
+        "required": [
+          "id",
+          "name",
+          "description",
+          "defaultGroup",
+          "defaultDueHours",
+          "isActive",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "defaultGroup": {
+            "$ref": "#/components/schemas/CaseTypeGroupView"
+          },
+          "defaultDueHours": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CaseView": {
+        "required": [
+          "id",
+          "title",
+          "description",
+          "status",
+          "origin",
+          "type",
+          "group",
+          "createdBy",
+          "owner",
+          "dueAt",
+          "resolution",
+          "cancelReason",
+          "createdAt",
+          "updatedAt",
+          "acceptedAt",
+          "completedAt",
+          "cancelledAt",
+          "eventCount"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin"
+          },
+          "type": {
+            "$ref": "#/components/schemas/CaseTypeRefView"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseGroupRefView"
+          },
+          "createdBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseAccountView"
+              }
+            ]
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaseAccountView"
+              }
+            ]
+          },
+          "dueAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolution": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cancelReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "acceptedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "cancelledAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "eventCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "ChangePasswordRequest": {
         "required": [
           "currentPassword",
@@ -6335,6 +9032,62 @@
           "suspended-quota",
           "serving"
         ]
+      },
+      "ChatCaseProposalStatus": {
+        "enum": [
+          "proposed",
+          "confirmed",
+          "dismissed"
+        ]
+      },
+      "ChatCaseProposalView": {
+        "required": [
+          "typeId",
+          "typeName",
+          "title",
+          "description",
+          "status",
+          "available",
+          "group",
+          "dueHours",
+          "caseId"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "typeName": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ChatCaseProposalStatus"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseGroupRefView"
+          },
+          "dueHours": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "caseId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
       },
       "ChatCitationDetailView": {
         "required": [
@@ -6674,7 +9427,8 @@
           "nextSteps",
           "form",
           "receipt",
-          "databaseQuery"
+          "databaseQuery",
+          "caseProposal"
         ],
         "type": "object",
         "properties": {
@@ -6729,6 +9483,16 @@
               },
               {
                 "$ref": "#/components/schemas/ChatDatabaseQueryView"
+              }
+            ]
+          },
+          "caseProposal": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChatCaseProposalView"
               }
             ]
           }
@@ -6824,6 +9588,49 @@
           "count": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "CompleteCaseRequest": {
+        "required": [
+          "eventCount",
+          "resolution"
+        ],
+        "type": "object",
+        "properties": {
+          "eventCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "resolution": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "ConfirmChatCaseProposalRequest": {
+        "required": [
+          "title",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -7015,6 +9822,86 @@
             }
           },
           "followUpOfId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "CreateCaseRequest": {
+        "required": [
+          "typeId",
+          "groupId",
+          "dueAt",
+          "title",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "databaseId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "submissionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "assistantId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "threadId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "previousCaseId": {
             "type": [
               "null",
               "string"
@@ -7245,6 +10132,68 @@
           },
           "displayName": {
             "type": "string"
+          }
+        }
+      },
+      "DatabaseAutoCaseOptionView": {
+        "required": [
+          "id",
+          "name",
+          "group",
+          "defaultDueHours",
+          "memberCount",
+          "unreadableMemberCount"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "group": {
+            "$ref": "#/components/schemas/CaseTypeGroupView"
+          },
+          "defaultDueHours": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unreadableMemberCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DatabaseAutoCaseView": {
+        "required": [
+          "databaseId",
+          "caseTypeId",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "caseTypeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseAutoCaseOptionView"
+            }
           }
         }
       },
@@ -9777,6 +12726,51 @@
           }
         }
       },
+      "OpenCaseFromIssueRequest": {
+        "required": [
+          "typeId",
+          "groupId",
+          "dueAt",
+          "title",
+          "description"
+        ],
+        "type": "object",
+        "properties": {
+          "typeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "OperationsSummaryView": {
         "required": [
           "from",
@@ -9856,6 +12850,137 @@
           },
           "source": {
             "$ref": "#/components/schemas/ChatModelSource"
+          },
+          "canChange": {
+            "type": "boolean"
+          },
+          "lastChange": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationSettingChangeView"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrganizationRetentionAssistantView": {
+        "required": [
+          "assistantId",
+          "assistantName",
+          "keepConversations",
+          "threadCount",
+          "accountCount",
+          "lastActivityAt"
+        ],
+        "type": "object",
+        "properties": {
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "keepConversations": {
+            "type": "boolean"
+          },
+          "threadCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "accountCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastActivityAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationRetentionPendingView": {
+        "required": [
+          "days",
+          "effectiveAt"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationRetentionPreviewView": {
+        "required": [
+          "days",
+          "threadCount",
+          "cutoff"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "threadCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cutoff": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrganizationRetentionView": {
+        "required": [
+          "days",
+          "pending",
+          "options",
+          "canChange",
+          "lastChange",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "pending": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrganizationRetentionPendingView"
+              }
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
           },
           "canChange": {
             "type": "boolean"
@@ -10376,6 +13501,36 @@
           }
         }
       },
+      "SetCaseDueRequest": {
+        "required": [
+          "eventCount",
+          "dueAt",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "eventCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "dueAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "SetLinePausedRequest": {
         "required": [
           "paused"
@@ -10556,6 +13711,36 @@
           "near",
           "exceeded"
         ]
+      },
+      "TransferCaseRequest": {
+        "required": [
+          "eventCount",
+          "groupId",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "eventCount": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       },
       "TrialAnswerCitationView": {
         "required": [
@@ -10833,6 +14018,24 @@
           }
         }
       },
+      "UpdateCaseGroupMembersRequest": {
+        "required": [
+          "accountIds"
+        ],
+        "type": "object",
+        "properties": {
+          "accountIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
       "UpdateDatabaseAccessRequest": {
         "required": [
           "dataManagerAccountIds"
@@ -10848,6 +14051,21 @@
               "type": "string",
               "format": "uuid"
             }
+          }
+        }
+      },
+      "UpdateDatabaseAutoCaseRequest": {
+        "required": [
+          "caseTypeId"
+        ],
+        "type": "object",
+        "properties": {
+          "caseTypeId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -10987,6 +14205,26 @@
               "null",
               "string"
             ]
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "UpdateOrganizationRetentionRequest": {
+        "required": [
+          "days",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           },
           "revision": {
             "type": "integer",
@@ -11289,6 +14527,15 @@
       "name": "OrganizationChatModelEndpoints"
     },
     {
+      "name": "OrganizationRetentionEndpoints"
+    },
+    {
+      "name": "ConversationPurgeEndpoints"
+    },
+    {
+      "name": "CaseStatisticsEndpoints"
+    },
+    {
       "name": "ChatEndpoints"
     },
     {
@@ -11322,6 +14569,9 @@
       "name": "DatabaseReportEndpoints"
     },
     {
+      "name": "DatabaseAutoCaseEndpoints"
+    },
+    {
       "name": "AssistantEndpoints"
     },
     {
@@ -11335,6 +14585,21 @@
     },
     {
       "name": "AssistantTestRunEndpoints"
+    },
+    {
+      "name": "CaseGroupEndpoints"
+    },
+    {
+      "name": "CaseTypeEndpoints"
+    },
+    {
+      "name": "CaseEndpoints"
+    },
+    {
+      "name": "CaseActionEndpoints"
+    },
+    {
+      "name": "ChatCaseProposalEndpoints"
     },
     {
       "name": "VisitorSessionEndpoints"

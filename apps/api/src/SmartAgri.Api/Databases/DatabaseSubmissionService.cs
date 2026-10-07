@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Accounts;
+using SmartAgri.Api.Cases;
+using SmartAgri.Application.Cases;
 using SmartAgri.Application.Databases;
 using SmartAgri.Application.Validation;
+using SmartAgri.Domain.Cases;
 using SmartAgri.Domain.Databases;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Databases;
@@ -80,8 +84,9 @@ public abstract record DatabaseSubmissionOutcome
 /// <see cref="DatabaseSubmissionRules"/>.
 /// </para>
 /// <para>
-/// The trail row and every entry row are added to the context and written by <b>one</b>
-/// <c>SaveChanges</c>, i.e. one transaction: any failure leaves no row at all. A retry with the same
+/// The trail row, every entry row and — when the database opens cases (M7-10, #255) — the case and
+/// its <c>created</c> event are added to the context and written by <b>one</b> <c>SaveChanges</c>, i.e.
+/// one transaction: any failure leaves no row at all. A retry with the same
 /// key is compared with what the key created and answered with the same receipt; two concurrent
 /// requests with one key race on the unique index of (submitter, key) and the loser is answered
 /// the same way after the winner's row is read back.
@@ -92,8 +97,6 @@ public abstract record DatabaseSubmissionOutcome
 /// </remarks>
 public sealed class DatabaseSubmissionService
 {
-    private const string RemovedAccountName = "已停用的帳號";
-
     private const string NoRecordsMessage = "目前只有 0 筆紀錄，累積 2 筆以上才會顯示比較與趨勢。";
 
     private readonly AppDbContext _dbContext;
@@ -249,6 +252,7 @@ public sealed class DatabaseSubmissionService
 
         _dbContext.DatabaseSubmissions.Add(submission);
         _dbContext.DatabaseSubmissionEntries.AddRange(entries);
+        await AddAutoCaseAsync(database, submission, now, cancellationToken);
         try
         {
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -263,6 +267,46 @@ public sealed class DatabaseSubmissionService
         }
 
         return new DatabaseSubmissionOutcome.Created(ToReceipt(submission, entries));
+    }
+
+    /// <summary>
+    /// 送出後自動開案 (M7-10, issue #255; decision M): when the manager set the database to open cases
+    /// of an active type, adds the case and its <c>created</c> event to <b>this</b> save — so the case
+    /// exists exactly when the record does: a refusal before this point writes neither, a replay never
+    /// reaches here, and the loser of a same-key race drops it with the rest
+    /// (<c>ChangeTracker.Clear()</c>). The case has no creator (the submitter, possibly an external
+    /// customer, does not see it because of it), links the record by id, takes the type's group and due
+    /// time, and holds only <see cref="DatabaseAutoCaseRules"/>' title and fixed description — nothing
+    /// that was submitted. A type deactivated (or a group archived) in between opens nothing: the
+    /// submission itself never fails because of the case.
+    /// </summary>
+    private async Task AddAutoCaseAsync(Database database, DatabaseSubmission submission, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (database.AutoCaseTypeId is not { } typeId
+            || await CaseTypeEndpoints.FindActiveAsync(_dbContext, typeId, cancellationToken) is not { } type)
+        {
+            return;
+        }
+
+        var group = await _dbContext.CaseGroups.AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == type.DefaultGroupId, cancellationToken);
+        if (group is null || group.IsArchived)
+        {
+            return;
+        }
+
+        var (opened, created) = Case.Create(
+            CaseOrigin.DatabaseSubmission,
+            type,
+            group,
+            createdByAccountId: null,
+            DatabaseAutoCaseRules.Title(database.Name),
+            DatabaseAutoCaseRules.Description,
+            now.AddHours(type.DefaultDueHours),
+            new CaseLinks(DatabaseId: database.Id, SubmissionId: submission.Id),
+            now);
+        _dbContext.Cases.Add(opened);
+        _dbContext.CaseEvents.Add(created);
     }
 
     /// <summary>The receipt of <paramref name="submissionId"/> if <paramref name="submitterAccountId"/>
@@ -335,7 +379,7 @@ public sealed class DatabaseSubmissionService
                     .ToList();
                 var name = own.Count > 0
                     ? own[0].Submitter.DisplayName
-                    : names.GetValueOrDefault(subjectId, RemovedAccountName);
+                    : names.NameOf(subjectId);
                 var latest = own.Select(record => record.SubmittedAt).Concat(trails.Select(trail => trail.SubmittedAt)).Max();
                 return (Latest: latest, View: new DatabaseTrackedSubjectView(
                     new DatabaseAccountView(subjectId, name),
@@ -483,15 +527,13 @@ public sealed class DatabaseSubmissionService
             .ThenBy(designation => designation.AccountId)
             .Select(designation => designation.AccountId)
             .ToList();
-        var names = await _dbContext.Accounts.AsNoTracking()
-            .Where(account => readers.Contains(account.Id))
-            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
+        var names = await AccountNames.LoadAsync(_dbContext, readers, cancellationToken);
 
         return DatabaseSubmissionRules.TermsFor(
             organizationName,
             database.Name,
             purpose ?? database.Purpose,
-            [.. readers.Select(id => names.GetValueOrDefault(id, RemovedAccountName))]);
+            [.. readers.Select(id => names.NameOf(id))]);
     }
 
     private static bool IsKeyConflict(DbUpdateException exception) =>
@@ -514,24 +556,19 @@ public sealed class DatabaseSubmissionService
             submission.WithdrawnAt);
 
     private static DatabaseSubmittedRecordView ToRecordView(
-        DatabaseSubmission submission, IReadOnlyDictionary<Guid, string> names, IEnumerable<DatabaseSubmissionEntry> entries) =>
+        DatabaseSubmission submission, AccountNameLookup names, IEnumerable<DatabaseSubmissionEntry> entries) =>
         new(
             submission.Id,
             submission.ReceiptNumber,
             submission.SubmittedAt,
             submission.Source,
             new DatabaseAccountView(
-                submission.SubmittedByAccountId, names.GetValueOrDefault(submission.SubmittedByAccountId, RemovedAccountName)),
+                submission.SubmittedByAccountId, names.NameOf(submission.SubmittedByAccountId)),
             submission.FormVersionNumber,
             ToEntryViews(entries));
 
-    private async Task<Dictionary<Guid, string>> NamesAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken)
-    {
-        var ids = accountIds.Distinct().ToList();
-        return await _dbContext.Accounts.AsNoTracking()
-            .Where(account => ids.Contains(account.Id))
-            .ToDictionaryAsync(account => account.Id, account => account.DisplayName, cancellationToken);
-    }
+    private Task<AccountNameLookup> NamesAsync(IEnumerable<Guid> accountIds, CancellationToken cancellationToken) =>
+        AccountNames.LoadAsync(_dbContext, accountIds, cancellationToken);
 
     private static List<DatabaseSubmissionEntryView> ToEntryViews(IEnumerable<DatabaseSubmissionEntry> entries) =>
         [.. entries.OrderBy(entry => entry.Position)

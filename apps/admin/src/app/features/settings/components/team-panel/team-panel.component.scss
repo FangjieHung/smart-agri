@@ -80,6 +80,27 @@ input:focus-visible, button:focus-visible { outline: var(--focus-ring); outline-
   background: var(--color-surface);
 }
 
+// 新增成員表單：整個對話框限制在視窗高度內，只有中間的欄位與權限清單捲動，
+// 標題、錯誤訊息與按鈕列一直看得到（issue #284：1000×660、390×700 的視窗原本會裁掉送出鈕）。
+.create-panel--scrolling {
+  display: flex;
+  flex-direction: column;
+  max-block-size: calc(100dvh - var(--space-8));
+  box-sizing: border-box;
+}
+.create-panel--scrolling > * { flex: none; }
+.create-panel--scrolling > .create-panel__body { flex: 0 1 auto; }
+.create-panel__body {
+  display: grid;
+  gap: var(--space-4);
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  // 留出焦點外框（3px 線 + 3px 間距）的空間，捲動區邊緣的欄位外框才不會被裁掉。
+  margin: calc(-1 * var(--space-2));
+  padding: var(--space-2);
+}
+
 .create-panel h2 { margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
 .control { display: grid; gap: var(--space-1); }
 .control label { font-weight: 600; }

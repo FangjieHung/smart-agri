@@ -1,0 +1,69 @@
+{
+  // M7-12 #257: should this conversation question get a case proposal (propose_case), and of which type?
+  // Labelled against the form and the three case types below; see README.md.
+  "form": {
+    "title": "田間異常回報",
+    "purpose": "記錄田區病蟲害與作物生長異常，方便技術人員追蹤處理。"
+  },
+  "caseTypes": [
+    { "key": "repair", "name": "設備報修", "description": "農機、灌溉、溫室、冷藏庫等設備故障或損壞，需要派人到場維修。" },
+    { "key": "purchase", "name": "採購申請", "description": "購買肥料、農藥、資材或設備，需要主管核准後才能下單。" },
+    { "key": "return", "name": "客戶退貨", "description": "客戶收到的農產品有品質問題、數量不符或寄錯，要求退貨、換貨或退款。" }
+  ],
+  "questions": [
+    { "id": "c01", "question": "曳引機發不動了，請派人來修", "expected": "case:repair", "category": "case", "note": "開案關鍵字（派人）但沒有類型名稱" },
+    { "id": "c02", "question": "3 號溫室的捲揚馬達壞了，要報修", "expected": "case:repair", "category": "case", "note": "報修，沒有類型名稱" },
+    { "id": "c03", "question": "冷藏庫溫度一直降不下來，麻煩安排師傅來看", "expected": "case:repair", "category": "case", "note": "安排，沒有類型名稱" },
+    { "id": "c04", "question": "我要設備報修：抽水馬達漏水", "expected": "case:repair", "category": "case", "note": "含類型名稱" },
+    { "id": "c05", "question": "噴霧機的噴頭堵住清不通，誰可以來處理一下？", "expected": "case:repair", "category": "case", "note": "沒有任何開案關鍵字" },
+    { "id": "c06", "question": "自動餵料機卡住不動，需要有人來維修", "expected": "case:repair", "category": "case", "note": "維修，沒有類型名稱" },
+    { "id": "c07", "question": "我要提採購申請，下個月要買 20 包有機肥", "expected": "case:purchase", "category": "case", "note": "含類型名稱" },
+    { "id": "c08", "question": "育苗盤快用完了，幫我申請買 500 個", "expected": "case:purchase", "category": "case", "note": "申請，沒有類型名稱" },
+    { "id": "c09", "question": "請幫我跟主管申請購買防蟲網兩捲", "expected": "case:purchase", "category": "case", "note": "申請，沒有類型名稱" },
+    { "id": "c10", "question": "包裝紙箱剩不到一百個，需要叫貨", "expected": "case:purchase", "category": "case", "note": "沒有任何開案關鍵字" },
+    { "id": "c11", "question": "農藥庫存不夠了，要再訂一批亞磷酸", "expected": "case:purchase", "category": "case", "note": "沒有任何開案關鍵字" },
+    { "id": "c12", "question": "客戶說收到的芒果有一半壓傷，要求退貨", "expected": "case:return", "category": "case", "note": "退貨，沒有類型名稱" },
+    { "id": "c13", "question": "王小姐訂的有機蔬菜箱少了兩樣，她要退款", "expected": "case:return", "category": "case", "note": "退款不是開案關鍵字" },
+    { "id": "c14", "question": "我要處理客戶退貨：上週出的 30 箱番茄有腐爛", "expected": "case:return", "category": "case", "note": "含類型名稱" },
+    { "id": "c15", "question": "有客人反映收到的雞蛋破了好幾顆，要換一盒新的給他", "expected": "case:return", "category": "case", "note": "換貨，沒有任何開案關鍵字" },
+    { "id": "c16", "question": "批發商說這批高麗菜重量不足，要我們退一部分貨款", "expected": "case:return", "category": "case", "note": "沒有任何開案關鍵字" },
+
+    { "id": "n01", "question": "採購申請要多久才會核准？", "expected": "none", "category": "none", "note": "問規則；類型名稱本身含開案關鍵字（申請）" },
+    { "id": "n02", "question": "設備報修的流程是什麼？", "expected": "none", "category": "none", "note": "問流程；類型名稱本身含開案關鍵字（報修）" },
+    { "id": "n03", "question": "客戶退貨的規定是收到後幾天內？", "expected": "none", "category": "none", "note": "問規則；類型名稱本身含開案關鍵字（退貨）" },
+    { "id": "n04", "question": "上次報修的冷氣修好了嗎？", "expected": "none", "category": "none", "note": "問進度" },
+    { "id": "n05", "question": "我申請的肥料採購進度到哪了？", "expected": "none", "category": "none", "note": "問進度" },
+    { "id": "n06", "question": "番茄葉子捲曲是什麼原因？", "expected": "none", "category": "none", "note": "知識問題" },
+    { "id": "n07", "question": "曳引機多久要換一次機油？", "expected": "none", "category": "none", "note": "設備保養知識，不是報修" },
+    { "id": "n08", "question": "今天下午適合噴藥嗎？", "expected": "none", "category": "none", "note": "知識問題" },
+    { "id": "n09", "question": "有機肥跟化學肥差在哪裡？", "expected": "none", "category": "none", "note": "知識問題" },
+    { "id": "n10", "question": "我想申請農業補助，要準備哪些文件？", "expected": "none", "category": "none", "note": "申請與案件類型無關" },
+    { "id": "n11", "question": "幫我安排明天的採收工作順序", "expected": "none", "category": "none", "note": "安排與案件類型無關" },
+    { "id": "n12", "question": "冷藏庫溫度應該設定幾度比較好？", "expected": "none", "category": "none", "note": "知識問題" },
+    { "id": "n13", "question": "採購申請表要填哪些欄位？", "expected": "none", "category": "none", "note": "問欄位；類型名稱本身含開案關鍵字（申請）" },
+    { "id": "n14", "question": "不用開案，告訴我怎麼自己修理滴灌管就好", "expected": "none", "category": "none", "note": "明確拒絕開案" },
+    { "id": "n15", "question": "客戶退貨後的蔬菜可以再賣嗎？", "expected": "none", "category": "none", "note": "問規則；類型名稱本身含開案關鍵字（退貨）" },
+
+    { "id": "f01", "question": "我要回報今天 A 區的病蟲害狀況", "expected": "form", "category": "form", "note": "表單關鍵字（回報）" },
+    { "id": "f02", "question": "3 號溫室的番茄葉子出現黃斑，我要通報一下", "expected": "form", "category": "form", "note": "表單關鍵字以外的說法" },
+    { "id": "f03", "question": "稻田裡出現福壽螺卵，幫我記一筆給技術員", "expected": "form", "category": "form", "note": "表單關鍵字以外的說法" },
+    { "id": "f04", "question": "我要登記今天巡田看到的蚜蟲", "expected": "form", "category": "form", "note": "表單關鍵字（登記）" },
+    { "id": "f05", "question": "東區的玉米葉子大量枯黃，要提報給技術人員追蹤", "expected": "form", "category": "form", "note": "表單關鍵字以外的說法" },
+    { "id": "f06", "question": "西瓜田一區突然萎凋，請派技術員來看並記錄下來", "expected": "form", "category": "form", "note": "作物異常要人處理，但不是設備報修" },
+
+    { "id": "q01", "question": "這個月報修了幾件？", "expected": "query", "category": "query", "note": "統計問題，含開案關鍵字（報修）" },
+    { "id": "q02", "question": "今年採購申請一共有幾筆？", "expected": "query", "category": "query", "note": "統計問題，含類型名稱" },
+    { "id": "q03", "question": "上個月客戶退貨的件數是多少？", "expected": "query", "category": "query", "note": "統計問題，含類型名稱" },
+    { "id": "q04", "question": "本季的肥料採購金額加總是多少？", "expected": "query", "category": "query", "note": "統計問題" },
+    { "id": "q05", "question": "統計一下近 30 天的病蟲害回報次數", "expected": "query", "category": "query", "note": "統計問題，含表單關鍵字（回報）" },
+
+    { "id": "a01", "question": "灌溉系統壞了", "expected": "case:repair", "category": "ambiguous", "note": "只陳述故障" },
+    { "id": "a02", "question": "想買一台新的割草機，要怎麼申請？", "expected": "case:purchase", "category": "ambiguous", "note": "問怎麼申請，但有實際要買的東西" },
+    { "id": "a03", "question": "客戶抱怨芒果太酸", "expected": "none", "category": "ambiguous", "note": "抱怨，沒有要求退換" },
+    { "id": "a04", "question": "溫室的感測器好像怪怪的，數字一直跳", "expected": "case:repair", "category": "ambiguous", "note": "疑似故障" },
+    { "id": "a05", "question": "報修", "expected": "case:repair", "category": "ambiguous", "note": "只有一個詞" },
+    { "id": "a06", "question": "冷藏庫壞了，裡面的蔬菜也開始爛了", "expected": "case:repair", "category": "ambiguous", "note": "設備故障連帶作物損失；表單也可能接手" },
+    { "id": "a07", "question": "我想取消剛剛的採購申請", "expected": "none", "category": "ambiguous", "note": "取消已送出的申請，不是新案件" },
+    { "id": "a08", "question": "葉子黃掉了，要不要找人來看？", "expected": "form", "category": "ambiguous", "note": "作物異常，傾向表單" }
+  ]
+}

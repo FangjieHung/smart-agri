@@ -22,6 +22,8 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/databases/database-customer-records/access', '儲存資料管理者'],
   ['/app/channels', '助理發布設定'],
   ['/app/assistants/assistant-customer-service/publishing?channel=line', '測試連線'],
+  ['/app/cases', '建立案件'],
+  ['/app/cases?view=statistics', '套用'],
   ['/app/settings', '團隊與權限'],
 ];
 
@@ -108,6 +110,33 @@ describe('responsive layout', () => {
           .scrollIntoView()
           .should('be.visible');
         expectNoHorizontalOverflow('/app/settings（展開權限編輯器）', PHONE[0]);
+      });
+
+      it('fits the expanded case group member editor (issue #246)', () => {
+        cy.visit('/app/settings');
+        cy.contains('button', '編輯「設備組」的成員').scrollIntoView().click();
+        cy.get('[data-case-group-members-editor] input[type="checkbox"]').should('have.length', 2);
+        cy.window().its('innerWidth').should('eq', PHONE[0]);
+        cy.contains('button', '儲存成員').should('exist').scrollIntoView().should('be.visible');
+        expectNoHorizontalOverflow('/app/settings（展開承辦組成員）', PHONE[0]);
+      });
+
+      it('fits the expanded case type form (issue #247)', () => {
+        cy.visit('/app/settings');
+        cy.contains('button', '編輯「設備故障報修」').scrollIntoView().click();
+        cy.get('[data-case-type-form] #case-type-description').should('exist');
+        cy.window().its('innerWidth').should('eq', PHONE[0]);
+        cy.contains('button', '儲存案件類型').should('exist').scrollIntoView().should('be.visible');
+        expectNoHorizontalOverflow('/app/settings（展開案件類型）', PHONE[0]);
+      });
+
+      it('fits a case\'s actions and the expanded transfer form (issue #249)', () => {
+        cy.visit('/app/cases?case=case-compressor-purchase');
+        cy.get('[data-case-action="transfer"]').scrollIntoView().click();
+        cy.get('[data-case-action-form] #case-action-group').should('exist');
+        cy.window().its('innerWidth').should('eq', PHONE[0]);
+        cy.contains('button', '確認轉組').should('exist').scrollIntoView().should('be.visible');
+        expectNoHorizontalOverflow('/app/cases（展開轉組表單）', PHONE[0]);
       });
 
       it('switches the shell to the mobile header and drawer', () => {

@@ -70,6 +70,36 @@ public sealed class Database : IOrganizationScoped
 
     public bool IsArchived => ArchivedAt is not null;
 
+    /// <summary>
+    /// The case type a submission to this database opens a case of (送出後自動開案, M7 plan §3 I,
+    /// decision M; issue #255); <see langword="null"/> when submissions open no case. Set only by the
+    /// organization's manager, and only to an active type: a type some database uses cannot be
+    /// deactivated (<c>422 case-type-in-use</c>). A same-organization composite foreign key to the
+    /// case type, <c>Restrict</c>.
+    /// </summary>
+    public Guid? AutoCaseTypeId { get; private set; }
+
+    /// <summary>Points the auto case at <paramref name="caseTypeId"/> (or turns it off with
+    /// <see langword="null"/>); <see langword="false"/> when it already was. The caller has checked
+    /// that the type is active and the caller is the manager. It is not a change of the name or the
+    /// purpose, so <see cref="UpdatedAt"/> stays: the change is recorded in the organization's
+    /// activity instead.</summary>
+    public bool SetAutoCaseType(Guid? caseTypeId)
+    {
+        if (caseTypeId == Guid.Empty)
+        {
+            throw new ArgumentException("An id must not be empty.", nameof(caseTypeId));
+        }
+
+        if (AutoCaseTypeId == caseTypeId)
+        {
+            return false;
+        }
+
+        AutoCaseTypeId = caseTypeId;
+        return true;
+    }
+
     public static Database Create(
         Guid organizationId,
         Guid ownerAccountId,

@@ -1,0 +1,15 @@
+<section
+  class="conversation-retention"
+  aria-labelledby="conversation-retention-title"
+  data-conversation-retention
+>
+  <div>
+    <p class="ui-text-caption">組織</p>
+    <h2 id="conversation-retention-title" class="ui-text-subtitle">對話保存</h2>
+  </div>
+
+  <app-retention-period />
+
+  <!-- 只有管理者看得到；其他帳號這裡不顯示任何東西（#242）。 -->
+  <app-saved-conversations />
+</section>

@@ -52,15 +52,43 @@ public class AssistantIssueTests
 
         var assigned = issue.Assign(Handler, Owner, Now)!;
         var resolved = issue.ChangeStatus(AssistantIssueStatus.Resolved, " 已修正 ", Handler, Now.AddHours(2))!;
-        (issue.ResolvedAt, issue.ResolutionNote).ShouldBe((Now.AddHours(2), "已修正"));
+        (issue.ResolvedAt, issue.ResolutionNote, issue.ResolutionKind, issue.LinkedCaseId)
+            .ShouldBe((Now.AddHours(2), "已修正", AssistantIssueResolutionKind.Fixed, null));
         var comment = issue.Comment("補充", Handler, Now.AddHours(3));
         var reopened = issue.ChangeStatus(AssistantIssueStatus.InProgress, null, Owner, Now.AddHours(4))!;
 
         new[] { assigned.Ordinal, resolved.Ordinal, comment.Ordinal, reopened.Ordinal }.ShouldBe([2, 3, 4, 5]);
         (resolved.Status, resolved.Note).ShouldBe((AssistantIssueStatus.Resolved, "已修正"));
-        (issue.Status, issue.ResolvedAt, issue.ResolutionNote).ShouldBe((AssistantIssueStatus.InProgress, null, null));
+        (issue.Status, issue.ResolvedAt, issue.ResolutionNote, issue.ResolutionKind)
+            .ShouldBe((AssistantIssueStatus.InProgress, null, null, null));
         issue.UpdatedAt.ShouldBe(Now.AddHours(4));
         Should.Throw<ArgumentException>(() => issue.Comment(" ", Owner, Now));
+    }
+
+    [Fact]
+    public void Opening_a_case_resolves_the_issue_as_not_an_assistant_issue_linked_to_the_case_and_reopening_clears_both()
+    {
+        var (run, result) = Result(passed: false);
+        var (issue, _) = AssistantIssue.OpenFromTestFailure(AssistantId, run, result, "標題", Owner, Handler, null, Now);
+        issue.ChangeStatus(AssistantIssueStatus.InProgress, null, Handler, Now);
+        var caseId = Guid.CreateVersion7();
+
+        var opened = issue.OpenCase(caseId, Handler, Now.AddHours(1));
+
+        (opened.Ordinal, opened.Action, opened.ActorAccountId, opened.Status, opened.Note)
+            .ShouldBe((3, AssistantIssueEventAction.CaseOpened, Handler, AssistantIssueStatus.Resolved, null));
+        (issue.Status, issue.ResolvedAt, issue.ResolutionKind, issue.LinkedCaseId, issue.ResolutionNote, issue.EventCount)
+            .ShouldBe((AssistantIssueStatus.Resolved, Now.AddHours(1), AssistantIssueResolutionKind.NotAssistantIssue, caseId, null, 3));
+
+        Should.Throw<InvalidOperationException>(() => issue.OpenCase(Guid.CreateVersion7(), Handler, Now));
+        issue.EventCount.ShouldBe(3, "a refused 另開案件 records nothing");
+
+        issue.ChangeStatus(AssistantIssueStatus.Open, null, Owner, Now.AddHours(2));
+        (issue.ResolutionKind, issue.LinkedCaseId, issue.ResolvedAt).ShouldBe((null, null, null));
+        issue.ChangeStatus(AssistantIssueStatus.Resolved, null, Owner, Now.AddHours(3));
+        (issue.ResolutionKind, issue.LinkedCaseId).ShouldBe((AssistantIssueResolutionKind.Fixed, null));
+        Should.Throw<ArgumentException>(() =>
+            AssistantIssue.OpenFromTestFailure(AssistantId, run, result, null, Owner, null, null, Now).Issue.OpenCase(Guid.Empty, Owner, Now));
     }
 
     [Fact]
@@ -68,7 +96,8 @@ public class AssistantIssueTests
     {
         WireNames<AssistantIssueSource>.All.ShouldBe(["test-failure", "handoff"]);
         WireNames<AssistantIssueStatus>.All.ShouldBe(["open", "in-progress", "resolved"]);
-        WireNames<AssistantIssueEventAction>.All.ShouldBe(["created", "assigned", "status-changed", "commented", "due-date-changed"]);
+        WireNames<AssistantIssueEventAction>.All.ShouldBe(["created", "assigned", "status-changed", "commented", "due-date-changed", "case-opened"]);
+        WireNames<AssistantIssueResolutionKind>.All.ShouldBe(["fixed", "not-assistant-issue"]);
     }
 
     private static (AssistantTestRun Run, AssistantTestResult Result) Result(bool passed, string question = "問題")

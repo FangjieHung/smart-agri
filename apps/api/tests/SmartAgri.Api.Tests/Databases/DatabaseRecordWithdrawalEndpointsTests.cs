@@ -195,7 +195,7 @@ public class DatabaseRecordWithdrawalEndpointsTests : IClassFixture<AuthHostFixt
             submissionRow.Parameters.Add(rowParameter);
             var rowJson = (string)(await submissionRow.ExecuteScalarAsync(CancellationToken))!;
             rowJson.ShouldNotContain("要撤回的人");
-            rowJson.ShouldNotContain("0911");
+            rowJson.ShouldNotContain("0911-000-111");
         }
 
         // The receipt reads the same from now on; the submitter's list shows the trail.

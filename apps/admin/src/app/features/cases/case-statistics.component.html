@@ -1,0 +1,96 @@
+@let current = view();
+<section class="case-statistics" aria-labelledby="case-statistics-title" data-case-statistics>
+  <h2 id="case-statistics-title">瓶頸統計</h2>
+  <p class="hint">
+    依案件類型與目前承辦組統計。未結案與逾期是現在的件數；完成、取消與平均處理時間只算期間內的案件。
+    平均處理時間從建立算到完成，不含取消的案件。日期以 UTC 計算（台灣時間早上 8 點換日）。
+  </p>
+
+  <form class="statistics-range" novalidate data-case-statistics-range (submit)="$event.preventDefault(); apply()">
+    <label>
+      起始日期
+      <input
+        type="date"
+        data-case-statistics-from
+        [value]="fromInput()"
+        [attr.aria-invalid]="inputError() ? 'true' : null"
+        [attr.aria-describedby]="inputError() ? 'case-statistics-range-error' : null"
+        (input)="fromInput.set($any($event.target).value)"
+      />
+    </label>
+    <label>
+      結束日期
+      <input
+        type="date"
+        data-case-statistics-to
+        [value]="toInput()"
+        [attr.aria-invalid]="inputError() ? 'true' : null"
+        [attr.aria-describedby]="inputError() ? 'case-statistics-range-error' : null"
+        (input)="toInput.set($any($event.target).value)"
+      />
+    </label>
+    <button class="ui-button" type="submit">套用</button>
+    <p class="hint small statistics-range__note">留空表示最近 30 天；最長 180 天。</p>
+    @if (inputError()) {
+      <p id="case-statistics-range-error" class="field-error statistics-range__note" role="alert">{{ inputError() }}</p>
+    }
+  </form>
+
+  @if (rangeError()) {
+    <app-state-panel state="error" title="期間不正確" [description]="rangeError()" />
+  } @else if (current.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入瓶頸統計" />
+  } @else if (current.status === 'error') {
+    <app-state-panel state="error" title="目前無法載入瓶頸統計" recoveryLabel="重試" (recover)="resource.reload()" />
+  } @else if (current.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法查看瓶頸統計" [description]="current.message" />
+  } @else {
+    @let data = current.data;
+    <p class="period" data-case-statistics-period>統計期間：{{ data.from }} 至 {{ data.to }}（UTC）</p>
+    @if (data.rows.length === 0) {
+      <app-state-panel state="empty" title="這段期間沒有案件" description="沒有未結案的案件，期間內也沒有完成或取消的案件。" />
+    } @else {
+      <div class="statistics-table" role="region" aria-labelledby="case-statistics-title" tabindex="0">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">案件類型</th>
+              <th scope="col">承辦組</th>
+              <th scope="col" class="number">未結案</th>
+              <th scope="col" class="number">逾期</th>
+              <th scope="col" class="number">期間內完成</th>
+              <th scope="col" class="number">期間內取消</th>
+              <th scope="col" class="number">平均處理時間</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of data.rows; track row.type.id + '|' + row.group.id) {
+              <tr data-case-statistics-row [attr.data-type-id]="row.type.id" [attr.data-group-id]="row.group.id">
+                <th scope="row">{{ row.type.name }}</th>
+                <td>{{ row.group.name }}@if (row.group.archived) {（已封存）}</td>
+                <td class="number">
+                  <a routerLink="/app/cases" [queryParams]="listParams(row, 'open', data)" data-case-statistics-link="open"
+                    [attr.aria-label]="linkLabel(row, 'open', row.openCount)">{{ row.openCount }}</a>
+                </td>
+                <td class="number">
+                  <a routerLink="/app/cases" [queryParams]="listParams(row, 'overdue', data)" data-case-statistics-link="overdue"
+                    [class.statistics-overdue]="row.overdueCount > 0"
+                    [attr.aria-label]="linkLabel(row, 'overdue', row.overdueCount)">{{ row.overdueCount }}</a>
+                </td>
+                <td class="number">
+                  <a routerLink="/app/cases" [queryParams]="listParams(row, 'completed', data)" data-case-statistics-link="completed"
+                    [attr.aria-label]="linkLabel(row, 'completed', row.completedCount)">{{ row.completedCount }}</a>
+                </td>
+                <td class="number">
+                  <a routerLink="/app/cases" [queryParams]="listParams(row, 'cancelled', data)" data-case-statistics-link="cancelled"
+                    [attr.aria-label]="linkLabel(row, 'cancelled', row.cancelledCount)">{{ row.cancelledCount }}</a>
+                </td>
+                <td class="number" data-case-statistics-average>{{ formatHours(row.averageHandlingHours) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  }
+</section>

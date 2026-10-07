@@ -1,0 +1,108 @@
+@let state = result();
+<div class="retention-period" data-retention-period>
+  @if (state === null) {
+    <app-state-panel
+      state="error"
+      title="目前無法載入保存期限"
+      description="請稍後重新整理頁面再試一次。"
+    />
+  } @else if (state.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入保存期限" />
+  } @else if (state.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法查看保存期限" [description]="state.message" />
+  } @else if (view(); as data) {
+    @if (data.canChange) {
+      <lib-setting-row
+        title="保存期限"
+        controlId="retention-days-select"
+        [description]="
+          '最後一則訊息超過期限的對話串，會在每天清理時刪除。縮短有 ' +
+          bufferDays +
+          ' 天緩衝期；延長立即生效。'
+        "
+      >
+        <select
+          #retentionSelect
+          id="retention-days-select"
+          class="retention-period__select"
+          aria-describedby="retention-status"
+          [attr.aria-busy]="previewing() || saving()"
+          (change)="choose($event)"
+        >
+          @for (days of data.options; track days) {
+            <option [value]="optionValue(days)" [selected]="selectedValue() === optionValue(days)">
+              {{ label(days) }}
+            </option>
+          }
+          <option [value]="foreverOption" [selected]="selectedValue() === foreverOption">永久</option>
+        </select>
+      </lib-setting-row>
+    } @else {
+      <lib-setting-row
+        [title]="'保存期限：' + label(data.days)"
+        description="最後一則訊息超過期限的對話串，會在每天清理時刪除。只有管理者可以變更保存期限。"
+      />
+    }
+
+    @if (data.pending; as pending) {
+      <div class="notice" data-retention-pending>
+        <p id="retention-pending-notice">
+          目前是 {{ label(data.days) }}，將於 {{ pending.effectiveAt | date: 'M/d' }} 起改為
+          {{ label(pending.days) }}。在那之前不會刪除任何對話。
+        </p>
+        @if (data.canChange) {
+          <button
+            type="button"
+            class="retention-period__revert"
+            aria-describedby="retention-pending-notice"
+            [disabled]="saving() || previewing()"
+            (click)="revert()"
+          >改回</button>
+        }
+      </div>
+    }
+
+    <p class="hint" data-retention-issues-note>{{ issuesNote }}</p>
+
+    <p class="hint" data-retention-last-change>
+      @if (data.lastChange; as change) {
+        上次變更：{{ change.actorName }}，{{ change.at | date: 'yyyy/MM/dd HH:mm' }}
+      } @else {
+        上次變更：尚未變更過（預設永久保存）
+      }
+    </p>
+  }
+
+  @if (error()) {
+    <p class="error" role="alert">{{ error() }}</p>
+  }
+  <p id="retention-status" class="feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+</div>
+
+@if (confirmation(); as pending) {
+  <app-confirm-dialog
+    name="retention"
+    [heading]="'把保存期限縮短為 ' + label(pending.days) + '？'"
+    [detail]="
+      '確認後有 ' +
+      bufferDays +
+      ' 天緩衝期，期間不會刪除任何對話，也可以改回。緩衝期過後，每天清理時會刪除最後一則訊息超過 ' +
+      label(pending.days) +
+      ' 的對話串，刪除後無法復原。'
+    "
+    [confirmLabel]="saving() ? '儲存中…' : '縮短為 ' + label(pending.days)"
+    confirmClass="confirm-retention"
+    [busy]="saving()"
+    (cancelled)="cancelShorten()"
+    (confirmed)="confirmShorten()"
+  >
+    @if (pending.threadCount !== null) {
+      <p class="retention-confirm__count" data-retention-preview-count>
+        以目前的對話計算，大約會刪除 {{ pending.threadCount }} 串對話；緩衝期過後實際數量可能更多。
+      </p>
+    } @else {
+      <p class="retention-confirm__count" data-retention-preview-count>目前無法計算大約會刪除的對話數。</p>
+    }
+    <p class="retention-confirm__note">{{ issuesNote }}</p>
+  </app-confirm-dialog>
+}

@@ -27,3 +27,58 @@ export function chatModelChangedSinceRun(
   if (!runModel || !effective) return null;
   return runModel === effective.model ? null : { tested: runModel, current: effective.model };
 }
+
+/**
+ * 組織的對話保存期限（M6 計畫第 3 節 F，issue #241／#243）。`days` 是目前生效的期限（`null` = 永久）；
+ * `pending` 是縮短後還在 7 天緩衝期的期限。組織內任何帳號都讀得到；只有 `canChange`（管理者）可以
+ * 預覽與變更。`revision` 與對話模型共用（`Organizations.SettingsRevision`）。
+ */
+export type OrganizationRetentionView = components['schemas']['OrganizationRetentionView'];
+
+/** 縮短後等待生效的期限：`effectiveAt` 之後的第一次每日清理才改用它。 */
+export type OrganizationRetentionPendingView = components['schemas']['OrganizationRetentionPendingView'];
+
+/**
+ * `GET …/retention/preview?days=N`（管理者）：以「現在」計算，期限是 N 天時清理會刪除的對話串數。
+ * 緩衝期過後實際數量會更多，所以畫面寫「大約」。`cutoff` 是統計時區 N 天前的 00:00。
+ */
+export type OrganizationRetentionPreviewView = components['schemas']['OrganizationRetentionPreviewView'];
+
+/** 縮短保存期限後的緩衝期天數（與後端 `OrganizationRetention.BufferPeriod` 相同）。 */
+export const RETENTION_BUFFER_DAYS = 7;
+
+/** 保存期限的顯示文字：`null` 是「永久」，其餘是「N 天」。 */
+export function retentionLabel(days: number | null): string {
+  return days === null ? '永久' : `${days} 天`;
+}
+
+/**
+ * `next` 是否比 `current` 短（與後端 `OrganizationRetention.IsShorter` 相同）：永久最長；
+ * 從永久改成任何天數都算縮短，要經過緩衝期。
+ */
+export function isShorterRetention(next: number | null, current: number | null): boolean {
+  if (next === null) return false;
+  return current === null || next < current;
+}
+
+/**
+ * 系統設定「對話保存」的各助理清單（`GET /api/v1/organization/retention/assistants`，只有管理者；
+ * issue #242，M6 計畫第 3 節 H）：每個助理已保存的對話串數、成員數、最後活動時間（沒有對話時是
+ * `null`）與「保留使用者自己的對話紀錄」開關。只有數字，不含任何對話內容。
+ */
+export type OrganizationRetentionAssistantView = components['schemas']['OrganizationRetentionAssistantView'];
+
+/**
+ * 單一助理已保存的對話串數與成員數（`GET …/chat/conversations/summary`）：管理者，或讀得到這個助理
+ * 設定的人（擁有者）。`canPurge` 是「呼叫者是管理者」：只有管理者能立即刪除。
+ */
+export type AssistantConversationSummaryView = components['schemas']['AssistantConversationSummaryView'];
+
+/** 立即刪除（`POST …/chat/conversations:purge`，只有管理者）實際刪除的串數。 */
+export type AssistantConversationPurgeView = components['schemas']['AssistantConversationPurgeView'];
+
+/**
+ * 處理事項的問答副本不受保存期限與立即刪除影響（M6 計畫第 3 節 G、H）。保存期限與立即刪除的說明
+ * 都由這句開頭，各自接上自己的後半句。
+ */
+export const HANDOFF_COPIES_KEPT = '已轉給專人的問答會保留在處理事項中';

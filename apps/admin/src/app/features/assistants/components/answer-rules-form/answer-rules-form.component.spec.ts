@@ -68,3 +68,69 @@ describe('AnswerRulesFormComponent periodic report auto-disable (issue #179)', (
     expect(page.querySelector('#periodic-report-auto-disabled button')).toBeNull();
   });
 });
+
+describe('AnswerRulesFormComponent keep conversations (issue #242)', () => {
+  function renderKeep(live: boolean) {
+    TestBed.configureTestingModule({ imports: [AnswerRulesFormComponent] });
+    const fixture = TestBed.createComponent(AnswerRulesFormComponent);
+    fixture.componentRef.setInput('rules', { ...RULES, keepOwnConversations: true });
+    fixture.componentRef.setInput('live', live);
+    fixture.detectChanges();
+    const changed = vi.fn();
+    fixture.componentInstance.changed.subscribe(changed);
+    const page = fixture.nativeElement as HTMLElement;
+    const toggle = page.querySelector<HTMLInputElement>('#keep-conversations');
+    if (!toggle) throw new Error('missing switch');
+    const turnOff = () => {
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+    };
+    return { fixture, page, changed, toggle, turnOff };
+  }
+
+  it('drops the old 要真正移除 advice', () => {
+    const { page } = renderKeep(true);
+
+    expect(page.querySelector('#keep-conversations-effect')?.textContent).toContain('已經保存的對話不會被刪除');
+    expect(page.textContent).not.toContain('要真正移除');
+    // 沒有帶助理 id（例如精靈）時不讀已保存的對話數。
+    expect(page.querySelector('app-kept-conversations')).toBeNull();
+  });
+
+  it('asks before turning it off on a live assistant, saying the saved conversations are not deleted', () => {
+    const { fixture, page, changed, turnOff } = renderKeep(true);
+
+    turnOff();
+    const dialog = page.querySelector('[role="dialog"]');
+    expect(dialog?.querySelector('.confirm-title')?.textContent).toBe('關閉「保留使用者自己的對話紀錄」？');
+    expect(dialog?.querySelector('.confirm-detail')?.textContent).toContain('已保存的對話不會刪除');
+    expect(changed).not.toHaveBeenCalled();
+
+    page.querySelector<HTMLButtonElement>('.confirm-keep-off')?.click();
+    fixture.detectChanges();
+    expect(changed).toHaveBeenCalledWith({ keepOwnConversations: false });
+    expect(page.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('cancelling leaves it on and changes nothing', () => {
+    const { fixture, page, changed, toggle, turnOff } = renderKeep(true);
+
+    turnOff();
+    page.querySelector<HTMLButtonElement>('.confirm-cancel')?.click();
+    fixture.detectChanges();
+
+    expect(changed).not.toHaveBeenCalled();
+    expect(toggle.checked).toBe(true);
+    expect(document.activeElement).toBe(toggle);
+    expect(page.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('applies at once in the wizard, where nothing is saved yet', () => {
+    const { page, changed, turnOff } = renderKeep(false);
+
+    turnOff();
+    expect(page.querySelector('[role="dialog"]')).toBeNull();
+    expect(changed).toHaveBeenCalledWith({ keepOwnConversations: false });
+  });
+});

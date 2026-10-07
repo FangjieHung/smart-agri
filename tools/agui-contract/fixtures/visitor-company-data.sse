@@ -8,7 +8,7 @@ data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"00000000-0000-0000-0000-000000
 
 data: {"type":"TEXT_MESSAGE_END","messageId":"00000000-0000-0000-0000-000000000002"}
 
-data: {"type":"CUSTOM","name":"smartagri.reply","value":{"id":"00000000-0000-0000-0000-000000000003","author":"assistant","text":null,"reply":{"kind":"company-data","text":"\u6839\u64DA\u8CC7\u6599\u56DE\u7B54\uFF0C\u672C\u56DE\u7B54\u5F15\u7528\u6BB5\u843D [1]\u3002","citations":[{"id":"citation-00000000-0000-0000-0000-000000000003-1","knowledgeBaseName":"\u5C0D\u8A71\u77E5\u8B58\u5EAB","documentName":"\u9000\u8CA8\u653F\u7B56.md","excerpt":"\u6536\u5230\u5546\u54C1\u5F8C\u4E03\u5929\u5167\u53EF\u7533\u8ACB\u9000\u8CA8\uFF0C\u9000\u8CA8\u904B\u8CBB\u7531\u8CB7\u5BB6\u8CA0\u64D4\u3002","updatedLabel":"2026-01-01"}],"notice":null,"nextSteps":[],"form":null,"receipt":null,"databaseQuery":null},"createdAt":"2026-01-01T00:00:00Z"}}
+data: {"type":"CUSTOM","name":"smartagri.reply","value":{"id":"00000000-0000-0000-0000-000000000003","author":"assistant","text":null,"reply":{"kind":"company-data","text":"\u6839\u64DA\u8CC7\u6599\u56DE\u7B54\uFF0C\u672C\u56DE\u7B54\u5F15\u7528\u6BB5\u843D [1]\u3002","citations":[{"id":"citation-00000000-0000-0000-0000-000000000003-1","knowledgeBaseName":"\u5C0D\u8A71\u77E5\u8B58\u5EAB","documentName":"\u9000\u8CA8\u653F\u7B56.md","excerpt":"\u6536\u5230\u5546\u54C1\u5F8C\u4E03\u5929\u5167\u53EF\u7533\u8ACB\u9000\u8CA8\uFF0C\u9000\u8CA8\u904B\u8CBB\u7531\u8CB7\u5BB6\u8CA0\u64D4\u3002","updatedLabel":"2026-01-01"}],"notice":null,"nextSteps":[],"form":null,"receipt":null,"databaseQuery":null,"caseProposal":null},"createdAt":"2026-01-01T00:00:00Z"}}
 
 data: {"type":"RUN_FINISHED","threadId":"00000000-0000-0000-0000-000000000001","runId":"run-1"}
 

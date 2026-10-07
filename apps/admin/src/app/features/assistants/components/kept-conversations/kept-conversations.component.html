@@ -1,0 +1,34 @@
+@if (summary(); as data) {
+  <div class="kept-conversations" data-kept-conversations>
+    @if (data.canPurge) {
+      <p #summaryText id="kept-conversations-count" class="hint" tabindex="-1" data-kept-conversations-count>
+        目前已保存 {{ data.threadCount }} 串對話（{{ data.accountCount }} 位成員）。立即刪除會刪掉所有成員在這個助理上的對話，不會通知他們。
+      </p>
+      <button
+        #purgeButton
+        type="button"
+        class="kept-conversations__purge"
+        aria-describedby="kept-conversations-count"
+        [disabled]="busy() || data.threadCount === 0"
+        (click)="ask()"
+      >立即刪除已保存的對話</button>
+    } @else {
+      <p class="hint" data-kept-conversations-note>{{ note(data.threadCount) }}</p>
+    }
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+    <p class="feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+  </div>
+
+  @if (confirming()) {
+    <app-purge-conversations-dialog
+      [assistantName]="assistantName()"
+      [threadCount]="data.threadCount"
+      [accountCount]="data.accountCount"
+      [busy]="busy()"
+      (cancelled)="cancel()"
+      (confirmed)="confirm()"
+    />
+  }
+}

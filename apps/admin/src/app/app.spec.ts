@@ -1,10 +1,13 @@
-import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Component, EventEmitter, Input, Output, type WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { vi } from 'vitest';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { RouterOutlet, Router } from '@angular/router';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { of, Subject } from 'rxjs';
 import { App } from './app';
+import type { NavEntry, NavLeaf } from './layout/side-nav/nav-item.model';
 
 /**
  * 用最小的替身元件取代 SideNavComponent／HeaderComponent／FooterComponent：
@@ -56,10 +59,14 @@ describe('App', () => {
     };
   }
 
-  async function render(fakeRouter: { url: string; events: Subject<{ type: number }> }) {
+  async function render(
+    fakeRouter: { url: string; events: Subject<{ type: number }> },
+    extraProviders: unknown[] = [],
+  ) {
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
+        ...(extraProviders as never[]),
         { provide: Router, useValue: fakeRouter },
         {
           provide: BreakpointObserver,
@@ -75,6 +82,9 @@ describe('App', () => {
       .compileComponents();
 
     const fixture = TestBed.createComponent(App);
+    // 換頁時的逾期數字（#250）會動態 import 首頁的 chunk；這裡的測試不看它，換成不做事，免得 import 在
+    // 測試環境拆掉之後才完成（vitest 的 EnvironmentTeardownError）。要看它的測試自己再換成 spy。
+    (fixture.componentInstance as unknown as { refreshCaseOverdueCount: (url: string) => void }).refreshCaseOverdueCount = () => undefined;
     fixture.detectChanges();
     return fixture;
   }
@@ -109,5 +119,30 @@ describe('App', () => {
     fixture.detectChanges();
 
     expect(content.scrollTop).toBe(88);
+  });
+
+  describe('the overdue number beside 案件 (issue #250)', () => {
+    it('hands the 案件 entry one count signal and refreshes it on every navigation', async () => {
+      const fakeRouter = createFakeRouter('/app/home');
+      const fixture = await render(fakeRouter);
+      const app = fixture.componentInstance as unknown as { refreshCaseOverdueCount: (url: string) => void; caseOverdueCount: WritableSignal<number> };
+      const refresh = vi.fn<(url: string) => void>();
+      app.refreshCaseOverdueCount = refresh;
+      const navItems = fixture.debugElement.query(By.directive(StubSideNav)).componentInstance.navItems as NavEntry[];
+      const cases = navItems.find((entry): entry is NavLeaf => 'route' in entry && entry.route === '/app/cases') as NavLeaf;
+      expect(cases.count).toBe(app.caseOverdueCount);
+      expect(cases.count?.()).toBe(0);
+      expect(navItems.filter((entry) => 'count' in entry)).toEqual([cases]);
+
+      for (const url of ['/app/chat', '/app/forms/a']) {
+        fakeRouter.url = url;
+        fakeRouter.events.next({ type: 1 });
+      }
+      fakeRouter.events.next({ type: 0 }); // not a NavigationEnd
+      expect(refresh.mock.calls).toEqual([['/app/chat'], ['/app/forms/a']]);
+
+      app.caseOverdueCount.set(3);
+      expect(cases.count?.()).toBe(3);
+    });
   });
 });

@@ -92,6 +92,132 @@ public sealed class OrganizationActivity : IOrganizationScoped
         ArgumentNullException.ThrowIfNull(to);
         return Record(organizationId, OrganizationActivityAction.ChatModelChanged, actorAccountId, at, new { from, to });
     }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.RetentionChanged"/>: detail <c>{ "from", "to",
+    /// "effectiveAt" }</c>, days with <see langword="null"/> for forever; <c>effectiveAt</c> is when
+    /// <c>to</c> applies (<paramref name="at"/> when it applies at once).
+    /// </summary>
+    public static OrganizationActivity RetentionChanged(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, int? from, int? to, DateTimeOffset effectiveAt) =>
+        Record(organizationId, OrganizationActivityAction.RetentionChanged, actorAccountId, at, new { from, to, effectiveAt });
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.RetentionChangeCancelled"/>: detail <c>{ "days",
+    /// "cancelledDays", "cancelledEffectiveAt" }</c> — the retention that stays, and the pending one
+    /// dropped.
+    /// </summary>
+    public static OrganizationActivity RetentionChangeCancelled(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, int? days, int cancelledDays, DateTimeOffset cancelledEffectiveAt) =>
+        Record(organizationId, OrganizationActivityAction.RetentionChangeCancelled, actorAccountId, at, new { days, cancelledDays, cancelledEffectiveAt });
+
+    /// <summary><see cref="OrganizationActivityAction.RetentionTookEffect"/> (system): detail
+    /// <c>{ "from", "to" }</c>.</summary>
+    public static OrganizationActivity RetentionTookEffect(Guid organizationId, DateTimeOffset at, RetentionSwitch change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        return Record(organizationId, OrganizationActivityAction.RetentionTookEffect, actorAccountId: null, at, new { from = change.From, to = change.To });
+    }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.RetentionCleanup"/> (system): detail <c>{ "days",
+    /// "cutoff", "threadCount", "answerOutcomeCount" }</c>. Only for a cleanup that deleted something.
+    /// </summary>
+    public static OrganizationActivity RetentionCleanup(
+        Guid organizationId, DateTimeOffset at, int days, DateTimeOffset cutoff, int threadCount, int answerOutcomeCount)
+    {
+        if (threadCount < 0 || answerOutcomeCount < 0 || threadCount + answerOutcomeCount == 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(threadCount), "A cleanup is recorded only when it deleted something.");
+        }
+
+        return Record(
+            organizationId, OrganizationActivityAction.RetentionCleanup, actorAccountId: null, at,
+            new { days, cutoff, threadCount, answerOutcomeCount });
+    }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.ConversationsPurged"/>: detail <c>{ "assistantId",
+    /// "assistantName", "threadCount" }</c> — the assistant (its name at the time) and how many
+    /// threads were deleted; written for every purge, also one that found nothing to delete.
+    /// </summary>
+    public static OrganizationActivity ConversationsPurged(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid assistantId, string assistantName, int threadCount)
+    {
+        ArgumentNullException.ThrowIfNull(assistantName);
+        ArgumentOutOfRangeException.ThrowIfNegative(threadCount);
+        return Record(
+            organizationId, OrganizationActivityAction.ConversationsPurged, actorAccountId, at,
+            new { assistantId, assistantName, threadCount });
+    }
+
+    /// <summary><see cref="OrganizationActivityAction.CaseGroupCreated"/>: detail <c>{ "id", "name" }</c>.</summary>
+    public static OrganizationActivity CaseGroupCreated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid groupId, string name) =>
+        Record(organizationId, OrganizationActivityAction.CaseGroupCreated, actorAccountId, at, new { id = groupId, name });
+
+    /// <summary><see cref="OrganizationActivityAction.CaseGroupRenamed"/>: detail <c>{ "id", "name",
+    /// "previousName" }</c>.</summary>
+    public static OrganizationActivity CaseGroupRenamed(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid groupId, string name, string previousName) =>
+        Record(organizationId, OrganizationActivityAction.CaseGroupRenamed, actorAccountId, at, new { id = groupId, name, previousName });
+
+    /// <summary><see cref="OrganizationActivityAction.CaseGroupArchived"/> or
+    /// <see cref="OrganizationActivityAction.CaseGroupUnarchived"/>: detail <c>{ "id", "name" }</c>.</summary>
+    public static OrganizationActivity CaseGroupArchiveChanged(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid groupId, string name, bool archived) =>
+        Record(
+            organizationId,
+            archived ? OrganizationActivityAction.CaseGroupArchived : OrganizationActivityAction.CaseGroupUnarchived,
+            actorAccountId,
+            at,
+            new { id = groupId, name });
+
+    /// <summary><see cref="OrganizationActivityAction.CaseTypeCreated"/>: detail <c>{ "id", "name" }</c>.</summary>
+    public static OrganizationActivity CaseTypeCreated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid typeId, string name) =>
+        Record(organizationId, OrganizationActivityAction.CaseTypeCreated, actorAccountId, at, new { id = typeId, name });
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.CaseTypeUpdated"/>: detail <c>{ "id", "name", "changed",
+    /// "isActive" }</c>; <paramref name="changed"/> lists the wire names of the fields that changed
+    /// (at least one). The description itself is something a person wrote, so only the fact that it
+    /// changed is recorded.
+    /// </summary>
+    public static OrganizationActivity CaseTypeUpdated(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, Guid typeId, string name, IReadOnlyList<string> changed, bool isActive)
+    {
+        ArgumentNullException.ThrowIfNull(changed);
+        if (changed.Count == 0)
+        {
+            throw new ArgumentException("An update is recorded only when something changed.", nameof(changed));
+        }
+
+        return Record(organizationId, OrganizationActivityAction.CaseTypeUpdated, actorAccountId, at, new { id = typeId, name, changed, isActive });
+    }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.DatabaseAutoCaseChanged"/>: detail <c>{ "databaseId",
+    /// "databaseName", "from", "to" }</c>, where <c>from</c> and <c>to</c> are <c>{ "id", "name" }</c> of a
+    /// case type, or <see langword="null"/> when submissions opened (or now open) no case. Nothing of any
+    /// record is part of it.
+    /// </summary>
+    public static OrganizationActivity DatabaseAutoCaseChanged(
+        Guid organizationId,
+        Guid actorAccountId,
+        DateTimeOffset at,
+        Guid databaseId,
+        string databaseName,
+        AutoCaseTypeRef? from,
+        AutoCaseTypeRef? to)
+    {
+        if (from == to)
+        {
+            throw new ArgumentException("A change is recorded only when the type changed.", nameof(to));
+        }
+
+        return Record(
+            organizationId, OrganizationActivityAction.DatabaseAutoCaseChanged, actorAccountId, at,
+            new { databaseId, databaseName, from, to });
+    }
 }
 
 /// <summary>One side of a <see cref="OrganizationActivityAction.ChatModelChanged"/> detail.</summary>
@@ -99,3 +225,7 @@ public sealed class OrganizationActivity : IOrganizationScoped
 /// for the deployment default.</param>
 /// <param name="DisplayName">The model's name in the deployment's list at the time.</param>
 public sealed record ChatModelChoice(string? Id, string? DisplayName);
+
+/// <summary>A case type as a <see cref="OrganizationActivityAction.DatabaseAutoCaseChanged"/> detail
+/// names it: <c>{ "id", "name" }</c> (its name at the time).</summary>
+public sealed record AutoCaseTypeRef(Guid Id, string Name);

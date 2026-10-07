@@ -51,7 +51,7 @@
                 [attr.aria-pressed]="selectedId() === issue.id"
                 (click)="select(issue)"
               >
-                <span class="issue-item__top"><strong>{{ issue.title }}</strong><span>{{ statusLabel(issue.status) }}</span></span>
+                <span class="issue-item__top"><strong>{{ issue.title }}</strong><span>{{ statusLabel(issue.status) }}@if (issue.resolutionKind === 'not-assistant-issue') {（{{ resolutionKindLabel(issue.resolutionKind) }}）}</span></span>
                 <span>{{ issue.assistantName }} · {{ sourceLabel(issue.source) }}</span>
                 <span>建立於 {{ issue.createdAt | date:'yyyy/MM/dd HH:mm' }}</span>
               </button>
@@ -62,7 +62,7 @@
     </section>
 
     <section class="issues-detail" aria-labelledby="issue-detail-title">
-      <h2 id="issue-detail-title">事項詳情</h2>
+      <h2 id="issue-detail-title" tabindex="-1">事項詳情</h2>
       @if (!selectedId()) {
         <app-state-panel state="empty" title="選擇一筆處理事項" description="從左側清單選擇，即可查看內容與處理紀錄。" />
       } @else {
@@ -90,6 +90,18 @@
               <div><dt>到期日</dt><dd>{{ detail.data.issue.dueAt ? (detail.data.issue.dueAt | date:'yyyy/MM/dd HH:mm') : '未設定' }}</dd></div>
               @if (detail.data.issue.reporterDisplayName) {
                 <div><dt>{{ detail.data.issue.source === 'handoff' ? '轉交人' : '建立人' }}</dt><dd>{{ detail.data.issue.reporterDisplayName }}</dd></div>
+              }
+              @if (detail.data.issue.status === 'resolved' && detail.data.issue.resolutionKind) {
+                <div data-issue-resolution-kind><dt>結案方式</dt><dd>{{ resolutionKindLabel(detail.data.issue.resolutionKind) }}</dd></div>
+              }
+              @if (detail.data.linkedCase; as linked) {
+                <div data-issue-linked-case><dt>另開的案件</dt><dd>
+                  @if (linked.canOpen) {
+                    <a [routerLink]="['/app/cases']" [queryParams]="{ case: linked.caseId }">開啟案件</a>
+                  } @else {
+                    你不是這件案件的建立者或承辦組成員，無法開啟。
+                  }
+                </dd></div>
               }
             </dl>
 
@@ -143,9 +155,35 @@
                     <textarea rows="3" maxlength="2000" [value]="note()" (input)="note.set($any($event.target).value)" placeholder="記錄調查或解決方式"></textarea>
                   </label>
                 </div>
-                <button class="ui-button" type="button" [disabled]="saving()" (click)="save()">{{ saving() ? '儲存中…' : '儲存變更' }}</button>
+                <div class="issue-edit__actions">
+                  <button class="ui-button" type="button" [disabled]="saving()" (click)="save()">{{ saving() ? '儲存中…' : '儲存變更' }}</button>
+                  @if (detail.data.issue.status !== 'resolved') {
+                    <button class="ui-button ui-button--secondary" type="button" data-issue-open-case [disabled]="saving()" (click)="startOpenCase()">另開案件</button>
+                  }
+                </div>
+                @if (detail.data.issue.status !== 'resolved') {
+                  <p class="issue-note">不是助理答錯、而是業務上要有人去做的事，可以另開案件；這個處理事項會以「非助理問題」結案。</p>
+                }
                 @if (actionMessage()) { <p role="status">{{ actionMessage() }}</p> }
               </section>
+            }
+            @if (caseNotice()) {
+              <p class="issue-case-notice" role="status" data-issue-case-notice>
+                {{ caseNotice() }}
+                @if (noticeCaseId(); as caseId) {
+                  <a [routerLink]="['/app/cases']" [queryParams]="{ case: caseId }">開啟案件</a>
+                }
+              </p>
+            }
+            @if (openingCase()) {
+              <app-open-case-dialog
+                [issueId]="detail.data.issue.id"
+                [issueTitle]="detail.data.issue.title"
+                [question]="detail.data.issue.question"
+                (cancelled)="closeOpenCase()"
+                (opened)="caseOpened($event)"
+                (conflicted)="caseConflicted($event)"
+              />
             }
 
             <section class="issue-history" aria-labelledby="issue-history-title">

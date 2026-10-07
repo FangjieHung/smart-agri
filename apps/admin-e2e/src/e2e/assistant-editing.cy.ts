@@ -100,8 +100,14 @@ describe('editing an assistant after it exists', () => {
 
       cy.get('#scope-strict').check();
       cy.get('#keep-conversations').should('be.checked').uncheck();
+      // 關閉前先確認，確認框寫明已保存的對話不會刪除（issue #242）。
+      cy.get('[role="dialog"]').should('be.visible').within(() => {
+        cy.contains('已保存的對話不會刪除').should('be.visible');
+        cy.contains('button', '關閉保存').click();
+      });
+      cy.get('[role="dialog"]').should('not.exist');
       cy.get('.autosave').should('contain', '已自動儲存');
-      cy.contains('已經保存的對話不會被刪除').should('be.visible');
+      cy.get('#keep-conversations-effect').scrollIntoView().should('contain', '已經保存的對話不會被刪除').and('be.visible');
 
       cy.reload();
       cy.get('#scope-strict').should('be.checked');
@@ -120,6 +126,30 @@ describe('editing an assistant after it exists', () => {
       cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
       cy.get('form.composer button[type="submit"]').click();
       cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+    });
+
+    it('shows the saved count beside the switch and purges it after the acknowledgement (issue #242)', () => {
+      cy.visit(`/app/chat/${ASSISTANT}`);
+      cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+      cy.get('form.composer button[type="submit"]').click();
+      cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+
+      openTab('rules');
+      cy.contains('要真正移除').should('not.exist');
+      cy.get('[data-kept-conversations-count]').scrollIntoView().should('contain', '目前已保存 1 串對話（1 位成員）');
+      cy.contains('button', '立即刪除已保存的對話').click();
+      cy.get('[role="dialog"]').should('be.visible').within(() => {
+        cy.contains('立即刪除「客服助理」已保存的對話？').should('be.visible');
+        cy.get('.confirm-purge').should('be.disabled');
+        cy.get('#purge-acknowledge').check();
+        cy.get('.confirm-purge').click();
+      });
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.get('[data-kept-conversations]').should('contain', '已刪除 1 串對話');
+      cy.get('[data-kept-conversations-count]').should('contain', '目前已保存 0 串對話');
+      cy.contains('button', '立即刪除已保存的對話').should('be.disabled');
+      // 刪除不會關掉開關。
+      cy.get('#keep-conversations').should('be.checked');
     });
 
     it('turns 顯示引用出處 off and the chat stops offering the citation drawer', () => {

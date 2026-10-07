@@ -1,0 +1,22 @@
+:host { display: block; }
+
+.kept-conversations { display: grid; gap: var(--space-2); justify-items: start; min-inline-size: 0; }
+p { margin: 0; }
+.hint { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.hint:focus { outline: none; }
+.error { color: var(--color-error); font-weight: 700; }
+.feedback { color: var(--color-success); font-weight: 600; }
+.feedback:empty { display: none; }
+.kept-conversations__purge {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-error);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.kept-conversations__purge:disabled { opacity: 0.6; cursor: not-allowed; }
+.kept-conversations__purge:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

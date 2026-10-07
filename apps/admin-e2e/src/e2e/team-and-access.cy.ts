@@ -32,8 +32,8 @@ describe('team management and data access', () => {
     cy.get('.member').should('not.exist');
     cy.get('#permission-account-smb-admin-manage-assistants').should('not.exist');
     cy.contains('安心商行管理者').should('not.exist');
-    // 外觀設定不需要權限，仍然在。
-    cy.contains('h2', '外觀設定').should('be.visible');
+    // 外觀設定不需要權限，仍然在（「對話保存」之後已在可視範圍外，先捲過去）。
+    cy.contains('h2', '外觀設定').scrollIntoView().should('be.visible');
   });
 
   it('shows the single mock chat model to every persona without a menu (issue #240)', () => {
@@ -48,6 +48,186 @@ describe('team management and data access', () => {
       });
     }
   });
+
+  it('lets only the manager manage case groups, with internal accounts as the only members (issue #246)', () => {
+    loginAs('內部使用者');
+    cy.visit('/app/settings');
+    cy.contains('h2', '外觀設定').should('exist');
+    cy.get('[data-case-groups-panel]').should('not.exist');
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/settings');
+    cy.get('[data-case-groups-panel]').scrollIntoView().within(() => {
+      cy.contains('h2', '承辦組').should('be.visible');
+      cy.get('[data-case-group="舊倉儲組"]').should('contain', '已封存');
+
+      cy.get('#case-group-new-name').type('品保組');
+      cy.contains('button', '建立承辦組').click();
+      cy.get('[role="status"]').should('contain', '已建立承辦組「品保組」。');
+
+      cy.contains('button', '編輯「品保組」的成員').click();
+      cy.get('[data-case-group-members-editor]').within(() => {
+        cy.get('label').should('have.length', 2);
+        cy.contains('外部客戶').should('not.exist');
+        cy.contains('label', '安心商行客服同仁').click();
+        cy.contains('button', '儲存成員').click();
+      });
+      cy.get('[data-case-group="品保組"]').should('contain', '成員：安心商行客服同仁');
+
+      cy.contains('button', '「品保組」的成員異動').click();
+      cy.get('[data-case-group-history]').should('contain', '加入了 安心商行客服同仁');
+
+      cy.contains('button', '封存「品保組」').click();
+      cy.get('[data-case-group="品保組"]').should('contain', '已封存');
+      cy.contains('button', '取消封存「品保組」').click();
+      cy.get('[data-case-group="品保組"]').should('not.contain', '已封存');
+    });
+  });
+
+  it('shortens the retention through a confirmation, shows the buffer and goes back (issue #243)', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/settings');
+    cy.get('[data-conversation-retention]').scrollIntoView().within(() => {
+      cy.contains('h2', '對話保存').should('be.visible');
+      cy.contains('已轉給專人的問答會保留在處理事項中').should('be.visible');
+      cy.get('#retention-days-select').should('have.value', 'forever').select('30 天');
+    });
+
+    cy.get('[role="dialog"]').should('be.visible').within(() => {
+      cy.contains('把保存期限縮短為 30 天？').should('be.visible');
+      cy.get('[data-retention-preview-count]').should('contain', '大約會刪除').and('contain', '串對話');
+      cy.contains('button', '縮短為 30 天').click();
+    });
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('[data-retention-pending]').scrollIntoView().should('be.visible').and('contain', '起改為 30 天');
+    cy.get('#retention-status').should('contain', '起生效');
+
+    cy.contains('[data-retention-pending] button', '改回').click();
+    cy.get('[data-retention-pending]').should('not.exist');
+    cy.get('#retention-days-select').should('have.value', 'forever');
+    cy.get('#retention-status').should('contain', '已改回 永久');
+  });
+
+  it('purges an assistant\'s saved conversations from the settings list only after the acknowledgement (issue #242)', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/chat/assistant-customer-service');
+    cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+    cy.get('form.composer button[type="submit"]').click();
+    cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+
+    cy.visit('/app/settings');
+    cy.get('[data-assistant-row="assistant-customer-service"]').scrollIntoView().within(() => {
+      cy.contains('客服助理').should('be.visible');
+      cy.get('[data-keep-state]').should('contain', '開啟');
+      cy.get('[data-thread-count]').should('contain', '已保存 1 串對話（1 位成員）');
+      cy.get('[data-last-activity]').should('contain', '最後活動：20');
+      cy.contains('button', '立即刪除').click();
+    });
+
+    cy.get('[role="dialog"]').should('be.visible').within(() => {
+      cy.contains('立即刪除「客服助理」已保存的對話？').should('be.visible');
+      cy.get('.confirm-detail').should('contain', '1 位成員').and('contain', '1 串對話');
+      cy.get('[data-purge-issues-note]').should('contain', '已轉給專人的問答會保留在處理事項中');
+      cy.get('.confirm-purge').should('be.disabled');
+      cy.get('#purge-acknowledge').check();
+      cy.get('.confirm-purge').should('be.enabled').click();
+    });
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('[data-purge-status]').should('contain', '已刪除「客服助理」的 1 串對話');
+    cy.get('[data-assistant-row="assistant-customer-service"] [data-thread-count]').should('contain', '已保存 0 串對話');
+  });
+
+  it('shows the retention read-only to a member (issue #243)', () => {
+    loginAs('內部使用者');
+    cy.visit('/app/settings');
+    cy.get('[data-conversation-retention]').scrollIntoView().within(() => {
+      cy.contains('h3', '保存期限：永久').should('be.visible');
+      cy.contains('只有管理者可以變更保存期限').should('be.visible');
+      cy.contains('已轉給專人的問答會保留在處理事項中').should('be.visible');
+      cy.get('select').should('not.exist');
+      cy.get('button').should('not.exist');
+    });
+  });
+
+  it('lets only the manager define case types, entering the handling time in days or hours (issue #247)', () => {
+    loginAs('內部使用者');
+    cy.visit('/app/settings');
+    cy.contains('h2', '外觀設定').should('exist');
+    cy.get('[data-case-types-panel]').should('not.exist');
+
+    loginAs('SMB 管理者');
+    cy.visit('/app/settings');
+    cy.get('[data-case-types-panel]').scrollIntoView().within(() => {
+      cy.contains('h2', '案件類型').should('be.visible');
+      cy.get('[data-case-type="設備故障報修"]').should('contain', '預設承辦組：設備組').and('contain', '3 天');
+      cy.get('[data-case-type="倉儲盤點差異"]').should('contain', '已停用').and('contain', '舊倉儲組（已封存）');
+
+      cy.contains('button', '新增案件類型').click();
+      cy.get('#case-type-name').type('冷藏庫異常');
+      cy.get('#case-type-description').type('冷藏庫溫度超過設定值。');
+      cy.get('#case-type-group').select('採購組');
+      cy.get('#case-type-due').clear().type('91');
+      cy.contains('button', '建立案件類型').click();
+      cy.get('#case-type-due-error').should('contain', '1 到 2,160 小時（90 天）');
+      cy.get('#case-type-due').clear().type('2');
+      cy.get('#case-type-due-hint').should('contain', '共 48 小時');
+      cy.contains('button', '建立案件類型').click();
+      cy.get('[role="status"]').should('contain', '已建立案件類型「冷藏庫異常」。');
+      cy.get('[data-case-type="冷藏庫異常"]').should('contain', '預設承辦組：採購組').and('contain', '2 天');
+
+      cy.contains('button', '編輯「冷藏庫異常」').click();
+      cy.get('#case-type-due-unit').select('小時');
+      cy.get('#case-type-due').clear().type('36');
+      cy.contains('button', '儲存案件類型').click();
+      cy.get('[data-case-type="冷藏庫異常"]').should('contain', '36 小時');
+
+      cy.contains('button', '停用「冷藏庫異常」').click();
+      cy.get('[data-case-type="冷藏庫異常"]').should('contain', '已停用');
+    });
+
+    // The default group of an active type cannot be archived.
+    cy.get('[data-case-groups-panel]').within(() => {
+      cy.contains('button', '封存「設備組」').click();
+      cy.get('[role="alert"]').should('contain', '「設備組」是啟用中的案件類型「設備故障報修」的預設承辦組');
+      cy.get('[data-case-group="設備組"]').should('not.contain', '已封存');
+    });
+  });
+
+  // issue #284：權限清單讓「新增成員」對話框比矮視窗還高，而且不能捲動，送出鈕被裁掉。
+  // 現在只有中間的欄位捲動；這裡全程不用 scrollIntoView，按鈕也用 scrollBehavior: false 直接點。
+  for (const [width, height] of [[1000, 660], [390, 700]] as const) {
+    it(`keeps the add-member buttons on screen and clickable in a ${width}×${height} window (issues #283, #284)`, () => {
+      cy.viewport(width, height);
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '新增成員').click();
+
+      cy.get('form.create-panel[aria-labelledby="add-member-title"]').should('be.visible').within(() => {
+        // issue #283：一打開顯示的就是元件預設、權限最小的內部同仁。
+        cy.get('#new-member-role').should('have.value', 'internal-employee')
+          .find('option:selected').should('have.text', '內部同仁');
+        // 內容比可用的高度多，所以中間那段真的在捲動，而不是整個對話框被撐高。
+        cy.get('.create-panel__body').should(($body) => {
+          expect($body[0].scrollHeight, 'scrollable body').to.be.greaterThan($body[0].clientHeight);
+        });
+      });
+      expectFullyOnScreen('#add-member-title');
+      expectFullyOnScreen('form.create-panel button[type="submit"]');
+      expectFullyOnScreen('form.create-panel button[type="button"]');
+
+      // 空白送出：按得到，錯誤訊息出現後按鈕仍在畫面內。
+      cy.get('form.create-panel button[type="submit"]').click({ scrollBehavior: false });
+      cy.get('#add-member-error').should('contain', '請輸入登入名稱。');
+      expectFullyOnScreen('form.create-panel button[type="submit"]');
+
+      cy.get('#new-member-login-name').type('short-window', { scrollBehavior: false });
+      cy.get('#new-member-display-name').type('矮視窗同仁', { scrollBehavior: false });
+      cy.get('form.create-panel button[type="submit"]').click({ scrollBehavior: false });
+      cy.contains('#new-member-password-title', '已新增「矮視窗同仁」').should('be.visible');
+      cy.contains('button', '關閉').click({ scrollBehavior: false });
+      cy.contains('.member', '矮視窗同仁').should('contain', '內部同仁');
+    });
+  }
 
   it('will not let the admin lock themselves out of the team screen', () => {
     loginAs('SMB 管理者');
@@ -160,3 +340,18 @@ describe('team management and data access', () => {
     cy.contains('客服助理').should('be.visible');
   });
 });
+
+/** 元素整個落在視窗內，而且視窗在它中心點命中的就是它自己（沒有被裁掉或蓋住）。 */
+function expectFullyOnScreen(selector: string): void {
+  cy.get(selector).then(($element) => {
+    const element = $element[0];
+    const rect = element.getBoundingClientRect();
+    const win = element.ownerDocument.defaultView as Window;
+    expect(rect.top, `${selector} top`).to.be.at.least(0);
+    expect(rect.left, `${selector} left`).to.be.at.least(0);
+    expect(rect.bottom, `${selector} bottom`).to.be.at.most(win.innerHeight);
+    expect(rect.right, `${selector} right`).to.be.at.most(win.innerWidth);
+    const hit = element.ownerDocument.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    expect(hit === element || element.contains(hit), `${selector} is the element at its own center`).to.eq(true);
+  });
+}

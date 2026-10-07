@@ -52,14 +52,29 @@
       關掉之後，組織資料的回答仍然標示「根據你的資料」，但不再提供「查看引用來源」，也看不到原文片段。
     </p>
   }
-  <lib-setting-row title="保留使用者自己的對話紀錄" description="只有發起對話的本人看得到。" controlId="keep-conversations" [toggleable]="true" [checked]="current.keepOwnConversations" (toggled)="changed.emit({ keepOwnConversations: $event })" />
+  <lib-setting-row title="保留使用者自己的對話紀錄" description="只有發起對話的本人看得到。" controlId="keep-conversations" [toggleable]="true" [checked]="current.keepOwnConversations" (toggled)="toggleKeepConversations($event)" />
   @if (live()) {
     <p id="keep-conversations-effect" class="hint">
       關掉之後，新的對話不會被保存，使用者的「對話紀錄」欄位也會暫時空白。
-      已經保存的對話不會被刪除，重新勾選就會再次出現——要真正移除，請由對話的所有人在自己的對話紀錄中刪除。
+      已經保存的對話不會被刪除，重新勾選就會再次出現。
     </p>
+    @if (assistantId(); as id) {
+      <app-kept-conversations [assistantId]="id" [assistantName]="assistantName()" />
+    }
   }
 </fieldset>
+
+@if (confirmingKeepOff()) {
+  <app-confirm-dialog
+    name="keep-conversations-off"
+    heading="關閉「保留使用者自己的對話紀錄」？"
+    detail="關閉後，新的對話不會被保存，使用者的「對話紀錄」欄位會暫時空白。已保存的對話不會刪除，重新開啟就會再次出現。"
+    confirmLabel="關閉保存"
+    confirmClass="confirm-keep-off"
+    (cancelled)="cancelKeepOff()"
+    (confirmed)="confirmKeepOff()"
+  />
+}
 
 @if (databaseFeaturesAvailable()) {
 <div class="field">

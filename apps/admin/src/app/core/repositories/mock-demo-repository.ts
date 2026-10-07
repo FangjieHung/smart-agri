@@ -40,6 +40,7 @@ import {
 import type {
   AssistantChatView,
   AuthorizedFormInput,
+  ChatCaseProposalView,
   ChatFormSubmission,
   ChatFormView,
   ChatHistoryMode,
@@ -80,6 +81,19 @@ import type {
   TrackedSubjectId,
 } from '../domain/database.model';
 import { DATABASE_REPORT_SUMMARY_DISCLAIMER, DATABASE_REPORT_SUMMARY_LABEL } from '../domain/database.model';
+import {
+  CASE_PROPOSAL_CLOSED_MESSAGE,
+  CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE,
+  CASE_PROPOSAL_TITLE_MAX_LENGTH,
+  caseProposalText,
+  caseTitleFromQuestion,
+  keywordCaseProposal,
+  type ProposableCaseType,
+} from '../domain/case-proposal';
+import { MOCK_PROPOSABLE_CASE_TYPES, recordMockChatProposedCase } from './mock-chat-cases';
+
+/** 與後端 `ForbiddenReason.CaseFeature`（`CASE_FEATURE_DENIED_MESSAGE`）相同。 */
+const CASE_FEATURE_DENIED_TEXT = '你沒有這個案件的存取權限，或它已不存在。案件功能只開放組織內部帳號使用。';
 import {
   isRetryableKnowledgeDocument,
   isUsableKnowledgeDocument,
@@ -133,10 +147,17 @@ import {
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import type {
+  AssistantConversationPurgeView,
+  AssistantConversationSummaryView,
   ChatModelOptionView,
   OrganizationChatModelView,
+  OrganizationRetentionAssistantView,
+  OrganizationRetentionPendingView,
+  OrganizationRetentionPreviewView,
+  OrganizationRetentionView,
   OrganizationSettingChangeView,
 } from '../domain/organization-settings.model';
+import { isShorterRetention, RETENTION_BUFFER_DAYS } from '../domain/organization-settings.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -225,6 +246,8 @@ import {
 } from './publishing-channels';
 import type {
   ApproveKnowledgeVersionsResult,
+  ChatCaseProposalConfirmation,
+  ChatCaseProposalResult,
   CreateAssistantResult,
   CreateDatabaseResult,
   DeleteAssistantResult,
@@ -258,6 +281,8 @@ import type {
   UpdateKnowledgeSharingResult,
   UpdateMemberPermissionsResult,
   UpdateOrganizationChatModelResult,
+  UpdateOrganizationRetentionResult,
+  PreviewOrganizationRetentionResult,
   UpdatePlatformSharingResult,
   PublishLineResult,
   PublishWebsiteResult,
@@ -357,6 +382,70 @@ export const UNKNOWN_CHAT_MODEL_MESSAGE = '這個模型不在部署提供的清�
 export const ORGANIZATION_SETTINGS_CONFLICT_MESSAGE = '組織設定已被其他人更新過，請重新載入後再修改。';
 
 const ORGANIZATION_CHAT_MODEL_KEY = 'sme-demo:organization-chat-model';
+
+/**
+ * 組織設定共用的 revision（與後端 `Organizations.SettingsRevision` 相同：對話模型與保存期限的任何
+ * 變更、待生效的期限轉為生效，都讓它 +1）。沒有這個鍵時沿用舊版對話模型紀錄裡的 revision。
+ */
+const ORGANIZATION_SETTINGS_REVISION_KEY = 'sme-demo:organization-settings-revision';
+
+const ORGANIZATION_RETENTION_KEY = 'sme-demo:organization-retention';
+
+/** 保存期限的選項（天）；永久是 `null`。與後端 `OrganizationRetention.Options` 相同。 */
+export const MOCK_RETENTION_OPTIONS: readonly number[] = [30, 90, 180, 365];
+
+/** 與後端 `OrganizationRetentionEndpoints.UnknownDaysMessage` 逐字相同。 */
+export const UNKNOWN_RETENTION_DAYS_MESSAGE = '保存期限只能是 30、90、180、365 天或永久。';
+
+/** 待生效的期限轉為生效時，「上次變更」記的是系統（與後端相同）。 */
+export const RETENTION_SYSTEM_ACTOR_NAME = '系統';
+
+interface StoredOrganizationRetention {
+  readonly days: number | null;
+  readonly pending: OrganizationRetentionPendingView | null;
+  readonly lastChange: OrganizationSettingChangeView | null;
+}
+
+/** 曆日 `YYYY-MM-DD` 在統計時區的 00:00（UTC 時間點）；連續兩次修正，夏令時間的日子也正確。 */
+function zonedMidnight(day: string, timeZone: string): Date {
+  const [year, month, date] = day.split('-').map(Number);
+  const wallClock = Date.UTC(year, month - 1, date);
+  const format = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+  });
+  const offset = (instant: number): number => {
+    const parts = Object.fromEntries(format.formatToParts(new Date(instant)).map((part) => [part.type, part.value]));
+    const local = Date.UTC(
+      Number(parts['year']),
+      Number(parts['month']) - 1,
+      Number(parts['day']),
+      Number(parts['hour']),
+      Number(parts['minute']),
+      Number(parts['second']),
+    );
+    return local - instant;
+  };
+  const first = wallClock - offset(wallClock);
+  return new Date(wallClock - offset(first));
+}
+
+/**
+ * 保存期限 `days` 天的截止點：統計時區「今天減 `days` 天」的 00:00（與後端
+ * `RetentionCleanupRules.Cutoff` 相同）。最後一則訊息早於它的對話串會被清理。
+ */
+export function retentionCutoff(now: Date, days: number, timeZone: string): Date {
+  const today = statisticsDay(now.toISOString(), timeZone);
+  const [year, month, date] = today.split('-').map(Number);
+  const day = new Date(Date.UTC(year, month - 1, date - days)).toISOString().slice(0, 10);
+  return zonedMidnight(day, timeZone);
+}
 
 interface StoredOrganizationChatModel {
   readonly selectedId: string | null;
@@ -478,6 +567,8 @@ interface StoredAssistantSettings {
   readonly rules: AssistantAnswerRules;
   /** 定期報表自動停用（#179）；沒有這個鍵的舊紀錄視為沒有停用。 */
   readonly periodicReportAutoDisabled?: PeriodicReportAutoDisabledView | null;
+  /** 可提議的案件類型（#254）；沒有這個鍵的舊紀錄視為沒有。 */
+  readonly caseTypeIds?: readonly string[];
 }
 
 /** 存起來的自動停用紀錄；形狀不對時當成沒有停用。 */
@@ -539,6 +630,9 @@ function normalizeStoredAssistantSettings(value: unknown): StoredAssistantSettin
       typeof value['roleInstructions'] === 'string' ? value['roleInstructions'] : '',
     rules: { ...empty.rules, ...value['rules'] } as AssistantAnswerRules,
     periodicReportAutoDisabled: normalizeAutoDisabled(value['periodicReportAutoDisabled']),
+    caseTypeIds: Array.isArray(value['caseTypeIds'])
+      ? value['caseTypeIds'].filter((id): id is string => typeof id === 'string')
+      : [],
   };
 }
 
@@ -1556,6 +1650,37 @@ export class MockDemoRepository implements DemoRepository {
     );
   }
 
+  setAssistantCaseType(
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
+  ): Observable<UpdateAssistantSettingsResult> {
+    return this.signedIn(
+      (viewer) => this.setAssistantCaseTypeSync(viewer, assistantId, caseTypeId, proposable),
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  /** 與後端相同：只有擁有者，只能加入啟用中的類型（mock 是 `MOCK_PROPOSABLE_CASE_TYPES`）；重複加入或移除不在清單上的都不變。 */
+  private setAssistantCaseTypeSync(
+    viewerAccountId: AccountId,
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
+  ): UpdateAssistantSettingsResult {
+    const assistant = this.settingsTarget(viewerAccountId, assistantId);
+    if (assistant === undefined) return this.assistantSettingsPermissionDenied();
+    if (proposable && !MOCK_PROPOSABLE_CASE_TYPES.some((type) => type.typeId === caseTypeId)) {
+      const message = '這個案件類型已停用或不存在，請選擇其他類型。';
+      return immutableCopy({ status: 'validation-failed', errors: [{ field: 'caseTypeIds', message }], message });
+    }
+    const current = this.assistantSettings(assistant);
+    const caseTypeIds = proposable
+      ? current.caseTypeIds.includes(caseTypeId) ? current.caseTypeIds : [...current.caseTypeIds, caseTypeId]
+      : current.caseTypeIds.filter((id) => id !== caseTypeId);
+    return this.commitAssistantSettings({ ...current, caseTypeIds });
+  }
+
   /**
    * 刪除自己的助理：建立精靈建立的從清單移除，種子助理記在 `deleted-assistants`（種子是
    * 唯讀 fixture）；一併清掉它的設定與發布紀錄。對話紀錄以帳號為鍵分散在 storage 中，
@@ -2015,14 +2140,13 @@ export class MockDemoRepository implements DemoRepository {
         const stored = this.storedOrganizationChatModel();
         const nextId = chosen?.id ?? null;
         if (nextId === stored.selectedId) return this.applyScenario(this.organizationChatModelView(viewer));
-        if (revision !== stored.revision) {
+        if (revision !== this.organizationSettingsRevision()) {
           return immutableCopy({ status: 'conflict', message: ORGANIZATION_SETTINGS_CONFLICT_MESSAGE });
         }
-        const actorName = this.accounts().find((account) => account.id === viewer)?.displayName ?? '已停用的帳號';
         const record: StoredOrganizationChatModel = {
           selectedId: nextId,
-          revision: stored.revision + 1,
-          lastChange: { actorName, at: this.now().toISOString() },
+          revision: this.bumpOrganizationSettingsRevision(),
+          lastChange: { actorName: this.organizationActorName(viewer), at: this.now().toISOString() },
         };
         this.storage.setItem(ORGANIZATION_CHAT_MODEL_KEY, JSON.stringify(record));
         return this.applyScenario(this.organizationChatModelView(viewer));
@@ -2042,7 +2166,7 @@ export class MockDemoRepository implements DemoRepository {
       source: stored.selectedId === null ? 'deployment-default' : selected === undefined ? 'removed' : 'selected',
       canChange: this.isOrganizationAdmin(viewer),
       lastChange: stored.lastChange,
-      revision: stored.revision,
+      revision: this.organizationSettingsRevision(),
     };
   }
 
@@ -2067,6 +2191,221 @@ export class MockDemoRepository implements DemoRepository {
         ? { actorName: change['actorName'], at: change['at'] }
         : null;
     return { selectedId, revision, lastChange };
+  }
+
+  private organizationSettingsRevision(): number {
+    const parsed = parseJson(this.storage.getItem(ORGANIZATION_SETTINGS_REVISION_KEY));
+    if (typeof parsed === 'number' && Number.isInteger(parsed) && parsed >= 0) return parsed;
+    return this.storedOrganizationChatModel().revision;
+  }
+
+  /** 讓共用的 revision +1，回傳新的值。 */
+  private bumpOrganizationSettingsRevision(): number {
+    const next = this.organizationSettingsRevision() + 1;
+    this.storage.setItem(ORGANIZATION_SETTINGS_REVISION_KEY, JSON.stringify(next));
+    return next;
+  }
+
+  private organizationActorName(viewer: AccountId): string {
+    return this.accounts().find((account) => account.id === viewer)?.displayName ?? '已停用的帳號';
+  }
+
+  getOrganizationRetention(): Observable<RepositoryView<OrganizationRetentionView>> {
+    return this.signedIn(
+      (viewer) => this.applyScenario(this.organizationRetentionView(viewer)),
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  /** 與後端相同：先檢查管理者，再檢查天數；數量是現在的清理會刪除的對話串（所有帳號、所有助理）。 */
+  previewOrganizationRetention(days: number): Observable<PreviewOrganizationRetentionResult> {
+    return this.signedIn(
+      (viewer): PreviewOrganizationRetentionResult => {
+        if (!this.isOrganizationAdmin(viewer)) return this.organizationSettingsDenied();
+        if (!MOCK_RETENTION_OPTIONS.includes(days)) {
+          return immutableCopy({ status: 'validation-failed', message: UNKNOWN_RETENTION_DAYS_MESSAGE });
+        }
+        const cutoff = retentionCutoff(this.now(), days, this.statisticsTimeZone());
+        const threadCount = this.accounts().reduce(
+          (total, account) =>
+            total +
+            this.assistants().reduce(
+              (count, assistant) =>
+                count +
+                this.storedThreads(account.id, assistant.id).filter(
+                  (thread) => Date.parse(thread.updatedAt) < cutoff.getTime(),
+                ).length,
+              0,
+            ),
+          0,
+        );
+        return this.applyScenario<OrganizationRetentionPreviewView>({
+          days,
+          threadCount,
+          cutoff: cutoff.toISOString(),
+        });
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  /** 與後端 `Organization.ChangeRetention` 相同的規則與檢查順序（天數 → revision → 有沒有改變）。 */
+  updateOrganizationRetention(
+    days: number | null,
+    revision: number,
+  ): Observable<UpdateOrganizationRetentionResult> {
+    return this.signedIn(
+      (viewer): UpdateOrganizationRetentionResult => {
+        if (!this.isOrganizationAdmin(viewer)) return this.organizationSettingsDenied();
+        if (days !== null && !MOCK_RETENTION_OPTIONS.includes(days)) {
+          return immutableCopy({ status: 'validation-failed', message: UNKNOWN_RETENTION_DAYS_MESSAGE });
+        }
+        const stored = this.storedOrganizationRetention();
+        if (revision !== this.organizationSettingsRevision()) {
+          return immutableCopy({ status: 'conflict', message: ORGANIZATION_SETTINGS_CONFLICT_MESSAGE });
+        }
+        const now = this.now();
+        let next: Pick<StoredOrganizationRetention, 'days' | 'pending'>;
+        if (days === stored.days) {
+          if (stored.pending === null) return this.applyScenario(this.organizationRetentionView(viewer));
+          next = { days: stored.days, pending: null };
+        } else if (stored.pending !== null && days === stored.pending.days) {
+          return this.applyScenario(this.organizationRetentionView(viewer));
+        } else if (isShorterRetention(days, stored.days)) {
+          const effectiveAt = new Date(now.getTime() + RETENTION_BUFFER_DAYS * 24 * 60 * 60 * 1000);
+          next = { days: stored.days, pending: { days: days as number, effectiveAt: effectiveAt.toISOString() } };
+        } else {
+          next = { days, pending: null };
+        }
+        this.bumpOrganizationSettingsRevision();
+        const record: StoredOrganizationRetention = {
+          ...next,
+          lastChange: { actorName: this.organizationActorName(viewer), at: now.toISOString() },
+        };
+        this.storage.setItem(ORGANIZATION_RETENTION_KEY, JSON.stringify(record));
+        return this.applyScenario(this.organizationRetentionView(viewer));
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  /** 與後端相同：只有管理者；組織內每個助理一列（所有帳號的對話），只有數字。 */
+  listRetentionAssistants(): Observable<RepositoryView<readonly OrganizationRetentionAssistantView[]>> {
+    return this.signedIn(
+      (viewer): RepositoryView<readonly OrganizationRetentionAssistantView[]> => {
+        if (!this.isOrganizationAdmin(viewer)) return this.organizationSettingsDenied();
+        return this.applyScenario(
+          this.assistants().map((assistant): OrganizationRetentionAssistantView => ({
+            assistantId: assistant.id,
+            assistantName: assistant.name,
+            keepConversations: this.keepsConversations(assistant),
+            ...this.savedConversationCounts(assistant.id),
+          })),
+        );
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  /** 管理者讀得到任何助理；其他人要能管理助理、而且是擁有者（與 `GET …/settings` 相同）。 */
+  getAssistantConversationSummary(assistantId: string): Observable<RepositoryView<AssistantConversationSummaryView>> {
+    return this.signedIn(
+      (viewer): RepositoryView<AssistantConversationSummaryView> => {
+        const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
+        const isAdmin = this.isOrganizationAdmin(viewer);
+        const readable =
+          assistant !== undefined &&
+          (isAdmin || (this.canManageAssistants(viewer) && assistant.ownerAccountId === viewer));
+        if (!readable) return this.assistantSettingsPermissionDenied();
+        const { threadCount, accountCount } = this.savedConversationCounts(assistant.id);
+        return this.applyScenario({ threadCount, accountCount, canPurge: isAdmin });
+      },
+      () => this.assistantSettingsPermissionDenied(),
+    );
+  }
+
+  /** 只有管理者：刪掉每個帳號在這個助理上已保存的對話（訪客的暫存對話不在其中）。 */
+  purgeAssistantConversations(assistantId: string): Observable<RepositoryView<AssistantConversationPurgeView>> {
+    return this.signedIn(
+      (viewer): RepositoryView<AssistantConversationPurgeView> => {
+        const assistant = this.assistants().find((candidate) => candidate.id === assistantId);
+        if (!this.isOrganizationAdmin(viewer) || assistant === undefined) return this.organizationSettingsDenied();
+        let deletedThreadCount = 0;
+        for (const account of this.accounts()) {
+          const threads = this.storedThreads(account.id, assistant.id);
+          if (threads.length === 0) continue;
+          deletedThreadCount += threads.length;
+          this.storage.removeItem(this.chatKey(account.id, assistant.id));
+        }
+        return this.applyScenario({ deletedThreadCount });
+      },
+      () => this.organizationSettingsDenied(),
+    );
+  }
+
+  private savedConversationCounts(
+    assistantId: AssistantId,
+  ): Pick<OrganizationRetentionAssistantView, 'threadCount' | 'accountCount' | 'lastActivityAt'> {
+    let threadCount = 0;
+    let accountCount = 0;
+    let lastActivityAt: string | null = null;
+    for (const account of this.accounts()) {
+      const threads = this.storedThreads(account.id, assistantId);
+      if (threads.length === 0) continue;
+      threadCount += threads.length;
+      accountCount += 1;
+      for (const thread of threads) {
+        if (lastActivityAt === null || Date.parse(thread.updatedAt) > Date.parse(lastActivityAt)) {
+          lastActivityAt = thread.updatedAt;
+        }
+      }
+    }
+    return { threadCount, accountCount, lastActivityAt };
+  }
+
+  private organizationRetentionView(viewer: AccountId): OrganizationRetentionView {
+    const stored = this.storedOrganizationRetention();
+    return {
+      days: stored.days,
+      pending: stored.pending === null ? null : { ...stored.pending },
+      options: [...MOCK_RETENTION_OPTIONS],
+      canChange: this.isOrganizationAdmin(viewer),
+      lastChange: stored.lastChange === null ? null : { ...stored.lastChange },
+      revision: this.organizationSettingsRevision(),
+    };
+  }
+
+  /**
+   * 讀取保存期限；待生效的期限已到 `effectiveAt` 時，扮演每日清理把它轉為生效（「上次變更」記為
+   * 系統、revision +1），所以畫面開著時送出可能得到 conflict，與後端相同。mock 不實際刪除對話。
+   */
+  private storedOrganizationRetention(): StoredOrganizationRetention {
+    const parsed = parseJson(this.storage.getItem(ORGANIZATION_RETENTION_KEY));
+    if (!isRecord(parsed)) return { days: null, pending: null, lastChange: null };
+    const isOption = (value: unknown): value is number =>
+      typeof value === 'number' && MOCK_RETENTION_OPTIONS.includes(value);
+    const days = isOption(parsed['days']) ? parsed['days'] : null;
+    const rawPending = parsed['pending'];
+    const pending =
+      isRecord(rawPending) && isOption(rawPending['days']) && typeof rawPending['effectiveAt'] === 'string'
+        ? { days: rawPending['days'], effectiveAt: rawPending['effectiveAt'] }
+        : null;
+    const change = parsed['lastChange'];
+    const lastChange =
+      isRecord(change) && typeof change['actorName'] === 'string' && typeof change['at'] === 'string'
+        ? { actorName: change['actorName'], at: change['at'] }
+        : null;
+    if (pending !== null && Date.parse(pending.effectiveAt) <= this.now().getTime()) {
+      const applied: StoredOrganizationRetention = {
+        days: pending.days,
+        pending: null,
+        lastChange: { actorName: RETENTION_SYSTEM_ACTOR_NAME, at: pending.effectiveAt },
+      };
+      this.storage.setItem(ORGANIZATION_RETENTION_KEY, JSON.stringify(applied));
+      this.bumpOrganizationSettingsRevision();
+      return applied;
+    }
+    return { days, pending, lastChange };
   }
 
   /** 決定 A：「管理者限定」是角色 `smb-admin`，不是一項權限。 */
@@ -2641,6 +2980,7 @@ export class MockDemoRepository implements DemoRepository {
       tone: draft.tone,
       roleInstructions: draft.roleInstructions,
       rules: draft.rules,
+      caseTypeIds: [],
       periodicReportAutoDisabled: null,
       savedAt: null,
     });
@@ -4813,6 +5153,124 @@ export class MockDemoRepository implements DemoRepository {
     return { status: 'ready', data: null };
   }
 
+  confirmChatCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation,
+  ): Observable<ChatCaseProposalResult> {
+    return defer(() => of(this.settleCaseProposal(viewerId, assistantId, messageId, confirmation)));
+  }
+
+  dismissChatCaseProposal(viewerId: ChatViewerId, assistantId: string, messageId: string): Observable<ChatCaseProposalResult> {
+    return defer(() => of(this.settleCaseProposal(viewerId, assistantId, messageId, null)));
+  }
+
+  /**
+   * 與後端相同的檢查順序（#254）：可使用助理 → 內部帳號 → 自己對話裡的提議 → 仍待確認（否則 conflict）→
+   * （確認時）標題與說明 → 類型仍可提議。確認後的案件只有確認過的標題與說明，連結這個對話串。
+   */
+  private settleCaseProposal(
+    viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation | null,
+  ): ChatCaseProposalResult {
+    const assistant = this.chatAssistant(viewerId, assistantId);
+    if (assistant === undefined) return this.chatAssistantPermissionDenied(viewerId);
+    if (!this.proposesCasesTo(viewerId)) {
+      return { status: 'permission-denied', reason: 'case', message: CASE_FEATURE_DENIED_TEXT };
+    }
+    const thread = this.keepsConversations(assistant)
+      ? this.storedThreads(viewerId, assistant.id).find((candidate) =>
+          candidate.messages.some((message) => message.id === messageId && message.author === 'assistant' && message.reply.kind === 'case-proposal'))
+      : undefined;
+    const message = thread?.messages.find((candidate) => candidate.id === messageId);
+    if (thread === undefined || message === undefined || message.author !== 'assistant' || message.reply.kind !== 'case-proposal'
+      || message.reply.proposal === null) {
+      return this.chatThreadPermissionDenied();
+    }
+    const proposal = message.reply.proposal;
+    if (proposal.status !== 'proposed') return { status: 'conflict', message: CASE_PROPOSAL_CLOSED_MESSAGE };
+
+    let next: ChatCaseProposalView = { ...proposal, status: 'dismissed', available: false };
+    if (confirmation !== null) {
+      const title = confirmation.title.trim();
+      const description = confirmation.description.trim();
+      const fieldErrors: Partial<Record<'title' | 'description', string>> = {};
+      if (title.length === 0) fieldErrors.title = '請輸入案件標題。';
+      else if (title.length > CASE_PROPOSAL_TITLE_MAX_LENGTH) fieldErrors.title = `案件標題請在 ${CASE_PROPOSAL_TITLE_MAX_LENGTH} 個字以內。`;
+      if (description.length > 4000) fieldErrors.description = '說明請在 4,000 個字以內。';
+      const first = fieldErrors.title ?? fieldErrors.description;
+      if (first !== undefined) return { status: 'validation-failed', reason: null, message: first, fieldErrors };
+      const type = this.proposableCaseTypes(assistant).find((candidate) => candidate.typeId === proposal.typeId);
+      if (type === undefined) {
+        return { status: 'validation-failed', reason: 'case-type-not-proposable', message: CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE, fieldErrors: {} };
+      }
+      const now = this.now();
+      const caseId = `case-chat-${crypto.randomUUID()}`;
+      recordMockChatProposedCase({
+        id: caseId, typeId: type.typeId, groupId: type.group.id, title, description, createdBy: viewerId as AccountId,
+        dueAt: new Date(now.getTime() + type.dueHours * 3_600_000).toISOString(), createdAt: now.toISOString(),
+        assistantId: assistant.id, threadId: thread.id,
+      });
+      next = { ...proposal, title, description, status: 'confirmed', available: false, caseId };
+    }
+    const updated: ChatMessageView = { ...message, reply: { ...message.reply, proposal: next } };
+    this.writeChatMessages(viewerId, assistant, thread, thread.messages.map((candidate) => (candidate.id === messageId ? updated : candidate)));
+    return { status: 'ready', data: updated };
+  }
+
+  /** 只有組織內部帳號（管理者、內部同仁）會被提議開案（#254）；訪客與外部客戶不會。 */
+  private proposesCasesTo(viewerId: ChatViewerId): boolean {
+    if (isVisitorId(viewerId)) return false;
+    const role = this.accounts().find((account) => account.id === viewerId)?.role;
+    return role === 'smb-admin' || role === 'internal-employee';
+  }
+
+  /** 助理現在可以提議的類型：在清單上，而且（mock 裡）仍啟用。 */
+  private proposableCaseTypes(assistant: AssistantConfigurationView): readonly ProposableCaseType[] {
+    const ids = this.storedAssistantSettings(assistant.id)?.caseTypeIds ?? [];
+    return MOCK_PROPOSABLE_CASE_TYPES.filter((type) => ids.includes(type.typeId));
+  }
+
+  /**
+   * 助理提議開案（#254，決定 L、T）：數據庫查詢與表單優先；都沒有、而且提問者是內部帳號、對話會保存、
+   * 關鍵字與類型名稱（或唯一的類型）符合時才提議。
+   */
+  private caseProposalReply(
+    viewerId: ChatViewerId,
+    assistant: AssistantConfigurationView,
+    question: string,
+  ): ChatReplyView | null {
+    if (!this.keepsConversations(assistant) || !this.proposesCasesTo(viewerId)) return null;
+    const type = keywordCaseProposal(question, this.proposableCaseTypes(assistant));
+    if (type === null) return null;
+    return {
+      kind: 'case-proposal',
+      text: caseProposalText(type.name),
+      proposal: {
+        typeId: type.typeId, typeName: type.name, title: caseTitleFromQuestion(question), description: '',
+        status: 'proposed', available: true, group: type.group, dueHours: type.dueHours, caseId: null,
+      },
+    };
+  }
+
+  /** 讀取時重新檢查類型（#254）：已不在清單上（或已停用）的待確認提議顯示「無法建立」。 */
+  private resolveCaseProposals(
+    assistant: AssistantConfigurationView,
+    messages: readonly ChatMessageView[],
+  ): readonly ChatMessageView[] {
+    if (!messages.some((message) => message.author === 'assistant' && message.reply.kind === 'case-proposal')) return messages;
+    const proposable = this.proposableCaseTypes(assistant);
+    return messages.map((message) => {
+      if (message.author !== 'assistant' || message.reply.kind !== 'case-proposal' || message.reply.proposal === null) return message;
+      const proposal = message.reply.proposal;
+      const available = proposal.status === 'proposed' && proposable.some((type) => type.typeId === proposal.typeId);
+      return available === proposal.available ? message : { ...message, reply: { ...message.reply, proposal: { ...proposal, available } } };
+    });
+  }
+
   submitChatForm(
     viewerId: ChatViewerId,
     assistantId: string,
@@ -5241,7 +5699,7 @@ export class MockDemoRepository implements DemoRepository {
           return reply !== null && !(reply.kind === 'database-query' && reply.query.status === 'not-available');
         })
         .map((fixture) => ({ id: fixture.id, text: fixture.prompt })),
-      messages: this.resolveReceipts(viewerId, messages),
+      messages: this.resolveCaseProposals(assistant, this.resolveReceipts(viewerId, messages)),
     };
   }
 
@@ -5317,9 +5775,19 @@ export class MockDemoRepository implements DemoRepository {
     question: string,
   ): ChatReplyView {
     const normalized = question.replace(/\s+/g, '');
-    for (const fixture of this.seed.chatResponses) {
-      const matches = fixture.matchers.some((group) => group.every((keyword) => normalized.includes(keyword)));
-      if (!matches) continue;
+    const matched = this.seed.chatResponses.filter((fixture) =>
+      fixture.matchers.some((group) => group.every((keyword) => normalized.includes(keyword))));
+    // 優先順序（#254，決定 L）：數據庫查詢 → 表單 → 案件提議 → 一般回答。助理沒有可提議的類型時與之前完全相同。
+    const caseProposal = this.caseProposalReply(viewerId, assistant, question);
+    if (caseProposal !== null) {
+      for (const fixture of matched) {
+        if (fixture.answer.kind !== 'database-query' && fixture.answer.kind !== 'form-request') continue;
+        const reply = this.fixtureReply(viewerId, assistant, fixture);
+        if (reply !== null) return reply;
+      }
+      return caseProposal;
+    }
+    for (const fixture of matched) {
       const reply = this.fixtureReply(viewerId, assistant, fixture);
       if (reply !== null) return reply;
     }
@@ -5837,6 +6305,7 @@ export class MockDemoRepository implements DemoRepository {
       tone: stored?.tone ?? empty.tone,
       roleInstructions: stored?.roleInstructions ?? '',
       rules: stored?.rules ?? this.defaultRules(assistant),
+      caseTypeIds: stored?.caseTypeIds ?? [],
       periodicReportAutoDisabled: stored?.periodicReportAutoDisabled ?? null,
       savedAt: stored?.savedAt ?? null,
     };
@@ -5882,6 +6351,7 @@ export class MockDemoRepository implements DemoRepository {
       roleInstructions: next.roleInstructions,
       rules: next.rules,
       periodicReportAutoDisabled: next.periodicReportAutoDisabled,
+      caseTypeIds: next.caseTypeIds,
     };
 
     this.storage.setItem(

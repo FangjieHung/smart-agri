@@ -16,9 +16,12 @@ namespace SmartAgri.Domain.Answers;
 /// so a future edit cannot quietly add one.
 /// </para>
 /// <para>
-/// Retention (M3.5 plan §7 decision D): follows the organization's conversation-retention
-/// setting once one exists — kept forever until then, even though it is a usage record. No
-/// cleanup job exists yet; add one alongside that setting, not here.
+/// Retention (M3.5 plan §7 decision D; M6 plan decision B): follows the organization's
+/// conversation retention (<c>Organization.RetentionDays</c>, forever by default). The daily
+/// cleanup (<c>SmartAgri.Api.Organizations.RetentionCleanupService</c>, M6-4 #241) deletes every
+/// outcome whose own <see cref="At"/> is before the same cutoff as the threads, whatever its
+/// <see cref="Channel"/> — the website channel included. It is never deleted "with" a thread: it
+/// records none. Purging an assistant's conversations (M6-5) leaves it alone.
 /// </para>
 /// </remarks>
 public sealed class AnswerOutcome : IOrganizationScoped

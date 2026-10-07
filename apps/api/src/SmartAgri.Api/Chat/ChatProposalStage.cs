@@ -2,6 +2,7 @@ using AGUI.Abstractions;
 using Microsoft.Extensions.Options;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Cases;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Chat;
 
@@ -69,15 +70,41 @@ internal abstract class ChatProposalReply
 /// in order (form request, then — M7-9 — case) → the answer pipeline. At most one proposal per
 /// reply: the first whose decision is yes ends the run.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>The combined selection (#286).</b> In model mode, when step 1 found <b>both</b> the form (a form target
+/// the assistant may use now) and a case (types it may propose now, for an eligible asker in a kept
+/// conversation), the two candidates are replaced by one, <see cref="CombinedSelection"/>: a single model call
+/// offering both tools (<see cref="ChatProposalSelectionTool"/>, purpose <c>proposal-selection</c>), so the form
+/// no longer takes every question a case type fits (#257: 16 of 16 missed). With only one of the two, its
+/// single call is made exactly as before (#164's <c>form-request</c>, #254's <c>case-proposal</c>). Keyword
+/// mode is untouched: each proposal's keyword rule, in order.
+/// </para>
+/// <para>
+/// <b><c>smartagri.form-check</c> (#171)</b> keeps its name, value and place: one event right before the
+/// selection call whenever that call offers the form — so the combined call sends it exactly where the form
+/// call did, and a case-only call still sends none. The client (admin's conversation, <c>libs/chat</c>) shows
+/// a generic 「助理正在整理你的問題」 on it and hides it at the first answer text or the reply, which a case
+/// proposal also sends first, so nothing changes in the frontend. Renaming it would break deployed widgets
+/// and #171's tests for no gain.
+/// </para>
+/// </remarks>
 internal sealed class ChatProposalStage
 {
     private readonly IReadOnlyList<IChatProposal> _proposals;
     private readonly IOptions<ChatFormRequestOptions> _triggerOptions;
+    private readonly ChatProposalSelectionTool _selectionTool;
 
-    public ChatProposalStage(ChatFormRequestProposal formRequest, IOptions<ChatFormRequestOptions> triggerOptions)
+    public ChatProposalStage(
+        ChatFormRequestProposal formRequest,
+        ChatCaseProposal caseProposal,
+        ChatProposalSelectionTool selectionTool,
+        IOptions<ChatFormRequestOptions> triggerOptions)
     {
-        _proposals = [formRequest];
+        // Decision L: the form request first, then the case proposal (M7-9).
+        _proposals = [formRequest, caseProposal];
         _triggerOptions = triggerOptions;
+        _selectionTool = selectionTool;
     }
 
     /// <summary>Step 1 for every proposal, in precedence order: the candidates found for this request.</summary>
@@ -98,7 +125,42 @@ internal sealed class ChatProposalStage
             }
         }
 
+        // #286: the form and the case both found in model mode decide in one call, in the form's place.
+        var form = candidates.OfType<ChatFormRequestProposal.ModelSelection>().FirstOrDefault();
+        var caseSelection = candidates.OfType<ChatCaseProposal.ModelSelection>().FirstOrDefault();
+        if (form is not null && caseSelection is not null)
+        {
+            var index = candidates.IndexOf(form);
+            candidates.Remove(caseSelection);
+            candidates[index] = new CombinedSelection(_selectionTool, context, form.Offered, caseSelection.Proposable, caseSelection.Offers);
+        }
+
         return candidates;
+    }
+
+    /// <summary>
+    /// Model mode with both the form and a case to offer (#286): one call, after <c>smartagri.form-check</c>
+    /// (the call offers the form, #171); the form, the case proposal or nothing (the answer pipeline).
+    /// </summary>
+    private sealed class CombinedSelection(
+        ChatProposalSelectionTool tool,
+        ChatProposalContext context,
+        ChatFormRequestView offeredForm,
+        IReadOnlyList<ProposableCaseType> proposable,
+        IReadOnlyList<CaseProposalOffer> offers) : ChatProposalCandidate
+    {
+        public override IEnumerable<BaseEvent> BeforeDecision => ChatFormRequestProposal.FormCheck;
+
+        public override async Task<ChatProposalReply?> DecideAsync(CancellationToken cancellationToken)
+        {
+            var selection = await tool.SelectAsync(context.Assistant, offeredForm, offers, context.Question, context.AskerId, cancellationToken);
+            return selection switch
+            {
+                { Form: { } form } => ChatFormRequestProposal.Reply(form),
+                { Case: { } draft } => ChatCaseProposal.Reply(draft, proposable),
+                _ => null,
+            };
+        }
     }
 }
 
@@ -110,6 +172,10 @@ internal sealed class ChatProposalStage
 /// </summary>
 internal sealed class ChatFormRequestProposal(AssistantFormRequests formRequests, ChatFormRequestTool formTool) : IChatProposal
 {
+    /// <summary><c>CUSTOM smartagri.form-check</c> (#171), sent right before a selection call that offers the form.</summary>
+    internal static IEnumerable<BaseEvent> FormCheck =>
+        [new CustomEvent { Name = ChatRunEndpoints.FormCheckEventName, Value = ChatRunEndpoints.EmptyObject }];
+
     public async Task<ChatProposalCandidate?> FindAsync(ChatProposalContext context, CancellationToken cancellationToken)
     {
         if (context.Trigger == ChatFormRequestTrigger.Model)
@@ -136,14 +202,20 @@ internal sealed class ChatFormRequestProposal(AssistantFormRequests formRequests
             Task.FromResult<ChatProposalReply?>(reply);
     }
 
-    /// <summary>Model mode (#164): one selection call; the server re-authorizes and builds the form.</summary>
-    private sealed class ModelSelection(ChatFormRequestTool tool, ChatProposalContext context, ChatFormRequestView offered)
+    /// <summary>The reply of a decided form request (also the combined selection's form reply, #286).</summary>
+    internal static ChatProposalReply Reply(ChatFormRequestView form) => new FormReply(form);
+
+    /// <summary>Model mode (#164): one selection call; the server re-authorizes and builds the form. When a
+    /// case may be proposed too, <see cref="ChatProposalStage"/> folds it into the combined selection (#286).</summary>
+    internal sealed class ModelSelection(ChatFormRequestTool tool, ChatProposalContext context, ChatFormRequestView offered)
         : ChatProposalCandidate
     {
+        /// <summary>The form authorized for this request.</summary>
+        public ChatFormRequestView Offered => offered;
+
         /// <summary>#171: the client shows its "checking" state only on this event, and hides it at the
         /// first answer text or the form request (also after a keyword fallback).</summary>
-        public override IEnumerable<BaseEvent> BeforeDecision =>
-            [new CustomEvent { Name = ChatRunEndpoints.FormCheckEventName, Value = ChatRunEndpoints.EmptyObject }];
+        public override IEnumerable<BaseEvent> BeforeDecision => FormCheck;
 
         public override async Task<ChatProposalReply?> DecideAsync(CancellationToken cancellationToken) =>
             await tool.SelectAsync(context.Assistant, offered, context.Question, context.AskerId, cancellationToken) is { } form
@@ -167,7 +239,7 @@ internal sealed class ChatFormRequestProposal(AssistantFormRequests formRequests
                 Guid.CreateVersion7(),
                 "assistant",
                 null,
-                new ChatReplyView("form-request", Text, [], null, [], form, null, null),
+                new ChatReplyView("form-request", Text, [], null, [], form, null, null, null),
                 now);
     }
 }

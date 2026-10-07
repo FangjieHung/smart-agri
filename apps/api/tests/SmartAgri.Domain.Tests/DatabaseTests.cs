@@ -49,6 +49,23 @@ public partial class DatabaseTests
     }
 
     [Fact]
+    public void The_auto_case_type_starts_off_and_changes_only_when_it_differs()
+    {
+        var database = Database.Create(Guid.NewGuid(), Guid.NewGuid(), "客戶資料庫", "", DatabaseTemplateId.CustomerProfile, Now);
+        var typeId = Guid.NewGuid();
+
+        database.AutoCaseTypeId.ShouldBeNull();
+        database.SetAutoCaseType(typeId).ShouldBeTrue();
+        database.SetAutoCaseType(typeId).ShouldBeFalse();
+        database.AutoCaseTypeId.ShouldBe(typeId);
+        database.UpdatedAt.ShouldBe(Now, "the auto case is not the name or the purpose");
+        database.SetAutoCaseType(null).ShouldBeTrue();
+        database.SetAutoCaseType(null).ShouldBeFalse();
+        database.AutoCaseTypeId.ShouldBeNull();
+        Should.Throw<ArgumentException>(() => database.SetAutoCaseType(Guid.Empty));
+    }
+
+    [Fact]
     public void Create_refuses_what_validation_should_have_caught()
     {
         Should.Throw<ArgumentException>(() => Database.Create(Guid.NewGuid(), Guid.NewGuid(), "  ", "", DatabaseTemplateId.Blank, Now));

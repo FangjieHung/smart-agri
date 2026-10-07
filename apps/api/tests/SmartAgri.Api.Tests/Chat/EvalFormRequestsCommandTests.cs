@@ -118,6 +118,33 @@ public sealed class EvalFormRequestsCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task With_case_types_each_question_also_gets_the_combined_call_of_286()
+    {
+        var report = Path.Combine(_directory, "combined.md");
+        var fake = new ChatClientProvider(new FakeChatClient("fake-eval"), "fake", "smartagri.fake", "fake-eval", null);
+        var command = new EvalFormRequestsCommand(fake, TimeProvider.System);
+
+        var exit = await command.RunAsync(
+            new EvalFormRequestsCommand.Arguments("model", null, report, false, CaseProposalEvalSet.DefaultDirectory), new StringWriter(), new StringWriter(), CancellationToken);
+
+        exit.ShouldBe(EvalFormRequestsCommand.ExitSuccess);
+        var text = await File.ReadAllTextAsync(report, CancellationToken);
+        text.ShouldContain($"| {EvalFormRequestsCommand.Combined} |");
+        text.ShouldContain("合成呼叫（#286）：表單工具之外，同時提供這些可提議的案件類型");
+        text.ShouldContain("`repair`＝「設備報修」");
+        text.ShouldContain("| id | 類別 | 標記 | 關鍵字 | 模型 | 合成呼叫 | 問題 |");
+        text.ShouldContain("合成呼叫改提議案件（沒有給表單）的有");
+        // The fake decides the form first in the combined call too (decision L).
+        text.ShouldContain("| p01 | positive | form | form ✓ | form ✓ | form ✓ |");
+
+        // It is a model call: not with --trigger keyword; and the case-type set must load.
+        (await command.RunAsync(new EvalFormRequestsCommand.Arguments("keyword", null, report, false, CaseProposalEvalSet.DefaultDirectory), new StringWriter(), new StringWriter(), CancellationToken))
+            .ShouldBe(EvalFormRequestsCommand.ExitUsage);
+        (await command.RunAsync(new EvalFormRequestsCommand.Arguments("model", null, report, false, _directory), new StringWriter(), new StringWriter(), CancellationToken))
+            .ShouldBe(EvalFormRequestsCommand.ExitUsage);
+    }
+
+    [Fact]
     public async Task A_failing_model_is_counted_and_not_judged()
     {
         var report = Path.Combine(_directory, "failing.md");
@@ -137,6 +164,8 @@ public sealed class EvalFormRequestsCommandTests : IDisposable
     [InlineData(new[] { "--trigger", "keyword" }, "keyword", true)]
     [InlineData(new[] { "--trigger", "sometimes" }, "both", false)]
     [InlineData(new[] { "--unknown" }, "both", false)]
+    [InlineData(new[] { "--case-types", "apps/api/eval/case-proposals" }, "both", true)]
+    [InlineData(new[] { "--case-types" }, "both", false)]
     public void Arguments_are_parsed(string[] args, string trigger, bool valid)
     {
         EvalFormRequestsCommand.TryParse(args, out var arguments, out var error).ShouldBe(valid);

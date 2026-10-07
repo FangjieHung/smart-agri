@@ -808,6 +808,272 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/organization/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrganizationRetentionView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateOrganizationRetentionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrganizationRetentionView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organization/retention/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    days?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrganizationRetentionPreviewView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/organization/retention/assistants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrganizationRetentionAssistantView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/statistics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    from?: string;
+                    to?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseStatisticsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/chat/recent-conversations": {
         parameters: {
             query?: never;
@@ -3381,6 +3647,103 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/databases/{id}/auto-case": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseAutoCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateDatabaseAutoCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DatabaseAutoCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants": {
         parameters: {
             query?: never;
@@ -3814,6 +4177,101 @@ export interface paths {
                 };
                 /** @description Unprocessable Entity */
                 422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/sources/case-type/{caseTypeId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    caseTypeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantSettingsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    caseTypeId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantSettingsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -5621,6 +6079,1480 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/issues/{issueId}:open-case": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    issueId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OpenCaseFromIssueRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantIssueOpenedCaseView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/conversations/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantConversationSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/conversations:purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AssistantConversationPurgeView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    includeArchived?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseGroupListView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CaseGroupNameRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseGroupView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CaseGroupNameRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseGroupView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-groups/{id}:archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseGroupView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-groups/{id}:unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseGroupView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-groups/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateCaseGroupMembersRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseGroupView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-groups/{id}/member-changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseGroupMemberChangeView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    includeInactive?: boolean;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseTypeListView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CaseTypeRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseTypeView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/case-types/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CaseTypeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseTypeView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    scope?: string;
+                    status?: string;
+                    typeId?: string;
+                    groupId?: string;
+                    overdue?: boolean;
+                    closedFrom?: string;
+                    closedTo?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseSummaryView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseAttentionView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}:accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AcceptCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}:request-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CaseNoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}:resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CaseNoteRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}:complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CompleteCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}:cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CancelCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}:transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TransferCaseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}:set-due": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetCaseDueRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cases/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CaseCommentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CaseDetailView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assistants/{id}/chat/conversations": {
         parameters: {
             query?: never;
@@ -6123,6 +8055,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create the case an assistant proposed, with the title and description the asker confirmed (#254) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    messageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConfirmChatCaseProposalRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatMessageView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/assistants/{id}/chat/case-proposals/{messageId}:dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record that the asker declined an assistant's case proposal (#254) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    messageId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChatMessageView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/assistants/{id}/visitor-sessions": {
         parameters: {
             query?: never;
@@ -6273,6 +8336,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptCaseRequest: {
+            /** Format: int32 */
+            eventCount: null | number;
+        };
         /** @enum {unknown} */
         AccountPermission: "manage-assistants" | "manage-data-sources" | "manage-publishing" | "read-consented-submissions" | "use-shared-assistants" | "submit-authorized-forms" | "read-own-tracking" | "handle-assistant-issues";
         /** @enum {unknown} */
@@ -6362,6 +8429,17 @@ export interface components {
             updatedAt: string;
             acceptanceStatus: components["schemas"]["AssistantAcceptanceStatus"];
         };
+        AssistantConversationPurgeView: {
+            /** Format: int32 */
+            deletedThreadCount: number;
+        };
+        AssistantConversationSummaryView: {
+            /** Format: int32 */
+            threadCount: number;
+            /** Format: int32 */
+            accountCount: number;
+            canPurge: boolean;
+        };
         AssistantDraftView: {
             /** Format: uuid */
             id: string;
@@ -6373,12 +8451,18 @@ export interface components {
             /** Format: date-time */
             savedAt: string;
         };
+        AssistantIssueCaseLinkView: {
+            /** Format: uuid */
+            caseId: string;
+            canOpen: boolean;
+        };
         AssistantIssueDetailView: {
             issue: components["schemas"]["AssistantIssueView"];
             events: components["schemas"]["AssistantIssueEventView"][];
+            linkedCase: null | components["schemas"]["AssistantIssueCaseLinkView"];
         };
         /** @enum {unknown} */
-        AssistantIssueEventAction: "created" | "assigned" | "status-changed" | "commented" | "due-date-changed";
+        AssistantIssueEventAction: "created" | "assigned" | "status-changed" | "commented" | "due-date-changed" | "case-opened";
         AssistantIssueEventView: {
             /** Format: uuid */
             id: string;
@@ -6396,6 +8480,13 @@ export interface components {
             /** Format: date-time */
             dueAt: null | string;
         };
+        AssistantIssueOpenedCaseView: {
+            /** Format: uuid */
+            caseId: string;
+            issue: components["schemas"]["AssistantIssueDetailView"];
+        };
+        /** @enum {unknown} */
+        AssistantIssueResolutionKind: "fixed" | "not-assistant-issue" | null;
         /** @enum {unknown} */
         AssistantIssueSource: "test-failure" | "handoff";
         /** @enum {unknown} */
@@ -6444,6 +8535,9 @@ export interface components {
             viewerIsAssistantOwner: boolean;
             viewerIsAssignee: boolean;
             handoffUnverified: boolean;
+            resolutionKind: null | components["schemas"]["AssistantIssueResolutionKind"];
+            /** Format: uuid */
+            linkedCaseId: null | string;
         };
         /** @enum {unknown} */
         AssistantKnowledgeScope: "company-data-only" | "allow-general-knowledge";
@@ -6470,6 +8564,7 @@ export interface components {
             configuration: components["schemas"]["AssistantConfigurationView"];
             knowledgeBaseIds: string[];
             databaseIds: string[];
+            caseTypeIds: string[];
             tone: components["schemas"]["AssistantTone"];
             roleInstructions: string;
             rules: components["schemas"]["AssistantAnswerRulesView"];
@@ -6577,12 +8672,275 @@ export interface components {
         };
         /** @enum {unknown} */
         AssistantTone: "friendly" | "professional" | "concise";
+        CancelCaseRequest: {
+            /** Format: int32 */
+            eventCount: null | number;
+            reason: null | string;
+        };
+        CaseAccountView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+        };
+        /** @enum {unknown} */
+        CaseAction: "accept" | "request-info" | "resume" | "complete" | "cancel" | "transfer" | "set-due" | "comment";
+        CaseAttentionView: {
+            /** Format: int32 */
+            overdueCount: number;
+            /** Format: int32 */
+            ownedOverdueCount: number;
+            /** Format: int32 */
+            groupPendingOverdueCount: number;
+            /** Format: int32 */
+            pendingForMeCount: number;
+        };
+        CaseCommentRequest: {
+            /** Format: int32 */
+            eventCount: null | number;
+            note: null | string;
+        };
+        CaseDetailView: {
+            case: components["schemas"]["CaseView"];
+            events: components["schemas"]["CaseEventView"][];
+            links: components["schemas"]["CaseLinksView"];
+            allowedActions: components["schemas"]["CaseAction"][];
+            cancelReasonRequired: boolean;
+        };
+        /** @enum {unknown} */
+        CaseEventAction: "created" | "accepted" | "info-requested" | "commented" | "resumed" | "completed" | "cancelled" | "transferred" | "due-changed";
+        CaseEventView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            ordinal: number;
+            action: components["schemas"]["CaseEventAction"];
+            actor: null | components["schemas"]["CaseAccountView"];
+            /** Format: date-time */
+            at: string;
+            note: null | string;
+            status: null | components["schemas"]["CaseStatus"];
+            owner: null | components["schemas"]["CaseAccountView"];
+            fromGroup: null | components["schemas"]["CaseGroupRefView"];
+            toGroup: null | components["schemas"]["CaseGroupRefView"];
+            /** Format: date-time */
+            dueAt: null | string;
+        };
+        CaseGroupAccountView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+        };
+        CaseGroupCandidateView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+            role: components["schemas"]["AccountRole"];
+        };
+        CaseGroupListView: {
+            groups: components["schemas"]["CaseGroupView"][];
+            canManage: boolean;
+            candidates: components["schemas"]["CaseGroupCandidateView"][];
+        };
+        CaseGroupMemberChangeView: {
+            /** Format: uuid */
+            id: string;
+            account: components["schemas"]["CaseGroupAccountView"];
+            added: boolean;
+            changedBy: components["schemas"]["CaseGroupAccountView"];
+            /** Format: date-time */
+            changedAt: string;
+        };
+        CaseGroupNameRequest: {
+            name: null | string;
+        };
+        CaseGroupRefView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            archived: boolean;
+        };
+        CaseGroupView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            archived: boolean;
+            /** Format: date-time */
+            archivedAt: null | string;
+            members: components["schemas"]["CaseGroupAccountView"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CaseIssueLinkView: {
+            /** Format: uuid */
+            issueId: string;
+            canOpen: boolean;
+        };
+        CaseLinksView: {
+            record: null | components["schemas"]["CaseRecordLinkView"];
+            thread: null | components["schemas"]["CaseThreadLinkView"];
+            assistantIssue: null | components["schemas"]["CaseIssueLinkView"];
+            previousCase: null | components["schemas"]["CasePreviousLinkView"];
+        };
+        CaseNoteRequest: {
+            /** Format: int32 */
+            eventCount: null | number;
+            note: null | string;
+        };
+        /** @enum {unknown} */
+        CaseOrigin: "manual" | "chat-proposal" | "database-submission" | "assistant-issue";
+        CasePreviousLinkView: {
+            /** Format: uuid */
+            caseId: string;
+            canOpen: boolean;
+        };
+        /** @enum {unknown} */
+        CaseRecordLinkState: "available" | "withdrawn" | "unavailable";
+        CaseRecordLinkView: {
+            /** Format: uuid */
+            databaseId: string;
+            /** Format: uuid */
+            submissionId: string;
+            state: components["schemas"]["CaseRecordLinkState"];
+            canRead: boolean;
+            databaseName: null | string;
+        };
+        CaseStatisticsRowView: {
+            type: components["schemas"]["CaseTypeRefView"];
+            group: components["schemas"]["CaseGroupRefView"];
+            /** Format: int32 */
+            openCount: number;
+            /** Format: int32 */
+            overdueCount: number;
+            /** Format: int32 */
+            completedCount: number;
+            /** Format: int32 */
+            cancelledCount: number;
+            /** Format: double */
+            averageHandlingHours: null | number;
+        };
+        CaseStatisticsView: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            rows: components["schemas"]["CaseStatisticsRowView"][];
+        };
+        /** @enum {unknown} */
+        CaseStatus: "pending" | "in-progress" | "awaiting-info" | "completed" | "cancelled";
+        CaseSummaryView: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            status: components["schemas"]["CaseStatus"];
+            origin: components["schemas"]["CaseOrigin"];
+            type: components["schemas"]["CaseTypeRefView"];
+            group: components["schemas"]["CaseGroupRefView"];
+            createdBy: null | components["schemas"]["CaseAccountView"];
+            owner: null | components["schemas"]["CaseAccountView"];
+            /** Format: date-time */
+            dueAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CaseThreadLinkView: {
+            /** Format: uuid */
+            assistantId: string;
+            /** Format: uuid */
+            threadId: string;
+            canOpen: boolean;
+        };
+        CaseTypeGroupView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            archived: boolean;
+        };
+        CaseTypeListView: {
+            types: components["schemas"]["CaseTypeView"][];
+            canManage: boolean;
+        };
+        CaseTypeRefView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        CaseTypeRequest: {
+            name: null | string;
+            description: null | string;
+            /** Format: uuid */
+            defaultGroupId: null | string;
+            /** Format: int32 */
+            defaultDueHours: null | number;
+            isActive: null | boolean;
+        };
+        CaseTypeView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            description: string;
+            defaultGroup: components["schemas"]["CaseTypeGroupView"];
+            /** Format: int32 */
+            defaultDueHours: number;
+            isActive: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        CaseView: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            description: string;
+            status: components["schemas"]["CaseStatus"];
+            origin: components["schemas"]["CaseOrigin"];
+            type: components["schemas"]["CaseTypeRefView"];
+            group: components["schemas"]["CaseGroupRefView"];
+            createdBy: null | components["schemas"]["CaseAccountView"];
+            owner: null | components["schemas"]["CaseAccountView"];
+            /** Format: date-time */
+            dueAt: string;
+            resolution: null | string;
+            cancelReason: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            acceptedAt: null | string;
+            /** Format: date-time */
+            completedAt: null | string;
+            /** Format: date-time */
+            cancelledAt: null | string;
+            /** Format: int32 */
+            eventCount: number;
+        };
         ChangePasswordRequest: {
             currentPassword: null | string;
             newPassword: null | string;
         };
         /** @enum {unknown} */
         ChannelServingState: "not-published" | "paused" | "suspended-acceptance" | "suspended-knowledge" | "suspended-quota" | "serving";
+        /** @enum {unknown} */
+        ChatCaseProposalStatus: "proposed" | "confirmed" | "dismissed";
+        ChatCaseProposalView: {
+            /** Format: uuid */
+            typeId: string;
+            typeName: string;
+            title: string;
+            description: string;
+            status: components["schemas"]["ChatCaseProposalStatus"];
+            available: boolean;
+            group: components["schemas"]["CaseGroupRefView"];
+            /** Format: int32 */
+            dueHours: number;
+            /** Format: uuid */
+            caseId: null | string;
+        };
         ChatCitationDetailView: {
             id: string;
             knowledgeBaseName: string;
@@ -6668,6 +9026,7 @@ export interface components {
             form: null | components["schemas"]["ChatFormRequestView"];
             receipt: null | components["schemas"]["DatabaseSubmissionReceiptView"];
             databaseQuery: null | components["schemas"]["ChatDatabaseQueryView"];
+            caseProposal: null | components["schemas"]["ChatCaseProposalView"];
         };
         ChatSuggestedPromptView: {
             id: string;
@@ -6696,6 +9055,15 @@ export interface components {
             documentName: string;
             /** Format: int32 */
             count: number;
+        };
+        CompleteCaseRequest: {
+            /** Format: int32 */
+            eventCount: null | number;
+            resolution: null | string;
+        };
+        ConfirmChatCaseProposalRequest: {
+            title: null | string;
+            description: null | string;
         };
         ConnectableSourceView: {
             /** Format: uuid */
@@ -6748,6 +9116,26 @@ export interface components {
             /** Format: uuid */
             followUpOfId: null | string;
         };
+        CreateCaseRequest: {
+            /** Format: uuid */
+            typeId: null | string;
+            /** Format: uuid */
+            groupId: null | string;
+            /** Format: date-time */
+            dueAt: null | string;
+            title: null | string;
+            description: null | string;
+            /** Format: uuid */
+            databaseId?: null | string;
+            /** Format: uuid */
+            submissionId?: null | string;
+            /** Format: uuid */
+            assistantId?: null | string;
+            /** Format: uuid */
+            threadId?: null | string;
+            /** Format: uuid */
+            previousCaseId?: null | string;
+        };
         CreateDatabaseRequest: {
             templateId: null | string;
             name: null | string;
@@ -6796,6 +9184,25 @@ export interface components {
             /** Format: uuid */
             id: string;
             displayName: string;
+        };
+        DatabaseAutoCaseOptionView: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            group: components["schemas"]["CaseTypeGroupView"];
+            /** Format: int32 */
+            defaultDueHours: number;
+            /** Format: int32 */
+            memberCount: number;
+            /** Format: int32 */
+            unreadableMemberCount: number;
+        };
+        DatabaseAutoCaseView: {
+            /** Format: uuid */
+            databaseId: string;
+            /** Format: uuid */
+            caseTypeId: null | string;
+            options: components["schemas"]["DatabaseAutoCaseOptionView"][];
         };
         DatabaseComparisonAxis: {
             /** Format: double */
@@ -7466,6 +9873,16 @@ export interface components {
             passwordChangeRequired: boolean;
             statisticsTimeZone: string;
         };
+        OpenCaseFromIssueRequest: {
+            /** Format: uuid */
+            typeId: null | string;
+            /** Format: uuid */
+            groupId: null | string;
+            /** Format: date-time */
+            dueAt: null | string;
+            title: null | string;
+            description: null | string;
+        };
         OperationsSummaryView: {
             /** Format: date */
             from: string;
@@ -7482,6 +9899,42 @@ export interface components {
             selectedId: null | string;
             effective: null | components["schemas"]["ChatModelOptionView"];
             source: components["schemas"]["ChatModelSource"];
+            canChange: boolean;
+            lastChange: null | components["schemas"]["OrganizationSettingChangeView"];
+            /** Format: int32 */
+            revision: number;
+        };
+        OrganizationRetentionAssistantView: {
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            keepConversations: boolean;
+            /** Format: int32 */
+            threadCount: number;
+            /** Format: int32 */
+            accountCount: number;
+            /** Format: date-time */
+            lastActivityAt: null | string;
+        };
+        OrganizationRetentionPendingView: {
+            /** Format: int32 */
+            days: number;
+            /** Format: date-time */
+            effectiveAt: string;
+        };
+        OrganizationRetentionPreviewView: {
+            /** Format: int32 */
+            days: number;
+            /** Format: int32 */
+            threadCount: number;
+            /** Format: date-time */
+            cutoff: string;
+        };
+        OrganizationRetentionView: {
+            /** Format: int32 */
+            days: null | number;
+            pending: null | components["schemas"]["OrganizationRetentionPendingView"];
+            options: number[];
             canChange: boolean;
             lastChange: null | components["schemas"]["OrganizationSettingChangeView"];
             /** Format: int32 */
@@ -7619,6 +10072,13 @@ export interface components {
             /** Format: date-time */
             updatedAt: null | string;
         };
+        SetCaseDueRequest: {
+            /** Format: int32 */
+            eventCount: null | number;
+            /** Format: date-time */
+            dueAt: null | string;
+            note: null | string;
+        };
         SetLinePausedRequest: {
             paused: boolean;
         };
@@ -7663,6 +10123,13 @@ export interface components {
         };
         /** @enum {unknown} */
         TokenUsageState: "normal" | "near" | "exceeded";
+        TransferCaseRequest: {
+            /** Format: int32 */
+            eventCount: null | number;
+            /** Format: uuid */
+            groupId: null | string;
+            note: null | string;
+        };
         TrialAnswerCitationView: {
             /** Format: int32 */
             ordinal: number;
@@ -7730,8 +10197,15 @@ export interface components {
             /** Format: uuid */
             followUpOfId?: null | string;
         };
+        UpdateCaseGroupMembersRequest: {
+            accountIds: null | string[];
+        };
         UpdateDatabaseAccessRequest: {
             dataManagerAccountIds: null | string[];
+        };
+        UpdateDatabaseAutoCaseRequest: {
+            /** Format: uuid */
+            caseTypeId: null | string;
         };
         UpdateKnowledgeBaseRequest: {
             name?: null | string;
@@ -7759,6 +10233,12 @@ export interface components {
         };
         UpdateOrganizationChatModelRequest: {
             modelId: null | string;
+            /** Format: int32 */
+            revision: number;
+        };
+        UpdateOrganizationRetentionRequest: {
+            /** Format: int32 */
+            days: null | number;
             /** Format: int32 */
             revision: number;
         };

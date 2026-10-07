@@ -9,6 +9,7 @@ import { statisticsDay } from './database-tracking';
 import { toChatMessage as toSharedChatMessage } from '@smart-agri/chat';
 import { catchError, filter, forkJoin, map, of, switchMap, throwError, type Observable } from 'rxjs';
 import type { components } from '../api/api-schema';
+import { CASE_PROPOSAL_CLOSED_MESSAGE, CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE } from '../domain/case-proposal';
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
 import type { AssistantTestCaseView, AssistantTestRunView, AssistantTestRunDetailView, AssistantTestCaseInput, AssistantTestCasePatch, AssistantTestCaseImportEntry, AssistantTestCaseExportEntry } from '../domain/assistant-acceptance.model';
 import type {
@@ -58,7 +59,13 @@ import {
   type WebsitePublishFailureReason,
 } from '../domain/publishing.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
-import type { OrganizationChatModelView } from '../domain/organization-settings.model';
+import type {
+  AssistantConversationPurgeView,
+  AssistantConversationSummaryView,
+  OrganizationChatModelView,
+  OrganizationRetentionAssistantView,
+  OrganizationRetentionView,
+} from '../domain/organization-settings.model';
 import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
@@ -166,6 +173,8 @@ import {
   type RenameChatThreadResult,
   type ReviewChatFormResult,
   type SubmitChatFormResult,
+  type ChatCaseProposalConfirmation,
+  type ChatCaseProposalResult,
   type WithdrawChatSubmissionResult,
   type RepositoryPermissionDeniedReason,
   type RepositoryView,
@@ -182,6 +191,8 @@ import {
   type UpdateKnowledgeSharingResult,
   type UpdateMemberPermissionsResult,
   type UpdateOrganizationChatModelResult,
+  type UpdateOrganizationRetentionResult,
+  type PreviewOrganizationRetentionResult,
   type UploadKnowledgeDocumentEvent,
 } from './demo-repository';
 import type { DemoSeed } from './demo-seed';
@@ -195,6 +206,7 @@ import {
   ORGANIZATION_SETTINGS_CONFLICT_MESSAGE,
   ORGANIZATION_SETTINGS_DENIED_MESSAGE,
   UNKNOWN_CHAT_MODEL_MESSAGE,
+  UNKNOWN_RETENTION_DAYS_MESSAGE,
   TEAM_PERMISSION_DENIED_MESSAGE,
   type AccountPermissionOverrides,
   type MockDemoRepositoryOptions,
@@ -251,6 +263,12 @@ type ApiAssistantPublishing = components['schemas']['AssistantPublishingView'];
 type ApiOrganizationUsage = components['schemas']['OrganizationUsageView'];
 type ApiOrganizationChatModel = components['schemas']['OrganizationChatModelView'];
 type UpdateOrganizationChatModelRequest = components['schemas']['UpdateOrganizationChatModelRequest'];
+type ApiOrganizationRetention = components['schemas']['OrganizationRetentionView'];
+type ApiOrganizationRetentionPreview = components['schemas']['OrganizationRetentionPreviewView'];
+type UpdateOrganizationRetentionRequest = components['schemas']['UpdateOrganizationRetentionRequest'];
+type ApiOrganizationRetentionAssistant = components['schemas']['OrganizationRetentionAssistantView'];
+type ApiAssistantConversationSummary = components['schemas']['AssistantConversationSummaryView'];
+type ApiAssistantConversationPurge = components['schemas']['AssistantConversationPurgeView'];
 type ApiPlatformSharing = components['schemas']['PlatformSharingView'];
 type ApiPublishingChannel = components['schemas']['PublishingChannelView'];
 type ApiWebsiteChannel = components['schemas']['WebsiteChannelView'];
@@ -283,6 +301,7 @@ type ApiChatDatabaseQuery = components['schemas']['ChatDatabaseQueryView'];
 type ApiChatFormSubmission = components['schemas']['ChatFormSubmissionView'];
 type ReviewChatFormRequest = components['schemas']['ReviewChatFormRequest'];
 type SubmitChatFormRequest = components['schemas']['SubmitChatFormRequest'];
+type ConfirmChatCaseProposalRequest = components['schemas']['ConfirmChatCaseProposalRequest'];
 type DismissChatFormRequest = components['schemas']['DismissChatFormRequest'];
 type ApiDatabaseOwnSubmissionList = components['schemas']['DatabaseOwnSubmissionListView'];
 type ApiDatabaseTracking = components['schemas']['DatabaseTrackingView'];
@@ -414,6 +433,16 @@ export function apiAssistantDatabaseSourcePath(assistantId: string, databaseId: 
   return `${apiAssistantPath(assistantId)}/sources/database/${encodeURIComponent(databaseId)}`;
 }
 
+/** 可提議的案件類型（#254）：`PUT`／`DELETE`。 */
+export function apiAssistantCaseTypeSourcePath(assistantId: string, caseTypeId: string): string {
+  return `${apiAssistantPath(assistantId)}/sources/case-type/${encodeURIComponent(caseTypeId)}`;
+}
+
+/** 助理提議開案的確認與「不用了」（#254）：`POST .../chat/case-proposals/{messageId}:confirm`／`:dismiss`。 */
+export function apiChatCaseProposalPath(assistantId: string, messageId: string, action: 'confirm' | 'dismiss'): string {
+  return `${apiAssistantPath(assistantId)}/chat/case-proposals/${encodeURIComponent(messageId)}:${action}`;
+}
+
 /** 對話中的表單（issue #148）：`.../review` 與 `.../submissions`。 */
 export function apiAssistantChatFormPath(assistantId: string, databaseId: string): string {
   return `${apiAssistantPath(assistantId)}/chat/forms/${encodeURIComponent(databaseId)}`;
@@ -423,6 +452,25 @@ export const API_ORGANIZATION_USAGE_PATH = '/api/v1/organization/usage';
 
 /** 組織的對話模型（issue #239／#240）：`GET` 任何帳號、`PUT` 只有管理者。 */
 export const API_ORGANIZATION_CHAT_MODEL_PATH = '/api/v1/organization/chat-model';
+
+/** 組織的對話保存期限（issue #241／#243）：`GET` 任何帳號、`PUT` 只有管理者。 */
+export const API_ORGANIZATION_RETENTION_PATH = '/api/v1/organization/retention';
+
+/** 保存期限的預覽（管理者）：`?days=N`。 */
+export const API_ORGANIZATION_RETENTION_PREVIEW_PATH = `${API_ORGANIZATION_RETENTION_PATH}/preview`;
+
+/** 各助理已保存的對話（管理者，issue #242）。 */
+export const API_ORGANIZATION_RETENTION_ASSISTANTS_PATH = `${API_ORGANIZATION_RETENTION_PATH}/assistants`;
+
+/** 單一助理已保存的對話串數與成員數（管理者或擁有者）。 */
+export function apiAssistantConversationSummaryPath(assistantId: string): string {
+  return `${apiAssistantPath(assistantId)}/chat/conversations/summary`;
+}
+
+/** 立即刪除單一助理所有成員已保存的對話（管理者）。 */
+export function apiAssistantConversationPurgePath(assistantId: string): string {
+  return `${apiAssistantPath(assistantId)}/chat/conversations:purge`;
+}
 
 export function apiAssistantPublishingPath(assistantId: string): string {
   return `${apiAssistantPath(assistantId)}/publishing`;
@@ -933,6 +981,22 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  /** 可提議的案件類型（#254）：`PUT`／`DELETE .../sources/case-type/{id}`；`422`（不是啟用中的類型）轉成欄位錯誤。 */
+  override setAssistantCaseType(
+    assistantId: string,
+    caseTypeId: string,
+    proposable: boolean,
+  ): Observable<UpdateAssistantSettingsResult> {
+    const path = apiAssistantCaseTypeSourcePath(assistantId, caseTypeId);
+    const request = proposable ? this.http.put<ApiAssistantSettings>(path, null) : this.http.delete<ApiAssistantSettings>(path);
+    return request.pipe(
+      map((response): UpdateAssistantSettingsResult => ({ status: 'ready', data: toAssistantSettings(response) })),
+      catchError((error: unknown) =>
+        isHttpError(error, 422) ? of(settingsValidationFailed(error)) : this.assistantConfigurationDeniedOrThrow(error),
+      ),
+    );
+  }
+
   /** 後端在同一個交易內連帶刪除所有成員的對話串（M3 計畫決定 G）。 */
   override deleteAssistant(assistantId: string): Observable<DeleteAssistantResult> {
     return this.http.delete<void>(apiAssistantPath(assistantId)).pipe(
@@ -1164,6 +1228,104 @@ export class HybridDemoRepository extends MockDemoRepository {
         }
         return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
       }),
+    );
+  }
+
+  override getOrganizationRetention(): Observable<RepositoryView<OrganizationRetentionView>> {
+    return this.http.get<ApiOrganizationRetention>(API_ORGANIZATION_RETENTION_PATH).pipe(
+      map((response): RepositoryView<OrganizationRetentionView> => ({ status: 'ready', data: toOrganizationRetention(response) })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED)),
+    );
+  }
+
+  /** `422`（`errors.days`）→ validation-failed、`403 organization-settings` → permission-denied。 */
+  override previewOrganizationRetention(days: number): Observable<PreviewOrganizationRetentionResult> {
+    return this.http
+      .get<ApiOrganizationRetentionPreview>(API_ORGANIZATION_RETENTION_PREVIEW_PATH, { params: { days } })
+      .pipe(
+        map((response): PreviewOrganizationRetentionResult => ({
+          status: 'ready',
+          data: { days: response.days, threadCount: response.threadCount, cutoff: response.cutoff },
+        })),
+        catchError((error: unknown) => {
+          if (isHttpError(error, 422)) {
+            return of<PreviewOrganizationRetentionResult>({
+              status: 'validation-failed',
+              message: bodyMessage(error) ?? UNKNOWN_RETENTION_DAYS_MESSAGE,
+            });
+          }
+          return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
+        }),
+      );
+  }
+
+  /** `409` → conflict、`422`（`errors.days`）→ validation-failed、`403 organization-settings` → permission-denied。 */
+  override updateOrganizationRetention(
+    days: number | null,
+    revision: number,
+  ): Observable<UpdateOrganizationRetentionResult> {
+    const body: UpdateOrganizationRetentionRequest = { days, revision };
+    return this.http.put<ApiOrganizationRetention>(API_ORGANIZATION_RETENTION_PATH, body).pipe(
+      map((response): UpdateOrganizationRetentionResult => ({ status: 'ready', data: toOrganizationRetention(response) })),
+      catchError((error: unknown) => {
+        if (isHttpError(error, 409)) {
+          return of<UpdateOrganizationRetentionResult>({
+            status: 'conflict',
+            message: bodyMessage(error) ?? ORGANIZATION_SETTINGS_CONFLICT_MESSAGE,
+          });
+        }
+        if (isHttpError(error, 422)) {
+          return of<UpdateOrganizationRetentionResult>({
+            status: 'validation-failed',
+            message: bodyMessage(error) ?? UNKNOWN_RETENTION_DAYS_MESSAGE,
+          });
+        }
+        return this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED);
+      }),
+    );
+  }
+
+  /** 非管理者是 `403 organization-settings` → permission-denied（畫面不顯示清單）。 */
+  override listRetentionAssistants(): Observable<RepositoryView<readonly OrganizationRetentionAssistantView[]>> {
+    return this.http.get<ApiOrganizationRetentionAssistant[]>(API_ORGANIZATION_RETENTION_ASSISTANTS_PATH).pipe(
+      map((response): RepositoryView<readonly OrganizationRetentionAssistantView[]> => ({
+        status: 'ready',
+        data: response.map((row) => ({
+          assistantId: row.assistantId,
+          assistantName: row.assistantName,
+          keepConversations: row.keepConversations,
+          threadCount: row.threadCount,
+          accountCount: row.accountCount,
+          lastActivityAt: row.lastActivityAt ?? null,
+        })),
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED)),
+    );
+  }
+
+  /** 不是管理者也不是擁有者、或 id 不存在：`403 assistant-configuration` → permission-denied。 */
+  override getAssistantConversationSummary(
+    assistantId: string,
+  ): Observable<RepositoryView<AssistantConversationSummaryView>> {
+    return this.http.get<ApiAssistantConversationSummary>(apiAssistantConversationSummaryPath(assistantId)).pipe(
+      map((response): RepositoryView<AssistantConversationSummaryView> => ({
+        status: 'ready',
+        data: { threadCount: response.threadCount, accountCount: response.accountCount, canPurge: response.canPurge },
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ASSISTANT_CONFIGURATION_DENIED)),
+    );
+  }
+
+  /** 非管理者（含擁有者）、不存在或別的組織的助理：`403 organization-settings` → permission-denied。 */
+  override purgeAssistantConversations(
+    assistantId: string,
+  ): Observable<RepositoryView<AssistantConversationPurgeView>> {
+    return this.http.post<ApiAssistantConversationPurge>(apiAssistantConversationPurgePath(assistantId), {}).pipe(
+      map((response): RepositoryView<AssistantConversationPurgeView> => ({
+        status: 'ready',
+        data: { deletedThreadCount: response.deletedThreadCount },
+      })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error, ORGANIZATION_SETTINGS_DENIED)),
     );
   }
 
@@ -2154,6 +2316,51 @@ export class HybridDemoRepository extends MockDemoRepository {
     );
   }
 
+  /**
+   * 確認助理提議的案件（#254）：伺服器以確認的標題與說明建立案件，回傳這則提議更新後的訊息。
+   * `422` 是 validation-failed（欄位或類型已不可提議），`409` 是 conflict（已處理過），`403` 是 permission-denied。
+   */
+  override confirmChatCaseProposal(
+    _viewerId: ChatViewerId,
+    assistantId: string,
+    messageId: string,
+    confirmation: ChatCaseProposalConfirmation,
+  ): Observable<ChatCaseProposalResult> {
+    const body: ConfirmChatCaseProposalRequest = { title: confirmation.title, description: confirmation.description };
+    return this.http.post<ApiChatMessageView>(apiChatCaseProposalPath(assistantId, messageId, 'confirm'), body).pipe(
+      map((response): ChatCaseProposalResult => ({ status: 'ready', data: toChatMessage(response) })),
+      catchError((error: unknown) => this.caseProposalRefusedOrThrow(error)),
+    );
+  }
+
+  override dismissChatCaseProposal(_viewerId: ChatViewerId, assistantId: string, messageId: string): Observable<ChatCaseProposalResult> {
+    return this.http.post<ApiChatMessageView>(apiChatCaseProposalPath(assistantId, messageId, 'dismiss'), {}).pipe(
+      map((response): ChatCaseProposalResult => ({ status: 'ready', data: toChatMessage(response) })),
+      catchError((error: unknown) => this.caseProposalRefusedOrThrow(error)),
+    );
+  }
+
+  private caseProposalRefusedOrThrow(error: unknown): Observable<ChatCaseProposalResult> {
+    if (isHttpError(error, 409)) {
+      return of({ status: 'conflict', message: bodyMessage(error) ?? CASE_PROPOSAL_CLOSED_MESSAGE });
+    }
+    if (isHttpError(error, 422)) {
+      const body = (error.error ?? {}) as { reason?: unknown; errors?: Record<string, unknown> };
+      const fieldErrors: Partial<Record<'title' | 'description', string>> = {};
+      for (const field of ['title', 'description'] as const) {
+        const messages = body.errors?.[field];
+        if (Array.isArray(messages) && typeof messages[0] === 'string') fieldErrors[field] = messages[0];
+      }
+      return of({
+        status: 'validation-failed',
+        reason: typeof body.reason === 'string' ? body.reason : null,
+        message: bodyMessage(error) ?? fieldErrors.title ?? fieldErrors.description ?? CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE,
+        fieldErrors,
+      });
+    }
+    return this.permissionDeniedOrThrow(error, CHAT_DENIED);
+  }
+
   private chatFormRefusedOrThrow(
     error: unknown,
   ): Observable<DatabaseFieldsValidationFailedView | DatabaseSubmissionConflictView | PermissionDeniedRepositoryView> {
@@ -2728,6 +2935,21 @@ function toOrganizationChatModel(response: ApiOrganizationChatModel): Organizati
   };
 }
 
+/**
+ * 原樣複製。`days`／`pending`／`lastChange` 可為 null；伺服器省略鍵時一律當成 `null`
+ * （`days` 省略是永久，不是「沒有資料」）。
+ */
+function toOrganizationRetention(response: ApiOrganizationRetention): OrganizationRetentionView {
+  return {
+    days: response.days ?? null,
+    pending: response.pending ? { days: response.pending.days, effectiveAt: response.pending.effectiveAt } : null,
+    options: [...(response.options ?? [])],
+    canChange: response.canChange === true,
+    lastChange: response.lastChange ? { actorName: response.lastChange.actorName, at: response.lastChange.at } : null,
+    revision: response.revision,
+  };
+}
+
 // ---------- 助理的轉換 ----------
 
 /**
@@ -2767,6 +2989,8 @@ function toAssistantSettings(settings: ApiAssistantSettings): AssistantSettingsV
       ...settings.knowledgeBaseIds.map((id): AssistantSourceReference => ({ id, type: 'knowledge-base' })),
       ...settings.databaseIds.map((id): AssistantSourceReference => ({ id, type: 'database' })),
     ],
+    // 可提議的案件類型（#254）。#254 之前錄下的回應沒有這個鍵：視為沒有。
+    caseTypeIds: [...((settings as { caseTypeIds?: readonly string[] }).caseTypeIds ?? [])],
     tone: settings.tone,
     roleInstructions: settings.roleInstructions,
     rules: {
@@ -3062,6 +3286,7 @@ const SETTINGS_FIELDS: readonly AssistantSettingsField[] = [
   'dataWritePurpose',
   'periodicReport',
   'sources',
+  'caseTypeIds',
 ];
 
 function settingsValidationFailed(error: HttpErrorResponse): UpdateAssistantSettingsResult {
@@ -3277,7 +3502,7 @@ function toChatWithdrawal(receipt: DatabaseSubmissionReceiptView): SubmissionWit
 /**
  * 只有 admin 會收到的回覆種類：`form-request` 與 `submission-receipt` 是 #148，表單來自伺服器
  * （`form` 為 null 代表已無法使用），收據由伺服器依提交 id 即時讀取，訊息本身不含填寫內容；
- * `database-query` 是 #149。其他 kind（組織資料、一般知識、查無資料）由 `@smart-agri/chat` 的
+ * `database-query` 是 #149；`case-proposal` 是 #254。其他 kind（組織資料、一般知識、查無資料）由 `@smart-agri/chat` 的
  * `toChatMessage` 依通用規則轉換，這裡回傳 `null` 交還給它。
  *
  * 通用規則在 lib（官網訪客的對話視窗也用）；這個函式同時交給 `AgUiChatRunner` 的串流回覆使用
@@ -3289,6 +3514,10 @@ export function toAdminChatReply(reply: ApiChatReplyView): ChatReplyView | null 
   }
   if (reply.kind === 'form-request') {
     return { kind: 'form-request', text: reply.text, form: reply.form ? toChatForm(reply.form) : null };
+  }
+  if (reply.kind === 'case-proposal') {
+    // 助理提議開案（#254）：類型、承辦組與時限是伺服器讀取當下的值；可不可以確認也由伺服器判斷。
+    return { kind: 'case-proposal', text: reply.text, proposal: reply.caseProposal ?? null };
   }
   if (reply.kind === 'submission-receipt') {
     const receipt = reply.receipt ?? null;

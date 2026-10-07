@@ -7,6 +7,7 @@ using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Cases;
 using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Jobs;
@@ -18,6 +19,7 @@ using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Ai;
 using SmartAgri.Infrastructure.Answers;
 using SmartAgri.Infrastructure.Assistants;
+using SmartAgri.Infrastructure.Cases;
 using SmartAgri.Infrastructure.Chat;
 using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
@@ -115,6 +117,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Databases connected to assistants (M4 #148).</summary>
     public DbSet<AssistantDatabase> AssistantDatabases => Set<AssistantDatabase>();
 
+    /// <summary>The case types each assistant may propose in a conversation (M7-9, #254).</summary>
+    public DbSet<AssistantCaseType> AssistantCaseTypes => Set<AssistantCaseType>();
+
     /// <summary>In-progress wizard drafts, one or more per account (M3 plan §3, §4; #72).</summary>
     public DbSet<AssistantDraft> AssistantDrafts => Set<AssistantDraft>();
 
@@ -184,6 +189,24 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Snapshots of periodic reports: statistics apart from the AI summary (M4, #150).</summary>
     public DbSet<DatabaseReport> DatabaseReports => Set<DatabaseReport>();
 
+    /// <summary>承辦組 (M7 plan §3 A; #246): never deleted, only archived.</summary>
+    public DbSet<CaseGroup> CaseGroups => Set<CaseGroup>();
+
+    /// <summary>Each case group's current members (M7-1).</summary>
+    public DbSet<CaseGroupMember> CaseGroupMembers => Set<CaseGroupMember>();
+
+    /// <summary>Append-only history of case group member additions and removals (M7-1).</summary>
+    public DbSet<CaseGroupMemberChange> CaseGroupMemberChanges => Set<CaseGroupMemberChange>();
+
+    /// <summary>案件類型 (M7 plan §3 B; #247): never deleted, only deactivated.</summary>
+    public DbSet<CaseType> CaseTypes => Set<CaseType>();
+
+    /// <summary>案件 (M7 plan §3 C; #248): kept forever.</summary>
+    public DbSet<Case> Cases => Set<Case>();
+
+    /// <summary>Each case's append-only history (M7-3; actions from M7-4).</summary>
+    public DbSet<CaseEvent> CaseEvents => Set<CaseEvent>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -246,7 +269,17 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.Entity<Organization>(organization =>
         {
             organization.ToTable("Organizations", table =>
-                table.HasCheckConstraint("CK_Organizations_MonthlyTokenLimit", "\"MonthlyTokenLimit\" >= 0"));
+            {
+                table.HasCheckConstraint("CK_Organizations_MonthlyTokenLimit", "\"MonthlyTokenLimit\" >= 0");
+
+                // A pending retention always has its effective time, and only then (M6-4).
+                table.HasCheckConstraint(
+                    "CK_Organizations_PendingRetention",
+                    "(\"PendingRetentionDays\" IS NULL) = (\"PendingRetentionEffectiveAt\" IS NULL)");
+                table.HasCheckConstraint(
+                    "CK_Organizations_RetentionDays",
+                    "\"RetentionDays\" > 0 AND (\"PendingRetentionDays\" IS NULL OR \"PendingRetentionDays\" > 0)");
+            });
             organization.HasKey(o => o.Id);
             organization.Property(o => o.Id).ValueGeneratedNever();
             organization.Property(o => o.Name).HasMaxLength(Organization.NameMaxLength).IsRequired();
@@ -259,6 +292,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
             // A concurrency token, so two settings PUTs that both read the same revision cannot
             // both write: the second UPDATE matches no row and the API answers 409.
             organization.Property(o => o.SettingsRevision).IsConcurrencyToken();
+
+            // Conversation retention (M6-4). RetentionCleanupNextRunAt moves only by compare-and-set.
+            organization.Property(o => o.RetentionDays);
+            organization.Property(o => o.PendingRetentionDays);
+            organization.Property(o => o.PendingRetentionEffectiveAt);
+            organization.Property(o => o.RetentionCleanupNextRunAt);
         });
 
         // Organization-level activity log (M6 plan §3 E).
@@ -335,6 +374,15 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // Periodic reports (M4, #150).
         modelBuilder.ApplyConfiguration(new ReportScheduleConfiguration());
         modelBuilder.ApplyConfiguration(new DatabaseReportConfiguration());
+
+        // Case groups (M7 plan §3 A, §4; #246).
+        modelBuilder.ApplyConfiguration(new CaseGroupConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseGroupMemberConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseGroupMemberChangeConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseTypeConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseConfiguration());
+        modelBuilder.ApplyConfiguration(new CaseEventConfiguration());
+        modelBuilder.ApplyConfiguration(new AssistantCaseTypeConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

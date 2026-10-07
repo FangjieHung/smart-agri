@@ -23,6 +23,7 @@
               <strong>{{ issue.title }}</strong>
               <span>{{ issue.assistantName }} · {{ statusLabel(issue.status) }}</span>
               <time [attr.datetime]="issue.createdAt">{{ issue.createdAt | date:'yyyy/MM/dd HH:mm' }}</time>
+              @if (issue.status === 'resolved' && issue.resolutionKind === 'not-assistant-issue') { <span data-forwarded-not-assistant-issue>處理結果：非助理問題，已轉為案件處理</span> }
               @if (issue.status === 'resolved' && issue.resolutionNote) { <span>處理結果：{{ issue.resolutionNote }}</span> }
             </a>
           </li>

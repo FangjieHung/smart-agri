@@ -35,11 +35,15 @@ public sealed partial class ChatModelCatalogStartupTests : IDisposable
     // --- The settings in use today --------------------------------------------------------------
 
     [Fact]
-    public async Task The_ci_workflows_chat_settings_start_the_api_with_one_model()
+    public async Task The_ci_workflows_chat_settings_start_the_api_with_the_default_and_a_second_model()
     {
-        // The e2e-api job's own values (Ai__Chat__Provider: Fake, …), in its environment.
+        // The e2e-api job's own values (Ai__Chat__Provider: Fake, …), in its environment: the
+        // deployment default plus the second Fake model org-settings-api.cy.ts switches to (#244).
         var settings = EnvironmentSettings(File.ReadAllText(Path.Combine(RepositoryRoot(), ".github", "workflows", "ci.yml")), _ => null);
-        settings.Keys.ShouldBe(["Ai:Chat:Provider", "Ai:Chat:Model"], ignoreOrder: true);
+        settings.Keys.ShouldBe(
+            ["Ai:Chat:Provider", "Ai:Chat:Model",
+             "Ai:Chat:Models:0:Provider", "Ai:Chat:Models:0:Model", "Ai:Chat:Models:0:Id", "Ai:Chat:Models:0:DisplayName"],
+            ignoreOrder: true);
 
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -49,8 +53,12 @@ public sealed partial class ChatModelCatalogStartupTests : IDisposable
         using var client = factory.CreateClient();
 
         (await client.GetAsync("/health/live", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
-        var only = factory.Services.GetRequiredService<ChatModelCatalog>().Entries.ShouldHaveSingleItem();
-        (only.Id, only.Model, only.Provider.Name, only.IsDeploymentDefault).ShouldBe((settings["Ai:Chat:Model"], settings["Ai:Chat:Model"], "fake", true));
+        var entries = factory.Services.GetRequiredService<ChatModelCatalog>().Entries;
+        entries.Count.ShouldBe(2);
+        (entries[0].Id, entries[0].Model, entries[0].Provider.Name, entries[0].IsDeploymentDefault)
+            .ShouldBe((settings["Ai:Chat:Model"], settings["Ai:Chat:Model"], "fake", true));
+        (entries[1].Id, entries[1].Model, entries[1].DisplayName, entries[1].Provider.Name, entries[1].IsDeploymentDefault)
+            .ShouldBe((settings["Ai:Chat:Models:0:Id"], settings["Ai:Chat:Models:0:Model"], settings["Ai:Chat:Models:0:DisplayName"], "fake", false));
     }
 
     [Fact]

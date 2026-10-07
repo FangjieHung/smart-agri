@@ -16,6 +16,8 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/databases/database-customer-records/access', '誰可以查看收集紀錄'],
   ['/app/channels', '發布管道'],
   ['/app/assistants/assistant-customer-service/publishing?channel=line', '客服助理'],
+  ['/app/cases', '案件清單'],
+  ['/app/cases?view=statistics', '平均處理時間'],
   ['/app/settings', '團隊與權限'],
 ];
 
@@ -68,6 +70,15 @@ describe('accessibility', () => {
         auditA11y();
       });
     }
+
+    it('has no critical or serious violations on a case\'s actions and its open form (issue #249)', () => {
+      cy.visit('/app/cases?case=case-compressor-purchase');
+      cy.get('[data-case-actions]').scrollIntoView().should('be.visible');
+      auditA11y();
+      cy.get('[data-case-action="cancel"]').click();
+      cy.get('[data-case-action-form] #case-action-text').scrollIntoView().should('be.visible');
+      auditA11y();
+    });
 
     it('has no critical or serious violations on the loading, partial failure and permission states', () => {
       cy.visit('/app/knowledge?demoScenario=loading');
@@ -198,6 +209,44 @@ describe('accessibility', () => {
     });
   });
 
+  describe('conversation retention confirmation (issue #243)', () => {
+    it('has no critical or serious violations with the confirmation open, and Escape returns focus', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.get('#retention-days-select').scrollIntoView().select('30 天');
+      cy.get('[role="dialog"]').should('be.visible');
+      cy.get('[data-retention-preview-count]').should('contain', '大約會刪除');
+      auditA11y();
+
+      cy.focused().type('{esc}');
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.focused().should('have.id', 'retention-days-select');
+      cy.get('#retention-days-select').should('have.value', 'forever');
+    });
+  });
+
+  describe('purge confirmation (issue #242)', () => {
+    it('has no critical or serious violations with the confirmation open, and Escape returns focus to the row', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/chat/assistant-customer-service');
+      cy.get('#chat-input').type('收到商品後幾天內可以退貨？');
+      cy.get('form.composer button[type="submit"]').click();
+      cy.get('[role="log"] [data-kind="company-data"]').should('be.visible');
+
+      cy.visit('/app/settings');
+      cy.get('[data-assistant-row="assistant-customer-service"] button').scrollIntoView().click();
+      cy.get('[role="dialog"]')
+        .should('have.attr', 'aria-modal', 'true')
+        .and('have.attr', 'aria-labelledby');
+      cy.focused().should('have.class', 'confirm-cancel');
+      auditA11y();
+
+      cy.focused().type('{esc}');
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.focused().should('have.attr', 'data-assistant-id', 'assistant-customer-service');
+    });
+  });
+
   describe('team settings as a non-admin persona', () => {
     it('has no critical or serious violations on the refused team panel', () => {
       loginAs('內部使用者');
@@ -213,6 +262,30 @@ describe('accessibility', () => {
       cy.visit('/app/settings');
       cy.contains('button', '變更 安心商行客服同仁 的權限').click();
       cy.get('.member__editor input[type="checkbox"]').should('have.length', 8);
+      auditA11y();
+    });
+  });
+
+  describe('case group member editor and history expanded (issue #246)', () => {
+    it('has no critical or serious violations with the editor and the history rendered', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '編輯「設備組」的成員').scrollIntoView().click();
+      cy.get('[data-case-group-members-editor] input[type="checkbox"]').should('have.length', 2);
+      cy.contains('button', '「採購組」的成員異動').click();
+      cy.get('[data-case-group-history]').should('contain', '加入了 安心商行管理者');
+      auditA11y();
+    });
+  });
+
+  describe('case type form expanded (issue #247)', () => {
+    it('has no critical or serious violations with the form and a field error rendered', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '新增案件類型').scrollIntoView().click();
+      cy.get('#case-type-due').clear().type('0');
+      cy.contains('button', '建立案件類型').click();
+      cy.get('#case-type-due-error').should('exist');
       auditA11y();
     });
   });

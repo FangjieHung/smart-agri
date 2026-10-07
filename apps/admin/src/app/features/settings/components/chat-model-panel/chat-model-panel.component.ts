@@ -4,8 +4,10 @@ import {
   Component,
   computed,
   DestroyRef,
+  effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { SettingRowComponent } from '@smart-agri/ui';
@@ -18,6 +20,7 @@ import type {
 import { DEMO_REPOSITORY } from '../../../../core/repositories/tokens';
 import { DemoSessionService } from '../../../../core/session/demo-session.service';
 import { StatePanelComponent } from '../../../../shared/ui/state-panel/state-panel.component';
+import { OrganizationSettingsChanges } from '../../organization-settings-changes.service';
 
 /** 選單裡「原本選的模型已不再提供」那一項的值；不是任何模型的 id，也不能被選。 */
 export const REMOVED_CHAT_MODEL_OPTION = '__removed__';
@@ -41,6 +44,8 @@ export class ChatModelPanelComponent {
   private readonly repository = inject(DEMO_REPOSITORY);
   private readonly session = inject(DemoSessionService);
   private readonly destroyRef = inject(DestroyRef);
+  /** 同一頁的其他區塊存好設定時重新讀取（共用 revision，issue #243）。 */
+  private readonly settingsChanges = inject(OrganizationSettingsChanges, { optional: true });
 
   protected readonly removedOption = REMOVED_CHAT_MODEL_OPTION;
 
@@ -83,6 +88,13 @@ export class ChatModelPanelComponent {
   /** 送出中再換一次選單會被還原，不會同時送出兩個請求。 */
   protected readonly saving = signal(false);
 
+  constructor() {
+    effect(() => {
+      const change = this.settingsChanges?.saved();
+      if (change && change.by !== this) untracked(() => this.chatModelResource.reload());
+    });
+  }
+
   protected choose(event: Event): void {
     const select = event.target as HTMLSelectElement;
     const view = this.view();
@@ -116,6 +128,7 @@ export class ChatModelPanelComponent {
     this.saving.set(false);
     if (result.status === 'ready' || result.status === 'partial-failure') {
       this.chatModelResource.set(result);
+      this.settingsChanges?.announce(this);
       const effective = result.data.effective;
       this.feedback.set(
         effective === null

@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + set-token-limit subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + set-token-limit + retention-cleanup subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -751,9 +751,19 @@ form (`request_database_form`, #148) is decided by:
 
 Anything else fails startup. `eval-form-requests` (below) compares the two on a labelled set.
 
+The same trigger decides case proposals (M7-9 #254, `propose_case`): in `Model` mode an assistant with
+case types it may propose (and no form target) makes one `case-proposal` call. **When a request may be
+offered both the form and at least one case type, there is one call, not two** (#286): purpose
+`proposal-selection`, offered `request_database_form` and `propose_case` together, and the model calls
+one of them or neither (`ProposalSelectionRules`, `ChatProposalSelectionTool`). Precedence stays query →
+form → case → answer, at most one proposal per reply; the server accepts only an offered form id (then
+re-authorized) or type id; a failed call falls back to the form gate, then the case keyword rule. All
+three purposes count toward the monthly token limit.
+
 In `Model` mode, a run that is about to make that selection call first sends `CUSTOM smartagri.form-check`
 (empty value; #171) so the client can show a "checking" state; keyword mode and assistants without a form
-target never send it. `GET /api/v1/assistants/{id}/chat/forms` lists the form(s) the caller may open from
+target never send it. The combined call (#286) offers the form too, so it sends the same event at the
+same place; a case-only call sends none. `GET /api/v1/assistants/{id}/chat/forms` lists the form(s) the caller may open from
 the conversation's 「回報資料」 entry (the same `ChatFormRequestView` a form request carries; empty when
 none), and `POST …/chat/forms/{databaseId}/dismissals` records that the member closed an offered form
 (`ChatFormDismissals`: assistant, form, time — no account, conversation or content). Contracts: M4 design
@@ -1156,6 +1166,184 @@ next month or until the limit is raised. There is no settings screen: operators 
   the write failed — nothing is written), `2` bad arguments (`--tokens` must be `0`, a positive
   integer, or `default`).
 
+## Conversation retention and the daily cleanup (M6-4, #241)
+
+Each organization chooses how long conversations are kept: 30, 90, 180 or 365 days, or forever
+(the default) — `Organization.RetentionDays` (`null` = forever).
+
+- **`GET /api/v1/organization/retention`** (any signed-in account of the organization) returns
+  `{ days, pending: { days, effectiveAt } | null, options: [30, 90, 180, 365], canChange, lastChange,
+  revision }`. `lastChange` covers the manager's changes and the system switching to a pending value
+  (「系統」); `revision` is `Organizations.SettingsRevision`, shared with the chat model.
+- **`GET /api/v1/organization/retention/preview?days=N`** (manager only, else `403
+  organization-settings`) returns `{ days, threadCount, cutoff }`: the threads a cleanup **now**
+  would delete with N days — the same cutoff and query the cleanup uses. After the buffer the real
+  number is larger. `N` outside the options is `422` (`errors.days`).
+- **`PUT /api/v1/organization/retention`** `{ days, revision }` (manager only): `days` outside the
+  options is `422` (`errors.days`), a stale revision `409 organization-settings-conflict`.
+  - **Shorter** (forever → a number included) is stored as `pending` with `effectiveAt` = now + 7
+    days; nothing is deleted under it before then.
+  - **Longer** (a number → forever included) applies at once and drops `pending`.
+  - **The current value** while something is pending drops it (「改回」).
+  - A change writes `retention-changed` or `retention-change-cancelled` to `OrganizationActivities`
+    in the same transaction; a value that changes nothing writes nothing.
+- **The daily cleanup** is a `retention-cleanup` background job per organization, due at 03:00 of
+  `Statistics:TimeZone`. The first save that gives the organization a retention in days (current or
+  pending) starts the chain; each run moves `Organizations.RetentionCleanupNextRunAt` with a
+  compare-and-set and only then queues the next run, so a job delivered twice deletes once and
+  queues one next job; a run that finds the retention forever with nothing pending ends the chain.
+  A run:
+  1. makes a pending value whose `effectiveAt` has passed current (`retention-took-effect`);
+  2. with a retention of N days, the cutoff is 00:00 of the local day N days before today;
+  3. deletes threads whose `LastActivityAt` is before it — whole, the database cascades to their
+     messages and citations — and every `AnswerOutcome` whose own `At` is before it, on every
+     channel (website included);
+  4. deletes in batches of 1,000, each its own transaction (index
+     `ChatThreads (OrganizationId, LastActivityAt)`);
+  5. writes one `retention-cleanup` activity (`{ days, cutoff, threadCount, answerOutcomeCount }`)
+     when it deleted something, none otherwise; the counters
+     `smartagri.retention.cleanup.runs` and `smartagri.retention.cleanup.deleted` (tag `record`)
+     count every run.
+
+  Model invocations, handoff copies in issues, periodic reports, database records and test runs are
+  never touched. The first cleanup after shortening a long-used retention may delete a lot: run the
+  first change off-peak.
+- **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
+  every organization with a retention in days but no queued or running cleanup job (a job that
+  failed for good breaks its chain); the same compare-and-set keeps it from forking.
+- **`retention-cleanup`** is a one-shot subcommand that runs one organization's cleanup now (a due
+  pending value first), without touching the chain:
+
+  ```sh
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code>
+  dotnet SmartAgri.Api.dll retention-cleanup --organization <code> --as-of 2026-11-13T03:00:00+08:00   # Development/Testing only
+  ```
+
+  `--as-of` computes the cutoff (and whether a pending value is due) as of that time, for the API-mode
+  E2E; any other environment refuses it. Exit code `0` done, `1` unknown organization or the cleanup
+  failed, `2` bad arguments.
+
+## Case groups (M7-1, #246)
+
+承辦組 are groups of the organization's own accounts that take on a kind of case (M7 plan §3 A). They
+are never deleted, only archived (decision G). All endpoints need an internal account
+(`smb-admin`, `internal-employee`); an external customer gets `403 case`.
+
+- **`GET /api/v1/case-groups`** (any internal account) returns `{ groups: [{ id, name, archived,
+  archivedAt, members: [{ id, displayName }], createdAt, updatedAt }], canManage, candidates }`.
+  Archived groups are left out — they are not offered where a group is chosen — unless the
+  manager asks `?includeArchived=true` (ignored for anyone else). `candidates` (manager only) are
+  the internal accounts, each `{ id, displayName, role }`.
+- **`POST /api/v1/case-groups`** `{ name }`, **`PUT /api/v1/case-groups/{id}`** `{ name }`,
+  **`POST /api/v1/case-groups/{id}:archive`**, **`:unarchive`** — manager only (`403
+  organization-settings`, the same bytes for an id that does not exist or belongs to another
+  organization). The name is trimmed, 1–40 characters (`422`, `errors.name`) and unique in the
+  organization (`422 case-group-name-taken`, also from the unique index under concurrency). Each
+  change writes `case-group-created`／`-renamed`／`-archived`／`-unarchived` (detail `{ id, name }`,
+  plus `previousName` for a rename) to `OrganizationActivities` in the same save; a no-op writes
+  nothing.
+- **`PUT /api/v1/case-groups/{id}/members`** `{ accountIds }` (manager only) replaces the whole list.
+  Only internal accounts of the organization: an external customer, an unknown id or another
+  organization's account is `422 member-not-eligible` (`errors.accountIds`) and nothing is saved.
+  Each addition and removal writes one `CaseGroupMemberChanges` row (account ids without foreign
+  keys, so the history outlives the accounts); two concurrent saves of the same account are `409
+  case-group-members-conflict`. A member's account cannot be deleted (`Restrict`, decision C).
+- **`GET /api/v1/case-groups/{id}/member-changes`** (manager only): `[{ id, account, added,
+  changedBy, changedAt }]`, newest first.
+- **Archiving a group that is still in use** is `422 case-group-in-use`, each reason under its own
+  field: the active case types that default to it (`errors.caseTypes`, M7-2) and its open cases
+  (`errors.cases`, M7-3); `message` joins them. Move or deactivate the types and close or transfer
+  the cases first.
+
+Account names on these and the other history screens (data managers, submission records, the
+settings' 「上次變更」, issues) come from one lookup, `AccountNames`: an account that can no longer be
+found shows as 「已停用的帳號」.
+
+## Case types (M7-2, #247)
+
+案件類型 are defined by the manager (M7 plan §3 B). Each has a description (what the assistant reads
+when it proposes a case, M7-9), a default case group and a default handling time; a new case starts
+from a type, which fills in the group and the due time (M7-3). Types are never deleted, only
+deactivated (decision O). Same access rules as the case groups.
+
+- **`GET /api/v1/case-types`** (any internal account) returns `{ types: [{ id, name, description,
+  defaultGroup: { id, name, archived }, defaultDueHours, isActive, createdAt, updatedAt }],
+  canManage }`, in creation order. Inactive types are left out unless the manager asks
+  `?includeInactive=true` (ignored for anyone else).
+- **`POST /api/v1/case-types`**, **`PUT /api/v1/case-types/{id}`** `{ name, description,
+  defaultGroupId, defaultDueHours, isActive }` — manager only (`403 organization-settings`, the
+  same bytes for an unknown or foreign id). Every field is sent each time; an omitted `isActive` is
+  active on create and unchanged on update. Field rules, all reported at once (`422`, `errors.<field>`):
+  name trimmed, 1–40 characters; description trimmed, 0–500 characters; a default group;
+  `defaultDueHours` 1–2,160 (90 days, calendar time — decision H; also a check constraint). The name
+  is unique in the organization, active or not (`422 case-type-name-taken`). The default group must
+  be one of the organization's groups (`422 case-group-not-found`) and not archived (`422
+  case-group-archived`); an inactive type may keep a group that was archived later, but cannot be
+  reactivated with it. The foreign key to the group is a same-organization composite with
+  `Restrict`. Creating writes `case-type-created` (`{ id, name }`), a real change writes
+  `case-type-updated` (`{ id, name, changed: [field names], isActive }` — never the description's
+  text); a no-op writes nothing.
+
+## Cases (M7-3, #248)
+
+案件 are business work 「接下來誰要做」 (case ADR; M7 plan §3 C). Internal accounts only: an external
+customer, and a case that does not exist, belongs to another organization or is not visible, all get
+the very same `403 case` (byte for byte). Who sees a case is one rule, `CaseVisibility` (Application):
+its creator, the members of its **current** case group, anyone who ever accepted it (from the
+`accepted` events, M7-4), and the manager (`smb-admin`).
+
+- **`POST /api/v1/cases`** `{ typeId, groupId, dueAt, title, description, databaseId?, submissionId?,
+  assistantId?, threadId?, previousCaseId? }` creates a `manual` case in `pending` with one `created`
+  event and answers `201` with the detail. Checks, in order: the fields, all at once (`422`,
+  `errors.<field>`: title trimmed 1–120, description 0–4,000, a link pair both set or both absent);
+  `dueAt` earlier than now is `422 due-in-past` (`errors.dueAt`, decision H); an inactive, unknown or
+  foreign type is `422 case-type-inactive`; the group `422 case-group-not-found` /
+  `case-group-archived`; a record the caller cannot read now (designated data manager holding
+  `read-consented-submissions`), a withdrawn one, a thread that is not the caller's own, or a previous
+  case that is not visible or still open is `422 link-not-available` (`errors.submissionId`,
+  `errors.threadId`, `errors.previousCaseId`). The type, group, creator, owner and previous case are
+  same-organization composite foreign keys (`Restrict`); the thread, record and issue are plain ids
+  (decision S), checked again on every read.
+- **`GET /api/v1/cases`** `?scope=all|created|owned|my-groups&status=open|closed|all|<status>&typeId=&groupId=`:
+  the visible cases, newest first, not paged (decision Q); `status` defaults to `open` (`pending`,
+  `in-progress`, `awaiting-info`). Each row: `{ id, title, status, origin, type, group, createdBy,
+  owner, dueAt, createdAt, updatedAt }` (no description). An unknown `scope` or `status` is `422`.
+- **`GET /api/v1/cases/{id}`**: `{ case, events, links }`. `links.record` is `{ databaseId,
+  submissionId, state: available|withdrawn|unavailable, canRead }` (seeing the case never widens the
+  record's access); `links.thread` `{ assistantId, threadId, canOpen }`, `links.assistantIssue`
+  `{ issueId, canOpen }` and `links.previousCase` `{ caseId, canOpen }` say only whether the caller can
+  open them. **No response ever carries conversation text** — not the thread's title either.
+  `allowedActions` lists what the caller may do now (below) and `cancelReasonRequired` whether their
+  `:cancel` needs a reason.
+
+### Case actions (M7-4, #249)
+
+One action table, `CaseActionRules` (Application; M7 plan §3 D, decisions I and J). Each action is
+`POST /api/v1/cases/{id}:<action>` — or `POST /api/v1/cases/{id}/comments` for a comment — with the
+`eventCount` the screen showed, answers `200` with the detail and writes exactly one event:
+
+| action | body | who | statuses | result |
+| --- | --- | --- | --- | --- |
+| `accept` | — | a member of the current group | pending | in-progress; the caller becomes the case owner |
+| `request-info` | `note` (required) | the case owner | in-progress | awaiting-info |
+| `resume` | `note?` | the case owner | awaiting-info | in-progress |
+| `complete` | `resolution` (required) | the case owner | in-progress, awaiting-info | completed |
+| `cancel` | `reason` (required, except from the creator before acceptance) | pending: creator or manager; afterwards: case owner or manager | open | cancelled |
+| `transfer` | `groupId`, `note?` | the case owner or the manager (only the manager while pending) | open | pending in the new group, no owner |
+| `set-due` | `dueAt`, `note?` | the case owner | open | new due time |
+| comment | `note` (required) | the creator or the case owner | open | a note; the creator's note on an awaiting-info case also moves it back to in-progress |
+
+Checks, in order, and none writes anything: not visible (or an external customer) is the one `403
+case`; a missing `eventCount`, a text over 2,000 characters, a missing `groupId`/`dueAt` is `422`
+(no reason); another `eventCount` than the case's is **`409 case-changed`**; a status where no one may
+do the action — every closed case — is `409 case-changed`; a status where the caller may not is
+**`403 case-action`**; then `422 note-required` / `resolution-required` / `reason-required`, a
+transfer to an unknown (`case-group-not-found`), archived (`case-group-archived`) or the same group
+(`case-group-unchanged`), and a due time earlier than now (`due-in-past`). The case owner stays the
+owner after leaving the group. `Case.EventCount` is a concurrency token and `(CaseId, Ordinal)` is
+unique, so two people accepting the same version at once get one `200` and one `409`. A closed case
+is never reopened: 「另開新案」 is `POST /api/v1/cases` with `previousCaseId`.
+
 ## Retrieval preview and `KnowledgeRetriever`
 
 `KnowledgeRetriever` (Application, scoped; M2 plan Slice 9) is **the** way to search knowledge:
@@ -1383,8 +1571,41 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-form-requests --report /
   every question side by side. Exit codes: `0` done, `1` no chat model for `model`/`both` or a model
   call failed, `2` bad arguments, environment or set.
 - With `Fake`, the model column only proves the pipeline (the fake follows the keyword gate unless a
-  directive says otherwise), and the report says so. The real-model run is pending a key; see
-  `docs/evals/2026-10-05-164-form-request-trigger.md`.
+  directive says otherwise), and the report says so. Results: `docs/evals/2026-10-05-164-form-request-trigger.md`
+  and, after #286, `docs/evals/2026-10-07-286-combined-proposal-call.md`.
+- `--case-types <dir>` (#286, model trigger only) also makes, per question, the combined selection call
+  production makes when the assistant has case types too — the form tool next to `propose_case` with
+  `<dir>`'s `caseTypes` (normally `apps/api/eval/case-proposals`) — and reports whether the form is still
+  given or a case is proposed instead.
+
+## Evaluating case-proposal triggers: `eval-case-proposals`
+
+M7-12 #257: how often the keyword rule (`CaseProposalRules.KeywordProposal`, decision T) and the
+model choosing `propose_case` miss a case proposal, false-trigger (on a question that should get no
+proposal, the form, or the database query) or pick the wrong case type, on the labelled set in
+`apps/api/eval/case-proposals/` (its README describes the format: a sample form, three case types,
+50 questions). No database is needed.
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --trigger keyword   # no model needed
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals                     # keyword and model (Ai:Chat)
+dotnet run --project apps/api/src/SmartAgri.Api -- eval-case-proposals --report /tmp/case.md --set <dir> --trigger model
+```
+
+- **Development and Testing only**, same arguments and exit codes as `eval-form-requests`. A relative
+  `--report` is resolved against the process's working directory (`dotnet run --project` runs in the
+  project directory), so pass an absolute path or omit it.
+- Each question is judged twice per trigger: the **case layer alone**, and the **whole proposal stage**
+  (decision L: database query → form → case). The query layer is the `DatabaseQueryTools.AsksForStatistics`
+  gate (the query model is not called); then `AssistantFormRequestRules.AsksForForm` and the case keyword
+  rule (keyword), or — since #286, as production does for an assistant with both a form and case types —
+  one combined `request_database_form` + `propose_case` call (model). In model mode every question gets
+  that combined call and one case-only call (the case layer) with the production declarations and
+  prompts, calling the configured chat model directly (not in `ModelInvocations`; the report has every
+  question's tokens).
+- A reasoning model such as `gpt-6-luna` needs `Ai__Chat__ReasoningEffort=None` (see "Chat model").
+- Results and recommendations: `docs/evals/2026-10-07-257-case-proposal-trigger.md`; after the combined
+  call, `docs/evals/2026-10-07-286-combined-proposal-call.md`.
 
 ## Development seed data
 

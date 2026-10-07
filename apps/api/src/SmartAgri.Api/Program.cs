@@ -159,6 +159,16 @@ if (args is [SmartAgriCommands.EvalFormRequests, .. var evalFormArgs])
     return;
 }
 
+// `eval-case-proposals` is one-shot too, Development only: judge how often the keyword rule and the
+// model choosing `propose_case` miss, false-trigger or pick the wrong case type on a labelled question
+// set, alone and after the query and form layers (decision L), and write a Markdown report, then exit
+// (M7-12 #257). The keyword trigger needs no model; neither needs a database.
+if (args is [SmartAgriCommands.EvalCaseProposals, .. var evalCaseArgs])
+{
+    Environment.ExitCode = await SmartAgri.Api.Chat.Evaluation.EvalCaseProposalsCommand.RunAsync(app.Services, evalCaseArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `set-token-limit` is one-shot too, in any environment: set an organization's monthly chat-model
 // token limit (or send it back to the deployment default) and exit (M5a #195).
 if (args is [SmartAgriCommands.SetTokenLimit, .. var setTokenLimitArgs])
@@ -264,6 +274,7 @@ internal static class SmartAgriCommands
     public const string EvalRetrieval = "eval-retrieval";
     public const string EvalAnswers = "eval-answers";
     public const string EvalFormRequests = "eval-form-requests";
+    public const string EvalCaseProposals = "eval-case-proposals";
     public const string SetTokenLimit = "set-token-limit";
     public const string RetentionCleanup = "retention-cleanup";
     public const string CaseSetDue = "case-set-due";

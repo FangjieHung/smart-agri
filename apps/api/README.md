@@ -1526,7 +1526,10 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-answers --report /tmp/ev
   questions, those citing at least one expected document), the rejection reason distribution
   (`GroundedRejectionReason`, so the prompt and threshold can be tuned by data — grounded-answers
   ADR), average input/output tokens from this run's `generate-answer` `ModelInvocations` (`—` when
-  none reported a number), and every question's expected and actual reply side by side. It goes to
+  none reported a number), and every question's expected and actual reply side by side with the
+  closest passage's score (`最高分`, whatever the threshold) and the reply text (`回覆內容`, `—` for
+  `no-result`) — #303, so negative conclusions are judged without a temporary hack; the settings
+  also show the prompt version (`回答提示版本`). It goes to
   `docs/evals/<date>-answers-<chat model>.md` (overwritten by a second run the same day), or to
   `--report`. Exit codes: `0` done, `1` a model or processing failed, `2` bad arguments,
   environment, set or configuration.

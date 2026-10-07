@@ -134,4 +134,41 @@ public class AssistantSettingsRulesTests
         toggled.Value.ShowCitations.ShouldBeFalse();
         toggled.Value.KeepConversations.ShouldBeFalse();
     }
+
+    [Theory]
+    [InlineData("account-members", AssistantAudience.AccountMembers)]
+    [InlineData("authorized-external-customers", AssistantAudience.AuthorizedExternalCustomers)]
+    [InlineData("members-and-external-customers", AssistantAudience.MembersAndExternalCustomers)]
+    public void The_audience_can_be_changed_to_any_of_the_three(string audience, AssistantAudience expected)
+    {
+        var result = AssistantSettingsRules.ForUpdate(
+            Current, null, null, null, null, null, null, null, null, audience: audience);
+
+        result.IsValid.ShouldBeTrue();
+        result.Value.Audience.ShouldBe(expected);
+        result.Value.Name.ShouldBe(Current.Name);
+    }
+
+    [Fact]
+    public void A_null_audience_keeps_the_current_one()
+    {
+        var current = Current with { Audience = AssistantAudience.MembersAndExternalCustomers };
+
+        var result = AssistantSettingsRules.ForUpdate(current, "新名稱", null, null, null, null, null, null, null);
+
+        result.IsValid.ShouldBeTrue();
+        result.Value.Audience.ShouldBe(AssistantAudience.MembersAndExternalCustomers);
+    }
+
+    [Fact]
+    public void An_unknown_audience_is_rejected_with_the_other_failures()
+    {
+        var result = AssistantSettingsRules.ForUpdate(
+            Current, "   ", null, null, null, null, null, null, null, audience: "everyone");
+
+        result.IsValid.ShouldBeFalse();
+        result.Failures.Select(failure => failure.Field).ShouldBe(
+            [AssistantSettingsRules.NameField, AssistantSettingsRules.AudienceField], ignoreOrder: true);
+        result.Failures.ShouldContain(failure => failure.Message == AssistantSettingsRules.AudienceInvalidMessage);
+    }
 }

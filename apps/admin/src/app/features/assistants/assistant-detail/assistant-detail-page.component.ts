@@ -14,7 +14,7 @@ import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map, of } from 'rxjs';
-import type { AssistantConfigurationView } from '../../../core/domain/assistant.model';
+import type { AssistantAudience, AssistantConfigurationView } from '../../../core/domain/assistant.model';
 import type { DeleteAssistantResult } from '../../../core/repositories/demo-repository';
 import { ApiSessionService } from '../../../core/session/api-session.service';
 import { DEMO_REPOSITORY } from '../../../core/repositories/tokens';
@@ -106,6 +106,14 @@ export class AssistantDetailPageComponent {
       (state as Record<string, unknown>)['assistantCreated'] === true
     );
   })();
+
+  /**
+   * 建立完成時，使用對象包含外部客戶（#224）就改成提示官網嵌入與 LINE：兩者都在發布頁設定。
+   * 使用對象不是發布的條件，只決定這裡要提示哪些管道。
+   */
+  protected servesExternalCustomers(audience: AssistantAudience): boolean {
+    return audience !== 'account-members';
+  }
 
   /** 發布頁籤選取的管道（?channel=platform|website|line），由發布元件驗證。 */
   protected readonly publishingChannel = toSignal(

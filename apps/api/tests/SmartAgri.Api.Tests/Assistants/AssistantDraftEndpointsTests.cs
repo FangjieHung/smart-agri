@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Shouldly;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Knowledge;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Domain.Assistants;
@@ -180,6 +181,103 @@ public class AssistantDraftEndpointsTests : IClassFixture<AuthHostFixture>
         (await dbContext.AssistantKnowledgeBases.AnyAsync(
                 link => link.AssistantId == assistantId && link.KnowledgeBaseId == knowledgeBaseId, CancellationToken))
             .ShouldBeTrue();
+    }
+
+    // --- #224: every audience can be chosen, read back and changed ---------------------
+
+    [Theory]
+    [InlineData("account-members", "members-and-external-customers")]
+    [InlineData("authorized-external-customers", "account-members")]
+    [InlineData("members-and-external-customers", "authorized-external-customers")]
+    public async Task Each_audience_creates_an_assistant_that_settings_read_back_and_a_patch_changes(
+        string audience, string changedTo)
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var knowledgeBaseId = await CreateKnowledgeBaseAsync(org, org.Admin.Id, "客服知識庫");
+        var draftId = await CreateDraftAsync(org, org.Admin.Id, ValidDraftPayload(knowledgeBaseId, audience: audience));
+
+        var created = await admin.Spa.PostAsync(AssistantsPath, admin.Token, new { draftId });
+
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var createdBody = await BodyJsonAsync(created);
+        createdBody.GetProperty("audience").GetString().ShouldBe(audience);
+        var assistantId = createdBody.GetProperty("id").GetGuid();
+        var settingsPath = $"{AssistantsPath}/{assistantId}/settings";
+
+        var settings = await BodyJsonAsync(await admin.Spa.GetAsync(settingsPath, admin.Token));
+        settings.GetProperty("configuration").GetProperty("audience").GetString().ShouldBe(audience);
+        var listed = await BodyJsonAsync(await admin.Spa.GetAsync(AssistantsPath, admin.Token));
+        listed.EnumerateArray().Single().GetProperty("audience").GetString().ShouldBe(audience);
+
+        var patched = await admin.Spa.PatchAsync(settingsPath, admin.Token, new { audience = changedTo });
+
+        patched.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await BodyJsonAsync(patched)).GetProperty("configuration").GetProperty("audience").GetString().ShouldBe(changedTo);
+        var reread = await BodyJsonAsync(await admin.Spa.GetAsync(settingsPath, admin.Token));
+        reread.GetProperty("configuration").GetProperty("audience").GetString().ShouldBe(changedTo);
+        reread.GetProperty("configuration").GetProperty("name").GetString().ShouldBe("客服助理");
+    }
+
+    [Fact]
+    public async Task An_unknown_audience_is_422_on_create_and_on_patch_and_nothing_is_written()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var knowledgeBaseId = await CreateKnowledgeBaseAsync(org, org.Admin.Id, "客服知識庫");
+        var badDraftId = await CreateDraftAsync(org, org.Admin.Id, ValidDraftPayload(knowledgeBaseId, audience: "everyone"));
+
+        var refused = await admin.Spa.PostAsync(AssistantsPath, admin.Token, new { draftId = badDraftId });
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(refused)).GetProperty("errors").GetProperty("audience")[0].GetString()
+            .ShouldBe(AssistantDraftCreationRules.AudienceInvalidMessage);
+
+        var draftId = await CreateDraftAsync(org, org.Admin.Id, ValidDraftPayload(knowledgeBaseId));
+        var assistantId = (await BodyJsonAsync(await admin.Spa.PostAsync(AssistantsPath, admin.Token, new { draftId })))
+            .GetProperty("id").GetGuid();
+        var settingsPath = $"{AssistantsPath}/{assistantId}/settings";
+
+        var patch = await admin.Spa.PatchAsync(settingsPath, admin.Token, new { name = "新名稱", audience = "everyone" });
+
+        patch.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(patch)).GetProperty("errors").TryGetProperty("audience", out _).ShouldBeTrue();
+        var settings = await BodyJsonAsync(await admin.Spa.GetAsync(settingsPath, admin.Token));
+        settings.GetProperty("configuration").GetProperty("audience").GetString().ShouldBe("account-members");
+        settings.GetProperty("configuration").GetProperty("name").GetString().ShouldBe("客服助理");
+    }
+
+    [Fact]
+    public async Task The_audience_does_not_change_who_may_use_the_assistant()
+    {
+        // #224 only stores the audience: AssistantUseAccess.UsableBy (owner, share, use-shared-assistants)
+        // is unchanged, so an external-only assistant shared with an internal employee stays usable by
+        // them, and an external customer it was not shared with still cannot use it.
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var knowledgeBaseId = await CreateKnowledgeBaseAsync(org, org.Admin.Id, "客服知識庫");
+        var draftId = await CreateDraftAsync(
+            org, org.Admin.Id, ValidDraftPayload(knowledgeBaseId, audience: "authorized-external-customers"));
+        var assistantId = (await BodyJsonAsync(await admin.Spa.PostAsync(AssistantsPath, admin.Token, new { draftId })))
+            .GetProperty("id").GetGuid();
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            var assistant = await dbContext.Assistants.SingleAsync(a => a.Id == assistantId, CancellationToken);
+            dbContext.AssistantShares.Add(new AssistantShare(assistant, org.Internal.Id));
+            await dbContext.SaveChangesAsync(CancellationToken);
+        }
+
+        var internalEmployee = await SignInAsync(org, "internal");
+        var customer = await SignInAsync(org, "customer");
+
+        var internalUsable = await BodyJsonAsync(
+            await internalEmployee.Spa.GetAsync($"{AssistantsPath}?usable=true", internalEmployee.Token));
+        var shared = internalUsable.EnumerateArray().Single(item => item.GetProperty("id").GetGuid() == assistantId);
+        shared.GetProperty("audience").GetString().ShouldBe("authorized-external-customers");
+        shared.GetProperty("viewerIsOwner").GetBoolean().ShouldBeFalse();
+
+        var customerUsable = await BodyJsonAsync(await customer.Spa.GetAsync($"{AssistantsPath}?usable=true", customer.Token));
+        customerUsable.EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ShouldNotContain(assistantId);
     }
 
     [Fact]
@@ -390,13 +488,14 @@ public class AssistantDraftEndpointsTests : IClassFixture<AuthHostFixture>
     /// <summary>A draft payload with every field "由草稿建立助理" needs, valid by default.
     /// <paramref name="knowledgeBaseId"/> defaults to a random (non-connectable) id when
     /// omitted — enough for tests that never call the create-assistant endpoint.</summary>
-    private static string ValidDraftPayload(Guid? knowledgeBaseId = null, string name = "客服助理") =>
+    private static string ValidDraftPayload(
+        Guid? knowledgeBaseId = null, string name = "客服助理", string audience = "account-members") =>
         $$"""
         {
           "name": "{{name}}",
           "purpose": "回答退換貨問題",
           "tone": "friendly",
-          "audience": "account-members",
+          "audience": "{{audience}}",
           "roleInstructions": "",
           "sources": [{ "id": "{{knowledgeBaseId ?? Guid.NewGuid()}}", "type": "knowledge-base" }],
           "rules": {

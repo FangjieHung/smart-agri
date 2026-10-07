@@ -23,7 +23,7 @@ export const ACCOUNT_ROLE_LABELS: Readonly<Record<AccountRole, string>> = {
 export const ACCOUNT_ROLE_DESCRIPTIONS: Readonly<Record<AccountRole, string>> = {
   'smb-admin': '建立與設定助理、管理知識庫與資料庫、設定發布管道，並指定誰可以查看收集紀錄。',
   'internal-employee': '使用團隊分享的助理，並管理自己建立的知識庫與資料庫。',
-  'external-customer': '開啟開放給外部客戶的助理、填寫授權表單，並查看自己的追蹤紀錄。',
+  'external-customer': '使用分享給自己的助理、填寫授權表單，並查看自己的追蹤紀錄。',
 };
 
 /** 權限在 Demo 裡是否真的被檢查；`false` 代表目前只是宣告值。 */
@@ -77,11 +77,11 @@ export const ACCOUNT_PERMISSIONS: readonly AccountPermissionDescriptor[] = [
   {
     id: 'use-shared-assistants',
     label: '使用分享的助理',
-    description: '（目前不影響任何畫面）開啟別人分享的助理。',
-    enforced: false,
+    description: '開啟別人分享的助理。',
+    enforced: true,
     enforcedNote:
-      '尚未接到行為：平台內能不能開啟助理，由「使用對象」加上發布管道的勾選清單決定（canOpenInPlatform()）。' +
-      '改這一格不會改變任何人開得了什麼。',
+      '已接到行為：開啟別人的助理要有這個權限，而且在該助理的平台內分享名單內、管道沒有暫停（canOpenInPlatform()，與後端相同）。' +
+      '自己的助理不受影響；助理的「使用對象」只是預計給誰用，不影響存取。',
   },
   {
     id: 'read-own-tracking',

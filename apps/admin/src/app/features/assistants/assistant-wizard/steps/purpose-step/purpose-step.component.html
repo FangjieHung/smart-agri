@@ -23,7 +23,6 @@
   <app-assistant-profile-form
     [value]="profile()"
     [errors]="errors()"
-    [externalAudienceAvailable]="!apiMode"
     (changed)="apply($event)"
   />
 </div>

@@ -5,7 +5,8 @@ using SmartAgri.Domain.Assistants;
 namespace SmartAgri.Application.Assistants;
 
 /// <summary>An assistant's settings, trimmed and within limits, ready to apply
-/// (<see cref="Assistant.ApplySettings"/>).</summary>
+/// (<see cref="Assistant.ApplySettings"/>). <see cref="Audience"/> (#224) defaults to
+/// <see cref="AssistantAudience.AccountMembers"/>, the value every assistant had before it was stored.</summary>
 public sealed record AssistantSettingsDetails(
     string Name,
     string Purpose,
@@ -14,7 +15,8 @@ public sealed record AssistantSettingsDetails(
     AssistantKnowledgeScope KnowledgeScope,
     string RefusalMessage,
     bool ShowCitations,
-    bool KeepConversations);
+    bool KeepConversations,
+    AssistantAudience Audience = AssistantAudience.AccountMembers);
 
 /// <summary>
 /// Validation of <c>PATCH /api/v1/assistants/{id}/settings</c> (mapping §2.6): every field is
@@ -37,6 +39,8 @@ public static class AssistantSettingsRules
 
     public const string RefusalMessageField = "refusalMessage";
 
+    public const string AudienceField = "audience";
+
     public const string NameRequiredMessage = "請輸入助理名稱。";
 
     public static readonly string NameTooLongMessage = $"助理名稱最多 {Assistant.NameMaxLength} 個字。";
@@ -51,6 +55,8 @@ public static class AssistantSettingsRules
         $"角色設定最多 {Assistant.RoleInstructionsMaxLength} 個字。";
 
     public const string KnowledgeScopeInvalidMessage = "回答範圍設定不正確。";
+
+    public const string AudienceInvalidMessage = "使用對象設定不正確。";
 
     public const string RefusalMessageRequiredMessage = "請填寫找不到資料時的回覆內容。";
 
@@ -68,7 +74,8 @@ public static class AssistantSettingsRules
         string? knowledgeScope,
         string? refusalMessage,
         bool? showCitations,
-        bool? keepConversations)
+        bool? keepConversations,
+        string? audience = null)
     {
         ArgumentNullException.ThrowIfNull(current);
 
@@ -112,6 +119,12 @@ public static class AssistantSettingsRules
             failures.Add(new ValidationFailure(KnowledgeScopeField, KnowledgeScopeInvalidMessage));
         }
 
+        var resolvedAudience = current.Audience;
+        if (audience is not null && !TryParse(audience, out resolvedAudience))
+        {
+            failures.Add(new ValidationFailure(AudienceField, AudienceInvalidMessage));
+        }
+
         var trimmedRefusal = (refusalMessage ?? current.RefusalMessage).Trim();
         if (trimmedRefusal.Length == 0)
         {
@@ -135,7 +148,8 @@ public static class AssistantSettingsRules
             resolvedScope,
             trimmedRefusal,
             showCitations ?? current.ShowCitations,
-            keepConversations ?? current.KeepConversations));
+            keepConversations ?? current.KeepConversations,
+            resolvedAudience));
     }
 
     private static bool TryParse<TEnum>(string wire, out TEnum value)

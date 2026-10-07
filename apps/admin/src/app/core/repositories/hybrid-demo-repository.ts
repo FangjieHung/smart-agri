@@ -13,6 +13,7 @@ import { CASE_PROPOSAL_CLOSED_MESSAGE, CASE_PROPOSAL_NOT_PROPOSABLE_MESSAGE } fr
 import type { AccountId, AccountPermission, AccountRole } from '../domain/account.model';
 import type { AssistantTestCaseView, AssistantTestRunView, AssistantTestRunDetailView, AssistantTestCaseInput, AssistantTestCasePatch, AssistantTestCaseImportEntry, AssistantTestCaseExportEntry } from '../domain/assistant-acceptance.model';
 import type {
+  AssistantAudience,
   AssistantConfigurationView,
   AssistantId,
   AssistantPermission,
@@ -860,7 +861,7 @@ export class HybridDemoRepository extends MockDemoRepository {
           name: assistant.name,
           purpose: assistant.purpose,
           status: assistant.status,
-          audience: 'account-members',
+          audience: audienceOf(assistant),
           permission: assistant.viewerIsOwner ? this.ownerPermission() : 'use',
         })),
       })),
@@ -919,7 +920,7 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /**
-   * `PATCH` 只送後端認得的欄位；使用對象（M3 只有組織內）畫面在 API 模式不提供，即使帶進來也不送出。
+   * `PATCH` 只送後端認得的欄位。使用對象（#224）三個值都可以改；它只是顯示用，不改變誰能使用、也不是發布條件。
    * 資料庫寫入（`dataWriteDatabaseId`／`dataWritePurpose`，#148）與定期報表（`periodicReport`，#150）照送。
    * 後端全有或全無：`422` 時完全沒有寫入。
    */
@@ -933,6 +934,7 @@ export class HybridDemoRepository extends MockDemoRepository {
       ...(patch.purpose !== undefined ? { purpose: patch.purpose } : {}),
       ...(patch.tone !== undefined ? { tone: patch.tone } : {}),
       ...(patch.roleInstructions !== undefined ? { roleInstructions: patch.roleInstructions } : {}),
+      ...(patch.audience !== undefined ? { audience: patch.audience } : {}),
       ...(rules !== undefined
         ? {
             rules: {
@@ -2954,9 +2956,16 @@ function toOrganizationRetention(response: ApiOrganizationRetention): Organizati
 // ---------- 助理的轉換 ----------
 
 /**
- * 後端的助理只有 M3 資料模型的欄位（計畫第 4 節）：沒有使用對象（M3 只開放組織內部）、
- * 分享清單、資料庫與「保存對話」。清單不需要這些欄位，這裡填入 M3 的固定值；
- * 已連接的知識庫與對話保存以設定（`toAssistantSettings`）為準。
+ * #224 之前錄下的回應沒有 `audience`：那時後端只接受組織內部，所以視為 `account-members`。
+ * 使用對象只是顯示用，API 模式「誰能使用」仍由後端決定（擁有者、平台內分享、`use-shared-assistants`）。
+ */
+function audienceOf(assistant: { readonly audience?: AssistantAudience }): AssistantAudience {
+  return assistant.audience ?? 'account-members';
+}
+
+/**
+ * 清單上的助理沒有分享清單、已連接的來源與「保存對話」。這些欄位清單不需要，這裡填入固定值；
+ * 已連接的知識庫與對話保存以設定（`toAssistantSettings`）為準。使用對象（#224）來自 API。
  */
 function toAssistantConfiguration(
   assistant: ApiAssistantConfiguration,
@@ -2970,7 +2979,7 @@ function toAssistantConfiguration(
     name: assistant.name,
     purpose: assistant.purpose,
     status: assistant.status,
-    audience: 'account-members',
+    audience: audienceOf(assistant),
     sharedWithAccountIds: [],
     knowledgeBaseIds: [...knowledgeBaseIds],
     databaseIds: [...databaseIds],

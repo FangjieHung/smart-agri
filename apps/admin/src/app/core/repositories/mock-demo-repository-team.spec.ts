@@ -58,8 +58,8 @@ describe('MockDemoRepository team management', () => {
       'read-own-tracking',
       'handle-assistant-issues',
     ]);
+    // use-shared-assistants 已接到行為（#224，與後端 AssistantUseAccess 相同）。
     expect(team.permissions.filter((permission) => !permission.enforced).map((p) => p.id)).toEqual([
-      'use-shared-assistants',
       'read-own-tracking',
     ]);
     expect(team.savedAt).toBeNull();

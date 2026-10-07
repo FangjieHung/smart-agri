@@ -46,7 +46,7 @@ export class AnswerRulesFormComponent {
   readonly live = input(false);
   /**
    * 資料庫寫入可以設定嗎？API 模式的建立精靈還不能連接資料庫（#148 只開放建立後的設定），
-   * 改成說明「後續開放」。
+   * 改成說明建立後到哪裡設定。
    */
   readonly databaseFeaturesAvailable = input(true);
   /** 定期報表已自動停用（#179，只有建立後的設定頁會帶）：顯示原因與「重新啟用」。 */

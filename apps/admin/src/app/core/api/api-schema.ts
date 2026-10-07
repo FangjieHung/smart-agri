@@ -8400,6 +8400,8 @@ export interface components {
             dataWritePurpose: string;
             periodicReport: string;
         };
+        /** @enum {unknown} */
+        AssistantAudience: "account-members" | "authorized-external-customers" | "members-and-external-customers";
         AssistantChatView: {
             /** Format: uuid */
             assistantId: string;
@@ -8422,6 +8424,7 @@ export interface components {
             name: string;
             purpose: string;
             status: components["schemas"]["AssistantStatus"];
+            audience: components["schemas"]["AssistantAudience"];
             viewerCanManage: boolean;
             /** Format: date-time */
             createdAt: string;
@@ -8578,6 +8581,7 @@ export interface components {
             name: string;
             purpose: string;
             status: components["schemas"]["AssistantStatus"];
+            audience: components["schemas"]["AssistantAudience"];
             viewerIsOwner: boolean;
         };
         /** @enum {unknown} */
@@ -10189,6 +10193,7 @@ export interface components {
             tone?: null | string;
             roleInstructions?: null | string;
             rules?: null | components["schemas"]["AssistantAnswerRulesPatch"];
+            audience?: null | string;
         };
         UpdateAssistantTestCaseRequest: {
             question?: null | string;

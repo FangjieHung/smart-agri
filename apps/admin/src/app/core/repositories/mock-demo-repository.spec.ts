@@ -153,17 +153,14 @@ describe('MockDemoRepository', () => {
   });
 
   it('rejects an external customer submitting to an assistant they cannot use', async () => {
-    const privateAssistantRepository = new MockDemoRepository(
-      {
-        ...DEMO_SEED,
-        assistants: DEMO_SEED.assistants.map((assistant) => ({
-          ...assistant,
-          audience: 'account-members',
-          sharedWithAccountIds: [],
-        })),
-      },
-      { viewer: () => 'account-external-customer' },
-    );
+    // 沒有分享給外部客戶（使用對象不影響存取，#224）：先由管理者把平台內分享名單改成只有內部同仁。
+    const storage = createMemoryStorage();
+    const admin = new MockDemoRepository(DEMO_SEED, { storage, viewer: () => 'account-smb-admin' });
+    await firstValueFrom(admin.updatePlatformSharing('assistant-customer-service', ['account-internal-employee']));
+    const privateAssistantRepository = new MockDemoRepository(DEMO_SEED, {
+      storage,
+      viewer: () => 'account-external-customer',
+    });
 
     const usableAssistants = await firstValueFrom(privateAssistantRepository.listUsableAssistants());
     const submission = privateAssistantRepository.submitAuthorizedForm(

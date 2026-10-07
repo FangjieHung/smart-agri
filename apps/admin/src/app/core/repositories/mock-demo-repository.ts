@@ -6607,8 +6607,9 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   /**
-   * 平台內誰能開啟這個助理：交給 `canOpenInPlatform()` 判斷，
-   * 也就是「使用對象決定哪一種人、平台內分享的勾選清單決定哪些帳號、擁有者永遠開得了」。
+   * 平台內誰能開啟這個助理：交給 `canOpenInPlatform()` 判斷，與後端 `AssistantUseAccess` 相同：
+   * 擁有者永遠開得了；其他帳號要有 `use-shared-assistants`、在平台內分享名單內、管道沒有暫停。
+   * 使用對象不影響存取（負責人 2026-10-07 決定）。
    * 未登入訪客走的是另一條路（`anonymouslyOpenAssistant()`，只看有沒有對外發布）。
    */
   private canUseAssistant(

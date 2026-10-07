@@ -66,7 +66,9 @@ describe('accessibility', () => {
     for (const [route, marker] of ADMIN_ROUTES) {
       it(`has no critical or serious violations on ${route}`, () => {
         cy.visit(route);
-        cy.contains(marker).should('be.visible');
+        // 只在頁面內容裡找標記：側欄也有「首頁」「我的助理」等同名項目，外框一出現就會成立，
+        // 這時 axe 若先跑，內容還沒渲染的捲動區會被判成 scrollable-region-focusable（CI run 37624166925）。
+        cy.get('#main-content').contains(marker).should('be.visible');
         auditA11y();
       });
     }

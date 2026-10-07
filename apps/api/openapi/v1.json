@@ -6954,6 +6954,13 @@
           }
         }
       },
+      "AssistantAudience": {
+        "enum": [
+          "account-members",
+          "authorized-external-customers",
+          "members-and-external-customers"
+        ]
+      },
       "AssistantChatView": {
         "required": [
           "assistantId",
@@ -7019,6 +7026,7 @@
           "name",
           "purpose",
           "status",
+          "audience",
           "viewerCanManage",
           "createdAt",
           "updatedAt",
@@ -7042,6 +7050,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/AssistantStatus"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/AssistantAudience"
           },
           "viewerCanManage": {
             "type": "boolean"
@@ -7615,6 +7626,7 @@
           "name",
           "purpose",
           "status",
+          "audience",
           "viewerIsOwner"
         ],
         "type": "object",
@@ -7631,6 +7643,9 @@
           },
           "status": {
             "$ref": "#/components/schemas/AssistantStatus"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/AssistantAudience"
           },
           "viewerIsOwner": {
             "type": "boolean"
@@ -13978,6 +13993,12 @@
               {
                 "$ref": "#/components/schemas/AssistantAnswerRulesPatch"
               }
+            ]
+          },
+          "audience": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }

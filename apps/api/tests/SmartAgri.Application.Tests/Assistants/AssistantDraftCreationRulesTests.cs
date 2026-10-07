@@ -44,6 +44,7 @@ public class AssistantDraftCreationRulesTests
         result.Value.ShowCitations.ShouldBeTrue();
         result.Value.KeepConversations.ShouldBeFalse();
         result.Value.KnowledgeBaseIds.ShouldBe([ConnectableKnowledgeBaseId]);
+        result.Value.Audience.ShouldBe(AssistantAudience.AccountMembers);
     }
 
     [Fact]
@@ -54,20 +55,37 @@ public class AssistantDraftCreationRulesTests
         var result = AssistantDraftCreationRules.Validate(payload, OneConnectable);
 
         result.IsValid.ShouldBeTrue();
+        result.Value.Audience.ShouldBe(AssistantAudience.AccountMembers);
     }
 
     [Theory]
-    [InlineData("authorized-external-customers")]
-    [InlineData("members-and-external-customers")]
+    [InlineData("account-members", AssistantAudience.AccountMembers)]
+    [InlineData("authorized-external-customers", AssistantAudience.AuthorizedExternalCustomers)]
+    [InlineData("members-and-external-customers", AssistantAudience.MembersAndExternalCustomers)]
+    public void Every_audience_is_accepted_including_external_ones(string audience, AssistantAudience expected)
+    {
+        // #224: external audiences are no longer "對外發布將於後續版本開放".
+        var payload = ValidPayload(audience: audience);
+
+        var result = AssistantDraftCreationRules.Validate(payload, OneConnectable);
+
+        result.IsValid.ShouldBeTrue();
+        result.Value.Audience.ShouldBe(expected);
+    }
+
+    [Theory]
     [InlineData("something-unknown")]
-    public void An_external_or_unknown_audience_is_rejected(string audience)
+    [InlineData("Account-Members")]
+    public void An_unknown_audience_is_rejected(string audience)
     {
         var payload = ValidPayload(audience: audience);
 
         var result = AssistantDraftCreationRules.Validate(payload, OneConnectable);
 
         result.IsValid.ShouldBeFalse();
-        result.Failures.ShouldContain(failure => failure.Field == AssistantDraftCreationRules.AudienceField);
+        result.Failures.ShouldContain(failure =>
+            failure.Field == AssistantDraftCreationRules.AudienceField
+            && failure.Message == AssistantDraftCreationRules.AudienceInvalidMessage);
     }
 
     [Fact]

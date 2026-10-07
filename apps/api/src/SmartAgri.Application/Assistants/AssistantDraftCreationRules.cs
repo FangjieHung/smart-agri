@@ -48,7 +48,8 @@ internal sealed class AssistantDraftRulesDto
 }
 
 /// <summary>A draft's fields, validated, trimmed and resolved to enums, ready to build an
-/// <see cref="Assistant"/> from (<see cref="Assistant.Create"/>).</summary>
+/// <see cref="Assistant"/> from (<see cref="Assistant.Create"/>). An absent <c>audience</c> is
+/// <see cref="AssistantAudience.AccountMembers"/>, as before #224 stored it.</summary>
 public sealed record AssistantDraftCreationDetails(
     string Name,
     string Purpose,
@@ -59,7 +60,8 @@ public sealed record AssistantDraftCreationDetails(
     string RefusalMessage,
     bool ShowCitations,
     bool KeepConversations,
-    IReadOnlyList<Guid> KnowledgeBaseIds);
+    IReadOnlyList<Guid> KnowledgeBaseIds,
+    AssistantAudience Audience = AssistantAudience.AccountMembers);
 
 /// <summary>
 /// Field-by-field validation of "由草稿建立助理" (M3 plan §3, Slice 2 acceptance;
@@ -99,10 +101,10 @@ public static class AssistantDraftCreationRules
 
     public static readonly string PurposeTooLongMessage = $"用途說明最多 {Assistant.PurposeMaxLength} 個字。";
 
-    /// <summary>Only <c>account-members</c> (組織內) or absent — treated as organization
-    /// internal — is accepted in M3; any other audience is external publishing, not built
-    /// yet (M3 plan §8; issue #72's scope note).</summary>
-    public const string AudienceNotAvailableMessage = "對外發布將於後續版本開放，目前僅支援組織內使用。";
+    /// <summary>An <c>audience</c> that is not one of the three <see cref="AssistantAudience"/>
+    /// wire names. All three are accepted since #224 (an absent one is
+    /// <see cref="AssistantAudience.AccountMembers"/>); it is not a publishing condition.</summary>
+    public const string AudienceInvalidMessage = "使用對象設定不正確。";
 
     public const string SourcesRequiredMessage = "請至少加入一個可連接的知識庫。";
 
@@ -123,8 +125,6 @@ public static class AssistantDraftCreationRules
         $"角色設定最多 {Assistant.RoleInstructionsMaxLength} 個字。";
 
     public const string PayloadMalformedMessage = "草稿內容毀損，無法建立助理，請重新編輯草稿後再試一次。";
-
-    private const string AccountMembersAudience = "account-members";
 
     private static readonly JsonSerializerOptions DeserializeOptions = new(JsonSerializerDefaults.Web);
 
@@ -181,9 +181,10 @@ public static class AssistantDraftCreationRules
             failures.Add(new ValidationFailure(PurposeField, PurposeTooLongMessage));
         }
 
-        if (dto.Audience is not null && !string.Equals(dto.Audience, AccountMembersAudience, StringComparison.Ordinal))
+        var resolvedAudience = AssistantAudience.AccountMembers;
+        if (dto.Audience is not null && !TryParse(dto.Audience, out resolvedAudience))
         {
-            failures.Add(new ValidationFailure(AudienceField, AudienceNotAvailableMessage));
+            failures.Add(new ValidationFailure(AudienceField, AudienceInvalidMessage));
         }
 
         var resolvedTone = AssistantTone.Friendly;
@@ -244,7 +245,8 @@ public static class AssistantDraftCreationRules
             trimmedRefusal,
             showCitations,
             keepConversations,
-            knowledgeBaseIds));
+            knowledgeBaseIds,
+            resolvedAudience));
     }
 
     private static List<Guid> ValidateSources(

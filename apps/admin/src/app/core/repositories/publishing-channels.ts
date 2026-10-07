@@ -1,6 +1,6 @@
 import type { AccountId, AccountView } from '../domain/account.model';
 import type { AssistantAcceptanceStatus } from '../domain/assistant-acceptance.model';
-import { audienceAllowsRole, type AssistantConfigurationView } from '../domain/assistant.model';
+import type { AssistantConfigurationView } from '../domain/assistant.model';
 import {
   LINE_FIELDS,
   MAX_LINE_NON_TEXT_REPLY_LENGTH,
@@ -141,10 +141,13 @@ function platformStatus(record: PublishingRecord): [PublishingChannelStatus, str
 /**
  * 這個帳號可不可以在平台內開啟這個助理。**這是平台內使用權限的唯一判斷點**。
  *
+ * 與後端 `AssistantUseAccess.UsableBy` 同一條規則（負責人 2026-10-07 決定）：
+ *
  * 1. **擁有者永遠開得了**，包含清單是空的、管道已暫停時（他要能自己測試）。
- * 2. 其他帳號必須同時滿足兩件事：
- *    - **使用對象（`audience`）決定「哪一種人」**：角色要在 `AUDIENCE_ROLES` 內。
- *    - **平台內分享的勾選清單決定「哪些帳號」**：要在 `allowedAccountIds` 內，且管道沒有暫停。
+ * 2. 其他帳號必須同時滿足三件事：帳號有 **`use-shared-assistants`** 權限、在平台內分享的
+ *    勾選清單（`allowedAccountIds`）內、管道沒有暫停。
+ *
+ * **使用對象（`audience`）不影響存取**：它只是「預計給誰用」的設定，不看帳號的角色。
  *
  * `assistant.sharedWithAccountIds` **不是**第二條授權路徑，它只是這份清單的初始值
  * （`defaultPublishingRecord()`）；助理一旦有保存的發布設定，就以保存的清單為準。
@@ -156,7 +159,7 @@ export function canOpenInPlatform(
   viewer: AccountView,
 ): boolean {
   if (assistant.ownerAccountId === viewer.id) return true;
-  if (!audienceAllowsRole(assistant.audience, viewer.role)) return false;
+  if (!viewer.permissions.includes('use-shared-assistants')) return false;
   if (record.platform.paused) return false;
   return record.platform.allowedAccountIds.includes(viewer.id);
 }

@@ -28,6 +28,15 @@ public partial class AssistantWireNameTests
     }
 
     [Fact]
+    public void Audiences_match_the_frontend_union()
+    {
+        AssertMatchesFrontendUnion<AssistantAudience>(
+            "assistant.model.ts",
+            "AssistantAudience",
+            ["account-members", "authorized-external-customers", "members-and-external-customers"]);
+    }
+
+    [Fact]
     public void Statuses_are_a_subset_of_the_frontends_wider_status_union()
     {
         // The frontend's AssistantStatus also has "draft" (an AssistantDraft row, never an

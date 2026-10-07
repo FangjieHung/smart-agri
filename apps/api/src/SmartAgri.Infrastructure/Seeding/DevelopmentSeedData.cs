@@ -64,12 +64,18 @@ public static class DevelopmentSeedData
                     AccountRole.InternalEmployee,
                     [AccountPermission.UseSharedAssistants, AccountPermission.ReadConsentedSubmissions]),
 
-                // demo-seed.ts: DEMO_SEED.accounts[2] ('account-external-customer').
+                // demo-seed.ts: DEMO_SEED.accounts[2] ('account-external-customer'). use-shared-assistants
+                // lets the customer use an assistant shared with them (AssistantUseAccess; owner decision
+                // 2026-10-07 — the audience is not an access rule).
                 new DevelopmentSeedAccount(
                     "customer",
                     "外部客戶",
                     AccountRole.ExternalCustomer,
-                    [AccountPermission.SubmitAuthorizedForms, AccountPermission.ReadOwnTracking]),
+                    [
+                        AccountPermission.UseSharedAssistants,
+                        AccountPermission.SubmitAuthorizedForms,
+                        AccountPermission.ReadOwnTracking,
+                    ]),
             ]),
 
         new DevelopmentSeedOrganization(

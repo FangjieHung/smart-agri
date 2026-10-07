@@ -132,7 +132,8 @@ export const DEMO_SEED: DemoSeed = {
       id: 'account-external-customer',
       displayName: '外部客戶',
       role: 'external-customer',
-      permissions: ['submit-authorized-forms', 'read-own-tracking'],
+      // 外部客戶也要有 use-shared-assistants 才開得了分享給他的客服助理（負責人 2026-10-07 決定）。
+      permissions: ['use-shared-assistants', 'submit-authorized-forms', 'read-own-tracking'],
     },
   ],
   assistants: [

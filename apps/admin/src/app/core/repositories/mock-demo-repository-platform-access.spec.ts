@@ -8,8 +8,9 @@ import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
 
 /**
- * 平台內分享的勾選清單就是「誰能在平台內開啟助理」的依據。
- * 使用對象（audience）決定「哪一種人」，勾選清單決定「哪些帳號」，擁有者永遠開得了。
+ * 平台內誰能開啟助理，與後端 `AssistantUseAccess.UsableBy` 同一條規則（負責人 2026-10-07 決定）：
+ * 擁有者永遠開得了；其他帳號要有 `use-shared-assistants`、在平台內分享的勾選清單內、管道沒有暫停。
+ * 使用對象（audience）只是「預計給誰用」，不影響存取。
  */
 
 const ADMIN: AccountId = 'account-smb-admin';
@@ -165,18 +166,41 @@ describe('MockDemoRepository platform sharing decides who may open an assistant'
     expect(await usableIds(repository, EMPLOYEE)).toContain(ONBOARDING);
   });
 
-  it('lets the audience decide the kind of viewer and the list decide which accounts', async () => {
+  it('does not let the audience decide who may open it, like the API (#224)', async () => {
     const repository = createRepository();
-    await setPublishingChannelPausedAs(repository, ADMIN, ONBOARDING, 'platform', false);
 
-    // 內部教育訓練助理的使用對象只有內部員工：外部客戶就算被勾選也開不了。
+    // 只給外部客戶的助理分享給內部員工：內部員工照樣開得了。
+    boxOf(repository).current = ADMIN;
+    dataOf(await firstValueFrom(
+      repository.updateAssistantSettings(CUSTOMER_SERVICE, { audience: 'authorized-external-customers' }),
+    ));
+    dataOf(await updatePlatformSharingAs(repository, ADMIN, CUSTOMER_SERVICE, [EMPLOYEE]));
+    expect(await usableIds(repository, EMPLOYEE)).toContain(CUSTOMER_SERVICE);
+    expect((await chatAs(repository, EMPLOYEE, CUSTOMER_SERVICE)).status).toBe('ready');
+
+    // 反過來，只給內部員工的助理分享給外部客戶：外部客戶也開得了。
+    await setPublishingChannelPausedAs(repository, ADMIN, ONBOARDING, 'platform', false);
     dataOf(await updatePlatformSharingAs(repository, ADMIN, ONBOARDING, [EMPLOYEE, CUSTOMER]));
-    expect(await usableIds(repository, EMPLOYEE)).toContain(ONBOARDING);
-    expect(await usableIds(repository, CUSTOMER)).not.toContain(ONBOARDING);
-    expect(await chatAs(repository, CUSTOMER, ONBOARDING)).toMatchObject({
+    expect(await usableIds(repository, CUSTOMER)).toContain(ONBOARDING);
+    expect((await chatAs(repository, CUSTOMER, ONBOARDING)).status).toBe('ready');
+  });
+
+  it('needs use-shared-assistants even for an account on the list, like the API', async () => {
+    const repository = createRepository();
+    expect(await usableIds(repository, CUSTOMER)).toContain(CUSTOMER_SERVICE);
+
+    boxOf(repository).current = ADMIN;
+    dataOf(await firstValueFrom(
+      repository.updateMemberPermissions(CUSTOMER, ['submit-authorized-forms', 'read-own-tracking']),
+    ));
+
+    expect(await usableIds(repository, CUSTOMER)).not.toContain(CUSTOMER_SERVICE);
+    expect(await chatAs(repository, CUSTOMER, CUSTOMER_SERVICE)).toMatchObject({
       status: 'permission-denied',
       reason: 'assistant-use',
     });
+    // 擁有者不需要這個權限。
+    expect(await usableIds(repository, ADMIN)).toContain(CUSTOMER_SERVICE);
   });
 
   it('demonstrates the rule with the seed: the employee can use one assistant and not the other', async () => {

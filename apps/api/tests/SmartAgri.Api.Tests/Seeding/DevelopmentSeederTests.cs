@@ -4,6 +4,7 @@ using Shouldly;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Assistants;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Accounts;
 using SmartAgri.Infrastructure.Seeding;
@@ -155,6 +156,40 @@ public class DevelopmentSeederTests : IClassFixture<AuthHostFixture>
         anxinMe.GetProperty("id").GetGuid().ShouldNotBe(controlMe.GetProperty("id").GetGuid());
         anxinMe.GetProperty("organization").GetProperty("name").GetString().ShouldBe("安心商行");
         controlMe.GetProperty("organization").GetProperty("name").GetString().ShouldBe("對照組織");
+    }
+
+    [Fact]
+    public async Task The_seeded_customer_can_use_an_assistant_shared_with_them()
+    {
+        // Owner decision 2026-10-07 (#224): the audience is not an access rule, so the seeded external
+        // customer needs use-shared-assistants (AssistantUseAccess.UsableBy) to use the shared assistant,
+        // like demo-seed.ts's 'account-external-customer' does in the mock.
+        await RunSeederAsync();
+        var (anxinId, _, adminAccountId) = await ReadAnxinIdsAsync();
+        Guid assistantId;
+        await using (var dbContext = _host.Postgres.CreateDbContext(anxinId))
+        {
+            var customer = await dbContext.Accounts.SingleAsync(a => a.LoginName == "customer", CancellationToken);
+            var assistant = Assistant.Create(
+                anxinId, adminAccountId, "客服助理", "回答客戶的退換貨問題", null, AssistantTone.Friendly, string.Empty,
+                AssistantKnowledgeScope.CompanyDataOnly, "找不到資料。", showCitations: true, keepConversations: true,
+                DateTimeOffset.UtcNow, AssistantAudience.MembersAndExternalCustomers);
+            dbContext.Assistants.Add(assistant);
+            dbContext.AssistantShares.Add(new AssistantShare(assistant, customer.Id));
+            await dbContext.SaveChangesAsync(CancellationToken);
+            assistantId = assistant.Id;
+        }
+
+        using var spa = _host.CreateSpaClient();
+        var token = await spa.SignInAsync(DevelopmentSeedData.AnxinOrganizationCode, "customer", AuthHostFixture.SeedDemoPassword);
+
+        var me = await spa.GetMeJsonAsync(token.AccessToken);
+        me.GetProperty("permissions").EnumerateArray().Select(permission => permission.GetString())
+            .ShouldContain("use-shared-assistants");
+        var usable = await spa.GetAsync("/api/v1/assistants?usable=true", token.AccessToken);
+        usable.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        using var body = System.Text.Json.JsonDocument.Parse(await usable.Content.ReadAsStringAsync(CancellationToken));
+        body.RootElement.EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ShouldContain(assistantId);
     }
 
     private async Task RunSeederAsync()

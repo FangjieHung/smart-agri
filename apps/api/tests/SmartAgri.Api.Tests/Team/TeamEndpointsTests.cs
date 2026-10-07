@@ -285,6 +285,7 @@ public class TeamEndpointsTests : IClassFixture<AuthHostFixture>
             AccountPermission.ReadConsentedSubmissions);
         var customer = await _host.CreateAccountAsync(
             organization, "customer", Password, AccountRole.ExternalCustomer, "外部客戶",
+            AccountPermission.UseSharedAssistants,
             AccountPermission.SubmitAuthorizedForms,
             AccountPermission.ReadOwnTracking);
 

@@ -1,4 +1,4 @@
-import type { AccountId, AccountRole } from './account.model';
+import type { AccountId } from './account.model';
 import type { DatabaseId } from './database.model';
 import type { AssistantAcceptanceStatus } from './assistant-acceptance.model';
 import type { KnowledgeBaseId } from './knowledge-base.model';
@@ -14,27 +14,17 @@ export type AssistantId = SeededAssistantId | CreatedAssistantId;
 
 export type AssistantStatus = 'draft' | 'ready' | 'published' | 'paused';
 
+/**
+ * 使用對象（服務對象）：助理「預計給誰用」，只用來顯示與提示要設定哪些發布管道。
+ * **它不影響誰能使用助理**——那由擁有者、平台內分享名單與 `use-shared-assistants` 權限決定
+ * （`publishing-channels.ts` 的 `canOpenInPlatform()`，與後端 `AssistantUseAccess` 相同；負責人 2026-10-07 決定）。
+ */
 export type AssistantAudience =
   | 'account-members'
   | 'authorized-external-customers'
   | 'members-and-external-customers';
 
 export type AssistantPermission = 'use' | 'configure' | 'publish';
-
-/**
- * 使用對象決定「**哪一種人**」可以使用這個助理；至於「哪些帳號」由發布管道的
- * 平台內分享清單決定（`publishing-channels.ts` 的 `canOpenInPlatform()`）。
- * 兩者是 and 的關係：角色不符就算被勾選也開不了，角色相符但沒被勾選一樣開不了。
- */
-export const AUDIENCE_ROLES: Readonly<Record<AssistantAudience, readonly AccountRole[]>> = {
-  'account-members': ['smb-admin', 'internal-employee'],
-  'authorized-external-customers': ['external-customer'],
-  'members-and-external-customers': ['smb-admin', 'internal-employee', 'external-customer'],
-};
-
-export function audienceAllowsRole(audience: AssistantAudience, role: AccountRole): boolean {
-  return AUDIENCE_ROLES[audience].includes(role);
-}
 
 export type AssistantSourceType = 'knowledge-base' | 'database';
 

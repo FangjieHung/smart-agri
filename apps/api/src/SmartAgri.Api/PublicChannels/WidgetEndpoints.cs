@@ -215,7 +215,8 @@ public static partial class WidgetEndpoints
     }
 
     /// <summary>A build output name with the content hash Angular's <c>outputHashing: all</c> adds before the
-    /// extension (<c>chunk-DGISV55Z.js</c>, <c>styles-JLI52OSW.css</c>).</summary>
+    /// extension (<c>chunk-DGISV55Z.js</c>, <c>styles-JLI52OSW.css</c>). Also the admin's
+    /// build (<see cref="AdminSpa.AdminSpaHosting"/>).</summary>
     [GeneratedRegex(@"-[A-Za-z0-9]{8}\.[A-Za-z0-9]+\z", RegexOptions.CultureInvariant)]
-    private static partial Regex HashedFileName();
+    internal static partial Regex HashedFileName();
 }

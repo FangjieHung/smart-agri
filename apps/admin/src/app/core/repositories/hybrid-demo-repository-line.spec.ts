@@ -45,6 +45,7 @@ const SETTINGS: LineSettingsInput = {
   officialAccountId: '@anxin-demo',
   channelId: '1650000000',
   welcomeMessage: '您好！歡迎加入。',
+  nonTextReply: '目前只能回答文字問題。',
 };
 
 function setUp() {
@@ -118,6 +119,7 @@ describe('HybridDemoRepository LINE channel (issue #233)', () => {
       expect([view.revision, view.state, view.servingState, view.channel.status]).toEqual([0, 'draft', 'not-published', 'not-configured']);
       expect(view.officialAccountId).toBe('');
       expect(view.welcomeMessage).toBe('您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。');
+      expect(view.nonTextReply).toBe('目前只能回答文字問題。');
       expect(view.checks.map((check) => [check.check, check.state])).toEqual([
         ['access-token', 'pending'],
         ['webhook-endpoint', 'pending'],
@@ -139,6 +141,7 @@ describe('HybridDemoRepository LINE channel (issue #233)', () => {
         officialAccountId: '@anxin-demo',
         channelId: '1650000000',
         welcomeMessage: '您好！歡迎加入。',
+        nonTextReply: '目前只能回答文字問題。',
         channelSecret: { configured: true, lastFour: 'aaa1' },
         accessToken: { configured: true },
         channel: { status: 'testing' },
@@ -238,6 +241,18 @@ describe('HybridDemoRepository LINE channel (issue #233)', () => {
       expect(await result).toMatchObject({ status: 'ready' });
     });
 
+    it('sends the owner’s non-text reply as typed and maps the one the server stored, line breaks and emoji kept (#291)', async () => {
+      const own = '收到您的照片了 📷\n目前只能看懂文字，\n請用文字描述問題 🙏';
+      const { repository, controller } = setUp();
+      const result = firstValueFrom(repository.saveLineSettings(ASSISTANT_ID, { ...SETTINGS, nonTextReply: own }, 1));
+      const saved = JSON.parse(REAL_LINE_SAVED_JSON) as Record<string, unknown>;
+
+      const request = respond(controller, 'PUT', LINE_PATH, JSON.stringify({ ...saved, nonTextReply: own }));
+
+      expect(request.body).toEqual({ ...SETTINGS, nonTextReply: own, revision: 1 });
+      expect(readyData(await result).nonTextReply).toBe(own);
+    });
+
     it('turns the real 409 into a conflict carrying the server’s sentence', async () => {
       const { repository, controller } = setUp();
       const result = firstValueFrom(repository.saveLineSettings(ASSISTANT_ID, SETTINGS, 0));
@@ -249,7 +264,11 @@ describe('HybridDemoRepository LINE channel (issue #233)', () => {
     it('turns the real 422 into one error per field, keeping every message', async () => {
       const { repository, controller } = setUp();
       const result = firstValueFrom(
-        repository.saveLineSettings(ASSISTANT_ID, { officialAccountId: 'anxin', channelId: '123', welcomeMessage: '', channelSecret: 'xyz', accessToken: 'short' }, 0),
+        repository.saveLineSettings(
+          ASSISTANT_ID,
+          { officialAccountId: 'anxin', channelId: '123', welcomeMessage: '', nonTextReply: ' ', channelSecret: 'xyz', accessToken: 'short' },
+          0,
+        ),
       );
       respond(controller, 'PUT', LINE_PATH, REAL_LINE_INVALID_JSON, 422);
 
@@ -259,6 +278,7 @@ describe('HybridDemoRepository LINE channel (issue #233)', () => {
         { field: 'accessToken', message: 'Channel access token至少 40 個字元且不含空白。' },
         { field: 'channelId', message: 'Channel ID應為 10 位數字。' },
         { field: 'channelSecret', message: 'Channel secret應為 32 個英數字（0–9、a–f）。' },
+        { field: 'nonTextReply', message: '請填寫收到非文字訊息時的回覆。' },
         { field: 'officialAccountId', message: '官方帳號 ID需以 @ 開頭，接 3–20 個英數字，例如 @anxin-demo。' },
         { field: 'welcomeMessage', message: '請填寫歡迎訊息。' },
       ]);

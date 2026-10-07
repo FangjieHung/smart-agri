@@ -65,12 +65,15 @@ public sealed partial class ChatModelCatalogStartupTests : IDisposable
     public async Task The_deployment_compose_files_chat_settings_start_the_api_with_one_model()
     {
         // deploy/docker-compose.yml's Ai__Chat__* variables as a customer's .env fills them: a
-        // provider, model and key; every other ${CHAT_…:-} left blank.
+        // provider, model and key; every other ${CHAT_…:-} left blank — the reserved second
+        // model's CHAT_MODELS_0_* included (#245).
         var settings = ComposeSettings();
         string[] expected =
-            ["Ai:Chat:Provider", "Ai:Chat:Endpoint", "Ai:Chat:Model", "Ai:Chat:ApiKey", "Ai:Chat:MaxOutputTokens", "Ai:Chat:TimeoutSeconds", "Ai:Chat:ReasoningEffort"];
+            ["Ai:Chat:Provider", "Ai:Chat:Endpoint", "Ai:Chat:Model", "Ai:Chat:ApiKey", "Ai:Chat:MaxOutputTokens", "Ai:Chat:TimeoutSeconds", "Ai:Chat:ReasoningEffort",
+             "Ai:Chat:Id", "Ai:Chat:DisplayName", .. SecondModelKeys.Select(key => $"Ai:Chat:Models:0:{key}")];
         expected.ShouldBeSubsetOf(settings.Keys);
         settings["Ai:Chat:Endpoint"].ShouldBe(string.Empty, "blank, as an .env without CHAT_ENDPOINT binds it");
+        settings["Ai:Chat:Models:0:Provider"].ShouldBe(string.Empty, "blank, as an .env without CHAT_MODELS_0_PROVIDER binds it");
 
         using var factory = ProductionHost(builder => Apply(builder, settings));
         using var client = factory.CreateClient();
@@ -85,19 +88,42 @@ public sealed partial class ChatModelCatalogStartupTests : IDisposable
     [Fact]
     public async Task A_blank_second_model_is_skipped()
     {
-        // As a compose file that reserves a second model's variables, all unset, binds them.
-        using var factory = ProductionHost(builder =>
-        {
-            Apply(builder, ComposeSettings());
-            foreach (var key in new[] { "Provider", "Endpoint", "Model", "ApiKey", "Id", "DisplayName", "MaxOutputTokens", "TimeoutSeconds", "ReasoningEffort" })
-            {
-                builder.UseSetting($"Ai:Chat:Models:0:{key}", string.Empty);
-            }
-        });
+        // Every reserved variable set but blank, as the compose file binds them when an .env
+        // (an older one included) has no CHAT_MODELS_0_* at all.
+        var settings = ComposeSettings();
+        SecondModelKeys.ShouldAllBe(key => settings[$"Ai:Chat:Models:0:{key}"] == string.Empty);
+        using var factory = ProductionHost(builder => Apply(builder, settings));
         using var client = factory.CreateClient();
 
         (await client.GetAsync("/health/live", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
         factory.Services.GetRequiredService<ChatModelCatalog>().Entries.ShouldHaveSingleItem().Id.ShouldBe("gpt-compose");
+    }
+
+    [Fact]
+    public async Task The_deployment_compose_files_second_model_variables_add_a_second_model()
+    {
+        // deploy/.env.example's CHAT_MODELS_0_* filled in (#245): the settings page's options are
+        // the catalog's entries, so it then lists both models.
+        var settings = ComposeSettings(new Dictionary<string, string>
+        {
+            ["CHAT_DISPLAY_NAME"] = "標準",
+            ["CHAT_MODELS_0_PROVIDER"] = "OpenAI",
+            ["CHAT_MODELS_0_MODEL"] = "gpt-compose-advanced",
+            ["CHAT_MODELS_0_API_KEY"] = SecondKey,
+            ["CHAT_MODELS_0_ID"] = "advanced",
+            ["CHAT_MODELS_0_DISPLAY_NAME"] = "進階",
+            ["CHAT_MODELS_0_REASONING_EFFORT"] = "None",
+        });
+        using var factory = ProductionHost(builder => Apply(builder, settings));
+        using var client = factory.CreateClient();
+
+        (await client.GetAsync("/health/live", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        factory.Services.GetRequiredService<ChatModelCatalog>().Entries
+            .Select(entry => (entry.Id, entry.DisplayName, entry.Model, entry.Provider.Name, entry.IsDeploymentDefault))
+            .ShouldBe([("gpt-compose", "標準", "gpt-compose", "openai", true), ("advanced", "進階", "gpt-compose-advanced", "openai", false)]);
+        var second = factory.Services.GetRequiredService<IOptions<ChatModelOptions>>().Value.Models.ShouldHaveSingleItem();
+        (second.ReasoningEffortKind, second.MaxOutputTokens, second.TimeoutSeconds)
+            .ShouldBe(((Microsoft.Extensions.AI.ReasoningEffort?)Microsoft.Extensions.AI.ReasoningEffort.None, (int?)null, (int?)null));
     }
 
     // --- More models ------------------------------------------------------------------------------
@@ -188,11 +214,21 @@ public sealed partial class ChatModelCatalogStartupTests : IDisposable
 
     // --- Helpers ---------------------------------------------------------------------------------------
 
+    /// <summary>The keys of the second model deploy/docker-compose.yml reserves (<c>CHAT_MODELS_0_*</c>).</summary>
+    private static readonly string[] SecondModelKeys =
+        ["Provider", "Endpoint", "Model", "ApiKey", "Id", "DisplayName", "MaxOutputTokens", "TimeoutSeconds", "ReasoningEffort"];
+
     /// <summary>deploy/docker-compose.yml's <c>Ai__Chat__*</c> settings with CHAT_PROVIDER,
-    /// CHAT_MODEL and CHAT_API_KEY set and every other variable at its compose default.</summary>
-    private static Dictionary<string, string> ComposeSettings()
+    /// CHAT_MODEL and CHAT_API_KEY set (plus <paramref name="more"/>) and every other variable at
+    /// its compose default.</summary>
+    private static Dictionary<string, string> ComposeSettings(Dictionary<string, string>? more = null)
     {
         var env = new Dictionary<string, string> { ["CHAT_PROVIDER"] = "OpenAI", ["CHAT_MODEL"] = "gpt-compose", ["CHAT_API_KEY"] = DefaultKey };
+        foreach (var (name, value) in more ?? [])
+        {
+            env[name] = value;
+        }
+
         return EnvironmentSettings(
             File.ReadAllText(Path.Combine(RepositoryRoot(), "deploy", "docker-compose.yml")),
             variable => env.GetValueOrDefault(variable));

@@ -770,7 +770,13 @@ through from `deploy/.env` (see `deploy/.env.example`): `CHAT_PROVIDER`, `CHAT_E
 while the code default stays `Keyword`); `STATISTICS_TIME_ZONE` → `Statistics__TimeZone` (default
 `Asia/Taipei`). Blank values are fine: an empty provider means "no chat model yet", and empty
 `MaxOutputTokens`/`TimeoutSeconds`/`ReasoningEffort` bind as unset. A reasoning model such as
-`gpt-6-luna` needs `CHAT_REASONING_EFFORT=None`. In `Model` mode without a configured chat model, the
+`gpt-6-luna` needs `CHAT_REASONING_EFFORT=None`. `CHAT_ID` / `CHAT_DISPLAY_NAME` → `Ai__Chat__Id` / `Ai__Chat__DisplayName`
+(optional), and one reserved second model, `CHAT_MODELS_0_PROVIDER`, `_ENDPOINT`, `_MODEL`, `_API_KEY`,
+`_ID`, `_DISPLAY_NAME`, `_MAX_OUTPUT_TOKENS`, `_TIMEOUT_SECONDS`, `_REASONING_EFFORT` →
+`Ai__Chat__Models__0__*`: all blank (or absent from an older `.env`) binds a blank provider and the entry
+is skipped (#245; `ChatModelCatalogStartupTests` parses the compose file for both cases). `gpt-5.6-terra`
+needs `None` too. Operator guide (Traditional Chinese): `deploy/README.md`, sections 11 and 12; the
+two-real-model switch acceptance: `docs/evals/2026-10-07-245-model-switch-acceptance.md`. In `Model` mode without a configured chat model, the
 selection call throws, is caught, and the keyword gate decides (`ChatFormRequestTool.SelectAsync`), so
 the form still appears when a member asks for it in so many words; the answer itself still
 returns `503 chat-not-configured`.
@@ -1073,10 +1079,15 @@ else's assistant all get the same `403 publishing`): `GET`, `PUT` (settings; `re
 
 - **Fields.** The official account id (`@` and 3–20 letters, digits, `.`, `_`, `-`), the channel id
   (10 digits), the channel secret (32 hexadecimal digits), the channel access token (at least 40
-  characters, no white space) and the welcome message sent on follow/join (at most 120 characters;
-  default 「您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。」). The format rules and messages
-  are the admin mock's: `apps/admin/src/app/core/domain/line-field-cases.json` is run by both
-  `LineChannelRulesTests` and the frontend spec next to `publishing-channels.ts`.
+  characters, no white space), the welcome message sent on follow/join (at most 120 characters;
+  default 「您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。」) and `nonTextReply`, sent when a
+  one-to-one chat gets a message that is not text (#291; at most 500 UTF-16 code units, so an emoji
+  outside the BMP counts 2; trimmed, line breaks and emoji inside kept; default
+  「目前只能回答文字問題。」, which the `AddLineNonTextReply` migration gave every existing channel).
+  Every `PUT` sends all of them (a full replace: an omitted `nonTextReply` is blank, `422`). The format
+  rules and messages are the admin mock's: `apps/admin/src/app/core/domain/line-field-cases.json` is
+  run by both `LineChannelRulesTests` and the frontend spec next to `publishing-channels.ts`
+  (`ValidateField` for the four connection fields, `ValidateNonTextReply` for `nonTextReply`).
 - **Write-only credentials.** `channelSecret` and `accessToken` are stored as `ProtectedSecret`s
   (Data Protection purposes `line.channel-secret` and `line.access-token`; the key ring section above
   applies — losing it means re-entering both). In a `PUT` they are optional: `null` or empty keeps
@@ -1086,7 +1097,7 @@ else's assistant all get the same `403 publishing`): `GET`, `PUT` (settings; `re
 - **A connection change needs a new test.** Changing the official account id, the channel id or
   either credential clears the connection-check results and the bot user id, and an enabled or
   paused channel goes back to `draft` (`AssistantLineChannel.TryApplySettings`); changing only the
-  welcome message keeps everything.
+  welcome message or `nonTextReply` keeps everything.
 - **Serving state.** `servingState` is derived like the website channel's (`ChannelServing`, shared
   by both channels), with "every connection check passed" in place of "has an allowed domain".
 - **Webhook URL.** `webhookUrl` is `{PublicChannels:PublicBaseUrl}/api/v1/line/webhook/{assistantId}`,
@@ -1163,7 +1174,8 @@ the admin never calls it.
   each keep their own.
 - **What each event does** (`LineWebhookEventHandler`; plan §3 D): `follow`/`join` — the channel's
   welcome message as a reply, only while the channel is `serving` (a draft, paused or suspended channel
-  greets nobody); a non-text `message` — 「目前只能回答文字問題。」 in a one-to-one chat while serving,
+  greets nobody); a non-text `message` — the channel's `nonTextReply` (default
+  「目前只能回答文字問題。」) in a one-to-one chat while serving, with no model call and no token usage,
   nothing in a group or room; a text `message` of a published or paused channel —
   `ILineQuestionHandler` (`LineQuestionHandler`, see "LINE answers" below); `unfollow`/`leave` — the chat's remembered conversation is forgotten; `unsend` — that message
   (and the answer to it) is forgotten; anything else (`postback`, `memberJoined`, `messageEdited`,

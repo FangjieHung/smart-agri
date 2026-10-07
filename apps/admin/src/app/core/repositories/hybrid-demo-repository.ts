@@ -1420,7 +1420,7 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /**
-   * 整份取代連接資訊與歡迎訊息；`channelSecret`、`accessToken` 空白不送（後端把空值當「不變更」）。
+   * 整份取代連接資訊、歡迎訊息與收到非文字訊息時的回覆；`channelSecret`、`accessToken` 空白不送（後端把空值當「不變更」）。
    * `409`（版本不是最新）完全沒有寫入；`422` 的 `errors` 逐欄轉成 `validation-failed`。
    */
   override saveLineSettings(
@@ -1432,6 +1432,7 @@ export class HybridDemoRepository extends MockDemoRepository {
       officialAccountId: input.officialAccountId,
       channelId: input.channelId,
       welcomeMessage: input.welcomeMessage,
+      nonTextReply: input.nonTextReply,
       revision,
       ...(input.channelSecret ? { channelSecret: input.channelSecret } : {}),
       ...(input.accessToken ? { accessToken: input.accessToken } : {}),
@@ -3179,6 +3180,7 @@ function toLineSetup(line: ApiLineChannel): LineSetupView {
     officialAccountId: line.officialAccountId,
     channelId: line.channelId,
     welcomeMessage: line.welcomeMessage,
+    nonTextReply: line.nonTextReply,
     channelSecret: secretStatus(line.channelSecret),
     accessToken: secretStatus(line.accessToken),
     webhookUrl: line.webhookUrl ?? null,
@@ -3198,7 +3200,14 @@ function lineView(request: Observable<ApiLineChannel>): Observable<RepositoryVie
   return request.pipe(map((response): RepositoryView<LineSetupView> => ({ status: 'ready', data: toLineSetup(response) })));
 }
 
-const LINE_FIELD_NAMES = ['officialAccountId', 'channelId', 'channelSecret', 'accessToken', 'welcomeMessage'] as const;
+const LINE_FIELD_NAMES = [
+  'officialAccountId',
+  'channelId',
+  'channelSecret',
+  'accessToken',
+  'welcomeMessage',
+  'nonTextReply',
+] as const;
 
 const LINE_PUBLISH_REASONS: readonly LinePublishFailureReason[] = [
   'connection',

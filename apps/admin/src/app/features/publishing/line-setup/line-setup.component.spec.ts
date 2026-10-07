@@ -148,6 +148,7 @@ describe('LineSetupComponent', () => {
           officialAccountId: '@anxin-demo',
           channelId: DEMO_LINE_CHANNEL_ID,
           welcomeMessage: '您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。',
+          nonTextReply: '目前只能回答文字問題。',
           channelSecret: '',
           accessToken: VALID_TOKEN,
         },
@@ -200,6 +201,38 @@ describe('LineSetupComponent', () => {
       click(page, '儲存');
       expect(page.host.querySelector('.error-summary')).toBeNull();
       expect(page.host.querySelector('.feedback')?.textContent).toContain('已儲存');
+    });
+
+    it('requires a non-text reply of at most 500 characters, shown with a counter, and keeps its line breaks and emoji (#291)', () => {
+      const own = '收到您的照片了 📷\n目前只能看懂文字，\n請用文字描述問題 🙏';
+      const page = render(ONBOARDING, {}, true);
+      fillNewChannel(page);
+      const reply = field(page.host, '#line-nonTextReply');
+      expect(reply.tagName).toBe('TEXTAREA');
+      expect(reply.value).toBe('目前只能回答文字問題。');
+      const hint = page.host.querySelector('#line-nonTextReply-hint')?.textContent ?? '';
+      expect(hint).toContain('群組與多人聊天室不回覆');
+      expect(hint).toContain('最多 500 字（目前 11 字）');
+
+      type(reply, ' \n ');
+      click(page, '儲存');
+      expect(page.host.querySelector('#line-nonTextReply-error')?.textContent).toContain('請填寫收到非文字訊息時的回覆');
+      expect(reply.getAttribute('aria-invalid')).toBe('true');
+      expect(reply.getAttribute('aria-describedby')).toBe('line-nonTextReply-hint line-nonTextReply-error');
+      expect(page.host.querySelector('.error-summary a[href="#line-nonTextReply"]')?.textContent).toContain('收到非文字訊息時的回覆');
+
+      type(reply, '收'.repeat(501));
+      click(page, '儲存');
+      expect(page.host.querySelector('#line-nonTextReply-error')?.textContent).toContain('收到非文字訊息時的回覆請在 500 個字以內');
+      expect(page.host.querySelector('#line-nonTextReply-hint')?.textContent).toContain('目前 501 字');
+
+      const save = vi.spyOn(page.repository, 'saveLineSettings');
+      type(reply, own);
+      click(page, '儲存');
+      expect(save.mock.calls[0]?.[1]).toMatchObject({ nonTextReply: own });
+      expect(page.host.querySelector('.error-summary')).toBeNull();
+      expect(publishingOf(page.repository, ONBOARDING).line.nonTextReply).toBe(own);
+      expect(field(page.host, '#line-nonTextReply').value).toBe(own);
     });
 
     it('answers a stale revision with a reload prompt that reloads and drops the typed secret', () => {

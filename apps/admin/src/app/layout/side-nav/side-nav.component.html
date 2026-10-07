@@ -119,7 +119,7 @@
       }
     }
     @if (!collapsed()) {
-      <app-conversation-rail [recentThreads]="recentChats()" (selectRecentThread)="openRecentChat($event)" />
+      <app-recent-chats [threads]="recentChats()" (selectThread)="openRecentChat($event)" />
     }
   </nav>
 

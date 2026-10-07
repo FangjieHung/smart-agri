@@ -12506,6 +12506,7 @@
           "officialAccountId",
           "channelId",
           "welcomeMessage",
+          "nonTextReply",
           "channelSecret",
           "accessToken",
           "webhookUrl",
@@ -12532,6 +12533,9 @@
             "type": "string"
           },
           "welcomeMessage": {
+            "type": "string"
+          },
+          "nonTextReply": {
             "type": "string"
           },
           "channelSecret": {
@@ -14136,6 +14140,7 @@
           "officialAccountId",
           "channelId",
           "welcomeMessage",
+          "nonTextReply",
           "revision"
         ],
         "type": "object",
@@ -14153,6 +14158,12 @@
             ]
           },
           "welcomeMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nonTextReply": {
             "type": [
               "null",
               "string"

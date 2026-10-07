@@ -40,6 +40,13 @@ the reply's conclusion is actually negative is judged by reading the reply in th
 after the pre-launch plan's P4 (#303's prompt rule 4); the baseline before it is expected to
 refuse them.
 
+**Weekday paraphrases and table-row refusals** (#324, from #304's side runs): `store-07`
+「門市星期日有開嗎？」 (open) and `store-08` 「星期三可以去門市買東西嗎？」 (closed on Wednesdays) need
+the store's hours and closed day together — each a row chunk of its own since #301 — and are read
+in **回覆內容** like `store-04`/`store-05`; `none-05` 「員工請特休要怎麼申請？」 and `none-06`
+「統一編號是多少？」 must be refused although their closest passages are a table row and the FAQ's
+customer tax number. Adding them changed the set's fingerprint (24 → 28 questions).
+
 ## Format
 
 JSON, unknown fields refused. `AnswerEvalSet.Load` checks everything it can without a database and
@@ -82,6 +89,11 @@ profile (no assistant of its own) and the deployment's configured `Retrieval:Min
   effect; `—` when there is no band); the summary counts them, split into answered and refused by
   the model. A should-find-nothing question marked `是` was refused (or not) by the model, not by
   the threshold.
+- **同表補列** (#324): when a passage sent to the model is a table row, the other not-excluded rows of
+  its table are sent with it as one passage (`KnowledgeTableExpansion`; at most
+  `GroundedAnswerPrompt.TableRowsMaxCharacters` added characters per answer). The column shows how
+  many rows were added (`+4 列`, with `（截斷）` when the budget left some out; `—` for none), and
+  the summary counts the questions. It never changes which questions reach the model.
 
 **With `Fake`** (both `Ai:Embedding` and `Ai:Chat`): the pipeline runs end to end and the report is
 byte-for-byte reproducible (`EvalAnswersIntegrationTests`), but scores and citations are not

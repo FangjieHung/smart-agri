@@ -285,4 +285,11 @@ public sealed record GroundedAnswerRejected(GroundedRejectionReason Reason, Grou
 /// <param name="UsedCandidates">No passage reached the threshold and the model was asked with
 /// candidate passages instead (<see cref="KnowledgeRetrievalSettings.CandidateMinScore"/>, #302),
 /// whatever it then answered.</param>
-public sealed record GroundedAnswerResult(GroundedReply Reply, KnowledgeRetrievalResult Retrieval, bool UsedCandidates = false);
+/// <param name="TableExpansion">The other rows of selected table rows' tables sent with them
+/// (#324, <see cref="KnowledgeTableExpansion"/>); <see langword="null"/> means
+/// <see cref="GroundedTableExpansion.None"/>.</param>
+public sealed record GroundedAnswerResult(
+    GroundedReply Reply,
+    KnowledgeRetrievalResult Retrieval,
+    bool UsedCandidates = false,
+    GroundedTableExpansion? TableExpansion = null);

@@ -293,6 +293,25 @@
       ]
     },
     {
+      "id": "store-09",
+      "category": "store",
+      "question": "門市星期日有開嗎？",
+      "note": "#304 補測、#324：「週二有營業嗎？」的換句話說，答案是有營業，要同時看營業時間與公休日（命中任一列即可）。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "內容：每週三" },
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "內容：09:00–18:00" }
+      ]
+    },
+    {
+      "id": "store-10",
+      "category": "store",
+      "question": "星期三可以去門市買東西嗎？",
+      "note": "#304 補測、#324：公休日的換句話說，答案是週三公休；#304 時最高分是門市餐點（0.421），公休日列只有 0.355。",
+      "expected": [
+        { "document": "門市資訊.md", "version": 1, "location": "基本資訊", "evidence": "內容：每週三" }
+      ]
+    },
+    {
       "id": "none-01",
       "category": "unanswerable",
       "question": "可以幫我訂下週的機票嗎？",

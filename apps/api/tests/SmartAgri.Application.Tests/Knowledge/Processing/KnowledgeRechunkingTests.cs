@@ -35,6 +35,34 @@ public class KnowledgeRechunkingTests
         ]);
         (plan.OldChunkCount, plan.NewChunkCount, plan.ChunksToEmbed).ShouldBe((2, 4, 3));
         plan.UnmappedExclusions.ShouldBeEmpty();
+        unit.Chunks.Select(chunk => chunk.TableIndex).ShouldBe([null, 0, 0], "#324: new row chunks know their table");
+        plan.TableIndexUpdates.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Rows_cut_before_table_identity_only_get_their_table_index_in_place()
+    {
+        // #324: the same texts as #301 cut, stored without a table index (one row excluded).
+        var (processed, units) = Read(
+            ExtractedUnit.Section(["退換貨"], "七天內可申請退貨。"),
+            ExtractedUnit.Section(["青禾門市", "基本資訊"], OldTableChunk, "門市資料如下。", [Table]));
+        var stored = new[]
+        {
+            Chunk(0, 0, "退換貨", "七天內可申請退貨。"),
+            Chunk(1, 0, Label, "門市資料如下。"),
+            Chunk(1, 1, Label, "項目：地址\n內容：示範縣安和路 18 號", excluded: true),
+            Chunk(1, 2, Label, "項目：電話\n內容：(03) 012-3456"),
+        };
+
+        var plan = KnowledgeRechunking.Plan(KnowledgeDocumentStatus.Ready, null, units, stored, processed);
+
+        plan.Units.ShouldBeEmpty("same texts: no chunk replaced, no model call, ids and exclusions kept");
+        plan.ChunksToEmbed.ShouldBe(0);
+        plan.TableIndexUpdates.ShouldBe([new RechunkedTableIndex(stored[2].Id, 0), new RechunkedTableIndex(stored[3].Id, 0)]);
+
+        // Once filled in, nothing is left to do.
+        var filled = stored.Select((chunk, index) => index >= 2 ? chunk with { TableIndex = 0 } : chunk).ToList();
+        KnowledgeRechunking.Plan(KnowledgeDocumentStatus.Ready, null, units, filled, processed).TableIndexUpdates.ShouldBeEmpty();
     }
 
     [Fact]

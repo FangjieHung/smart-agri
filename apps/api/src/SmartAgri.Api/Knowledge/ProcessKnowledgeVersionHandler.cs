@@ -169,7 +169,7 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
             for (var ordinal = 0; ordinal < unit.Chunks.Count; ordinal++)
             {
                 var chunk = unit.Chunks[ordinal];
-                chunks.Add(KnowledgeChunk.Create(version, unit.Ordinal, ordinal, chunk.LocationLabel, chunk.Text));
+                chunks.Add(KnowledgeChunk.Create(version, unit.Ordinal, ordinal, chunk.LocationLabel, chunk.Text, chunk.TableIndex));
                 texts.Add(KnowledgeEmbeddingText.For(unit.Kind, chunk.LocationLabel, chunk.Text));
             }
         }

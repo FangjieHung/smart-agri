@@ -33,7 +33,9 @@ namespace SmartAgri.Api.Knowledge;
 /// (a failed one has none; a queued or processing one gets the current rules anyway). What
 /// changes and which exclusions carry over is <see cref="KnowledgeRechunking.Plan"/>: a unit
 /// whose chunks come out the same keeps them (ids, vectors, exclusions), so a version without
-/// tables only has its format updated and costs no model call. A version whose file now reads
+/// tables only has its format updated and costs no model call; one whose table rows were cut
+/// before <see cref="KnowledgeChunkFormat.TableIdentity"/> (#324) only has their table index
+/// filled in, likewise without a model call. A version whose file now reads
 /// differently from what is stored is skipped and reported, still in the old format.
 /// </para>
 /// <para>
@@ -229,9 +231,12 @@ public sealed class RechunkCommand
             totals.NewChunks += plan.NewChunkCount;
             totals.Embedded += plan.ChunksToEmbed;
             totals.UnmappedExclusions += plan.UnmappedExclusions.Count;
+            var tableIndexes = plan.TableIndexUpdates.Count == 0
+                ? string.Empty
+                : string.Create(CultureInfo.InvariantCulture, $"補上 {plan.TableIndexUpdates.Count} 個段落的表格序號，");
             await output.WriteLineAsync(plan.Units.Count == 0
-                ? string.Create(CultureInfo.InvariantCulture, $"  {name}：段落不變（{plan.OldChunkCount} 個），只更新切段格式。")
-                : string.Create(CultureInfo.InvariantCulture, $"  {name}：段落 {plan.OldChunkCount} → {plan.NewChunkCount} 個，重新嵌入 {plan.ChunksToEmbed} 個，沿用 {plan.ExclusionsKept} 個排除。"));
+                ? string.Create(CultureInfo.InvariantCulture, $"  {name}：段落不變（{plan.OldChunkCount} 個），{(tableIndexes.Length == 0 ? "只更新切段格式" : tableIndexes + "並更新切段格式")}。")
+                : string.Create(CultureInfo.InvariantCulture, $"  {name}：段落 {plan.OldChunkCount} → {plan.NewChunkCount} 個，重新嵌入 {plan.ChunksToEmbed} 個，{tableIndexes}沿用 {plan.ExclusionsKept} 個排除。"));
             foreach (var lost in plan.UnmappedExclusions)
             {
                 await output.WriteLineAsync(string.Create(
@@ -277,9 +282,9 @@ public sealed class RechunkCommand
     private static async Task<List<StoredChunk>> StoredChunksAsync(AppDbContext dbContext, Guid versionId, CancellationToken cancellationToken) =>
         [.. (await dbContext.KnowledgeChunks.AsNoTracking()
                 .Where(chunk => chunk.VersionId == versionId)
-                .Select(chunk => new { chunk.Id, chunk.UnitOrdinal, chunk.Ordinal, chunk.LocationLabel, chunk.Text, chunk.Excluded })
+                .Select(chunk => new { chunk.Id, chunk.UnitOrdinal, chunk.Ordinal, chunk.LocationLabel, chunk.Text, chunk.Excluded, chunk.TableIndex })
                 .ToListAsync(cancellationToken))
-            .Select(chunk => new StoredChunk(chunk.Id, chunk.UnitOrdinal, chunk.Ordinal, chunk.LocationLabel, chunk.Text, chunk.Excluded))];
+            .Select(chunk => new StoredChunk(chunk.Id, chunk.UnitOrdinal, chunk.Ordinal, chunk.LocationLabel, chunk.Text, chunk.Excluded, chunk.TableIndex))];
 
     /// <summary>Embeds the plan's new chunks, then swaps them in (see the remarks); false when
     /// the version or its chunks changed since the plan was made, and nothing was written.</summary>
@@ -303,12 +308,25 @@ public sealed class RechunkCommand
 
             var changedUnits = plan.Units.Select(unit => unit.UnitOrdinal).ToList();
             var planned = plan.Units.SelectMany(unit => unit.OldChunkIds).ToHashSet();
-            var current = (await StoredChunksAsync(dbContext, versionId, cancellationToken))
-                .Where(chunk => changedUnits.Contains(chunk.UnitOrdinal))
-                .ToList();
+            var stored = await StoredChunksAsync(dbContext, versionId, cancellationToken);
+            var current = stored.Where(chunk => changedUnits.Contains(chunk.UnitOrdinal)).ToList();
             if (current.Count != planned.Count || !current.All(chunk => planned.Contains(chunk.Id)) || ExclusionsChanged(plan, current))
             {
                 return false;
+            }
+
+            // The kept chunks whose table index is filled in (#324) must still be there.
+            var storedIds = stored.Select(chunk => chunk.Id).ToHashSet();
+            if (!plan.TableIndexUpdates.All(update => storedIds.Contains(update.ChunkId)))
+            {
+                return false;
+            }
+
+            foreach (var update in plan.TableIndexUpdates)
+            {
+                await dbContext.KnowledgeChunks
+                    .Where(chunk => chunk.Id == update.ChunkId)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(chunk => chunk.TableIndex, update.TableIndex), cancellationToken);
             }
 
             if (changedUnits.Count > 0)
@@ -323,7 +341,7 @@ public sealed class RechunkCommand
             {
                 foreach (var chunkPlan in unit.Chunks)
                 {
-                    var chunk = KnowledgeChunk.Create(version, unit.UnitOrdinal, chunkPlan.Ordinal, chunkPlan.LocationLabel, chunkPlan.Text);
+                    var chunk = KnowledgeChunk.Create(version, unit.UnitOrdinal, chunkPlan.Ordinal, chunkPlan.LocationLabel, chunkPlan.Text, chunkPlan.TableIndex);
                     chunk.SetEmbedding(vectors[next++], embedder.Model);
                     chunk.SetExcluded(chunkPlan.Excluded);
                     dbContext.KnowledgeChunks.Add(chunk);

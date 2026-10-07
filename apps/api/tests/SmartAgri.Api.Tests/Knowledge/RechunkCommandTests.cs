@@ -47,6 +47,40 @@ public sealed class RechunkCommandTests : IClassFixture<AuthHostFixture>
             "地區：本島\n運費：100 元\n免運門檻：1,500 元",
             "地區：離島\n運費：150 元\n免運門檻：3,000 元",
         ]);
+        var chunks = await ChunksAsync(owner, versionId);
+        chunks.Where(chunk => chunk.LocationLabel == FeesLabel).ShouldAllBe(chunk => chunk.TableIndex == 0, "#324: each row knows its table");
+        chunks.Where(chunk => chunk.LocationLabel != FeesLabel && chunk.TableIndex == null).ShouldNotBeEmpty("text chunks have no table");
+    }
+
+    [Fact]
+    public async Task Rechunk_fills_in_the_table_index_of_rows_cut_before_it_in_place_without_a_model_call()
+    {
+        // #324: a version cut by #301 (format 2) has the same row chunks, without their table.
+        var owner = await KnowledgeTestOwner.CreateAsync(_host);
+        var guide = await owner.UploadAsync(KnowledgeFixtures.ProductGuideDocx);
+        await RunJobsAsync();
+        var current = await ChunksAsync(owner, guide);
+        var tables = current.Where(chunk => chunk.TableIndex != null).Select(chunk => (chunk.Id, chunk.TableIndex)).ToList();
+        tables.ShouldNotBeEmpty();
+        await using (var dbContext = _host.Postgres.CreateDbContext(owner.Organization.Id))
+        {
+            await dbContext.KnowledgeDocumentVersions.Where(version => version.Id == guide)
+                .ExecuteUpdateAsync(set => set.SetProperty(version => version.ChunkFormat, KnowledgeChunkFormat.TableRows), CancellationToken);
+            await dbContext.KnowledgeChunks.Where(chunk => chunk.VersionId == guide)
+                .ExecuteUpdateAsync(set => set.SetProperty(chunk => chunk.TableIndex, (int?)null), CancellationToken);
+        }
+
+        var callsBefore = await EmbeddingCallsAsync(owner);
+        var output = new StringWriter();
+        (await RechunkCommand.RunAsync(_host.Factory.Services, ["--organization", owner.Organization.Code], output, TextWriter.Null, CancellationToken))
+            .ShouldBe(RechunkCommand.ExitSuccess, output.ToString());
+
+        output.ToString().ShouldContain($"段落不變（{current.Count} 個），補上 {tables.Count} 個段落的表格序號，並更新切段格式。");
+        (await ChunkFormatAsync(owner, guide)).ShouldBe(KnowledgeChunkFormat.Current);
+        var after = await ChunksAsync(owner, guide);
+        after.Select(chunk => (chunk.Id, chunk.Text, chunk.Excluded)).ShouldBe(current.Select(chunk => (chunk.Id, chunk.Text, chunk.Excluded)), "same chunks, ids kept");
+        after.Where(chunk => chunk.TableIndex != null).Select(chunk => (chunk.Id, chunk.TableIndex)).ShouldBe(tables);
+        (await EmbeddingCallsAsync(owner)).ShouldBe(callsBefore, "nothing re-embedded");
     }
 
     [Fact]
@@ -86,7 +120,7 @@ public sealed class RechunkCommandTests : IClassFixture<AuthHostFixture>
         var error = new StringWriter();
         (await RechunkCommand.RunAsync(_host.Factory.Services, [$"--organization={owner.Organization.Code}"], output, error, CancellationToken))
             .ShouldBe(RechunkCommand.ExitSuccess, output + error.ToString());
-        output.ToString().ShouldContain($"完成：2 個版本改為切段格式 2，段落 {7 + faqBefore.Count} → {8 + faqBefore.Count} 個，重新嵌入 2 個段落；未處理 0 個。");
+        output.ToString().ShouldContain($"完成：2 個版本改為切段格式 {KnowledgeChunkFormat.Current}，段落 {7 + faqBefore.Count} → {8 + faqBefore.Count} 個，重新嵌入 2 個段落；未處理 0 個。");
 
         (await ChunkFormatAsync(owner, guide)).ShouldBe(KnowledgeChunkFormat.Current);
         (await ChunkFormatAsync(owner, faq)).ShouldBe(KnowledgeChunkFormat.Current);
@@ -94,6 +128,7 @@ public sealed class RechunkCommandTests : IClassFixture<AuthHostFixture>
         var rows = guideAfter.Where(chunk => chunk.LocationLabel == FeesLabel).ToList();
         rows.Select(chunk => chunk.Text).ShouldBe(["地區：本島\n運費：100 元\n免運門檻：1,500 元", "地區：離島\n運費：150 元\n免運門檻：3,000 元"]);
         rows.ShouldAllBe(chunk => chunk.Excluded, "the rows of an excluded table stay excluded");
+        rows.ShouldAllBe(chunk => chunk.TableIndex == 0, "#324: the new rows know their table");
         rows.ShouldAllBe(chunk => chunk.EmbeddingModel == AuthHostFixture.EmbeddingModel);
         rows[0].Embedding.ShouldBe(new FakeEmbeddingGenerator(AuthHostFixture.EmbeddingModel)
             .Embed(KnowledgeEmbeddingText.For(KnowledgeUnitLocationKind.Section, FeesLabel, rows[0].Text)));

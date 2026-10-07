@@ -198,10 +198,34 @@ public class KnowledgeChunkerTests
         KnowledgeChunker.Chunk(unit, Options).ShouldBe(
         [
             new KnowledgeTextChunk("青禾門市 › 基本資訊", "門市資料如下。"),
-            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：地址\n內容：示範縣青禾鄉安和路 18 號"),
-            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：電話\n備註：請於營業時間來電"),
-            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：公休日\n內容：每週三\n國定假日照常"),
+            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：地址\n內容：示範縣青禾鄉安和路 18 號", TableIndex: 0),
+            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：電話\n備註：請於營業時間來電", TableIndex: 0),
+            new KnowledgeTextChunk("青禾門市 › 基本資訊", "項目：公休日\n內容：每週三\n國定假日照常", TableIndex: 0),
         ]);
+    }
+
+    [Fact]
+    public void Every_row_chunk_knows_its_table_in_the_unit_and_text_chunks_know_none()
+    {
+        // #324: tables are numbered in reading order, a table without data rows included, and a
+        // row split into several chunks keeps its table on each.
+        var unit = ExtractedUnit.Section(
+            ["門市"],
+            "說明。\n| 表格 |",
+            "說明。",
+            [
+                new ExtractedTable(["項目", "內容"], [["營業時間", "09:00–18:00"], ["公休日", "每週三"]]),
+                new ExtractedTable(["空白"], []),
+                new ExtractedTable(["品項", "說明"], [["糙米飯糰", "45 元"], ["長說明", ChineseProse(120)]]),
+            ]);
+
+        var chunks = KnowledgeChunker.Chunk(unit, Options);
+
+        chunks[0].ShouldBe(new KnowledgeTextChunk("門市", "說明。"));
+        chunks.Skip(1).Take(2).ShouldAllBe(chunk => chunk.TableIndex == 0);
+        chunks.Skip(3).Select(chunk => chunk.TableIndex).Distinct().ShouldBe([2]);
+        chunks.Count.ShouldBeGreaterThan(5, "the long row was split");
+        KnowledgeChunker.Chunk(ExtractedUnit.Section(["退換貨"], ChineseProse(150)), Options).ShouldAllBe(chunk => chunk.TableIndex == null);
     }
 
     [Fact]

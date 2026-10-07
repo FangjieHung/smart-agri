@@ -40,6 +40,8 @@ public sealed record KnowledgeRetrievalQuery(
 /// <param name="Score">Cosine similarity to the question: higher is closer, 1 is identical.</param>
 /// <param name="VersionEffectiveFrom">When this version took (or takes) effect; carried onto a
 /// saved citation's snapshot for <c>ChatCitationView.updatedLabel</c> (M3 plan §4).</param>
+/// <param name="Table">Where the chunk sits in its table, for a table row's chunk
+/// (<see cref="KnowledgeChunk.TableIndex"/>, #324); <see langword="null"/> for any other chunk.</param>
 public sealed record RetrievedKnowledgePassage(
     Guid ChunkId,
     Guid KnowledgeBaseId,
@@ -51,7 +53,13 @@ public sealed record RetrievedKnowledgePassage(
     string LocationLabel,
     string Text,
     double Score,
-    DateTimeOffset? VersionEffectiveFrom);
+    DateTimeOffset? VersionEffectiveFrom,
+    KnowledgeTablePosition? Table = null);
+
+/// <summary>A table row chunk's place (#324): the table is the version's unit
+/// <paramref name="UnitOrdinal"/>'s table <paramref name="TableIndex"/>, and its rows are in
+/// <paramref name="Ordinal"/> (<see cref="KnowledgeChunk.Ordinal"/>) order.</summary>
+public sealed record KnowledgeTablePosition(int UnitOrdinal, int TableIndex, int Ordinal);
 
 /// <summary>The passages found, closest first, and the threshold they were judged by.</summary>
 /// <param name="Passages">The top passages whatever their score, so a person can see how close
@@ -198,7 +206,8 @@ public sealed class KnowledgeRetriever : IKnowledgeRetriever
                     chunk.LocationLabel,
                     chunk.Text,
                     hit.Score ?? throw new InvalidOperationException("The vector collection returned a result without a score."),
-                    source.EffectiveFrom);
+                    source.EffectiveFrom,
+                    chunk.TableIndex is { } tableIndex ? new KnowledgeTablePosition(chunk.UnitOrdinal, tableIndex, chunk.Ordinal) : null);
             })
             .ToList();
         return new KnowledgeRetrievalResult(passages, threshold);

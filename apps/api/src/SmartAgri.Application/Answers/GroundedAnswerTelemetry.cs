@@ -24,6 +24,13 @@ public static class GroundedAnswerTelemetry
     /// <summary>How many passages reached the threshold (k).</summary>
     public const string RelevantPassagesTag = "smartagri.answer.relevant_passages";
 
+    /// <summary>The candidate threshold in effect (#302), on an answer that asked the model with
+    /// candidate passages because none reached <see cref="ThresholdTag"/>; absent otherwise.</summary>
+    public const string CandidateThresholdTag = "smartagri.answer.candidate_threshold";
+
+    /// <summary>How many candidate passages the model was asked with (#302); absent unless it was.</summary>
+    public const string CandidatePassagesTag = "smartagri.answer.candidate_passages";
+
     /// <summary>How many passages the reply cites.</summary>
     public const string CitationsTag = "smartagri.answer.citations";
 

@@ -22,7 +22,8 @@ public sealed record RetrievalEvalRun(
     int VersionCount,
     int ChunkCount,
     IReadOnlyList<EvalQuestionResult> Results,
-    RetrievalEvalSummary Summary);
+    RetrievalEvalSummary Summary,
+    double? CandidateMinScore = null);
 
 /// <summary>
 /// The Markdown report of an <c>eval-retrieval</c> run (M2 plan Slice 16), in Traditional Chinese
@@ -115,6 +116,15 @@ public static class RetrievalEvalReport
         Row(text, "兩者可以用門檻分開", summary.Separable ? "是" : "否");
         Row(text, "建議門檻", summary.Suggested is { } suggested ? $"**{Score(suggested.Value)}**（正確判斷 {suggested.Correct}/{suggested.Total} 題）" : "—（沒有分數可依據）");
         Row(text, "目前門檻的正確判斷", $"{summary.AtCurrent.Correct}/{summary.AtCurrent.Total} 題");
+        if (run.CandidateMinScore is { } candidate)
+        {
+            var (unanswerable, rescued) = RetrievalEvalScoring.InCandidateBand(run.Results, summary.AtCurrent.Value, candidate);
+            Row(text, $"候選區間 {Score(candidate)}–{Score(summary.AtCurrent.Value)}（`Retrieval:CandidateMinScore`，#302）", string.Create(
+                CultureInfo.InvariantCulture,
+                $"應查無結果 {unanswerable.Count}/{summary.Unanswerable} 題會交給模型判斷{Ids(unanswerable)}；" +
+                $"有答案、只在區間內命中 {rescued.Count} 題{Ids(rescued)}"));
+        }
+
         Row(text, "取回非有效版本的段落", summary.NonEffectivePassages.ToString(CultureInfo.InvariantCulture));
         Row(text, "取回預期文件其他版本的題目", summary.QuestionsWithOtherVersions.ToString(CultureInfo.InvariantCulture));
         Row(text, "hit@5 ≥ 90%（#50 的驗收標準）", summary.MeetsTarget ? "達成" : "未達成");
@@ -200,6 +210,8 @@ public static class RetrievalEvalReport
 
         return text.ToString();
     }
+
+    private static string Ids(IReadOnlyList<string> ids) => ids.Count == 0 ? string.Empty : $"（{string.Join("、", ids)}）";
 
     private static void Row(StringBuilder text, string name, string value) => text.AppendLine($"| {name} | {value} |");
 

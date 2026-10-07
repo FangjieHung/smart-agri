@@ -67,7 +67,7 @@ internal sealed class ScriptedRetriever : IKnowledgeRetriever
 
     public List<KnowledgeRetrievalQuery> Queries { get; } = [];
 
-    public KnowledgeRetrievalSettings Settings { get; init; } = KnowledgeRetrievalSettings.Default;
+    public KnowledgeRetrievalSettings Settings { get; set; } = KnowledgeRetrievalSettings.Default;
 
     public Task<KnowledgeRetrievalResult> RetrieveAsync(KnowledgeRetrievalQuery query, CancellationToken cancellationToken)
     {
@@ -128,7 +128,8 @@ internal sealed class InMemoryAnswerOutcomeRecorder : IAnswerOutcomeRecorder
         AnswerReplyKind ReplyKind,
         AnswerRejectionReason? RejectionReason,
         IReadOnlyCollection<Guid> CitedDocumentIds,
-        DateTimeOffset At);
+        DateTimeOffset At,
+        bool UsedCandidates = false);
 
     public List<Recorded> Outcomes { get; } = [];
 
@@ -139,10 +140,11 @@ internal sealed class InMemoryAnswerOutcomeRecorder : IAnswerOutcomeRecorder
         AnswerReplyKind replyKind,
         AnswerRejectionReason? rejectionReason,
         IReadOnlyCollection<Guid> citedDocumentIds,
+        bool usedCandidates,
         DateTimeOffset at,
         CancellationToken cancellationToken)
     {
-        Outcomes.Add(new Recorded(organizationId, assistantId, channel, replyKind, rejectionReason, [.. citedDocumentIds], at));
+        Outcomes.Add(new Recorded(organizationId, assistantId, channel, replyKind, rejectionReason, [.. citedDocumentIds], at, usedCandidates));
         return Task.CompletedTask;
     }
 

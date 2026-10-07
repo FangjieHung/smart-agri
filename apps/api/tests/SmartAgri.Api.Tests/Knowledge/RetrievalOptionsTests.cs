@@ -24,6 +24,9 @@ public sealed class RetrievalOptionsTests
             .GetSection(RetrievalOptions.SectionName)
             .Bind(configured);
         (configured.MinScore, configured.Top).ShouldBe((0.406, 5), "change the default in both places (#192 calibrated it)");
+        configured.CandidateMinScore.ShouldBe(0.30, "#302's provisional value; P5 decides the final one");
+        configured.Validate().ShouldBeNull();
+        options.CandidateMinScore.ShouldBeNull("unset in code: no candidate band, exactly as before #302");
     }
 
     [Fact]
@@ -37,6 +40,45 @@ public sealed class RetrievalOptionsTests
             .GetSection(RetrievalOptions.SectionName)
             .Bind(development);
         (development.MinScore, development.Top).ShouldBe((0.3, 5), "0.406 is calibrated for text-embedding-3-small; Fake scores lower");
+        development.Validate().ShouldBeNull("appsettings.json's CandidateMinScore must still fit under Development's MinScore");
+        development.ToSettings().CandidateFloor(development.MinScore).ShouldBeNull(
+            "equal to Development's MinScore: no candidate band, so the Fake-model tests answer exactly as before #302");
+    }
+
+    [Theory]
+    [InlineData(0.406, 0.41)]
+    [InlineData(0.406, -0.01)]
+    [InlineData(0.406, double.NaN)]
+    [InlineData(0.25, 0.30)]
+    public void A_candidate_threshold_above_the_minimum_score_or_outside_0_1_refuses_to_start(double minScore, double candidate)
+    {
+        new RetrievalOptions { MinScore = minScore, CandidateMinScore = candidate }.Validate()
+            .ShouldNotBeNull().ShouldStartWith("Retrieval:CandidateMinScore must be 0 up to Retrieval:MinScore");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0.0)]
+    [InlineData(0.3)]
+    [InlineData(0.406)]
+    public void A_candidate_threshold_from_0_up_to_the_minimum_score_or_none_is_usable(double? candidate)
+    {
+        var options = new RetrievalOptions { MinScore = 0.406, CandidateMinScore = candidate };
+        options.Validate().ShouldBeNull();
+        options.ToSettings().CandidateMinScore.ShouldBe(candidate);
+    }
+
+    [Fact]
+    public void An_empty_value_unsets_the_candidate_threshold_so_an_operator_can_turn_it_off()
+    {
+        var options = new RetrievalOptions();
+        new ConfigurationBuilder()
+            .AddJsonFile(Path.Combine(ApiProjectDirectory(), "appsettings.json"), optional: false)
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Retrieval:CandidateMinScore"] = string.Empty })
+            .Build()
+            .GetSection(RetrievalOptions.SectionName)
+            .Bind(options);
+        options.CandidateMinScore.ShouldBeNull();
     }
 
     [Theory]

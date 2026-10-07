@@ -73,6 +73,9 @@ internal sealed class AssistantLineChannelConfiguration : IEntityTypeConfigurati
         builder.Property(channel => channel.WelcomeMessage)
             .HasMaxLength(AssistantLineChannel.WelcomeMessageMaxLength)
             .IsRequired();
+        builder.Property(channel => channel.NonTextReply)
+            .HasMaxLength(AssistantLineChannel.NonTextReplyMaxLength)
+            .IsRequired();
         builder.Property(channel => channel.State)
             .HasConversion<WireNameConverter<LineChannelState>>()
             .HasMaxLength(32)

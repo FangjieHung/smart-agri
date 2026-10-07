@@ -1,0 +1,12 @@
+<section class="recent-chats" aria-labelledby="recent-chats-title">
+  <h2 id="recent-chats-title">Chats</h2>
+  @if (threads().length > 0) {
+    <ul>
+      @for (thread of threads(); track thread.assistantId + ':' + thread.id) {
+        <li><button type="button" (click)="selectThread.emit(thread)">
+          <span>{{ thread.title }}</span><small>{{ thread.assistantName }}</small>
+        </button></li>
+      }
+    </ul>
+  } @else { <p>尚無對話紀錄</p> }
+</section>

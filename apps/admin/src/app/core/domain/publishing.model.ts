@@ -200,8 +200,8 @@ export function validateAllowedDomain(raw: string, existing: readonly string[]):
 
 export type LineField = 'officialAccountId' | 'channelId' | 'channelSecret' | 'accessToken';
 
-/** 儲存時可能被指出錯誤的欄位：四個連接欄位與歡迎訊息。 */
-export type LineErrorField = LineField | 'welcomeMessage';
+/** 儲存時可能被指出錯誤的欄位：四個連接欄位、歡迎訊息與收到非文字訊息時的回覆。 */
+export type LineErrorField = LineField | 'welcomeMessage' | 'nonTextReply';
 
 export interface LineFieldDefinition {
   readonly id: LineField;
@@ -220,6 +220,9 @@ export const LINE_FIELDS: readonly LineFieldDefinition[] = [
 
 export const MAX_LINE_WELCOME_LENGTH = 120;
 
+/** 一對一聊天收到圖片、貼圖等非文字訊息時的回覆（#291）：與 API 的 `AssistantLineChannel.NonTextReplyMaxLength` 相同。 */
+export const MAX_LINE_NON_TEXT_REPLY_LENGTH = 500;
+
 /**
  * 儲存 LINE 設定的輸入。`channelSecret`、`accessToken` 是只寫的：省略或空字串表示「不變更」，
  * 有值才取代（第一次儲存兩個都必填）。
@@ -228,6 +231,7 @@ export interface LineSettingsInput {
   readonly officialAccountId: string;
   readonly channelId: string;
   readonly welcomeMessage: string;
+  readonly nonTextReply: string;
   readonly channelSecret?: string;
   readonly accessToken?: string;
 }
@@ -260,6 +264,8 @@ export interface LineSetupView {
   readonly officialAccountId: string;
   readonly channelId: string;
   readonly welcomeMessage: string;
+  /** 一對一聊天收到非文字訊息（圖片、貼圖、影片、語音、檔案、位置）時的回覆；群組與多人聊天室不回覆。 */
+  readonly nonTextReply: string;
   readonly channelSecret: SecretStatusView;
   readonly accessToken: SecretStatusView;
   /** 伺服器實際的 Webhook 網址（測試連線時由系統設定到 LINE）；伺服器沒有對外網址時是 null。 */

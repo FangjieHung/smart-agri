@@ -4,6 +4,8 @@ import { SHORT_WINDOWS, expectFullyOnScreen, expectScrollingBody } from '../supp
 const VALID_TOKEN = 'demo-token-not-for-production-0123456789abcdefghij';
 const ASSISTANT = 'assistant-customer-service';
 const EMPLOYEE_NAME = '安心商行客服同仁';
+/** #291：擁有者自己的「收到非文字訊息時的回覆」，含換行與 emoji。 */
+const OWN_NON_TEXT_REPLY = '收到您的照片了 📷\n目前只能看懂文字，\n請用文字描述問題 🙏';
 
 /** 在目前的 LINE 設定面板裡執行一組指令；每次呼叫都重新查詢，避免抓到已被重新渲染掉的節點。 */
 function inLineSetup(steps: () => void): void {
@@ -250,6 +252,32 @@ describe('publishing channels', () => {
     });
     cy.contains('app-channel-card', 'LINE').should('contain', '已發布');
     cy.contains('app-channel-card', '官網嵌入').should('contain', '已發布');
+
+    // #291：只改「收到非文字訊息時的回覆」不影響連線測試與啟用狀態；空白會被擋下。
+    inLineSetup(() => {
+      cy.get('#line-nonTextReply').should('have.value', '目前只能回答文字問題。').clear();
+      cy.contains('button', '儲存').click();
+    });
+    inLineSetup(() => {
+      cy.get('#line-nonTextReply-error').should('contain', '請填寫收到非文字訊息時的回覆');
+      cy.get('.error-summary a[href="#line-nonTextReply"]').should('exist');
+      // 用 invoke('val') 一次放入整段（換行與 emoji），再觸發 input 讓元件收到。
+      cy.get('#line-nonTextReply').invoke('val', OWN_NON_TEXT_REPLY).trigger('input');
+      cy.get('#line-nonTextReply').should('have.value', OWN_NON_TEXT_REPLY);
+      cy.get('#line-nonTextReply-hint').should('contain', `目前 ${OWN_NON_TEXT_REPLY.length} 字`);
+      cy.contains('button', '儲存').click();
+    });
+    inLineSetup(() => {
+      cy.get('.feedback').should('contain', '已儲存');
+      cy.get('.error-summary').should('not.exist');
+      cy.get('.checklist li[data-state="passed"]').should('have.length', 3);
+      cy.contains('.serving__reason', '服務中').scrollIntoView().should('be.visible');
+    });
+    cy.reload();
+    inLineSetup(() => {
+      cy.get('#line-nonTextReply').should('have.value', OWN_NON_TEXT_REPLY);
+      cy.contains('.serving__reason', '服務中').scrollIntoView().should('be.visible');
+    });
 
     // 暫停、恢復與取消啟用都是 LINE 自己的操作，不影響其他管道。
     inLineSetup(() => {

@@ -32,6 +32,8 @@ export interface PublishingRecord {
     readonly officialAccountId: string;
     readonly channelId: string;
     readonly welcomeMessage: string;
+    /** 收到非文字訊息時的回覆（#291）；#291 前存的記錄沒有這個欄位，讀回時補上預設值。 */
+    readonly nonTextReply: string;
     /** 與 API 相同：憑證只保存「已設定」與末四碼，mock 也從不保存、回傳原文。 */
     readonly channelSecret: SecretStatusView;
     readonly accessToken: SecretStatusView;
@@ -62,6 +64,9 @@ export const DEMO_LINE_CHANNEL_SECRET = '0123456789abcdef'.repeat(2);
 
 export const DEFAULT_LINE_WELCOME_MESSAGE = '您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。';
 
+/** 與 API 的 `AssistantLineChannel.DefaultNonTextReply` 相同。 */
+export const DEFAULT_LINE_NON_TEXT_REPLY = '目前只能回答文字問題。';
+
 export const LINE_CHECK_LABELS = {
   'access-token': 'Channel access token 與官方帳號',
   'webhook-endpoint': '設定 Webhook 網址',
@@ -83,6 +88,7 @@ export function emptyLineRecord(updatedAt: string): PublishingRecord['line'] {
     officialAccountId: '',
     channelId: '',
     welcomeMessage: DEFAULT_LINE_WELCOME_MESSAGE,
+    nonTextReply: DEFAULT_LINE_NON_TEXT_REPLY,
     channelSecret: NO_SECRET,
     accessToken: NO_SECRET,
     tokenExpired: false,

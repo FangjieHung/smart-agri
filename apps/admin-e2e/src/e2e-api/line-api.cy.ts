@@ -8,8 +8,8 @@ import { loginToApi } from '../support/api-mode';
  *
  * - 「LINE 平台」這一側全在 Node 裡（cypress.api.config.ts 的 `line*` task）：`lineAddBot` 讓假伺服器認得這次的
  *   Token、Secret 與官方帳號 ID；測試連線時假伺服器會真的送一個有簽章的測試事件到我們的 webhook。
- *   `lineSendText` 模擬 LINE 使用者傳訊息（task 以 Channel secret 對送出的位元組簽章），`lineMessages` 讀假伺服器
- *   收到的 reply／push。
+ *   `lineSendText` 模擬 LINE 使用者傳訊息、`lineSendNonText` 傳貼圖或圖片（task 以 Channel secret 對送出的位元組簽章），
+ *   `lineMessages` 讀假伺服器收到的 reply／push。
  * - 後端收到 webhook 後在背景回答，所以讀 reply 要輪詢（`waitForReply`）。
  * - 每次執行都用新的 Token、Secret、官方帳號 ID 與 LINE 使用者，與其他 spec、上一次執行互不干擾；
  *   每個事件的 webhookEventId 都不同（後端依它去重）。
@@ -23,6 +23,8 @@ const GUID = '[0-9a-f-]{36}';
 const BOT_DISPLAY_NAME = '安心客服';
 /** 假伺服器收到 reply 前的輪詢次數（每次間隔 1 秒）；Fake 模型通常幾秒內就回答。 */
 const REPLY_POLL_ATTEMPTS = 45;
+/** #291：擁有者自己的「收到非文字訊息時的回覆」，含換行與 emoji。 */
+const OWN_NON_TEXT_REPLY = '收到您的照片或貼圖了 📷\n目前只能看懂文字，\n請用文字描述您的問題 🙏';
 
 /** 假的 LINE 伺服器記錄的一次 reply 或 push（tools/fake-line-server/server.mjs 的 `/__control/messages`）。 */
 interface RecordedLineMessage {
@@ -41,6 +43,11 @@ interface SentLineEvent {
   readonly status: number;
   readonly replyToken: string;
   readonly webhookEventId: string;
+}
+
+interface SentLineNonText {
+  readonly status: number;
+  readonly replyTokens: readonly string[];
 }
 
 /** 跨 test 保留的資料（`rememberValue` task）。 */
@@ -246,6 +253,53 @@ describe('LINE from enabling the channel to answering a question (API mode)', ()
       waitForReply(accessToken(), replyToken).then((reply) => {
         expect(reply.messages[0].type).to.eq('text');
         expect(reply.messages[0].text).to.match(/（來源 \d+(、\d+)*）/);
+      });
+    });
+  });
+
+  it('replies to a sticker or a picture with the owner’s own text, line breaks and emoji kept, and not in a group (#291)', () => {
+    expect(run.assistantId).to.match(/^[0-9a-f-]{36}$/);
+    loginToApi('anxin', 'admin');
+    openLineSettings(run.assistantId);
+    inLineSetup(() => {
+      cy.get('#line-nonTextReply').should('have.value', '目前只能回答文字問題。');
+      // 用 invoke('val') 一次放入整段（換行與 emoji），再觸發 input 讓元件收到。
+      cy.get('#line-nonTextReply').invoke('val', OWN_NON_TEXT_REPLY).trigger('input');
+      cy.get('#line-nonTextReply').should('have.value', OWN_NON_TEXT_REPLY);
+      cy.intercept('PUT', `**/api/v1/assistants/${run.assistantId}/publishing/line`).as('saveReply');
+      cy.contains('form.settings button[type="submit"]', '儲存').click();
+    });
+    cy.wait('@saveReply').then(({ request, response }) => {
+      expect(response?.statusCode).to.eq(200);
+      expect((request.body as { nonTextReply?: string }).nonTextReply).to.eq(OWN_NON_TEXT_REPLY);
+      expect((response?.body as { nonTextReply?: string }).nonTextReply).to.eq(OWN_NON_TEXT_REPLY);
+    });
+    // 只改這段回覆：連線測試結果與啟用狀態都不變。
+    inLineSetup(() => {
+      cy.get('form.settings .feedback').should('contain', '已儲存');
+      cy.get('.checklist li[data-state="passed"]').should('have.length', 3);
+      cy.get('.block--status').should('have.attr', 'data-serving', 'serving');
+    });
+
+    cy.task<SentLineNonText>('lineSendNonText', {
+      assistantId: run.assistantId,
+      channelSecret: channelSecret(),
+      destination: run.botUserId,
+      userId: lineUserId(),
+      // 同一次送達依序處理：群組裡的圖片在前，一對一的貼圖、圖片在後。
+      messages: [{ type: 'image', groupId: lineGroupId() }, { type: 'sticker' }, { type: 'image' }],
+    }).then(({ status, replyTokens }) => {
+      expect(status, 'webhook status').to.eq(200);
+      const [group, sticker, picture] = replyTokens;
+      waitForReply(accessToken(), sticker).then((reply) => {
+        expect(reply.messages).to.deep.eq([{ type: 'text', text: OWN_NON_TEXT_REPLY }]);
+      });
+      waitForReply(accessToken(), picture).then((reply) => {
+        expect(reply.messages).to.deep.eq([{ type: 'text', text: OWN_NON_TEXT_REPLY }]);
+      });
+      // 群組那則先處理完（後面兩則都已回覆），而且沒有回覆。
+      cy.task<RecordedLineMessage[]>('lineMessages', accessToken()).then((recorded) => {
+        expect(recorded.filter((entry) => entry.replyToken === group)).to.have.length(0);
       });
     });
   });

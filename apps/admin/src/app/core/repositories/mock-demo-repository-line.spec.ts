@@ -3,7 +3,12 @@ import type { AccountId } from '../domain/account.model';
 import type { LineSettingsInput, LineSetupView, WebsiteServingState } from '../domain/publishing.model';
 import type { DemoScenario } from './demo-repository';
 import { DEMO_SEED } from './demo-seed';
-import { DEMO_LINE_CHANNEL_ID, DEMO_LINE_CHANNEL_SECRET, EXPIRED_DEMO_LINE_TOKEN } from './demo-seed-publishing';
+import {
+  DEFAULT_LINE_NON_TEXT_REPLY,
+  DEMO_LINE_CHANNEL_ID,
+  DEMO_LINE_CHANNEL_SECRET,
+  EXPIRED_DEMO_LINE_TOKEN,
+} from './demo-seed-publishing';
 import { createMemoryStorage } from './memory-storage';
 import { MockDemoRepository } from './mock-demo-repository';
 
@@ -22,9 +27,13 @@ const VALID: LineSettingsInput = {
   officialAccountId: '@anxin-demo',
   channelId: DEMO_LINE_CHANNEL_ID,
   welcomeMessage: '您好！歡迎加入。',
+  nonTextReply: DEFAULT_LINE_NON_TEXT_REPLY,
   channelSecret: DEMO_LINE_CHANNEL_SECRET,
   accessToken: TOKEN,
 };
+
+/** #291：擁有者自己的說法，含換行與 emoji。 */
+const OWN_NON_TEXT_REPLY = '收到您的照片了 📷\n目前只能看懂文字，\n請用文字描述問題 🙏';
 
 function setUp(
   options: {
@@ -156,6 +165,23 @@ describe('MockDemoRepository LINE channel', () => {
       expect(storage.getItem(`sme-demo:publishing:${SERVICE}`)).not.toContain(TOKEN);
       expect(storage.getItem(`sme-demo:publishing:${SERVICE}`)).not.toContain(DEMO_LINE_CHANNEL_SECRET);
     });
+
+    it('gives a record saved before #291 the default non-text reply and writes it back', async () => {
+      const { repository, storage } = setUp({
+        prepare: (storage) => {
+          const seeded = DEMO_SEED.publishingRecords[SERVICE];
+          if (seeded === undefined) throw new Error('missing seeded record');
+          const line = Object.fromEntries(Object.entries(seeded.line).filter(([key]) => key !== 'nonTextReply'));
+          storage.setItem(`sme-demo:publishing:${SERVICE}`, JSON.stringify({ ...seeded, line }));
+        },
+      });
+
+      const line = await lineOf(repository, SERVICE);
+
+      expect(line.nonTextReply).toBe('目前只能回答文字問題。');
+      expect(line.officialAccountId).toBe(DEMO_SEED.publishingRecords[SERVICE]?.line.officialAccountId);
+      expect(storage.getItem(`sme-demo:publishing:${SERVICE}`)).toContain('"nonTextReply":"目前只能回答文字問題。"');
+    });
   });
 
   describe('saving', () => {
@@ -163,11 +189,22 @@ describe('MockDemoRepository LINE channel', () => {
       const { repository } = setUp();
 
       const invalid = await firstValueFrom(
-        repository.saveLineSettings(ONBOARDING, { officialAccountId: 'anxin', channelId: '123', welcomeMessage: ' ', channelSecret: 'xyz', accessToken: 'short' }, 0),
+        repository.saveLineSettings(
+          ONBOARDING,
+          { officialAccountId: 'anxin', channelId: '123', welcomeMessage: ' ', nonTextReply: ' \n ', channelSecret: 'xyz', accessToken: 'short' },
+          0,
+        ),
       );
 
       if (invalid.status !== 'validation-failed') throw new Error(`expected validation-failed, got ${invalid.status}`);
-      expect(invalid.errors.map((error) => error.field)).toEqual(['officialAccountId', 'channelId', 'channelSecret', 'accessToken', 'welcomeMessage']);
+      expect(invalid.errors.map((error) => error.field)).toEqual([
+        'officialAccountId',
+        'channelId',
+        'channelSecret',
+        'accessToken',
+        'welcomeMessage',
+        'nonTextReply',
+      ]);
       expect((await lineOf(repository, ONBOARDING)).revision).toBe(0);
     });
 
@@ -186,14 +223,27 @@ describe('MockDemoRepository LINE channel', () => {
       ]);
     });
 
+    it('requires a non-text reply of at most 500 characters and keeps its line breaks and emoji', async () => {
+      const { repository } = setUp();
+
+      const tooLong = await firstValueFrom(repository.saveLineSettings(ONBOARDING, { ...VALID, nonTextReply: '收'.repeat(501) }, 0));
+      if (tooLong.status !== 'validation-failed') throw new Error(`expected validation-failed, got ${tooLong.status}`);
+      expect(tooLong.errors).toEqual([{ field: 'nonTextReply', message: '收到非文字訊息時的回覆請在 500 個字以內。' }]);
+
+      const saved = ready(await firstValueFrom(repository.saveLineSettings(ONBOARDING, { ...VALID, nonTextReply: ` ${OWN_NON_TEXT_REPLY}\n` }, 0)));
+      expect(saved.nonTextReply).toBe(OWN_NON_TEXT_REPLY);
+      expect((await lineOf(repository, ONBOARDING)).nonTextReply).toBe(OWN_NON_TEXT_REPLY);
+    });
+
     it('creates the channel as a draft at revision 1 and shows the default welcome message before that', async () => {
       const { repository } = setUp();
       const before = await lineOf(repository, ONBOARDING);
-      expect([before.revision, before.state, before.channel.status, before.welcomeMessage]).toEqual([
+      expect([before.revision, before.state, before.channel.status, before.welcomeMessage, before.nonTextReply]).toEqual([
         0,
         'draft',
         'not-configured',
         '您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。',
+        '目前只能回答文字問題。',
       ]);
       expect(before.checks.map((check) => check.state)).toEqual(['pending', 'pending', 'pending']);
 
@@ -213,7 +263,7 @@ describe('MockDemoRepository LINE channel', () => {
       expect((await lineOf(repository, ONBOARDING)).welcomeMessage).toBe(VALID.welcomeMessage);
     });
 
-    it('clears the test and sends an enabled channel back to a draft when the connection changes, but not for the welcome message', async () => {
+    it('clears the test and sends an enabled channel back to a draft when the connection changes, but not for the welcome message or the non-text reply', async () => {
       const { repository } = setUp({ acceptance: { [ONBOARDING]: 'passed' } });
       await testedDraft(repository);
       ready(await firstValueFrom(repository.publishLine(ONBOARDING)));
@@ -221,7 +271,13 @@ describe('MockDemoRepository LINE channel', () => {
       const welcomeOnly = ready(await firstValueFrom(repository.saveLineSettings(ONBOARDING, { ...VALID, welcomeMessage: '改一句', channelSecret: '', accessToken: '' }, 1)));
       expect([welcomeOnly.state, welcomeOnly.servingState]).toEqual(['published', 'serving']);
 
-      const changed = ready(await firstValueFrom(repository.saveLineSettings(ONBOARDING, { ...VALID, channelId: '1650000001', channelSecret: '', accessToken: '' }, 2)));
+      const replyOnly = ready(
+        await firstValueFrom(repository.saveLineSettings(ONBOARDING, { ...VALID, welcomeMessage: '改一句', nonTextReply: OWN_NON_TEXT_REPLY, channelSecret: '', accessToken: '' }, 2)),
+      );
+      expect([replyOnly.state, replyOnly.servingState, replyOnly.revision, replyOnly.nonTextReply]).toEqual(['published', 'serving', 3, OWN_NON_TEXT_REPLY]);
+      expect(replyOnly.checks.map((check) => check.state)).toEqual(['passed', 'passed', 'passed']);
+
+      const changed = ready(await firstValueFrom(repository.saveLineSettings(ONBOARDING, { ...VALID, channelId: '1650000001', channelSecret: '', accessToken: '' }, 3)));
       expect([changed.state, changed.servingState, changed.publishedAt, changed.connectionCheckedAt]).toEqual(['draft', 'not-published', null, null]);
       expect(changed.checks.map((check) => check.state)).toEqual(['pending', 'pending', 'pending']);
     });
@@ -266,7 +322,7 @@ describe('MockDemoRepository LINE channel', () => {
     it('lets a channel replace an expired token and pass the next test', async () => {
       const { repository } = setUp();
 
-      const saved = ready(await firstValueFrom(repository.saveLineSettings(SERVICE, { officialAccountId: '@anxin-demo', channelId: DEMO_LINE_CHANNEL_ID, welcomeMessage: VALID.welcomeMessage, accessToken: TOKEN }, 1)));
+      const saved = ready(await firstValueFrom(repository.saveLineSettings(SERVICE, { officialAccountId: '@anxin-demo', channelId: DEMO_LINE_CHANNEL_ID, welcomeMessage: VALID.welcomeMessage, nonTextReply: VALID.nonTextReply, accessToken: TOKEN }, 1)));
       expect([saved.state, saved.servingState]).toEqual(['draft', 'not-published']);
       const tested = ready(await firstValueFrom(repository.testLineConnection(SERVICE)));
 

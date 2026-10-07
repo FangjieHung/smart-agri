@@ -15,6 +15,7 @@ const VALID_LINE = {
   officialAccountId: '@anxin-demo',
   channelId: '12345' + '67890',
   welcomeMessage: '您好！',
+  nonTextReply: '目前只能回答文字問題。',
   channelSecret: ('abcdef' + '0123456789').repeat(2),
   accessToken: 'demo-access-token-value-that-is-long-enough-0001',
 };

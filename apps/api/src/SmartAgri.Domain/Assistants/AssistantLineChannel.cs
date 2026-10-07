@@ -25,7 +25,7 @@ namespace SmartAgri.Domain.Assistants;
 /// <see cref="LineChannelState.Published"/> or <see cref="LineChannelState.Paused"/> channel goes back
 /// to <see cref="LineChannelState.Draft"/> (its publication cleared, as by <see cref="Unpublish"/>):
 /// the owner tests the connection again and enables it again, through the publishing gate. Changing
-/// only <see cref="WelcomeMessage"/> keeps all of that.
+/// only <see cref="WelcomeMessage"/> or <see cref="NonTextReply"/> keeps all of that.
 /// </para>
 /// <para>
 /// <see cref="State"/> is what the owner chose. Whether the channel answers LINE users right now is
@@ -56,11 +56,19 @@ public sealed class AssistantLineChannel : IOrganizationScoped
     /// <summary>Decision D: sent when someone adds the account as a friend or invites it to a group.</summary>
     public const int WelcomeMessageMaxLength = 120;
 
+    /// <summary>#291: the reply to a non-text message in a one-to-one chat (about 120 characters of
+    /// the owner's own wording, with line breaks and emoji, fits easily).</summary>
+    public const int NonTextReplyMaxLength = 500;
+
     /// <summary>A LINE user id is <c>U</c> and 32 hexadecimal digits; some room to spare.</summary>
     public const int BotUserIdMaxLength = 64;
 
     /// <summary>Decision D's default welcome message.</summary>
     public const string DefaultWelcomeMessage = "您好！有任何問題都可以直接問我。在群組裡請 @ 我再提問。";
+
+    /// <summary>The default <see cref="NonTextReply"/> (M5b plan §3 D's fixed reply before #291; the
+    /// migration that added the column gave it to every existing channel).</summary>
+    public const string DefaultNonTextReply = "目前只能回答文字問題。";
 
     /// <summary>For EF Core materialization.</summary>
     private AssistantLineChannel()
@@ -74,6 +82,7 @@ public sealed class AssistantLineChannel : IOrganizationScoped
         ProtectedSecret channelSecret,
         ProtectedSecret accessToken,
         string welcomeMessage,
+        string nonTextReply,
         DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(assistant);
@@ -85,7 +94,7 @@ public sealed class AssistantLineChannel : IOrganizationScoped
         Revision = 1;
         ChannelSecret = channelSecret;
         AccessToken = accessToken;
-        Apply(officialAccountId, channelId, welcomeMessage, now);
+        Apply(officialAccountId, channelId, welcomeMessage, nonTextReply, now);
     }
 
     public Guid AssistantId { get; private set; }
@@ -111,6 +120,10 @@ public sealed class AssistantLineChannel : IOrganizationScoped
 
     /// <summary>Sent on <c>follow</c> and <c>join</c> (decision D).</summary>
     public string WelcomeMessage { get; private set; } = string.Empty;
+
+    /// <summary>Sent when a one-to-one chat gets a message that is not text — a picture, a sticker, a
+    /// video, audio, a file or a location (#291); a group or a room gets no reply.</summary>
+    public string NonTextReply { get; private set; } = DefaultNonTextReply;
 
     public LineChannelState State { get; private set; }
 
@@ -162,6 +175,7 @@ public sealed class AssistantLineChannel : IOrganizationScoped
         ProtectedSecret? newChannelSecret,
         ProtectedSecret? newAccessToken,
         string welcomeMessage,
+        string nonTextReply,
         int expectedRevision,
         DateTimeOffset now)
     {
@@ -176,7 +190,7 @@ public sealed class AssistantLineChannel : IOrganizationScoped
             || newChannelSecret is not null
             || newAccessToken is not null;
 
-        Apply(officialAccountId, channelId, welcomeMessage, now);
+        Apply(officialAccountId, channelId, welcomeMessage, nonTextReply, now);
         ChannelSecret = newChannelSecret ?? ChannelSecret;
         AccessToken = newAccessToken ?? AccessToken;
         if (connectionChanged)
@@ -326,14 +340,17 @@ public sealed class AssistantLineChannel : IOrganizationScoped
         PublishedByAccountId = null;
     }
 
-    private void Apply(string officialAccountId, string channelId, string welcomeMessage, DateTimeOffset now)
+    private void Apply(
+        string officialAccountId, string channelId, string welcomeMessage, string nonTextReply, DateTimeOffset now)
     {
         RequireText(officialAccountId, OfficialAccountIdMaxLength, nameof(officialAccountId));
         RequireText(channelId, ChannelIdLength, nameof(channelId));
         RequireText(welcomeMessage, WelcomeMessageMaxLength, nameof(welcomeMessage));
+        RequireText(nonTextReply, NonTextReplyMaxLength, nameof(nonTextReply));
         OfficialAccountId = officialAccountId;
         ChannelId = channelId;
         WelcomeMessage = welcomeMessage;
+        NonTextReply = nonTextReply;
         UpdatedAt = now;
     }
 

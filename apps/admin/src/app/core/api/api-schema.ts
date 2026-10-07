@@ -9822,6 +9822,7 @@ export interface components {
             officialAccountId: string;
             channelId: string;
             welcomeMessage: string;
+            nonTextReply: string;
             channelSecret: components["schemas"]["SecretStatusView"];
             accessToken: components["schemas"]["SecretStatusView"];
             webhookUrl: null | string;
@@ -10223,6 +10224,7 @@ export interface components {
             officialAccountId: null | string;
             channelId: null | string;
             welcomeMessage: null | string;
+            nonTextReply: null | string;
             /** Format: int32 */
             revision: number;
             channelSecret?: null | string;

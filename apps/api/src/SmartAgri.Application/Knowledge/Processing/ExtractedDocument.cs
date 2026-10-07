@@ -15,13 +15,22 @@ public sealed record ExtractedDocument(IReadOnlyList<ExtractedUnit> Units, bool 
 /// </summary>
 public sealed class ExtractedUnit
 {
-    private ExtractedUnit(KnowledgeUnitLocationKind kind, string locationLabel, string text, int? pageNumber, ExtractedSheet? sheet)
+    private ExtractedUnit(
+        KnowledgeUnitLocationKind kind,
+        string locationLabel,
+        string text,
+        int? pageNumber,
+        ExtractedSheet? sheet,
+        IReadOnlyList<ExtractedTable>? tables = null,
+        string? textOutsideTables = null)
     {
         Kind = kind;
         LocationLabel = locationLabel;
         Text = text;
         PageNumber = pageNumber;
         Sheet = sheet;
+        Tables = tables ?? [];
+        TextOutsideTables = textOutsideTables ?? text;
     }
 
     public KnowledgeUnitLocationKind Kind { get; }
@@ -37,6 +46,15 @@ public sealed class ExtractedUnit
     /// <summary>The rows, for a worksheet: chunks repeat its header row.</summary>
     public ExtractedSheet? Sheet { get; }
 
+    /// <summary>A section's tables (Markdown pipe tables, DOCX tables), in reading order: each
+    /// data row becomes a chunk of its own (<see cref="KnowledgeChunkFormat.TableRows"/>).
+    /// Empty for every other unit and for a section without tables.</summary>
+    public IReadOnlyList<ExtractedTable> Tables { get; }
+
+    /// <summary><see cref="Text"/> without the lines of <see cref="Tables"/>, cleaned the same
+    /// way: what is chunked as text. <see cref="Text"/> itself when there are no tables.</summary>
+    public string TextOutsideTables { get; }
+
     /// <summary>A PDF page (「第 3 頁」).</summary>
     public static ExtractedUnit Page(int pageNumber, string rawText)
     {
@@ -48,6 +66,32 @@ public sealed class ExtractedUnit
     /// heading first; empty for the text before the first heading).</summary>
     public static ExtractedUnit Section(IReadOnlyList<string> headingPath, string rawText) =>
         new(KnowledgeUnitLocationKind.Section, KnowledgeLocationLabels.Section(headingPath), ExtractedText.Clean(rawText), null, null);
+
+    /// <summary>A DOCX or Markdown section with <paramref name="tables"/>: its
+    /// <paramref name="rawText"/> is the whole section as before (what the preview shows, tables
+    /// included), <paramref name="rawTextOutsideTables"/> the same without the tables' lines.</summary>
+    public static ExtractedUnit Section(
+        IReadOnlyList<string> headingPath,
+        string rawText,
+        string rawTextOutsideTables,
+        IReadOnlyList<ExtractedTable> tables)
+    {
+        ArgumentNullException.ThrowIfNull(rawTextOutsideTables);
+        ArgumentNullException.ThrowIfNull(tables);
+        if (tables.Count == 0)
+        {
+            return Section(headingPath, rawText);
+        }
+
+        return new(
+            KnowledgeUnitLocationKind.Section,
+            KnowledgeLocationLabels.Section(headingPath),
+            ExtractedText.Clean(rawText),
+            null,
+            null,
+            tables,
+            ExtractedText.Clean(rawTextOutsideTables));
+    }
 
     /// <summary>A plain-text file, which has no sections (「全文」).</summary>
     public static ExtractedUnit WholeText(string rawText) =>
@@ -88,4 +132,50 @@ public sealed record SheetRow
     /// <summary>A row from its cells in column order (empty cells keep their place).</summary>
     public static SheetRow FromCells(int rowNumber, IEnumerable<string> cells) =>
         new(rowNumber, string.Join(CellSeparator, cells.Select(ExtractedText.CleanLine)));
+}
+
+/// <summary>
+/// A table in a section: its header row's cells (the column names) and its data rows' cells,
+/// each cleaned to one line (<see cref="ExtractedText.CleanLine"/>). A row may have fewer
+/// cells than the header (the rest are empty) or more (those have no column name).
+/// </summary>
+public sealed record ExtractedTable
+{
+    public ExtractedTable(IReadOnlyList<string> header, IReadOnlyList<IReadOnlyList<string>> rows)
+    {
+        ArgumentNullException.ThrowIfNull(header);
+        ArgumentNullException.ThrowIfNull(rows);
+        Header = [.. header.Select(ExtractedText.CleanLine)];
+        Rows = [.. rows.Select(row => (IReadOnlyList<string>)[.. row.Select(ExtractedText.CleanLine)])];
+    }
+
+    /// <summary>Between a column's name and its value in a row's text.</summary>
+    public const string NameValueSeparator = "：";
+
+    public IReadOnlyList<string> Header { get; }
+
+    public IReadOnlyList<IReadOnlyList<string>> Rows { get; }
+
+    /// <summary>
+    /// Data row <paramref name="index"/> (0-based) as a chunk's text: one line per non-empty
+    /// cell, 「欄名：值」 — just the value when its column has no name. Empty when every cell is.
+    /// </summary>
+    public string RowText(int index)
+    {
+        var row = Rows[index];
+        var lines = new List<string>(row.Count);
+        for (var column = 0; column < row.Count; column++)
+        {
+            var value = row[column];
+            if (value.Length == 0)
+            {
+                continue;
+            }
+
+            var name = column < Header.Count ? Header[column] : string.Empty;
+            lines.Add(name.Length == 0 ? value : name + NameValueSeparator + value);
+        }
+
+        return string.Join('\n', lines);
+    }
 }

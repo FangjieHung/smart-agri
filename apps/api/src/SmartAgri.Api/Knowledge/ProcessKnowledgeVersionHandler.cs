@@ -188,44 +188,12 @@ internal sealed class ProcessKnowledgeVersionHandler : IJobHandler
         return chunks;
     }
 
-    /// <summary>What the version's content becomes: an FAQ entry's one unit and chunk, or what
-    /// the file's extractor read, judged and chunked.</summary>
+    /// <summary>What the version's content becomes (<see cref="KnowledgeVersionReader"/>).</summary>
     private ProcessedVersion Process(KnowledgeDocumentVersion version, byte[] content, CancellationToken cancellationToken)
     {
-        if (version.IsFaq)
-        {
-            KnowledgeFaqEntry entry;
-            try
-            {
-                entry = KnowledgeFaqEntry.FromContent(content);
-            }
-            catch (FormatException exception)
-            {
-                // Only the FAQ endpoints write this content, so this is damage, not the owner's
-                // input; the same bytes will not read any better on a retry.
-                throw new PermanentJobFailure(KnowledgeProcessingIssues.For(DocumentExtractionFailure.Damaged), exception);
-            }
-
-            return KnowledgeFaqProcessing.Process(entry);
-        }
-
-        var limits = _options.ExtractionLimits;
-        return KnowledgeVersionProcessing.Process(Extract(version, content, limits, cancellationToken), limits, ChunkingOptions.Default);
-    }
-
-    private ExtractedDocument Extract(KnowledgeDocumentVersion version, byte[] content, ExtractionLimits limits, CancellationToken cancellationToken)
-    {
-        if (!KnowledgeFileFormats.TryFromContentType(version.ContentType, out var format))
-        {
-            // Versions only ever store a canonical content type (KnowledgeDocumentVersion.Create).
-            throw new InvalidOperationException($"Version {version.Id} has an unknown content type.");
-        }
-
-        var extractor = _extractors.SingleOrDefault(candidate => candidate.CanExtract(format))
-            ?? throw new InvalidOperationException($"No single text extractor is registered for {format}.");
         try
         {
-            return extractor.Extract(format, content, limits, cancellationToken);
+            return KnowledgeVersionReader.Read(version, content, _extractors, _options.ExtractionLimits, cancellationToken);
         }
         catch (DocumentExtractionException exception)
         {

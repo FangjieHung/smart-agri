@@ -74,4 +74,83 @@ public class PlainTextExtractorTests
         document.Units.Select(unit => (unit.LocationLabel, unit.Text)).ShouldBe([("一", "甲\n#### 小標\n乙"), ("二", "丙")]);
         document.UnitsTruncated.ShouldBeTrue();
     }
+
+    // --- #301: pipe tables are also read as tables -----------------------------------------
+
+    [Fact]
+    public void Markdown_pipe_tables_are_read_as_tables_and_the_text_around_them_is_kept()
+    {
+        var markdown = Encoding.UTF8.GetBytes(string.Join('\n',
+            "## 基本資訊",
+            "門市的基本資料如下。",
+            "",
+            "| 項目 | 內容 |",
+            "| :--- | ---: |",
+            "| 地址 | 示範縣青禾鄉安和路 18 號 |",
+            "| 電話 |  |",
+            "營業時間 | 09:00\\|18:00",
+            "",
+            "以上資料隨時更新。",
+            "",
+            "| 單欄 |",
+            "|---|",
+            "| 甲 |",
+            "",
+            "| 只有表頭 | 沒有資料 |",
+            "| --- | --- |",
+            ""));
+
+        var unit = Extractor.Extract(KnowledgeFileFormat.Markdown, markdown, ExtractionLimits.Default, CancellationToken).Units.ShouldHaveSingleItem();
+
+        unit.LocationLabel.ShouldBe("基本資訊");
+        unit.Text.ShouldStartWith("門市的基本資料如下。\n\n| 項目 | 內容 |\n| :--- | ---: |", customMessage: "the Markdown is kept as written");
+        unit.TextOutsideTables.ShouldBe("門市的基本資料如下。\n\n以上資料隨時更新。", "a header-only table is no table, and no text either");
+        unit.Tables.Count.ShouldBe(2);
+        unit.Tables[0].Header.ShouldBe(["項目", "內容"]);
+        unit.Tables[0].Rows.ShouldBe([["地址", "示範縣青禾鄉安和路 18 號"], ["電話", ""], ["營業時間", "09:00|18:00"]]);
+        unit.Tables[1].Header.ShouldBe(["單欄"]);
+        unit.Tables[1].Rows.ShouldBe([["甲"]]);
+    }
+
+    [Fact]
+    public void Pipes_without_a_delimiter_row_or_inside_code_stay_text()
+    {
+        var markdown = Encoding.UTF8.GetBytes(string.Join('\n',
+            "# 運費",
+            "地區 | 運費",
+            "本島 | 100 元",
+            "",
+            "| 欄 | 欄 |",
+            "| --- |",
+            "| 甲 | 乙 |",
+            "",
+            "```",
+            "| a | b |",
+            "| - | - |",
+            "| 1 | 2 |",
+            "```"));
+
+        var unit = Extractor.Extract(KnowledgeFileFormat.Markdown, markdown, ExtractionLimits.Default, CancellationToken).Units.ShouldHaveSingleItem();
+
+        unit.Tables.ShouldBeEmpty("no delimiter row, a delimiter row of the wrong width, or fenced code");
+        unit.TextOutsideTables.ShouldBe(unit.Text);
+    }
+
+    [Fact]
+    public void The_store_sheet_has_a_table_in_three_of_its_sections()
+    {
+        var document = Extractor.Extract(
+            KnowledgeFileFormat.Markdown, File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "eval", "retrieval", "files", "store-info.md")), ExtractionLimits.Default, CancellationToken);
+
+        document.Units.Select(unit => (unit.LocationLabel, unit.Tables.Sum(table => table.Rows.Count))).ShouldBe(
+        [
+            ("青禾門市 AI 客服參考資料", 0),
+            ("青禾門市 AI 客服參考資料 › 基本資訊", 5),
+            ("青禾門市 AI 客服參考資料 › 外送與團購", 4),
+            ("青禾門市 AI 客服參考資料 › 門市餐點", 3),
+            ("青禾門市 AI 客服參考資料 › 停車", 0),
+        ]);
+        document.Units.Single(unit => unit.LocationLabel.EndsWith("門市餐點", StringComparison.Ordinal)).TextOutsideTables
+            .ShouldBe("餐點都是單點，沒有套餐；可以內用或外帶。");
+    }
 }

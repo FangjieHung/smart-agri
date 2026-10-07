@@ -79,6 +79,15 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
 
     public KnowledgeDocumentStatus ProcessingStatus { get; private set; }
 
+    /// <summary>
+    /// The chunking rules its chunks were cut with (<see cref="KnowledgeChunkFormat"/>): set to
+    /// <see cref="KnowledgeChunkFormat.Current"/> when processing completes and when
+    /// <c>rechunk</c> has cut a processed version again (<see cref="MarkRechunked"/>). Versions
+    /// processed before the column existed have <see cref="KnowledgeChunkFormat.SectionTables"/>
+    /// (the migration's default).
+    /// </summary>
+    public int ChunkFormat { get; private set; }
+
     /// <summary>Why the version is <see cref="KnowledgeDocumentStatus.Failed"/> or only
     /// partially readable, for the owner; otherwise <see langword="null"/>.</summary>
     public string? Issue { get; private set; }
@@ -226,6 +235,7 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
             SizeBytes = sizeBytes,
             Sha256 = sha256,
             ProcessingStatus = KnowledgeDocumentStatus.Queued,
+            ChunkFormat = KnowledgeChunkFormat.Current,
             Issue = null,
             UploadBatchId = uploadBatchId,
             UploadedByAccountId = uploadedByAccountId,
@@ -285,8 +295,24 @@ public sealed class KnowledgeDocumentVersion : IOrganizationScoped
         }
 
         ProcessingStatus = outcome;
+        ChunkFormat = KnowledgeChunkFormat.Current;
         Issue = issue;
         UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// <c>rechunk</c> replaced a processed, readable version's chunks with ones cut by the
+    /// current rules. Neither its status nor <see cref="UpdatedAt"/> changes: what the owner
+    /// uploaded, and whether it could be read, are the same.
+    /// </summary>
+    public void MarkRechunked()
+    {
+        if (ProcessingStatus is not (KnowledgeDocumentStatus.Ready or KnowledgeDocumentStatus.PartiallyReadable))
+        {
+            throw new InvalidOperationException($"Only a processed, readable version can be chunked again; this one is {ProcessingStatus}.");
+        }
+
+        ChunkFormat = KnowledgeChunkFormat.Current;
     }
 
     /// <summary>

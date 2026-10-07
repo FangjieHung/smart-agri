@@ -7,24 +7,33 @@
 
 ## 1. 這個部署長什麼樣子
 
-`deploy/docker-compose.yml` 啟動兩個服務：`postgres`（pgvector 資料庫）與 `api`。`api` 容器同時提供：
+`deploy/docker-compose.yml` 啟動兩個服務：`postgres`（pgvector 資料庫）與 `api`。**一個網址（`PUBLIC_BASE_URL`）
+同時提供管理介面、API、LINE 與官網嵌入**，`api` 容器提供：
 
-- 管理介面用的 API（`/api/*`、`/connect/*`）；
+- 管理介面（`apps/admin`，已打包在映像檔裡）：`/`、`/login`、`/app/...` 等不屬於下列路徑的網址都回管理介面；
+- 管理介面用的 API（`/api/*`、`/connect/*`、`/.well-known/*`）；
 - 訪客用的對話視窗（`/use/{助理 id}`、`/widget/*`）與載入器（`/embed.js`），都不需要登入；
-- 訪客 API（`/api/v1/public/*`）。
+- 訪客 API（`/api/v1/public/*`）與 LINE 的 webhook（`/api/v1/line/webhook/{助理 id}`）；
+- 健康檢查（`/health/live`、`/health/ready`）。
 
 容器只講**純 HTTP**（容器內 8080，對外映射到 `API_PORT`，預設 8080），**不處理 TLS**。對外一定要有一層
 反向代理（nginx、雲端負載平衡器、CDN）負責 HTTPS。客戶官網是 HTTPS，瀏覽器不會在 HTTPS 頁面裡載入 HTTP 的
 `<script>` 或 iframe，所以**沒有 HTTPS 的公開網址就不能做官網嵌入**。
 
-> 管理介面（`apps/admin`）是另外部署的單頁應用，不由 `api` 容器提供；它的來源網址要填在 `ADMIN_SPA_ORIGIN`
->（見 `apps/api/README.md`「Sign-in and tokens」）。
+> 管理介面和 API 同一個來源，所以登入（`/connect/*`、`SameSite=Strict` 的登入 cookie）不需要額外設定：
+> `ADMIN_SPA_ORIGIN` 留空時，`migrate` 會以 `PUBLIC_BASE_URL` 的來源登錄 `{來源}/auth/callback` 與 `{來源}/login`。
+> `PUBLIC_BASE_URL` 不能帶路徑（管理介面掛在網址的根目錄）。
+>
+> **選項：另外部署管理介面。** 也可以把 `nx build admin --configuration=production-api` 的產出放到別的網址，
+> 前面由同一個反向代理把 `/api`、`/connect`、`/.well-known` 轉到 api（管理介面只用相對路徑呼叫 API，必須同源）。
+> 這時把該網址填進 `ADMIN_SPA_ORIGIN`（它會取代上面的預設值），並可在 compose 的覆寫檔把 `Admin__RootPath` 設為空字串，
+> 讓 api 容器不再提供管理介面（見 `apps/api/README.md`「Serving the admin」）。
 
 ## 2. 事前準備
 
 | 項目 | 說明 |
 | --- | --- |
-| 公開的 HTTPS 網址 | 訪客瀏覽器連得到的網址，例如 `https://assistant.example.org`，指向反向代理，再轉到 `api` 容器的 8080。憑證用公開 CA 簽發（Let's Encrypt 等）；自簽憑證的網址，客戶官網的訪客瀏覽器會拒絕載入。 |
+| 公開的 HTTPS 網址 | 管理者與訪客的瀏覽器、LINE 的伺服器都連得到的網址，例如 `https://assistant.example.org`（不帶路徑），指向反向代理，再轉到 `api` 容器的 8080。憑證用公開 CA 簽發（Let's Encrypt 等）；自簽憑證的網址，客戶官網的訪客瀏覽器會拒絕載入。 |
 | 三個 `.pfx` 憑證 | `deploy/certs/signing.pfx`、`encryption.pfx`、`dataprotection.pfx`。這三個是**API 自己用的金鑰憑證，不是網站的 TLS 憑證**，自簽即可，產生方式見下一節與 `apps/api/README.md`「Sign-in and tokens」。 |
 | 對話模型與嵌入模型 | `CHAT_*` 與 `EMBEDDING_*` 都要設好（見 `deploy/.env.example`）；要讓組織選第二個對話模型時再填 `CHAT_MODELS_0_*`（第 11 節）。沒有對話模型時，訪客看到的是無法回覆；建議使用會回傳 token 用量的供應商，否則每月用量上限算不到（見第 6 節）。 |
 | 第一個組織與管理者 | 已經跑過 `setup`（`apps/api/README.md`「First install: `setup`」）。 |
@@ -68,7 +77,8 @@ cp deploy/.env.example deploy/.env
 | `POSTGRES_PASSWORD` | 資料庫密碼（必填） | compose 拒絕啟動 |
 | `AUTH_SIGNING_CERTIFICATE_PASSWORD`、`AUTH_ENCRYPTION_CERTIFICATE_PASSWORD` | 兩個 token 憑證的密碼 | 憑證打不開，api 拒絕啟動 |
 | `DATA_PROTECTION_CERTIFICATE_PASSWORD` | `deploy/certs/dataprotection.pfx` 的密碼 | api 拒絕啟動（Production） |
-| `PUBLIC_BASE_URL` | 訪客瀏覽器連到 api 的網址，例如 `https://assistant.example.org`（不用加路徑） | api 照常啟動，但沒有嵌入碼、**官網頻道無法發布**（`422 public-base-url`） |
+| `PUBLIC_BASE_URL` | 這個部署唯一的公開網址，例如 `https://assistant.example.org`（不帶路徑）：管理介面、嵌入碼、LINE webhook 都用它 | api 照常啟動，但沒有嵌入碼、**官網頻道無法發布**（`422 public-base-url`）；沒填 `ADMIN_SPA_ORIGIN` 時也**無法登入管理介面** |
+| `ADMIN_SPA_ORIGIN` | 選填。只有管理介面另外部署時才填它的來源，例如 `https://admin.example.org` | 用 `PUBLIC_BASE_URL` 的來源（api 容器提供的管理介面） |
 | `TRUSTED_PROXIES` | 反向代理的 IP 或網段，逗號分隔，例如 `172.18.0.0/16,10.0.0.5` | 忽略所有 `X-Forwarded-*`，見第 5 節 |
 | `DEFAULT_MONTHLY_TOKEN_LIMIT` | 每個組織每月可用的對話模型 token 數（輸入＋輸出）；空白 = 內建的 2,000,000；`0` = 沒有自己上限的組織一律暫停對外回覆 | 用 2,000,000 |
 
@@ -98,12 +108,17 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.limits.yml 
 docker compose -f deploy/docker-compose.yml --env-file deploy/.env config > /dev/null && echo ok
 ```
 
-啟動後驗證（`<網址>` 換成你的公開網址；兩個都應該回 `200`）：
+啟動後驗證（`<網址>` 換成你的公開網址；前三個都應該回 `200`，最後一個應該印出 `1`：首頁就是管理介面）：
 
 ```sh
 curl -s -o /dev/null -w '%{http_code}\n' <網址>/health/ready
 curl -s -o /dev/null -w '%{http_code}\n' <網址>/embed.js
+curl -s -o /dev/null -w '%{http_code}\n' <網址>/.well-known/openid-configuration
+curl -s <網址>/login | grep -c '<app-root'
 ```
+
+接著用瀏覽器開 `<網址>/`，以 `setup` 建立的管理者登入。`ADMIN_SPA_ORIGIN` 或 `PUBLIC_BASE_URL` 改過之後要重新跑一次
+`migrate`（每次啟動容器都會自動跑），登入時才不會出現 redirect URI 不符的錯誤。
 
 ## 4. Data Protection 金鑰環：存在哪裡、備份什麼、遺失會怎樣
 
@@ -134,7 +149,8 @@ API 用 ASP.NET Core Data Protection 保護三樣東西：管理者的登入 coo
 ## 5. 反向代理
 
 api 容器只收純 HTTP，**TLS 在反向代理結束**。代理要做兩件事：把請求轉到 `api` 的 8080，並帶上
-`X-Forwarded-For`（訪客真正的 IP）、`X-Forwarded-Proto`（`https`）、`Host`。
+`X-Forwarded-For`（訪客真正的 IP）、`X-Forwarded-Proto`（`https`）、`Host`。管理介面也由 api 提供，所以整個網址
+（`location /`）都轉給 api 即可，不需要為管理介面另寫規則。
 
 nginx 範例（`server_name`、憑證路徑換成自己的；已用 `nginx -t` 檢查語法）：
 

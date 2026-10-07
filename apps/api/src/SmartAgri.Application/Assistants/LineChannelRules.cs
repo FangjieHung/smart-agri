@@ -14,7 +14,8 @@ public sealed record LineChannelSettings(
     string ChannelId,
     string? ChannelSecret,
     string? AccessToken,
-    string WelcomeMessage)
+    string WelcomeMessage,
+    string NonTextReply)
 {
     /// <summary>Never shows the credentials: the generated <c>ToString</c> would print them into
     /// any log line that formats the object.</summary>
@@ -31,7 +32,9 @@ public sealed record LineChannelSettings(
 /// <see cref="ValidateField"/> is a port of the frontend mock's per-field check (<c>lineChecks()</c> over
 /// <c>trimLineSettings()</c>, <c>apps/admin/src/app/core/repositories/publishing-channels.ts</c>), with
 /// the same patterns and messages, so the screen and the API refuse exactly the same input. One shared
-/// case list, <c>apps/admin/src/app/core/domain/line-field-cases.json</c>, is run against both.
+/// case list, <c>apps/admin/src/app/core/domain/line-field-cases.json</c>, is run against both; it
+/// also covers <see cref="ValidateNonTextReply"/> (#291) and the frontend's
+/// <c>validateLineNonTextReply()</c>.
 /// </para>
 /// <para>
 /// JavaScript semantics are kept exactly: <c>String.prototype.trim()</c> and <c>\S</c> use
@@ -56,6 +59,8 @@ public static partial class LineChannelRules
 
     public const string WelcomeMessageField = "welcomeMessage";
 
+    public const string NonTextReplyField = "nonTextReply";
+
     /// <summary>The frontend's <c>LINE_FIELDS</c> labels, in its order.</summary>
     public static IReadOnlyList<(string Field, string Label)> Fields { get; } =
     [
@@ -69,6 +74,11 @@ public static partial class LineChannelRules
 
     public static readonly string WelcomeMessageTooLongMessage =
         $"歡迎訊息請在 {AssistantLineChannel.WelcomeMessageMaxLength} 個字以內。";
+
+    public const string NonTextReplyRequiredMessage = "請填寫收到非文字訊息時的回覆。";
+
+    public static readonly string NonTextReplyTooLongMessage =
+        $"收到非文字訊息時的回覆請在 {AssistantLineChannel.NonTextReplyMaxLength} 個字以內。";
 
     /// <summary>Minimum length of a channel access token (the frontend's <c>/^\S{40,}$/</c>).</summary>
     public const int AccessTokenMinLength = 40;
@@ -98,6 +108,24 @@ public static partial class LineChannelRules
         return matches ? null : label + rule;
     }
 
+    /// <summary>
+    /// The check of 「收到非文字訊息時的回覆」 (#291; the frontend's <c>validateLineNonTextReply()</c>):
+    /// <see langword="null"/> when <paramref name="raw"/>, trimmed, is not empty and at most
+    /// <see cref="AssistantLineChannel.NonTextReplyMaxLength"/> UTF-16 code units (JavaScript's
+    /// <c>length</c>: an emoji outside the BMP counts 2); otherwise the message. Line breaks and emoji
+    /// inside the text are kept.
+    /// </summary>
+    public static string? ValidateNonTextReply(string? raw)
+    {
+        var value = Normalize(raw);
+        if (value.Length == 0)
+        {
+            return NonTextReplyRequiredMessage;
+        }
+
+        return value.Length > AssistantLineChannel.NonTextReplyMaxLength ? NonTextReplyTooLongMessage : null;
+    }
+
     /// <summary>The frontend's <c>trimLineSettings()</c> for one value: JavaScript's <c>trim()</c>.</summary>
     public static string Normalize(string? raw)
     {
@@ -119,7 +147,8 @@ public static partial class LineChannelRules
 
     /// <summary>
     /// The settings form, every broken field reported at once (each under its own key). The official
-    /// account id, the channel id and the welcome message are always required (a full replace); an
+    /// account id, the channel id, the welcome message and the non-text reply are always required (a
+    /// full replace); an
     /// empty <paramref name="channelSecret"/> or <paramref name="accessToken"/> means "keep the stored
     /// one" when <paramref name="credentialsStored"/>, and is required otherwise.
     /// </summary>
@@ -129,6 +158,7 @@ public static partial class LineChannelRules
         string? channelSecret,
         string? accessToken,
         string? welcomeMessage,
+        string? nonTextReply,
         bool credentialsStored)
     {
         var failures = new List<ValidationFailure>();
@@ -158,6 +188,11 @@ public static partial class LineChannelRules
             failures.Add(new ValidationFailure(WelcomeMessageField, WelcomeMessageTooLongMessage));
         }
 
+        if (ValidateNonTextReply(nonTextReply) is { } nonTextReplyMessage)
+        {
+            failures.Add(new ValidationFailure(NonTextReplyField, nonTextReplyMessage));
+        }
+
         return failures.Count > 0
             ? ValidationResult<LineChannelSettings>.Invalid(failures)
             : ValidationResult<LineChannelSettings>.Valid(new LineChannelSettings(
@@ -165,7 +200,8 @@ public static partial class LineChannelRules
                 Normalize(channelId),
                 newSecret.Length > 0 ? newSecret : null,
                 newToken.Length > 0 ? newToken : null,
-                welcome));
+                welcome,
+                Normalize(nonTextReply)));
 
         void Check(string field, string? raw)
         {

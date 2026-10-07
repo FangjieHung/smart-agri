@@ -311,6 +311,35 @@ public class LineWebhookEndpointTests : IClassFixture<LineWebhookHostFixture>
     }
 
     [Fact]
+    public async Task A_non_text_message_gets_the_owners_reply_with_line_breaks_and_emoji_kept_and_nothing_in_a_group_or_room()
+    {
+        // #291: the owner's own wording replaces the default.
+        const string ownersReply = "收到您的照片了 📷\n目前只能看懂文字，\n請用文字描述問題 🙏";
+        var bot = Line.AddBot("@anxin-demo");
+        var channel = await CreateChannelAsync(bot, LineChannelState.Published, nonTextReply: ownersReply);
+        var sentinel = NewSentinel(channel.AssistantId);
+
+        var response = await PostAsync(
+            channel.AssistantId,
+            Body(
+                bot.UserId,
+                Message(UserSource("U" + new string('8', 32)), """{"id":"m-sticker-1","type":"sticker","packageId":"1","stickerId":"2"}""", "reply-token-sticker"),
+                Message(GroupSource("Cgroup000000000000000000000000002", "U" + new string('8', 32)), """{"id":"m-image-2","type":"image","contentProvider":{"type":"line"}}""", "reply-token-group"),
+                Message("""{"type":"room","roomId":"Rroom0000000000000000000000000001"}""", """{"id":"m-location","type":"location","latitude":25.0,"longitude":121.5}""", "reply-token-room"),
+                sentinel.Event),
+            sign: true);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ProcessedAsync(sentinel);
+        var reply = Replies(bot).ShouldHaveSingleItem();
+        reply.Json.GetProperty("replyToken").GetString().ShouldBe("reply-token-sticker");
+        var messages = reply.Json.GetProperty("messages");
+        messages.GetArrayLength().ShouldBe(1);
+        messages[0].GetProperty("type").GetString().ShouldBe("text");
+        messages[0].GetProperty("text").GetString().ShouldBe(ownersReply);
+    }
+
+    [Fact]
     public async Task Unfollow_and_leave_forget_the_chat_and_unsend_forgets_that_message()
     {
         var bot = Line.AddBot("@anxin-demo");
@@ -450,7 +479,8 @@ public class LineWebhookEndpointTests : IClassFixture<LineWebhookHostFixture>
     /// channel secret (protected under another purpose, as after a key-ring change).
     /// </summary>
     private async Task<TestChannel> CreateChannelAsync(
-        LineBot bot, LineChannelState state, bool tested = true, bool unreadableSecret = false)
+        LineBot bot, LineChannelState state, bool tested = true, bool unreadableSecret = false,
+        string nonTextReply = AssistantLineChannel.DefaultNonTextReply)
     {
         var org = await CreateOrganizationAsync();
         var created = await CreateAssistantAsync(org);
@@ -466,6 +496,7 @@ public class LineWebhookEndpointTests : IClassFixture<LineWebhookHostFixture>
                 unreadableSecret ? AssistantLineChannel.AccessTokenPurpose : AssistantLineChannel.ChannelSecretPurpose, Secret, now),
             protector.Protect(AssistantLineChannel.AccessTokenPurpose, bot.AccessToken, now),
             WelcomeMessage,
+            nonTextReply,
             now);
         if (tested || state != LineChannelState.Draft)
         {

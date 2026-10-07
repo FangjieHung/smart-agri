@@ -70,6 +70,17 @@
       }
     </div>
 
+    <div class="field">
+      <label for="line-nonTextReply">收到非文字訊息時的回覆</label>
+      <p class="caption" id="line-nonTextReply-hint">一對一聊天收到圖片、貼圖、影片、語音、檔案或位置時送出，群組與多人聊天室不回覆；可以換行與使用 emoji，最多 {{ maxNonTextReply }} 字（目前 {{ values.nonTextReply.length }} 字）。</p>
+      <textarea id="line-nonTextReply" rows="3" [value]="values.nonTextReply"
+        [attr.aria-invalid]="hasError('nonTextReply') ? 'true' : null"
+        [attr.aria-describedby]="describedBy('nonTextReply')" (input)="setPlain('nonTextReply', $event)"></textarea>
+      @if (hasError('nonTextReply')) {
+        <p class="error" id="line-nonTextReply-error">{{ errorOf('nonTextReply') }}</p>
+      }
+    </div>
+
     @if (conflictMessage()) {
       <div class="error-summary" role="alert">
         <p>{{ conflictMessage() }}</p>

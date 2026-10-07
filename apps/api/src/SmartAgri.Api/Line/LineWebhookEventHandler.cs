@@ -24,8 +24,10 @@ namespace SmartAgri.Api.Line;
 /// <item><c>follow</c>, <c>join</c>: the channel's welcome message (decision D) as a reply — only while
 /// the channel is <see cref="ChannelServingState.Serving"/>: a draft channel answers nothing (it is still
 /// being tested), and a paused or suspended one does not greet people it would not answer;</item>
-/// <item>a <c>message</c> that is not text: in a one-to-one chat, while serving, the reply
-/// 「<see cref="NonTextReply"/>」; in a group or room nothing;</item>
+/// <item>a <c>message</c> that is not text: in a one-to-one chat, while serving, the channel's
+/// <see cref="AssistantLineChannel.NonTextReply"/> (#291; by default
+/// 「<see cref="AssistantLineChannel.DefaultNonTextReply"/>」) as a reply — no model call, no token usage;
+/// in a group or room nothing;</item>
 /// <item>a text <c>message</c> of a published or paused channel (whatever its serving state; never a
 /// draft's): handed to <see cref="ILineQuestionHandler"/>, which owns its reply token;</item>
 /// <item>anything else (<c>postback</c>, <c>memberJoined</c>, <c>messageEdited</c>, unknown types):
@@ -38,9 +40,6 @@ namespace SmartAgri.Api.Line;
 /// </remarks>
 internal sealed class LineWebhookEventHandler
 {
-    /// <summary>The reply to a non-text message in a one-to-one chat (M5b plan §3 D).</summary>
-    public const string NonTextReply = "目前只能回答文字問題。";
-
     private readonly AppDbContext _dbContext;
     private readonly OrganizationTokenUsage _tokenUsage;
     private readonly ISecretProtector _secretProtector;
@@ -155,7 +154,7 @@ internal sealed class LineWebhookEventHandler
             case LineWebhookEvent.Types.Message when lineEvent.Message is not null:
                 if (lineEvent.Source.IsOneToOne && state.Serving == ChannelServingState.Serving)
                 {
-                    await ReplyAsync(state, lineEvent, NonTextReply, cancellationToken);
+                    await ReplyAsync(state, lineEvent, state.Channel.NonTextReply, cancellationToken);
                 }
 
                 return;

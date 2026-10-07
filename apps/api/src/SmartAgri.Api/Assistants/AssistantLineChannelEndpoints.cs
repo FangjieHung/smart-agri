@@ -40,7 +40,7 @@ public sealed record LineConnectionCheckView(
 /// <item><see cref="WebhookUrl"/> is real (<c>PublicChannels:PublicBaseUrl</c>), or
 /// <see langword="null"/> while the server has no public address;</item>
 /// <item><see cref="Revision"/> is <c>0</c> until the settings are first saved (the values shown are
-/// then empty, with decision D's default welcome message).</item>
+/// then empty, with decision D's default welcome message and the default non-text reply).</item>
 /// </list>
 /// </summary>
 /// <param name="Channel">Its card: <c>not-configured</c> before the first save, <c>testing</c> while
@@ -55,6 +55,7 @@ public sealed record LineChannelView(
     string OfficialAccountId,
     string ChannelId,
     string WelcomeMessage,
+    string NonTextReply,
     SecretStatusView ChannelSecret,
     SecretStatusView AccessToken,
     string? WebhookUrl,
@@ -72,7 +73,8 @@ public sealed record LineChannelView(
 /// <summary>
 /// <c>PUT /api/v1/assistants/{id}/publishing/line</c>: the settings form and the
 /// <see cref="Revision"/> it was read at (<c>0</c> before the first save). The official account id,
-/// the channel id and the welcome message replace the stored ones; <see cref="ChannelSecret"/> and
+/// the channel id, the welcome message and the non-text reply (#291) replace the stored ones;
+/// <see cref="ChannelSecret"/> and
 /// <see cref="AccessToken"/> are write-only — <see langword="null"/> or empty keeps the stored value
 /// (required only on the first save), a value replaces it.
 /// </summary>
@@ -80,6 +82,7 @@ public sealed record UpdateLineChannelRequest(
     string? OfficialAccountId,
     string? ChannelId,
     string? WelcomeMessage,
+    string? NonTextReply,
     int Revision,
     string? ChannelSecret = null,
     string? AccessToken = null)
@@ -231,6 +234,7 @@ public static class AssistantLineChannelEndpoints
             request.ChannelSecret,
             request.AccessToken,
             request.WelcomeMessage,
+            request.NonTextReply,
             credentialsStored: channel is not null);
         if (!validated.IsValid)
         {
@@ -253,6 +257,7 @@ public static class AssistantLineChannelEndpoints
                 secretProtector.Protect(AssistantLineChannel.ChannelSecretPurpose, settings.ChannelSecret!, now),
                 secretProtector.Protect(AssistantLineChannel.AccessTokenPurpose, settings.AccessToken!, now),
                 settings.WelcomeMessage,
+                settings.NonTextReply,
                 now);
             dbContext.AssistantLineChannels.Add(channel);
         }
@@ -270,7 +275,8 @@ public static class AssistantLineChannelEndpoints
                 ? secretProtector.Protect(AssistantLineChannel.AccessTokenPurpose, token, now)
                 : null;
             if (!channel.TryApplySettings(
-                    settings.OfficialAccountId, settings.ChannelId, newSecret, newToken, settings.WelcomeMessage, request.Revision, now))
+                    settings.OfficialAccountId, settings.ChannelId, newSecret, newToken, settings.WelcomeMessage, settings.NonTextReply,
+                    request.Revision, now))
             {
                 return RevisionConflict();
             }
@@ -576,6 +582,7 @@ public static class AssistantLineChannelEndpoints
             channel?.OfficialAccountId ?? string.Empty,
             channel?.ChannelId ?? string.Empty,
             channel?.WelcomeMessage ?? AssistantLineChannel.DefaultWelcomeMessage,
+            channel?.NonTextReply ?? AssistantLineChannel.DefaultNonTextReply,
             SecretStatusView.From(channel?.ChannelSecret),
             SecretStatusView.From(channel?.AccessToken),
             options.LineWebhookUrl(assistant.Id),

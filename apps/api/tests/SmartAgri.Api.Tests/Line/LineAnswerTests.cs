@@ -505,7 +505,7 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
             assistant, "@anxin-line", "1650000000",
             protector.Protect(AssistantLineChannel.ChannelSecretPurpose, Secret, now),
             protector.Protect(AssistantLineChannel.AccessTokenPurpose, bot.AccessToken, now),
-            "歡迎！", now);
+            "歡迎！", AssistantLineChannel.DefaultNonTextReply, now);
         channel.RecordConnectionChecks(
             [.. LineConnectionCheck.All.Select(kind => new LineConnectionCheck(kind, LineConnectionCheckState.Passed, "通過。"))], bot.UserId, now);
         if (state != LineChannelState.Draft)

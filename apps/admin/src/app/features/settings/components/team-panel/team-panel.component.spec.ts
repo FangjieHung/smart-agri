@@ -258,6 +258,55 @@ describe('TeamPanelComponent adding a member (issue #52)', () => {
     expect(TestBed.inject(MatDialog).openDialogs.map((ref) => ref.getState())).not.toContain(MatDialogState.OPEN);
   });
 
+  // issue #283：`<select [value]>` 在 `@for` 還沒產生選項時就套用，瀏覽器改選第一個選項（管理者），
+  // 畫面寫「管理者」、送出的卻是 `newRole` 的內部同仁。
+  it('opens with 內部同仁 both on screen and in the submitted request when the role is left alone', async () => {
+    const { fixture, host, repository } = await render();
+    const create = vi.spyOn(repository, 'createMember');
+
+    button(host, '新增成員').click();
+    await settle(fixture);
+
+    const role = document.querySelector<HTMLSelectElement>('#new-member-role') as HTMLSelectElement;
+    expect(role.value).toBe('internal-employee');
+    expect(role.selectedOptions[0]?.textContent?.trim()).toBe('內部同仁');
+
+    typeInto('#new-member-login-name', 'new-hire');
+    typeInto('#new-member-display-name', '新進同仁');
+    document.querySelector<HTMLFormElement>('.create-panel')?.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+
+    expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0][0].role).toBe('internal-employee');
+  });
+
+  it('submits 管理者 after the role is changed to it, and opens with 內部同仁 again next time', async () => {
+    const { fixture, host, repository } = await render();
+    const create = vi.spyOn(repository, 'createMember');
+
+    button(host, '新增成員').click();
+    await settle(fixture);
+    typeInto('#new-member-login-name', 'new-admin');
+    typeInto('#new-member-display-name', '新管理者');
+    typeInto('#new-member-role', 'smb-admin');
+    await settle(fixture);
+    const role = document.querySelector<HTMLSelectElement>('#new-member-role') as HTMLSelectElement;
+    expect(role.selectedOptions[0]?.textContent?.trim()).toBe('管理者');
+    document.querySelector<HTMLFormElement>('.create-panel')?.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+
+    expect(create).toHaveBeenCalledOnce();
+    expect(create.mock.calls[0][0].role).toBe('smb-admin');
+
+    // 再開一次：預設回到內部同仁，畫面與狀態一致。
+    documentButton('關閉').click();
+    await settle(fixture);
+    button(host, '新增成員').click();
+    await settle(fixture);
+    const reopened = Array.from(document.querySelectorAll<HTMLSelectElement>('#new-member-role')).at(-1);
+    expect(reopened?.value).toBe('internal-employee');
+  });
+
   it('offers 新增成員 only to an account that can see the team panel at all', async () => {
     const { host } = await render('account-internal-employee');
     expect(

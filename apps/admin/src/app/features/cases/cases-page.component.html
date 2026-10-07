@@ -41,36 +41,37 @@
         </label>
         <label>
           狀態
-          <select [value]="status()" (change)="status.set($any($event.target).value)">
-            <option value="open">未結案</option>
-            <option value="closed">已結案</option>
-            <option value="all">全部狀態</option>
+          <!-- 有 @for 產生的選項：選取狀態綁在 option 上，select 的 [value] 會在選項出現前套用而落空（issue #283）。 -->
+          <select (change)="status.set($any($event.target).value)">
+            <option value="open" [selected]="status() === 'open'">未結案</option>
+            <option value="closed" [selected]="status() === 'closed'">已結案</option>
+            <option value="all" [selected]="status() === 'all'">全部狀態</option>
             @for (option of statuses; track option) {
-              <option [value]="option">{{ statusLabel(option) }}</option>
+              <option [value]="option" [selected]="status() === option">{{ statusLabel(option) }}</option>
             }
           </select>
         </label>
         <label>
           案件類型
-          <select [value]="typeFilter()" (change)="typeFilter.set($any($event.target).value)">
-            <option value="">全部類型</option>
+          <select (change)="typeFilter.set($any($event.target).value)">
+            <option value="" [selected]="typeFilter() === ''">全部類型</option>
             @if (unlistedType()) {
               <option [value]="typeFilter()" selected>已停用的類型</option>
             }
             @for (type of types(); track type.id) {
-              <option [value]="type.id">{{ type.name }}</option>
+              <option [value]="type.id" [selected]="typeFilter() === type.id">{{ type.name }}</option>
             }
           </select>
         </label>
         <label>
           承辦組
-          <select [value]="groupFilter()" (change)="groupFilter.set($any($event.target).value)">
-            <option value="">全部承辦組</option>
+          <select (change)="groupFilter.set($any($event.target).value)">
+            <option value="" [selected]="groupFilter() === ''">全部承辦組</option>
             @if (unlistedGroup()) {
               <option [value]="groupFilter()" selected>已封存的承辦組</option>
             }
             @for (group of groups(); track group.id) {
-              <option [value]="group.id">{{ group.name }}</option>
+              <option [value]="group.id" [selected]="groupFilter() === group.id">{{ group.name }}</option>
             }
           </select>
         </label>

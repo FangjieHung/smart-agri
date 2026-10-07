@@ -169,6 +169,19 @@ describe('CasesPageComponent', () => {
     expect(unknown.repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'open', typeId: undefined, groupId: undefined });
   });
 
+  // issue #283 的同一類問題：選項由 @for 產生（狀態的後半段、類型、承辦組）時，select 的 [value]
+  // 在選項出現前就套用而落空，畫面會退回第一個選項，與實際的篩選不一致。
+  it('shows the filters from the address in the selects, including the options rendered by @for', async () => {
+    const { fixture, repo } = await setup({ url: '/app/cases?status=pending&typeId=type-1&groupId=group-2' });
+    expect(repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'pending', typeId: 'type-1', groupId: 'group-2' });
+
+    const selects = (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLSelectElement>('.cases-filters select');
+    expect([...selects].map((select) => select.value)).toEqual(['all', 'pending', 'type-1', 'group-2']);
+    expect([...selects].map((select) => select.selectedOptions[0]?.textContent?.trim())).toEqual([
+      '我看得到的全部', '待受理', '設備故障報修', '採購組',
+    ]);
+  });
+
   it('marks an open case past its due time as 已逾期, and never a closed one', async () => {
     const { fixture } = await setup({
       list: of({

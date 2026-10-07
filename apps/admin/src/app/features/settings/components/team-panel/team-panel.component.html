@@ -122,68 +122,72 @@
 </section>
 
 <ng-template #addMemberDialog>
-  <form class="create-panel" aria-labelledby="add-member-title" (submit)="submitAddMember($event)" novalidate>
+  <form class="create-panel create-panel--scrolling" aria-labelledby="add-member-title" (submit)="submitAddMember($event)" novalidate>
     <h2 id="add-member-title">新增成員</h2>
-    @if (apiMode) {
-      <p class="hint">新成員會用登入名稱與這次產生的一次性密碼登入，首次登入就會被要求設定自己的密碼。</p>
-    } @else {
-      <p class="hint">這是示範用的新增流程：新成員只存在這台瀏覽器，一次性密碼也是示範用的字串，不是真的可登入的密碼。</p>
-    }
-    <div class="control">
-      <label for="new-member-login-name">登入名稱</label>
-      <input
-        id="new-member-login-name"
-        type="text"
-        autocomplete="off"
-        [attr.maxlength]="loginNameMaxLength"
-        [value]="newLoginName()"
-        [attr.aria-invalid]="createError() ? 'true' : null"
-        [attr.aria-describedby]="createError() ? 'add-member-error' : null"
-        (input)="setNewLoginName($event)"
-      />
-    </div>
-    <div class="control">
-      <label for="new-member-display-name">顯示名稱</label>
-      <input
-        id="new-member-display-name"
-        type="text"
-        autocomplete="off"
-        [attr.maxlength]="displayNameMaxLength"
-        [value]="newDisplayName()"
-        (input)="setNewDisplayName($event)"
-      />
-    </div>
-    <div class="control">
-      <label for="new-member-role">角色</label>
-      <select id="new-member-role" [value]="newRole()" (change)="setNewRole($event)">
-        @for (role of creatableRoles; track role) {
-          <option [value]="role">{{ roleLabels[role] }}</option>
-        }
-      </select>
-    </div>
-    <fieldset>
-      <legend>一開始擁有的權限</legend>
-      @for (permission of team()?.permissions; track permission.id) {
-        <div class="choice">
-          <label [for]="'new-member-permission-' + permission.id">
-            <span class="choice__label">
-              {{ permission.label }}
-              @if (!permission.enforced) {
-                <span class="choice__tag">尚未接到行為</span>
-              }
-            </span>
-            <small>{{ permission.description }}</small>
-          </label>
-          <input
-            type="checkbox"
-            role="switch"
-            [id]="'new-member-permission-' + permission.id"
-            [checked]="newPermissions().has(permission.id)"
-            (change)="toggleNewPermission(permission.id, $event)"
-          />
-        </div>
+    <!-- 權限清單會讓表單比矮視窗還高：只有這一段捲動，標題與按鈕列一直看得到（issue #284）。 -->
+    <div class="create-panel__body">
+      @if (apiMode) {
+        <p class="hint">新成員會用登入名稱與這次產生的一次性密碼登入，首次登入就會被要求設定自己的密碼。</p>
+      } @else {
+        <p class="hint">這是示範用的新增流程：新成員只存在這台瀏覽器，一次性密碼也是示範用的字串，不是真的可登入的密碼。</p>
       }
-    </fieldset>
+      <div class="control">
+        <label for="new-member-login-name">登入名稱</label>
+        <input
+          id="new-member-login-name"
+          type="text"
+          autocomplete="off"
+          [attr.maxlength]="loginNameMaxLength"
+          [value]="newLoginName()"
+          [attr.aria-invalid]="createError() ? 'true' : null"
+          [attr.aria-describedby]="createError() ? 'add-member-error' : null"
+          (input)="setNewLoginName($event)"
+        />
+      </div>
+      <div class="control">
+        <label for="new-member-display-name">顯示名稱</label>
+        <input
+          id="new-member-display-name"
+          type="text"
+          autocomplete="off"
+          [attr.maxlength]="displayNameMaxLength"
+          [value]="newDisplayName()"
+          (input)="setNewDisplayName($event)"
+        />
+      </div>
+      <div class="control">
+        <label for="new-member-role">角色</label>
+        <!-- 選項由 @for 產生：選取狀態綁在 option 上，select 的 [value] 會在選項出現前套用而落空（issue #283）。 -->
+        <select id="new-member-role" (change)="setNewRole($event)">
+          @for (role of creatableRoles; track role) {
+            <option [value]="role" [selected]="role === newRole()">{{ roleLabels[role] }}</option>
+          }
+        </select>
+      </div>
+      <fieldset>
+        <legend>一開始擁有的權限</legend>
+        @for (permission of team()?.permissions; track permission.id) {
+          <div class="choice">
+            <label [for]="'new-member-permission-' + permission.id">
+              <span class="choice__label">
+                {{ permission.label }}
+                @if (!permission.enforced) {
+                  <span class="choice__tag">尚未接到行為</span>
+                }
+              </span>
+              <small>{{ permission.description }}</small>
+            </label>
+            <input
+              type="checkbox"
+              role="switch"
+              [id]="'new-member-permission-' + permission.id"
+              [checked]="newPermissions().has(permission.id)"
+              (change)="toggleNewPermission(permission.id, $event)"
+            />
+          </div>
+        }
+      </fieldset>
+    </div>
     @if (createError()) {
       <p id="add-member-error" class="error" role="alert">{{ createError() }}</p>
     }

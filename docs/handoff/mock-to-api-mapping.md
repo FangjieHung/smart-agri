@@ -21,6 +21,7 @@
 | 終端對話與同意流程 | 第 5 節 |
 | 發布管道 | 第 6 節 |
 | 尚未被畫面呼叫的方法 | 第 7 節 |
+| 組織設定：對話模型、保存期限、立即刪除（M6） | 本文件第 2.10 節；部署端見 `deploy/README.md` 第 11、12 節；實機驗收見 `docs/evals/2026-10-07-245-model-switch-acceptance.md` |
 | 案件（M7，獨立的 repository） | 本文件第 2.9 節；規則與決定見 `docs/plans/2026-10-06-backend-milestone-7-cases.md`（第 3 節共同規則）與 ADR `docs/adr/2026-10-06-cases-and-handoff.md`；觸發方式評測見 `docs/evals/2026-10-07-257-case-proposal-trigger.md` |
 | 後端必須自行決定的缺口 | 第 8 節 |
 | 共用回應契約與 `permission-denied` 硬規則 | 第 1.5、1.6 節 |
@@ -408,6 +409,46 @@ HTTP adapter 可把三者實作成 no-op，或在正式建置中把整個 `DemoS
 - **管理者只能停用、不能刪除類型或承辦組**（決定 G、O）：被啟用中類型當預設的承辦組不能封存、有未結案案件的承辦組不能封存、被資料庫自動開案使用的類型不能停用。
 - **前端特例**：`cases.repository.ts` 的 `viewerIsManager()`（`:385`）以 Demo 身分的角色判斷要不要顯示「瓶頸統計」分頁；API 模式的真正判斷在後端的 `403 organization-settings`。
 - **Demo 模式的案件資料只存在這次工作階段**，且刻意**不放進 `demo-seed.ts`**（後端有測試會讀它）；範例資料在 `cases.repository.ts` 的 `MOCK_SEEDS`、`case-settings.repository.ts`、`mock-chat-cases.ts`、`mock-issue-cases.ts`。
+
+### 2.10 組織設定：對話模型、保存期限、立即刪除（M6，8 個方法）
+
+這 8 個方法在 `DemoRepository` 介面上（`demo-repository.ts:754-798`），`HybridDemoRepository`（`hybrid-demo-repository.ts:1201-1330`）在 API 模式下直接打下表的**真實 endpoint（M6 已實作）**，Demo 模式由 `mock-demo-repository.ts:2121-2344` 模擬。深度：`docs/plans/2026-10-06-backend-milestone-6-org-settings.md` 第 3 節 C、D、F、G、H；部署端的寫法與營運注意事項：`deploy/README.md` 第 11、12 節；兩個真實模型的切換驗收：`docs/evals/2026-10-07-245-model-switch-acceptance.md`。
+
+**共同規則**：讀取（`GET`）組織內任何帳號都可以，`canChange` 只有管理者（角色 `smb-admin`，每個請求從資料庫讀，不看權杖的 claim）是 `true`。所有變更與管理者限定的讀取，非管理者一律 `403 organization-settings`（「只有管理者可以變更組織設定。」）；助理不存在或屬於別的組織也是同一則。對話模型與保存期限共用 `revision`（`Organizations.SettingsRevision`），所以改了其中一個，另一個畫面手上的 `revision` 也會過時（`409 organization-settings-conflict`，畫面重新讀取）。每次真正的變更都寫一筆 `OrganizationActivities`；設定頁只顯示每個區塊的 `lastChange`（帳號已找不到時顯示「已停用的帳號」，系統動作顯示「系統」）。
+
+#### 對話模型
+
+| 方法（契約行號） | endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `getOrganizationChatModel()` `demo-repository.ts:754` | `GET /api/v1/organization/chat-model` | `S`（組織內任何帳號） | `200` `OrganizationChatModelView`：`options[{ id, displayName, model }]`（第一項是部署預設；永遠不含金鑰、Endpoint）、`selectedId`（沒選是 `null`）、`effective`（實際使用的項目；部署沒有對話模型時是 `null`）、`source`（`selected`／`deployment-default`／`removed`）、`canChange`、`lastChange`、`revision` | — | `401`／`5xx` | `features/settings/components/chat-model-panel/chat-model-panel.component.ts:57`；驗收頁 `features/assistants/assistant-detail/tabs/acceptance-tab/assistant-acceptance-tab.component.ts:92` |
+| `updateOrganizationChatModel(modelId, revision)` `:760` | `PUT /api/v1/organization/chat-model` `{ modelId, revision }`（`modelId: null` = 改回部署預設） | `S+ADM` | `200` `OrganizationChatModelView`（與目前相同時不寫紀錄；有變更時寫 `chat-model-changed`，detail 記前後的 id 與顯示名稱） | `422`（`errors.modelId`：不在 `options` 的 id）／`409 organization-settings-conflict` | `401`／`403 organization-settings`／`5xx` | `chat-model-panel.component.ts:114` |
+
+- **模型清單來自部署設定**（`Ai:Chat` 是部署預設、`Ai:Chat:Models:N` 是額外的模型；compose 的 `CHAT_*`／`CHAT_MODELS_0_*`），不是組織資料；前端不能新增或編輯模型。Demo 模式只有一個模型（`MOCK_CHAT_MODELS`，扮演開發環境的 `fake-chat-dev`），所以 Demo 的設定頁只看得到一個選項。
+- **換了立即生效**：組織的選擇每個請求範圍讀一次、不快取。下一次對話、精靈試問、題組重跑、數據庫查詢、表單請求、案件提議、報表摘要（背景工作執行時才決定）都用新模型；`ModelInvocations.Model`、`AssistantTestRuns.Model`、報表的 `SummaryModel` 記實際用到的模型名稱（2026-10-07 以兩個真實模型實機確認）。
+- **`source: removed`**：組織選的 id 已不在部署清單（營運者移除或改了 id），`effective` 是部署預設；設定頁顯示「原本選的模型已不再提供，目前使用部署預設 X」，選單停在一個停用的「已不再提供」項目，直到管理者重選。`selectedId` 仍是舊值，同一個 id 加回來後自動恢復。
+- **驗收頁提示**讀這個 `GET` 的 `effective.model`（不放進 `/me`，因為 `/me` 登入時讀一次就快取）：最近一次有記模型的題組重跑 `model` ≠ `effective.model`，且沒有排隊中或進行中的重跑時，顯示「上次測試使用模型 X，現在是 Y。建議重跑題組。」（`organization-settings.model.ts` 的 `chatModelChangedSinceRun`）。以**模型名稱**比對：兩個項目同一個模型、只差推理強度時不會提示（計畫第 7 節技術風險 5）。
+
+#### 保存期限
+
+| 方法（契約行號） | endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `getOrganizationRetention()` `:768` | `GET /api/v1/organization/retention` | `S` | `200` `OrganizationRetentionView`：`days`（`null` = 永久）、`pending`（`{ days, effectiveAt }` 或 `null`）、`options`（`[30, 90, 180, 365]`）、`canChange`、`lastChange`、`revision` | — | `401`／`5xx` | `features/settings/components/retention-period/retention-period.component.ts:90` |
+| `previewOrganizationRetention(days)` `:773` | `GET /api/v1/organization/retention/preview?days=N` | `S+ADM` | `200` `{ days, threadCount, cutoff }`：**現在**以 N 天清理會刪幾串（與清理同一個截止點與查詢；畫面寫「大約」，緩衝期過後實際更多） | `422`（`errors.days`） | `401`／`403 organization-settings`／`5xx` | `retention-period.component.ts:174` |
+| `updateOrganizationRetention(days, revision)` `:779` | `PUT /api/v1/organization/retention` `{ days, revision }`（`days: null` = 永久） | `S+ADM` | `200` `OrganizationRetentionView`。縮短（含永久→天數）存成 `pending`、7 天後生效；延長（含→永久）立即生效並清掉 `pending`；送出目前生效的值是「改回」（清掉 `pending`）；不改變任何東西時不寫紀錄 | `422`（`errors.days`；先檢查 `days` 再檢查 `revision`）／`409 organization-settings-conflict` | `401`／`403 organization-settings`／`5xx` | `retention-period.component.ts:207` |
+
+- **每日清理是後端的背景工作**（`retention-cleanup`，每個組織每天 `Statistics:TimeZone` 的 03:00），前端沒有對應的方法：刪除 `LastActivityAt` 早於「當地今天 00:00 減 N 天」的對話串（訊息與引用連帶刪除），以及同一截止點以前的 `AnswerOutcome`（所有通道）；每批 1,000 串。不刪模型呼叫紀錄、處理事項的問答副本、定期報表、數據庫紀錄與題組紀錄。有刪除時寫 `retention-cleanup` 活動（設定頁的「上次變更」顯示「系統」）。
+- 緩衝期內不刪除任何東西；緩衝期到了，下一次清理先把 `pending` 轉為生效（`retention-took-effect`）。
+
+#### 立即刪除既有對話
+
+| 方法（契約行號） | endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `listRetentionAssistants()` `:787` | `GET /api/v1/organization/retention/assistants` | `S+ADM` | `200` 每個助理一列：`assistantId`、`assistantName`、`keepConversations`（「保存對話」開關）、`threadCount`、`accountCount`、`lastActivityAt`（沒有對話是 `null`）；只有數字，不含對話內容 | — | `401`／`403 organization-settings`（畫面當成「不顯示」）／`5xx` | `features/settings/components/saved-conversations/saved-conversations.component.ts:50` |
+| `getAssistantConversationSummary(assistantId)` `:792` | `GET /api/v1/assistants/{id}/chat/conversations/summary` | `S`＋管理者，或可管理這個助理的擁有者 | `200` `{ threadCount, accountCount }` | — | `401`／`403 assistant-configuration`（其他人與不存在的 id 同一則）／`5xx` | `features/assistants/components/kept-conversations/kept-conversations.component.ts:55` |
+| `purgeAssistantConversations(assistantId)` `:798` | `POST /api/v1/assistants/{id}/chat/conversations:purge`（沒有本文） | `S+ADM`（只看管理者，不看擁有者或使用權） | `200` `{ deletedThreadCount }`；寫 `conversations-purged`（助理 id、名稱、刪除串數） | — | `401`／`403 organization-settings`（非管理者、不存在、別的組織同一則）／`5xx` | `saved-conversations.component.ts:92`；`kept-conversations.component.ts:90` |
+
+- 「保存對話」開或關都能執行；刪除所有成員在該助理上的對話串，與每日清理同樣分批。不影響 `AnswerOutcome`（依保存期限到期）與處理事項的問答副本，受影響的成員不會收到通知。
+- 確認框必須勾選「我了解刪除後無法復原」；非管理者在助理設定只看到「既有的 N 串對話會保留到保存期限；要立即刪除，請聯絡管理者」。
 
 ---
 

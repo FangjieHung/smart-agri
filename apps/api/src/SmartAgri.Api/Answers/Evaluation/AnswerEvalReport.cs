@@ -118,6 +118,9 @@ public static class AnswerEvalReport
             CultureInfo.InvariantCulture,
             $"{summary.CandidateAnswers} 題（回答 {run.Results.Count(result => result.UsedCandidates && result.ActualKind == GroundedReplyKind.CompanyData)}、" +
             $"模型拒答 {run.Results.Count(result => result.UsedCandidates && result.ActualKind == GroundedReplyKind.NoResult)}）"));
+        Row(text, "同表補列（命中表格列、補上同表其他列）", string.Create(
+            CultureInfo.InvariantCulture,
+            $"{summary.TableExpansions} 題（字數上限截斷 {summary.TruncatedTableExpansions} 題）"));
         Row(text, "平均輸入 token", summary.AverageInputTokens is { } input ? input.ToString("0.0", CultureInfo.InvariantCulture) : "—");
         Row(text, "平均輸出 token", summary.AverageOutputTokens is { } output ? output.ToString("0.0", CultureInfo.InvariantCulture) : "—");
         text.AppendLine();
@@ -142,8 +145,8 @@ public static class AnswerEvalReport
 
         text.AppendLine(Sections[3]);
         text.AppendLine();
-        text.AppendLine("| 題號 | 追問 | 問題 | 預期類型 | 實際類型 | 類型正確 | 預期引用 | 實際引用 | 引用命中 | 拒絕原因 | 候選段落 | 最高分 | 回覆內容 |");
-        text.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
+        text.AppendLine("| 題號 | 追問 | 問題 | 預期類型 | 實際類型 | 類型正確 | 預期引用 | 實際引用 | 引用命中 | 拒絕原因 | 候選段落 | 同表補列 | 最高分 | 回覆內容 |");
+        text.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: | --- |");
         foreach (var result in run.Results)
         {
             var question = result.Question;
@@ -152,7 +155,7 @@ public static class AnswerEvalReport
                 $"| {question.Id} | {question.FollowUpOf ?? "—"} | {Cell(question.Question)} | {WireName(question.ExpectedKind)} | " +
                 $"{WireName(result.ActualKind)} | {(result.KindCorrect ? "是" : "**否**")} | {Cell(string.Join("、", question.ExpectedCitedDocuments))} | " +
                 $"{Cell(string.Join("、", result.CitedDocuments))} | {(result.CitationHit is { } hit ? (hit ? "是" : "**否**") : "—")} | " +
-                $"{(result.RejectionReason is { } reason ? $"`{WireName(reason)}`" : "—")} | {(result.UsedCandidates ? "是" : "—")} | " +
+                $"{(result.RejectionReason is { } reason ? $"`{WireName(reason)}`" : "—")} | {(result.UsedCandidates ? "是" : "—")} | {TableCell(result)} | " +
                 $"{(result.TopScore is { } top ? Score(top) : "—")} | {ReplyCell(result)} |"));
         }
 
@@ -160,6 +163,12 @@ public static class AnswerEvalReport
     }
 
     private static void Row(StringBuilder text, string name, string value) => text.AppendLine($"| {name} | {value} |");
+
+    /// <summary>The rows sent besides the selected ones (#324): 「+4 列」, 「（截斷）」 when the
+    /// budget left some out; <c>—</c> when none.</summary>
+    private static string TableCell(AnswerEvalQuestionResult result) => result.TableExpansion is { } expansion
+        ? string.Create(CultureInfo.InvariantCulture, $"+{expansion.AddedRows} 列{(expansion.Truncated ? "（截斷）" : string.Empty)}")
+        : "—";
 
     /// <summary>Three decimals; a score that rounds to zero is 0.000, never -0.000.</summary>
     private static string Score(double score) =>

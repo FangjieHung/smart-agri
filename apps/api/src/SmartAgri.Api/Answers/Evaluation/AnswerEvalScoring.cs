@@ -12,6 +12,8 @@ namespace SmartAgri.Api.Answers.Evaluation;
 /// <see langword="null"/> when nothing was retrieved.</param>
 /// <param name="UsedCandidates">No passage reached <c>Retrieval:MinScore</c> and the model was asked
 /// with candidate passages instead (<c>Retrieval:CandidateMinScore</c>, #302), whatever it answered.</param>
+/// <param name="TableExpansion">The other rows of selected table rows' tables sent with them
+/// (#324, <see cref="GroundedAnswerResult.TableExpansion"/>); <see langword="null"/> for none.</param>
 public sealed record AnswerEvalQuestionResult(
     AnswerEvalQuestion Question,
     GroundedReplyKind ActualKind,
@@ -19,8 +21,12 @@ public sealed record AnswerEvalQuestionResult(
     IReadOnlyList<string> CitedDocuments,
     string ReplyText,
     double? TopScore,
-    bool UsedCandidates = false)
+    bool UsedCandidates = false,
+    GroundedTableExpansion? TableExpansion = null)
 {
+    /// <summary>A selected table row brought other rows of its table (#324).</summary>
+    public bool TableExpanded => TableExpansion is { AddedRows: > 0 };
+
     /// <summary>Whether the reply's kind is the one the question expects (the only two kinds a
     /// <c>company-data-only</c> profile ever produces: <c>company-data</c> or <c>no-result</c>).</summary>
     public bool KindCorrect => Question.ExpectedKind switch
@@ -50,6 +56,10 @@ public sealed record AnswerEvalQuestionResult(
 /// <param name="AverageOutputTokens">The same for <c>OutputTokens</c>.</param>
 /// <param name="CandidateAnswers">Questions answered (or refused by the model) from candidate passages
 /// (#302).</param>
+/// <param name="TableExpansions">Questions whose passages included other rows of a selected
+/// table row's table (#324).</param>
+/// <param name="TruncatedTableExpansions">Of all questions, those where some of those rows were
+/// left out for the character budget.</param>
 public sealed record AnswerEvalSummary(
     int Total,
     int ReplyKindCorrect,
@@ -60,7 +70,9 @@ public sealed record AnswerEvalSummary(
     IReadOnlyList<(GroundedRejectionReason Reason, int Count)> RejectionReasons,
     double? AverageInputTokens,
     double? AverageOutputTokens,
-    int CandidateAnswers = 0);
+    int CandidateAnswers = 0,
+    int TableExpansions = 0,
+    int TruncatedTableExpansions = 0);
 
 /// <summary>
 /// How the answer evaluation (M3 plan Slice 13; ticket #83) judges and sums up what
@@ -73,8 +85,13 @@ public static class AnswerEvalScoring
     /// <param name="passages">Every passage retrieval returned (<see cref="KnowledgeRetrievalResult.Passages"/>),
     /// whatever its score: only the closest one's score is kept.</param>
     /// <param name="usedCandidates"><see cref="GroundedAnswerResult.UsedCandidates"/>.</param>
+    /// <param name="tableExpansion"><see cref="GroundedAnswerResult.TableExpansion"/>.</param>
     public static AnswerEvalQuestionResult Judge(
-        AnswerEvalQuestion question, GroundedReply reply, IReadOnlyList<RetrievedKnowledgePassage> passages, bool usedCandidates = false)
+        AnswerEvalQuestion question,
+        GroundedReply reply,
+        IReadOnlyList<RetrievedKnowledgePassage> passages,
+        bool usedCandidates = false,
+        GroundedTableExpansion? tableExpansion = null)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(reply);
@@ -86,7 +103,8 @@ public static class AnswerEvalScoring
             [.. reply.Citations.Select(citation => citation.DocumentName)],
             reply.Text,
             passages.Count == 0 ? null : passages.Max(passage => passage.Score),
-            usedCandidates);
+            usedCandidates,
+            tableExpansion is { } expansion && expansion != GroundedTableExpansion.None ? expansion : null);
     }
 
     public static AnswerEvalSummary Summarize(
@@ -113,6 +131,8 @@ public static class AnswerEvalScoring
             rejections,
             averageInputTokens,
             averageOutputTokens,
-            results.Count(result => result.UsedCandidates));
+            results.Count(result => result.UsedCandidates),
+            results.Count(result => result.TableExpanded),
+            results.Count(result => result.TableExpansion is { Truncated: true }));
     }
 }

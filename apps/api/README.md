@@ -427,9 +427,11 @@ each uploaded version and writes what it read, in one transaction with the versi
   short question (「電話幾號？」) matches one row far better than a whole table (#292).
 - **Chunk format** (`KnowledgeDocumentVersions.ChunkFormat`, `KnowledgeChunkFormat`): which
   chunking rules cut a version's chunks — `1` before #301 (tables inside their section's text;
-  what the migration gives every existing version), `2` with table rows. Processing writes the
-  current one; `rechunk` ("Changing the chunking rules: `rechunk`" below) brings older ones up
-  to date.
+  what the migration gives every existing version), `2` with table rows, `3` (#324) with each
+  row chunk's table recorded (`KnowledgeChunks.TableIndex`: which table of its unit, `null` for
+  every other chunk), so an answer can send a retrieved row's whole table (see "Retrieval").
+  Processing writes the current one; `rechunk` ("Changing the chunking rules: `rechunk`" below)
+  brings older ones up to date.
 - A password-protected PDF, non-UTF-8 text (e.g. Big5) or a damaged file fails the job at once
   (`PermanentJobFailure`, one attempt) with an issue telling the owner what to do.
 
@@ -636,7 +638,9 @@ unit (`KnowledgeRechunking`):
 
 - A unit whose chunks come out the same keeps them — ids (which citations point back to),
   vectors and exclusions — so a PDF, a worksheet or a section without tables costs no model call;
-  such a version only has its format updated.
+  such a version only has its format updated. A format-`2` version's table rows are cut the same
+  way, so they only get their table index filled in, in the same transaction (「補上 N 個段落的表格序號」),
+  also without a model call.
 - A changed unit's chunks are embedded with the configured model (in `Ai:Embedding:BatchSize`
   batches, recorded as the organization's `embed-document` calls with no account), **before**
   any transaction, so the old chunks keep serving meanwhile. Then one repeatable-read transaction
@@ -1481,6 +1485,21 @@ assistant restricted to the organization's data then answers 「查無結果」 
 (grounded-answers ADR) — unless some passage reaches `Retrieval:CandidateMinScore` (below). The
 passages are returned anyway, so a person can see how close the nearest ones came.
 
+**Small passages to retrieve, the whole table to answer from** (#324). Retrieval scores each
+table row on its own (#301), but a question like 「週二有營業嗎？」 needs the opening hours *and*
+the closed day. Once `GroundedAnswerService` has decided which passages to send (above
+`MinScore`, or candidates — unchanged, so the expansion never changes which questions reach the
+model), every table row among them brings the other not-excluded rows of the same version, unit
+and table (`KnowledgeTableExpansion`, one `IKnowledgeTableRows` query per answer, none when no
+passage is a table row): the table becomes one passage, its rows in their original order, at the
+place of its closest selected row, so a table is sent once. The passage keeps that row's chunk,
+document and score, so its citation points at the row retrieval found (the citation's text is
+what the model read). Added rows share a budget of `GroundedAnswerPrompt.TableRowsMaxCharacters`
+(2,000) characters per answer, taken nearest a selected row first; when some are left out, the
+span's `smartagri.answer.table_rows_truncated` is `true` (`smartagri.answer.tables_expanded` and
+`smartagri.answer.table_rows_added` count what was added), and `eval-answers` shows each
+question's added rows (`同表補列`). Every caller of `GroundedAnswerService` behaves the same.
+
 **`includePending`** (the preview only — never for answering) adds, per document, its **newest
 approvable version**: the highest-numbered version still `pending-review` and processed
 `ready`/`partially-readable` (a newer upload that is queued, processing or failed has no chunks
@@ -1632,7 +1651,8 @@ dotnet run --project apps/api/src/SmartAgri.Api -- eval-answers --report /tmp/ev
   `no-result`) — #303, so negative conclusions are judged without a temporary hack; the settings
   also show the prompt version (`回答提示版本`). With a candidate band (#302) the settings show
   `Retrieval:CandidateMinScore`, the summary how many questions were answered or refused from
-  candidate passages, and each question whether it was (`候選段落`). It goes to
+  candidate passages, and each question whether it was (`候選段落`); the summary and each question
+  also show the table rows sent besides the retrieved ones (`同表補列`, #324). It goes to
   `docs/evals/<date>-answers-<chat model>.md` (overwritten by a second run the same day), or to
   `--report`. Exit codes: `0` done, `1` a model or processing failed, `2` bad arguments,
   environment, set or configuration.

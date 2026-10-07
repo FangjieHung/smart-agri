@@ -30,6 +30,7 @@ public sealed class GroundedAnswerServiceTests : IDisposable
     private readonly Guid _assistant = Guid.CreateVersion7();
     private readonly ScriptedChatClient _chat = new();
     private readonly ScriptedRetriever _retriever = new();
+    private readonly InMemoryKnowledgeTableRows _tableRows = new();
     private readonly InMemoryAnswerKnowledgeBases _knowledgeBases = new();
     private readonly InMemoryAnswerOutcomeRecorder _outcomes = new();
     private readonly RecordedMeasurements _measurements = new();
@@ -272,7 +273,7 @@ public sealed class GroundedAnswerServiceTests : IDisposable
         var leaky = new LeakyRetriever(_retriever);
 
         var result = await new GroundedAnswerService(
-                _knowledgeBases, leaky, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+                _knowledgeBases, leaky, _tableRows, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
                 new FixedOrganizationContext(Organization), TimeProvider.System)
             .AnswerAsync(Request(Profile() with { KnowledgeBaseIds = [_policies.Id, stranger.Id] }), CancellationToken);
 
@@ -525,7 +526,7 @@ public sealed class GroundedAnswerServiceTests : IDisposable
     {
         _retriever.Add(_policies.Id, "退貨政策.pdf", "第 1 頁", "營業時間為週一至週五。", 0.1);
         var noOrganization = new GroundedAnswerService(
-            _knowledgeBases, _retriever, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+            _knowledgeBases, _retriever, _tableRows, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
             new FixedOrganizationContext(null), TimeProvider.System);
 
         var result = await noOrganization.AnswerAsync(Request(Profile()), CancellationToken);
@@ -753,7 +754,7 @@ public sealed class GroundedAnswerServiceTests : IDisposable
         _retriever.Add(stranger.Id, "機密.pdf", "第 1 頁", "機密內容。", 0.38);
 
         var result = await new GroundedAnswerService(
-                _knowledgeBases, new LeakyRetriever(_retriever), _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+                _knowledgeBases, new LeakyRetriever(_retriever), _tableRows, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
                 new FixedOrganizationContext(Organization), TimeProvider.System)
             .AnswerAsync(Request(Profile() with { KnowledgeBaseIds = [_policies.Id, stranger.Id] }), CancellationToken);
 
@@ -796,10 +797,160 @@ public sealed class GroundedAnswerServiceTests : IDisposable
         span.GetTagItem(GroundedAnswerTelemetry.CandidatePassagesTag).ShouldBe(1);
     }
 
+    // --- Tables: a selected row brings the rest of its table (#324) ----------------------------
+
+    private const string StoreHours = "項目：營業時間\n內容：09:00–18:00";
+    private const string StoreClosed = "項目：公休日\n內容：每週三";
+
+    [Fact]
+    public async Task A_selected_table_row_sends_its_whole_table_as_one_passage_cited_as_that_row_streamed_or_not()
+    {
+        var (store, document, rows) = StoreTable();
+        var closed = _retriever.AddRow(store.Id, document, "門市資訊.md", "基本資訊", rows[^1], 0.457);
+        _retriever.AddRow(store.Id, document, "門市資訊.md", "基本資訊", rows[^2], 0.381);
+        _chat.Pieces = ["週二有營業，", "營業時間 09:00–18:00，每週三公休。[1]"];
+        var profile = Profile() with { KnowledgeBaseIds = [_policies.Id, store.Id] };
+
+        var events = await StreamAsync(Request(profile));
+        var result = await Service().AnswerAsync(Request(profile), CancellationToken);
+
+        foreach (var call in _chat.Calls)
+        {
+            var system = call.Messages[0].Text!;
+            system.ShouldContain(StoreHours + KnowledgeTableExpansion.RowSeparator + StoreClosed, Case.Sensitive, "the hours row (below the threshold) is sent next to the closed day");
+            system.ShouldContain("項目：地址");
+            system.ShouldContain("[1] 文件：門市資訊.md");
+            system.ShouldNotContain("[2] 文件：", Case.Sensitive, "one table, one passage");
+        }
+
+        var streamed = events[^1].ShouldBeOfType<GroundedAnswerCompleted>().Reply;
+        foreach (var reply in new[] { streamed, result.Reply })
+        {
+            var citation = reply.Citations.ShouldHaveSingleItem();
+            (citation.ChunkId, citation.DocumentId, citation.VersionId, citation.Score).ShouldBe((closed.ChunkId, document, closed.VersionId, 0.457), "the row retrieval found");
+            citation.Text.ShouldContain(StoreHours, Case.Sensitive, "the drawer shows what the model read");
+        }
+
+        (result.TableExpansion!.Tables, result.TableExpansion.AddedRows, result.TableExpansion.Truncated).ShouldBe((1, 4, false));
+        result.Retrieval.Passages.Select(passage => passage.Text).ShouldBe([StoreClosed, StoreHours], "retrieval itself is unchanged");
+        _tableRows.Reads.Count.ShouldBe(2, "one read per answer");
+        _tableRows.Reads.ShouldAllBe(read => read.Count == 1);
+        _outcomes.Outcomes.ShouldAllBe(outcome => outcome.CitedDocumentIds.Single() == document);
+    }
+
+    [Fact]
+    public async Task Without_a_table_row_nothing_is_read_and_the_passages_are_sent_as_before()
+    {
+        TwoRelevantPassages();
+        _chat.Pieces = ["七天內可申請退貨。[2]"];
+
+        var result = await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        _tableRows.Reads.ShouldBeEmpty();
+        result.TableExpansion.ShouldBe(GroundedTableExpansion.None);
+        var system = _chat.Calls.Single().Messages[0].Text!;
+        system.ShouldContain("[2] 文件：退貨政策.pdf");
+    }
+
+    [Fact]
+    public async Task A_table_row_below_every_threshold_still_calls_no_model_and_reads_no_table()
+    {
+        var (store, document, rows) = StoreTable();
+        _retriever.AddRow(store.Id, document, "門市資訊.md", "基本資訊", rows[^1], 0.2);
+
+        var result = await Service().AnswerAsync(Request(Profile() with { KnowledgeBaseIds = [store.Id] }), CancellationToken);
+
+        (result.Reply.RejectionReason, _chat.CallCount, _tableRows.Reads.Count).ShouldBe((GroundedRejectionReason.BelowThreshold, 0, 0));
+    }
+
+    [Fact]
+    public async Task A_candidate_table_row_brings_its_table_too_and_the_span_records_the_expansion()
+    {
+        _retriever.Settings = WithCandidates;
+        var (store, document, rows) = StoreTable();
+        _retriever.AddRow(store.Id, document, "門市資訊.md", "基本資訊", rows[1], 0.38);
+        _chat.Pieces = ["示範縣青禾鄉安和路 18 號。[1]"];
+        var spans = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == SmartAgriActivitySource.Name,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                lock (spans)
+                {
+                    spans.Add(activity);
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var parent = new Activity("test").Start();
+
+        var result = await Service().AnswerAsync(Request(Profile() with { KnowledgeBaseIds = [store.Id] }), CancellationToken);
+
+        result.UsedCandidates.ShouldBeTrue();
+        result.TableExpansion!.AddedRows.ShouldBe(4);
+        _chat.Calls.Single().Messages[0].Text!.ShouldContain(StoreClosed);
+        Activity span;
+        lock (spans)
+        {
+            span = spans.Single(candidate => candidate.OperationName == GroundedAnswerTelemetry.ActivityName && candidate.TraceId == parent.TraceId);
+        }
+
+        span.GetTagItem(GroundedAnswerTelemetry.TablesExpandedTag).ShouldBe(1);
+        span.GetTagItem(GroundedAnswerTelemetry.TableRowsAddedTag).ShouldBe(4);
+        span.GetTagItem(GroundedAnswerTelemetry.TableRowsTruncatedTag).ShouldBe(false);
+        span.GetTagItem(GroundedAnswerTelemetry.CandidatePassagesTag).ShouldBe(1, "the candidates counted are retrieval's, before the expansion");
+    }
+
+    [Fact]
+    public async Task An_answer_without_a_table_row_has_no_table_tags_on_its_span()
+    {
+        TwoRelevantPassages();
+        _chat.Pieces = ["七天內可申請退貨。[1]"];
+        var spans = new List<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == SmartAgriActivitySource.Name,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                lock (spans)
+                {
+                    spans.Add(activity);
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        using var parent = new Activity("test").Start();
+
+        await Service().AnswerAsync(Request(Profile()), CancellationToken);
+
+        Activity span;
+        lock (spans)
+        {
+            span = spans.Single(candidate => candidate.OperationName == GroundedAnswerTelemetry.ActivityName && candidate.TraceId == parent.TraceId);
+        }
+
+        span.GetTagItem(GroundedAnswerTelemetry.TablesExpandedTag).ShouldBeNull();
+        span.GetTagItem(GroundedAnswerTelemetry.TableRowsAddedTag).ShouldBeNull();
+    }
+
+    /// <summary>A 門市資訊 knowledge base and its 基本資訊 table (unit 1, table 0): name,
+    /// address, phone, hours, closed day.</summary>
+    private (KnowledgeBase Store, Guid Document, List<KnowledgeTableRow> Rows) StoreTable()
+    {
+        var store = AddKnowledgeBase("門市資訊", _owner);
+        var rows = _tableRows.AddTable(
+            Guid.CreateVersion7(), unitOrdinal: 1, tableIndex: 0, firstOrdinal: 1,
+            "項目：店名\n內容：安心商行青禾門市", "項目：地址\n內容：示範縣青禾鄉安和路 18 號", "項目：電話\n內容：(03) 012-3456", StoreHours, StoreClosed);
+        return (store, Guid.CreateVersion7(), rows);
+    }
+
     // --- Helpers --------------------------------------------------------------------------------
 
     private GroundedAnswerService Service() =>
-        new(_knowledgeBases, _retriever, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
+        new(_knowledgeBases, _retriever, _tableRows, _chat, new GroundedAnswerMetrics(_measurements), _outcomes,
             new FixedOrganizationContext(Organization), TimeProvider.System);
 
     private GroundedAnswerProfile Profile(AssistantKnowledgeScope scope = AssistantKnowledgeScope.CompanyDataOnly) => new(

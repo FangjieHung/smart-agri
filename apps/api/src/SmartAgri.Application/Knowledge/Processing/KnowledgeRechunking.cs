@@ -5,11 +5,17 @@ namespace SmartAgri.Application.Knowledge.Processing;
 /// <summary>A unit as stored (<see cref="KnowledgeExtractedUnit"/>).</summary>
 public sealed record StoredUnit(int Ordinal, KnowledgeUnitLocationKind Kind, string LocationLabel, string Text, bool Readable);
 
-/// <summary>A chunk as stored (<see cref="KnowledgeChunk"/>), with the owner's exclusion.</summary>
-public sealed record StoredChunk(Guid Id, int UnitOrdinal, int Ordinal, string LocationLabel, string Text, bool Excluded);
+/// <summary>A chunk as stored (<see cref="KnowledgeChunk"/>), with the owner's exclusion and its
+/// <see cref="KnowledgeChunk.TableIndex"/>.</summary>
+public sealed record StoredChunk(Guid Id, int UnitOrdinal, int Ordinal, string LocationLabel, string Text, bool Excluded, int? TableIndex = null);
 
 /// <summary>A chunk <c>rechunk</c> writes, and whether it inherits an exclusion.</summary>
-public sealed record RechunkedChunk(int Ordinal, string LocationLabel, string Text, bool Excluded);
+public sealed record RechunkedChunk(int Ordinal, string LocationLabel, string Text, bool Excluded, int? TableIndex = null);
+
+/// <summary>A stored chunk that stays (same text, id, vector and exclusion) but whose
+/// <see cref="KnowledgeChunk.TableIndex"/> changes (#324: rows cut before
+/// <see cref="KnowledgeChunkFormat.TableIdentity"/>).</summary>
+public sealed record RechunkedTableIndex(Guid ChunkId, int? TableIndex);
 
 /// <summary>One unit whose chunks change: the stored ones it deletes (and which of those were
 /// excluded when planned) and the ones it writes.</summary>
@@ -29,13 +35,19 @@ public sealed record RechunkedUnit(
 /// vectors and exclusions included.</param>
 /// <param name="UnmappedExclusions">Excluded chunks that no new chunk inherits the exclusion
 /// from: the owner should check those passages again.</param>
+/// <param name="TableIndexes">Chunks of the units left as they are whose table index is filled
+/// in (or corrected): no model call, written in place.</param>
 public sealed record RechunkPlan(
     string? Mismatch,
     IReadOnlyList<RechunkedUnit> Units,
     IReadOnlyList<StoredChunk> UnmappedExclusions,
     int OldChunkCount,
-    int NewChunkCount)
+    int NewChunkCount,
+    IReadOnlyList<RechunkedTableIndex>? TableIndexes = null)
 {
+    /// <summary><see cref="TableIndexes"/>, never null.</summary>
+    public IReadOnlyList<RechunkedTableIndex> TableIndexUpdates => TableIndexes ?? [];
+
     /// <summary>Chunks to embed: every chunk of a changed unit.</summary>
     public int ChunksToEmbed => Units.Sum(unit => unit.Chunks.Count);
 
@@ -58,7 +70,9 @@ public sealed record RechunkPlan(
 /// <para>
 /// A unit whose new chunks have the same labels and texts as the stored ones, in order, is
 /// left as it is (a PDF page, a worksheet, a section without tables): no model call, and its
-/// chunk ids, which citations point back to, stay. A changed unit's new chunks inherit
+/// chunk ids, which citations point back to, stay — only a table index that differs is updated
+/// in place (<see cref="RechunkPlan.TableIndexes"/>; #324, a section whose table rows were cut
+/// before <see cref="KnowledgeChunkFormat.TableIdentity"/>). A changed unit's new chunks inherit
 /// exclusions from its stored ones:
 /// </para>
 /// <list type="number">
@@ -109,12 +123,16 @@ public static class KnowledgeRechunking
             .ToDictionary(group => group.Key, group => group.OrderBy(chunk => chunk.Ordinal).ToList());
         var changed = new List<RechunkedUnit>();
         var unmapped = new List<StoredChunk>();
+        var tableIndexes = new List<RechunkedTableIndex>();
         foreach (var unit in processed.Units)
         {
             var old = chunksByUnit.TryGetValue(unit.Ordinal, out var list) ? list : [];
             if (old.Count == unit.Chunks.Count
                 && old.Zip(unit.Chunks).All(pair => pair.First.LocationLabel == pair.Second.LocationLabel && pair.First.Text == pair.Second.Text))
             {
+                tableIndexes.AddRange(old.Zip(unit.Chunks)
+                    .Where(pair => pair.First.TableIndex != pair.Second.TableIndex)
+                    .Select(pair => new RechunkedTableIndex(pair.First.Id, pair.Second.TableIndex)));
                 continue;
             }
 
@@ -125,10 +143,10 @@ public static class KnowledgeRechunking
                 unit.Kind,
                 [.. old.Select(chunk => chunk.Id)],
                 [.. old.Where(chunk => chunk.Excluded).Select(chunk => chunk.Id)],
-                [.. unit.Chunks.Select((chunk, ordinal) => new RechunkedChunk(ordinal, chunk.LocationLabel, chunk.Text, excluded[ordinal]))]));
+                [.. unit.Chunks.Select((chunk, ordinal) => new RechunkedChunk(ordinal, chunk.LocationLabel, chunk.Text, excluded[ordinal], chunk.TableIndex))]));
         }
 
-        return new RechunkPlan(null, changed, unmapped, storedChunks.Count, processed.Units.Sum(unit => unit.Chunks.Count));
+        return new RechunkPlan(null, changed, unmapped, storedChunks.Count, processed.Units.Sum(unit => unit.Chunks.Count), tableIndexes);
 
         static RechunkPlan Mismatched(string reason) => new(reason, [], [], 0, 0);
     }

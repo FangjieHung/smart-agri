@@ -100,10 +100,10 @@ public sealed class AnswerEvalScoringTests
 
         report.ShouldContain($"| 回答提示版本 | `{GroundedAnswerPrompt.Version}` |");
         report.ShouldContain("| Retrieval:CandidateMinScore | —（不使用候選段落） |");
-        report.ShouldContain("| 拒絕原因 | 候選段落 | 最高分 | 回覆內容 |");
-        report.ShouldContain("| — | — | 0.540 | 不可以，已超過七天。[1] 請見 \\| 退貨辦法 |", Case.Sensitive, "one line, the pipe escaped");
-        report.ShouldContain("| `cannot-answer` | — | 0.457 | — |", Case.Sensitive, "a no-result reply is always the refusal message: not repeated");
-        report.ShouldContain("| `below-threshold` | — | — | — |", Case.Sensitive, "nothing retrieved: no score");
+        report.ShouldContain("| 拒絕原因 | 候選段落 | 同表補列 | 最高分 | 回覆內容 |");
+        report.ShouldContain("| — | — | — | 0.540 | 不可以，已超過七天。[1] 請見 \\| 退貨辦法 |", Case.Sensitive, "one line, the pipe escaped");
+        report.ShouldContain("| `cannot-answer` | — | — | 0.457 | — |", Case.Sensitive, "a no-result reply is always the refusal message: not repeated");
+        report.ShouldContain("| `below-threshold` | — | — | — | — |", Case.Sensitive, "nothing retrieved: no score");
     }
 
     [Fact]
@@ -140,9 +140,46 @@ public sealed class AnswerEvalScoringTests
         summary.CandidateAnswers.ShouldBe(2);
         report.ShouldContain("| Retrieval:CandidateMinScore | 0.300 |");
         report.ShouldContain("| 採用候選段落（低於 MinScore、交給模型判斷） | 2 題（回答 1、模型拒答 1） |");
-        report.ShouldContain("| — | 是 | 0.380 | 地址是示範縣。[1] |", Case.Sensitive, "store-01: answered from a candidate");
-        report.ShouldContain("| `cannot-answer` | 是 | 0.349 | — |", Case.Sensitive, "trap-01: the model refused the candidates");
-        report.ShouldContain("| `below-threshold` | — | 0.206 | — |", Case.Sensitive, "none-02: below both thresholds, no model call");
+        report.ShouldContain("| — | 是 | — | 0.380 | 地址是示範縣。[1] |", Case.Sensitive, "store-01: answered from a candidate");
+        report.ShouldContain("| `cannot-answer` | 是 | — | 0.349 | — |", Case.Sensitive, "trap-01: the model refused the candidates");
+        report.ShouldContain("| `below-threshold` | — | — | 0.206 | — |", Case.Sensitive, "none-02: below both thresholds, no model call");
+    }
+
+    [Fact]
+    public void The_report_marks_and_counts_the_questions_whose_table_rows_brought_the_rest_of_their_table()
+    {
+        var results = new[]
+        {
+            AnswerEvalScoring.Judge(
+                CompanyData("store-04", "門市資訊.md"),
+                new GroundedReply(GroundedReplyKind.CompanyData, "週二有營業。[1]", [Citation("門市資訊.md")], null, [], null),
+                [Passage(0.457)],
+                tableExpansion: new GroundedTableExpansion(1, 4, 60, false)),
+            AnswerEvalScoring.Judge(
+                NoResult("trap-02"),
+                new GroundedReply(GroundedReplyKind.NoResult, "查無結果", [], null, GroundedReply.NoResultNextSteps, GroundedRejectionReason.CannotAnswer),
+                [Passage(0.399)],
+                usedCandidates: true,
+                tableExpansion: new GroundedTableExpansion(1, 2, 2000, true)),
+            AnswerEvalScoring.Judge(
+                CompanyData("returns-01", "a.md"),
+                new GroundedReply(GroundedReplyKind.CompanyData, "七天。[1]", [Citation("a.md")], null, [], null),
+                [Passage(0.6)],
+                tableExpansion: GroundedTableExpansion.None),
+        };
+
+        var summary = AnswerEvalScoring.Summarize(results, null, null);
+        var report = AnswerEvalReport.Render(new AnswerEvalRun(
+            new DateTimeOffset(2026, 10, 7, 12, 0, 0, TimeSpan.FromHours(8)), TimeSpan.FromSeconds(3), "openai", "text-embedding-3-small", "openai", "gpt-6-luna",
+            0.406, 0.35, GroundedAnswerPrompt.Version, "apps/api/eval/answers", new string('a', 64), 1, 1, results, summary));
+
+        results.Select(result => result.TableExpanded).ShouldBe([true, true, false]);
+        results[2].TableExpansion.ShouldBeNull("no expansion is shown as none");
+        (summary.TableExpansions, summary.TruncatedTableExpansions).ShouldBe((2, 1));
+        report.ShouldContain("| 同表補列（命中表格列、補上同表其他列） | 2 題（字數上限截斷 1 題） |");
+        report.ShouldContain("| — | — | +4 列 | 0.457 | 週二有營業。[1] |", Case.Sensitive);
+        report.ShouldContain("| `cannot-answer` | 是 | +2 列（截斷） | 0.399 | — |", Case.Sensitive);
+        report.ShouldContain("| — | — | — | 0.600 | 七天。[1] |", Case.Sensitive);
     }
 
     [Fact]

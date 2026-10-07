@@ -16,6 +16,12 @@ public static class KnowledgeChunkFormat
     /// own, one 「欄名：值」 line per non-empty cell; the rest of the section is chunked as before.</summary>
     public const int TableRows = 2;
 
+    /// <summary>#324: as <see cref="TableRows"/>, and every table-row chunk records which table of
+    /// its unit it belongs to (<see cref="KnowledgeChunk.TableIndex"/>), so an answer can send the
+    /// rest of the table with a row it retrieved. Same texts as <see cref="TableRows"/>: <c>rechunk</c>
+    /// only fills the index in, without a model call.</summary>
+    public const int TableIdentity = 3;
+
     /// <summary>The format processing writes now: the one constant to raise.</summary>
-    public const int Current = TableRows;
+    public const int Current = TableIdentity;
 }

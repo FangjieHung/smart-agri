@@ -22,6 +22,21 @@ public sealed class AnswerEvalSetTests
         Set.Fingerprint.ShouldMatch("^[0-9a-f]{64}$");
     }
 
+    [Theory]
+    [InlineData("store-07", "門市星期日有開嗎？", AnswerEvalExpectedKind.CompanyData)]
+    [InlineData("store-08", "星期三可以去門市買東西嗎？", AnswerEvalExpectedKind.CompanyData)]
+    [InlineData("none-05", "員工請特休要怎麼申請？", AnswerEvalExpectedKind.NoResult)]
+    [InlineData("none-06", "統一編號是多少？", AnswerEvalExpectedKind.NoResult)]
+    public void The_set_has_the_questions_304_tried_on_the_side(string id, string text, AnswerEvalExpectedKind kind)
+    {
+        // #324: the weekday paraphrases a table row alone could not answer, and the refusals
+        // whose closest passage is a table row.
+        var question = Set.Questions.Single(candidate => candidate.Id == id);
+        (question.Question, question.ExpectedKind).ShouldBe((text, kind));
+        question.ExpectedCitedDocuments.ShouldBe(kind == AnswerEvalExpectedKind.CompanyData ? ["門市資訊.md"] : []);
+        question.Note.ShouldNotBeNull();
+    }
+
     [Fact]
     public void The_set_has_a_prompt_injection_sample_document_and_a_question_about_it()
     {

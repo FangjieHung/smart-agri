@@ -44,7 +44,9 @@ public sealed record ChunkingOptions
 }
 
 /// <summary>One chunk: where it is (for citations) and its text.</summary>
-public sealed record KnowledgeTextChunk(string LocationLabel, string Text);
+/// <param name="TableIndex">For a table row's chunk, which table of its unit (0-based, reading
+/// order; <see cref="KnowledgeChunk.TableIndex"/>, #324); <see langword="null"/> otherwise.</param>
+public sealed record KnowledgeTextChunk(string LocationLabel, string Text, int? TableIndex = null);
 
 /// <summary>
 /// Cuts a unit's text into retrievable chunks (M2 plan §4). Chunks never cross a unit: this
@@ -68,7 +70,9 @@ public sealed record KnowledgeTextChunk(string LocationLabel, string Text);
 /// 「欄名：值」 line per non-empty cell (<see cref="ExtractedTable.RowText"/>) under the
 /// section's label — a short question (「電話幾號？」) matches one row far better than a whole
 /// table. A row with no non-empty cell is no chunk, nor is a table without data rows; a row
-/// too long for one chunk is split as text.
+/// too long for one chunk is split as text. Every row chunk carries its table's index in the
+/// unit (<see cref="KnowledgeTextChunk.TableIndex"/>, <see cref="KnowledgeChunkFormat.TableIdentity"/>,
+/// #324), counting every table, so an answer can find the rest of the table.
 /// </para>
 /// <para>
 /// <b>Worksheets</b>: whole rows (never a part of one, unless a single row is too long for a
@@ -96,11 +100,12 @@ public static class KnowledgeChunker
         var chunks = SplitText(unit.TextOutsideTables, options)
             .Select(text => new KnowledgeTextChunk(unit.LocationLabel, text))
             .ToList();
-        foreach (var table in unit.Tables)
+        for (var tableIndex = 0; tableIndex < unit.Tables.Count; tableIndex++)
         {
+            var table = unit.Tables[tableIndex];
             for (var row = 0; row < table.Rows.Count; row++)
             {
-                chunks.AddRange(SplitText(table.RowText(row), options).Select(text => new KnowledgeTextChunk(unit.LocationLabel, text)));
+                chunks.AddRange(SplitText(table.RowText(row), options).Select(text => new KnowledgeTextChunk(unit.LocationLabel, text, tableIndex)));
             }
         }
 

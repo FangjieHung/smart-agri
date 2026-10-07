@@ -31,6 +31,17 @@ public static class GroundedAnswerTelemetry
     /// <summary>How many candidate passages the model was asked with (#302); absent unless it was.</summary>
     public const string CandidatePassagesTag = "smartagri.answer.candidate_passages";
 
+    /// <summary>How many tables a selected row brought other rows of (#324,
+    /// <see cref="KnowledgeTableExpansion"/>); absent when no passage sent was a table row.</summary>
+    public const string TablesExpandedTag = "smartagri.answer.tables_expanded";
+
+    /// <summary>How many table rows were sent besides the selected ones (#324); absent likewise.</summary>
+    public const string TableRowsAddedTag = "smartagri.answer.table_rows_added";
+
+    /// <summary>Whether some rows of a selected row's table were left out for
+    /// <see cref="GroundedAnswerPrompt.TableRowsMaxCharacters"/> (#324); absent likewise.</summary>
+    public const string TableRowsTruncatedTag = "smartagri.answer.table_rows_truncated";
+
     /// <summary>How many passages the reply cites.</summary>
     public const string CitationsTag = "smartagri.answer.citations";
 

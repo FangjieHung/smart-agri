@@ -1,4 +1,4 @@
-import { auditA11y, loginAs } from '../support/a11y';
+import { auditA11y, expectFilledButton, forEachColorTheme, loginAs } from '../support/a11y';
 
 const ASSISTANT = 'assistant-customer-service';
 
@@ -74,6 +74,8 @@ describe('chat history sidebar', () => {
     cy.get('[role="dialog"]').should('have.attr', 'aria-modal', 'true').and('contain', '退貨與退款');
     cy.focused().should('have.class', 'confirm-cancel');
     auditA11y();
+    // issue #261：刪除無法復原，確認按鈕是錯誤色；淺色與深色主題都量實際畫出的顏色與對比。
+    forEachColorTheme(() => expectFilledButton('button.confirm-delete', '--color-error'));
     cy.get('button.confirm-delete').click();
     cy.get('[role="dialog"]').should('not.exist');
     cy.get('ul.thread-list > li').should('have.length', 1);
@@ -123,6 +125,8 @@ describe('chat history sidebar', () => {
     cy.get('[role="dialog"] button.confirm-cancel').click();
     cy.get('[role="dialog"]').should('not.exist');
     cy.contains('button.handoff-trigger', '轉給專人').click();
+    // issue #261：轉交是這個對話框的主要動作，確認按鈕是強調色。
+    forEachColorTheme(() => expectFilledButton('[role="dialog"] button.confirm-handoff', '--color-accent'));
     cy.get('[role="dialog"] button.confirm-handoff').click();
     cy.get('.handoff-feedback').should('contain', '已轉交');
     cy.contains('.app-sidenav a', '對話與回報紀錄').click();

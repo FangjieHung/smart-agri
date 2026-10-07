@@ -1,4 +1,4 @@
-import { loginAs } from '../support/a11y';
+import { expectFilledButton, forEachColorTheme, loginAs } from '../support/a11y';
 
 function fillOrderForm(): void {
   loginAs('外部客戶');
@@ -153,6 +153,8 @@ describe('consented structured submission', () => {
       .should('have.attr', 'aria-modal', 'true')
       .and('contain', '無法復原');
     cy.focused().should('have.class', 'confirm-cancel');
+    // issue #261：撤回無法復原，確認按鈕是錯誤色；淺色與深色主題都量。
+    forEachColorTheme(() => expectFilledButton('button.confirm-withdraw', '--color-error'));
     cy.contains('button.confirm-withdraw', '撤回').click();
 
     cy.get('[role="dialog"]').should('not.exist');

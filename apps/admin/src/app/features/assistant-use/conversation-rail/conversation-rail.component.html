@@ -78,6 +78,7 @@
     [detail]="'「' + pending.title + '」與其中的 ' + pending.messageCount + ' 則訊息會被刪除，無法復原。'"
     confirmLabel="刪除"
     confirmClass="confirm-delete"
+    confirmTone="danger"
     (cancelled)="cancelDelete()"
     (confirmed)="confirmDelete()"
   />

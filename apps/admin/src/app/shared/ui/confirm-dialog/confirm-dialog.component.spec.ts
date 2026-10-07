@@ -1,6 +1,6 @@
 import { Component, signal } from '@angular/core';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
-import { ConfirmDialogComponent } from './confirm-dialog.component';
+import { ConfirmDialogComponent, type ConfirmTone } from './confirm-dialog.component';
 
 @Component({
   imports: [ConfirmDialogComponent],
@@ -15,6 +15,7 @@ import { ConfirmDialogComponent } from './confirm-dialog.component';
         [cancelLabel]="cancelLabel()"
         confirmLabel="撤回"
         confirmClass="confirm-withdraw"
+        [confirmTone]="tone()"
         [busy]="busy()"
         (cancelled)="events.push('cancelled')"
         (confirmed)="events.push('confirmed')"
@@ -29,6 +30,7 @@ class HostComponent {
   readonly headingLevel = signal<2 | 3>(2);
   readonly cancelLabel = signal('取消');
   readonly busy = signal(false);
+  readonly tone = signal<ConfirmTone | undefined>(undefined);
   readonly events: string[] = [];
 }
 
@@ -120,5 +122,22 @@ describe('ConfirmDialogComponent', () => {
     expect(host.querySelector('h3.confirm-title#withdraw-confirm-title')).not.toBeNull();
     expect(host.querySelector('h2.confirm-title')).toBeNull();
     expect(host.querySelector('button.confirm-cancel')?.textContent).toBe('繼續填寫');
+  });
+
+  // issue #261：危險／強調的外觀由這個元件提供（以 data-tone 選取），保留使用者給的 class 當 Cypress 選擇器。
+  it('marks the confirm button with its tone and keeps the caller’s class', async () => {
+    const { fixture, host } = await setup();
+    await open(fixture);
+    const confirm = (): HTMLButtonElement | null => host.querySelector<HTMLButtonElement>('.confirm-actions button:not(.confirm-cancel)');
+    expect(confirm()?.hasAttribute('data-tone')).toBe(false);
+
+    for (const tone of ['danger', 'accent'] as const) {
+      fixture.componentInstance.tone.set(tone);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      expect(confirm()?.dataset['tone']).toBe(tone);
+      expect(confirm()?.classList).toContain('confirm-withdraw');
+    }
+    expect(host.querySelector('button.confirm-cancel')?.hasAttribute('data-tone')).toBe(false);
   });
 });

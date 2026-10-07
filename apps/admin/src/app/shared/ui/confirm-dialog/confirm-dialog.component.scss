@@ -25,7 +25,9 @@
 .confirm-title { margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
 .confirm-detail { margin: 0; color: var(--color-text-secondary); line-height: var(--line-height-body); }
 .confirm-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
-.confirm-actions button {
+// 這個元件自己的按鈕只有按鈕列的「取消」與「確認」兩個（投影進來的內容帶的是使用元件的封裝屬性，比對不到），
+// 所以直接寫 `button`：選擇器短，admin 初始 bundle 才不會因為下面的語氣規則變大（issue #261）。
+button {
   min-block-size: var(--target-size);
   padding: var(--space-2) var(--space-4);
   border: var(--border-default);
@@ -35,5 +37,10 @@
   font-weight: 700;
   cursor: pointer;
 }
-.confirm-actions button:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
-.confirm-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+// 危險／強調的實心確認按鈕（`confirmTone`，issue #261）：`[data-tone]` 的權重高於上面的 `button`，蓋得過底色與字色。
+// 以前各元件在外面寫的 `.confirm-withdraw` 等規則權重輸給這個元件的按鈕規則，從來沒有生效。
+[data-tone] { border-color: var(--tone); background: var(--tone); color: var(--color-on-accent); }
+[data-tone='danger'] { --tone: var(--color-error); }
+[data-tone='accent'] { --tone: var(--color-accent); }
+// 焦點外框沿用全域的 `:focus-visible`（_utilities.scss，同樣是 --focus-ring／--focus-offset）。
+button:disabled { opacity: 0.6; cursor: not-allowed; }

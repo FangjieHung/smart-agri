@@ -24,7 +24,7 @@ public sealed class RetrievalOptionsTests
             .GetSection(RetrievalOptions.SectionName)
             .Bind(configured);
         (configured.MinScore, configured.Top).ShouldBe((0.406, 5), "change the default in both places (#192 calibrated it)");
-        configured.CandidateMinScore.ShouldBe(0.30, "#302's provisional value; P5 decides the final one");
+        configured.CandidateMinScore.ShouldBe(0.35, "decided by the P5 evaluation (#304, docs/evals/2026-10-07-304-final-evaluation.md)");
         configured.Validate().ShouldBeNull();
         options.CandidateMinScore.ShouldBeNull("unset in code: no candidate band, exactly as before #302");
     }
@@ -40,9 +40,11 @@ public sealed class RetrievalOptionsTests
             .GetSection(RetrievalOptions.SectionName)
             .Bind(development);
         (development.MinScore, development.Top).ShouldBe((0.3, 5), "0.406 is calibrated for text-embedding-3-small; Fake scores lower");
-        development.Validate().ShouldBeNull("appsettings.json's CandidateMinScore must still fit under Development's MinScore");
+        development.CandidateMinScore.ShouldBeNull(
+            "appsettings.json's 0.35 is above Development's MinScore, so Development turns the band off with an empty value");
+        development.Validate().ShouldBeNull("otherwise the API would refuse to start in Development");
         development.ToSettings().CandidateFloor(development.MinScore).ShouldBeNull(
-            "equal to Development's MinScore: no candidate band, so the Fake-model tests answer exactly as before #302");
+            "no candidate band, so the Fake-model tests answer exactly as before #302");
     }
 
     [Theory]

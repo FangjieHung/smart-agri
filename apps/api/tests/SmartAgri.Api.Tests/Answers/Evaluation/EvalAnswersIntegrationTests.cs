@@ -58,7 +58,7 @@ public sealed class EvalAnswersIntegrationTests : IClassFixture<AuthHostFixture>
 
         report.ShouldContain("這是 `Fake` 模型的結果", Case.Sensitive, "the Fake warning");
         report.ShouldContain($"（{Set.Questions.Count} 題）", Case.Sensitive);
-        report.ShouldContain("| Retrieval:CandidateMinScore | —（不使用候選段落） |", Case.Sensitive, "Development's MinScore equals the candidate threshold: no band");
+        report.ShouldContain("| Retrieval:CandidateMinScore | —（不使用候選段落） |", Case.Sensitive, "Development turns the candidate band off");
         report.ShouldContain("| 採用候選段落（低於 MinScore、交給模型判斷） | 0 題（回答 0、模型拒答 0） |", Case.Sensitive);
         report.ShouldContain("| 同表補列（命中表格列、補上同表其他列） | ", Case.Sensitive, "#324");
         output.ToString().ShouldContain("同表補列 ");

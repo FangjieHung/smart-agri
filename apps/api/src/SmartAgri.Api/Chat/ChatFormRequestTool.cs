@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Assistants;
+using SmartAgri.Application.Observability;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Observability;
@@ -78,7 +79,8 @@ public sealed class ChatFormRequestTool
         }
         catch (Exception exception) when (!(exception is OperationCanceledException && cancellationToken.IsCancellationRequested))
         {
-            _logger.LogWarning(exception, "A conversation's form-tool selection failed; the keyword gate decides instead.");
+            // Only types: the model provider's error can quote the question it rejected.
+            _logger.LogWarning("A conversation's form-tool selection failed; the keyword gate decides instead: {Failure}", ExceptionSummary.Of(exception));
             activity?.SetStatus(ActivityStatusCode.Error);
             var fallback = AssistantFormRequestRules.AsksForForm(question) ? offered : null;
             activity?.SetTag("smartagri.form_request.status", fallback is null ? "fallback-none" : "fallback-keyword");

@@ -15,6 +15,7 @@ using SmartAgri.Api.Jobs;
 using SmartAgri.Api.Line;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Api.Tests.Setup;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Line;
@@ -312,6 +313,37 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
         await EventuallyAsync(() => Replies(setup).Count == 2, "the first answer");
         Replies(setup)[1].Json.GetProperty("replyToken").GetString().ShouldBe("reply-token-first");
         _host.Model.CallsFor(setup.AssistantId).Count.ShouldBe(1);
+    }
+
+    // --- What a failure writes to the log ---------------------------------------------------------------
+
+    /// <summary>Acceptance (#307): a model provider's error can quote the question it rejected, so a failed
+    /// answer logs the exception types and the HTTP status, never a message — in no log, at no level. The
+    /// user still gets the fixed 「目前無法回答」. (The same rule for website visitors is in
+    /// <c>VisitorEndpointsTests</c>.)</summary>
+    [Fact]
+    public async Task A_model_error_that_quotes_the_question_never_reaches_the_log()
+    {
+        const string echoed = "SECRET-ECHO-9f3a7";
+        var telemetry = new TelemetryCapture();
+        await using var observed = _host.Factory.WithWebHostBuilder(telemetry.Attach);
+        var history = observed.Services.GetRequiredService<ILineConversationHistory>();
+        var setup = await SetUpAsync();
+        _host.Model.Hooks[setup.AssistantId] = _ =>
+            Task.FromException(new HttpRequestException($"Invalid request: {RelatedQuestion} {echoed}", inner: null, HttpStatusCode.BadRequest));
+        var sentinel = NewSentinel(setup.AssistantId, history);
+
+        await PostAsync(observed.CreateClient(), setup, [Text(UserSource(NewUserId()), RelatedQuestion, "reply-token-quoted"), sentinel.Event]);
+
+        await EventuallyAsync(() => history.Get(sentinel.Chat).Count == 0, "the delivery to be processed");
+        var reply = Replies(setup).ShouldHaveSingleItem();
+        reply.Json.GetProperty("messages")[0].GetProperty("text").GetString().ShouldBe(LineAnswerMessages.FailedReply);
+        var logs = telemetry.Logs.Concat(telemetry.OpenTelemetryLogs).ToList();
+        logs.ShouldNotContain(line => line.Contains(echoed, StringComparison.Ordinal));
+        logs.ShouldNotContain(line => line.Contains(RelatedQuestion, StringComparison.Ordinal));
+        var failures = logs.Where(line => line.Contains("could not be answered", StringComparison.Ordinal)).ToList();
+        failures.ShouldNotBeEmpty("the failure is logged (by the plain logger and by OpenTelemetry's)");
+        failures.ShouldAllBe(line => line.Contains("HttpRequestException (HTTP 400)", StringComparison.Ordinal));
     }
 
     // --- Reply deadline and push ----------------------------------------------------------------------

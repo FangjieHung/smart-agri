@@ -184,8 +184,8 @@ public sealed class EfInitialSetupStore : IInitialSetupStore
 
             // Another add-organization committed first. Under the serializable transaction a
             // same-code race surfaces as a unique violation or a serialization failure; the
-            // latter may also come from an unrelated concurrent add, so tell the two apart by
-            // asking again on a clean connection state: nothing of ours was committed.
+            // latter may also come from an unrelated concurrent add, so it only asks the operator
+            // to run the command again: nothing of ours was committed.
             return PostgresOf(exception)?.SqlState == PostgresErrorCodes.UniqueViolation
                 ? InitialSetupResult.DuplicateCode
                 : InitialSetupResult.Rejected(["同時有另一個變更，這次沒有建立任何東西；請稍後再執行一次。"]);

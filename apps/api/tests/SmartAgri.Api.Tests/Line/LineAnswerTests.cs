@@ -73,9 +73,12 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
         var userId = NewUserId();
         var before = await CountsAsync(setup);
 
-        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-1", "m-1"));
+        // The turns are remembered after the reply is sent, so the delivery is awaited to its sentinel.
+        var sentinel = NewSentinel(setup.AssistantId);
+        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-1", "m-1"), sentinel.Event);
 
-        await EventuallyAsync(() => Replies(setup).Count == 1, "the answer");
+        await ProcessedAsync(sentinel);
+        Replies(setup).Count.ShouldBe(1, "the answer");
         var requests = Line.RequestsWith(setup.Bot.AccessToken);
         requests.Select(request => request.Endpoint).ShouldBe([FakeLineServer.StartLoading, FakeLineServer.Reply]);
         var loading = requests[0].Json;
@@ -154,11 +157,14 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
         Line.RequestsWith(setup.Bot.AccessToken).ShouldBeEmpty();
         _host.Model.CallsFor(setup.AssistantId).ShouldBeEmpty();
 
+        var answered = NewSentinel(setup.AssistantId);
         await PostAsync(
             setup,
-            Text(GroupSource(groupId, member), BotMention + " " + RelatedQuestion, "reply-token-mention", mentionees: """[{"index":0,"length":5,"type":"user","userId":"Ubot","isSelf":true}]"""));
+            Text(GroupSource(groupId, member), BotMention + " " + RelatedQuestion, "reply-token-mention", mentionees: """[{"index":0,"length":5,"type":"user","userId":"Ubot","isSelf":true}]"""),
+            answered.Event);
 
-        await EventuallyAsync(() => Replies(setup).Count == 1, "the group answer");
+        await ProcessedAsync(answered);
+        Replies(setup).Count.ShouldBe(1, "the group answer");
         Line.RequestsWith(setup.Bot.AccessToken).Select(request => request.Endpoint).ShouldBe([FakeLineServer.Reply], "no loading in a group");
         Replies(setup)[0].Json.GetProperty("replyToken").GetString().ShouldBe("reply-token-mention");
         var question = _host.Model.CallsFor(setup.AssistantId).ShouldHaveSingleItem().Messages[^1].Text;
@@ -361,11 +367,16 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
             _host.Clock.Advance(TimeSpan.FromSeconds(51));
             return Task.CompletedTask;
         };
+        // Only this host's meter: the listener is process-wide, and every other test host has the same
+        // meter name.
+        var meterFactory = _host.Factory.Services.GetRequiredService<IMeterFactory>();
         long pushMetrics = 0;
         using var listener = new MeterListener();
         listener.InstrumentPublished = (instrument, meterListener) =>
         {
-            if (instrument.Meter.Name == SmartAgriMeter.Name && instrument.Name == LineAnswerMetrics.PushFallbacksInstrument)
+            if (ReferenceEquals(instrument.Meter.Scope, meterFactory)
+                && instrument.Meter.Name == SmartAgriMeter.Name
+                && instrument.Name == LineAnswerMetrics.PushFallbacksInstrument)
             {
                 meterListener.EnableMeasurementEvents(instrument);
             }
@@ -373,10 +384,16 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
         listener.SetMeasurementEventCallback<long>((_, value, _, _) => Interlocked.Add(ref pushMetrics, value));
         listener.Start();
 
-        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-late-1"));
-        await EventuallyAsync(() => Pushes(setup).Count == 1, "the pushed answer");
-        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-late-2"));
-        await EventuallyAsync(() => Pushes(setup).Count == 2, "the second pushed answer");
+        // The push reaches LINE before the handler records the metric and then counts it on the channel
+        // row (#268), so each delivery is awaited to its sentinel: by then all three are done.
+        var first = NewSentinel(setup.AssistantId);
+        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-late-1"), first.Event);
+        await ProcessedAsync(first);
+        Pushes(setup).Count.ShouldBe(1, "the pushed answer");
+        var second = NewSentinel(setup.AssistantId);
+        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-late-2"), second.Event);
+        await ProcessedAsync(second);
+        Pushes(setup).Count.ShouldBe(2, "the second pushed answer");
 
         var requests = Line.RequestsWith(setup.Bot.AccessToken);
         requests.Select(request => request.Endpoint).ShouldBe(
@@ -385,7 +402,7 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
         push.GetProperty("to").GetString().ShouldBe(userId);
         push.GetProperty("messages").GetArrayLength().ShouldBe(2);
         push.GetProperty("messages")[0].GetProperty("text").GetString().ShouldBe(FakeAnswerText);
-        await EventuallyAsync(() => Interlocked.Read(ref pushMetrics) >= 2, "the push fallback metric");
+        Interlocked.Read(ref pushMetrics).ShouldBe(2, "the push fallback metric");
 
         await using (var dbContext = _host.Postgres.CreateDbContext(setup.OrganizationId))
         {
@@ -411,6 +428,8 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
             (await dbContext.AssistantLineChannels.AsNoTracking().SingleAsync(row => row.AssistantId == setup.AssistantId, CancellationToken))
                 .PushFallbackCount.ShouldBe(2);
         }
+
+        Interlocked.Read(ref pushMetrics).ShouldBe(2, "no push fallback metric for the group");
     }
 
     [Fact]
@@ -420,8 +439,12 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
         var userId = NewUserId();
         Line.Script(setup.Bot.AccessToken, FakeLineServer.Reply, LineBehavior.Answer(HttpStatusCode.BadRequest, """{"message":"Invalid reply token"}"""));
 
-        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-expired"));
-        await EventuallyAsync(() => Pushes(setup).Count == 1, "the pushed answer");
+        // Deliveries are handled concurrently and the push is counted after it is sent: the first one is
+        // awaited to its sentinel, so the 429 below is all that can change the count.
+        var pushed = NewSentinel(setup.AssistantId);
+        await PostAsync(setup, Text(UserSource(userId), RelatedQuestion, "reply-token-expired"), pushed.Event);
+        await ProcessedAsync(pushed);
+        Pushes(setup).Count.ShouldBe(1, "the pushed answer");
         Line.RequestsWith(setup.Bot.AccessToken).Select(request => request.Endpoint)
             .ShouldBe([FakeLineServer.StartLoading, FakeLineServer.Reply, FakeLineServer.Push]);
 
@@ -448,10 +471,14 @@ public sealed class LineAnswerTests : IClassFixture<LineAnswerHostFixture>
     private static List<(ChatRole Role, string? Text)> History(RecordedModelCall call) =>
         [.. call.Messages.Skip(1).SkipLast(1).Select(message => (message.Role, (string?)message.Text))];
 
+    /// <summary>Asks and waits for the delivery to its sentinel: the turns are remembered only after the
+    /// reply is sent, and the next question (another delivery, handled concurrently) must find them.</summary>
     private async Task AskAsync(Setup setup, string userId, string question, string messageId, int expectedReplies)
     {
-        await PostAsync(setup, Text(UserSource(userId), question, "reply-token-" + messageId, messageId));
-        await EventuallyAsync(() => Replies(setup).Count == expectedReplies, $"the answer to {messageId}");
+        var sentinel = NewSentinel(setup.AssistantId);
+        await PostAsync(setup, Text(UserSource(userId), question, "reply-token-" + messageId, messageId), sentinel.Event);
+        await ProcessedAsync(sentinel);
+        Replies(setup).Count.ShouldBe(expectedReplies, $"the answer to {messageId}");
     }
 
     /// <summary>An organization whose admin owns a knowledge base with one approved document, an

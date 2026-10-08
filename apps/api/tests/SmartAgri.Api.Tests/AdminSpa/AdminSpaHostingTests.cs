@@ -195,7 +195,9 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
     // --- The Api's paths are unaffected ---------------------------------------------------------------
 
     /// <summary>Every one answers byte for byte as it does without <c>Admin:RootPath</c> (status, headers but
-    /// the clock, body), and none of them is the admin.</summary>
+    /// the clock, body), and none of them is the admin. None may need the (unreachable) database: its
+    /// <c>500</c> is the developer exception page, whose stack trace differs from one connection failure to
+    /// the next (#325), so it could not be compared.</summary>
     [Theory]
     [InlineData("GET", "/api/v1/me")]
     [InlineData("GET", "/api/v1/does-not-exist")]
@@ -225,6 +227,8 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
         var withAdmin = await SendAsync(admin, method, path);
         var without = await SendAsync(plain, method, path);
 
+        without.StatusCode.ShouldNotBe(
+            HttpStatusCode.InternalServerError, "the request must not need the database: give it one that is answered without it");
         (await WireFormAsync(withAdmin)).ShouldBe(await WireFormAsync(without));
         (await withAdmin.Content.ReadAsStringAsync(CancellationToken)).ShouldNotContain(AdminMarker);
     }
@@ -334,7 +338,9 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
         using var request = new HttpRequestMessage(new HttpMethod(method), path);
         if (method == "POST")
         {
-            request.Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+            // An organization code without a login name is refused (bodiless 401) before any lookup; without
+            // one, the endpoint would look for the sole organization in the database.
+            request.Content = new StringContent("""{"organizationCode":"no-such-organization"}""", System.Text.Encoding.UTF8, "application/json");
         }
 
         if (path.StartsWith("/use/", StringComparison.Ordinal))

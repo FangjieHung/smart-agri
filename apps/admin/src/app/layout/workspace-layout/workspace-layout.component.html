@@ -1,4 +1,3 @@
-@if (isWorkspace) {
 <a class="skip-link" href="#main-content" (click)="skipToContent($event)">跳到主要內容</a>
 <div class="app-shell">
   <mat-sidenav-container class="sidenav-container">
@@ -40,6 +39,3 @@
     </mat-sidenav-content>
   </mat-sidenav-container>
 </div>
-} @else {
-  <router-outlet />
-}

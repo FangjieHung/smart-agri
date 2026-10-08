@@ -1,4 +1,4 @@
-import { auditA11y, expectFilledButton, forEachColorTheme, loginAs } from '../support/a11y';
+import { auditA11y, expectColorsFollowTheme, expectFilledButton, forEachColorTheme, loginAs } from '../support/a11y';
 
 const ASSISTANT = 'assistant-customer-service';
 
@@ -76,6 +76,13 @@ describe('chat history sidebar', () => {
     auditA11y();
     // issue #261：刪除無法復原，確認按鈕是錯誤色；淺色與深色主題都量實際畫出的顏色與對比。
     forEachColorTheme(() => expectFilledButton('button.confirm-delete', '--color-error'));
+    // issue #320：對話框的底色、文字與按鈕在深色主題要跟著變深，兩個主題量到的顏色不同、對比都 ≥ 4.5:1。
+    expectColorsFollowTheme({
+      title: '[role="dialog"] .confirm-title',
+      detail: '[role="dialog"] .confirm-detail',
+      cancel: '[role="dialog"] button.confirm-cancel',
+      confirm: '[role="dialog"] button.confirm-delete',
+    });
     cy.get('button.confirm-delete').click();
     cy.get('[role="dialog"]').should('not.exist');
     cy.get('ul.thread-list > li').should('have.length', 1);
@@ -127,6 +134,13 @@ describe('chat history sidebar', () => {
     cy.contains('button.handoff-trigger', '轉給專人').click();
     // issue #261：轉交是這個對話框的主要動作，確認按鈕是強調色。
     forEachColorTheme(() => expectFilledButton('[role="dialog"] button.confirm-handoff', '--color-accent'));
+    // issue #320：對話框的底色、文字與按鈕在深色主題要跟著變深，兩個主題量到的顏色不同、對比都 ≥ 4.5:1。
+    expectColorsFollowTheme({
+      title: '[role="dialog"] .confirm-title',
+      detail: '[role="dialog"] .confirm-detail',
+      cancel: '[role="dialog"] button.confirm-cancel',
+      confirm: '[role="dialog"] button.confirm-handoff',
+    });
     cy.get('[role="dialog"] button.confirm-handoff').click();
     cy.get('.handoff-feedback').should('contain', '已轉交');
     cy.contains('.app-sidenav a', '對話與回報紀錄').click();

@@ -41,6 +41,11 @@ module.exports = defineConfig({
           }
           return null;
         },
+        // a11y.ts 的 expectColorsFollowTheme：每個元素在各配色主題下量到的字色與底色。
+        a11yColors(rows: { name: string; verdant: object; midnight: object }[]) {
+          console.log(JSON.stringify(rows));
+          return null;
+        },
       });
 
       return updated ?? config;

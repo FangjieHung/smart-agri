@@ -1,4 +1,4 @@
-import { expectFilledButton, forEachColorTheme, loginAs } from '../support/a11y';
+import { expectColorsFollowTheme, expectFilledButton, forEachColorTheme, loginAs } from '../support/a11y';
 
 function fillOrderForm(): void {
   loginAs('外部客戶');
@@ -155,6 +155,13 @@ describe('consented structured submission', () => {
     cy.focused().should('have.class', 'confirm-cancel');
     // issue #261：撤回無法復原，確認按鈕是錯誤色；淺色與深色主題都量。
     forEachColorTheme(() => expectFilledButton('button.confirm-withdraw', '--color-error'));
+    // issue #320：對話框的底色、文字與按鈕在深色主題要跟著變深，兩個主題量到的顏色不同、對比都 ≥ 4.5:1。
+    expectColorsFollowTheme({
+      title: '[role="dialog"] .confirm-title',
+      detail: '[role="dialog"] .confirm-detail',
+      cancel: '[role="dialog"] button.confirm-cancel',
+      confirm: '[role="dialog"] button.confirm-withdraw',
+    });
     cy.contains('button.confirm-withdraw', '撤回').click();
 
     cy.get('[role="dialog"]').should('not.exist');

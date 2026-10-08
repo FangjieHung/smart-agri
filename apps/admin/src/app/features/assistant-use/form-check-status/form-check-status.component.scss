@@ -20,7 +20,7 @@
 .phrase {
   grid-area: 1 / 1;
   color: transparent;
-  background-image: linear-gradient(90deg, #1c2733 0%, #1c2733 35%, #9aa6b2 50%, #1c2733 65%, #1c2733 100%);
+  background-image: linear-gradient(90deg, var(--color-text) 0%, var(--color-text) 35%, #9aa6b2 50%, var(--color-text) 65%, var(--color-text) 100%);
   background-size: 200% 100%;
   background-clip: text;
   -webkit-background-clip: text;

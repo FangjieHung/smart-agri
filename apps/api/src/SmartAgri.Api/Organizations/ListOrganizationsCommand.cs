@@ -65,17 +65,21 @@ public static class ListOrganizationsCommand
         try
         {
             await using var scope = services.CreateAsyncScope();
-            await using var dbContext = new AppDbContext(
-                scope.ServiceProvider.GetRequiredService<DbContextOptions<AppDbContext>>(), FixedOrganizationContext.None);
+            var options = scope.ServiceProvider.GetRequiredService<DbContextOptions<AppDbContext>>();
+            await using var dbContext = new AppDbContext(options, FixedOrganizationContext.None);
 
             var organizations = await dbContext.Organizations.AsNoTracking()
                 .Select(organization => new { organization.Id, organization.Code, organization.Name })
                 .ToListAsync(cancellationToken);
-            var accountCounts = await dbContext.Accounts
-                .IgnoreQueryFilters([AppDbContext.OrganizationFilter])
-                .GroupBy(account => account.OrganizationId)
-                .Select(group => new { OrganizationId = group.Key, Count = group.Count() })
-                .ToDictionaryAsync(row => row.OrganizationId, row => row.Count, cancellationToken);
+
+            // Accounts are organization-filtered, so each organization's count is read as that
+            // organization rather than by turning the filter off (Tenancy source tests allow that in sign-in lookups only).
+            var accountCounts = new Dictionary<Guid, int>();
+            foreach (var organization in organizations)
+            {
+                await using var organizationContext = new AppDbContext(options, new FixedOrganizationContext(organization.Id));
+                accountCounts[organization.Id] = await organizationContext.Accounts.CountAsync(cancellationToken);
+            }
 
             await output.WriteLineAsync("組織代碼\t名稱\t建立時間(UTC)\t帳號數");
             foreach (var organization in organizations.OrderBy(o => CreatedAt(o.Id) ?? DateTimeOffset.MaxValue).ThenBy(o => o.Code, StringComparer.Ordinal))

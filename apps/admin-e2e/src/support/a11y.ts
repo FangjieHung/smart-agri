@@ -68,11 +68,17 @@ type Rgb = readonly [number, number, number];
 
 function parseRgb(color: string): { rgb: Rgb; alpha: number } {
   const match = /^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/.exec(color);
-  if (!match) throw new Error(`not an rgb() color: ${color}`);
-  return {
-    rgb: [Number(match[1]), Number(match[2]), Number(match[3])],
-    alpha: match[4] === undefined ? 1 : Number(match[4]),
-  };
+  if (match) {
+    return {
+      rgb: [Number(match[1]), Number(match[2]), Number(match[3])],
+      alpha: match[4] === undefined ? 1 : Number(match[4]),
+    };
+  }
+  // color-mix() 與相對色的計算值是 `color(srgb r g b / a)`（0–1），換算成和 rgb() 相同的 0–255。
+  const srgb = /^color\(srgb ([\d.e-]+) ([\d.e-]+) ([\d.e-]+)(?: \/ ([\d.]+))?\)$/.exec(color);
+  if (!srgb) throw new Error(`not an rgb() color: ${color}`);
+  const [r, g, b] = [srgb[1], srgb[2], srgb[3]].map((channel) => Math.round(Number(channel) * 255));
+  return { rgb: [r, g, b], alpha: srgb[4] === undefined ? 1 : Number(srgb[4]) };
 }
 
 function luminance([r, g, b]: Rgb): number {
@@ -115,6 +121,75 @@ export function expectFilledButton(selector: string, token: '--color-error' | '-
     expect(background.alpha, `${selector} background is opaque`).to.eq(1);
     expect(foreground.alpha, `${selector} text is opaque`).to.eq(1);
     expect(contrastRatio(foreground.rgb, background.rgb), `${selector} contrast (${style.color} on ${style.backgroundColor})`).to.be.at.least(4.5);
+  });
+}
+
+interface MeasuredColors {
+  readonly color: string;
+  readonly background: string;
+}
+
+/** 元素的字色，以及往上找到的第一個不透明底色（元素自己沒有底色時，畫面上看到的是祖先的底色）。 */
+function measureColors(element: Element): MeasuredColors {
+  const win = element.ownerDocument.defaultView as Window;
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    expect(win.getComputedStyle(node).opacity, `opacity of ${node.tagName.toLowerCase()}`).to.eq('1');
+  }
+  let background = 'rgba(0, 0, 0, 0)';
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const color = win.getComputedStyle(node).backgroundColor;
+    if (parseRgb(color).alpha === 1) {
+      background = color;
+      break;
+    }
+  }
+  return { color: win.getComputedStyle(element).color, background };
+}
+
+/**
+ * 對話框的顏色跟著配色主題走（issue #320）：`parts` 是「名稱 → 選擇器」，每個元素量實際畫出的字色與底色。
+ * - 每個主題下，字色與底色的對比都至少 4.5:1；
+ * - 淺色與深色主題量到的字色、底色都不同；淺色主題是淺底的部分，深色主題的底色要是暗色（相對亮度 < 0.1）。
+ *
+ * 以前 admin 的 `--color-*` 只定義在 `:root`，深色主題下對話框和淺色一模一樣，對比照樣通過，
+ * 所以只檢查對比抓不到；這裡同時比較兩個主題量到的顏色。
+ */
+export function expectColorsFollowTheme(parts: Readonly<Record<string, string>>): void {
+  const measured: Partial<Record<ColorTheme, Record<string, MeasuredColors>>> = {};
+  forEachColorTheme((theme) => {
+    settleAnimations();
+    cy.document({ log: false }).should((doc) => {
+      const colors: Record<string, MeasuredColors> = {};
+      for (const [name, selector] of Object.entries(parts)) {
+        const element = doc.querySelector(selector);
+        if (!element) throw new Error(`${name} (${selector}) not found`);
+        const part = measureColors(element);
+        const ratio = contrastRatio(parseRgb(part.color).rgb, parseRgb(part.background).rgb);
+        expect(ratio, `${theme} ${name} contrast (${part.color} on ${part.background})`).to.be.at.least(4.5);
+        colors[name] = part;
+      }
+      measured[theme] = colors;
+    });
+  });
+  cy.then(() => {
+    const [light, dark] = [measured.verdant, measured.midnight];
+    if (!light || !dark) throw new Error('both color themes must be measured');
+    // 量到的顏色印到終端機（cypress.config.ts 的 a11yColors），失敗時看得到兩個主題各是什麼顏色。
+    const rows = Object.keys(parts).map((name) => ({ name, verdant: light[name], midnight: dark[name] }));
+    return cy.task('a11yColors', rows, { log: false }).then(() => ({ light, dark }));
+  }).then(({ light, dark }) => {
+    for (const name of Object.keys(parts)) {
+      expect(dark[name].color, `${name} text color differs between verdant and midnight`).not.to.eq(light[name].color);
+      expect(dark[name].background, `${name} background differs between verdant and midnight`).not.to.eq(light[name].background);
+      // 淺色主題是淺底的部分（對話框、取消鈕）在深色主題要變暗；實心的危險／強調按鈕在深色主題反而較亮（配深色字）。
+      const lightBackground = luminance(parseRgb(light[name].background).rgb);
+      if (lightBackground > 0.5) {
+        expect(
+          luminance(parseRgb(dark[name].background).rgb),
+          `${name} background is dark in midnight (${dark[name].background} vs ${light[name].background})`,
+        ).to.be.below(0.1);
+      }
+    }
   });
 }
 

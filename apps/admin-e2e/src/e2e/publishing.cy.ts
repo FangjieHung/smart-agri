@@ -1,4 +1,4 @@
-import { auditA11y, forEachColorTheme, loginAs } from '../support/a11y';
+import { auditA11y, expectColorsFollowTheme, forEachColorTheme, loginAs } from '../support/a11y';
 import { SHORT_WINDOWS, expectFullyOnScreen, expectScrollingBody } from '../support/on-screen';
 
 const VALID_TOKEN = 'demo-token-not-for-production-0123456789abcdefghij';
@@ -182,6 +182,13 @@ describe('publishing channels', () => {
       // 完整的 axe 檢查（issue #294），淺色與深色主題都跑。先前只跑 scrollable-region-focusable，因為 axe 在
       // 對話框 150ms 的 opacity 轉場中取色，報出 1.3–2.7:1 的假違規；auditA11y 現在先讓動畫結束再掃描。
       forEachColorTheme(() => auditA11y('.mat-mdc-dialog-container'));
+      // issue #320：發布確認對話框的底色、文字與按鈕跟著主題變深，兩個主題量到的顏色不同、對比都 ≥ 4.5:1。
+      expectColorsFollowTheme({
+        title: '#website-publish-title',
+        detail: '.publish-panel .publish-detail p',
+        cancel: '.publish-panel .dialog-actions button.secondary',
+        confirm,
+      });
 
       cy.get(confirm).should('contain', '確認發布').click({ scrollBehavior: false });
       cy.get('.publish-panel').should('not.exist');

@@ -39,3 +39,20 @@
   --reading-width: 70ch;
   --motion-feedback: 180ms;
 }
+// 深色配色（issue #320）：上面的值只適合淺色，深色主題改從該配色的 `--mat-sys-*`／`--app-*` 推導，
+// 不另外維護一份色票。淺色（verdant）不套用，畫面維持原樣。新增深色配色時，把它加進這個選擇器。
+// 強調色與實心按鈕：midnight 的 primary 配白字只有 3.4:1，所以強調色用較亮的 on-primary-container，
+// 實心按鈕（強調色、錯誤色底）的字改用深色。各組合的對比見 issue #320 的 PR。
+:root[data-theme='midnight'] {
+  --color-background: var(--mat-sys-background);
+  --color-surface: var(--mat-sys-surface);
+  --color-text: var(--mat-sys-on-surface);
+  --color-text-secondary: var(--mat-sys-on-surface-variant);
+  --color-accent: var(--mat-sys-on-primary-container);
+  --color-accent-soft: var(--mat-sys-surface-container);
+  --color-on-accent: var(--mat-sys-background);
+  --color-success: var(--app-positive-fg);
+  --color-warning: var(--app-warning-fg);
+  --color-error: var(--mat-sys-error);
+  --color-border: var(--mat-sys-outline-variant);
+}

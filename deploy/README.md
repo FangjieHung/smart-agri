@@ -241,6 +241,35 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 
 完整說明：`apps/api/README.md`「Monthly token limit」。
 
+### 6.1 多家店共用一個部署
+
+同一個部署可以服務多家店（每家店是一個組織，資料互相隔離）。第一家店用 `setup` 建立；**第二家以後**用 `add-organization`
+（在 repo 根目錄，一次性容器；有用 `docker-compose.limits.yml` 的話一樣要帶兩個 `-f`）：
+
+1. 新增店家與它的管理者（互動式會詢問；非互動式三個旗標都必填，顯示名稱省略時等於帳號名稱）：
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api add-organization
+
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -T api add-organization \
+     --organization-name "豐收商行" --organization-code harvest \
+     --admin-login boss --admin-display-name "李老闆"
+   ```
+   指令會印出**只顯示一次的一次性密碼**（不寫入檔案、日誌或遙測，遺失後無法再查），請當場交給那家店的管理者；
+   他首次登入時要輸入**組織代碼**（多家店時每次登入都要，建立後不可修改），並先設定新密碼。
+   資料庫還沒有任何組織時指令會拒絕並提示改用 `setup`；組織代碼已被使用時也會拒絕，且不寫入任何東西。
+   結束代碼同 `setup`：`0` 完成、`1` 拒絕或失敗、`2` 參數錯誤。
+2. 為這家店設定每月 token 上限（否則套用 `DEFAULT_MONTHLY_TOKEN_LIMIT`）：
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
+     set-token-limit --organization harvest --tokens 3000000
+   ```
+3. 隨時用 `list-organizations` 查看目前有哪些店（組織代碼、名稱、建立時間、帳號數；不含任何帳號的個人資料）：
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api list-organizations
+   ```
+4. **隱私權政策**：由你代管多家店時，你和各店的角色不同，請把 `privacy-policy-template.md` 的第 1 節與第 5 節改成
+   「店家（資料控制者）／代管業者（處理者）」的寫法，並由各店各自發布；範本已附上可選用的代管者文字。
+
 ## 7. 助理擁有者的發布流程
 
 只有**助理擁有者**且帶有「管理發布」權限的帳號能發布（admin：助理 →「發布」頁 →「官網嵌入」）。

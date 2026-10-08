@@ -33,6 +33,22 @@ public sealed record SetupArguments(
         結束代碼：0 完成；1 拒絕執行或失敗；2 參數或輸入錯誤。
         """;
 
+    public const string AddOrganizationUsage = """
+        用法：add-organization [--organization-name <名稱>] [--organization-code <代碼>]
+                              [--admin-login <帳號名稱>] [--admin-display-name <顯示名稱>]
+
+        在已經有組織的資料庫上新增另一個組織與它的管理者（角色 smb-admin，擁有全部權限），
+        並印出只顯示一次的一次性密碼；管理者首次登入後必須設定新密碼。資料庫還沒有任何組織
+        時拒絕執行（請改用 setup）；組織代碼已被使用時也拒絕，且不寫入任何東西。
+        須先執行 migrate（容器的 entrypoint 會自動執行）。參數與 setup 相同：
+          --organization-name   組織名稱（1-200 字）
+          --organization-code   組織代碼：a-z、0-9、-，1-32 字，登入時使用，建立後不可修改
+          --admin-login         管理者帳號名稱：英文字母、數字與 - . _ @ +，1-64 字
+          --admin-display-name  管理者顯示名稱（1-200 字）
+        標準輸入不是終端機時，組織名稱、組織代碼與管理者帳號名稱都必須以參數提供。
+        結束代碼：0 完成；1 拒絕執行或失敗；2 參數或輸入錯誤。
+        """;
+
     private static readonly string[] Flags = [OrganizationNameFlag, OrganizationCodeFlag, AdminLoginFlag, AdminDisplayNameFlag];
 
     /// <summary>

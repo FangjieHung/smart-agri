@@ -282,7 +282,7 @@ public class SetupCommandTests
 
         public Task<InitialSetupState> GetStateAsync(CancellationToken cancellationToken) => Task.FromResult(InitialSetupState.Ready);
 
-        public Task<InitialSetupResult> CreateAsync(InitialSetupRequest request, string password, CancellationToken cancellationToken)
+        public Task<InitialSetupResult> CreateAsync(InitialSetupRequest request, string password, SetupMode mode, CancellationToken cancellationToken)
         {
             Password = password;
             return Task.FromResult(InitialSetupResult.Rejected([$"rejected {password}"]));
@@ -296,7 +296,7 @@ public class SetupCommandTests
 
         public Task<InitialSetupState> GetStateAsync(CancellationToken cancellationToken) => Task.FromResult(InitialSetupState.Ready);
 
-        public Task<InitialSetupResult> CreateAsync(InitialSetupRequest request, string password, CancellationToken cancellationToken)
+        public Task<InitialSetupResult> CreateAsync(InitialSetupRequest request, string password, SetupMode mode, CancellationToken cancellationToken)
         {
             Password = password;
             throw new InvalidOperationException($"boom {password}");

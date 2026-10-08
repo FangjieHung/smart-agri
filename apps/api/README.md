@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + reindex + rechunk + set-token-limit + retention-cleanup subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + add-organization + list-organizations + reindex + rechunk + set-token-limit + retention-cleanup subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -1908,6 +1908,49 @@ database stays organization-less for `setup`, which refuses once any organizatio
 dotnet run --project apps/api/src/SmartAgri.Api -- migrate
 dotnet run --project apps/api/src/SmartAgri.Api -- setup
 ```
+
+## Hosting several shops: `add-organization` and `list-organizations`
+
+One deployment can serve several organizations (shops). The data layer is already
+multi-tenant (see "Organization isolation"); `setup` only creates the first organization, so
+the second and later ones are added by the operator with `add-organization`:
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api add-organization
+# or non-interactively (name, code and admin login are then required):
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -T api add-organization \
+  --organization-name "豐收商行" --organization-code harvest \
+  --admin-login boss --admin-display-name "李老闆"
+```
+
+It takes the same inputs and flags as `setup` and behaves the same way: the administrator
+gets role `smb-admin` and all seven permissions, a **one-time password is printed once**
+(never written to a file, log or telemetry) and the account must change it at first login,
+and organization, account and permissions are written in one serializable transaction.
+Exit codes are the same too: `0` done, `1` refused or failed (nothing changed), `2` bad
+arguments. The differences from `setup`:
+
+- It **requires** at least one existing organization; on an organization-less database it
+  refuses (exit 1) and tells the operator to run `setup` instead.
+- An organization code that already exists (codes are compared in their normalized, lower
+  case form) is refused (exit 1) and nothing is written. Two runs adding the same code at
+  once cannot both succeed: the check runs inside the serializable transaction, and a
+  unique-index violation or serialization failure from the race is reported as a refusal
+  (duplicate code, or "try again") instead of a crash.
+- It also refuses while migrations are pending (run `migrate` first).
+
+The new administrator signs in at the admin SPA by typing the new organization code (with
+several organizations the code is required at every login), sets a new password, and from
+then on sees only that organization's data. Set each shop's monthly token cap afterwards with
+`set-token-limit` (see "Monthly token limit").
+
+`list-organizations` prints one tab-separated line per organization: code, name, creation
+time (UTC) and number of accounts. It prints no login names, display names or other
+personal data. `Organization` has no creation column, so the time is read from the
+organization id (organizations are created with time-ordered version 7 ids, which embed it;
+any other id shows `-`). It reads the `Organizations` table, which has no organization
+filter, and counts accounts by opting out of the one named organization query filter for
+that count only, selecting nothing but the organization id and a count.
 
 ## Running tests
 

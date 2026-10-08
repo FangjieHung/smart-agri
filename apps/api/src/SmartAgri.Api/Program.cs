@@ -127,6 +127,21 @@ if (args is [SmartAgriCommands.Setup, .. var setupArgs])
     return;
 }
 
+// `add-organization` adds the 2nd+ organization (and its administrator) to an already initialized
+// database for multi-shop hosting; same inputs and rules as `setup` (#333; see SetupCommand).
+if (args is [SmartAgriCommands.AddOrganization, .. var addOrganizationArgs])
+{
+    Environment.ExitCode = await SetupCommand.RunAddOrganizationAsync(app.Services, addOrganizationArgs, SystemSetupConsole.Instance);
+    return;
+}
+
+// `list-organizations` prints each organization's code, name, creation time and account count.
+if (args is [SmartAgriCommands.ListOrganizations, .. var listOrganizationsArgs])
+{
+    Environment.ExitCode = await ListOrganizationsCommand.RunAsync(app.Services, listOrganizationsArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `reindex` is one-shot too: re-embed chunks whose vectors are from another model than
 // Ai:Embedding:Model, per organization, printing progress, and exit (M2 plan, Slice 7).
 if (args is [SmartAgriCommands.Reindex, .. var reindexArgs])
@@ -286,6 +301,8 @@ internal static class SmartAgriCommands
 {
     public const string Migrate = "migrate";
     public const string Setup = "setup";
+    public const string AddOrganization = "add-organization";
+    public const string ListOrganizations = "list-organizations";
     public const string Reindex = "reindex";
     public const string Rechunk = "rechunk";
     public const string EvalRetrieval = "eval-retrieval";

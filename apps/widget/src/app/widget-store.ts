@@ -234,7 +234,7 @@ export class WidgetStore {
         this.pause(question);
         return;
       case 'busy':
-        this.setFailed(question, clientMessageId, { kind: 'busy' });
+        this.setFailed(question, clientMessageId, { kind: 'busy', message: error.message });
         return;
       case 'validation-failed':
         // 問題放回輸入框讓使用者修改；伺服器的說明（例如「問題請在 2000 個字以內」）直接顯示。

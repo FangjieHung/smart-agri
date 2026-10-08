@@ -1,12 +1,14 @@
 import {
   FakeServer,
   QUESTION,
+  RECORDED,
   answer,
   companyReply,
   json,
   mount,
   mountReady,
   noResultReply,
+  problem,
   session,
   sse,
   required,
@@ -124,7 +126,7 @@ describe('widget states', () => {
   describe('unavailable (403 when creating the session)', () => {
     it('shows one neutral message and no composer', async () => {
       const fake = new FakeServer();
-      fake.sessions.push(() => json(403, { reason: 'public-assistant' }));
+      fake.sessions.push(problem(RECORDED.sessionPublicAssistant403));
       const view = await mount(fake);
 
       await view.until(() => view.text().includes('這個對話視窗目前無法使用'));
@@ -143,7 +145,7 @@ describe('widget states', () => {
   describe('paused (403 when asking)', () => {
     it('shows 目前暫停服務, keeps the earlier conversation and puts the question back in the draft', async () => {
       const fake = server();
-      fake.runs.push(answer(companyReply), () => json(403, { reason: 'public-assistant' }));
+      fake.runs.push(answer(companyReply), problem(RECORDED.runPublicAssistant403));
       const view = await mountReady(fake);
       view.type(QUESTION);
       view.send();
@@ -160,7 +162,7 @@ describe('widget states', () => {
 
     it('lets the visitor try again after the owner resumes, without reloading the page (#205)', async () => {
       const fake = server();
-      fake.runs.push(() => json(403, { reason: 'public-assistant' }), answer(companyReply));
+      fake.runs.push(problem(RECORDED.runPublicAssistant403), answer(companyReply));
       const view = await mountReady(fake);
       view.type(QUESTION);
       view.send();
@@ -179,8 +181,8 @@ describe('widget states', () => {
 
     it('is also what a 403 on the replacement session after a 401 becomes', async () => {
       const fake = new FakeServer();
-      fake.sessions.push(session(), () => json(403, { reason: 'public-assistant' }));
-      fake.runs.push(() => json(401, { reason: 'unauthorized' }));
+      fake.sessions.push(session(), problem(RECORDED.sessionPublicAssistant403));
+      fake.runs.push(problem(RECORDED.runUnauthorized401));
       const view = await mountReady(fake);
 
       view.type(QUESTION);
@@ -192,7 +194,7 @@ describe('widget states', () => {
   describe('rate limiting (429)', () => {
     it('shows 問題太頻繁了 with a countdown from Retry-After, then allows a retry', async () => {
       const fake = server();
-      fake.runs.push(() => json(429, { reason: 'rate-limited' }, { 'Retry-After': '3' }), answer(companyReply));
+      fake.runs.push(problem(RECORDED.runRateLimited429, { retryAfter: '3' }), answer(companyReply));
       const view = await mountReady(fake);
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
@@ -222,7 +224,7 @@ describe('widget states', () => {
 
     it('formats a long wait in minutes', async () => {
       const fake = server();
-      fake.runs.push(() => json(429, {}, { 'Retry-After': '125' }));
+      fake.runs.push(problem(RECORDED.runRateLimited429, { retryAfter: '125' }));
       const view = await mountReady(fake);
 
       view.type(QUESTION);
@@ -232,7 +234,7 @@ describe('widget states', () => {
 
     it('also counts down when creating the session is rate limited', async () => {
       const fake = new FakeServer();
-      fake.sessions.push(() => json(429, { reason: 'rate-limited' }, { 'Retry-After': '2' }), session());
+      fake.sessions.push(problem(RECORDED.sessionRateLimited429, { retryAfter: '2' }), session());
       const view = await mount(fake);
       vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
@@ -250,7 +252,7 @@ describe('widget states', () => {
     it('creates a new session once and resends the same question with the new token', async () => {
       const fake = new FakeServer();
       fake.sessions.push(session({ token: 'token-1' }), session({ token: 'token-2' }));
-      fake.runs.push(() => json(401, { reason: 'unauthorized' }), answer(companyReply));
+      fake.runs.push(problem(RECORDED.runUnauthorized401), answer(companyReply));
       const view = await mountReady(fake);
 
       view.type(QUESTION);
@@ -267,7 +269,7 @@ describe('widget states', () => {
     it('gives up after a second 401 and offers a retry (which gets a fresh session again)', async () => {
       const fake = new FakeServer();
       fake.sessions.push(session({ token: 'token-1' }), session({ token: 'token-2' }), session({ token: 'token-3' }));
-      fake.runs.push(() => json(401, {}), () => json(401, {}), answer(companyReply));
+      fake.runs.push(problem(RECORDED.runUnauthorized401), problem(RECORDED.runUnauthorized401), answer(companyReply));
       const view = await mountReady(fake);
 
       view.type(QUESTION);
@@ -349,19 +351,19 @@ describe('widget states', () => {
       await view.until(() => view.text().includes('無法連線'));
     });
 
-    it('409: asks the visitor to wait for the previous answer', async () => {
+    it('409: shows the server message asking the visitor to wait for the previous answer (#329)', async () => {
       const fake = server();
-      fake.runs.push(() => json(409, { reason: 'chat-run-in-progress' }));
+      fake.runs.push(problem(RECORDED.runInProgress409));
       const view = await mountReady(fake);
       view.type(QUESTION);
       view.send();
-      await view.until(() => view.text().includes('上一個問題還在回答中'));
+      await view.until(() => view.text().includes('上一個問題還在回覆中，請等回覆完成後再送出。'));
       expect(view.host.querySelector('button.retry')).not.toBeNull();
     });
 
-    it('422: shows the server message and puts the question back in the composer', async () => {
+    it('422: shows the server message and puts the question back in the composer (#329)', async () => {
       const fake = server();
-      fake.runs.push(() => json(422, { message: '問題請在 2000 個字以內。' }));
+      fake.runs.push(problem(RECORDED.runTooLong422));
       const view = await mountReady(fake);
       view.type(QUESTION);
       view.send();
@@ -371,9 +373,13 @@ describe('widget states', () => {
       expect(view.host.querySelector('button.retry')).toBeNull();
     });
 
-    it.each(['chat-not-configured', 'chat-unavailable'])('503 %s: says the service is temporarily unavailable', async (reason) => {
+    // 訪客不需要知道是哪個模型沒設定：伺服器的說明（給系統管理員看的）不顯示。
+    it.each([
+      ['chat-not-configured', RECORDED.runChatNotConfigured503],
+      ['embedding-not-configured', RECORDED.runEmbeddingNotConfigured503],
+    ])('503 %s: says the service is temporarily unavailable', async (_reason, response) => {
       const fake = server();
-      fake.runs.push(() => json(503, { reason }));
+      fake.runs.push(problem(response));
       const view = await mountReady(fake);
       view.type(QUESTION);
       view.send();

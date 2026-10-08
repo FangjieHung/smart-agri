@@ -64,9 +64,13 @@ public sealed class FakeInitialSetupStore : IInitialSetupStore
 
     public Task<InitialSetupState> GetStateAsync(CancellationToken cancellationToken) => Task.FromResult(State);
 
-    public Task<InitialSetupResult> CreateAsync(InitialSetupRequest request, string password, CancellationToken cancellationToken)
+    public List<SetupMode> Modes { get; } = [];
+
+    public Task<InitialSetupResult> CreateAsync(
+        InitialSetupRequest request, string password, SetupMode mode, CancellationToken cancellationToken)
     {
         Created.Add((request, password));
+        Modes.Add(mode);
         return Task.FromResult(CreateResult ?? InitialSetupResult.Created(Guid.NewGuid()));
     }
 }

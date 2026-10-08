@@ -20,6 +20,11 @@ namespace SmartAgri.Api.Setup;
 /// hasher. It is never passed to <see cref="ILogger"/>, an activity/span, an exception
 /// message or a file; failure messages are additionally scrubbed of it.
 /// </para>
+/// <para>
+/// The same class also runs <c>add-organization</c> (<see cref="SetupMode.AddOrganization"/>, #333):
+/// identical inputs, password handling and exit codes, but it requires an existing organization
+/// and refuses a taken organization code.
+/// </para>
 /// </remarks>
 public sealed class SetupCommand
 {
@@ -54,10 +59,30 @@ public sealed class SetupCommand
         return await scope.ServiceProvider.GetRequiredService<SetupCommand>().RunAsync(args, console, cancellationToken);
     }
 
+    /// <summary>Runs <c>add-organization</c> (a further organization on an initialized database)
+    /// in a new DI scope of <paramref name="services"/>. Shares everything else with <c>setup</c>.</summary>
+    public static async Task<int> RunAddOrganizationAsync(
+        IServiceProvider services,
+        IReadOnlyList<string> args,
+        ISetupConsole console,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        await using var scope = services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<SetupCommand>()
+            .RunAsync(SetupMode.AddOrganization, args, console, cancellationToken);
+    }
+
     /// <returns>The process exit code: <see cref="ExitSuccess"/>, <see cref="ExitRefused"/>
     /// or <see cref="ExitUsage"/>.</returns>
-    public async Task<int> RunAsync(IReadOnlyList<string> args, ISetupConsole console, CancellationToken cancellationToken = default)
+    public Task<int> RunAsync(IReadOnlyList<string> args, ISetupConsole console, CancellationToken cancellationToken = default) =>
+        RunAsync(SetupMode.Initial, args, console, cancellationToken);
+
+    /// <returns>The process exit code: <see cref="ExitSuccess"/>, <see cref="ExitRefused"/>
+    /// or <see cref="ExitUsage"/>.</returns>
+    public async Task<int> RunAsync(SetupMode mode, IReadOnlyList<string> args, ISetupConsole console, CancellationToken cancellationToken = default)
     {
+        var usage = mode == SetupMode.Initial ? SetupArguments.Usage : SetupArguments.AddOrganizationUsage;
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(console);
 
@@ -65,13 +90,13 @@ public sealed class SetupCommand
         if (parsed.Arguments is not { } arguments)
         {
             await console.Error.WriteLineAsync(parsed.Error);
-            await console.Error.WriteLineAsync(SetupArguments.Usage);
+            await console.Error.WriteLineAsync(usage);
             return ExitUsage;
         }
 
         if (arguments.HelpRequested)
         {
-            await console.Out.WriteLineAsync(SetupArguments.Usage);
+            await console.Out.WriteLineAsync(usage);
             return ExitSuccess;
         }
 
@@ -84,8 +109,10 @@ public sealed class SetupCommand
                     await console.Error.WriteLineAsync(
                         "資料庫結構尚未更新，請先執行 migrate（dotnet SmartAgri.Api.dll migrate；docker compose 的 run 會自動執行）。");
                     return ExitRefused;
-                case InitialSetupState.AlreadyInitialized:
+                case InitialSetupState.AlreadyInitialized when mode == SetupMode.Initial:
                     return await RefuseAlreadyInitializedAsync(console);
+                case InitialSetupState.Ready when mode == SetupMode.AddOrganization:
+                    return await RefuseNoOrganizationAsync(console);
             }
 
             if (await CollectAsync(arguments, console) is not { } request)
@@ -94,11 +121,17 @@ public sealed class SetupCommand
             }
 
             password = OneTimePasswordGenerator.Generate();
-            var result = await _store.CreateAsync(request, password, cancellationToken);
+            var result = await _store.CreateAsync(request, password, mode, cancellationToken);
             switch (result.Outcome)
             {
                 case InitialSetupOutcome.AlreadyInitialized:
                     return await RefuseAlreadyInitializedAsync(console);
+                case InitialSetupOutcome.NoOrganization:
+                    return await RefuseNoOrganizationAsync(console);
+                case InitialSetupOutcome.DuplicateCode:
+                    await console.Error.WriteLineAsync(
+                        $"組織代碼「{request.OrganizationCode}」已經被使用，拒絕執行。沒有做任何變更。");
+                    return ExitRefused;
                 case InitialSetupOutcome.Rejected:
                     await console.Error.WriteLineAsync("無法建立管理者帳號：");
                     foreach (var error in result.Errors)
@@ -109,12 +142,22 @@ public sealed class SetupCommand
                     return ExitRefused;
             }
 
-            _logger.LogInformation(
-                "Initial setup created organization {OrganizationCode} and administrator account {AccountId}.",
-                request.OrganizationCode,
-                result.AccountId);
+            if (mode == SetupMode.Initial)
+            {
+                _logger.LogInformation(
+                    "Initial setup created organization {OrganizationCode} and administrator account {AccountId}.",
+                    request.OrganizationCode,
+                    result.AccountId);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "add-organization created organization {OrganizationCode} and administrator account {AccountId}.",
+                    request.OrganizationCode,
+                    result.AccountId);
+            }
 
-            await PrintResultAsync(console.Out, request, password);
+            await PrintResultAsync(console.Out, request, password, mode);
             return ExitSuccess;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -122,10 +165,17 @@ public sealed class SetupCommand
             // Only a scrubbed message: an exception object is never handed to the logger
             // once a password exists, so nothing can serialize it along the way.
             var message = Redact($"{exception.GetType().Name}: {exception.Message}", password);
-            _logger.LogError("Initial setup failed: {Error}", message);
-            await console.Error.WriteLineAsync("setup 失敗：" + message);
+            _logger.LogError("{Command} failed: {Error}", mode == SetupMode.Initial ? "Initial setup" : "add-organization", message);
+            await console.Error.WriteLineAsync((mode == SetupMode.Initial ? "setup" : "add-organization") + " 失敗：" + message);
             return ExitRefused;
         }
+    }
+
+    private static async Task<int> RefuseNoOrganizationAsync(ISetupConsole console)
+    {
+        await console.Error.WriteLineAsync(
+            "資料庫還沒有任何組織，拒絕執行：add-organization 只能新增第二個以後的組織；第一個組織請改用 setup。沒有做任何變更。");
+        return ExitRefused;
     }
 
     private static async Task<int> RefuseAlreadyInitializedAsync(ISetupConsole console)
@@ -241,10 +291,10 @@ public sealed class SetupCommand
         return null;
     }
 
-    private static async Task PrintResultAsync(TextWriter output, InitialSetupRequest request, string password)
+    private static async Task PrintResultAsync(TextWriter output, InitialSetupRequest request, string password, SetupMode mode)
     {
         await output.WriteLineAsync();
-        await output.WriteLineAsync("初始化完成。");
+        await output.WriteLineAsync(mode == SetupMode.Initial ? "初始化完成。" : "已新增組織。");
         await output.WriteLineAsync($"  組織：{request.OrganizationName}（組織代碼 {request.OrganizationCode}）");
         await output.WriteLineAsync($"  管理者帳號名稱：{request.AdminLogin}");
         await output.WriteLineAsync($"  一次性密碼：{password}");

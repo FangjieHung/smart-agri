@@ -89,7 +89,6 @@ export class App {
       case 'rate-limited':
         return '問題太頻繁了，請稍後再試';
       case 'busy':
-        return '上一個問題還在回答中，請稍候再試。';
       case 'invalid':
         return failure.message;
       case 'unavailable':

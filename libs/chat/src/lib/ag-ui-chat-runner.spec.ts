@@ -51,8 +51,46 @@ function setup(respond: () => Response, token: string | null = 'token-1') {
 const sse = (body: string) => () =>
   new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
 
-const json = (status: number, body: unknown) => () =>
-  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+interface RecordedResponse {
+  readonly status: number;
+  readonly contentType: string | null;
+  readonly retryAfter?: string;
+  readonly body: string;
+}
+
+/**
+ * 串流開始前的錯誤回應（issue #329），2026-10-08 由真實 API 錄下：`dotnet run`（Development、Fake 模型、
+ * 暫存資料庫），以 `@ag-ui/client` 的 `HttpAgent` 對 `POST …/chat/runs`（成員）與
+ * `POST /api/v1/public/assistants/{id}/chat/runs`（訪客）送出，記下狀態、`content-type`、`Retry-After`
+ * 與本文原文，未經修改。409 是同一段對話（訪客則是同一個工作階段）同時送出多個問題；503 是分別不設定
+ * `Ai:Chat:Provider`、`Ai:Embedding:Provider` 啟動。API 的錯誤一律是 `application/problem+json`，
+ * `@ag-ui/client` 不解析它（只認 `application/json`），所以錯誤的 `payload` 是字串。
+ */
+const RECORDED = {
+  memberAssistantUse403: { status: 403, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"assistant-use","message":"你沒有使用這個助理的權限，或它已不存在。"}' },
+  memberChatThread403: { status: 403, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"chat-thread","message":"你沒有這段對話的存取權限，或它已不存在。"}' },
+  memberRunInProgress409: { status: 409, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"chat-run-in-progress","message":"這段對話還在回覆上一個問題，請等回覆完成後再送出。"}' },
+  memberTooLong422: { status: 422, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"問題請在 2000 個字以內。","errors":{"question":["問題請在 2000 個字以內。"]}}' },
+  memberBlank422: { status: 422, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"請先輸入問題。","errors":{"question":["請先輸入問題。"]}}' },
+  memberChatNotConfigured503: { status: 503, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.6.4","title":"Service Unavailable","status":503,"reason":"chat-not-configured","message":"沒有設定對話模型，請聯絡系統管理員設定 Ai:Chat:Provider 後再試。"}' },
+  memberEmbeddingNotConfigured503: { status: 503, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.6.4","title":"Service Unavailable","status":503,"reason":"embedding-not-configured","message":"系統尚未設定嵌入模型，請聯絡系統管理員設定後重試"}' },
+  visitorTampered401: { status: 401, contentType: null, body: '' },
+  visitorPublicAssistant403: { status: 403, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"public-assistant","message":"這個對話視窗目前無法使用。"}' },
+  visitorRunInProgress409: { status: 409, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"chat-run-in-progress","message":"上一個問題還在回覆中，請等回覆完成後再送出。"}' },
+  visitorTooLong422: { status: 422, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"問題請在 2000 個字以內。","errors":{"question":["問題請在 2000 個字以內。"]}}' },
+  visitorRateLimited429: { status: 429, contentType: 'application/problem+json', retryAfter: '60', body: '{"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"reason":"rate-limited","message":"問題太頻繁了，請稍後再試。"}' },
+  visitorChatNotConfigured503: { status: 503, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.6.4","title":"Service Unavailable","status":503,"reason":"chat-not-configured","message":"沒有設定對話模型，請聯絡系統管理員設定 Ai:Chat:Provider 後再試。"}' },
+  visitorEmbeddingNotConfigured503: { status: 503, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.6.4","title":"Service Unavailable","status":503,"reason":"embedding-not-configured","message":"系統尚未設定嵌入模型，請聯絡系統管理員設定後重試"}' },
+} as const satisfies Record<string, RecordedResponse>;
+
+const recorded = (response: RecordedResponse) => () =>
+  new Response(response.body, {
+    status: response.status,
+    headers: {
+      ...(response.contentType === null ? {} : { 'content-type': response.contentType }),
+      ...(response.retryAfter === undefined ? {} : { 'retry-after': response.retryAfter }),
+    },
+  });
 
 const collect = (runner: AgUiChatRunner, request: ChatRunRequest = REQUEST) =>
   firstValueFrom(runner.run(request).pipe(toArray()));
@@ -237,21 +275,73 @@ describe('AgUiChatRunner', () => {
   });
 
   it.each([
-    [403, { reason: 'assistant-use', message: '你沒有使用這個助理的權限。' }, 'permission-denied', false, '你沒有使用這個助理的權限。'],
-    [409, { reason: 'chat-run-in-progress', message: '這段對話正在回答上一個問題。' }, 'busy', true, '這段對話正在回答上一個問題。'],
-    [422, { errors: { question: ['問題請在 2000 個字以內。'] } }, 'validation-failed', false, '問題請在 2000 個字以內。'],
-    [503, { reason: 'chat-not-configured', message: '對話模型尚未設定。' }, 'unavailable', true, '對話模型尚未設定。'],
-  ] as const)('turns a %i before the stream into a %s error', async (status, body, kind, retryable, message) => {
-    const { runner, onUnauthorized } = setup(json(status, body));
+    ['member 403 assistant-use', RECORDED.memberAssistantUse403, 'permission-denied', false, '你沒有使用這個助理的權限，或它已不存在。'],
+    ['member 403 chat-thread', RECORDED.memberChatThread403, 'permission-denied', false, '你沒有這段對話的存取權限，或它已不存在。'],
+    ['member 409 chat-run-in-progress', RECORDED.memberRunInProgress409, 'busy', true, '這段對話還在回覆上一個問題，請等回覆完成後再送出。'],
+    ['member 422 too long', RECORDED.memberTooLong422, 'validation-failed', false, '問題請在 2000 個字以內。'],
+    ['member 422 blank', RECORDED.memberBlank422, 'validation-failed', false, '請先輸入問題。'],
+    ['member 503 chat-not-configured', RECORDED.memberChatNotConfigured503, 'unavailable', true, '沒有設定對話模型，請聯絡系統管理員設定 Ai:Chat:Provider 後再試。'],
+    ['member 503 embedding-not-configured', RECORDED.memberEmbeddingNotConfigured503, 'unavailable', true, '系統尚未設定嵌入模型，請聯絡系統管理員設定後重試'],
+    ['visitor 403 public-assistant', RECORDED.visitorPublicAssistant403, 'permission-denied', false, '這個對話視窗目前無法使用。'],
+    ['visitor 409 chat-run-in-progress', RECORDED.visitorRunInProgress409, 'busy', true, '上一個問題還在回覆中，請等回覆完成後再送出。'],
+    ['visitor 422 too long', RECORDED.visitorTooLong422, 'validation-failed', false, '問題請在 2000 個字以內。'],
+    ['visitor 503 chat-not-configured', RECORDED.visitorChatNotConfigured503, 'unavailable', true, '沒有設定對話模型，請聯絡系統管理員設定 Ai:Chat:Provider 後再試。'],
+  ] as const)(
+    'turns the recorded %s (application/problem+json) into an error with the server’s message (#329)',
+    async (_name, response, kind, retryable, message) => {
+      const { runner, onUnauthorized } = setup(recorded(response));
+
+      const events = await collect(runner);
+
+      expect(events).toEqual([{ type: 'error', error: { kind, message, retryable } }]);
+      expect(onUnauthorized).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reports the recorded visitor 429 as a retryable failure (the widget reads the status and Retry-After itself)', async () => {
+    const { runner } = setup(recorded(RECORDED.visitorRateLimited429));
 
     const events = await collect(runner);
 
-    expect(events).toEqual([{ type: 'error', error: { kind, message, retryable } }]);
-    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(events).toEqual([
+      { type: 'error', error: { kind: 'failed', message: expect.stringContaining('連線中斷'), retryable: true } },
+    ]);
   });
 
-  it('ends the session on 401', async () => {
-    const { runner, onUnauthorized } = setup(json(401, {}));
+  it('still reads a body the HTTP layer already parsed (content-type application/json)', async () => {
+    // `@ag-ui/client` 只解析 `application/json`；本文已經是物件時（套件日後若也解析 `+json`）照樣取 message。
+    const { runner } = setup(
+      () =>
+        new Response(JSON.stringify({ reason: 'chat-run-in-progress', message: '這段對話還在回覆上一個問題。' }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+
+    const events = await collect(runner);
+
+    expect(events).toEqual([
+      { type: 'error', error: { kind: 'busy', message: '這段對話還在回覆上一個問題。', retryable: true } },
+    ]);
+  });
+
+  it('falls back to the default text when the error body is not JSON (e.g. a proxy’s HTML page)', async () => {
+    const { runner } = setup(
+      () => new Response('<html><body>503 Service Temporarily Unavailable</body></html>', {
+        status: 503,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+    const events = await collect(runner);
+
+    expect(events).toEqual([
+      { type: 'error', error: { kind: 'unavailable', message: '對話服務暫時無法使用，請稍後再試。', retryable: true } },
+    ]);
+  });
+
+  it('ends the session on the recorded 401 (no body, no content-type)', async () => {
+    const { runner, onUnauthorized } = setup(recorded(RECORDED.visitorTampered401));
 
     const events = await collect(runner);
 

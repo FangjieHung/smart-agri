@@ -27,7 +27,8 @@ export type SessionResult =
 /** 問題送出後沒有取得回答的原因（畫面各有不同的文字與動作）。 */
 export type RunFailure =
   | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number }
-  | { readonly kind: 'busy' }
+  /** `409 chat-run-in-progress`：文字直接用伺服器的說明（#329）。 */
+  | { readonly kind: 'busy'; readonly message: string }
   /** `422`：問題過長等，文字直接用伺服器的說明。 */
   | { readonly kind: 'invalid'; readonly message: string }
   | { readonly kind: 'unavailable' }

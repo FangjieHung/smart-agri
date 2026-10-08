@@ -38,7 +38,10 @@ export interface AgUiChatRunnerDeps {
   readonly replyExtension?: ChatReplyExtensionMapper;
 }
 
-/** 串流開始前的錯誤：`@ag-ui/client` 把非 2xx 轉成帶 `status`／`payload` 的 Error。 */
+/**
+ * 串流開始前的錯誤：`@ag-ui/client` 把非 2xx 轉成帶 `status`／`payload` 的 Error。`payload` 只有在
+ * `content-type` 含 `application/json` 時才是解析後的物件，其餘一律是原始本文字串（見 `problemBody`）。
+ */
 interface HttpRunFailure {
   readonly status?: unknown;
   readonly payload?: unknown;
@@ -58,7 +61,7 @@ const FAILED_MESSAGE = '連線中斷，這則問題沒有取得回答，請再�
  * - bearer token 手動帶上，因為 `fetch` 不經過攔截器；
  * - `CUSTOM smartagri.reply` 是最終的 `ChatMessageView`，`smartagri.thread` 是對話串，
  *   `smartagri.form-check`（#171）是「正在判斷表單」；
- * - 串流開始前的錯誤是一般 JSON（403／409／422／503），開始後只有 `RUN_ERROR`。
+ * - 串流開始前的錯誤是 `application/problem+json`（403／409／422／503，見 `problemBody`），開始後只有 `RUN_ERROR`。
  */
 export class AgUiChatRunner implements ChatRunner {
   constructor(private readonly deps: AgUiChatRunnerDeps) {}
@@ -157,7 +160,7 @@ export class AgUiChatRunner implements ChatRunner {
   private toRunError(error: unknown): ChatRunError {
     const failure = (error ?? {}) as HttpRunFailure;
     const status = typeof failure.status === 'number' ? failure.status : null;
-    const message = payloadMessage(failure.payload);
+    const message = payloadMessage(problemBody(failure.payload));
     switch (status) {
       case 401:
         this.deps.onUnauthorized();
@@ -223,7 +226,23 @@ function readThread(value: unknown): { threadId: string; title: string } | null 
   return { threadId: candidate.threadId, title: typeof candidate.title === 'string' ? candidate.title : '' };
 }
 
-/** 後端的錯誤本文：`{ reason, message }`，422 也可能是 `{ errors: { 欄位: [訊息] } }`。 */
+/**
+ * 錯誤本文（issue #329）。`@ag-ui/client` 只在 `content-type` 含 `application/json` 時解析本文
+ * （`src/run/http-request.ts`），但 API 的錯誤一律是 RFC 9457 的 `application/problem+json`
+ * （`ApiErrors.ProblemJsonContentType`），不含這個子字串，所以 `payload` 會是原始字串：在這裡自己解析。
+ * 已經是物件（套件日後也解析 `+json`）就原樣使用；不是 JSON（例如 `401` 沒有本文、代理伺服器的 HTML）
+ * 時回傳 `null`，由呼叫端退回預設文字。
+ */
+function problemBody(payload: unknown): unknown {
+  if (typeof payload !== 'string') return payload;
+  try {
+    return JSON.parse(payload) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/** 後端的錯誤本文：`{ reason, message }`，422 是 `{ message, errors: { 欄位: [訊息] } }`。 */
 function payloadMessage(payload: unknown): string | null {
   if (payload === null || typeof payload !== 'object') return null;
   const body = payload as { message?: unknown; errors?: Record<string, unknown> };

@@ -2,12 +2,13 @@ import axe from 'axe-core';
 import {
   FakeServer,
   QUESTION,
+  RECORDED,
   answer,
   companyReply,
-  json,
   mount,
   mountReady,
   noResultReply,
+  problem,
   session,
   type Harness,
   required,
@@ -50,7 +51,7 @@ describe('accessibility (axe)', () => {
 
   it('unavailable', async () => {
     const fake = new FakeServer();
-    fake.sessions.push(() => json(403, { reason: 'public-assistant' }));
+    fake.sessions.push(problem(RECORDED.sessionPublicAssistant403));
     const view = await mount(fake);
     await view.until(() => view.text().includes('目前無法使用'));
     await expectNoViolations(view);
@@ -66,7 +67,7 @@ describe('accessibility (axe)', () => {
 
   it('session rate limited', async () => {
     const fake = new FakeServer();
-    fake.sessions.push(() => json(429, {}, { 'Retry-After': '30' }));
+    fake.sessions.push(problem(RECORDED.sessionRateLimited429, { retryAfter: '30' }));
     const view = await mount(fake);
     await view.until(() => view.text().includes('請求太頻繁了'));
     await expectNoViolations(view);
@@ -108,7 +109,7 @@ describe('accessibility (axe)', () => {
 
   it('paused', async () => {
     const fake = ready();
-    fake.runs.push(() => json(403, { reason: 'public-assistant' }));
+    fake.runs.push(problem(RECORDED.runPublicAssistant403));
     const view = await mountReady(fake);
     view.type(QUESTION);
     view.send();
@@ -118,7 +119,7 @@ describe('accessibility (axe)', () => {
 
   it('rate limited while asking', async () => {
     const fake = ready();
-    fake.runs.push(() => json(429, {}, { 'Retry-After': '30' }));
+    fake.runs.push(problem(RECORDED.runRateLimited429, { retryAfter: '30' }));
     const view = await mountReady(fake);
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
     view.type(QUESTION);

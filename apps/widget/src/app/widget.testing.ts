@@ -74,6 +74,50 @@ export const sessionBody = (overrides: Partial<VisitorSession> = {}, assistant: 
 export const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
 
+/** 一個錄下的回應：狀態、`content-type`、`Retry-After` 與本文原文。 */
+export interface RecordedResponse {
+  readonly status: number;
+  readonly contentType: string | null;
+  readonly retryAfter?: string;
+  readonly body: string;
+}
+
+/**
+ * 訪客 API 的錯誤回應（issue #329），2026-10-08 由真實 API 錄下：`dotnet run`（Development、Fake 模型、
+ * 暫存資料庫、已發布的網站頻道），以 `fetch` 建立工作階段、以 `@ag-ui/client` 的 `HttpAgent` 送出問題，
+ * 記下狀態、`content-type`、`Retry-After` 與本文原文，未經修改。`403` 是暫停網站頻道後送出；`409` 是同一個
+ * 工作階段同時送出多個問題；`429` 是一分鐘內第 7 個問題（工作階段則是第 11 個）；`401` 是竄改過的 token；
+ * `503` 是分別不設定 `Ai:Chat:Provider`、`Ai:Embedding:Provider` 啟動。錯誤一律是
+ * `application/problem+json`（RFC 9457），`@ag-ui/client` 不解析它。
+ */
+export const RECORDED = {
+  sessionPublicAssistant403: { status: 403, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"public-assistant","message":"這個對話視窗目前無法使用。"}' },
+  sessionRateLimited429: { status: 429, contentType: 'application/problem+json', retryAfter: '60', body: '{"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"reason":"rate-limited","message":"問題太頻繁了，請稍後再試。"}' },
+  runUnauthorized401: { status: 401, contentType: null, body: '' },
+  runPublicAssistant403: { status: 403, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"public-assistant","message":"這個對話視窗目前無法使用。"}' },
+  runInProgress409: { status: 409, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"chat-run-in-progress","message":"上一個問題還在回覆中，請等回覆完成後再送出。"}' },
+  runTooLong422: { status: 422, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"message":"問題請在 2000 個字以內。","errors":{"question":["問題請在 2000 個字以內。"]}}' },
+  runRateLimited429: { status: 429, contentType: 'application/problem+json', retryAfter: '60', body: '{"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"reason":"rate-limited","message":"問題太頻繁了，請稍後再試。"}' },
+  runChatNotConfigured503: { status: 503, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.6.4","title":"Service Unavailable","status":503,"reason":"chat-not-configured","message":"沒有設定對話模型，請聯絡系統管理員設定 Ai:Chat:Provider 後再試。"}' },
+  runEmbeddingNotConfigured503: { status: 503, contentType: 'application/problem+json', body: '{"type":"https://tools.ietf.org/html/rfc9110#section-15.6.4","title":"Service Unavailable","status":503,"reason":"embedding-not-configured","message":"系統尚未設定嵌入模型，請聯絡系統管理員設定後重試"}' },
+} as const satisfies Record<string, RecordedResponse>;
+
+/**
+ * 回放錄下的回應。`retryAfter` 只換掉 `Retry-After` 標頭（倒數的測試需要較短的秒數），本文不變。
+ */
+export const problem =
+  (response: RecordedResponse, overrides: { readonly retryAfter?: string } = {}): Responder =>
+  () => {
+    const retryAfter = overrides.retryAfter ?? response.retryAfter;
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        ...(response.contentType === null ? {} : { 'content-type': response.contentType }),
+        ...(retryAfter === undefined ? {} : { 'Retry-After': retryAfter }),
+      },
+    });
+  };
+
 export const session = (overrides: Partial<VisitorSession> = {}, assistant: Partial<VisitorSession['assistant']> = {}): Responder =>
   () => json(201, sessionBody(overrides, assistant));
 

@@ -119,6 +119,15 @@ services:
       # 172.18.0.0/16,10.0.0.5). Only requests from them have X-Forwarded-* applied; blank = ignored, and
       # every visitor behind a proxy then shares one rate-limit IP (apps/api/README.md, "Behind a reverse proxy").
       PublicChannels__TrustedProxies__0: ${TRUSTED_PROXIES:-}
+      # Email notifications (#355; deploy/README.md, section 16): the SMTP server 轉真人 Emails go through.
+      # Blank SMTP_HOST = no Email, everything else works as before (the in-app notification too).
+      # Port 587 with STARTTLS (the default); 465 (SMTPS) is refused at startup.
+      Smtp__Host: ${SMTP_HOST:-}
+      Smtp__Port: ${SMTP_PORT:-}
+      Smtp__Username: ${SMTP_USERNAME:-}
+      Smtp__Password: ${SMTP_PASSWORD:-}
+      Smtp__From: ${SMTP_FROM:-}
+      Smtp__FromName: ${SMTP_FROM_NAME:-}
     volumes:
       - ./certs:/app/certs:ro
       - smartagri-dataprotection-keys:/app/keys

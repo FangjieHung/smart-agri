@@ -11,6 +11,7 @@ import { SideNavComponent } from '../side-nav/side-nav.component';
 import { NavEntry, NavGroup, isNavGroup } from '../side-nav/nav-item.model';
 import { HeaderComponent } from '../header/header.component';
 import { FooterComponent } from '../footer/footer.component';
+import { NAV_COUNTS_CHANGED_EVENT } from './nav-counts';
 
 /**
  * 工作區（`/app/*`）的外框：側欄、頁首、頁尾與唯一一個放各頁的 outlet。它是 `/app` 的父路由元件，所以
@@ -36,6 +37,9 @@ export class WorkspaceLayoutComponent implements OnInit {
   /** 側欄「案件」旁的逾期數字（issue #250）：shell 只有這個 signal，換頁時由動態載入的程式更新。 */
   protected readonly caseOverdueCount = signal(0);
 
+  /** 側欄「轉真人」旁的待處理數字（issue #355），與逾期數字同一個做法。 */
+  protected readonly handoffPendingCount = signal(0);
+
   protected readonly navItems: NavEntry[] = [
     { route: '/app/home', label: '首頁', icon: 'home' },
     { route: '/app/assistants', label: '我的助理', icon: 'smart_toy' },
@@ -45,6 +49,7 @@ export class WorkspaceLayoutComponent implements OnInit {
     { route: '/app/operations', label: '營運追蹤', icon: 'monitoring' },
     { route: '/app/issues', label: '處理事項', icon: 'task_alt' },
     { route: '/app/cases', label: '案件', icon: 'assignment', count: this.caseOverdueCount },
+    { route: '/app/handoffs', label: '轉真人', icon: 'support_agent', count: this.handoffPendingCount, countLabel: '則待處理' },
     { route: '/app/settings', label: '團隊與設定', icon: 'settings' },
   ];
 
@@ -110,8 +115,13 @@ export class WorkspaceLayoutComponent implements OnInit {
         }
 
         this.resetContentScroll();
-        this.refreshCaseOverdueCount(url);
+        this.refreshNavCounts(url);
       });
+
+    // 頁面改變了側欄數字（標記轉真人已處理，#355）：不等換頁就重新讀取。
+    const changed = () => this.refreshNavCounts(this.router.url);
+    this.document.addEventListener(NAV_COUNTS_CHANGED_EVENT, changed);
+    this.destroyRef.onDestroy(() => this.document.removeEventListener(NAV_COUNTS_CHANGED_EVENT, changed));
   }
 
   ngOnInit(): void {
@@ -125,14 +135,17 @@ export class WorkspaceLayoutComponent implements OnInit {
   }
 
   /**
-   * 換頁時更新逾期數字（決定 R：不設計時器）。讀取的程式以動態 `import()` 載入首頁的 lazy chunk：首頁為了
+   * 換頁時更新逾期數字與轉真人的待處理數字（決定 R：不設計時器；#355 照做）。讀取的程式以動態 `import()` 載入首頁的 lazy chunk：首頁為了
    * 「案件」卡片本來就帶著 `CasesRepository`，並轉出 `refreshCaseOverdueCount`；另開一個只用到 core／HTTP
    * 的新 chunk，會讓 esbuild 把初始 bundle 的共用 chunk 再切成兩塊（實測多出約 0.9 kB）。工作區以外不載入
    * （側欄也不顯示）；外部客戶與沒有身分時是 0、不發請求，由讀取的程式判斷。外框由 Router 建立、第一次
    * NavigationEnd 就會呼叫它，測試來不及替換執行個體上的欄位，所以它是 prototype 上的方法，由測試 spy 替換。
    */
-  protected refreshCaseOverdueCount(url: string): void {
-    if (url.startsWith('/app')) void import('../../features/home/home-page.component').then((m) => m.refreshCaseOverdueCount(this.injector, this.caseOverdueCount));
+  protected refreshNavCounts(url: string): void {
+    if (url.startsWith('/app')) void import('../../features/home/home-page.component').then((m) => {
+      void m.refreshCaseOverdueCount(this.injector, this.caseOverdueCount);
+      void m.refreshHandoffPendingCount(this.injector, this.handoffPendingCount);
+    });
   }
 
   /**

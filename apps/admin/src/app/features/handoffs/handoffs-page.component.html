@@ -1,0 +1,76 @@
+<section class="workspace-page handoffs-page">
+  <app-page-header
+    title="轉真人通知"
+    description="官網或 LINE 的訪客收到助理的「找不到資料時的回覆」時，會通知助理的擁有者。系統不保存訪客的對話內容：LINE 的使用者請到 LINE Official Account Manager 的「聊天」回覆；官網訪客會依回覆裡寫的聯絡方式找你。"
+  />
+
+  <div class="handoffs-page__toolbar">
+    <div class="handoffs-page__filter" role="group" aria-label="顯示哪些轉真人">
+      <button type="button" [attr.aria-pressed]="status() === 'pending'" (click)="show('pending')" data-handoff-filter="pending">待處理</button>
+      <button type="button" [attr.aria-pressed]="status() === 'handled'" (click)="show('handled')" data-handoff-filter="handled">已處理</button>
+    </div>
+    <a class="handoffs-page__settings" routerLink="/app/settings" fragment="notification-settings">Email 通知設定</a>
+  </div>
+
+  @let result = view();
+  @if (result.status === 'loading') {
+    <app-state-panel state="loading" title="正在載入轉真人通知" />
+  } @else if (result.status === 'permission-denied') {
+    <app-state-panel state="permission-denied" title="無法查看轉真人通知" [description]="result.message" />
+  } @else if (result.status === 'error') {
+    <app-state-panel state="error" title="目前無法載入轉真人通知" recoveryLabel="重試" (recover)="resource.reload()" />
+  } @else if (items().length === 0) {
+    @if (status() === 'pending') {
+      <app-state-panel state="empty" title="目前沒有待處理的轉真人" description="你的助理在官網或 LINE 回覆「找不到資料時的回覆」時，會出現在這裡。" />
+    } @else {
+      <app-state-panel state="empty" title="還沒有已處理的轉真人" description="標記為已處理的轉真人會列在這裡。" />
+    }
+  } @else {
+    <ul class="handoffs-page__list" aria-label="轉真人通知">
+      @for (item of items(); track item.id) {
+        <li class="handoff" [attr.data-handoff]="item.id">
+          <div class="handoff__head">
+            <span class="handoff__channel" [attr.data-channel]="item.channel">{{ channelLabel(item.channel) }}</span>
+            <strong class="handoff__assistant">{{ item.assistantName }}</strong>
+            <time class="handoff__time" [attr.datetime]="item.createdAt">{{ item.createdAt | date: 'yyyy/MM/dd HH:mm' }}</time>
+          </div>
+          <p class="handoff__hint">
+            @if (item.channel === 'line') {
+              LINE 的使用者可能在等回覆：請到 LINE Official Account Manager 的「聊天」查看並回覆。
+            } @else {
+              官網訪客不會留下資料，會依「找不到資料時的回覆」裡寫的聯絡方式找你。
+            }
+          </p>
+          <div class="handoff__actions">
+            @if (item.channel === 'line') {
+              <a class="handoff__link" href="https://chat.line.biz/" target="_blank" rel="noopener noreferrer">開啟 LINE 聊天（另開視窗）</a>
+            }
+            <a class="handoff__link" [routerLink]="['/app/assistants', item.assistantId, 'publishing']" [queryParams]="{ channel: item.channel }">
+              查看{{ inSentence(item.channel) }}發布設定
+            </a>
+            @if (item.handledAt === null) {
+              <button
+                type="button"
+                class="handoff__handle"
+                [disabled]="busyId() === item.id"
+                [attr.aria-label]="'將「' + item.assistantName + '」' + inSentence(item.channel).trimStart() + '的轉真人標記為已處理'"
+                (click)="markHandled(item)"
+              >
+                標記已處理
+              </button>
+            } @else {
+              <span class="handoff__handled" data-handoff-handled>
+                已處理：{{ item.handledByName }}，{{ item.handledAt | date: 'yyyy/MM/dd HH:mm' }}
+              </span>
+            }
+          </div>
+        </li>
+      }
+    </ul>
+  }
+
+  @if (error()) {
+    <p class="handoffs-page__error" role="alert">{{ error() }}</p>
+  }
+  <p class="handoffs-page__feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+</section>

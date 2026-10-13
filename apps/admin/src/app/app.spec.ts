@@ -82,7 +82,7 @@ describe('App', () => {
     created.length = 0;
     // 換頁時的逾期數字（#250）會動態 import 首頁的 chunk；外框由 Router 建立，所以在 prototype 上替換。
     refresh = vi.fn<(url: string) => void>();
-    vi.spyOn(WorkspaceLayoutComponent.prototype as unknown as { refreshCaseOverdueCount: (url: string) => void }, 'refreshCaseOverdueCount').mockImplementation(refresh);
+    vi.spyOn(WorkspaceLayoutComponent.prototype as unknown as { refreshNavCounts: (url: string) => void }, 'refreshNavCounts').mockImplementation(refresh);
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [

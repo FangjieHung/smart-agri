@@ -144,6 +144,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/cases/cases-page.component').then((m) => m.CasesPageComponent),
       },
+      // 轉真人通知（issue #355）：官網或 LINE 的訪客收到「找不到資料時的回覆」時通知助理的擁有者。
+      {
+        path: 'handoffs',
+        canActivate: [demoSessionGuard],
+        loadComponent: () =>
+          import('./features/handoffs/handoffs-page.component').then((m) => m.HandoffsPageComponent),
+      },
       {
         path: 'channels',
         canActivate: [demoSessionGuard],

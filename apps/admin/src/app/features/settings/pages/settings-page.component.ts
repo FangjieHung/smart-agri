@@ -5,6 +5,7 @@ import { CaseGroupsPanelComponent } from '../components/case-groups-panel/case-g
 import { CaseTypesPanelComponent } from '../components/case-types-panel/case-types-panel.component';
 import { ChatModelPanelComponent } from '../components/chat-model-panel/chat-model-panel.component';
 import { ConversationRetentionComponent } from '../components/conversation-retention/conversation-retention.component';
+import { NotificationSettingsPanelComponent } from '../components/notification-settings-panel/notification-settings-panel.component';
 import { TeamPanelComponent } from '../components/team-panel/team-panel.component';
 import { OrganizationSettingsChanges } from '../organization-settings-changes.service';
 
@@ -13,6 +14,7 @@ import { OrganizationSettingsChanges } from '../organization-settings-changes.se
   standalone: true,
   imports: [
     TeamPanelComponent,
+    NotificationSettingsPanelComponent,
     ChatModelPanelComponent,
     ConversationRetentionComponent,
     CaseGroupsPanelComponent,

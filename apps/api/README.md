@@ -1470,6 +1470,49 @@ owner after leaving the group. `Case.EventCount` is a concurrency token and `(Ca
 unique, so two people accepting the same version at once get one `200` and one `409`. A closed case
 is never reopened: 「另開新案」 is `POST /api/v1/cases` with `previousCaseId`.
 
+## Visitor handoffs (轉真人) and Email notifications (#355)
+
+When a **website or LINE visitor is given an assistant's refusal** (a `no-result` reply — the
+assistant's 「找不到資料時的回覆」, where owners write "the shop will reply here"), the visitor channel
+records a `VisitorHandoff` for the **assistant's owner** (`VisitorHandoffNotifier`): website after the
+reply and before `RUN_FINISHED`, LINE after the answer was delivered. Only the assistant, the channel
+(`website` / `line`) and times are stored — no question, answer, visitor id or LINE id (a domain test
+asserts the type has no string property). At most one per conversation per 30 minutes
+(`VisitorHandoffThrottle`: an in-memory hash of the website visitor id or the LINE chat id, single
+process like the LINE history). The notifier never throws: a failure is logged (exception types only)
+and the visitor's reply is unaffected.
+
+Who is responsible: the assistant's owner — who published the channels and wrote the refusal message,
+and who is already the default handler of a member's 轉給專人. Only the owner sees and handles them:
+
+| endpoint | result |
+| --- | --- |
+| `GET /api/v1/handoffs?status=pending\|handled\|all` | the caller's handoffs, newest first (default `pending`, at most 200); another `status` is `422` |
+| `GET /api/v1/handoffs/attention` | `{ pendingCount }` — the admin's side-nav number |
+| `POST /api/v1/handoffs/{id}:handle` | marks it handled (`200`, the view); marking again keeps the first account and time. Another owner's, another organization's or an unknown id: the same `403 handoff` |
+| `GET` / `PUT /api/v1/me/notification-settings` | the caller's own `{ email, handoffEmails, emailDeliveryConfigured }`; `email` must be one plain address (blank clears it), else `422` on `email`. No row = no address, Emails on |
+
+**Email** (`Smtp` section, all optional; `deploy/.env`'s `SMTP_*`, deploy/README.md section 16): with
+`Smtp:Host` set and the owner's address set and not opted out, the same save enqueues a
+`notifications.handoff-email` job; the handler re-reads the owner's choice when it runs (opting out
+also stops queued Emails), skips a handoff already handled or emailed, sends one plain-text message
+with .NET's `SmtpClient` (STARTTLS, `Smtp:Port` default 587; 465 refuses to start) and records
+`EmailSentAt`. A failure is retried by the job queue (`Jobs:RetryBaseDelay`, 5 attempts); the job's
+`LastError` and the log carry exception types and the SMTP status only, never the recipient or the
+password. The message has the organization, assistant, channel, time (`Statistics:TimeZone`) and
+`{admin origin}/app/handoffs` (the first of `AdminSpaClientRegistrar.EffectiveOrigins`), nothing the
+visitor wrote. Without `Smtp:Host` nothing is enqueued or sent and nothing fails.
+
+| setting | default | rule when `Smtp:Host` is set |
+| --- | --- | --- |
+| `Smtp:Host` | unset = Email off | a host name (no scheme, port or path) |
+| `Smtp:Port` | 587 | 1–65535, not 465 |
+| `Smtp:Username` / `Smtp:Password` | none | both or neither |
+| `Smtp:From` | — | required, one plain address |
+| `Smtp:FromName` | 「AI 助理工作台」 | — |
+| `Smtp:UseStartTls` | `true` | `false` with a password only in Development/Testing |
+| `Smtp:TimeoutSeconds` | 30 | 1–300 |
+
 ## Retrieval preview and `KnowledgeRetriever`
 
 `KnowledgeRetriever` (Application, scoped; M2 plan Slice 9) is **the** way to search knowledge:

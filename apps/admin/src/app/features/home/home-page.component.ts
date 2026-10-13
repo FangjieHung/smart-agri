@@ -11,6 +11,8 @@ import { DEMO_ACCOUNT_BY_ROLE } from '../../core/session/api-mode/demo-identity-
  * 首頁本來就帶著 `CasesRepository`，共用這個 chunk 才不會在初始 bundle 多切一塊。
  */
 export { refreshCaseOverdueCount } from '../cases/case-attention.loader';
+/** 側欄「轉真人」旁的待處理數字（issue #355），同一個做法。 */
+export { refreshHandoffPendingCount } from '../handoffs/handoff-attention.loader';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { AssistantPermissionsService } from '../../core/session/assistant-permissions.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';

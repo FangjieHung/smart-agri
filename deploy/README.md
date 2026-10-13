@@ -270,6 +270,24 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 4. **隱私權政策**：由你代管多家店時，你和各店的角色不同，請把 `privacy-policy-template.md` 的第 1 節與第 5 節改成
    「店家（資料控制者）／代管業者（處理者）」的寫法，並由各店各自發布；範本已附上可選用的代管者文字。
 
+### 6.2 店家管理者忘記密碼：`reset-password`
+
+不必改資料庫：用 `reset-password` 為**指定組織的指定帳號**產生新的一次性密碼（在 repo 根目錄，一次性容器；有用
+`docker-compose.limits.yml` 的話一樣要帶兩個 `-f`）：
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
+  reset-password --organization harvest --login boss
+```
+
+- 新密碼**只在這裡顯示一次**（不寫入檔案、日誌或遙測），請當場交給帳號本人；他登入後必須先設定新密碼。遺失了就再執行一次。
+- 原本的密碼立即失效，鎖定（連錯 5 次）與失敗次數一併清除。
+- 這個帳號原有的登入工作階段會失效：已登入的瀏覽器無法再取得新的存取權杖；手上已有的存取權杖在到期前（最多 30 分鐘）
+  只能查看自己的帳號資料，其他功能都會被要求先改密碼。
+- 只影響這個組織的這個帳號；其他店的同名帳號、同一家店的其他帳號都不受影響。
+- 組織代碼或登入名稱不存在時以結束代碼 `1` 離開並說明是哪一個找不到，不做任何變更；參數錯誤為 `2`；完成為 `0`。
+  說明：`run --rm api reset-password --help`。
+
 ## 7. 助理擁有者的發布流程
 
 只有**助理擁有者**且帶有「管理發布」權限的帳號能發布（admin：助理 →「發布」頁 →「官網嵌入」）。

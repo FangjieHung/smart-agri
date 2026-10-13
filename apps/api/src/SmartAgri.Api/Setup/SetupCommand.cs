@@ -310,11 +310,14 @@ public sealed class SetupCommand
 
 public static class SetupServiceCollectionExtensions
 {
-    /// <summary>Registers the <c>setup</c> subcommand (<see cref="SetupCommand"/>).</summary>
+    /// <summary>Registers the <c>setup</c> and <c>add-organization</c> subcommands (<see cref="SetupCommand"/>)
+    /// and <c>reset-password</c> (<see cref="ResetPasswordCommand"/>).</summary>
     public static IServiceCollection AddInitialSetup(this IServiceCollection services)
     {
         services.AddScoped<IInitialSetupStore, EfInitialSetupStore>();
         services.AddScoped<SetupCommand>();
+        services.AddScoped<IPasswordResetStore, EfPasswordResetStore>();
+        services.AddScoped<ResetPasswordCommand>();
         return services;
     }
 }

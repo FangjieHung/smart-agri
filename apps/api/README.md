@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + add-organization + list-organizations + reindex + rechunk + set-token-limit + retention-cleanup subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + add-organization + list-organizations + reset-password + reindex + rechunk + set-token-limit + retention-cleanup subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -1951,6 +1951,48 @@ organization id (organizations are created with time-ordered version 7 ids, whic
 any other id shows `-`). It reads the `Organizations` table, which has no organization
 filter, and counts accounts by opting out of the one named organization query filter for
 that count only, selecting nothing but the organization id and a count.
+
+## Resetting a forgotten password: `reset-password`
+
+When a shop's administrator (or any account) forgets its password, the operator gives that one
+account a new one-time password instead of editing the database:
+
+```sh
+dotnet run --project apps/api/src/SmartAgri.Api -- reset-password --organization <code> --login <login name>
+# customer deploy:
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api reset-password --organization harvest --login boss
+```
+
+Both flags are required (`--flag value` or `--flag=value`; nothing is prompted for) and matched
+case-insensitively like at login. The password comes from the same `OneTimePasswordGenerator` as
+`setup`'s, passes Identity's password rules, and is **printed once on stdout** — never through
+`ILogger`, a span, an exception message or a file (failure messages are scrubbed of it, as in
+`setup`). In one transaction the command sets the new hash, sets `PasswordChangeRequired` (the
+account is gated until it chooses its own password), clears `LockoutEnd` and `AccessFailedCount`,
+rotates the security stamp, and revokes every OpenIddict token entry of the account (subject =
+account id). Only that account is touched: the organization is looked up by code, then the account
+by login name under that organization's query filter, so the same login name in another
+organization is never seen.
+
+What "the account's earlier sign-ins end" means in this Api:
+
+- **Old password**: rejected at once.
+- **Identity sign-in cookie** (`smartagri.signin`, read only by `/connect/*`): its security stamp is
+  validated on every read (`ValidationInterval = 0`), so it can no longer obtain authorization
+  codes — `/connect/authorize` sends it back to the login page.
+- **Authorization codes issued but not yet redeemed**: revoked, so `/connect/token` answers
+  `invalid_grant`.
+- **Access tokens already issued**: *not* revoked. They are self-contained JWTs validated without a
+  database lookup (no token-entry validation), so they keep authenticating until they expire (at
+  most 30 minutes, `AccessTokenLifetime`). Because `PasswordChangeRequired` is read per request,
+  such a token only reaches `GET /api/v1/me` and `POST /api/v1/auth/change-password` (which needs
+  the new one-time password); everything else is `403 password-change-required`. There are no
+  refresh tokens.
+
+Exit codes: `0` done, `1` unknown organization code or login name (the message says which; nothing
+changed) or the write failed, `2` bad arguments. No `OrganizationActivity` row is written: that log
+records organization settings, and the other operator commands (`add-organization`,
+`set-token-limit`) do not write one either; the command logs the account id and organization code.
 
 ## Running tests
 

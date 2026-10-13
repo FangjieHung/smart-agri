@@ -135,6 +135,14 @@ if (args is [SmartAgriCommands.AddOrganization, .. var addOrganizationArgs])
     return;
 }
 
+// `reset-password` gives one account of one organization a new one-time password, printed once,
+// clears its lockout and ends its earlier sign-ins (#340; see ResetPasswordCommand).
+if (args is [SmartAgriCommands.ResetPassword, .. var resetPasswordArgs])
+{
+    Environment.ExitCode = await ResetPasswordCommand.RunAsync(app.Services, resetPasswordArgs, SystemSetupConsole.Instance);
+    return;
+}
+
 // `list-organizations` prints each organization's code, name, creation time and account count.
 if (args is [SmartAgriCommands.ListOrganizations, .. var listOrganizationsArgs])
 {
@@ -303,6 +311,7 @@ internal static class SmartAgriCommands
     public const string Setup = "setup";
     public const string AddOrganization = "add-organization";
     public const string ListOrganizations = "list-organizations";
+    public const string ResetPassword = "reset-password";
     public const string Reindex = "reindex";
     public const string Rechunk = "rechunk";
     public const string EvalRetrieval = "eval-retrieval";

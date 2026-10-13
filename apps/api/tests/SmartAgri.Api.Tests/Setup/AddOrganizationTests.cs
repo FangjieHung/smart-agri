@@ -1,15 +1,24 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using OpenTelemetry.Trace;
 using Shouldly;
+using SmartAgri.Api.Databases;
 using SmartAgri.Api.Organizations;
+using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Setup;
 using SmartAgri.Api.Tests.Authentication;
 using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Accounts;
+using SmartAgri.Domain.Ai;
+using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
 
 namespace SmartAgri.Api.Tests.Setup;
@@ -102,8 +111,9 @@ public class AddOrganizationTests : IClassFixture<AuthHostFixture>
             .ShouldBe(ListOrganizationsCommand.ExitSuccess);
         var output = list.ToString();
         output.ShouldContain($"{code}\t第二家店\t");
-        output.Split('\n').Single(line => line.StartsWith($"{code}\t", StringComparison.Ordinal)).ShouldEndWith("\t1");
-        output.Split('\n').Single(line => line.StartsWith($"{first.Code}\t", StringComparison.Ordinal)).ShouldEndWith("\t2");
+        // The account count stays the fourth column (#344 appends the usage columns after it).
+        Columns(output, code)[3].ShouldBe("1");
+        Columns(output, first.Code)[3].ShouldBe("2");
         foreach (var personal in new[] { "admin", "clerk", "管理者", "店員" })
         {
             output.ShouldNotContain(personal);
@@ -183,6 +193,134 @@ public class AddOrganizationTests : IClassFixture<AuthHostFixture>
         (await ListOrganizationsCommand.RunAsync(_host.Factory.Services, ["--help"], output, error, CancellationToken))
             .ShouldBe(ListOrganizationsCommand.ExitSuccess);
         output.ToString().ShouldContain("list-organizations");
+    }
+
+    [Fact]
+    public async Task List_organizations_shows_this_months_usage_the_limit_and_the_share()
+    {
+        // 15 November 2026 in Asia/Taipei: November is [2026-10-31 16:00 UTC, 2026-11-30 16:00 UTC).
+        var now = Utc(2026, 11, 15, 4, 0, 0, 0);
+        var lastMonth = Utc(2026, 10, 20, 0, 0, 0, 0);
+
+        var limited = await _host.CreateOrganizationAsync("有上限的店");
+        await SetLimitAsync(limited, 1_000_000);
+        await AddCallAsync(limited, ModelInvocationPurpose.GenerateAnswer, 300_000, 100_000, now.AddDays(-1));
+        await AddCallAsync(limited, ModelInvocationPurpose.PublicAnswer, 40_000, 10_000, now.AddHours(-1));
+        await AddCallAsync(limited, ModelInvocationPurpose.EmbedQuery, 999_999, null, now.AddHours(-1)); // embeddings never count
+        await AddCallAsync(limited, ModelInvocationPurpose.GenerateAnswer, 500_000, 0, lastMonth);
+
+        var unlimited = await _host.CreateOrganizationAsync("沒設上限的店");
+        await AddCallAsync(unlimited, ModelInvocationPurpose.LineAnswer, 1_000, 234, now.AddDays(-2));
+
+        var idle = await _host.CreateOrganizationAsync("本月沒用的店");
+        await SetLimitAsync(idle, 5_000);
+
+        var lastMonthOnly = await _host.CreateOrganizationAsync("只有上個月用的店");
+        await SetLimitAsync(lastMonthOnly, 10_000);
+        await AddCallAsync(lastMonthOnly, ModelInvocationPurpose.GenerateAnswer, 9_000, 3_000, lastMonth);
+
+        var near = await _host.CreateOrganizationAsync("快用完的店");
+        await SetLimitAsync(near, 10_000);
+        await AddCallAsync(near, ModelInvocationPurpose.GenerateAnswer, 8_000, 1_999, now.AddMinutes(-5));
+
+        var exceeded = await _host.CreateOrganizationAsync("用完的店");
+        await SetLimitAsync(exceeded, 10_000);
+        await AddCallAsync(exceeded, ModelInvocationPurpose.GenerateAnswer, 10_000, 0, now.AddMinutes(-5));
+
+        var suspended = await _host.CreateOrganizationAsync("上限為零的店");
+        await SetLimitAsync(suspended, 0);
+
+        await using var factory = AtTime(now);
+        var output = await ListAsync(factory);
+        var defaultLimit = factory.Services.GetRequiredService<IOptions<PublicChannelsOptions>>().Value.EffectiveDefaultMonthlyTokenLimit
+            .ToString("N0", CultureInfo.InvariantCulture);
+
+        output.Split('\n')[0].ShouldBe("組織代碼\t名稱\t建立時間(UTC)\t帳號數\t本月用量\t上限\t使用比例");
+        Columns(output, limited.Code)[4..].ShouldBe(["450,000", "1,000,000", "45.0%"]);
+        Columns(output, unlimited.Code)[4..].ShouldBe(
+            ["1,234", $"未設上限（預設 {defaultLimit}）", "0.0%"]);
+        Columns(output, idle.Code)[4..].ShouldBe(["0", "5,000", "0.0%"]);
+        Columns(output, lastMonthOnly.Code)[4..].ShouldBe(["0", "10,000", "0.0%"]);
+        Columns(output, near.Code)[4..].ShouldBe(["9,999", "10,000", "99.9%（接近上限）"]);
+        Columns(output, exceeded.Code)[4..].ShouldBe(["10,000", "10,000", "100.0%（已達上限）"]);
+        Columns(output, suspended.Code)[4..].ShouldBe(["0", "0", "-（已達上限）"]);
+        output.ShouldContain($"本月為 2026-11（Asia/Taipei）；用量為對話模型 token（輸入＋輸出），未設上限的組織套用部署預設值 {defaultLimit}。");
+    }
+
+    [Fact]
+    public async Task List_organizations_and_the_quota_check_put_the_month_boundary_at_the_same_instant()
+    {
+        // November 2026 starts at 00:00 on 1 November in Asia/Taipei, 2026-10-31 16:00 UTC.
+        var lastOfOctober = Utc(2026, 10, 31, 15, 59, 59, 999);
+        var firstOfNovember = Utc(2026, 10, 31, 16, 0, 0, 0);
+        var organization = await _host.CreateOrganizationAsync("跨月的店");
+        await SetLimitAsync(organization, 1_000);
+        await AddCallAsync(organization, ModelInvocationPurpose.GenerateAnswer, 7, 3, lastOfOctober);
+        await AddCallAsync(organization, ModelInvocationPurpose.GenerateAnswer, 200, 100, firstOfNovember);
+
+        foreach (var (now, month, used, share) in new[]
+                 {
+                     (lastOfOctober, "2026-10", 10L, "1.0%"),
+                     (firstOfNovember, "2026-11", 300L, "30.0%"),
+                 })
+        {
+            await using var factory = AtTime(now);
+
+            // The quota check the visitor and LINE channels run, as its own fresh instance (no shared cache).
+            var services = factory.Services;
+            var quota = await new OrganizationTokenUsage(
+                    services.GetRequiredService<IOrganizationTokenUsageSource>(),
+                    new FixedClock(now),
+                    services.GetRequiredService<IOptions<StatisticsOptions>>().Value.TryResolve().ShouldNotBeNull(),
+                    services.GetRequiredService<IOptions<PublicChannelsOptions>>().Value.EffectiveDefaultMonthlyTokenLimit)
+                .GetAsync(organization.Id, CancellationToken);
+            quota.Month.ShouldBe(month);
+            quota.UsedTokens.ShouldBe(used);
+
+            var output = await ListAsync(factory);
+            Columns(output, organization.Code)[4..].ShouldBe([quota.UsedTokens.ToString("N0", CultureInfo.InvariantCulture), "1,000", share]);
+            output.ShouldContain($"本月為 {month}（");
+        }
+    }
+
+    private WebApplicationFactory<Program> AtTime(DateTimeOffset now) =>
+        _host.Factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(
+            services => services.AddSingleton<TimeProvider>(new FixedClock(now))));
+
+    private static async Task<string> ListAsync(WebApplicationFactory<Program> factory)
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        (await ListOrganizationsCommand.RunAsync(factory.Services, [], output, error, CancellationToken))
+            .ShouldBe(ListOrganizationsCommand.ExitSuccess, error.ToString());
+        return output.ToString();
+    }
+
+    private static string[] Columns(string output, string code) =>
+        output.Split('\n').Single(line => line.StartsWith($"{code}\t", StringComparison.Ordinal)).Split('\t');
+
+    private async Task SetLimitAsync(Organization organization, long? limit)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext();
+        var tracked = await dbContext.Organizations.SingleAsync(candidate => candidate.Id == organization.Id, CancellationToken);
+        tracked.SetMonthlyTokenLimit(limit);
+        await dbContext.SaveChangesAsync(CancellationToken);
+    }
+
+    private async Task AddCallAsync(Organization organization, ModelInvocationPurpose purpose, long? input, long? output, DateTimeOffset at)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext(organization.Id);
+        dbContext.ModelInvocations.Add(ModelInvocation.Record(
+            organization.Id, null, null, purpose, "fake", "fake-model", input, output, 12, true, at));
+        await dbContext.SaveChangesAsync(CancellationToken);
+    }
+
+    private static DateTimeOffset Utc(int year, int month, int day, int hour, int minute, int second, int millisecond) =>
+        new(year, month, day, hour, minute, second, millisecond, TimeSpan.Zero);
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     private async Task<string> CreateEmptyDatabaseAsync(string name)

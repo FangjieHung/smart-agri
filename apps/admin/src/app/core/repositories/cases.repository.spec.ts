@@ -42,6 +42,22 @@ function ready<T>(result: { status: string; data?: T }): T {
 const DENIED = { status: 'permission-denied', reason: 'case', message: CASE_FEATURE_DENIED_MESSAGE };
 
 describe('CasesRepository (mock)', () => {
+  it('hands a deactivated member’s open cases to the successor as an accepted entry with a note (issue #356)', async () => {
+    const { repository, activeAccountId } = mockRepository();
+    ready(await firstValueFrom(repository.act('case-cold-room', 'accept', { eventCount: 1 })));
+    expect(repository.mockOpenOwnedCount('account-internal-employee')).toBe(1);
+
+    expect(repository.mockHandOverMember('account-internal-employee', 'account-smb-admin', '「客服同仁」的帳號已停用，案件移交給「管理者」。')).toBe(1);
+
+    expect(repository.mockOpenOwnedCount('account-internal-employee')).toBe(0);
+    activeAccountId.set('account-smb-admin');
+    const detail = ready(await firstValueFrom(repository.get('case-cold-room')));
+    expect(detail.allowedActions).toContain('complete');
+    expect(detail.events.at(-1)).toMatchObject({ action: 'accepted', note: '「客服同仁」的帳號已停用，案件移交給「管理者」。' });
+    // The completed case stays with whoever completed it.
+    expect(repository.mockHandOverMember('account-internal-employee', 'account-smb-admin', '移交')).toBe(0);
+  });
+
   it('shows the creator, the current group\'s members and the manager their cases, open ones by default', async () => {
     const { repository, activeAccountId } = mockRepository();
 

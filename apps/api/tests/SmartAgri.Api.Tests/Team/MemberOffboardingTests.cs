@@ -11,6 +11,7 @@ using SmartAgri.Domain.Cases;
 using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Knowledge;
+using SmartAgri.Domain.Notifications;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure.Accounts;
 using static OpenIddict.Abstractions.OpenIddictConstants;
@@ -139,6 +140,10 @@ public class MemberOffboardingTests : IClassFixture<AuthHostFixture>
         assignedIssues.EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ShouldContain(assets.IssueId);
         var caseDetail = await GetJsonOkAsync(successor, $"/api/v1/cases/{assets.CaseId}", org.SuccessorToken);
         Strings(caseDetail.GetProperty("allowedActions")).ShouldContain("complete");
+
+        // A pending 轉真人 follows the assistant to its new owner (#355 routes by the current owner).
+        var handoffs = await GetJsonOkAsync(successor, "/api/v1/handoffs?status=pending", org.SuccessorToken);
+        handoffs.EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).ShouldContain(assets.HandoffId);
 
         // Someone else still cannot.
         (await org.ColleagueSpa.GetAsync($"/api/v1/assistants/{assets.AssistantId}/settings", org.ColleagueToken)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
@@ -465,7 +470,8 @@ public class MemberOffboardingTests : IClassFixture<AuthHostFixture>
         Guid DatabaseId,
         Guid IssueId,
         Guid CaseId,
-        Guid ThreadId);
+        Guid ThreadId,
+        Guid HandoffId);
 
     /// <summary>
     /// The manager (all of the seed's manager permissions, no <c>handle-assistant-issues</c>), the member
@@ -561,10 +567,11 @@ public class MemberOffboardingTests : IClassFixture<AuthHostFixture>
         dbContext.AddRange(group, type, item, caseCreated, caseAccepted);
 
         var thread = new ChatThread(assistant, org.Member.Id, "我的對話", now);
-        dbContext.Add(thread);
+        var handoff = VisitorHandoff.Open(organizationId, assistant.Id, VisitorHandoffChannel.Website, now);
+        dbContext.AddRange(thread, handoff);
         await dbContext.SaveChangesAsync(CancellationToken);
 
-        return new MemberAssets(assistant.Id, draft.Id, knowledgeBase.Id, borrowed.Id, database.Id, issue.Id, item.Id, thread.Id);
+        return new MemberAssets(assistant.Id, draft.Id, knowledgeBase.Id, borrowed.Id, database.Id, issue.Id, item.Id, thread.Id, handoff.Id);
     }
 
     // ---------- helpers ----------

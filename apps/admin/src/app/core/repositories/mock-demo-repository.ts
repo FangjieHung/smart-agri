@@ -164,10 +164,19 @@ import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
   ACCOUNT_ROLE_LABELS,
+  checkMemberDeactivation,
+  checkSuccessor,
   isAccountPermission,
   lockedPermissionsFor,
+  MEMBER_DEACTIVATION_MESSAGES,
+  MEMBER_NOT_DEACTIVATED_MESSAGE,
   normalizeMemberPermissions,
+  requiredSuccessorPermissions,
+  SUCCESSOR_NOT_ELIGIBLE_MESSAGE,
   validateMemberPermissions,
+  type MemberHoldingsView,
+  type MemberOffboardingView,
+  type MemberTransferCountsView,
   type TeamMemberView,
   type TeamView,
 } from '../domain/team.model';
@@ -256,6 +265,8 @@ import type {
   CreateKnowledgeBaseResult,
   CreateMemberInput,
   CreateMemberResult,
+  DeactivateMemberResult,
+  ReactivateMemberResult,
   DeleteKnowledgeResult,
   DemoKeyValueStorage,
   DemoRepository,
@@ -668,6 +679,45 @@ function normalizeStoredTeamPermissions(value: unknown): StoredTeamPermissions |
  * 新增的成員另外存一份、附加到 `accounts()` 的結果後面，不會覆蓋 seed。
  */
 const CREATED_MEMBERS_KEY = 'sme-demo:created-members';
+
+/**
+ * 停用的成員（issue #356）：帳號 id → 停用時間。停用的成員不能用 `/login` 登入，團隊清單標示「已停用」。
+ */
+const DEACTIVATED_MEMBERS_KEY = 'sme-demo:deactivated-members';
+
+/**
+ * 停用時轉給接手人的資產（issue #356）：seed 的助理、知識庫、數據庫是固定的，轉移另外記一份
+ * 「資產 id → 新擁有者」，讀取時疊上去（與團隊權限的做法相同）。
+ */
+const OWNERSHIP_TRANSFERS_KEY = 'sme-demo:ownership-transfers';
+
+interface StoredOwnershipTransfers {
+  readonly assistants: Readonly<Record<string, AccountId>>;
+  readonly knowledgeBases: Readonly<Record<string, AccountId>>;
+  readonly databases: Readonly<Record<string, AccountId>>;
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+}
+
+function normalizeOwnershipTransfers(value: unknown): StoredOwnershipTransfers {
+  const record = isRecord(value) ? value : {};
+  return {
+    assistants: stringRecord(record['assistants']),
+    knowledgeBases: stringRecord(record['knowledgeBases']),
+    databases: stringRecord(record['databases']),
+  };
+}
+
+function withOwner<T extends { readonly id: string; readonly ownerAccountId: AccountId }>(
+  item: T,
+  owners: Readonly<Record<string, AccountId>>,
+): T {
+  const owner = owners[item.id];
+  return owner === undefined ? item : { ...item, ownerAccountId: owner };
+}
 
 const ACCOUNT_ROLES = Object.keys(ACCOUNT_ROLE_LABELS) as readonly AccountRole[];
 
@@ -1355,8 +1405,10 @@ export class MockDemoRepository implements DemoRepository {
     this.scenario = 'ready';
   }
 
+  /** 可以登入的帳號：停用的成員（issue #356）不在其中，`/login` 與目前身分的權限都以這份為準。 */
   listAccounts(): ReturnType<DemoRepository['listAccounts']> {
-    return this.applyScenario(this.accounts());
+    const deactivated = this.deactivatedMembers();
+    return this.applyScenario(this.accounts().filter((account) => deactivated[account.id] === undefined));
   }
 
   /** 以 `defer` 包住：與 HTTP 一樣是 cold Observable，訂閱時才讀取（也才寫入）。 */
@@ -1373,6 +1425,18 @@ export class MockDemoRepository implements DemoRepository {
 
   createMember(input: CreateMemberInput): Observable<CreateMemberResult> {
     return defer(() => of(this.writeCreateMember(this.viewer(), input)));
+  }
+
+  getMemberOffboarding(memberAccountId: AccountId): Observable<RepositoryView<MemberOffboardingView>> {
+    return defer(() => of(this.readMemberOffboarding(this.viewer(), memberAccountId)));
+  }
+
+  deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId): Observable<DeactivateMemberResult> {
+    return defer(() => of(this.writeDeactivateMember(this.viewer(), memberAccountId, successorAccountId)));
+  }
+
+  reactivateMember(memberAccountId: AccountId): Observable<ReactivateMemberResult> {
+    return defer(() => of(this.writeReactivateMember(this.viewer(), memberAccountId)));
   }
 
   private readTeam(viewerAccountId: AccountId | null): RepositoryView<TeamView> {
@@ -1465,6 +1529,212 @@ export class MockDemoRepository implements DemoRepository {
 
   private createdMembers(): readonly StoredCreatedMember[] {
     return normalizeStoredCreatedMembers(parseJson(this.storage.getItem(CREATED_MEMBERS_KEY)));
+  }
+
+  // ---------- 停用成員並指定接手人（issue #356，規則與後端 `MemberOffboardingEndpoints` 相同） ----------
+
+  private deactivatedMembers(): Readonly<Record<AccountId, string>> {
+    return stringRecord(parseJson(this.storage.getItem(DEACTIVATED_MEMBERS_KEY)));
+  }
+
+  private ownershipTransfers(): StoredOwnershipTransfers {
+    return normalizeOwnershipTransfers(parseJson(this.storage.getItem(OWNERSHIP_TRANSFERS_KEY)));
+  }
+
+  private readMemberOffboarding(viewerAccountId: AccountId | null, memberAccountId: AccountId): RepositoryView<MemberOffboardingView> {
+    if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
+    const member = this.accounts().find((account) => account.id === memberAccountId);
+    if (member === undefined) return this.teamPermissionDenied();
+
+    const deactivated = this.deactivatedMembers();
+    const holdings = this.memberHoldings(member.id);
+    const required = requiredSuccessorPermissions(holdings);
+    const block = this.deactivationBlock(viewerAccountId, member);
+    const roleOrder = Object.keys(ACCOUNT_ROLE_LABELS);
+    const candidates = this.accounts()
+      .filter((account) => account.id !== member.id && deactivated[account.id] === undefined)
+      .sort((a, b) =>
+        roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role)
+        || (a.displayName < b.displayName ? -1 : a.displayName > b.displayName ? 1 : 0)
+        || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .map((account) => {
+        const check = checkSuccessor({ role: account.role, deactivated: false, permissions: account.permissions }, required);
+        return {
+          id: account.id,
+          displayName: account.displayName,
+          role: account.role,
+          eligible: check.reason === null,
+          ineligibleReason: check.reason,
+          missingPermissions: check.missingPermissions,
+          canHandleIssues: account.permissions.includes('handle-assistant-issues'),
+        };
+      });
+
+    return this.applyScenario({
+      memberId: member.id,
+      displayName: member.displayName,
+      block,
+      blockMessage: block === null ? null : MEMBER_DEACTIVATION_MESSAGES[block],
+      holdings,
+      requiredPermissions: required,
+      candidates,
+    });
+  }
+
+  private deactivationBlock(viewerAccountId: AccountId, member: AccountView) {
+    const deactivated = this.deactivatedMembers();
+    const otherActiveAdmins = this.accounts().filter(
+      (account) => account.id !== member.id && account.role === 'smb-admin' && deactivated[account.id] === undefined,
+    ).length;
+    return checkMemberDeactivation(
+      viewerAccountId,
+      { id: member.id, role: member.role, deactivated: deactivated[member.id] !== undefined },
+      otherActiveAdmins,
+    );
+  }
+
+  /** 處理事項與案件在各自的 repository（`AssistantIssuesRepository`、`CasesRepository`），這裡是 0。 */
+  private memberHoldings(memberAccountId: AccountId): MemberHoldingsView {
+    const assistants = this.assistants().filter((assistant) => assistant.ownerAccountId === memberAccountId);
+    const knowledgeBases = this.knowledgeBases();
+    const databases = this.databases();
+    const borrowed = new Set<string>();
+    for (const assistant of assistants) {
+      for (const id of assistant.knowledgeBaseIds) {
+        const knowledgeBase = knowledgeBases.find((candidate) => candidate.id === id);
+        if (knowledgeBase !== undefined && knowledgeBase.ownerAccountId !== memberAccountId
+          && this.knowledgeRecord(knowledgeBase.id).sharing.scope !== 'public') {
+          borrowed.add(`knowledge:${id}`);
+        }
+      }
+      for (const id of assistant.databaseIds) {
+        const database = databases.find((candidate) => candidate.id === id);
+        if (database !== undefined && database.ownerAccountId !== memberAccountId) borrowed.add(`database:${id}`);
+      }
+    }
+
+    return {
+      assistants: assistants.length,
+      drafts: this.namedDrafts(memberAccountId).length,
+      knowledgeBases: knowledgeBases.filter((knowledgeBase) => knowledgeBase.ownerAccountId === memberAccountId).length,
+      databases: databases.filter((database) => database.ownerAccountId === memberAccountId).length,
+      openIssues: 0,
+      openCases: 0,
+      borrowedSources: borrowed.size,
+    };
+  }
+
+  private writeDeactivateMember(
+    viewerAccountId: AccountId | null,
+    memberAccountId: AccountId,
+    successorAccountId: AccountId,
+  ): DeactivateMemberResult {
+    if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
+    const member = this.accounts().find((account) => account.id === memberAccountId);
+    if (member === undefined) return this.teamPermissionDenied();
+
+    const block = this.deactivationBlock(viewerAccountId, member);
+    if (block !== null) return { status: 'validation-failed', message: MEMBER_DEACTIVATION_MESSAGES[block] };
+
+    const successor = this.accounts().find((account) => account.id === successorAccountId && account.id !== member.id);
+    const required = requiredSuccessorPermissions(this.memberHoldings(member.id));
+    if (
+      successor === undefined ||
+      checkSuccessor(
+        { role: successor.role, deactivated: this.deactivatedMembers()[successor.id] !== undefined, permissions: successor.permissions },
+        required,
+      ).reason !== null
+    ) {
+      return { status: 'validation-failed', message: SUCCESSOR_NOT_ELIGIBLE_MESSAGE };
+    }
+
+    const transferred = this.transferMemberAssets(viewerAccountId, member.id, successor.id);
+    const now = this.now().toISOString();
+    this.storage.setItem(DEACTIVATED_MEMBERS_KEY, JSON.stringify({ ...this.deactivatedMembers(), [member.id]: now }));
+
+    return this.applyScenario({ team: this.teamView(viewerAccountId), transferred });
+  }
+
+  /** 與後端相同：擁有者換成接手人；接手人自己的分享列拿掉（擁有者不是分享對象）；他在這些數據庫的資料管理者位置交給接手人。 */
+  private transferMemberAssets(viewerAccountId: AccountId, memberAccountId: AccountId, successorAccountId: AccountId): MemberTransferCountsView {
+    const transfers = this.ownershipTransfers();
+    const now = this.now().toISOString();
+
+    const assistants = this.assistants().filter((assistant) => assistant.ownerAccountId === memberAccountId);
+    for (const assistant of assistants) {
+      const record = this.publishingRecord(assistant);
+      if (record.platform.allowedAccountIds.includes(successorAccountId)) {
+        this.savePublishingRecord(assistant.id, {
+          ...record,
+          platform: {
+            ...record.platform,
+            allowedAccountIds: record.platform.allowedAccountIds.filter((id) => id !== successorAccountId),
+          },
+        });
+      }
+    }
+
+    const knowledgeBases = this.knowledgeBases().filter((knowledgeBase) => knowledgeBase.ownerAccountId === memberAccountId);
+    for (const knowledgeBase of knowledgeBases) {
+      const record = this.knowledgeRecord(knowledgeBase.id);
+      if (record.sharing.sharedWithAccountIds.includes(successorAccountId)) {
+        this.saveKnowledgeRecord(knowledgeBase.id, {
+          ...record,
+          sharing: {
+            ...record.sharing,
+            sharedWithAccountIds: record.sharing.sharedWithAccountIds.filter((id) => id !== successorAccountId),
+          },
+        });
+      }
+    }
+
+    const databases = this.databases().filter((database) => database.ownerAccountId === memberAccountId);
+    for (const database of databases) {
+      const managers = this.databaseCollection(database.id).dataManagerAccountIds;
+      if (!managers.includes(memberAccountId)) continue;
+      const next = [...managers.filter((id) => id !== memberAccountId && id !== successorAccountId), successorAccountId];
+      const record: StoredDatabaseAccess = { version: 1, savedAt: now, savedBy: viewerAccountId, dataManagerAccountIds: next };
+      this.storage.setItem(DATABASE_ACCESS_KEY_PREFIX + database.id, JSON.stringify(record));
+    }
+
+    const drafts = this.namedDrafts(memberAccountId);
+    if (drafts.length > 0) {
+      this.writeNamedDrafts(successorAccountId, [...this.namedDrafts(successorAccountId), ...drafts]);
+      this.storage.removeItem(NAMED_DRAFTS_KEY_PREFIX + memberAccountId);
+    }
+
+    const owners = (items: readonly { readonly id: string }[], current: Readonly<Record<string, AccountId>>) => ({
+      ...current,
+      ...Object.fromEntries(items.map((item) => [item.id, successorAccountId])),
+    });
+    const next: StoredOwnershipTransfers = {
+      assistants: owners(assistants, transfers.assistants),
+      knowledgeBases: owners(knowledgeBases, transfers.knowledgeBases),
+      databases: owners(databases, transfers.databases),
+    };
+    this.storage.setItem(OWNERSHIP_TRANSFERS_KEY, JSON.stringify(next));
+
+    return {
+      assistants: assistants.length,
+      drafts: drafts.length,
+      knowledgeBases: knowledgeBases.length,
+      databases: databases.length,
+      issuesReassigned: 0,
+      issuesUnassigned: 0,
+      cases: 0,
+    };
+  }
+
+  private writeReactivateMember(viewerAccountId: AccountId | null, memberAccountId: AccountId): ReactivateMemberResult {
+    if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
+    const member = this.accounts().find((account) => account.id === memberAccountId);
+    if (member === undefined) return this.teamPermissionDenied();
+
+    const deactivated = { ...this.deactivatedMembers() };
+    if (deactivated[member.id] === undefined) return { status: 'validation-failed', message: MEMBER_NOT_DEACTIVATED_MESSAGE };
+    delete deactivated[member.id];
+    this.storage.setItem(DEACTIVATED_MEMBERS_KEY, JSON.stringify(deactivated));
+    return this.applyScenario(this.teamView(viewerAccountId));
   }
 
   listAssistantConfigurations(): Observable<RepositoryView<readonly AssistantConfigurationView[]>> {
@@ -5946,7 +6216,8 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private databases(): readonly DatabaseView[] {
-    return [...this.seed.databases, ...this.createdDatabases().map((entry) => entry.view)];
+    const owners = this.ownershipTransfers().databases;
+    return [...this.seed.databases, ...this.createdDatabases().map((entry) => entry.view)].map((database) => withOwner(database, owners));
   }
 
   private createdDatabases(): readonly StoredCreatedDatabase[] {
@@ -6136,7 +6407,8 @@ export class MockDemoRepository implements DemoRepository {
 
   /** 含已刪除的（產生新 id 時避免重複使用）。 */
   private allKnowledgeBases(): readonly KnowledgeBaseView[] {
-    return [...this.seed.knowledgeBases, ...this.createdKnowledgeBases()];
+    const owners = this.ownershipTransfers().knowledgeBases;
+    return [...this.seed.knowledgeBases, ...this.createdKnowledgeBases()].map((knowledgeBase) => withOwner(knowledgeBase, owners));
   }
 
   private createdKnowledgeBases(): readonly KnowledgeBaseView[] {
@@ -6401,8 +6673,10 @@ export class MockDemoRepository implements DemoRepository {
 
   private assistants(): readonly AssistantConfigurationView[] {
     const deleted = new Set<string>(this.deletedAssistantIds());
+    const owners = this.ownershipTransfers().assistants;
     return [...this.seed.assistants, ...this.createdAssistants()]
       .filter((assistant) => !deleted.has(assistant.id))
+      .map((assistant) => withOwner(assistant, owners))
       .map((assistant) => ({
         ...this.withSavedSettings(assistant),
         acceptanceStatus: this.acceptanceStatuses.get(assistant.id) ?? assistant.acceptanceStatus ?? 'not-accepted',
@@ -6541,6 +6815,7 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private teamView(viewerAccountId: AccountId): TeamView {
+    const deactivated = this.deactivatedMembers();
     return {
       members: this.accounts().map(
         (account): TeamMemberView => ({
@@ -6552,6 +6827,7 @@ export class MockDemoRepository implements DemoRepository {
           permissions: account.permissions,
           isViewer: account.id === viewerAccountId,
           lockedPermissions: lockedPermissionsFor(account, viewerAccountId),
+          deactivatedAt: deactivated[account.id] ?? null,
         }),
       ),
       permissions: ACCOUNT_PERMISSIONS,

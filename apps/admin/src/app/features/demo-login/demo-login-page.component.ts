@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { Router } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import type { AccountId } from '../../core/domain/account.model';
+import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { ApiSessionService } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 
@@ -19,6 +20,9 @@ const API_NOTICE_MESSAGES = {
   'password-change-required': '這個帳號須先設定新密碼；登入後會自動導到設定新密碼的畫面。',
   'sign-in-failed': '無法完成登入，請重新登入一次。',
 } as const;
+
+/** Demo 身分在團隊設定被停用（issue #356）時；API 模式與帳密錯誤共用同一句話，不透露帳號狀態。 */
+export const DEMO_PERSONA_DEACTIVATED_MESSAGE = '這個 Demo 身分已在團隊設定停用，請先用管理者重新啟用，或改用其他身分。';
 
 const API_TIMEOUT_NOTICE = '登入已逾時';
 const API_TIMEOUT_DETAIL = '登入已超過時限或已失效，請重新登入。';
@@ -58,6 +62,7 @@ export class DemoLoginPageComponent {
 
   private readonly session = inject(DemoSessionService);
   private readonly apiSession = inject(ApiSessionService);
+  private readonly repository = inject(DEMO_REPOSITORY);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
 
@@ -106,6 +111,12 @@ export class DemoLoginPageComponent {
     const persona = this.personas.find((item) => item.username === this.username().trim().toLowerCase());
     if (!persona || this.password() !== '1234') {
       this.loginError.set('帳號或密碼不正確，請使用下方的 Demo 帳號。');
+      return;
+    }
+    // 停用的成員不在可登入的帳號裡（mock 的 `listAccounts()`，與後端拒絕停用帳號登入相同）。
+    const accounts = this.repository.listAccounts();
+    if (accounts.status === 'ready' && !accounts.data.some((account) => account.id === persona.accountId)) {
+      this.loginError.set(DEMO_PERSONA_DEACTIVATED_MESSAGE);
       return;
     }
     this.session.switchAccount(persona.accountId);

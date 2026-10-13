@@ -1470,6 +1470,43 @@ owner after leaving the group. `Case.EventCount` is a concurrency token and `(Ca
 unique, so two people accepting the same version at once get one `200` and one `409`. A closed case
 is never reopened: 「另開新案」 is `POST /api/v1/cases` with `previousCaseId`.
 
+## Deactivating a member and handing their work to a successor (#356)
+
+`GET /api/v1/team/members/{id}/offboarding`, `POST /api/v1/team/members/{id}:deactivate` (body
+`{ "successorAccountId" }`) and `POST /api/v1/team/members/{id}:reactivate` sit in the team route
+group: they need `manage-assistants`, and an unknown id or another organization's member gets the
+same `403 team` (`MemberOffboardingEndpoints`, rules in `SmartAgri.Application.Accounts.MemberOffboardingRules`).
+
+- **Refused (`422`, with `reason`)**: your own account (`cannot-deactivate-self`), an account that is
+  already deactivated (`member-already-deactivated`), the last `smb-admin` still in use (`last-admin`),
+  or a successor that is not another internal account in use (`smb-admin` / `internal-employee`) of
+  the same organization holding what the assets need — `manage-assistants` when there is an assistant
+  or a draft, `manage-data-sources` when there is a knowledge base or a database
+  (`successor-not-eligible`). Two managers deactivating each other at the same moment: the transaction
+  is serializable, so one of them gets `409 team-changed`.
+- **One transaction**: the member's assistants, drafts, knowledge bases and databases become the
+  successor's; the successor's own share row on them is dropped (an owner is never a share target);
+  the member's data-manager seat on those databases passes to the successor (with
+  `DatabaseDataManagerChanges` rows); unresolved 處理事項 assigned to the member go to the successor if
+  they hold `handle-assistant-issues`, otherwise become unassigned (an `assigned` event either way);
+  open, accepted cases they own get an `accepted` event of the successor with a note (`Case.HandOver`).
+  Then `Account.DeactivatedAt` is set, the security stamp rotated, every token entry of the account
+  revoked (`RevokeBySubjectAsync`) and one `member-deactivated` organization activity written.
+- **Left alone**: shares and data-manager designations **other owners** gave the member (their
+  decision; the successor's assistants stop using such a source at answer time until its owner shares
+  it with them — the preview counts them as `borrowedSources`), case-group memberships, the member's
+  private conversations (retention applies), their submitted records, and every history or audit
+  column. Pending 轉真人 (`VisitorHandoff`, #355) and its Email follow the assistant's current owner,
+  so they go to the successor with the assistant; the member's own `AccountNotificationSettings` row
+  stays (unused while deactivated).
+- **Signing in**: a deactivated account gets the same `401` as a wrong password from
+  `POST /api/v1/auth/login`, no code from `/connect/authorize`, no tokens from `/connect/token`
+  (`CanContinueAsync`), and `401` from every protected endpoint, `/api/v1/me` included, on the very
+  next call with an access token it already holds — `DeactivatedAt` is read in the same per-request
+  query as `PasswordChangeRequired` (`DatabaseAccountStandingSource`).
+- **Reactivating** clears `DeactivatedAt` and writes `member-reactivated`; the member signs in again
+  with their password. Nothing transferred comes back.
+
 ## Visitor handoffs (轉真人) and Email notifications (#355)
 
 When a **website or LINE visitor is given an assistant's refusal** (a `no-result` reply — the

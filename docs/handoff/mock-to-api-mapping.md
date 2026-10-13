@@ -287,12 +287,17 @@ HTTP 對應的通則（每個方法的特例寫在表中）：
 | `listAccounts()` `:259` | `GET /api/v1/share-targets`（**不要做成帳號目錄**） | `S`；回傳範圍需另外設計授權 | `200` `AccountView[]` | `429` | `401`／`5xx` | **未被呼叫**；`/login` 的三個身分是寫死的（`features/demo-login/demo-login-page.component.ts:18-22`） |
 | `getTeam(viewer)` `:265` | `GET /api/v1/team` | `S+MA` | `200` `TeamView` | `429` | `401`／`403 team`／`5xx` | `features/settings/components/team-panel/team-panel.component.ts:36` |
 | `updateMemberPermissions(viewer, memberId, permissions)` `:272-276` | `PUT /api/v1/team/members/{id}/permissions` | `S+MA` | `200` `TeamView` | `422`／`409`／`429` | `401`／`403 team`／`5xx` | `features/settings/components/team-panel/team-panel.component.ts:86` |
+| `getMemberOffboarding(memberId)`（#356） | `GET /api/v1/team/members/{id}/offboarding` | `S+MA` | `200` `MemberOffboardingView`（數量、需要的權限、候選接手人） | `429` | `401`／`403 team`／`5xx` | `features/settings/components/team-panel/team-panel.component.ts`（停用對話框） |
+| `deactivateMember(memberId, successorId)`（#356） | `POST /api/v1/team/members/{id}:deactivate` | `S+MA` | `200` `DeactivateMemberResponse`（整個團隊＋轉移數量） | `422`（自己、最後一位管理者、已停用、接手人不符合資格）／`409 team-changed` | `401`／`403 team`／`5xx` | 同上 |
+| `reactivateMember(memberId)`（#356） | `POST /api/v1/team/members/{id}:reactivate` | `S+MA` | `200` `TeamView` | `422 member-not-deactivated` | `401`／`403 team`／`5xx` | 同上（「重新啟用」按鈕） |
 | `listKnowledgeBases(viewer)` `:315-317` | 由 `listKnowledgeBaseSummaries` 取代，**不需要獨立 endpoint** | `S` | `200` `KnowledgeBaseView[]` | — | `401`／`5xx` | **未被呼叫** |
 | `listDatabases(viewer)` `:318-320` | 由 `listDatabaseSummaries` 取代，**不需要獨立 endpoint** | `S` | `200` `DatabaseView[]` | — | `401`／`5xx` | **未被呼叫** |
 | `listPrivateConversations(viewer)` `:321-323` | `GET /api/v1/conversations` | `S` | `200` `PrivateConversationView[]` | `429` | `401`／`5xx` | **未被呼叫**（`/app/activity` 仍是 placeholder） |
 | `getConversation(viewer, conversationId)` `:324-327` | `GET /api/v1/conversations/{id}` | `S` + 對話屬於 viewer | `200` `PrivateConversationView` | `429` | `401`／`403 private-conversation`／`5xx` | **未被呼叫** |
 
 **已換成 API（#11）**：這兩個方法已改成非同步契約（`getTeam(): Observable<…>`、`updateMemberPermissions(memberId, permissions): Observable<…>`，不再傳 viewer）。API 模式由 `core/repositories/hybrid-demo-repository.ts` 走 HTTP，其餘方法沿用 mock；後續各區照同一個模式替換。
+
+**停用成員（#356）**：三個方法 mock 與 API 規則相同（`team.model.ts` 的 `checkMemberDeactivation`／`checkSuccessor`／`requiredSuccessorPermissions` 對應後端 `MemberOffboardingRules`）。mock 把停用與資產轉移存在 `sme-demo:deactivated-members`、`sme-demo:ownership-transfers`，停用的 Demo 身分不能在 `/login` 登入；處理事項與案件的 mock 只存在單次工作階段，由 `AssistantIssuesRepository.mockHandOverMember`／`CasesRepository.mockHandOverMember` 移交（API 模式這兩個方法什麼都不做，後端已在同一個 transaction 裡處理）。
 
 `getTeam`／`updateMemberPermissions` 是新增的一組方法，403 用新的 `team` reason（`RepositoryPermissionDeniedReason`，`demo-repository.ts:103`）：不具備 `manage-assistants` 的帳號一律得到同一則不含成員名稱或權限內容的訊息。
 

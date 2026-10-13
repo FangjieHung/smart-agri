@@ -108,6 +108,7 @@ function teamResponse(employeePermissions: AccountPermission[], savedAt: string 
         role: 'internal-employee',
         permissions: employeePermissions,
         lockedPermissions: [],
+        deactivatedAt: null,
       },
       {
         id: CUSTOMER_ID,
@@ -115,6 +116,7 @@ function teamResponse(employeePermissions: AccountPermission[], savedAt: string 
         role: 'external-customer',
         permissions: ['use-shared-assistants', 'submit-authorized-forms', 'read-own-tracking'],
         lockedPermissions: [],
+        deactivatedAt: null,
       },
       {
         id: ADMIN_ID,
@@ -122,6 +124,7 @@ function teamResponse(employeePermissions: AccountPermission[], savedAt: string 
         role: 'smb-admin',
         permissions: ALL_ADMIN,
         lockedPermissions: ['manage-assistants'],
+        deactivatedAt: null,
       },
     ],
     savedAt,
@@ -138,6 +141,7 @@ function teamResponseWithTwoSameRoleMembers(): TeamResponse {
         role: 'internal-employee',
         permissions: ['use-shared-assistants'],
         lockedPermissions: [],
+        deactivatedAt: null,
       },
       {
         id: EMPLOYEE_2_ID,
@@ -145,6 +149,7 @@ function teamResponseWithTwoSameRoleMembers(): TeamResponse {
         role: 'internal-employee',
         permissions: ['read-consented-submissions'],
         lockedPermissions: [],
+        deactivatedAt: null,
       },
       {
         id: ADMIN_ID,
@@ -152,6 +157,7 @@ function teamResponseWithTwoSameRoleMembers(): TeamResponse {
         role: 'smb-admin',
         permissions: ALL_ADMIN,
         lockedPermissions: ['manage-assistants'],
+        deactivatedAt: null,
       },
     ],
     savedAt: null,
@@ -402,6 +408,7 @@ describe('HybridDemoRepository', () => {
           role: 'smb-admin',
           permissions: withoutRecords,
           lockedPermissions: ['manage-assistants'],
+          deactivatedAt: null,
         },
       ],
       savedAt: '2026-09-25T02:00:00Z',

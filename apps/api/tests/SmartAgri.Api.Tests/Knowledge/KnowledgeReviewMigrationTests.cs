@@ -55,7 +55,19 @@ public sealed class KnowledgeReviewMigrationTests : IClassFixture<PostgresFixtur
         {
             var account = Account.Create(organization, "admin", "安心商行管理者", AccountRole.SmbAdmin);
             var knowledgeBase = KnowledgeBase.Create(organization.Id, account.Id, "退換貨政策", string.Empty, now);
-            dbContext.Accounts.Add(account);
+
+            // Raw SQL for the account too: the model has AspNetUsers columns (DeactivatedAt, #356)
+            // that this old schema does not have yet.
+            await dbContext.Database.ExecuteSqlAsync(
+                $"""
+                INSERT INTO "AspNetUsers" ("Id", "OrganizationId", "LoginName", "NormalizedLoginName", "DisplayName", "Role",
+                    "UserName", "NormalizedUserName", "SecurityStamp", "EmailConfirmed", "PhoneNumberConfirmed",
+                    "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount", "PasswordChangeRequired")
+                VALUES ({account.Id}, {organization.Id}, {account.LoginName}, {account.NormalizedLoginName}, {account.DisplayName},
+                    'smb-admin', {account.UserName}, {account.NormalizedUserName}, {account.SecurityStamp},
+                    false, false, false, true, 0, false)
+                """,
+                CancellationToken);
             dbContext.KnowledgeBases.Add(knowledgeBase);
             await dbContext.SaveChangesAsync(CancellationToken);
 

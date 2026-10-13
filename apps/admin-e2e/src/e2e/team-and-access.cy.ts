@@ -241,6 +241,58 @@ describe('team management and data access', () => {
     });
   }
 
+  it('deactivates the employee with a successor, blocks their sign-in, and reactivates them (issue #356)', () => {
+    loginAs('SMB 管理者');
+    visitSettings();
+
+    cy.contains('button', '停用 安心商行客服同仁').click();
+    cy.get('form.create-panel[aria-labelledby="deactivate-member-title"]').should('be.visible').within(() => {
+      cy.contains('h2', '停用「安心商行客服同仁」');
+      cy.get('.offboarding__counts').should('contain', '知識庫 1 個').and('contain', '數據庫 1 個');
+      cy.contains('私人對話不會轉移').should('exist');
+      cy.get('#successor-account-external-customer').should('be.disabled');
+      cy.contains('.successor', '外部客戶').should('contain', '外部客戶不能接手同仁的工作。');
+      cy.contains('button', '停用並轉移').should('be.disabled');
+      cy.get('#successor-account-smb-admin').check();
+      cy.contains('button', '停用並轉移').click();
+    });
+
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('.feedback').should('contain', '已停用「安心商行客服同仁」：知識庫 1 個、數據庫 1 個已轉給「安心商行管理者」。');
+    cy.contains('.member', '安心商行客服同仁').should('contain', '已停用').and('contain', '重新啟用 安心商行客服同仁');
+
+    // The employee's knowledge base is now the admin's to manage.
+    cy.visit('/app/knowledge/knowledge-staff-notes/content');
+    cy.get('#main-content').contains('同仁個人筆記').should('be.visible');
+
+    // The deactivated persona can no longer sign in.
+    cy.visit('/login');
+    cy.get('#demo-username').clear().type('internal');
+    cy.get('#demo-password').clear().type('1234');
+    cy.get('form.demo-login__form').contains('button', '登入').click();
+    cy.contains('這個 Demo 身分已在團隊設定停用').should('be.visible');
+    cy.location('pathname').should('eq', '/login');
+
+    loginAs('SMB 管理者');
+    visitSettings();
+    cy.contains('button', '重新啟用 安心商行客服同仁').click();
+    cy.get('.feedback').should('contain', '已重新啟用「安心商行客服同仁」');
+    cy.contains('.member', '安心商行客服同仁').should('not.contain', '已停用');
+    loginAs('內部使用者');
+  });
+
+  it('keeps the deactivate dialog\'s buttons on screen in a 390×700 window (issue #356)', () => {
+    cy.viewport(390, 700);
+    loginAs('SMB 管理者');
+    visitSettings();
+    cy.contains('button', '停用 安心商行客服同仁').scrollIntoView().click();
+    cy.get('form.create-panel[aria-labelledby="deactivate-member-title"]').should('be.visible');
+    cy.get('#successor-account-smb-admin').should('exist');
+    expectFullyOnScreen('#deactivate-member-title');
+    expectFullyOnScreen('form.create-panel button[type="submit"]');
+    expectFullyOnScreen('form.create-panel button[type="button"]');
+  });
+
   it('will not let the admin lock themselves out of the team screen', () => {
     loginAs('SMB 管理者');
     visitSettings();

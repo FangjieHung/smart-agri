@@ -50,3 +50,13 @@ sessionStorage 裡的 token 能被頁面上執行的任何腳本讀取。原本�
 - `admin-spa` 用戶端多了 refresh token 授權類型與撤銷端點的權限，由 `migrate` 更新（升級時照常執行 `migrate` 即可）。
 - 只有 admin SPA 用這套登入。`/use/:assistantId`、`/chat/:assistantId` 在 API 模式轉到工作區，沿用同一個登入；網站嵌入的匿名訪客與 LINE 不受影響。
 - mock 模式沒有 token，Demo 身分仍是閒置 30 分鐘逾時；API 模式本機的換頁逾時改為 7 天，閒置由伺服器的 8 小時決定。
+
+## 修訂（2026-10-13，負責人決定，#356）：停用成員
+
+管理者停用離職的成員時要指定接手人，資產一次轉給接手人；帳號與歷史紀錄保留，之後可以重新啟用。對登入的影響：
+
+- 帳號多一個 `DeactivatedAt`。停用的帳號用密碼登入得到與密碼錯誤相同的 `401`（也不累計失敗次數），`/connect/authorize` 不發授權碼，token 端點不換發（`CanContinueAsync` 先檢查它）。
+- 停用時在同一個 transaction 裡換 security stamp（登入 cookie 失效）並撤銷這個帳號所有 token 紀錄（`RevokeBySubjectAsync`，含 refresh token）。
+- **手上的 access token 也立刻失效**：`DeactivatedAt` 和 `PasswordChangeRequired` 在同一個每個請求都會跑的查詢裡讀取，停用的帳號從下一個請求起，所有受保護的端點（包含 `/api/v1/me`）都回 `401`，不必等 30 分鐘到期。
+- 重新啟用只清掉 `DeactivatedAt`，成員用原本的密碼重新登入；已轉出的資產不會轉回。
+

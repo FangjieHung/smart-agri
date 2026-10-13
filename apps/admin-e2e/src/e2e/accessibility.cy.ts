@@ -269,6 +269,21 @@ describe('accessibility', () => {
     });
   });
 
+  describe('deactivate member dialog (issue #356)', () => {
+    it('has no critical or serious violations with the successor list open, and Escape returns focus', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '停用 安心商行客服同仁').scrollIntoView().click();
+      cy.get('[role="dialog"]').should('have.attr', 'aria-modal', 'true').and('have.attr', 'aria-labelledby');
+      cy.get('#successor-account-smb-admin').should('exist');
+      auditA11y();
+
+      cy.get('body').type('{esc}');
+      cy.get('[role="dialog"]').should('not.exist');
+      cy.focused().should('contain.text', '停用 安心商行客服同仁');
+    });
+  });
+
   describe('case group member editor and history expanded (issue #246)', () => {
     it('has no critical or serious violations with the editor and the history rendered', () => {
       loginAs('SMB 管理者');

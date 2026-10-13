@@ -1,10 +1,10 @@
 import { signal, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { MatDialog, MatDialogState } from '@angular/material/dialog';
-import { firstValueFrom, Subject, throwError } from 'rxjs';
+import { firstValueFrom, of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../../../../core/domain/account.model';
-import type { TeamView } from '../../../../core/domain/team.model';
+import { NO_HOLDINGS, type TeamView } from '../../../../core/domain/team.model';
 import type { CreateMemberResult, RepositoryView } from '../../../../core/repositories/demo-repository';
 import { DEMO_SEED } from '../../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../../core/repositories/memory-storage';
@@ -353,5 +353,101 @@ describe('TeamPanelComponent adding a member (issue #52)', () => {
     );
     // 對話框仍開著（沒有因失敗而關閉）。
     expect(document.querySelector('#new-member-login-name')).not.toBeNull();
+  });
+
+  // ---------- 停用成員並指定接手人（issue #356） ----------
+
+  it('offers 停用 for everyone but the viewer', async () => {
+    const { host } = await render();
+    expect(() => button(host, '停用 安心商行客服同仁')).not.toThrow();
+    expect(() => button(host, '停用 安心商行管理者')).toThrow();
+  });
+
+  it('deactivates a member: shows what moves, only eligible successors are selectable, then marks the row 已停用', async () => {
+    const { fixture, host, repository } = await render();
+    const deactivate = vi.spyOn(repository, 'deactivateMember');
+
+    button(host, '停用 安心商行客服同仁').click();
+    await settle(fixture);
+
+    const dialog = document.querySelector<HTMLFormElement>('.create-panel') as HTMLFormElement;
+    expect(dialog.textContent).toContain('停用「安心商行客服同仁」');
+    expect(dialog.textContent).toContain('知識庫 1 個');
+    expect(dialog.textContent).toContain('數據庫 1 個');
+    expect(dialog.textContent).toContain('私人對話不會轉移');
+    expect(dialog.textContent).toContain('具備「管理資料來源」權限');
+    const admin = document.querySelector<HTMLInputElement>('#successor-account-smb-admin') as HTMLInputElement;
+    const customer = document.querySelector<HTMLInputElement>('#successor-account-external-customer') as HTMLInputElement;
+    expect(admin.disabled).toBe(false);
+    expect(customer.disabled).toBe(true);
+    expect(dialog.textContent).toContain('外部客戶不能接手同仁的工作。');
+    expect(documentButton('停用並轉移').disabled).toBe(true);
+
+    admin.click();
+    admin.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    documentButton('停用並轉移').click();
+    await settle(fixture);
+
+    expect(deactivate).toHaveBeenCalledWith('account-internal-employee', 'account-smb-admin');
+    expect(TestBed.inject(MatDialog).openDialogs.map((ref) => ref.getState())).not.toContain(MatDialogState.OPEN);
+    expect(host.querySelector('.feedback')?.textContent).toContain('已停用「安心商行客服同仁」：知識庫 1 個、數據庫 1 個已轉給「安心商行管理者」。');
+    const row = Array.from(host.querySelectorAll('.member')).find((item) => item.textContent?.includes('安心商行客服同仁'));
+    expect(row?.querySelector('.member__status')?.textContent).toContain('已停用');
+    expect(() => button(host, '重新啟用 安心商行客服同仁')).not.toThrow();
+    expect(() => button(host, '停用 安心商行客服同仁')).toThrow();
+  });
+
+  it('reactivates a deactivated member from the list', async () => {
+    const { fixture, host, repository } = await render();
+    await firstValueFrom(repository.deactivateMember('account-internal-employee', 'account-smb-admin'));
+    fixture.componentInstance['teamResource'].reload();
+    await settle(fixture);
+
+    button(host, '重新啟用 安心商行客服同仁').click();
+    await settle(fixture);
+
+    expect(host.querySelector('.feedback')?.textContent).toContain('已重新啟用「安心商行客服同仁」');
+    expect(host.querySelector('.member__status')).toBeNull();
+  });
+
+  it('shows why a member cannot be deactivated instead of the successor list', async () => {
+    const { fixture, host, repository } = await render();
+    vi.spyOn(repository, 'getMemberOffboarding').mockReturnValue(of({
+      status: 'ready',
+      data: {
+        memberId: 'account-internal-employee', displayName: '安心商行客服同仁', block: 'last-admin',
+        blockMessage: '這是組織裡最後一位使用中的管理者，停用後就沒有人能管理組織設定。請先新增另一位管理者再停用。',
+        holdings: NO_HOLDINGS, requiredPermissions: [], candidates: [],
+      },
+    }));
+
+    button(host, '停用 安心商行客服同仁').click();
+    await settle(fixture);
+
+    expect(document.querySelector('.create-panel [role="alert"]')?.textContent).toContain('最後一位使用中的管理者');
+    expect(document.querySelector('input[name="successor"]')).toBeNull();
+    expect(() => documentButton('停用並轉移')).toThrow();
+    documentButton('取消').click();
+    await settle(fixture);
+  });
+
+  it('keeps the dialog open with the repository’s message when deactivation is refused', async () => {
+    const { fixture, host, repository } = await render();
+    vi.spyOn(repository, 'deactivateMember').mockReturnValue(of({ status: 'validation-failed', message: '接手人必須是同一組織裡仍在使用中的內部成員，並具備管理這些資產需要的權限。' }));
+
+    button(host, '停用 安心商行客服同仁').click();
+    await settle(fixture);
+    const admin = document.querySelector<HTMLInputElement>('#successor-account-smb-admin') as HTMLInputElement;
+    admin.click();
+    admin.dispatchEvent(new Event('change'));
+    await settle(fixture);
+    documentButton('停用並轉移').click();
+    await settle(fixture);
+
+    expect(document.querySelector('.create-panel > [role="alert"]')?.textContent).toContain('接手人必須是');
+    expect(TestBed.inject(MatDialog).openDialogs.map((ref) => ref.getState())).toContain(MatDialogState.OPEN);
+    documentButton('取消').click();
+    await settle(fixture);
   });
 });

@@ -11,9 +11,23 @@ import {
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import type { AccountId, AccountPermission, AccountRole } from '../../../../core/domain/account.model';
-import { ACCOUNT_ROLE_LABELS, type TeamMemberView, type TeamView } from '../../../../core/domain/team.model';
+import {
+  ACCOUNT_ROLE_LABELS,
+  caseHandOverNote,
+  permissionDescriptor,
+  SUCCESSOR_REQUIRED_MESSAGE,
+  type MemberOffboardingView,
+  type MemberTransferCountsView,
+  type SuccessorCandidateView,
+  type TeamMemberView,
+  type TeamView,
+} from '../../../../core/domain/team.model';
+import { AssistantIssuesRepository } from '../../../../core/repositories/assistant-issues.repository';
+import { CasesRepository } from '../../../../core/repositories/cases.repository';
 import type {
   CreateMemberResult,
+  DeactivateMemberResult,
+  ReactivateMemberResult,
   RepositoryView,
   UpdateMemberPermissionsResult,
 } from '../../../../core/repositories/demo-repository';
@@ -33,7 +47,7 @@ const DISPLAY_NAME_MAX_LENGTH = 200;
 
 /**
  * 團隊與權限。**這是 Demo 身分切換器的設定面，不是真實的身分管理**：
- * 沒有邀請、沒有離職、沒有密碼，成員固定就是 `/login` 的三個 Demo 身分。
+ * 沒有邀請、沒有密碼，成員固定就是 `/login` 的三個 Demo 身分。
  * 可以改的只有「每個成員被允許做什麼」，而且畫面會逐條說明哪些權限**真的**
  * 被程式檢查、哪些目前只是宣告值——不在這裡假裝一個還沒接上的開關。
  *
@@ -53,6 +67,9 @@ export class TeamPanelComponent {
   private readonly apiSession = inject(ApiSessionService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly dialog = inject(MatDialog);
+  /** 停用成員時，處理事項與案件的 mock 清點與移交（API 模式是後端做的，這兩個方法什麼都不做）。 */
+  private readonly issues = inject(AssistantIssuesRepository);
+  private readonly cases = inject(CasesRepository);
   /** API 模式的成員是真實帳號，說明文字不再提 Demo 身分與這台瀏覽器。 */
   protected readonly apiMode = inject(API_SESSION_BACKEND) !== null;
 
@@ -107,6 +124,24 @@ export class TeamPanelComponent {
     null,
   );
   protected readonly passwordCopyFeedback = signal('');
+
+  // ---------- 停用成員並指定接手人（issue #356） ----------
+  private readonly deactivateDialog = viewChild<TemplateRef<unknown>>('deactivateDialog');
+
+  /** 正在停用的成員；對話框開著時才有值。 */
+  protected readonly offboardingMember = signal<TeamMemberView | null>(null);
+  /** 預覽：null 是讀取中，`failed` 是讀不到。 */
+  protected readonly offboarding = signal<MemberOffboardingView | 'failed' | null>(null);
+  protected readonly successorId = signal<AccountId | null>(null);
+  protected readonly deactivateError = signal('');
+  protected readonly deactivating = signal(false);
+  /** 送出中不能再按一次重新啟用。 */
+  protected readonly reactivating = signal<AccountId | null>(null);
+
+  protected readonly eligibleCandidates = computed(() => {
+    const preview = this.offboarding();
+    return preview === null || preview === 'failed' ? [] : preview.candidates.filter((candidate) => candidate.eligible);
+  });
 
   protected labelOf(permission: AccountPermission): string {
     return (
@@ -294,6 +329,165 @@ export class TeamPanelComponent {
       this.passwordCopyFeedback.set('已複製到剪貼簿。');
     } catch {
       this.passwordCopyFeedback.set('無法自動複製，請手動選取密碼文字。');
+    }
+  }
+
+  // ---------- 停用成員並指定接手人 ----------
+
+  protected openDeactivateDialog(member: TeamMemberView): void {
+    const content = this.deactivateDialog();
+    if (!content) return;
+    this.offboardingMember.set(member);
+    this.offboarding.set(null);
+    this.successorId.set(null);
+    this.deactivateError.set('');
+    this.feedback.set('');
+    this.dialog.open(content, {
+      width: 'min(40rem, calc(100vw - 2rem))',
+      restoreFocus: true,
+      ariaModal: true,
+      ariaLabelledBy: 'deactivate-member-title',
+    });
+    this.repository
+      .getMemberOffboarding(member.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => {
+          if (result.status === 'ready' || result.status === 'partial-failure') {
+            // 處理事項與案件在各自的 repository：mock 在這裡補上數量（API 模式加的是 0）。
+            const data = result.data;
+            this.offboarding.set({
+              ...data,
+              holdings: {
+                ...data.holdings,
+                openIssues: data.holdings.openIssues + this.issues.mockOpenAssignedCount(member.id),
+                openCases: data.holdings.openCases + this.cases.mockOpenOwnedCount(member.id),
+              },
+            });
+          } else if (result.status !== 'loading') {
+            this.offboarding.set('failed');
+          }
+        },
+        error: () => this.offboarding.set('failed'),
+      });
+  }
+
+  protected closeDeactivateDialog(): void {
+    this.dialog.closeAll();
+    this.offboardingMember.set(null);
+  }
+
+  protected chooseSuccessor(candidate: SuccessorCandidateView): void {
+    this.successorId.set(candidate.id);
+    this.deactivateError.set('');
+  }
+
+  /** 候選人旁邊的說明：為什麼不能選，或選了之後處理事項會怎麼樣。 */
+  protected candidateNote(candidate: SuccessorCandidateView, preview: MemberOffboardingView): string {
+    if (candidate.ineligibleReason === 'external-customer') return '外部客戶不能接手同仁的工作。';
+    if (candidate.ineligibleReason === 'missing-permissions') {
+      return `缺少「${candidate.missingPermissions.map((permission) => this.labelOf(permission)).join('」「')}」權限。`;
+    }
+    if (candidate.ineligibleReason === 'deactivated') return '這個帳號已停用。';
+    if (preview.holdings.openIssues > 0 && !candidate.canHandleIssues) {
+      return `沒有「處理助理的處理事項」權限：${preview.holdings.openIssues} 件處理事項會改成未指派，由助理擁有者重新指派。`;
+    }
+    return '';
+  }
+
+  /** 接手人需要的權限名稱，例如「管理助理與團隊」「管理資料來源」。 */
+  protected requiredLabels(preview: MemberOffboardingView): string {
+    return preview.requiredPermissions.map((permission) => `「${permissionDescriptor(permission)?.label ?? permission}」`).join('');
+  }
+
+  protected submitDeactivate(event: Event): void {
+    event.preventDefault();
+    const member = this.offboardingMember();
+    const preview = this.offboarding();
+    if (member === null || preview === null || preview === 'failed' || this.deactivating()) return;
+    const successor = preview.candidates.find((candidate) => candidate.id === this.successorId() && candidate.eligible);
+    if (successor === undefined) {
+      this.deactivateError.set(SUCCESSOR_REQUIRED_MESSAGE);
+      return;
+    }
+
+    this.deactivating.set(true);
+    this.repository
+      .deactivateMember(member.id, successor.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => this.deactivated(member, successor, result),
+        error: () => {
+          this.deactivating.set(false);
+          this.deactivateError.set('目前無法停用成員，請稍後再試。');
+        },
+      });
+  }
+
+  private deactivated(member: TeamMemberView, successor: SuccessorCandidateView, result: DeactivateMemberResult): void {
+    this.deactivating.set(false);
+    if (result.status === 'ready' || result.status === 'partial-failure') {
+      // Demo 模式的處理事項與案件在這裡移交（API 模式後端已經做完，這兩個呼叫什麼都不做）。
+      const issues = this.issues.mockHandOverMember(member.id, successor.id, successor.canHandleIssues);
+      const cases = this.cases.mockHandOverMember(member.id, successor.id, caseHandOverNote(member.displayName, successor.displayName));
+      const transferred = result.data.transferred;
+      const counts: MemberTransferCountsView = {
+        ...transferred,
+        issuesReassigned: transferred.issuesReassigned + issues.reassigned,
+        issuesUnassigned: transferred.issuesUnassigned + issues.unassigned,
+        cases: transferred.cases + cases,
+      };
+      this.dialog.closeAll();
+      this.offboardingMember.set(null);
+      this.error.set('');
+      this.feedback.set(this.deactivatedMessage(member.displayName, successor.displayName, counts));
+      this.teamResource.reload();
+    } else if (result.status === 'validation-failed' || result.status === 'conflict' || result.status === 'permission-denied') {
+      this.deactivateError.set(result.message);
+    }
+  }
+
+  private deactivatedMessage(memberName: string, successorName: string, counts: MemberTransferCountsView): string {
+    const parts = [
+      counts.assistants > 0 ? `助理 ${counts.assistants} 個` : '',
+      counts.drafts > 0 ? `助理草稿 ${counts.drafts} 份` : '',
+      counts.knowledgeBases > 0 ? `知識庫 ${counts.knowledgeBases} 個` : '',
+      counts.databases > 0 ? `數據庫 ${counts.databases} 個` : '',
+      counts.issuesReassigned > 0 ? `處理事項 ${counts.issuesReassigned} 件` : '',
+      counts.cases > 0 ? `案件 ${counts.cases} 件` : '',
+    ].filter((part) => part !== '');
+    const moved = parts.length === 0
+      ? `沒有需要轉給「${successorName}」的資產。`
+      : `${parts.join('、')}已轉給「${successorName}」。`;
+    const unassigned = counts.issuesUnassigned > 0 ? `${counts.issuesUnassigned} 件處理事項改成未指派。` : '';
+    return `已停用「${memberName}」：${moved}${unassigned}`;
+  }
+
+  protected reactivate(member: TeamMemberView): void {
+    if (this.reactivating() !== null) return;
+    this.reactivating.set(member.id);
+    this.repository
+      .reactivateMember(member.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (result) => this.reactivated(member, result),
+        error: () => {
+          this.reactivating.set(null);
+          this.feedback.set('');
+          this.error.set('目前無法重新啟用成員，請稍後再試。');
+        },
+      });
+  }
+
+  private reactivated(member: TeamMemberView, result: ReactivateMemberResult): void {
+    this.reactivating.set(null);
+    if (result.status === 'ready' || result.status === 'partial-failure') {
+      this.error.set('');
+      this.feedback.set(`已重新啟用「${member.displayName}」，他可以再次登入；停用時轉出的資產不會轉回。`);
+      this.teamResource.reload();
+    } else if (result.status !== 'loading') {
+      this.feedback.set('');
+      this.error.set(result.message);
     }
   }
 }

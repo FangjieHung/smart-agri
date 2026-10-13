@@ -1075,6 +1075,130 @@
         }
       }
     },
+    "/api/v1/team/members/{id}/offboarding": {
+      "get": {
+        "tags": [
+          "MemberOffboardingEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberOffboardingView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
+    },
+    "/api/v1/team/members/{id}:deactivate": {
+      "post": {
+        "tags": [
+          "MemberOffboardingEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeactivateMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeactivateMemberResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/team/members/{id}:reactivate": {
+      "post": {
+        "tags": [
+          "MemberOffboardingEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/knowledge-bases": {
       "get": {
         "tags": [
@@ -11766,6 +11890,36 @@
           }
         }
       },
+      "DeactivateMemberRequest": {
+        "required": [
+          "successorAccountId"
+        ],
+        "type": "object",
+        "properties": {
+          "successorAccountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "DeactivateMemberResponse": {
+        "required": [
+          "team",
+          "transferred"
+        ],
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/components/schemas/TeamResponse"
+          },
+          "transferred": {
+            "$ref": "#/components/schemas/MemberTransferCounts"
+          }
+        }
+      },
       "DisableKnowledgeDocumentRequest": {
         "required": [
           "reason"
@@ -12840,6 +12994,150 @@
           }
         }
       },
+      "MemberDeactivationBlock": {
+        "enum": [
+          "self",
+          "last-admin",
+          "already-deactivated",
+          null
+        ]
+      },
+      "MemberHoldings": {
+        "required": [
+          "assistants",
+          "drafts",
+          "knowledgeBases",
+          "databases",
+          "openIssues",
+          "openCases",
+          "borrowedSources"
+        ],
+        "type": "object",
+        "properties": {
+          "assistants": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "drafts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "knowledgeBases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "databases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "openIssues": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "openCases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "borrowedSources": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "MemberOffboardingView": {
+        "required": [
+          "memberId",
+          "displayName",
+          "block",
+          "blockMessage",
+          "holdings",
+          "requiredPermissions",
+          "candidates"
+        ],
+        "type": "object",
+        "properties": {
+          "memberId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "block": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MemberDeactivationBlock"
+              }
+            ]
+          },
+          "blockMessage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "holdings": {
+            "$ref": "#/components/schemas/MemberHoldings"
+          },
+          "requiredPermissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountPermission"
+            }
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SuccessorCandidateView"
+            }
+          }
+        }
+      },
+      "MemberTransferCounts": {
+        "required": [
+          "assistants",
+          "drafts",
+          "knowledgeBases",
+          "databases",
+          "issuesReassigned",
+          "issuesUnassigned",
+          "cases"
+        ],
+        "type": "object",
+        "properties": {
+          "assistants": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "drafts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "knowledgeBases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "databases": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issuesReassigned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "issuesUnassigned": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cases": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "MeOrganization": {
         "required": [
           "id",
@@ -13840,13 +14138,68 @@
           }
         }
       },
+      "SuccessorCandidateView": {
+        "required": [
+          "id",
+          "displayName",
+          "role",
+          "eligible",
+          "ineligibleReason",
+          "missingPermissions",
+          "canHandleIssues"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccountRole"
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "ineligibleReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SuccessorIneligibleReason"
+              }
+            ]
+          },
+          "missingPermissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AccountPermission"
+            }
+          },
+          "canHandleIssues": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SuccessorIneligibleReason": {
+        "enum": [
+          "external-customer",
+          "missing-permissions",
+          "deactivated",
+          null
+        ]
+      },
       "TeamMemberResponse": {
         "required": [
           "id",
           "displayName",
           "role",
           "permissions",
-          "lockedPermissions"
+          "lockedPermissions",
+          "deactivatedAt"
         ],
         "type": "object",
         "properties": {
@@ -13871,6 +14224,13 @@
             "items": {
               "$ref": "#/components/schemas/AccountPermission"
             }
+          },
+          "deactivatedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },
@@ -14842,6 +15202,9 @@
     },
     {
       "name": "TeamEndpoints"
+    },
+    {
+      "name": "MemberOffboardingEndpoints"
     },
     {
       "name": "KnowledgeBaseEndpoints"

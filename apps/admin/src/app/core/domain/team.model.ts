@@ -9,7 +9,8 @@ import type {
  * 團隊與權限的畫面模型。
  *
  * Demo 的「團隊」就是 `/login` 那三個 Demo 身分，**不是真實身分系統**：這裡沒有邀請、
- * 沒有離職、沒有密碼，成員清單固定就是 `demo-seed.ts` 的帳號。可以變更的只有「每個
+ * 沒有密碼，成員清單固定就是 `demo-seed.ts` 的帳號（加上這台瀏覽器新增的成員）；停用成員
+ * （issue #356）與後端規則相同，只是存在這台瀏覽器。可以變更的只有「每個
  * 成員被允許做什麼」，而且只改得動**程式碼真的會檢查的那幾個權限**——哪些會、哪些
  * 不會，逐條寫在 `ACCOUNT_PERMISSIONS` 的 `enforcedNote` 裡，不在畫面上假裝。
  */
@@ -117,6 +118,8 @@ export interface TeamMemberView {
   readonly isViewer: boolean;
   /** 不能在這個頁面取消的權限；取消會讓操作者失去團隊設定的入口。 */
   readonly lockedPermissions: readonly AccountPermission[];
+  /** 停用的時間（issue #356）；使用中是 `null`。停用的成員不能登入，清單標示「已停用」。 */
+  readonly deactivatedAt: string | null;
 }
 
 export interface TeamView {
@@ -166,4 +169,119 @@ export function normalizeMemberPermissions(
   return ACCOUNT_PERMISSIONS.filter((permission) =>
     next.includes(permission.id),
   ).map((permission) => permission.id);
+}
+
+// ---------- 停用成員並指定接手人（issue #356） ----------
+// 規則與訊息與後端 `MemberOffboardingRules` 相同；mock 直接用這裡的函式，API 模式由後端判斷。
+
+/** 為什麼現在不能停用這位成員。 */
+export type MemberDeactivationBlock = 'self' | 'last-admin' | 'already-deactivated';
+
+/** 為什麼這個帳號不能當接手人。 */
+export type SuccessorIneligibleReason = 'external-customer' | 'missing-permissions' | 'deactivated';
+
+/** 停用時會交給接手人的東西（數量）。 */
+export interface MemberHoldingsView {
+  readonly assistants: number;
+  readonly drafts: number;
+  readonly knowledgeBases: number;
+  readonly databases: number;
+  /** 指派給他、還沒解決的處理事項。 */
+  readonly openIssues: number;
+  /** 他是承辦人、還沒結案的案件。 */
+  readonly openCases: number;
+  /** 他的助理用到、但屬於別人的知識庫或數據庫（別人分享給他的）：不會轉移。 */
+  readonly borrowedSources: number;
+}
+
+export interface SuccessorCandidateView {
+  readonly id: AccountId;
+  readonly displayName: string;
+  readonly role: AccountRole;
+  readonly eligible: boolean;
+  readonly ineligibleReason: SuccessorIneligibleReason | null;
+  readonly missingPermissions: readonly AccountPermission[];
+  /** 具備「處理助理的處理事項」：處理事項會改指派給他，否則改成未指派。 */
+  readonly canHandleIssues: boolean;
+}
+
+export interface MemberOffboardingView {
+  readonly memberId: AccountId;
+  readonly displayName: string;
+  readonly block: MemberDeactivationBlock | null;
+  readonly blockMessage: string | null;
+  readonly holdings: MemberHoldingsView;
+  readonly requiredPermissions: readonly AccountPermission[];
+  /** 其他使用中的成員（依角色、名稱排序），不論是否符合資格。 */
+  readonly candidates: readonly SuccessorCandidateView[];
+}
+
+/** 停用後實際交給接手人的數量。 */
+export interface MemberTransferCountsView {
+  readonly assistants: number;
+  readonly drafts: number;
+  readonly knowledgeBases: number;
+  readonly databases: number;
+  readonly issuesReassigned: number;
+  readonly issuesUnassigned: number;
+  readonly cases: number;
+}
+
+export interface DeactivatedMemberView {
+  readonly team: TeamView;
+  readonly transferred: MemberTransferCountsView;
+}
+
+export const MEMBER_DEACTIVATION_MESSAGES: Readonly<Record<MemberDeactivationBlock, string>> = {
+  self: '不能停用自己的帳號。',
+  'last-admin': '這是組織裡最後一位使用中的管理者，停用後就沒有人能管理組織設定。請先新增另一位管理者再停用。',
+  'already-deactivated': '這位成員已經停用。',
+};
+
+export const MEMBER_NOT_DEACTIVATED_MESSAGE = '這位成員目前沒有停用。';
+export const SUCCESSOR_REQUIRED_MESSAGE = '請選擇接手人。';
+export const SUCCESSOR_NOT_ELIGIBLE_MESSAGE =
+  '接手人必須是同一組織裡仍在使用中的內部成員，並具備管理這些資產需要的權限。';
+
+/** 處理事項與案件的數量只在對應的 repository 裡（mock 存在這次工作階段），這裡先放 0。 */
+export const NO_HOLDINGS: MemberHoldingsView = {
+  assistants: 0, drafts: 0, knowledgeBases: 0, databases: 0, openIssues: 0, openCases: 0, borrowedSources: 0,
+};
+
+/**
+ * 接手人需要的權限：有助理或草稿就要「管理助理與團隊」，有知識庫或數據庫就要「管理資料來源」。
+ * 其他依權限而定的行為各自會降級（例如沒有「處理助理的處理事項」時處理事項改成未指派），不擋。
+ */
+export function requiredSuccessorPermissions(holdings: MemberHoldingsView): readonly AccountPermission[] {
+  const required: AccountPermission[] = [];
+  if (holdings.assistants + holdings.drafts > 0) required.push('manage-assistants');
+  if (holdings.knowledgeBases + holdings.databases > 0) required.push('manage-data-sources');
+  return normalizeMemberPermissions(required);
+}
+
+/** 順序與後端相同：自己 → 已停用 → 最後一位使用中的管理者。 */
+export function checkMemberDeactivation(
+  viewerAccountId: AccountId,
+  member: { readonly id: AccountId; readonly role: AccountRole; readonly deactivated: boolean },
+  otherActiveAdmins: number,
+): MemberDeactivationBlock | null {
+  if (member.id === viewerAccountId) return 'self';
+  if (member.deactivated) return 'already-deactivated';
+  return member.role === 'smb-admin' && otherActiveAdmins === 0 ? 'last-admin' : null;
+}
+
+/** 接手人：使用中的內部成員（管理者或內部同仁），而且具備 `required` 的每一項權限。 */
+export function checkSuccessor(
+  candidate: { readonly role: AccountRole; readonly deactivated: boolean; readonly permissions: readonly AccountPermission[] },
+  required: readonly AccountPermission[],
+): { readonly reason: SuccessorIneligibleReason | null; readonly missingPermissions: readonly AccountPermission[] } {
+  if (candidate.deactivated) return { reason: 'deactivated', missingPermissions: [] };
+  if (candidate.role === 'external-customer') return { reason: 'external-customer', missingPermissions: [] };
+  const missing = normalizeMemberPermissions(required.filter((permission) => !candidate.permissions.includes(permission)));
+  return missing.length === 0 ? { reason: null, missingPermissions: [] } : { reason: 'missing-permissions', missingPermissions: missing };
+}
+
+/** 移交案件時記在「受理」紀錄上的說明（與後端相同）。 */
+export function caseHandOverNote(memberDisplayName: string, successorDisplayName: string): string {
+  return `「${memberDisplayName}」的帳號已停用，案件移交給「${successorDisplayName}」。`;
 }

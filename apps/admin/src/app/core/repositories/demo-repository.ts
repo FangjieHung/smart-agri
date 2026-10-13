@@ -91,7 +91,7 @@ import type {
 } from '../domain/knowledge-base.model';
 import type { Observable } from 'rxjs';
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
-import type { TeamMemberView, TeamView } from '../domain/team.model';
+import type { DeactivatedMemberView, MemberOffboardingView, TeamMemberView, TeamView } from '../domain/team.model';
 import type { OrganizationUsageView } from '../domain/organization-usage.model';
 import type {
   AssistantConversationPurgeView,
@@ -515,6 +515,18 @@ export type CreateMemberResult =
   | RepositoryView<CreatedMemberView>
   | TeamValidationFailedView;
 
+/**
+ * 停用成員（issue #356）：`validation-failed` 是不能停用（自己、最後一位管理者、已停用）或接手人
+ * 不符合資格；`conflict` 是團隊剛被別人改過（後端的 `409 team-changed`），重新讀取再試。
+ */
+export type DeactivateMemberResult =
+  | RepositoryView<DeactivatedMemberView>
+  | TeamValidationFailedView
+  | { readonly status: 'conflict'; readonly message: string };
+
+/** 重新啟用：成員目前沒有停用是 `validation-failed`。 */
+export type ReactivateMemberResult = RepositoryView<TeamView> | TeamValidationFailedView;
+
 export interface DatabaseAccessValidationFailedView {
   readonly status: 'validation-failed';
   readonly message: string;
@@ -625,10 +637,11 @@ export interface DemoScenarioController {
 }
 
 export interface DemoRepository extends DemoScenarioController {
+  /** 可以登入的帳號；停用的成員（issue #356）不在其中。 */
   listAccounts(): RepositoryView<readonly AccountView[]>;
   /**
    * 團隊與權限。Demo 的「團隊」就是三個 Demo 身分，不是真實身分系統：沒有邀請、
-   * 沒有離職、沒有密碼，只能改「每個成員被允許做什麼」。只有具備 `manage-assistants`
+   * 沒有密碼，可以改「每個成員被允許做什麼」，以及停用成員（issue #356）。只有具備 `manage-assistants`
    * 的帳號看得到，其餘一律回傳 `team` 的 permission-denied，訊息不含任何成員名稱。
    *
    * 第一組改成非同步契約的方法（M2 之後各功能區沿用同一個模式）：viewer 由工作階段推導，
@@ -651,6 +664,18 @@ export interface DemoRepository extends DemoScenarioController {
    * 這次結果中出現一次。
    */
   createMember(input: CreateMemberInput): Observable<CreateMemberResult>;
+  /**
+   * 停用成員並指定接手人（issue #356）。三個方法都只有具備 `manage-assistants` 的帳號可以呼叫；
+   * 成員不存在（或屬於別的組織）與無權限回傳相同的 `team` permission-denied。
+   *
+   * `getMemberOffboarding`：停用時會交給接手人的東西（助理、草稿、知識庫、數據庫的數量；處理事項
+   * 與案件在各自的 repository）、不能停用的原因，以及每位候選接手人是否符合資格。
+   */
+  getMemberOffboarding(memberAccountId: AccountId): Observable<RepositoryView<MemberOffboardingView>>;
+  /** 停用並一次把資產轉給接手人；成功時回傳整個團隊與轉移的數量。 */
+  deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId): Observable<DeactivateMemberResult>;
+  /** 重新啟用：只恢復帳號（可以再登入），已轉出的資產不會轉回來。 */
+  reactivateMember(memberAccountId: AccountId): Observable<ReactivateMemberResult>;
   /*
    * 助理（M3 Slice 11，issue #81）：沿用 `getTeam`／知識庫的非同步契約——viewer 由工作階段
    * 推導，不由呼叫端傳入；回傳 cold Observable，訂閱時才讀取或寫入。API 模式

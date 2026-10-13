@@ -72,6 +72,7 @@ import {
   ACCOUNT_ROLE_DESCRIPTIONS,
   ACCOUNT_ROLE_LABELS,
   normalizeMemberPermissions,
+  type MemberOffboardingView,
   type TeamMemberView,
   type TeamView,
 } from '../domain/team.model';
@@ -161,6 +162,8 @@ import {
   type UpdateDatabaseAccessResult,
   type CreateMemberInput,
   type CreateMemberResult,
+  type DeactivateMemberResult,
+  type ReactivateMemberResult,
   type DeleteAssistantResult,
   type DeleteKnowledgeResult,
   type DisableKnowledgeDocumentResult,
@@ -220,6 +223,9 @@ type ApiTeamMember = components['schemas']['TeamMemberResponse'];
 type UpdateMemberPermissionsRequest = components['schemas']['UpdateMemberPermissionsRequest'];
 type CreateMemberRequest = components['schemas']['CreateMemberRequest'];
 type CreateMemberResponse = components['schemas']['CreateMemberResponse'];
+type ApiMemberOffboarding = components['schemas']['MemberOffboardingView'];
+type DeactivateMemberRequest = components['schemas']['DeactivateMemberRequest'];
+type DeactivateMemberResponse = components['schemas']['DeactivateMemberResponse'];
 type ApiKnowledgeBaseSummary = components['schemas']['KnowledgeBaseSummaryView'];
 type ApiKnowledgeBaseDetail = components['schemas']['KnowledgeBaseDetailView'];
 type ApiKnowledgeDocument = components['schemas']['KnowledgeDocumentView'];
@@ -325,6 +331,19 @@ export const API_CREATE_MEMBER_PATH = `${API_TEAM_PATH}/members`;
 
 export function apiMemberPermissionsPath(memberId: string): string {
   return `${API_TEAM_PATH}/members/${encodeURIComponent(memberId)}/permissions`;
+}
+
+/** 停用成員（issue #356）：預覽、停用、重新啟用。 */
+export function apiMemberOffboardingPath(memberId: string): string {
+  return `${API_TEAM_PATH}/members/${encodeURIComponent(memberId)}/offboarding`;
+}
+
+export function apiMemberDeactivatePath(memberId: string): string {
+  return `${API_TEAM_PATH}/members/${encodeURIComponent(memberId)}:deactivate`;
+}
+
+export function apiMemberReactivatePath(memberId: string): string {
+  return `${API_TEAM_PATH}/members/${encodeURIComponent(memberId)}:reactivate`;
 }
 
 export const API_KNOWLEDGE_BASES_PATH = '/api/v1/knowledge-bases';
@@ -806,6 +825,46 @@ export class HybridDemoRepository extends MockDemoRepository {
       })),
       catchError((error: unknown) =>
         isHttpError(error, 422) ? of(createMemberValidationFailed(error)) : this.permissionDeniedOrThrow(error),
+      ),
+    );
+  }
+
+  // ---------- 停用成員並指定接手人（issue #356） ----------
+
+  override getMemberOffboarding(memberAccountId: AccountId): Observable<RepositoryView<MemberOffboardingView>> {
+    return this.http.get<ApiMemberOffboarding>(apiMemberOffboardingPath(memberAccountId)).pipe(
+      map((response): RepositoryView<MemberOffboardingView> => ({ status: 'ready', data: toMemberOffboardingView(response) })),
+      catchError((error: unknown) => this.permissionDeniedOrThrow(error)),
+    );
+  }
+
+  /** 422（不能停用、接手人不符合資格）與 409（團隊剛被別人改過）帶後端的訊息；其餘沿用團隊的 permission-denied。 */
+  override deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId): Observable<DeactivateMemberResult> {
+    const body: DeactivateMemberRequest = { successorAccountId };
+    return this.http.post<DeactivateMemberResponse>(apiMemberDeactivatePath(memberAccountId), body).pipe(
+      map((response): DeactivateMemberResult => ({
+        status: 'ready',
+        data: { team: toTeamView(response.team, this.rememberOwnPermissions(response.team)), transferred: response.transferred },
+      })),
+      catchError((error: unknown) => {
+        if (isHttpError(error, 422)) {
+          return of<DeactivateMemberResult>({ status: 'validation-failed', message: bodyMessage(error) ?? '這次沒有停用成員，請再試一次。' });
+        }
+        if (isHttpError(error, 409)) {
+          return of<DeactivateMemberResult>({ status: 'conflict', message: bodyMessage(error) ?? '團隊剛被其他人更新，請重新整理後再試一次。' });
+        }
+        return this.permissionDeniedOrThrow(error);
+      }),
+    );
+  }
+
+  override reactivateMember(memberAccountId: AccountId): Observable<ReactivateMemberResult> {
+    return this.http.post<TeamResponse>(apiMemberReactivatePath(memberAccountId), {}).pipe(
+      map((response): ReactivateMemberResult => this.teamLoaded(response)),
+      catchError((error: unknown) =>
+        isHttpError(error, 422)
+          ? of<ReactivateMemberResult>({ status: 'validation-failed', message: bodyMessage(error) ?? '這次沒有重新啟用，請再試一次。' })
+          : this.permissionDeniedOrThrow(error),
       ),
     );
   }
@@ -3671,6 +3730,28 @@ function toTeamMemberView(member: ApiTeamMember, viewerAccountId: string | null)
     permissions: normalizeMemberPermissions(member.permissions),
     isViewer: member.id === viewerAccountId,
     lockedPermissions: normalizeMemberPermissions(member.lockedPermissions),
+    deactivatedAt: member.deactivatedAt,
+  };
+}
+
+/** 後端的列舉可能是 `null`（OpenAPI 把可為 null 的列舉寫進型別裡），這裡收斂成畫面模型。 */
+export function toMemberOffboardingView(response: ApiMemberOffboarding): MemberOffboardingView {
+  return {
+    memberId: response.memberId,
+    displayName: response.displayName,
+    block: response.block ?? null,
+    blockMessage: response.blockMessage,
+    holdings: response.holdings,
+    requiredPermissions: normalizeMemberPermissions(response.requiredPermissions),
+    candidates: response.candidates.map((candidate) => ({
+      id: candidate.id,
+      displayName: candidate.displayName,
+      role: candidate.role,
+      eligible: candidate.eligible,
+      ineligibleReason: candidate.ineligibleReason ?? null,
+      missingPermissions: normalizeMemberPermissions(candidate.missingPermissions),
+      canHandleIssues: candidate.canHandleIssues,
+    })),
   };
 }
 

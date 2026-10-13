@@ -74,6 +74,10 @@ export interface PlatformSharingCandidateView {
   readonly id: AccountId;
   readonly displayName: string;
   readonly audienceLabel: string;
+  /**
+   * 已停用、但仍在分享名單裡的帳號（issue #363）：列出來讓擁有者看得到並移除；停用的帳號不會被新選（#361）。
+   */
+  readonly deactivated: boolean;
 }
 
 export interface PlatformSharingView {

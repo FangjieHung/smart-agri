@@ -47,6 +47,7 @@ export class SharingPanelComponent {
   readonly save = output<KnowledgeSharingView>();
 
   protected readonly options = SCOPE_OPTIONS;
+  protected readonly deactivatedNote = '這個帳號已停用，無法登入，但仍在分享名單中。關閉並儲存，就會從名單移除。';
   protected readonly scope = linkedSignal(() => this.sharing().scope);
   protected readonly selected = linkedSignal<readonly AccountId[]>(
     () => this.sharing().sharedWithAccountIds,

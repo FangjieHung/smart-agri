@@ -105,11 +105,14 @@ public sealed record KnowledgeSharingView(
 
 /// <summary>An account the owner may share with: id and display name only, never login
 /// names, roles or permissions — this is not an account directory.</summary>
-public sealed record KnowledgeShareTargetView(Guid Id, string DisplayName);
+/// <param name="Deactivated">A deactivated account the knowledge base is still shared with
+/// (issue #363): listed so the owner sees it and can remove it; never offered otherwise (issue #361).</param>
+public sealed record KnowledgeShareTargetView(Guid Id, string DisplayName, bool Deactivated);
 
 /// <summary><c>GET /api/v1/knowledge-bases/{id}</c> response.</summary>
-/// <param name="ShareTargets">Every other account of the caller's organization (the caller
-/// is the owner), ordered like the team list.</param>
+/// <param name="ShareTargets">Every other account of the caller's organization in use (the caller
+/// is the owner), plus the deactivated ones it is still shared with (flagged), ordered like the
+/// team list.</param>
 public sealed record KnowledgeBaseDetailView(
     KnowledgeBaseSummaryView Summary,
     IReadOnlyList<KnowledgeDocumentView> Documents,
@@ -301,8 +304,8 @@ public static class KnowledgeBaseEndpoints
             [.. items.Select(ToView)],
             new KnowledgeSharingView(
                 knowledgeBase.SharingScope,
-                // Deactivated accounts it is shared with stay listed (issue #361), just not offered.
-                [.. (await SavableShareTargetIdsAsync(dbContext, knowledgeBase, cancellationToken)).Where(sharedWith.Contains)],
+                // Deactivated accounts it is shared with stay listed (issue #361), flagged in the targets (#363).
+                [.. shareTargets.Select(target => target.Id).Where(sharedWith.Contains)],
                 knowledgeBase.AllowOriginalDownload),
             shareTargets));
     }
@@ -477,9 +480,10 @@ public static class KnowledgeBaseEndpoints
             .SingleOrDefaultAsync(knowledgeBase => knowledgeBase.Id == id, cancellationToken);
 
     /// <summary><see cref="KnowledgeSharingPolicy.ShareTargetIds"/> with display names, in the
-    /// team list's order (account id): the accounts the sharing picker offers. A deactivated account
-    /// is never offered (issue #361); one it is already shared with stays shared
-    /// (<see cref="SavableShareTargetIdsAsync"/>) and back on offer once reactivated.</summary>
+    /// team list's order (account id): the accounts the sharing picker lists. A deactivated account
+    /// is never offered (issue #361); one it is already shared with stays shared and is listed,
+    /// flagged <see cref="KnowledgeShareTargetView.Deactivated"/>, so the owner can remove it
+    /// (issue #363). It is back on offer once reactivated.</summary>
     private static async Task<IReadOnlyList<KnowledgeShareTargetView>> ShareTargetsAsync(
         AppDbContext dbContext,
         KnowledgeBase knowledgeBase,
@@ -487,9 +491,10 @@ public static class KnowledgeBaseEndpoints
     {
         var accounts = await dbContext.Accounts
             .AsNoTracking()
-            .Where(account => account.DeactivatedAt == null)
+            .Where(account => account.DeactivatedAt == null
+                || dbContext.KnowledgeBaseShares.Any(share => share.KnowledgeBaseId == knowledgeBase.Id && share.AccountId == account.Id))
             .OrderBy(account => account.Id)
-            .Select(account => new KnowledgeShareTargetView(account.Id, account.DisplayName))
+            .Select(account => new KnowledgeShareTargetView(account.Id, account.DisplayName, account.DeactivatedAt != null))
             .ToListAsync(cancellationToken);
 
         var targetIds = KnowledgeSharingPolicy
@@ -499,25 +504,16 @@ public static class KnowledgeBaseEndpoints
     }
 
     /// <summary>
-    /// What a sharing save may keep: the offered targets (<see cref="ShareTargetsAsync"/>) plus the
-    /// deactivated accounts the knowledge base is already shared with, so saving the picker never drops
-    /// those rows (issue #361) while a deactivated account cannot be newly added (silently dropped, like
-    /// an unknown id).
+    /// What a sharing save may keep: the listed targets (<see cref="ShareTargetsAsync"/>), i.e. the
+    /// accounts in use plus the deactivated accounts the knowledge base is already shared with, so saving
+    /// the picker never drops those rows (issue #361) while a deactivated account cannot be newly added
+    /// (silently dropped, like an unknown id).
     /// </summary>
     private static async Task<IReadOnlyList<Guid>> SavableShareTargetIdsAsync(
         AppDbContext dbContext,
         KnowledgeBase knowledgeBase,
-        CancellationToken cancellationToken)
-    {
-        var accountIds = await dbContext.Accounts
-            .AsNoTracking()
-            .Where(account => account.DeactivatedAt == null
-                || dbContext.KnowledgeBaseShares.Any(share => share.KnowledgeBaseId == knowledgeBase.Id && share.AccountId == account.Id))
-            .OrderBy(account => account.Id)
-            .Select(account => account.Id)
-            .ToListAsync(cancellationToken);
-        return KnowledgeSharingPolicy.ShareTargetIds(knowledgeBase.OwnerAccountId, accountIds);
-    }
+        CancellationToken cancellationToken) =>
+        [.. (await ShareTargetsAsync(dbContext, knowledgeBase, cancellationToken)).Select(target => target.Id)];
 
     /// <summary>
     /// <see cref="KnowledgeItemStates"/> at <paramref name="now"/> for <paramref name="documents"/>

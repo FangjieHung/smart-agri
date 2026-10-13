@@ -10318,7 +10318,8 @@
           "id",
           "displayName",
           "role",
-          "hasReadPermission"
+          "hasReadPermission",
+          "deactivated"
         ],
         "type": "object",
         "properties": {
@@ -10333,6 +10334,9 @@
             "$ref": "#/components/schemas/AccountRole"
           },
           "hasReadPermission": {
+            "type": "boolean"
+          },
+          "deactivated": {
             "type": "boolean"
           }
         }
@@ -12610,7 +12614,8 @@
       "KnowledgeShareTargetView": {
         "required": [
           "id",
-          "displayName"
+          "displayName",
+          "deactivated"
         ],
         "type": "object",
         "properties": {
@@ -12620,6 +12625,9 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "deactivated": {
+            "type": "boolean"
           }
         }
       },
@@ -13564,7 +13572,8 @@
       "PlatformShareTargetView": {
         "required": [
           "id",
-          "displayName"
+          "displayName",
+          "deactivated"
         ],
         "type": "object",
         "properties": {
@@ -13574,6 +13583,9 @@
           },
           "displayName": {
             "type": "string"
+          },
+          "deactivated": {
+            "type": "boolean"
           }
         }
       },

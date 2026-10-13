@@ -90,7 +90,9 @@ public sealed record PublishingChannelView(
 
 /// <summary>One candidate the platform channel can be shared with (an org account other than
 /// the assistant's owner).</summary>
-public sealed record PlatformShareTargetView(Guid Id, string DisplayName);
+/// <param name="Deactivated">A deactivated account the assistant is still shared with (issue #363):
+/// listed so the owner sees it and can remove it; never offered otherwise (issue #361).</param>
+public sealed record PlatformShareTargetView(Guid Id, string DisplayName, bool Deactivated);
 
 /// <summary>
 /// The platform channel's real data (<c>getAssistantPublishing</c> /
@@ -1193,13 +1195,14 @@ public static class AssistantEndpoints
     private static async Task<PlatformSharingView> ToPlatformSharingAsync(
         AppDbContext dbContext, Assistant assistant, IReadOnlyList<Guid> allowedAccountIds, CancellationToken cancellationToken)
     {
-        // The picker offers accounts in use only (issue #361); ones already shared stay in
-        // allowedAccountIds and are offered again once reactivated.
+        // The picker offers accounts in use only (issue #361); a deactivated account it is already
+        // shared with is listed too, flagged, so the owner sees it and can remove it (issue #363).
+        var allowed = allowedAccountIds.ToArray();
         var accounts = await dbContext.Accounts
             .AsNoTracking()
-            .Where(account => account.DeactivatedAt == null)
+            .Where(account => account.DeactivatedAt == null || allowed.Contains(account.Id))
             .OrderBy(account => account.Id)
-            .Select(account => new PlatformShareTargetView(account.Id, account.DisplayName))
+            .Select(account => new PlatformShareTargetView(account.Id, account.DisplayName, account.DeactivatedAt != null))
             .ToListAsync(cancellationToken);
 
         var candidateIds = AssistantPublishingPolicy

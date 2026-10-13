@@ -34,7 +34,16 @@
           (change)="toggle(candidate.id, $event)"
         />
         <label [for]="'platform-account-' + candidate.id">
-          {{ candidate.displayName }}<small>{{ candidate.audienceLabel }}</small>
+          <span class="choice__name">
+            {{ candidate.displayName }}
+            @if (candidate.deactivated) {
+              <span class="choice__tag">已停用</span>
+            }
+          </span>
+          <small>{{ candidate.audienceLabel }}</small>
+          @if (candidate.deactivated) {
+            <small class="choice__note">這個帳號已停用，無法登入，但仍在分享名單中。取消勾選並儲存，就會從名單移除。</small>
+          }
         </label>
       </div>
     }

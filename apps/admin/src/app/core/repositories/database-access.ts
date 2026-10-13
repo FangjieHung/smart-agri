@@ -39,12 +39,15 @@ export const DATABASE_RECORDS_DENIED_MESSAGE =
  */
 export function databaseAccessCandidates(
   accounts: readonly AccountView[],
+  /** 已停用、但仍被指定的帳號（issue #363）：列出並標示，讓擁有者移除。 */
+  deactivatedIds: readonly AccountId[] = [],
 ): readonly DatabaseAccessCandidateView[] {
   return accounts.map((account) => ({
     id: account.id,
     displayName: account.displayName,
     roleLabel: ACCOUNT_ROLE_LABELS[account.role],
     hasReadPermission: account.permissions.includes('read-consented-submissions'),
+    deactivated: deactivatedIds.includes(account.id),
   }));
 }
 

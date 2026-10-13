@@ -1530,6 +1530,13 @@ same `403 team` (`MemberOffboardingEndpoints`, rules in `SmartAgri.Application.A
   (`422`). Database auto-case choices count only members in use (`memberCount`,
   `unreadableMemberCount`); 轉真人 never defaults its 處理事項 to, or Emails, a deactivated owner. Once
   reactivated the account is offered again everywhere.
+- **Deactivated targets are flagged for the owner (#363)**: each entry of the assistant platform-sharing
+  `candidates`, knowledge-base `shareTargets` and database `access.candidates` carries `deactivated`.
+  Besides the accounts in use, those lists include a deactivated account that is still shared with or
+  designated (`deactivated: true`), so the owner sees it and can remove it in the same picker; once
+  removed it is listed no more. Only the owner gets these lists (publishing and knowledge-base detail
+  are owner-only; `access.candidates` is empty for anyone else), so nobody else sees the flag; the
+  `dataManagers` designations carry no flag.
 
 ## Visitor handoffs (轉真人) and Email notifications (#355)
 

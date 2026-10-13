@@ -43,6 +43,9 @@ export class PlatformSharingComponent {
     event.preventDefault();
     if (this.saving()) return;
     const before = this.view().allowedAccountIds;
+    const deactivated = this.view()
+      .candidates.filter((candidate) => candidate.deactivated)
+      .map((candidate) => candidate.id);
     this.saving.set(true);
     this.repository
       .updatePlatformSharing(this.assistantId(), [...this.selected()])
@@ -50,7 +53,7 @@ export class PlatformSharingComponent {
       .subscribe({
         next: (result) => {
           this.saving.set(false);
-          this.saved(before, result);
+          this.saved(before, deactivated, result);
         },
         error: () => {
           this.saving.set(false);
@@ -60,15 +63,26 @@ export class PlatformSharingComponent {
       });
   }
 
-  private saved(before: readonly AccountId[], result: UpdatePlatformSharingResult): void {
+  private saved(
+    before: readonly AccountId[],
+    deactivated: readonly AccountId[],
+    result: UpdatePlatformSharingResult,
+  ): void {
     if (result.status === 'ready' || result.status === 'partial-failure') {
       this.error.set('');
-      const removed = before.filter((id) => !result.data.allowedAccountIds.includes(id)).length;
+      const removedIds = before.filter((id) => !result.data.allowedAccountIds.includes(id));
+      // 停用的帳號移除後就不能再勾選（issue #361），不說「重新勾選就會回來」。
+      const removedDeactivated = removedIds.filter((id) => deactivated.includes(id)).length;
+      const removed = removedIds.length - removedDeactivated;
       // 被移除的帳號只是失去權限：明講對話不會被刪掉，重新勾選就回來。
-      const retention =
+      const retention = [
         removed > 0
           ? `取消勾選的 ${removed} 個帳號已失去使用權限，他們既有的對話不會刪除，重新勾選就會回來。`
-          : '';
+          : '',
+        removedDeactivated > 0 ? `已從分享名單移除 ${removedDeactivated} 個停用的帳號。` : '',
+      ]
+        .filter((part) => part !== '')
+        .join(' ');
       const summary =
         result.data.allowedAccountIds.length === 0
           ? '已更新可使用的帳號：目前沒有其他帳號可以使用，管道狀態改為尚未設定（你是擁有者，仍然開得了）。'

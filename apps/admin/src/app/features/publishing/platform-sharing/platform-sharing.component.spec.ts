@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { syncValue } from '../../../core/repositories/sync-value.testing';
 import { providePublishingTesting, publishingOf } from '../publishing.testing';
 import { PlatformSharingComponent } from './platform-sharing.component';
 
@@ -41,5 +42,32 @@ describe('PlatformSharingComponent', () => {
     expect(publishingOf(repository, 'assistant-customer-service').platform.allowedAccountIds).toEqual([
       'account-internal-employee',
     ]);
+  });
+
+  it('labels a deactivated account it is still shared with, and drops the label once removed (issue #363)', () => {
+    const { fixture, host, repository } = render();
+    syncValue(repository.deactivateMember('account-external-customer', null));
+    fixture.componentRef.setInput('view', publishingOf(repository, 'assistant-customer-service').platform);
+    fixture.detectChanges();
+
+    const external = host.querySelector('label[for="platform-account-account-external-customer"]');
+    expect(external?.querySelector('.choice__tag')?.textContent?.trim()).toBe('已停用');
+    expect(external?.textContent).toContain('取消勾選並儲存，就會從名單移除');
+    expect(host.querySelector('label[for="platform-account-account-internal-employee"]')?.textContent).not.toContain('已停用');
+    expect(host.querySelector<HTMLInputElement>('#platform-account-account-external-customer')?.checked).toBe(true);
+
+    host.querySelector<HTMLInputElement>('#platform-account-account-external-customer')?.click();
+    fixture.detectChanges();
+    host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+    fixture.detectChanges();
+    const feedback = host.querySelector('[aria-live="polite"]')?.textContent ?? '';
+    expect(feedback).toContain('已從分享名單移除 1 個停用的帳號。');
+    expect(feedback).not.toContain('重新勾選就會回來');
+
+    // The page reloads the publishing settings after a save (`changed`).
+    fixture.componentRef.setInput('view', publishingOf(repository, 'assistant-customer-service').platform);
+    fixture.detectChanges();
+    expect(host.querySelector('#platform-account-account-external-customer')).toBeNull();
+    expect(host.textContent).not.toContain('已停用');
   });
 });

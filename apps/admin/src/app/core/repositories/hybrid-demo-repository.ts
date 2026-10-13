@@ -2514,7 +2514,12 @@ export class HybridDemoRepository extends MockDemoRepository {
       documents: detail.documents.map(toKnowledgeDocument),
       connectedAssistants: [],
       sharing: toKnowledgeSharing(detail.sharing),
-      shareTargets: detail.shareTargets.map(({ id, displayName }) => ({ id, displayName })),
+      // `deactivated`（issue #363）在舊的回應裡沒有這個鍵：當成使用中。
+      shareTargets: detail.shareTargets.map(({ id, displayName, deactivated }) => ({
+        id,
+        displayName,
+        deactivated: deactivated === true,
+      })),
     };
   }
 
@@ -2909,6 +2914,8 @@ function toDatabaseAccess(access: ApiDatabaseAccess): DatabaseAccessView {
       displayName: candidate.displayName,
       roleLabel: ACCOUNT_ROLE_LABELS[candidate.role],
       hasReadPermission: candidate.hasReadPermission,
+      // 已停用但仍被指定（issue #363）；舊的回應沒有這個鍵時當成使用中。
+      deactivated: candidate.deactivated === true,
     })),
     savedAt: access.lastChange?.changedAt ?? null,
     savedBy: access.lastChange == null ? null : toDatabaseAccount(access.lastChange.changedBy),
@@ -3209,6 +3216,8 @@ function toPlatformSharing(platform: ApiPlatformSharing): PlatformSharingView {
       displayName: candidate.displayName,
       // M3 的分享只看帳號，不看角色（計畫第 3 節），所以不顯示使用對象。
       audienceLabel: '組織成員',
+      // 已停用但仍在分享名單裡（issue #363）；舊的回應沒有這個鍵時當成使用中。
+      deactivated: candidate.deactivated === true,
     })),
   };
 }

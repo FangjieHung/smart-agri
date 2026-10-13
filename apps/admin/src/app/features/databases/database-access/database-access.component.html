@@ -8,7 +8,7 @@
       <dt>已指定資料管理者</dt>
       <dd>
         @for (manager of current.dataManagers; track manager.id; let last = $last) {
-          {{ manager.displayName }}@if (!last) {、}
+          {{ manager.displayName }}@if (isDeactivated(manager.id)) {<span class="choice__tag">已停用</span>}@if (!last) {、}
         } @empty {
           尚未指定
         }
@@ -82,9 +82,14 @@
               @if (candidate.id === current.owner.id) {
                 <span class="choice__tag">擁有者</span>
               }
+              @if (candidate.deactivated) {
+                <span class="choice__tag">已停用</span>
+              }
             </span>
             <small>{{ candidate.roleLabel }}</small>
-            @if (!candidate.hasReadPermission) {
+            @if (candidate.deactivated) {
+              <small class="choice__note">這個帳號已停用，無法登入，但仍是資料管理者。取消勾選並儲存，就會移除指定。</small>
+            } @else if (!candidate.hasReadPermission) {
               <small class="choice__note">
                 這個帳號還沒有「查看同意提交的紀錄」權限，指定了也看不到；請到系統設定的「團隊與權限」開啟。
               </small>

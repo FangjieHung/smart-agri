@@ -334,7 +334,9 @@ public class KnowledgeBaseEndpointsTests : IClassFixture<AuthHostFixture>
         targets.Select(target => target.GetProperty("displayName").GetString()).ShouldBe(
             [org.Internal.DisplayName, org.Customer.DisplayName],
             ignoreOrder: true);
-        targets.ShouldAllBe(target => target.EnumerateObject().Select(property => property.Name).SequenceEqual(new[] { "id", "displayName" }));
+        // Id, name and the deactivated flag (issue #363) only: never login names, roles or permissions.
+        targets.ShouldAllBe(target => target.EnumerateObject().Select(property => property.Name).SequenceEqual(new[] { "id", "displayName", "deactivated" }));
+        targets.ShouldAllBe(target => !target.GetProperty("deactivated").GetBoolean());
     }
 
     // --- Rename ------------------------------------------------------------------------

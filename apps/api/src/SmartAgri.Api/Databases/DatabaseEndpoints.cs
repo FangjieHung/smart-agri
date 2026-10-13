@@ -123,8 +123,10 @@ public sealed record DatabaseDataManagerView(
     DateTimeOffset AssignedAt,
     DatabaseAccountView AssignedBy);
 
-/// <summary>An account the owner may designate (any account of the organization).</summary>
-public sealed record DatabaseAccessCandidateView(Guid Id, string DisplayName, AccountRole Role, bool HasReadPermission);
+/// <summary>An account the owner may designate (any account of the organization in use).</summary>
+/// <param name="Deactivated">A deactivated account that is still designated (issue #363): listed so
+/// the owner sees it and can remove it; never offered otherwise (issue #361).</param>
+public sealed record DatabaseAccessCandidateView(Guid Id, string DisplayName, AccountRole Role, bool HasReadPermission, bool Deactivated);
 
 /// <summary>The latest change to the designations: who and when.</summary>
 public sealed record DatabaseAccessChangeView(DateTimeOffset ChangedAt, DatabaseAccountView ChangedBy);
@@ -675,16 +677,17 @@ public static class DatabaseEndpoints
                 .Select(grant => grant.AccountId)
                 .ToListAsync(cancellationToken)).ToHashSet()
             : [];
-        // Accounts in use only (issue #361): a deactivated data manager is still listed among the
-        // designations above, just not offered.
+        // Accounts in use only (issue #361), plus a deactivated account that is still designated,
+        // flagged so the owner sees it and can remove it (issue #363).
+        var designatedIds = designations.Select(designation => designation.AccountId).ToHashSet();
         var candidates = isOwner
             ? accounts
-                .Where(account => !account.Deactivated)
+                .Where(account => !account.Deactivated || designatedIds.Contains(account.Id))
                 .OrderBy(account => (int)account.Role)
                 .ThenBy(account => account.DisplayName, StringComparer.Ordinal)
                 .ThenBy(account => account.Id)
                 .Select(account => new DatabaseAccessCandidateView(
-                    account.Id, account.DisplayName, account.Role, holders.Contains(account.Id)))
+                    account.Id, account.DisplayName, account.Role, holders.Contains(account.Id), account.Deactivated))
                 .ToList()
             : [];
 

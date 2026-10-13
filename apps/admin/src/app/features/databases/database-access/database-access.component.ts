@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  computed,
   inject,
   input,
   linkedSignal,
@@ -42,6 +43,17 @@ export class DatabaseAccessComponent {
   protected readonly saving = signal(false);
   protected readonly formatTime = fmtDateTime;
 
+  /**
+   * 已停用、但仍被指定的帳號（issue #363）。只有擁有者拿得到候選清單，所以其他人不會看到標示。
+   */
+  private readonly deactivatedIds = computed(
+    () => new Set(this.access().candidates.filter((candidate) => candidate.deactivated).map((candidate) => candidate.id)),
+  );
+
+  protected isDeactivated(accountId: AccountId): boolean {
+    return this.deactivatedIds().has(accountId);
+  }
+
   protected toggle(accountId: AccountId, event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
     this.selected.update((current) => {
@@ -57,11 +69,12 @@ export class DatabaseAccessComponent {
     if (this.saving()) return;
 
     const before = this.access().dataManagers.map((manager) => manager.id);
+    const deactivated = this.deactivatedIds();
     this.saving.set(true);
     this.repository.updateDatabaseAccess(this.databaseId(), [...this.selected()]).subscribe({
       next: (result) => {
         this.saving.set(false);
-        this.applyResult(result, before);
+        this.applyResult(result, before, deactivated);
       },
       // 連線中斷或 5xx：保留勾選，讓使用者可以再按一次。
       error: () => {
@@ -72,17 +85,26 @@ export class DatabaseAccessComponent {
     });
   }
 
-  private applyResult(result: UpdateDatabaseAccessResult, before: readonly AccountId[]): void {
+  private applyResult(
+    result: UpdateDatabaseAccessResult,
+    before: readonly AccountId[],
+    deactivated: ReadonlySet<AccountId>,
+  ): void {
     if (result.status === 'ready' || result.status === 'partial-failure') {
       const managers = result.data.dataManagers;
-      const removed = before.filter(
-        (id) => !managers.some((manager) => manager.id === id),
-      ).length;
+      const removedIds = before.filter((id) => !managers.some((manager) => manager.id === id));
+      // 停用的帳號移除後就不能再指定（issue #361），不說「重新指定就會回來」。
+      const removedDeactivated = removedIds.filter((id) => deactivated.has(id)).length;
+      const removed = removedIds.length - removedDeactivated;
       // 收回查看權限跟刪資料是兩件事：明講紀錄還在。
-      const retention =
+      const retention = [
         removed > 0
           ? `已收回 ${removed} 個帳號的查看權限，收集到的紀錄沒有被刪除，重新指定就會原封不動回來。`
-          : '';
+          : '',
+        removedDeactivated > 0 ? `已移除 ${removedDeactivated} 個停用帳號的指定，收集到的紀錄沒有被刪除。` : '',
+      ]
+        .filter((part) => part !== '')
+        .join(' ');
       const blocked = managers.filter((manager) => {
         const candidate = result.data.candidates.find((entry) => entry.id === manager.id);
         return candidate !== undefined && !candidate.hasReadPermission;

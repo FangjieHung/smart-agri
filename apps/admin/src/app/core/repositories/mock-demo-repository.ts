@@ -3432,15 +3432,18 @@ export class MockDemoRepository implements DemoRepository {
     const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
     if (viewerAccountId === null || knowledgeBase === undefined) return this.knowledgePermissionDenied();
 
+    const sharing = this.knowledgeRecord(knowledgeBase.id).sharing;
+    const deactivated = this.deactivatedAccountIds();
     const detail: KnowledgeBaseDetailView = {
       summary: this.toKnowledgeSummary(knowledgeBase, viewerAccountId),
       documents: this.knowledgeDocuments(knowledgeBase.id),
       connectedAssistants: this.connectedKnowledgeAssistants(viewerAccountId, knowledgeBase.id),
-      sharing: this.knowledgeRecord(knowledgeBase.id).sharing,
-      // 選單只列使用中的帳號（issue #361）；已分享給停用帳號的保留在 `sharing` 裡。
-      shareTargets: this.activeAccounts()
+      sharing,
+      // 選單只列使用中的帳號（issue #361）；仍在分享名單裡的停用帳號也列出、標示為已停用，
+      // 讓擁有者看得到並移除（issue #363）。
+      shareTargets: this.accountsKeeping(sharing.sharedWithAccountIds)
         .filter((account) => account.id !== viewerAccountId)
-        .map(({ id, displayName }) => ({ id, displayName })),
+        .map(({ id, displayName }) => ({ id, displayName, deactivated: deactivated.includes(id) })),
     };
 
     return this.applyScenario(detail);
@@ -6349,8 +6352,11 @@ export class MockDemoRepository implements DemoRepository {
       viewerCanReadRecords: this.canReadRecords(viewerAccountId, database.id),
       viewerCanManageAccess: canManageAccess,
       // 只有擁有者會被告知可以指定誰（API 同樣只給擁有者）。
-      // 選單只列使用中的帳號（issue #361）；已指定的停用帳號仍列在 `dataManagers`。
-      candidates: canManageAccess ? databaseAccessCandidates(this.activeAccounts()) : [],
+      // 選單只列使用中的帳號（issue #361）；已指定的停用帳號仍列在 `dataManagers`，
+      // 也列在選單裡並標示為已停用，讓擁有者看得到並移除（issue #363）。
+      candidates: canManageAccess
+        ? databaseAccessCandidates(this.accountsKeeping(managers), this.deactivatedAccountIds())
+        : [],
       savedAt: stored?.savedAt ?? null,
       savedBy: stored?.savedBy === undefined ? null : displayName(stored.savedBy),
     };
@@ -7015,19 +7021,20 @@ export class MockDemoRepository implements DemoRepository {
   }
 
   private toPublishingView(assistant: AssistantConfigurationView): AssistantPublishingView {
+    const record = this.publishingRecord(assistant);
     return toAssistantPublishingView(
       assistant,
-      this.publishingRecord(assistant),
-      // 分享選單只列使用中的帳號（issue #361）。
-      this.activeAccounts(),
+      record,
+      // 分享選單只列使用中的帳號（issue #361）；仍在分享名單裡的停用帳號也列出、標示為已停用（issue #363）。
+      this.accountsKeeping(record.platform.allowedAccountIds),
       this.websiteContext(assistant),
+      this.deactivatedAccountIds(),
     );
   }
 
-  /** 使用中（沒有停用）的帳號：每個「選帳號」的選單只列這些（issue #361）。 */
-  private activeAccounts(): readonly AccountView[] {
-    const deactivated = this.deactivatedMembers();
-    return this.accounts().filter((account) => deactivated[account.id] === undefined);
+  /** 已停用的帳號 id。 */
+  private deactivatedAccountIds(): readonly AccountId[] {
+    return Object.keys(this.deactivatedMembers());
   }
 
   /** 存檔時接受的帳號：使用中的，加上 `chosen` 裡已經選了的停用帳號（保留，但不能新選）。 */

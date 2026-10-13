@@ -9562,6 +9562,7 @@ export interface components {
             displayName: string;
             role: components["schemas"]["AccountRole"];
             hasReadPermission: boolean;
+            deactivated: boolean;
         };
         DatabaseAccessChangeView: {
             /** Format: date-time */
@@ -10170,6 +10171,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             displayName: string;
+            deactivated: boolean;
         };
         /** @enum {unknown} */
         KnowledgeSharingScope: "private" | "specific-accounts" | "public";
@@ -10422,6 +10424,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             displayName: string;
+            deactivated: boolean;
         };
         PlatformSharingView: {
             channel: components["schemas"]["PublishingChannelView"];

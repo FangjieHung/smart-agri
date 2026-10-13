@@ -307,6 +307,52 @@ describe('team management and data access', () => {
     cy.contains('.member', '外部客戶').should('not.contain', '已停用');
   });
 
+  it('shows the owner who is still shared with or designated after being deactivated, until removed (issue #363)', () => {
+    loginAs('SMB 管理者');
+    // 客服助理 is shared with the customer already (seed); share the product guide and designate them too.
+    cy.visit('/app/knowledge/knowledge-product-guide/sharing');
+    cy.contains('label', '外部客戶').click();
+    cy.contains('button', '儲存分享設定').click();
+    cy.get('.sharing-feedback').should('contain', '已儲存');
+    cy.visit('/app/databases/database-orders/access');
+    cy.get('#data-manager-account-external-customer').should('not.be.checked').click();
+    cy.contains('button', '儲存資料管理者').click();
+    cy.get('[aria-live="polite"]').should('contain', '已更新資料管理者');
+
+    visitSettings();
+    cy.contains('button', '停用 外部客戶').scrollIntoView().click();
+    cy.get('form.create-panel[aria-labelledby="deactivate-member-title"] button[type="submit"]').should('have.text', '停用').click();
+    cy.contains('.member', '外部客戶').should('contain', '已停用');
+
+    // Platform sharing: labelled, removed, gone.
+    cy.visit('/app/assistants/assistant-customer-service/publishing?channel=platform');
+    cy.get('label[for="platform-account-account-external-customer"]').should('contain', '已停用');
+    cy.get('label[for="platform-account-account-internal-employee"]').should('not.contain', '已停用');
+    cy.get('#platform-account-account-external-customer').should('be.checked').click();
+    cy.contains('button', '儲存可使用的帳號').click();
+    cy.get('app-platform-sharing [aria-live="polite"]').should('contain', '已從分享名單移除 1 個停用的帳號。');
+    cy.get('app-platform-sharing').should('not.contain', '已停用');
+    cy.get('#platform-account-account-external-customer').should('not.exist');
+
+    // Knowledge-base sharing.
+    cy.visit('/app/knowledge/knowledge-product-guide/sharing');
+    cy.get('label[for="share-account-external-customer"]').should('have.text', '外部客戶（已停用）');
+    cy.get('#share-account-external-customer').should('be.checked').click();
+    cy.contains('button', '儲存分享設定').click();
+    cy.get('.sharing-feedback').should('contain', '已儲存');
+    cy.get('#share-account-external-customer').should('not.exist');
+    cy.get('app-sharing-panel').should('not.contain', '已停用');
+
+    // Data managers: in the designations and the picker.
+    cy.visit('/app/databases/database-orders/access');
+    cy.get('.access-list').should('contain', '已停用');
+    cy.get('label[for="data-manager-account-external-customer"]').should('contain', '已停用');
+    cy.get('#data-manager-account-external-customer').should('be.checked').click();
+    cy.contains('button', '儲存資料管理者').click();
+    cy.get('app-database-access [aria-live="polite"]').should('contain', '已移除 1 個停用帳號的指定');
+    cy.get('app-database-access').should('not.contain', '已停用');
+  });
+
   it('shows a team manager who is not a manager no way to deactivate a manager (issue #361)', () => {
     loginAs('SMB 管理者');
     visitSettings();

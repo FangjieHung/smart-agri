@@ -356,6 +356,29 @@ describe('AssistantDetailPageComponent', () => {
     );
   });
 
+  it('warns in the data source tab once the assistant proposes cases without a form, linking to the answer tab (#346)', async () => {
+    const storage = createMemoryStorage();
+    const { page, settle, repository } = await renderTab('data-sources', { storage });
+    const repair = Array.from(page.querySelectorAll('app-proposable-case-types label')).find((candidate) =>
+      candidate.textContent?.includes('設備故障報修'),
+    );
+    (repair?.querySelector('input') as HTMLInputElement).click();
+    await settle();
+    expect((repair?.querySelector('input') as HTMLInputElement).checked).toBe(true);
+    // 客服助理寫入「客戶資料庫」，對話中有表單可以給：不警示。
+    expect(page.querySelector('[data-missing-form]')).toBeNull();
+
+    // 改成「不寫入資料庫」（「回答與記錄」頁籤的同一個設定）。
+    const cleared = await firstValueFrom(
+      repository.updateAssistantSettings('assistant-customer-service', { rules: { dataWriteDatabaseId: null } }),
+    );
+    expect(cleared.status).toBe('ready');
+    const reopened = await renderTab('data-sources', { storage, repository });
+    const warning = reopened.page.querySelector('[data-missing-form]');
+    expect(warning?.textContent).toContain('對話中沒有表單可以填');
+    expect(warning?.querySelector('a')?.getAttribute('href')).toBe('/app/assistants/assistant-customer-service/rules');
+  });
+
   it('toggles 嚴格回答 and 保存自己的對話 from the answer tab', async () => {
     const storage = createMemoryStorage();
     const { page, flush } = await renderTab('rules', { storage });

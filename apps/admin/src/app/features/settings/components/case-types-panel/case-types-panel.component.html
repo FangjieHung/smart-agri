@@ -98,7 +98,7 @@
         (input)="onText('description', $event)"
       ></textarea>
       <p id="case-type-description-hint" class="hint small">
-        寫下這類案件的範圍，助理提議開案時會參考。{{ draft().description.length }}／{{ descriptionMaxLength }} 字
+        寫明這類案件包括什麼、不包括什麼，助理提議開案時會參考。例如：「包括冷藏庫、灌溉設備故障，需要派人檢修；不包括作物病蟲害，請用表單回報。」（{{ draft().description.length }}／{{ descriptionMaxLength }} 字）
       </p>
       @if (errors.description) {
         <p id="case-type-description-error" class="field-error">{{ errors.description }}</p>

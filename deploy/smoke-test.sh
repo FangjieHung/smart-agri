@@ -20,7 +20,8 @@
 #   SMOKE_IMAGE             image name for the api (default smartagri-smoke-api:local)
 #   SMOKE_SKIP_BUILD=1      use SMOKE_IMAGE as it is (CI builds it with a layer cache first)
 #   SMOKE_KEEP_IMAGE=1      keep the image this script built (removed on exit otherwise)
-#   SMOKE_TIMEOUT_SECONDS   how long to wait for /health/ready (default 180)
+#   SMOKE_TIMEOUT_SECONDS   how long to wait for /health/ready and for Docker to report the api
+#                           healthy (the compose file's healthcheck, #343) (default 180)
 #
 # Exits 0 when every check passes; otherwise prints `smoke-test: FAIL: <why>` (plus the api's last
 # log lines when it did not start) and exits non-zero. The containers, network and volumes are
@@ -183,6 +184,11 @@ api_logs() {
   "${compose[@]}" logs --no-color --tail 60 api >&2 || true
 }
 
+# Docker's health status of a container: starting, healthy, unhealthy, or none without a healthcheck.
+health_of() {
+  docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$1" 2> /dev/null || echo missing
+}
+
 api_container="$("${compose[@]}" ps -q api)"
 [ -n "$api_container" ] || fail "the api container was not created"
 deadline=$(($(date +%s) + timeout_seconds))
@@ -198,7 +204,25 @@ until [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$base_url/health
   fi
   sleep 2
 done
-step "ok   /health/ready 200"
+step "ok   /health/ready 200 after $((timeout_seconds - (deadline - $(date +%s))))s"
+
+# The compose file's healthcheck (#343): Docker itself must report the api as healthy, which is what an
+# operator sees in `docker compose ps` (deploy/README.md, section 15).
+until [ "$(health_of "$api_container")" = healthy ]; do
+  health="$(health_of "$api_container")"
+  case "$health" in
+    none) fail "the api container has no healthcheck (deploy/docker-compose.yml)" ;;
+    unhealthy)
+      docker inspect -f '{{range .State.Health.Log}}{{.ExitCode}} {{.Output}}{{end}}' "$api_container" >&2 || true
+      fail "Docker reports the api as unhealthy although /health/ready answers 200"
+      ;;
+  esac
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    fail "Docker did not report the api as healthy within ${timeout_seconds}s (health: $health)"
+  fi
+  sleep 2
+done
+step "ok   docker reports the api healthy after $((timeout_seconds - (deadline - $(date +%s))))s"
 
 # --- Checks -----------------------------------------------------------------------------------
 # fetch PATH: the body goes to $work/body, prints "<status> <content-type>".

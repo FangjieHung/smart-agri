@@ -7,3 +7,5 @@
 /backups/
 # backup-drill.sh: its throwaway stack's settings and backups (deleted when it exits).
 /.backup-drill.*/
+# upgrade-drill.sh: its throwaway stack, the old version's git worktree and backups (deleted when it exits).
+/.upgrade-drill.*/

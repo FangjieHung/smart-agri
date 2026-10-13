@@ -3,7 +3,8 @@
 這份文件寫給**部署與維運系統的人**：把助理放上客戶官網（M5a「官網嵌入」）或客戶的 LINE 官方帳號（M5b，第 10 節）之前，伺服器端要準備什麼、
 `deploy/.env` 要填什麼、哪些東西要備份、出問題時看哪裡。第一次安裝（建立第一個組織與管理者）、
 各設定的完整行為與錯誤碼，請看英文的 [`apps/api/README.md`](../apps/api/README.md)；本文只照操作順序串起來，
-並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節，備份與還原在第 14 節。
+並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節，備份與還原在第 14 節，
+升級到新版本與回滾在第 15 節。
 
 ## 1. 這個部署長什麼樣子
 
@@ -14,7 +15,8 @@
 - 管理介面用的 API（`/api/*`、`/connect/*`、`/.well-known/*`）；
 - 訪客用的對話視窗（`/use/{助理 id}`、`/widget/*`）與載入器（`/embed.js`），都不需要登入；
 - 訪客 API（`/api/v1/public/*`）與 LINE 的 webhook（`/api/v1/line/webhook/{助理 id}`）；
-- 健康檢查（`/health/live`、`/health/ready`）。
+- 健康檢查（`/health/live`、`/health/ready`）。compose 用 `/health/live` 做 api 容器的健康檢查，`docker compose ps` 會顯示
+  `(healthy)`（第 15.1 節）。
 
 容器只講**純 HTTP**（容器內 8080，對外映射到 `API_PORT`，預設 8080），**不處理 TLS**。對外一定要有一層
 反向代理（nginx、雲端負載平衡器、CDN）負責 HTTPS。客戶官網是 HTTPS，瀏覽器不會在 HTTPS 頁面裡載入 HTTP 的
@@ -354,6 +356,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 | 訪客看到「目前暫停服務」 | 到發布頁看狀態：驗收未通過、連接了別人的知識庫、本月用量用完，或擁有者暫停。 |
 | 官網的啟動按鈕顏色或位置沒有跟著發布頁的設定改變 | 網站上貼的還是舊的嵌入碼：到發布頁重新複製嵌入碼貼上（第 7 節第 5 步）。 |
 | 客戶的工程師在開發者工具看到紅色的 `Agent execution failed: Error: HTTP 403: …` 或 `HTTP 429: …` | **預期中的訊息，不是故障**：訪客遇到暫停服務（`403`）或問題太頻繁（`429`）時，對話視窗使用的 `@ag-ui/client` 套件會自己印這一行，而且沒有正式的方式關掉；訪客畫面上看到的是「目前暫停服務」或「問題太頻繁了，請稍後再試」。確切內容：`Agent execution failed: Error: HTTP 403: {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"Forbidden","status":403,"reason":"public-assistant","message":"這個對話視窗目前無法使用。"}`，以及 `Agent execution failed: Error: HTTP 429: {"type":"https://tools.ietf.org/html/rfc6585#section-4","title":"Too Many Requests","status":429,"reason":"rate-limited","message":"問題太頻繁了，請稍後再試。"}`。瀏覽器另外會為同一個請求記一行網路錯誤（例如 Chrome 的 `POST https://<api>/api/v1/public/assistants/<助理 id>/chat/runs 403 (Forbidden)` 或 `Failed to load resource: the server responded with a status of 403 ()`），這一行網頁無法關掉。只有訪客沒看到上述畫面時才需要追查（先看發布頁的狀態）。說明與原始碼位置見 `apps/widget/README.md`「主控台裡預期中的錯誤訊息」。 |
+| `docker compose ps` 的 api 一直是 `Restarting` | api 一啟動就結束：看 `docker compose ... logs --tail 50 api`。最常見的是連不上資料庫（`.env` 的 `POSTGRES_PASSWORD` 改過，但資料庫是用舊密碼建立的）或讀不到憑證（上面那一列）。 |
+| `docker compose ps` 的 api 是 `(unhealthy)` | api 還在跑但不回應 `/health/live`：先看 log，再 `docker compose ... restart api`；Docker 不會自己重啟它（第 15.1 節）。 |
 | 重建容器後所有人被登出 | 金鑰 volume 沒有掛上或被刪（第 4 節）。 |
 | LINE 使用者收到兩則回覆，或一則罐頭回覆加一則助理回答 | Official Account Manager 的「自動回應訊息」沒關（第 10.2 節）。 |
 | LINE 的「測試連線」第三項（webhook-test）失敗 | `PUBLIC_BASE_URL` 不是 LINE 連得到的公開 HTTPS 網址，或反向代理沒轉發 `/api/v1/line/webhook/*`；網址變了要重按「測試連線」（第 10.1 節）。 |
@@ -362,14 +366,15 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 
 ### 9.1 冒煙測試：`deploy/smoke-test.sh`
 
-升級前（`git pull` 之後、對正式環境 `up --build` 之前）可以先在部署主機上確認新版的映像與 compose 檔能用。CI 的 `docker-smoke`
+升級前（第 15.2 節：`git pull` 之後、建置正式環境的映像檔之前）可以先在部署主機上確認新版的映像與 compose 檔能用。CI 的 `docker-smoke`
 job 在每個 PR 上跑的就是同一支腳本（#341）。在 repo 根目錄執行：
 
 ```sh
 deploy/smoke-test.sh
 ```
 
-它會：用 repo 的 Dockerfile 建置正式映像 → 以 Production 啟動 `deploy/docker-compose.yml` → 等 `/health/ready` 回 200 →
+它會：用 repo 的 Dockerfile 建置正式映像 → 以 Production 啟動 `deploy/docker-compose.yml` → 等 `/health/ready` 回 200、
+Docker 回報 api 為 `healthy`（compose 的健康檢查）→
 確認 `/` 與 `/app/home` 是管理介面的 HTML、`/embed.js` 是 JavaScript → 跑一次 `setup`（只看結束碼，輸出裡的一次性密碼直接丟掉，
 不會印出）→ `down -v` 清掉。全部通過時最後一行是 `smoke-test: PASS: …`，結束碼 `0`；任何一步失敗都會印
 `smoke-test: FAIL: <原因>`（api 起不來時附上它最後的 log）並以非 0 結束，容器與 volume 一樣會清掉。
@@ -378,7 +383,7 @@ deploy/smoke-test.sh
   只綁 `127.0.0.1:18341`。資料庫密碼、三個 `.pfx` 與它們的密碼都是當場產生的，放在 `deploy/.smoke-test.*/`（已加入
   `.gitignore`），結束時刪除。模型設成一個沒有人在聽的位址（`OpenAICompatible`，Production 不接受 `Fake`），所以不需要任何金鑰。
 - **需要**：Docker（含 `docker compose`）、`curl`、`openssl`；第一次建置要幾分鐘；建好的映像結束時會刪掉，建置快取會留著，下次比較快。
-- **可調整的環境變數**：`SMOKE_PORT`（預設 `18341`，被占用時換一個）、`SMOKE_TIMEOUT_SECONDS`（等 `/health/ready` 的秒數，預設 180）、
+- **可調整的環境變數**：`SMOKE_PORT`（預設 `18341`，被占用時換一個）、`SMOKE_TIMEOUT_SECONDS`（等 `/health/ready` 與 `healthy` 的秒數，預設 180）、
   `SMOKE_KEEP_IMAGE=1`（保留建好的映像 `smartagri-smoke-api:local`）、`SMOKE_IMAGE` 搭配 `SMOKE_SKIP_BUILD=1`（直接用已建好的映像，CI 用這個方式套用層快取）。
 
 ## 10. LINE 頻道（M5b）
@@ -640,7 +645,7 @@ HTTP 400（「Function tools with reasoning_effort are not supported … in /v1/
 
 本文的 `openssl`、`docker compose config`、`set-token-limit`（含說明、未知組織、參數錯誤與實際設定）與 nginx 設定語法，
 都已在本機實際執行過；`docker compose up` 與備份還原（第 14 節）也由 `deploy/smoke-test.sh`、`deploy/backup-drill.sh`
-在本機的暫時環境實際跑過。需要真實伺服器、公開網域與 TLS 才能驗證的是：對外網址的 `curl`、cron／systemd 排程與 rsync 到另一台電腦，
+在本機的暫時環境實際跑過，升級與回滾（第 15 節）也由 `deploy/upgrade-drill.sh` 從前一版實際演練過。需要真實伺服器、公開網域與 TLS 才能驗證的是：對外網址的 `curl`、cron／systemd 排程與 rsync 到另一台電腦，
 以及在真實官網上的嵌入驗收。
 
 LINE 部分已在真實的 LINE 官方帳號上以 Cloudflare 通道與真實模型驗收過（一對一、群組、歡迎訊息、非文字訊息、暫停與恢復、逾時補送、
@@ -834,3 +839,188 @@ tar -tf <備份檔>
 | `RESTORE_TIMEOUT_SECONDS` | `180` | 還原時等資料庫與 `/health/ready` 的秒數 |
 
 `deploy/backup.sh --help` 與 `deploy/restore.sh --help` 會印出英文的詳細說明。
+
+## 15. 升級到新版本
+
+這一節教你：把系統換成開發者提供的新版本，以及新版有問題時怎麼回到原本的版本（**回滾**）。和第 14 節一樣，
+所有指令都在 **repo 根目錄**執行；有另外疊一個 compose 檔（第 3 節的 `docker-compose.limits.yml`）的話，每個
+`docker compose` 指令都要把兩個 `-f` 帶齊，`backup.sh`／`restore.sh` 前面加 `DEPLOY_COMPOSE_FILES`（14.2 節）。
+
+> **先知道三件事**
+>
+> - 升級時服務會中斷大約一分鐘（15.2 的第 6、7 步），挑人少的時段做。
+> - **升級前的備份是回滾的唯一保障**：第 3 步一定要做，而且要看到 `backup: OK`。
+> - 新版的 api 會更新資料庫的結構（`migrate`）。更新過之後，舊版不一定看得懂新的資料庫，所以回滾時要從
+>   升級前的備份還原（15.3 節），**升級之後才新增的資料（新對話、新案件……）會不見**。有問題就盡早決定要不要回滾。
+
+### 15.1 怎麼看系統正不正常：`docker compose ps`
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env ps
+```
+
+看 `STATUS` 那一欄，`api` 與 `postgres` 都應該是 `(healthy)`：
+
+| 看到 | 意思 | 要做什麼 |
+| --- | --- | --- |
+| `Up 3 minutes (healthy)` | 正常 | 不用做什麼 |
+| `Up 8 seconds (health: starting)` | 剛啟動，還在檢查 | 等 30 秒再看一次（最多 1 分鐘） |
+| `Up 5 minutes (unhealthy)` | api 程式還在跑，但已經不回應 | 先看 log（下面），再 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env restart api`。Docker **不會**自己重啟 unhealthy 的容器 |
+| `Restarting (1) 4 seconds ago` | api 一啟動就結束，Docker 一直重試（例如連不上資料庫、讀不到憑證） | 看 log，對照第 9 節 |
+
+api 的 `healthy` 是 Docker 每 10 秒問一次 `/health/live`（網頁伺服器有沒有回應）的結果；要連資料庫一起確認，用
+`/health/ready`（`8080` 是 `.env` 的 `API_PORT`，改過就換成你的值；也可以用公開網址 `<網址>/health/ready`）：
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/health/ready     # 200 = api 與資料庫都正常
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs --tail 50 api   # 最近 50 行 log
+```
+
+> **日誌不會塞滿硬碟**：每個容器的 log 最多保留 5 個 10 MB 的檔案（約 50 MB），更舊的自動刪掉，不用自己清理
+> （`docker-compose.yml` 的 `x-logging`）。`docker compose logs` 看得到的也就是這些。
+
+### 15.2 升級步驟
+
+1. **確認現在一切正常**：照 15.1 看到 `api`、`postgres` 都是 `(healthy)`。再確認 repo 裡的檔案沒有被改過
+   （`deploy/.env`、`deploy/certs/`、`deploy/backups/` 不算，它們不在 git 裡）：
+
+   ```sh
+   git status --short
+   ```
+
+   應該**什麼都沒印**。有印出檔案的話先不要升級，把畫面交給開發者。
+
+2. **記下目前的版本，並把目前的映像檔留一份**（回滾時就不必重新建置）：
+
+   ```sh
+   git log -1 --format='%h %cd' --date=short
+   docker tag smartagri-api "smartagri-api:$(git rev-parse --short HEAD)"
+   docker image ls smartagri-api
+   ```
+
+   第一行印出例如 `10d2fda 2026-10-13`：**把前面那串（`10d2fda`）抄下來**，下面稱為「舊版」。最後一行的清單裡應該有
+   `latest` 和這個版本號兩列。
+
+3. **備份**（第 14.2 節）：
+
+   ```sh
+   deploy/backup.sh
+   ```
+
+   最後一行要是 `backup: OK ...`，並**記下檔名**（例如 `deploy/backups/smartagri-backup-20261013-140000.tar`）。
+   不是 `OK` 就停在這裡，先解決備份的問題。
+
+4. **取得新版**：
+
+   ```sh
+   git checkout master
+   git pull
+   git log -1 --format='%h %cd' --date=short
+   ```
+
+   平常就在 `master` 上，第一行會說 `Already on 'master'`；回滾過（15.3 節）之後，這一行會把 repo 帶回 `master`。
+   最後一行是新版的版本號。開發者給的是版本標籤（例如 `v1.2.0`）時，把前兩行換成
+   `git fetch --tags` 與 `git checkout v1.2.0`。
+
+5. **建置新版的映像檔**（要幾分鐘；這段時間舊版照常服務）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env build api
+   ```
+
+   最後出現 `Built` 就是成功。**失敗的話**：正在跑的還是舊版、資料也沒動過，執行 `git checkout <舊版>` 回到舊版的程式
+   就好（不用還原備份），把錯誤訊息交給開發者。
+
+6. **停掉 api，更新資料庫結構**（服務從這裡開始中斷）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env stop api
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api migrate && echo MIGRATE-OK
+   ```
+
+   最後印出 `MIGRATE-OK` 就是成功。其實 api 每次啟動都會先自動跑一次 `migrate`（`apps/api/src/SmartAgri.Api/entrypoint.sh`），
+   這裡先單獨跑，是為了在新版啟動之前看清楚它成功了沒。**沒有印出 `MIGRATE-OK`**：照 15.3 節回滾。
+
+7. **啟動新版**：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+   ```
+
+   compose 會用新的映像檔重建 api 容器；compose 檔裡 postgres 的設定有變時（例如第一次升級到有日誌輪替的版本），
+   postgres 也會重建一次。資料都在 volume 裡，不受影響。
+
+8. **驗證**：
+   - 等 30 秒，照 15.1 執行 `docker compose ... ps`：`api` 與 `postgres` 都是 `(healthy)`；
+   - `curl` 檢查 `/health/ready` 回 `200`（15.1 節），以及第 3 節最後那四個公開網址的檢查；
+   - 用瀏覽器登入管理介面，打開一個助理與知識庫，確認資料都在，用試問問一題；有 LINE 頻道的話按一次「測試連線」（第 10.1 節）。
+
+   都正常就完成了。第 3 步的備份與第 2 步的映像檔先留著，至少用一週沒問題再說。`deploy/smoke-test.sh`（9.1 節）
+   **不能**拿來檢查正式環境（它自己起一套暫時的環境、測完就刪），要用它的話，在第 4 步之後、第 5 步之前跑，
+   先確認新版在這台電腦上建得起來、啟動得了。
+
+> **舊的映像檔偶爾清一下**：每個版本的映像檔約 400 MB。`docker image ls smartagri-api` 列出所有版本，留下最近兩、三個，
+> 其他用 `docker image rm smartagri-api:<版本號>` 刪掉（`latest` 是正在用的，不要刪）。
+
+### 15.3 回滾：回到升級前的版本
+
+在 15.2 第 6 步 `migrate` 失敗，或第 8 步驗證不通過、一時修不好時使用。結果是：程式回到舊版、資料庫回到第 3 步備份的那一刻。
+
+1. **停掉 api**：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env stop api
+   ```
+
+2. **回到舊版的程式**（`<舊版>` 換成 15.2 第 2 步抄下來的版本號）：
+
+   ```sh
+   git checkout <舊版>
+   ```
+
+   會印出一段說明「detached HEAD」的英文，這是正常的：repo 現在停在舊版上，下次升級的第 4 步會把它帶回 `master`。
+
+3. **把舊版的映像檔換回來**（不用重新建置）：
+
+   ```sh
+   docker tag smartagri-api:<舊版> smartagri-api
+   ```
+
+   如果出現 `No such image`（第 2 步漏做了），改用
+   `docker compose -f deploy/docker-compose.yml --env-file deploy/.env build api` 重新建置舊版（要幾分鐘）。
+
+4. **移除用新版映像檔建立的 api 容器**，讓下一步用舊版的映像檔重新建立（資料在 volume 裡，不受影響）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env rm -f api
+   ```
+
+5. **從升級前的備份還原**（14.5 節；檔名是 15.2 第 3 步記下的那一個）：
+
+   ```sh
+   deploy/restore.sh --force deploy/backups/smartagri-backup-20261013-140000.tar
+   ```
+
+   最後一行要是 `restore: OK ...`。它會重新建立 api 容器、還原資料庫與金鑰，再啟動 api。
+
+6. **驗證**：和 15.2 第 8 步一樣。然後把發生了什麼事、錯誤訊息（15.1 的 `logs` 指令）交給開發者。之後要再升級時，
+   從 15.2 第 1 步重新開始。
+
+> **可以跳過還原的情況（進階，不確定就不要用）**：兩個版本之間資料庫結構完全沒變時，只做第 1～4 步，再
+> `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d`，就能保留升級後新增的資料。判斷方法：
+> `git diff --stat <舊版> <新版> -- apps/api/src/SmartAgri.Infrastructure/Migrations` 什麼都沒印。
+>
+> 本節的回滾需要舊版也有 `deploy/restore.sh`（#342 之後的版本都有）。
+
+### 15.4 正式升級前先演練（選用）
+
+`deploy/upgrade-drill.sh` 在一套**完全獨立**的暫時環境裡，把 15.2 與 15.3 從頭到尾做一次：用舊版建立資料 → 備份 →
+升級到目前 repo 的版本 → 確認 `(healthy)` 與資料都在 → 回滾到舊版並從備份還原 → 再確認一次。它不會碰到正式的資料、
+`deploy/.env`、`deploy/certs/` 或 `deploy/backups/`，也不會碰正式環境的 `smartagri-api` 映像檔。在 15.2 第 4 步之後、第 5 步之前執行：
+
+```sh
+deploy/upgrade-drill.sh <舊版>
+```
+
+要建置兩個版本的映像檔：第一次大約十幾分鐘，之後有建置快取時兩、三分鐘。最後一行是 `upgrade-drill: PASS: ...` 就代表這次的升級與回滾在這台電腦上走得通；
+`upgrade-drill: FAIL: <原因>` 就先不要升級，把畫面交給開發者。說明：`deploy/upgrade-drill.sh --help`。

@@ -24,7 +24,8 @@ namespace SmartAgri.Application.Cases;
 /// </para>
 /// <para>
 /// The range is <c>[fromUtc, toExclusiveUtc)</c>, the half-open instants of an
-/// <c>AnswerAnalyticsRange</c> (UTC days, as the operations summary counts).
+/// <c>AnswerAnalyticsRange</c> (calendar days of <c>Statistics:TimeZone</c>, as the operations summary
+/// and the database fixed queries count; #345).
 /// </para>
 /// </remarks>
 public static class CaseStatistics

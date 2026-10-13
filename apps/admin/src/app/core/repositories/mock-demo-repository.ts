@@ -55,6 +55,8 @@ import type {
   SubmissionWithdrawalView,
 } from '../domain/conversation.model';
 import type { AssistantAnalyticsSummaryView, OperationsSummaryView } from '../domain/operations.model';
+import { MOCK_STATISTICS_TIME_ZONE, addCalendarDays } from '../domain/statistics-day';
+import { CASE_STATISTICS_DEFAULT_DAYS } from '../domain/case.model';
 import type {
   CreatedDatabaseId,
   DatabaseAccessView,
@@ -453,8 +455,8 @@ interface StoredOrganizationChatModel {
   readonly lastChange: OrganizationSettingChangeView | null;
 }
 
-/** mock 模式的統計時區：扮演後端 `Statistics:TimeZone` 的預設值（`StatisticsOptions.DefaultTimeZone`）。 */
-export const MOCK_STATISTICS_TIME_ZONE = 'Asia/Taipei';
+/** mock 模式的統計時區（定義在 `core/domain/statistics-day.ts`，#345 起畫面也會用到）。 */
+export { MOCK_STATISTICS_TIME_ZONE };
 
 /** 團隊的 403 訊息；API 的 `ForbiddenReason.Team` 使用同一句話。 */
 export const TEAM_PERMISSION_DENIED_MESSAGE =
@@ -2059,13 +2061,22 @@ export class MockDemoRepository implements DemoRepository {
       const seeded = this.seed.analytics.find((candidate) => candidate.assistantId === assistantId);
       const totalReplies = seeded?.conversationCount ?? 0;
       const result: AssistantAnalyticsSummaryView = {
-        from: '2026-09-17', to: '2026-09-23', totalReplies,
+        ...this.defaultAnalyticsRange(), totalReplies,
         replyKinds: [{ kind: 'company-data', count: Math.max(totalReplies - 4, 0) }, { kind: 'general-knowledge', count: 2 }, { kind: 'no-result', count: 2 }],
         rejectionReasons: [{ reason: 'below-threshold', count: 2 }, { reason: 'citation-out-of-range', count: 0 }, { reason: 'no-citation', count: 0 }, { reason: 'cannot-answer', count: 0 }, { reason: 'empty-answer', count: 0 }],
         mostCitedDocuments: [{ documentId: 'document-product-guide', documentName: '商品使用指南', count: Math.max(totalReplies - 3, 0) }],
       };
       return of(this.applyScenario(result));
     });
+  }
+
+  /**
+   * 與後端 `AnswerAnalyticsRange` 的預設相同（#345）：最近 30 天、含統計時區的今天（`statisticsTimeZone`，
+   * 不是 UTC 日），所以畫面上的「統計期間」與 API 模式同一種換日。
+   */
+  private defaultAnalyticsRange(): { readonly from: string; readonly to: string } {
+    const to = statisticsDay(this.now().toISOString(), this.statisticsTimeZone());
+    return { from: addCalendarDays(to, -(CASE_STATISTICS_DEFAULT_DAYS - 1)), to };
   }
 
   getOperationsSummary(): Observable<RepositoryView<OperationsSummaryView>> {
@@ -2079,7 +2090,7 @@ export class MockDemoRepository implements DemoRepository {
         return assistant === undefined ? [] : [{ assistantId: assistant.id, assistantName: assistant.name, totalReplies: analytics.conversationCount, noResultRate: analytics.conversationCount === 0 ? 0 : 2 / analytics.conversationCount, rejectedCitationRate: 0 }];
       });
       const result: OperationsSummaryView = {
-        from: '2026-09-17', to: '2026-09-23', assistants,
+        ...this.defaultAnalyticsRange(), assistants,
         mostCitedDocuments: [{ documentId: 'document-product-guide', documentName: '商品使用指南', count: 15 }],
         knowledge: { processingFailedCount: 0, overduePendingReviewCount: 0 },
         issues: { openCount: 2, averageResolutionHours: 18 },

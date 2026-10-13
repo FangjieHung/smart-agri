@@ -82,7 +82,7 @@
       </div>
       @if (closedFrom() || closedTo()) {
         <p class="cases-closed-range" data-case-closed-range>
-          <span>只列 {{ closedFrom() || '（預設）' }} 至 {{ closedTo() || '今天' }}（UTC）完成或取消的案件</span>
+          <span>只列 {{ closedFrom() || '（預設）' }} 至 {{ closedTo() || '今天' }}（{{ statisticsTimeZone() }}）完成或取消的案件</span>
           <button class="case-links__button" type="button" (click)="clearClosedRange()">清除期間</button>
         </p>
       }

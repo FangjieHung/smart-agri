@@ -23,6 +23,10 @@ import {
   type WithdrawnRecordView,
 } from '../domain/database.model';
 import type { DatabaseRecordFixture } from './demo-seed-databases';
+import { statisticsDay } from '../domain/statistics-day';
+
+// 統計時區的曆日移到 `core/domain/statistics-day.ts`（#345：回答分析、營運追蹤與瓶頸統計共用），這裡沿用舊的匯出位置。
+export { statisticsDay };
 
 /*
  * Mock 的業務計算集中在這裡：欄位驗證、試填驗證、紀錄格式化與本次／上次／首次比較。
@@ -30,24 +34,6 @@ import type { DatabaseRecordFixture } from './demo-seed-databases';
  */
 
 const numberFormat = new Intl.NumberFormat('en-US');
-
-/** 每個統計時區一個 formatter（建立 `Intl.DateTimeFormat` 不便宜，時區通常整個 session 只有一個）。 */
-const dayFormats = new Map<string, Intl.DateTimeFormat>();
-
-/**
- * 一個時間點在統計時區（IANA，例如 `Asia/Taipei`）的曆日（`YYYY-MM-DD`）；與回執、時間軸顯示的日期同一天。
- * 紀錄屬於它在這個時區落在的曆日，所以台灣 08:00 前送出的資料算當天，不是 UTC 的前一天。時區不寫死在
- * 前端（#177）：API 模式來自 `GET /api/v1/me` 的 `statisticsTimeZone`（後端設定 `Statistics:TimeZone`），
- * mock 模式來自 `MockDemoRepositoryOptions.statisticsTimeZone`（規則見 M4 設計文件 §11.3、§16）。
- */
-export function statisticsDay(iso: string, timeZone: string): string {
-  let format = dayFormats.get(timeZone);
-  if (format === undefined) {
-    format = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
-    dayFormats.set(timeZone, format);
-  }
-  return format.format(new Date(iso));
-}
 
 export function formatNumber(value: number, unit: string): string {
   const text = numberFormat.format(value);

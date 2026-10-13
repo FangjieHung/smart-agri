@@ -51,6 +51,12 @@ public class CaseStatisticsEndpointsTests : IClassFixture<AuthHostFixture>
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
+    private static DateTimeOffset At(string instant) => DateTimeOffset.Parse(instant, System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The day of <paramref name="instant"/> in <c>Statistics:TimeZone</c> (default Asia/Taipei, #345).</summary>
+    private static DateOnly TaipeiDay(DateTimeOffset instant) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei")).DateTime);
+
     [Fact]
     public async Task The_average_counts_only_cases_completed_within_the_range_from_creation_to_completion_and_never_a_cancelled_one()
     {
@@ -78,7 +84,7 @@ public class CaseStatisticsEndpointsTests : IClassFixture<AuthHostFixture>
         row.OpenCount.ShouldBe(0);
 
         // A range holding only the old completion averages that one alone; a range with none is null.
-        var old = DateOnly.FromDateTime(now.AddDays(-40).UtcDateTime);
+        var old = TaipeiDay(now.AddDays(-40));
         var oldRow = (await StatisticsAsync(who["admin"], $"?from={old:yyyy-MM-dd}&to={old:yyyy-MM-dd}")).Rows.ShouldHaveSingleItem();
         (oldRow.CompletedCount, oldRow.CancelledCount).ShouldBe((1, 0));
         oldRow.AverageHandlingHours.ShouldNotBeNull().ShouldBe(24, tolerance: 1e-6);
@@ -91,22 +97,51 @@ public class CaseStatisticsEndpointsTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
-    public async Task The_range_is_whole_UTC_days_and_an_invalid_one_is_422()
+    public async Task The_range_is_whole_Taipei_days_and_an_invalid_one_is_422()
     {
         var (org, setup, who) = await ArrangeAsync();
-        var day = DateOnly.FromDateTime(_host.Clock.GetUtcNow().AddDays(-10).UtcDateTime);
-        var start = new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var firstInstant = await CompletedCaseAsync(org, who, setup);
-        var nextDay = await CompletedCaseAsync(org, who, setup);
-        await MoveAsync(org, firstInstant, createdAt: start.AddHours(-6), completedAt: start);
-        await MoveAsync(org, nextDay, createdAt: start.AddHours(-6), completedAt: start.AddDays(1));
+        // Statistics:TimeZone (default Asia/Taipei, #345): 23:59 / 00:00 local either side of midnight, and
+        // 08:00 on the 3rd vs 07:59 on the 4th, which share the UTC date Sep 3 but are different Taipei days.
+        var beforeMidnight = await CompletedCaseAsync(org, who, setup);
+        var midnight = await CompletedCaseAsync(org, who, setup);
+        var eightOClock = await CompletedCaseAsync(org, who, setup);
+        var nextMorning = await CompletedCaseAsync(org, who, setup);
+        var cancelledNextMorning = await CreateCaseAsync(who["internal"], setup);
+        await ActAsync(org, who["internal"], cancelledNextMorning, "cancel");
+        var createdAt = At("2026-09-01T00:00:00Z");
+        await MoveAsync(org, beforeMidnight, createdAt: createdAt, completedAt: At("2026-09-02T15:59:00Z"));
+        await MoveAsync(org, midnight, createdAt: createdAt, completedAt: At("2026-09-02T16:00:00Z"));
+        await MoveAsync(org, eightOClock, createdAt: createdAt, completedAt: At("2026-09-03T00:00:00Z"));
+        await MoveAsync(org, nextMorning, createdAt: createdAt, completedAt: At("2026-09-03T23:59:00Z"));
+        await MoveAsync(org, cancelledNextMorning, createdAt: createdAt, cancelledAt: At("2026-09-03T23:59:00Z"));
 
-        var statistics = await StatisticsAsync(who["admin"], $"?from={day:yyyy-MM-dd}&to={day:yyyy-MM-dd}");
-        (statistics.From, statistics.To).ShouldBe((day, day));
-        var row = statistics.Rows.ShouldHaveSingleItem();
-        row.CompletedCount.ShouldBe(1, "00:00 UTC belongs to the day, 00:00 of the next day does not");
-        row.AverageHandlingHours.ShouldNotBeNull().ShouldBe(6, tolerance: 1e-6);
+        async Task<(int Completed, int Cancelled)> CountsOn(string day)
+        {
+            var statistics = await StatisticsAsync(who["admin"], $"?from={day}&to={day}");
+            var expected = DateOnly.Parse(day, System.Globalization.CultureInfo.InvariantCulture);
+            (statistics.From, statistics.To).ShouldBe((expected, expected));
+            var row = statistics.Rows.ShouldHaveSingleItem();
+            return (row.CompletedCount, row.CancelledCount);
+        }
 
+        // UTC days would give (2, 0), (2, 1), (0, 0).
+        (await CountsOn("2026-09-02")).ShouldBe((1, 0), "only Taipei 09-02 23:59");
+        (await CountsOn("2026-09-03")).ShouldBe((2, 0), "Taipei 09-03 00:00 and 08:00");
+        (await CountsOn("2026-09-04")).ShouldBe((1, 1), "Taipei 09-04 07:59, though its UTC date is Sep 3");
+
+        // The list's drill-down cuts the same days (CaseStatistics.ClosedWithin).
+        (await ListedIdsAsync(who["admin"], $"{Path}?status=closed&closedFrom=2026-09-02&closedTo=2026-09-02")).ShouldBe([beforeMidnight]);
+        (await ListedIdsAsync(who["admin"], $"{Path}?status=closed&closedFrom=2026-09-03&closedTo=2026-09-03"))
+            .ShouldBe([midnight, eightOClock], ignoreOrder: true);
+        (await ListedIdsAsync(who["admin"], $"{Path}?status=closed&closedFrom=2026-09-04&closedTo=2026-09-04"))
+            .ShouldBe([nextMorning, cancelledNextMorning], ignoreOrder: true);
+
+        // The same days as the database fixed queries give the same instants.
+        var taipei = TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+        SmartAgri.Application.Databases.DatabaseFixedQueries.DayOf(At("2026-09-03T00:00:00Z"), taipei).ShouldBe(new DateOnly(2026, 9, 3));
+        SmartAgri.Application.Databases.DatabaseFixedQueries.DayOf(At("2026-09-03T23:59:00Z"), taipei).ShouldBe(new DateOnly(2026, 9, 4));
+
+        var day = new DateOnly(2026, 9, 3);
         foreach (var query in new[] { $"?from={day.AddDays(1):yyyy-MM-dd}&to={day:yyyy-MM-dd}", $"?from={day.AddDays(-180):yyyy-MM-dd}&to={day:yyyy-MM-dd}" })
         {
             var response = await who["admin"].Spa.GetAsync(StatisticsPath + query, who["admin"].Token);
@@ -115,8 +150,9 @@ public class CaseStatisticsEndpointsTests : IClassFixture<AuthHostFixture>
             JsonDocument.Parse(raw).RootElement.GetProperty("reason").GetString().ShouldBe("invalid-date-range");
         }
 
-        // The default is the newest 30 days, inclusive of today (UTC).
-        var today = DateOnly.FromDateTime(_host.Clock.GetUtcNow().UtcDateTime);
+        // 180 local days is still allowed; the default is the newest 30, inclusive of today in Taipei.
+        (await StatisticsAsync(who["admin"], $"?from={day.AddDays(-179):yyyy-MM-dd}&to={day:yyyy-MM-dd}")).From.ShouldBe(day.AddDays(-179));
+        var today = TaipeiDay(_host.Clock.GetUtcNow());
         var defaults = await StatisticsAsync(who["admin"]);
         (defaults.From, defaults.To).ShouldBe((today.AddDays(-29), today));
     }

@@ -9,6 +9,7 @@ import type { CaseGroupListView, CaseTypeListView } from '../../core/domain/case
 import { CaseSettingsRepository } from '../../core/repositories/case-settings.repository';
 import { CasesRepository, type CaseActionResult, type CaseStatisticsResult, type CreateCaseResult } from '../../core/repositories/cases.repository';
 import type { RepositoryView } from '../../core/repositories/demo-repository';
+import { ApiSessionService } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { CasesPageComponent } from './cases-page.component';
 
@@ -78,6 +79,8 @@ async function setup(options: {
   manager?: boolean;
   url?: string;
   settle?: boolean;
+  /** `/me` 的 `statisticsTimeZone`（#345）。 */
+  timeZone?: string;
 } = {}) {
   TestBed.resetTestingModule();
   const repo = {
@@ -101,6 +104,7 @@ async function setup(options: {
         },
       },
       { provide: DemoSessionService, useValue: { activeAccountId: () => 'account-1' } },
+      { provide: ApiSessionService, useValue: { statisticsTimeZone: () => options.timeZone ?? 'Asia/Taipei' } },
     ],
   }).compileComponents();
   const harness = await RouterTestingHarness.create();
@@ -420,13 +424,15 @@ describe('CasesPageComponent', () => {
       expect(repo.statistics).not.toHaveBeenCalled();
     });
 
-    it('shows the manager the rows by type and group, 「—」 without completions and the UTC note', async () => {
-      const { fixture, repo } = await setup({ url: '/app/cases?view=statistics', manager: true });
+    it('shows the manager the rows by type and group, 「—」 without completions and the statistics time zone', async () => {
+      const { fixture, repo } = await setup({ url: '/app/cases?view=statistics', manager: true, timeZone: 'Europe/Berlin' });
       expect(element(fixture, '[data-cases-tab="statistics"]').getAttribute('aria-current')).toBe('page');
       expect(repo.statistics).toHaveBeenLastCalledWith({ from: undefined, to: undefined });
       expect(repo.list).not.toHaveBeenCalled();
-      expect(element(fixture, '[data-case-statistics-period]').textContent).toContain('2026-09-07 至 2026-10-06（UTC）');
-      expect(text(fixture)).toContain('日期以 UTC 計算');
+      // #345：伺服器的 `Statistics:TimeZone`（`/me`），不再是 UTC。
+      expect(element(fixture, '[data-case-statistics-period]').textContent).toContain('2026-09-07 至 2026-10-06（Europe/Berlin）');
+      expect(text(fixture)).toContain('日期以統計時區（Europe/Berlin）的曆日計算');
+      expect(text(fixture)).not.toContain('UTC');
       const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('[data-case-statistics-row]')]
         .map((row) => [...row.querySelectorAll('th, td')].map((cell) => (cell.textContent ?? '').trim()));
       expect(rows).toEqual([
@@ -450,7 +456,7 @@ describe('CasesPageComponent', () => {
         scope: 'all', status: 'cancelled', typeId: 'type-1', groupId: 'group-2', closedFrom: '2026-09-07', closedTo: '2026-10-06',
       });
       expect((fixture.nativeElement as HTMLElement).querySelector('[data-case-statistics]')).toBeNull();
-      expect(element(fixture, '[data-case-closed-range]').textContent).toContain('只列 2026-09-07 至 2026-10-06（UTC）完成或取消的案件');
+      expect(element(fixture, '[data-case-closed-range]').textContent).toContain('只列 2026-09-07 至 2026-10-06（Asia/Taipei）完成或取消的案件');
       expect(element(fixture, '[data-cases-tab="list"]').getAttribute('aria-current')).toBe('page');
 
       // A type the select does not offer (inactive) still shows as chosen.
@@ -476,6 +482,24 @@ describe('CasesPageComponent', () => {
       await closed.fixture.whenStable();
       expect(closed.repo.list).toHaveBeenLastCalledWith({ scope: 'all', status: 'completed', typeId: undefined, groupId: undefined });
       expect((closed.fixture.nativeElement as HTMLElement).querySelector('[data-case-closed-range]')).toBeNull();
+    });
+
+    it('counts the 180 days up to today in the statistics time zone, not UTC (#345)', async () => {
+      // 2026-10-06 23:30 UTC is already 10-07 07:30 in Taipei: from 04-10 is 181 Taipei days but 180 UTC days.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-06T23:30:00Z'));
+      try {
+        const taipei = await setup({ url: '/app/cases?view=statistics&from=2026-04-10', manager: true });
+        expect(text(taipei.fixture)).toContain('日期範圍最長 180 天。');
+        expect(taipei.repo.statistics).not.toHaveBeenCalled();
+        const lastAllowed = await setup({ url: '/app/cases?view=statistics&from=2026-04-11', manager: true });
+        expect(lastAllowed.repo.statistics).toHaveBeenLastCalledWith({ from: '2026-04-11', to: undefined });
+        // In a zone still on Oct 6, the same moment allows from 04-10.
+        const losAngeles = await setup({ url: '/app/cases?view=statistics&from=2026-04-10', manager: true, timeZone: 'America/Los_Angeles' });
+        expect(losAngeles.repo.statistics).toHaveBeenLastCalledWith({ from: '2026-04-10', to: undefined });
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('applies a date range through the address, refuses an invalid one before sending, and shows a 403 as permission denied', async () => {

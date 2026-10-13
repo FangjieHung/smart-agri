@@ -37,7 +37,7 @@
 | 處理事項 API：看不到、不存在、別的組織一律 `403 assistant-issue`；並行修改 `409 issue-changed`；不能指派的人 `422 assignee-not-eligible`；清單的 `scope` 有 `all`／`owned`／`assigned`／`forwarded` | `apps/api/src/SmartAgri.Api/Assistants/AssistantIssueEndpoints.cs:139`、`:291-297`、`:500-506`、`:518-521`、`:540-552`；`apps/api/src/SmartAgri.Api/Errors/ForbiddenReason.cs:183-185` |
 | 處理事項的逾期在讀取時計算（`DueAt < now` 且未解決），首頁卡片顯示「已逾期 N 筆」 | `AssistantIssueEndpoints.cs:330-341`；`apps/admin/src/app/features/home/home-page.component.html:73` |
 | 營運追蹤的處理事項數字：未解決件數，以及「建立 → 解決」的平均小時數 | `AssistantIssueEndpoints.cs:480-497`；`apps/api/src/SmartAgri.Api/Operations/OperationsSummaryEndpoints.cs:49`、`:167-176` |
-| 營運追蹤的日期範圍 `AnswerAnalyticsRange` 以 **UTC** 日界計算，最多 180 天；數據庫統計另用 `Statistics:TimeZone`（預設 `Asia/Taipei`） | `apps/api/src/SmartAgri.Application/Answers/AnswerAnalyticsRange.cs:3-30`；`apps/api/src/SmartAgri.Api/Databases/StatisticsOptions.cs:16-21` |
+| 營運追蹤的日期範圍 `AnswerAnalyticsRange` 以 **UTC** 日界計算，最多 180 天；數據庫統計另用 `Statistics:TimeZone`（預設 `Asia/Taipei`）。**#345 已更新**：`AnswerAnalyticsRange` 改用 `Statistics:TimeZone` 的曆日 | `apps/api/src/SmartAgri.Application/Answers/AnswerAnalyticsRange.cs:3-30`；`apps/api/src/SmartAgri.Api/Databases/StatisticsOptions.cs:16-21` |
 | 處理事項指向帳號的外鍵是同組織的複合外鍵、`Restrict`；資料管理者指向帳號是 `Cascade` | `apps/api/src/SmartAgri.Infrastructure/Assistants/AssistantIssueConfiguration.cs:10-16`、`:62-74`；`apps/api/src/SmartAgri.Infrastructure/Databases/DatabaseDataManagerConfiguration.cs:19-34` |
 | 角色有 `smb-admin`／`internal-employee`／`external-customer`；後端目前沒有任何以角色判斷的端點（M6-2 新增管理者判斷）。團隊端點以 `manage-assistants` 把關 | `apps/api/src/SmartAgri.Domain/Accounts/AccountRole.cs:11-21`；`AccountPermission.cs:12-39`；`apps/api/src/SmartAgri.Api/Team/TeamEndpoints.cs:92-94` |
 | 外部客戶有 `submit-authorized-forms`，會送出數據庫紀錄 | `apps/api/src/SmartAgri.Infrastructure/Seeding/DevelopmentSeedData.cs:67-72` |
@@ -142,7 +142,7 @@
 
 ### F. 瓶頸統計（決定 K）
 
-- `GET /api/v1/cases/statistics?from=&to=`：管理者。日期範圍沿用 `AnswerAnalyticsRange`（預設 30 天、最多 180 天、UTC 日界），與營運追蹤一致。
+- `GET /api/v1/cases/statistics?from=&to=`：管理者。日期範圍沿用 `AnswerAnalyticsRange`（預設 30 天、最多 180 天、UTC 日界），與營運追蹤一致。**#345 已更新**：日界改為 `Statistics:TimeZone` 的當地午夜（與數據庫統計相同），30 天與 180 天都是當地曆日。
 - 依「案件類型 × 目前承辦組」各一列：未結案件數（現在）、逾期件數（現在）、期間內完成件數、期間內取消件數、平均處理時間。
 - **平均處理時間 = 建立 → 完成的小時數**，只算完成時間落在期間內的案件，歸到完成時的類型與承辦組；已取消的不算。與處理事項的「建立 → 解決」同一種定義。
 - 每一列可以點開對應的案件清單（管理者看得到所有案件）。回應永遠不含對話文字或案件說明。
@@ -387,6 +387,7 @@
 - **I. 狀態動作帶 `eventCount`，不一致回 `409 case-changed`；看得到但不能做回 `403 case-action`。** 替代方案：照處理事項只靠資料庫的並行控制（看舊畫面的人仍可能成功做出動作）。
 - **J. 案件負責人可以在待補件時「繼續處理」；管理者在受理前也能取消（必填原因）。** 理由：對方可能用電話補件；自動開的案件沒有建立者，否則沒有人能取消或恢復。ADR 的表已補上這兩項（2026-10-06）。
 - **K. 平均處理時間 = 建立 → 完成**，只算期間內完成的案件，歸到完成時的類型與承辦組；已取消的不算；日期範圍沿用營運追蹤的 `AnswerAnalyticsRange`（UTC 日界）。替代方案：受理 → 完成（看不到等待受理的時間，而那正是瓶頸之一）。
+  - **#345 更新（「之後一起改」）**：回答分析、營運追蹤、瓶頸統計與清單的 `closedFrom`／`closedTo` 一起改用 `Statistics:TimeZone` 的曆日（`from`／`to` 解讀為該時區的日期，換成 UTC 半開區間時用 `DatabaseFixedQueries.StartOfDay`，夏令時間依時區規則）；回應形狀不變，畫面改為顯示統計時區（`/me` 的 `statisticsTimeZone`），不再寫「UTC」。
 - **L. 提議的優先順序：數據庫查詢 → 表單 → 案件 → 一般回答**，每則回覆最多一個提議。模型模式下，案件是表單之後的另一次選擇呼叫（用途 `case-proposal`）。替代方案：表單與案件放進同一次呼叫，讓模型二選一（少一次呼叫，但改變表單的既有行為與用量歸類）。
 - **M. 自動開的案件沒有建立者**，送出者不因此看得到案件，案件也不複製紀錄內容。理由：送出者可能是外部客戶（第一版不給外部客戶看案件）；不複製內容，撤回才真的有效。替代方案：送出者是內部帳號時當建立者。
 - **N. 處理事項另開案件：新增結案方式 `not-assistant-issue` 與事件 `case-opened`，兩邊互存 id。** 預先帶入處理事項的標題與問題副本，操作的人可以修改後再建立。
@@ -413,7 +414,7 @@
 7. **新增列舉值**：`AssistantIssueEventAction`、處理事項結案方式、`ChatReplyKind`、`ModelInvocationPurpose`、回覆種類標籤，都可能有測試寫死個數（#126 的教訓，含 Cypress）。對策：加值時 `grep -rn` 舊的個數與相鄰的值（前後端與 e2e），跑命中的 spec。
 8. **自動開案的人讀不到紀錄**：承辦組成員不一定是資料管理者。對策：設定頁提示人數；不讓案件可見性擴大紀錄權限。
 9. **清單不分頁**：案件永久保存，件數會一直增加。對策：預設只列未結案；量大時再加分頁。
-10. **UTC 日界**：統計沿用營運追蹤的 UTC 日界，台灣時間早上 8 點才換日。對策：與營運追蹤一致，畫面註明；之後若營運追蹤改用 `Statistics:TimeZone`，一起改。
+10. **UTC 日界**：統計沿用營運追蹤的 UTC 日界，台灣時間早上 8 點才換日。對策：與營運追蹤一致，畫面註明；之後若營運追蹤改用 `Statistics:TimeZone`，一起改。**#345 已解決**：兩者一起改用 `Statistics:TimeZone`（見決定 K 的更新）。
 
 ---
 

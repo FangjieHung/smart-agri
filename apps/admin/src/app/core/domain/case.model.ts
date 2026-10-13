@@ -1,4 +1,5 @@
 import type { components } from '../api/api-schema';
+import { addCalendarDays, calendarDaysInclusive, statisticsDay } from './statistics-day';
 
 /** 案件的五個狀態（案件 ADR「狀態與流轉」）：待受理、處理中、待補件為未結案，已完成、已取消為已結案。 */
 export type CaseStatus = components['schemas']['CaseStatus'];
@@ -42,7 +43,7 @@ export interface CaseListFilter {
   /** 只列逾期的（issue #250，`overdue=true`）。 */
   readonly overdue?: boolean;
   /**
-   * 只列在這段期間（UTC 日，含頭尾，`YYYY-MM-DD`）完成或取消的案件（issue #251，從瓶頸統計點開）；
+   * 只列在這段期間（統計時區的曆日，含頭尾，`YYYY-MM-DD`；#345 前是 UTC 日）完成或取消的案件（issue #251，從瓶頸統計點開）；
    * 搭配 `status=completed`／`cancelled` 就是統計那一列的件數。
    */
   readonly closedFrom?: string;
@@ -181,7 +182,7 @@ export type CaseStatisticsView = components['schemas']['CaseStatisticsView'];
 
 export type CaseStatisticsRowView = components['schemas']['CaseStatisticsRowView'];
 
-/** 與後端 `AnswerAnalyticsRange` 相同：預設最近 30 天（含今天，UTC），最長 180 天。 */
+/** 與後端 `AnswerAnalyticsRange` 相同：預設最近 30 天（含今天，統計時區的曆日），最長 180 天。 */
 export const CASE_STATISTICS_DEFAULT_DAYS = 30;
 export const CASE_STATISTICS_MAX_DAYS = 180;
 export const CASE_STATISTICS_RANGE_ORDER_MESSAGE = '起始日期必須不晚於結束日期。';
@@ -194,37 +195,27 @@ export function formatHandlingHours(hours: number | null): string {
   return `${hours.toLocaleString('zh-TW', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} 小時`;
 }
 
-/** 統計的期間：`YYYY-MM-DD` 的 UTC 日，含頭尾。 */
+/** 統計的期間：`YYYY-MM-DD` 的統計時區曆日（`Statistics:TimeZone`，#345），含頭尾。 */
 export interface CaseStatisticsRange {
   readonly from: string;
   readonly to: string;
 }
 
-const DAY_MS = 86_400_000;
-
-/** `date` 的 UTC 日（`YYYY-MM-DD`）。 */
-export function utcDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-export function addUtcDays(day: string, days: number): string {
-  return utcDay(new Date(Date.parse(`${day}T00:00:00Z`) + days * DAY_MS));
-}
-
 /**
- * 與後端 `AnswerAnalyticsRange.Resolve` 相同：省略 `to` 是今天（UTC）、省略 `from` 是 `to` 往前 29 天；
- * `from` 晚於 `to`、或超過 180 天時回傳錯誤訊息。
+ * 與後端 `AnswerAnalyticsRange.Resolve` 相同（瓶頸統計、營運追蹤與回答分析共用）：日期是 `timeZone`
+ * （`/me` 的 `statisticsTimeZone`，mock 是 `MOCK_STATISTICS_TIME_ZONE`）的曆日，與數據庫統計同一種換日
+ * （#345）。省略 `to` 是該時區的今天、省略 `from` 是 `to` 往前 29 天；`from` 晚於 `to`、或超過 180 天時回傳
+ * 錯誤訊息。
  */
-export function resolveCaseStatisticsRange(
-  from: string | null | undefined, to: string | null | undefined, now: Date,
+export function resolveAnswerAnalyticsRange(
+  from: string | null | undefined, to: string | null | undefined, now: Date, timeZone: string,
 ): CaseStatisticsRange | { readonly message: string } {
-  const resolvedTo = to || utcDay(now);
-  const resolvedFrom = from || addUtcDays(resolvedTo, -(CASE_STATISTICS_DEFAULT_DAYS - 1));
+  const resolvedTo = to || statisticsDay(now.toISOString(), timeZone);
+  const resolvedFrom = from || addCalendarDays(resolvedTo, -(CASE_STATISTICS_DEFAULT_DAYS - 1));
   if (Number.isNaN(Date.parse(`${resolvedFrom}T00:00:00Z`)) || Number.isNaN(Date.parse(`${resolvedTo}T00:00:00Z`))) {
     return { message: CASE_STATISTICS_RANGE_INVALID_MESSAGE };
   }
   if (resolvedFrom > resolvedTo) return { message: CASE_STATISTICS_RANGE_ORDER_MESSAGE };
-  const days = (Date.parse(`${resolvedTo}T00:00:00Z`) - Date.parse(`${resolvedFrom}T00:00:00Z`)) / DAY_MS + 1;
-  if (days > CASE_STATISTICS_MAX_DAYS) return { message: CASE_STATISTICS_RANGE_TOO_LONG_MESSAGE };
+  if (calendarDaysInclusive(resolvedFrom, resolvedTo) > CASE_STATISTICS_MAX_DAYS) return { message: CASE_STATISTICS_RANGE_TOO_LONG_MESSAGE };
   return { from: resolvedFrom, to: resolvedTo };
 }

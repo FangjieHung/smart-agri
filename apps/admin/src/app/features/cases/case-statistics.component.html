@@ -3,7 +3,7 @@
   <h2 id="case-statistics-title">瓶頸統計</h2>
   <p class="hint">
     依案件類型與目前承辦組統計。未結案與逾期是現在的件數；完成、取消與平均處理時間只算期間內的案件。
-    平均處理時間從建立算到完成，不含取消的案件。日期以 UTC 計算（台灣時間早上 8 點換日）。
+    平均處理時間從建立算到完成，不含取消的案件。日期以統計時區（{{ timeZone() }}）的曆日計算，午夜換日，與數據庫統計相同。
   </p>
 
   <form class="statistics-range" novalidate data-case-statistics-range (submit)="$event.preventDefault(); apply()">
@@ -46,7 +46,7 @@
     <app-state-panel state="permission-denied" title="無法查看瓶頸統計" [description]="current.message" />
   } @else {
     @let data = current.data;
-    <p class="period" data-case-statistics-period>統計期間：{{ data.from }} 至 {{ data.to }}（UTC）</p>
+    <p class="period" data-case-statistics-period>統計期間：{{ data.from }} 至 {{ data.to }}（{{ timeZone() }}）</p>
     @if (data.rows.length === 0) {
       <app-state-panel state="empty" title="這段期間沒有案件" description="沒有未結案的案件，期間內也沒有完成或取消的案件。" />
     } @else {

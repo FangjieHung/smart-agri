@@ -37,6 +37,7 @@ import type { CaseTypeView } from '../../core/domain/case-settings.model';
 import { CaseSettingsRepository } from '../../core/repositories/case-settings.repository';
 import { CasesRepository, type CaseField } from '../../core/repositories/cases.repository';
 import { repositoryResource } from '../../core/repositories/repository-resource';
+import { ApiSessionService } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
 import { StatePanelComponent } from '../../shared/ui/state-panel/state-panel.component';
@@ -62,6 +63,8 @@ type FormField = Extract<CaseField, 'typeId' | 'groupId' | 'dueAt' | 'title' | '
 })
 export class CasesPageComponent {
   private readonly session = inject(DemoSessionService);
+  /** 統計時區（#345）：`closedFrom`／`closedTo` 是它的曆日。 */
+  protected readonly statisticsTimeZone = inject(ApiSessionService).statisticsTimeZone;
   private readonly cases = inject(CasesRepository);
   private readonly settings = inject(CaseSettingsRepository);
   private readonly route = inject(ActivatedRoute);
@@ -89,7 +92,7 @@ export class CasesPageComponent {
   protected readonly typeFilter = signal('');
   protected readonly groupFilter = signal('');
   protected readonly overdueOnly = signal(false);
-  /** 只列這段期間（UTC 日）完成或取消的案件：只從統計點開時才有，畫面提供「清除」。 */
+  /** 只列這段期間（統計時區的曆日，#345）完成或取消的案件：只從統計點開時才有，畫面提供「清除」。 */
   protected readonly closedFrom = signal('');
   protected readonly closedTo = signal('');
 

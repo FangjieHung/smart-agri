@@ -263,10 +263,23 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
    docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
      set-token-limit --organization harvest --tokens 3000000
    ```
-3. 隨時用 `list-organizations` 查看目前有哪些店（組織代碼、名稱、建立時間、帳號數；不含任何帳號的個人資料）：
+3. 隨時用 `list-organizations` 查看目前有哪些店，以及每家店這個月用了多少 token、離上限多遠（不含任何帳號的個人資料）：
    ```sh
    docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api list-organizations
    ```
+   輸出範例（實際以 Tab 分隔，這裡對齊顯示）：
+   ```text
+   組織代碼  名稱      建立時間(UTC)        帳號數  本月用量   上限                        使用比例
+   harvest   豐收商行  2026-10-08 03:12:45  3       1,234,567  3,000,000                   41.1%
+   green     綠野農坊  2026-10-09 07:40:02  1       1,700,000  未設上限（預設 2,000,000）  85.0%（接近上限）
+   共 2 個組織。
+   本月為 2026-10（Asia/Taipei）；用量為對話模型 token（輸入＋輸出），未設上限的組織套用部署預設值 2,000,000。
+   ```
+   - 「本月用量」與上限判斷用的是同一套算法：以 `STATISTICS_TIME_ZONE` 時區的當月計算，計入對話模型的輸入＋輸出 token，
+     上個月的用量不算在內。
+   - 沒用 `set-token-limit` 設過的店顯示「未設上限（預設 N）」：它仍受部署預設值 `DEFAULT_MONTHLY_TOKEN_LIMIT` 限制，
+     使用比例也以預設值計算。
+   - 使用比例達 80% 標示「接近上限」，達 100% 標示「已達上限」（這時網站與 LINE 的對外回覆會暫停到下個月或調高上限為止）。
 4. **隱私權政策**：由你代管多家店時，你和各店的角色不同，請把 `privacy-policy-template.md` 的第 1 節與第 5 節改成
    「店家（資料控制者）／代管業者（處理者）」的寫法，並由各店各自發布；範本已附上可選用的代管者文字。
 

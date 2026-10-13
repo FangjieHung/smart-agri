@@ -1945,12 +1945,37 @@ then on sees only that organization's data. Set each shop's monthly token cap af
 `set-token-limit` (see "Monthly token limit").
 
 `list-organizations` prints one tab-separated line per organization: code, name, creation
-time (UTC) and number of accounts. It prints no login names, display names or other
-personal data. `Organization` has no creation column, so the time is read from the
-organization id (organizations are created with time-ordered version 7 ids, which embed it;
-any other id shows `-`). It reads the `Organizations` table, which has no organization
-filter, and counts accounts by opting out of the one named organization query filter for
-that count only, selecting nothing but the organization id and a count.
+time (UTC), number of accounts, then (#344) this month's chat-model token usage, the limit and
+the share of it used (shown aligned here; the real separator is a tab):
+
+```text
+組織代碼  名稱      建立時間(UTC)        帳號數  本月用量   上限                        使用比例
+harvest   豐收商行  2026-10-08 03:12:45  3       1,234,567  3,000,000                   41.1%
+green     綠野農坊  2026-10-09 07:40:02  1       1,700,000  未設上限（預設 2,000,000）  85.0%（接近上限）
+共 2 個組織。
+本月為 2026-10（Asia/Taipei）；用量為對話模型 token（輸入＋輸出），未設上限的組織套用部署預設值 2,000,000。
+```
+
+- **Usage and month** are the quota check's own answer: the command asks the same
+  `OrganizationTokenUsage` the website and LINE channels ask before replying, so the month is the
+  calendar month in `Statistics:TimeZone` and the sum is input + output tokens of the counted chat
+  purposes, exactly as in "Monthly token limit" (embedding calls never count; last month's calls
+  are not in this month).
+- **Limit** is the organization's own (`set-token-limit`); with none it shows
+  `未設上限（預設 N）`, because the deployment default `PublicChannels:DefaultMonthlyTokenLimit`
+  still applies, and the share is computed against it.
+- **Share** is rounded down to 0.1% and marked `（接近上限）` from 80% and `（已達上限）` from 100%
+  (the same `near`/`exceeded` states as `GET /api/v1/organization/usage`); a limit of 0 shows
+  `-（已達上限）`.
+- The first four columns are unchanged, so scripts that read them keep working; the last line
+  names the month and time zone.
+
+It prints no login names, display names or other personal data. `Organization` has no creation
+column, so the time is read from the organization id (organizations are created with
+time-ordered version 7 ids, which embed it; any other id shows `-`). It reads the
+`Organizations` table, which has no organization filter, and reads each organization's account
+count and usage through contexts acting as that organization (`FixedOrganizationContext`),
+never by turning the organization filter off.
 
 ## Resetting a forgotten password: `reset-password`
 

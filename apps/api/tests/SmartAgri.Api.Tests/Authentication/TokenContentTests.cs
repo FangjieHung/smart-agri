@@ -16,12 +16,14 @@ public class TokenContentTests
 {
     private static readonly Organization Organization = new(Guid.NewGuid(), "安心商行", "anxin");
 
+    private static readonly SignInSession Session = new(DateTimeOffset.FromUnixTimeSeconds(1_790_000_000), "stamp-1");
+
     [Fact]
     public void Access_token_claims_are_exactly_sub_org_id_and_role()
     {
         var account = Account.Create(Organization, "admin", "安心商行管理者", AccountRole.SmbAdmin);
 
-        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId]);
+        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId], Session);
 
         var accessTokenClaims = principal.Claims
             .Where(claim => claim.GetDestinations().Contains(Destinations.AccessToken))
@@ -37,7 +39,7 @@ public class TokenContentTests
     {
         var account = Account.Create(Organization, "customer", "外部客戶", AccountRole.ExternalCustomer);
 
-        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId]);
+        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId], Session);
 
         principal.Claims
             .Where(claim => claim.GetDestinations().Contains(Destinations.IdentityToken))
@@ -50,19 +52,43 @@ public class TokenContentTests
     {
         var account = Account.Create(Organization, "admin", "管理者", AccountRole.SmbAdmin);
 
-        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId]);
+        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId], Session);
 
         principal.Claims.ShouldNotContain(claim => claim.Type.Contains("permission", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public void Only_the_openid_scope_is_granted_so_no_refresh_token_can_be_issued()
+    public void Only_openid_and_offline_access_are_granted()
     {
         var account = Account.Create(Organization, "admin", "管理者", AccountRole.SmbAdmin);
 
-        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId, Scopes.OfflineAccess, "profile"]);
+        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId, Scopes.OfflineAccess, "profile"], Session);
 
-        principal.GetScopes().ShouldBe([Scopes.OpenId]);
+        principal.GetScopes().ShouldBe([Scopes.OpenId, Scopes.OfflineAccess], ignoreOrder: true);
+    }
+
+    [Fact]
+    public void The_sign_in_time_and_security_stamp_stay_out_of_access_and_identity_tokens()
+    {
+        var account = Account.Create(Organization, "admin", "管理者", AccountRole.SmbAdmin);
+
+        var principal = ConnectEndpoints.CreatePrincipal(account, [Scopes.OpenId, Scopes.OfflineAccess], Session);
+
+        // Kept in the (encrypted) authorization code and refresh tokens only: no destination at all.
+        principal.GetClaim(SignInSession.SignedInAtClaim).ShouldBe(Session.SignedInAt.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
+        principal.GetClaim(SignInSession.SecurityStampClaim).ShouldBe(Session.SecurityStamp);
+        principal.Claims
+            .Where(claim => claim.Type is SignInSession.SignedInAtClaim or SignInSession.SecurityStampClaim)
+            .ShouldAllBe(claim => !claim.GetDestinations().Any());
+        SignInSession.From(principal).ShouldBe(Session);
+    }
+
+    [Fact]
+    public void A_principal_without_the_session_claims_has_no_session()
+    {
+        var principal = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity("test"));
+
+        SignInSession.From(principal).ShouldBeNull();
     }
 
     [Fact]

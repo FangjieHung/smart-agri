@@ -61,7 +61,8 @@ public interface IPasswordResetStore
 /// What the rotated stamp and the revocation end (authentication ADR; see
 /// <c>AuthenticationServiceCollectionExtensions</c>): the old password; the Identity sign-in cookie, whose
 /// stamp is checked every time <c>/connect/*</c> reads it, so it can no longer mint authorization codes;
-/// and authorization codes already issued but not yet redeemed (their token entries are revoked). Access
+/// authorization codes already issued but not yet redeemed, and refresh tokens (their token entries are
+/// revoked; the token endpoint also refuses a refresh token whose sign-in carried the old stamp, #354). Access
 /// tokens already issued are self-contained JWTs that the Api validates without a database lookup, so
 /// they keep authenticating until they expire (at most 30 minutes) — but <c>PasswordChangeRequired</c> is
 /// read per request, so they reach only <c>GET /api/v1/me</c> and <c>change-password</c>, which needs the
@@ -153,7 +154,7 @@ public sealed class EfPasswordResetStore : IPasswordResetStore
             return PasswordResetResult.Rejected(updated.Errors.Select(error => error.Description));
         }
 
-        // Authorization codes (and access/identity token entries) issued to this account so far.
+        // Authorization codes, refresh tokens (#354) and access/identity token entries issued to this account so far.
         await _tokenManager.RevokeBySubjectAsync(account.Id.ToString("D"), cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);

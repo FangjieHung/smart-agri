@@ -13,6 +13,7 @@ function fakeBackend(overrides: Partial<ApiSessionBackend> = {}): ApiSessionBack
     loginOptions: () => Promise.reject(new Error('not used')),
     signIn: () => Promise.reject(new Error('not used')),
     completeSignIn: () => Promise.reject(new Error('not used')),
+    takeReturnPath: () => null,
     refreshIdentity: () => Promise.reject(new Error('not used')),
     restore: () => null,
     hasUsableToken: () => true,
@@ -104,5 +105,21 @@ describe('demoSessionGuard', () => {
 
     expect(result).toEqual({ target: '/change-password' });
     expect(clear).not.toHaveBeenCalled();
+  });
+
+  it('sends an API-mode visitor without a usable sign-in to login with the page they wanted (#354)', () => {
+    TestBed.configureTestingModule({
+      providers: [
+        { provide: API_SESSION_BACKEND, useValue: fakeBackend({ hasUsableToken: () => false }) },
+        { provide: Router, useValue: { parseUrl: (url: string) => ({ target: url }) } },
+        provideIsolatedSession(),
+      ],
+    });
+
+    const result = TestBed.runInInjectionContext(() =>
+      demoSessionGuard({} as never, { url: '/app/assistants/a-1/data-sources' } as never),
+    );
+
+    expect(result).toEqual({ target: '/login?returnUrl=%2Fapp%2Fassistants%2Fa-1%2Fdata-sources' });
   });
 });

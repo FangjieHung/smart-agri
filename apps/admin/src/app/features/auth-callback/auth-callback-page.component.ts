@@ -2,7 +2,10 @@ import { ChangeDetectionStrategy, Component, inject, type OnInit } from '@angula
 import { Router } from '@angular/router';
 import { ApiSessionService } from '../../core/session/api-session.service';
 
-/** authorize 導回來的地方：完成 PKCE、讀取 `/me` 後進入後台，失敗就回登入頁說明原因。 */
+/**
+ * authorize 導回來的地方：完成 PKCE、讀取 `/me` 後進入後台（逾時前所在的頁面，沒有就是首頁），
+ * 失敗就回登入頁說明原因。
+ */
 @Component({
   selector: 'app-auth-callback-page',
   template: `
@@ -26,9 +29,11 @@ export class AuthCallbackPageComponent implements OnInit {
 
   async ngOnInit(): Promise<void> {
     const result = await this.apiSession.completeSignIn();
+    // 取一次就清掉：須先改密碼或登入失敗時，也不留到下一次登入。
+    const returnPath = this.apiSession.takeReturnPath();
     const target =
       result === 'signed-in'
-        ? '/app/home'
+        ? returnPath
         : result === 'password-change-required'
           ? '/change-password'
           : '/login';

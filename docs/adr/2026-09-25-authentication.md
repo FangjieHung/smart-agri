@@ -1,6 +1,6 @@
 # ADR｜登入與身分驗證
 
-**狀態：** 已確認（2026-09-25）
+**狀態：** 已確認（2026-09-25）；2026-10-13 修訂登入時效，加上 refresh token（見文末「修訂」）
 
 ## 決策
 
@@ -10,7 +10,7 @@
 - 匿名訪客（網站嵌入、`/use/:assistantId`）與 LINE 使用者走獨立的身分流程，不建立一般登入帳號。網站訪客以 Data Protection 簽發的短期訪客憑證識別（M5a #196）；LINE 使用者由 Webhook 的簽章確認來源，以「助理＋聊天對象 id」區分前文，兩者都不建立帳號，也不寫入資料庫（M5b）。
 - 前端 Demo 的三組固定帳號與密碼 `1234` 不進入正式後端。
 - 帳號名稱只需在同一組織內唯一；登入時以「組織代碼＋帳號名稱＋密碼」識別。部署內只有一個組織時可省略組織代碼。Identity 內部的 `UserName` 存成「組織代碼/帳號名稱」組合值，以沿用 Identity 的全域唯一索引，畫面與 API 只顯示帳號名稱。
-- 前端把 access token 存在分頁的 sessionStorage，30 分鐘到期即重新登入，暫不發 refresh token。
+- 前端把 access token 存在分頁的 sessionStorage，30 分鐘到期即重新登入，暫不發 refresh token。（2026-10-13 修訂：改發 refresh token，見文末。）
 
 ## 理由
 
@@ -27,3 +27,26 @@
 ## 影響
 
 - 組織代碼建立後不可修改；若要修改，必須同時改寫該組織所有帳號的內部 `UserName`。
+
+## 修訂（2026-10-13，負責人決定，#354）
+
+同仁登入 30 分鐘後一定被登出、而且不會延長，日常使用太常要重新登入。改為：
+
+- **access token 維持 30 分鐘**。admin SPA 登入時多要求 `offline_access`，取得 refresh token，在背景換發新的 access token。
+- **閒置 8 小時就要重新登入**：refresh token 的效期是 8 小時，每次換發都換成新的一個（rotation），新的一個又是 8 小時（OpenIddict 的 sliding expiration）。
+- **登入滿 7 天一定要重新登入**，不論期間換發過幾次。OpenIddict 本身的設定做不到這個上限（sliding 每次重新計時；關掉 sliding 會讓 8 小時變成絕對上限），所以登入時把「登入時間」與帳號的 security stamp 寫進授權碼與每一個 refresh token（沒有 destination 的 claim，只存在加密的授權碼與 refresh token 裡，不進 access token、identity token），token 端點每次換發都檢查；新發的 refresh token 與 access token 效期也不會超過 7 天的終點。
+- **重複使用視為外洩**：已經換發過的 refresh token 再被使用時，OpenIddict 撤銷同一個授權底下的所有 token（整條鏈），使用者要重新登入。不留 OpenIddict 預設 30 秒的重用寬限：前端同一個分頁同時只送一次換發（single-flight），寬限只會讓偷到的 token 多用一次。
+- **每次換發都重新檢查帳號**，與授權碼兌換相同：帳號仍存在且屬於同一組織、沒有被鎖定、可以登入、security stamp 與登入時相同（更改密碼、`reset-password` 都會換 stamp）。須先改密碼的帳號照樣可以換發，`PasswordChangeRequired` 仍是每個請求從資料庫讀取。
+- **撤銷**：登出時前端先呼叫 OpenIddict 的撤銷端點 `/connect/revoke` 撤銷 refresh token，再走 end-session；更改密碼與 `reset-password` 撤銷這個帳號的所有 token 紀錄（`RevokeBySubjectAsync`，涵蓋 refresh token），而且換過的 stamp 本身也讓舊的 refresh token 無法換發。更改密碼也會結束「這次」登入：手上的 access token 到期（最多 30 分鐘）後要用新密碼重新登入。
+- **前端換發時機**：access token 到期前 1 分鐘，若這組 token 發出後有過 API 請求就主動換發（分頁開著沒人用時不換發，閒置才真的由 8 小時決定）；送出請求時 token 已過期或快到期就先換發；收到 401 就換發一次並重送那個請求一次。同時需要換發的請求共用同一次。伺服器拒絕換發時清除工作階段，帶著目前的網址（只接受 `/app` 底下）回登入頁，重新登入後回到原頁；伺服器暫時無法回應時保留工作階段。
+- **儲存位置不變**：refresh token 與 access token 一樣只存在分頁的 sessionStorage（關閉分頁就結束；不同分頁各自登入）。
+
+### 取捨：XSS
+
+sessionStorage 裡的 token 能被頁面上執行的任何腳本讀取。原本被偷走的只是最多 30 分鐘的 access token；現在 refresh token 也在同一處，偷到的人可以持續換發，最長到 7 天的上限。緩解：rotation 讓攻擊者與使用者其中一方一換發，另一方再用舊的就會觸發整條鏈撤銷；登出、改密碼、`reset-password` 都會撤銷；閒置 8 小時失效。更強的作法是把 refresh token 放在 HttpOnly cookie、由後端代為換發（BFF），但要多一層後端代理與 CSRF 防護，目前不採用；若之後要接受更高風險的客戶（例如政府單位）或發現 XSS，再改為 BFF。
+
+### 影響
+
+- `admin-spa` 用戶端多了 refresh token 授權類型與撤銷端點的權限，由 `migrate` 更新（升級時照常執行 `migrate` 即可）。
+- 只有 admin SPA 用這套登入。`/use/:assistantId`、`/chat/:assistantId` 在 API 模式轉到工作區，沿用同一個登入；網站嵌入的匿名訪客與 LINE 不受影響。
+- mock 模式沒有 token，Demo 身分仍是閒置 30 分鐘逾時；API 模式本機的換頁逾時改為 7 天，閒置由伺服器的 8 小時決定。

@@ -91,7 +91,11 @@ public sealed class AdminSpaClientRegistrar
                 Permissions.Endpoints.Authorization,
                 Permissions.Endpoints.Token,
                 Permissions.Endpoints.EndSession,
+                Permissions.Endpoints.Revocation,
                 Permissions.GrantTypes.AuthorizationCode,
+
+                // Rotating refresh tokens (#354); also what lets the client request offline_access.
+                Permissions.GrantTypes.RefreshToken,
                 Permissions.ResponseTypes.Code,
             },
             Requirements =

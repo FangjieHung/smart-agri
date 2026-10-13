@@ -28,6 +28,12 @@ export const DEMO_SESSION_STORAGE_KEY = 'demo-session';
 /** Demo 工作階段的閒置上限，逾時後回到身分選擇畫面。 */
 export const DEMO_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * API 模式的同一個上限（#354）：登入滿 7 天一定要重新登入。閒置 8 小時由伺服器的 refresh token 決定
+ * （這裡只在換頁時更新，不知道頁面上的 API 活動），所以本機不再提早結束工作階段。
+ */
+export const API_SESSION_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const DEMO_SESSION_TIMEOUT_NOTICE = 'Demo 登入已逾時';
 
 export const DEMO_SESSION_TIMEOUT_DETAIL =
@@ -66,9 +72,14 @@ function browserSessionStorage(): DemoKeyValueStorage | undefined {
  * Demo 身分切換，不是真實驗證：目前身分只記在這個瀏覽器分頁的 sessionStorage，
  * 重新整理會保留、關閉分頁或閒置逾時就結束，且不包含任何憑證。
  */
+/** 瀏覽器用的 Demo 工作階段（分頁的 sessionStorage）；API 模式以 `API_SESSION_TIMEOUT_MS` 另外提供。 */
+export function createBrowserDemoSession(timeoutMs?: number): DemoSessionService {
+  return new DemoSessionService({ storage: browserSessionStorage(), timeoutMs });
+}
+
 @Injectable({
   providedIn: 'root',
-  useFactory: () => new DemoSessionService({ storage: browserSessionStorage() }),
+  useFactory: () => createBrowserDemoSession(),
 })
 export class DemoSessionService {
   readonly securityNotice = DEMO_SECURITY_NOTICE;

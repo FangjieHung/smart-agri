@@ -12,6 +12,11 @@ import type { DemoSeed } from '../../repositories/demo-seed';
 import type { MockDemoRepositoryOptions } from '../../repositories/mock-demo-repository';
 import { API_DEMO_REPOSITORY_FACTORY, loadMockRepositoryModules } from '../../repositories/tokens';
 import { API_SESSION_BACKEND, ApiSessionService } from '../api-session.service';
+import {
+  API_SESSION_TIMEOUT_MS,
+  createBrowserDemoSession,
+  DemoSessionService,
+} from '../demo-session.service';
 import { bearerTokenInterceptor } from './bearer-token.interceptor';
 import { HttpSessionBackend } from './http-session-backend';
 import { unauthorizedInterceptor } from './unauthorized.interceptor';
@@ -56,6 +61,9 @@ export function provideApiMode(): EnvironmentProviders {
     ),
     HttpSessionBackend,
     { provide: API_SESSION_BACKEND, useExisting: HttpSessionBackend },
+    // 換頁時的閒置判斷不再是 30 分鐘：access token 由 refresh token 在背景換發，閒置 8 小時、登入滿
+    // 7 天才由伺服器結束登入（#354）。
+    { provide: DemoSessionService, useFactory: () => createBrowserDemoSession(API_SESSION_TIMEOUT_MS) },
     // 團隊走 HTTP，其餘功能區仍是 mock，但 mock 的權限判斷改用 API 的權限。
     {
       provide: API_DEMO_REPOSITORY_FACTORY,
@@ -79,7 +87,8 @@ export function provideApiMode(): EnvironmentProviders {
         const apiSession = inject(ApiSessionService);
         const { AgUiChatRunner, toAdminChatReply } = loadedRuntime();
         return new AgUiChatRunner({
-          accessToken: () => backend.accessToken(),
+          // 送出前先確認 token 還能用：快到期就先換發（#354），串流不經過 bearer 攔截器。
+          accessToken: () => backend.freshAccessToken(),
           onUnauthorized: () => apiSession.endExpiredSession(),
           // 串流的 `smartagri.reply` 與 `GET chat` 的訊息同一個形狀，表單、收據與數據庫查詢用同一個轉換。
           replyExtension: (reply) => toAdminChatReply(reply as components['schemas']['ChatReplyView']),

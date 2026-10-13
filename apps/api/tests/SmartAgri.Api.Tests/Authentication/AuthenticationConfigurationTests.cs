@@ -104,15 +104,24 @@ public class AuthenticationConfigurationTests : IClassFixture<WebApplicationFact
     }
 
     [Fact]
-    public void Only_the_authorization_code_flow_with_pkce_is_enabled()
+    public void Only_the_authorization_code_flow_with_pkce_and_rotating_refresh_tokens_are_enabled()
     {
         var server = _factory.Services.GetRequiredService<IOptionsMonitor<OpenIddictServerOptions>>().CurrentValue;
 
-        server.GrantTypes.ShouldBe([GrantTypes.AuthorizationCode]);
+        server.GrantTypes.ShouldBe([GrantTypes.AuthorizationCode, GrantTypes.RefreshToken], ignoreOrder: true);
         server.ResponseTypes.ShouldBe([ResponseTypes.Code]);
         server.RequireProofKeyForCodeExchange.ShouldBeTrue();
         server.AccessTokenLifetime.ShouldBe(TimeSpan.FromMinutes(30));
         server.DisableAccessTokenEncryption.ShouldBeTrue();
+
+        // #354: 8 hours idle (sliding, rotated on every use), reuse of a rotated token is never tolerated.
+        server.RefreshTokenLifetime.ShouldBe(TimeSpan.FromHours(8));
+        server.DisableRollingRefreshTokens.ShouldBeFalse();
+        server.DisableSlidingRefreshTokenExpiration.ShouldBeFalse();
+        server.RefreshTokenReuseLeeway.ShouldBeNull();
+        server.DisableTokenStorage.ShouldBeFalse();
+        server.DisableAuthorizationStorage.ShouldBeFalse();
+        server.RevocationEndpointUris.ShouldHaveSingleItem().OriginalString.ShouldBe("connect/revoke");
 
         server.AuthorizationEndpointUris.ShouldHaveSingleItem().OriginalString.ShouldBe("connect/authorize");
         server.TokenEndpointUris.ShouldHaveSingleItem().OriginalString.ShouldBe("connect/token");

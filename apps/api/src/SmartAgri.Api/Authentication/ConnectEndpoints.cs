@@ -26,6 +26,10 @@ public static class ConnectEndpoints
     public const string EndSessionPath = "connect/endsession";
     public const string UserInfoPath = "connect/userinfo";
 
+    /// <summary>OAuth 2.0 token revocation (RFC 7009), handled by OpenIddict itself (no passthrough): the
+    /// SPA revokes its refresh token here when the user logs out (#354).</summary>
+    public const string RevocationPath = "connect/revoke";
+
     private const string ServerScheme = OpenIddictServerAspNetCoreDefaults.AuthenticationScheme;
 
     public static IEndpointRouteBuilder MapConnectEndpoints(this IEndpointRouteBuilder endpoints)
@@ -51,7 +55,8 @@ public static class ConnectEndpoints
         HttpContext httpContext,
         ClaimsOrganizationContext organizationContext,
         UserManager<Account> userManager,
-        IOptions<SmartAgriAuthenticationOptions> options)
+        IOptions<SmartAgriAuthenticationOptions> options,
+        TimeProvider clock)
     {
         var request = httpContext.GetOpenIddictServerRequest()
             ?? throw new InvalidOperationException("The OpenIddict authorization request could not be retrieved.");
@@ -69,48 +74,85 @@ public static class ConnectEndpoints
             return Results.Redirect(LoginRedirect(httpContext, request, options.Value.LoginPath));
         }
 
-        return Results.SignIn(CreatePrincipal(account, request.GetScopes()), authenticationScheme: ServerScheme);
+        // The sign-in starts here: the code, and every refresh token after it, carry this time and stamp.
+        var session = new SignInSession(clock.GetUtcNow(), await userManager.GetSecurityStampAsync(account) ?? string.Empty);
+        return Results.SignIn(CreatePrincipal(account, request.GetScopes(), session), authenticationScheme: ServerScheme);
     }
 
     /// <summary>
-    /// Redeems an authorization code (OpenIddict has already checked the code, the PKCE
-    /// verifier, the client and the redirect URI). The account is loaded again so a
-    /// deleted or locked-out account cannot redeem a code, and the role is current.
+    /// Redeems an authorization code or a refresh token. OpenIddict has already checked the grant
+    /// itself (code + PKCE verifier + redirect URI, or a refresh token that is unexpired, not redeemed
+    /// and not revoked — a redeemed one revokes its whole chain) and the client. The account is loaded
+    /// again so the role is current and a grant stops working once the account cannot sign in any more
+    /// (<see cref="CanContinueAsync"/>).
     /// </summary>
     internal static async Task<IResult> ExchangeAsync(
         HttpContext httpContext,
         ClaimsOrganizationContext organizationContext,
         UserManager<Account> userManager,
-        SignInManager<Account> signInManager)
+        SignInManager<Account> signInManager,
+        TimeProvider clock)
     {
         var request = httpContext.GetOpenIddictServerRequest()
             ?? throw new InvalidOperationException("The OpenIddict token request could not be retrieved.");
 
-        if (!request.IsAuthorizationCodeGrantType())
+        if (!request.IsAuthorizationCodeGrantType() && !request.IsRefreshTokenGrantType())
         {
-            return Results.Forbid(ErrorProperties(OAuthErrors.UnsupportedGrantType, "Only the authorization code grant is supported."), [ServerScheme]);
+            return Results.Forbid(ErrorProperties(OAuthErrors.UnsupportedGrantType, "Only the authorization code and refresh token grants are supported."), [ServerScheme]);
         }
 
-        var codePrincipal = (await httpContext.AuthenticateAsync(ServerScheme)).Principal;
-        var accountId = AccountClaims.GetAccountId(codePrincipal);
-        var organizationId = ClaimsOrganizationContext.Resolve(codePrincipal);
+        var grant = (await httpContext.AuthenticateAsync(ServerScheme)).Principal;
+        var session = SignInSession.From(grant);
+        var account = await FindGrantAccountAsync(grant, organizationContext, userManager);
+        var now = clock.GetUtcNow();
 
-        Account? account = null;
-        if (accountId is not null && organizationId is not null)
+        if (account is null || session is null || !await CanContinueAsync(account, session, now, userManager, signInManager))
         {
-            organizationContext.Pin(organizationId.Value);
-            account = await userManager.FindByIdAsync(accountId.Value.ToString("D"));
+            var description = request.IsRefreshTokenGrantType()
+                ? "The refresh token is no longer valid."
+                : "The authorization code is no longer valid.";
+            return Results.Forbid(ErrorProperties(OAuthErrors.InvalidGrant, description), [ServerScheme]);
         }
 
-        if (account is null
-            || account.OrganizationId != organizationId
-            || await userManager.IsLockedOutAsync(account)
-            || !await signInManager.CanSignInAsync(account))
+        var principal = CreatePrincipal(account, grant!.GetScopes(), session);
+        session.LimitLifetimes(principal, now);
+        return Results.SignIn(principal, authenticationScheme: ServerScheme);
+    }
+
+    /// <summary>
+    /// Whether a sign-in may still obtain tokens, checked on every code and refresh exchange: the
+    /// account is not locked out and may sign in, its security stamp is the one it signed in with (a
+    /// password change or <c>reset-password</c> rotates it), and the session's absolute lifetime has not
+    /// run out. An account that must change its password still gets tokens: they only reach
+    /// <c>GET /api/v1/me</c> and change-password (<c>PasswordChangeGate</c>).
+    /// </summary>
+    private static async Task<bool> CanContinueAsync(
+        Account account,
+        SignInSession session,
+        DateTimeOffset now,
+        UserManager<Account> userManager,
+        SignInManager<Account> signInManager) =>
+        !await userManager.IsLockedOutAsync(account)
+        && await signInManager.CanSignInAsync(account)
+        && string.Equals(session.SecurityStamp, await userManager.GetSecurityStampAsync(account) ?? string.Empty, StringComparison.Ordinal)
+        && !session.HasEnded(now);
+
+    /// <summary>The grant's account, loaded under its own organization (the request has no other), or
+    /// <see langword="null"/> when it no longer exists there.</summary>
+    private static async Task<Account?> FindGrantAccountAsync(
+        ClaimsPrincipal? grant,
+        ClaimsOrganizationContext organizationContext,
+        UserManager<Account> userManager)
+    {
+        if (AccountClaims.GetAccountId(grant) is not { } accountId
+            || ClaimsOrganizationContext.Resolve(grant) is not { } organizationId)
         {
-            return Results.Forbid(ErrorProperties(OAuthErrors.InvalidGrant, "The authorization code is no longer valid."), [ServerScheme]);
+            return null;
         }
 
-        return Results.SignIn(CreatePrincipal(account, codePrincipal!.GetScopes()), authenticationScheme: ServerScheme);
+        organizationContext.Pin(organizationId);
+        var account = await userManager.FindByIdAsync(accountId.ToString("D"));
+        return account?.OrganizationId == organizationId ? account : null;
     }
 
     /// <summary>Signs out of the Identity cookie, then lets OpenIddict redirect to the
@@ -138,16 +180,20 @@ public static class ConnectEndpoints
     /// The token principal: exactly <c>sub</c>, <c>org_id</c> and <c>role</c> — never
     /// permissions, which are read from the database per request. <c>sub</c> also goes in
     /// the identity token (required by OpenID Connect); the rest only in the access token.
+    /// The <paramref name="session"/> claims have no destination: they stay in the
+    /// authorization code and refresh tokens.
     /// </summary>
-    internal static ClaimsPrincipal CreatePrincipal(Account account, IEnumerable<string> requestedScopes)
+    internal static ClaimsPrincipal CreatePrincipal(Account account, IEnumerable<string> requestedScopes, SignInSession session)
     {
         var identity = new ClaimsIdentity(ServerScheme, Claims.Name, Claims.Role);
         identity.SetClaim(Claims.Subject, account.Id.ToString("D"));
         identity.SetClaim(AccountClaims.OrganizationId, account.OrganizationId.ToString("D"));
         identity.SetClaim(Claims.Role, WireNames<AccountRole>.ToWire(account.Role));
+        session.WriteTo(identity);
 
-        // Only "openid"; in particular never "offline_access" (no refresh tokens in M1).
-        identity.SetScopes(requestedScopes.Where(scope => scope == Scopes.OpenId));
+        // "openid", and "offline_access" when the client asks for refresh tokens (the admin SPA
+        // does, #354; OpenIddict only allows it to clients with the refresh token grant).
+        identity.SetScopes(requestedScopes.Where(scope => scope is Scopes.OpenId or Scopes.OfflineAccess));
 
         identity.SetDestinations(static claim => claim.Type switch
         {

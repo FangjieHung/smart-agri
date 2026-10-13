@@ -19,8 +19,11 @@ export function apiChatRunsPath(assistantId: string): string {
 }
 
 export interface AgUiChatRunnerDeps {
-  /** 目前的 access token；`HttpAgent` 用 `fetch`，不經過 Angular 的 bearer 攔截器。 */
-  readonly accessToken?: () => string | null;
+  /**
+   * 目前的 access token；`HttpAgent` 用 `fetch`，不經過 Angular 的 bearer 攔截器。可以回傳 Promise：
+   * 每次送出前呼叫，admin 藉此在 token 快到期時先換發（#354）。
+   */
+  readonly accessToken?: () => string | null | Promise<string | null>;
   /**
    * 完整的 `Authorization` 標頭值（例如訪客視窗的 `Visitor <token>`）；有給時優先於 `accessToken`
    * （`accessToken` 只會被包成 `Bearer <token>`）。回傳 `null` 代表不帶標頭。
@@ -115,10 +118,9 @@ export class AgUiChatRunner implements ChatRunner {
       };
 
       const load = this.deps.loadClient ?? (() => import('@ag-ui/client'));
-      load()
-        .then(({ HttpAgent: Agent }) => {
+      Promise.all([load(), this.authorization()])
+        .then(([{ HttpAgent: Agent }, authorization]) => {
           if (closed) return undefined;
-          const authorization = this.authorization();
           agent = new Agent({
             url: (this.deps.runsPath ?? apiChatRunsPath)(request.assistantId),
             // 必須明確設定：省略時 HttpAgent 會自產 uuid，後端回 403 chat-thread。
@@ -151,9 +153,9 @@ export class AgUiChatRunner implements ChatRunner {
     });
   }
 
-  private authorization(): string | null {
+  private async authorization(): Promise<string | null> {
     if (this.deps.authorizationHeader !== undefined) return this.deps.authorizationHeader();
-    const token = this.deps.accessToken?.() ?? null;
+    const token = (await this.deps.accessToken?.()) ?? null;
     return token === null ? null : `Bearer ${token}`;
   }
 

@@ -234,3 +234,9 @@ jobs:
           SMOKE_IMAGE: smartagri-smoke-api:ci
           SMOKE_SKIP_BUILD: '1'
         run: deploy/smoke-test.sh
+      # About 70 seconds on the image above: setup, data, backup.sh, down -v, restore.sh (#342).
+      - name: Backup and restore drill with deploy/backup.sh and deploy/restore.sh
+        env:
+          DRILL_IMAGE: smartagri-smoke-api:ci
+          DRILL_SKIP_BUILD: '1'
+        run: deploy/backup-drill.sh

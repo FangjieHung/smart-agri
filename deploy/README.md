@@ -3,7 +3,7 @@
 這份文件寫給**部署與維運系統的人**：把助理放上客戶官網（M5a「官網嵌入」）或客戶的 LINE 官方帳號（M5b，第 10 節）之前，伺服器端要準備什麼、
 `deploy/.env` 要填什麼、哪些東西要備份、出問題時看哪裡。第一次安裝（建立第一個組織與管理者）、
 各設定的完整行為與錯誤碼，請看英文的 [`apps/api/README.md`](../apps/api/README.md)；本文只照操作順序串起來，
-並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節。
+並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節，備份與還原在第 14 節。
 
 ## 1. 這個部署長什麼樣子
 
@@ -135,12 +135,8 @@ API 用 ASP.NET Core Data Protection 保護三樣東西：管理者的登入 coo
 - **位置**：compose 的具名 volume `smartagri-dataprotection-keys`（實際名稱 `smartagri_smartagri-dataprotection-keys`），
   掛在容器的 `/app/keys`。金鑰檔本身用 `deploy/certs/dataprotection.pfx` 加密。
 - **備份**：把「資料庫」、「金鑰 volume」、「`dataprotection.pfx`（連同密碼）」**一起備份、盡量取同一個時間點**。
-  資料庫裡的機敏設定是密文，只有這組金鑰打得開。金鑰 volume 的備份範例：
-
-  ```sh
-  docker run --rm -v smartagri_smartagri-dataprotection-keys:/keys:ro -v "$PWD":/backup alpine \
-    tar czf /backup/dataprotection-keys.tgz -C /keys .
-  ```
+  資料庫裡的機敏設定是密文，只有這組金鑰打得開。`deploy/backup.sh` 一次把這些（加上另外兩個憑證與 `deploy/.env`）
+  備份成一個檔案，排程、複製到別處與還原的步驟見**第 14 節**。
 
 - **金鑰每 90 天自動輪替**，舊金鑰留在同一個資料夾、繼續解開舊資料，**不要刪除裡面的任何檔案**。
 - **遺失的後果**（金鑰檔或憑證任一不見，資料就無法復原；換一張新憑證也打不開舊金鑰）：
@@ -630,8 +626,9 @@ HTTP 400（「Function tools with reasoning_effort are not supported … in /v1/
 ## 13. 哪些指令必須在真實部署上才能驗證
 
 本文的 `openssl`、`docker compose config`、`set-token-limit`（含說明、未知組織、參數錯誤與實際設定）與 nginx 設定語法，
-都已在本機實際執行過。需要真實伺服器、公開網域與 TLS 才能驗證的是：`docker compose up`、對外網址的 `curl`、
-備份用的 `docker run … tar`（需要已存在的金鑰 volume），以及在真實官網上的嵌入驗收。
+都已在本機實際執行過；`docker compose up` 與備份還原（第 14 節）也由 `deploy/smoke-test.sh`、`deploy/backup-drill.sh`
+在本機的暫時環境實際跑過。需要真實伺服器、公開網域與 TLS 才能驗證的是：對外網址的 `curl`、cron／systemd 排程與 rsync 到另一台電腦，
+以及在真實官網上的嵌入驗收。
 
 LINE 部分已在真實的 LINE 官方帳號上以 Cloudflare 通道與真實模型驗收過（一對一、群組、歡迎訊息、非文字訊息、暫停與恢復、逾時補送、
 自動回應訊息未關閉時的行為），紀錄見 [`docs/evals/2026-10-07-235-line-acceptance.md`](../docs/evals/2026-10-07-235-line-acceptance.md)。
@@ -642,3 +639,185 @@ LINE 部分已在真實的 LINE 官方帳號上以 Cloudflare 通道與真實模
 [`docs/evals/2026-10-07-245-model-switch-acceptance.md`](../docs/evals/2026-10-07-245-model-switch-acceptance.md)。compose 預留的
 `CHAT_MODELS_0_*` 空白與填寫兩種情況由啟動測試（`ChatModelCatalogStartupTests`）解析 compose 檔驗證，`docker compose config` 也實際展開過；
 填了之後在真實部署上 `up`、看設定頁出現兩個模型，仍需在交付時確認。
+
+## 14. 備份與還原
+
+這一節教你：每天自動備份、把備份放到這台電腦以外的地方、電腦壞掉或資料出問題時怎麼還原，以及多久練習一次。
+所有指令都在 **repo 根目錄**（有 `deploy/` 資料夾的那一層，例如 `/home/<你的使用者名稱>/smart-agri`）執行。
+
+### 14.1 備份了什麼？為什麼「金鑰」那麼重要？
+
+`deploy/backup.sh` 每跑一次，就在 `deploy/backups/` 產生**一個**檔案，例如 `smartagri-backup-20261013-023000.tar`
+（檔名是日期與時間）。裡面有：
+
+| 內容 | 是什麼 | 沒有它會怎樣 |
+| --- | --- | --- |
+| 資料庫（`database.dump`） | 所有店家、帳號、助理、知識庫、對話、案件……全部的資料 | 一切都沒了 |
+| Data Protection 金鑰（`dataprotection-keys.tar.gz`） | 打開「加密資料」的鑰匙（第 4 節）：LINE 的 Channel Secret 與 Access Token 就是加密後才存進資料庫 | 資料庫還原了，**加密的資料卻打不開**：每個 LINE 頻道都要重新輸入憑證，所有人要重新登入 |
+| 三個憑證（`certs.tar.gz`） | `deploy/certs/` 的 `signing.pfx`、`encryption.pfx`、`dataprotection.pfx`；`dataprotection.pfx` 是用來鎖住上面那組金鑰的 | 換一張新的憑證也打不開舊金鑰，結果同上 |
+| 設定檔（`env`） | `deploy/.env` 的複本：裡面有三個憑證的**密碼**、資料庫密碼、模型的 API 金鑰 | 沒有密碼，憑證檔就打不開，結果同上 |
+
+> **一份備份檔＝這個部署的全部秘密。** 它和 `deploy/.env` 一樣重要：只放在只有你拿得到的地方（自己的外接硬碟、自己的另一台電腦），
+> 不要放到公開分享的雲端資料夾，也不要寄給別人。腳本會把檔案設成只有你能讀（權限 600，資料夾 700）。
+
+腳本**不會印出**任何密碼或金鑰；資料庫是在服務照常運作時備份的（不用停機）。
+
+### 14.2 先手動備份一次
+
+```sh
+deploy/backup.sh
+```
+
+最後一行是 `backup: OK ...`，寫著檔案位置、大小、資料庫有幾個資料表、幾個金鑰檔、幾個憑證，以及目前保留幾份備份。
+任何一步失敗都會印 `backup: FAIL: <原因>`，而且不會留下不完整的檔案。最常見的失敗是服務沒有在跑
+（`the postgres container is not running`）：先 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d` 再試。
+
+**保留幾份**：預設保留最新的 14 份，更舊的會在備份成功後自動刪掉。要改就在前面加 `BACKUP_KEEP=30`；
+要換存放位置就加 `BACKUP_DIR=/某個/資料夾`（14.4 節）。例如：
+
+```sh
+BACKUP_KEEP=30 BACKUP_DIR=/media/<你的使用者名稱>/外接硬碟/smartagri-backups deploy/backup.sh
+```
+
+> 有另外疊一個 compose 檔（第 3 節的 `docker-compose.limits.yml`）的話，在每個指令前面加
+> `DEPLOY_COMPOSE_FILES="deploy/docker-compose.yml deploy/docker-compose.limits.yml"`，備份與還原才會用同一組設定。
+
+### 14.3 每天自動備份
+
+**方法一：cron（最簡單）。** 用平常登入主機、能執行 `docker` 的那個使用者執行 `crontab -e`，在最後加一行
+（路徑換成你的 repo 位置；以下是每天凌晨 2:30，剛好在 03:00 的對話清理之前，見第 12 節）：
+
+```cron
+30 2 * * * /home/<你的使用者名稱>/smart-agri/deploy/backup.sh >> /home/<你的使用者名稱>/smartagri-backup.log 2>&1
+```
+
+存檔離開就生效。隔天早上看一下紀錄的最後一行是不是 `backup: OK`：
+
+```sh
+tail -n 1 ~/smartagri-backup.log
+```
+
+**方法二：systemd timer（電腦關機錯過時間，開機後會補做）。** 建立兩個檔案（要 `sudo`），`<你的使用者名稱>` 與路徑換成你的：
+
+```ini
+# /etc/systemd/system/smartagri-backup.service
+[Unit]
+Description=smart-agri backup
+After=docker.service
+
+[Service]
+Type=oneshot
+User=<你的使用者名稱>
+ExecStart=/home/<你的使用者名稱>/smart-agri/deploy/backup.sh
+```
+
+```ini
+# /etc/systemd/system/smartagri-backup.timer
+[Unit]
+Description=smart-agri backup every night
+
+[Timer]
+OnCalendar=*-*-* 02:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now smartagri-backup.timer
+systemctl list-timers smartagri-backup.timer      # 看下次什麼時候執行
+journalctl -u smartagri-backup.service -n 5       # 看最近一次的結果（最後一行應該是 backup: OK）
+```
+
+兩種方法選一種就好，不要同時用。
+
+### 14.4 把備份放到這台電腦以外的地方
+
+備份只放在同一台電腦上，硬碟壞掉時會一起不見，所以**至少要有一份在別的地方**。選一種：
+
+- **外接硬碟（插著不拔）**：直接把備份寫到外接硬碟，cron 那一行改成
+  `BACKUP_DIR=/media/<你的使用者名稱>/<硬碟名稱>/smartagri-backups /home/.../deploy/backup.sh >> ...`。
+  硬碟沒插上時備份會失敗（紀錄裡看得到 `FAIL`），不會默默寫到別處。
+- **另一台電腦（透過 Tailscale）**：另一台電腦也登入同一個 Tailscale 帳號、開好 SSH，並讓主機能用 SSH 金鑰登入它
+  （`ssh-copy-id <使用者>@<那台的 Tailscale 名稱>`）。然後 cron 那一行改成「備份成功才複製」：
+
+  ```cron
+  30 2 * * * /home/<你>/smart-agri/deploy/backup.sh >> /home/<你>/smartagri-backup.log 2>&1 && rsync -a /home/<你>/smart-agri/deploy/backups/ <使用者>@<那台的 Tailscale 名稱>:smartagri-backups/ >> /home/<你>/smartagri-backup.log 2>&1
+  ```
+
+  `rsync -a` 只會新增檔案、不會刪掉另一台上的舊備份；另一台的空間偶爾要自己清。
+
+檢查另一個地方的備份檔能不能讀（列出 6 個項目就是完整的）：
+
+```sh
+tar -tf <備份檔>
+```
+
+### 14.5 還原
+
+還原會把**資料庫整個換成備份當時的樣子**（備份之後新增的資料會不見），所以只在真的需要時做。還原腳本 `deploy/restore.sh` 會：
+檢查備份檔沒有損壞 → 把缺少的 `deploy/.env` 與憑證放回去 → 停掉 api → 還原資料庫與金鑰 → 重新啟動 api → 確認 `/health/ready` 回 200。
+最後一行是 `restore: OK ...`；任何一步失敗都會印 `restore: FAIL: <原因>`，而且在真正換掉資料庫之前失敗的話，原本的資料庫不會被動到。
+
+**情況 A：同一台電腦，資料出問題（例如誤刪）**
+
+1. 找出要用的備份：`ls deploy/backups/`（檔名就是時間）。
+2. 執行（因為資料庫裡還有資料，要加 `--force` 表示「我確定要整個換掉」）：
+
+   ```sh
+   deploy/restore.sh --force deploy/backups/smartagri-backup-20261013-023000.tar
+   ```
+
+   沒加 `--force` 時，腳本會說 `already holds data` 並拒絕，什麼都不改。
+3. 用瀏覽器登入管理介面確認資料。有人被要求重新登入是正常的。
+
+**情況 B：換一台新電腦（舊電腦壞了）**
+
+1. 新電腦照第 2 節裝好 Docker，把 repo 下載下來（`git clone`，版本和舊電腦一樣或更新）。
+   **不要**自己產生新的憑證、也**不要**建立新的 `deploy/.env`：這些都在備份裡。
+2. 把備份檔複製到新電腦（例如從外接硬碟或另一台電腦），然後執行：
+
+   ```sh
+   deploy/restore.sh /某個/位置/smartagri-backup-20261013-023000.tar
+   ```
+
+   它會先把 `deploy/.env` 與 `deploy/certs/` 放回去，第一次會建置映像檔（要幾分鐘），再還原資料並啟動。
+3. 照第 3 節最後的 `curl` 檢查，並確認 `PUBLIC_BASE_URL`（Tailscale Funnel 的網址）在新電腦上也通；網址變了的話，
+   改 `deploy/.env` 後 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d`，
+   再到每個 LINE 頻道按一次「測試連線」（第 10.1 節）。
+4. 在新電腦設定每天備份（14.3 節）。
+
+> 如果新電腦上**已經**有不一樣的 `deploy/.env` 或憑證，腳本會列出哪些檔案不同並拒絕；確定要用備份裡的版本時加 `--force`，
+> 原本的檔案會改名保留成 `<檔名>.before-restore-<時間>`。
+
+### 14.6 多久練習一次還原
+
+備份要「還原得回來」才算數。
+
+- **每個月一次**（以及每次升級版本之後），在主機上跑演練腳本。它在一套**完全獨立**的暫時環境裡做完整的
+  「建立資料 → 備份 → 全部刪掉 → 還原 → 檢查」，不會碰到正式的資料、`deploy/.env`、`deploy/certs/` 或 `deploy/backups/`：
+
+  ```sh
+  deploy/backup-drill.sh
+  ```
+
+  大約幾分鐘（第一次要先建置映像檔）。最後一行是 `backup-drill: PASS: ...` 就代表備份與還原腳本在這台電腦上是好的。
+  它會檢查：原帳號能用原密碼登入、助理／知識庫／對話都在、加密的 LINE 憑證解得開，以及沒加 `--force` 時會拒絕覆蓋、資料庫沒在跑時備份會失敗。
+  CI 的 `docker-smoke` job 在每個 PR 上也會跑同一支腳本（接在冒煙測試之後，約 70 秒）。
+- **每週看一次**備份紀錄的最後一行是 `backup: OK`（14.3 節），並確認另一個地方也有最新的檔案（14.4 節）。
+
+### 14.7 可以調整的設定（都可以不設）
+
+| 環境變數 | 預設 | 用途 |
+| --- | --- | --- |
+| `BACKUP_DIR` | `deploy/backups` | 備份放哪裡（已加入 `.gitignore`） |
+| `BACKUP_KEEP` | `14` | 保留最新的幾份 |
+| `DEPLOY_ENV_FILE` | `deploy/.env` | 部署用的設定檔 |
+| `DEPLOY_CERTS_DIR` | `deploy/certs` | 憑證資料夾 |
+| `DEPLOY_COMPOSE_FILES` | `deploy/docker-compose.yml` | compose 檔（多個用空白隔開，見 14.2 節） |
+| `DEPLOY_PROJECT` | compose 檔裡的 `smartagri` | compose 專案名稱 |
+| `RESTORE_TIMEOUT_SECONDS` | `180` | 還原時等資料庫與 `/health/ready` 的秒數 |
+
+`deploy/backup.sh --help` 與 `deploy/restore.sh --help` 會印出英文的詳細說明。

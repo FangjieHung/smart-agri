@@ -207,3 +207,30 @@ jobs:
             ${{ runner.temp }}/admin.log
             ${{ runner.temp }}/fake-line.log
           retention-days: 7
+
+  # 正式映像與客戶部署 compose 的冒煙測試（#341）：其他 job 都不建置 Dockerfile，也不啟動
+  # deploy/docker-compose.yml，壞了要到負責人的主機上才會發現。這裡先用 buildx 建置映像（層快取放在
+  # GitHub Actions cache，前端與 .NET 的相依套件沒變時不必重抓），再由 deploy/smoke-test.sh 以 Production、
+  # 臨時產生的密碼與憑證、不存在的模型位址啟動整個 compose，檢查 /health/ready、管理介面、/embed.js 與 setup，
+  # 最後 `down -v`。context 與 file 和 docker-compose.yml 的 build 區段相同（腳本會確認那裡的 Dockerfile 存在）。
+  # 與上面三個 job 平行，不會拉長總時間。
+  docker-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/src/SmartAgri.Api/Dockerfile
+          tags: smartagri-smoke-api:ci
+          load: true
+          cache-from: type=gha,scope=docker-smoke
+          cache-to: type=gha,mode=max,scope=docker-smoke
+      - name: Smoke test the image with deploy/docker-compose.yml
+        env:
+          SMOKE_IMAGE: smartagri-smoke-api:ci
+          SMOKE_SKIP_BUILD: '1'
+        run: deploy/smoke-test.sh

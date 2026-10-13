@@ -1,3 +1,5 @@
 # Secrets never belong in git: the real environment file and the token certificates.
 /.env
 /certs/
+# smoke-test.sh: its throwaway certificates and settings (deleted when it exits).
+/.smoke-test.*/

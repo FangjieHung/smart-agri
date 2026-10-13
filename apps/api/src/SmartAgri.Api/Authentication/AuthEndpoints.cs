@@ -144,10 +144,11 @@ public static class AuthEndpoints
     /// <see cref="Account.PasswordChangeRequired"/>; <c>204</c> on success. The new password
     /// must pass Identity's rules and differ from the current one. Identity also rotates
     /// the security stamp, so the old password and any sign-in cookie issued before stop
-    /// working, and every token entry of the account is revoked: no refresh token issued
-    /// before — including this session's own — can be used again (#354). The access token in
-    /// hand keeps working until it expires (at most 30 minutes, now ungated); then the SPA
-    /// signs in again.
+    /// working. The sign-in that made the change goes on (#360): its access token keeps working
+    /// (now ungated) and its refresh token keeps renewing it, still within 7 days of the original
+    /// sign-in. Every other sign-in of the account ends: its refresh tokens get
+    /// <c>invalid_grant</c> and its access tokens <c>401</c> from the next request on
+    /// (<see cref="PasswordChangeSignIns"/>).
     /// </summary>
     /// <remarks>
     /// Errors, following the API's error rules:
@@ -166,8 +167,10 @@ public static class AuthEndpoints
     internal static async Task<IResult> ChangePasswordAsync(
         ChangePasswordRequest request,
         HttpContext httpContext,
+        AppDbContext dbContext,
         SignInManager<Account> signInManager,
-        IOpenIddictTokenManager tokenManager)
+        IOpenIddictAuthorizationManager authorizationManager,
+        CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } accountId)
         {
@@ -218,6 +221,11 @@ public static class AuthEndpoints
             return PasswordNotChanged(NewPasswordField, ["新密碼不可與目前密碼相同。"]);
         }
 
+        // One transaction: a refresh racing this request sees the old password and stamp with every
+        // sign-in still valid, or the new ones with only this sign-in left (and re-stamped) — never the
+        // new stamp before this sign-in has it.
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+
         // Cleared before ChangePasswordAsync so the flag and the new hash are saved in the
         // same UPDATE; if Identity rejects the new password nothing is saved at all.
         var wasRequired = account.PasswordChangeRequired;
@@ -233,9 +241,16 @@ public static class AuthEndpoints
             return PasswordNotChanged(NewPasswordField, [.. result.Errors.Select(error => error.Description)]);
         }
 
-        // The rotated stamp already stops every refresh token at the token endpoint; revoking the
-        // entries too ends them in the database (subject = account id), as reset-password does.
-        await tokenManager.RevokeBySubjectAsync(account.Id.ToString("D"));
+        // The access token names its sign-in (OpenIddict's authorization id): that one is kept and takes
+        // the new stamp; every other authorization and token of the account is revoked.
+        await PasswordChangeSignIns.EndAllButAsync(
+            dbContext,
+            authorizationManager,
+            account.Id.ToString("D"),
+            httpContext.User.GetAuthorizationId(),
+            await userManager.GetSecurityStampAsync(account) ?? string.Empty,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return Results.NoContent();
     }
 

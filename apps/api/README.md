@@ -78,10 +78,13 @@ one sent is now redeemed. A refresh token lives 8 hours (`RefreshTokenLifetime`)
 use issues a fresh 8-hour one, so a sign-in ends after 8 hours unused; it also ends 7 days
 after the sign-in however often it was refreshed (`SessionLifetime`: the sign-in time and
 the account's security stamp ride along in the encrypted code and refresh tokens,
-`SignInSession`). Presenting a redeemed refresh token again (no reuse leeway) revokes every
-token of that authorization. Each refresh re-checks the account like the code exchange:
-it must still exist in the organization, not be locked out, be allowed to sign in, and have
-the security stamp it signed in with — so a password change or `reset-password` ends it.
+`SignInSession`). A redeemed refresh token presented again within 30 seconds
+(`RefreshTokenReuseLeeway`, OpenIddict's default, #360) is renewed again — a retry after a lost
+response, or a duplicated tab; later, it revokes every token of that authorization. Each refresh
+re-checks the account like the code exchange: it must still exist in the organization, not be
+locked out, be allowed to sign in, and have the security stamp it signed in with — so
+`reset-password` ends it, and so does a password change made from another sign-in (the sign-in
+that changed the password continues with the new stamp, recorded on its OpenIddict authorization).
 Errors are OAuth's `400 invalid_grant`. `POST /connect/revoke` (`token`,
 `token_type_hint=refresh_token`, `client_id`) revokes a refresh token; the SPA calls it on
 logout before `/connect/endsession`.
@@ -108,9 +111,12 @@ endpoints are gated automatically; to exempt one, add `.AllowWhilePasswordChange
 
 `POST /api/v1/auth/change-password` `{ currentPassword, newPassword }` (bearer token) →
 `204`. It clears the flag and rotates the security stamp, so the old password and any
-earlier sign-in cookie stop working, and revokes every token entry of the account, so no
-refresh token issued before (this session's included) works again; the access token in hand
-keeps working, now ungated, until it expires. Errors:
+earlier sign-in cookie stop working. The sign-in that made the change goes on (#360): its access
+token keeps working (now ungated) and its refresh token keeps renewing it, still within 7 days of
+the original sign-in — so the first-login change ends signed in. Every other sign-in of the account
+ends: its OpenIddict authorization and tokens are revoked, its refresh token gets `invalid_grant`,
+and its access token gets `401` from the next request on (the per-request account read also checks
+the token's authorization, `oi_au_id`). Errors:
 
 | Status | When |
 | --- | --- |

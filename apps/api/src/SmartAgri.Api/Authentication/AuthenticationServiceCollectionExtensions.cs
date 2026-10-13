@@ -30,6 +30,13 @@ public static class AuthenticationServiceCollectionExtensions
     public static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(7);
 
     /// <summary>
+    /// How long a refresh token that was just used may be used again (#360, OpenIddict's default): a
+    /// refresh whose response got lost can be retried, and two tabs sharing one sessionStorage (a
+    /// duplicated tab) can both refresh. After that, presenting it again revokes the whole chain.
+    /// </summary>
+    public static readonly TimeSpan RefreshTokenReuseLeeway = TimeSpan.FromSeconds(30);
+
+    /// <summary>
     /// Lifetime of the Identity sign-in cookie that bridges <c>POST /api/v1/auth/login</c>
     /// and <c>/connect/authorize</c>. Not sliding: the SPA never re-authorizes with it (it renews
     /// with refresh tokens), so it only has to outlast the redirect to <c>/connect/authorize</c>.
@@ -157,11 +164,11 @@ public static class AuthenticationServiceCollectionExtensions
                 server.SetRefreshTokenLifetime(RefreshTokenLifetime);
 
                 // Rolling refresh tokens (OpenIddict's default, kept on): each use marks the token
-                // redeemed and issues a new one. Presenting a redeemed one again is treated as theft —
-                // OpenIddict then revokes every token of that authorization (the whole chain). No reuse
-                // leeway: OpenIddict's default 30 seconds would let a stolen token be replayed once
-                // without consequence; the SPA never sends two refreshes at once (single-flight).
-                server.SetRefreshTokenReuseLeeway(null);
+                // redeemed and issues a new one. Presenting a redeemed one again after the reuse leeway
+                // is treated as theft — OpenIddict then revokes every token of that authorization (the
+                // whole chain). Within the leeway it is renewed again: set explicitly (#360) so the
+                // value is ours, not whatever a later OpenIddict release defaults to.
+                server.SetRefreshTokenReuseLeeway(RefreshTokenReuseLeeway);
 
                 // Access tokens are signed JWTs, not encrypted: they only carry sub, org_id
                 // and role, and the SPA never needs to read them anyway. Authorization codes

@@ -48,6 +48,9 @@ export function databaseAccessCandidates(
   }));
 }
 
+/** 新指定停用的帳號時（issue #361）；與後端 `DatabaseEndpoints.DeactivatedAccountMessage` 相同。 */
+export const DEACTIVATED_DATA_MANAGER_MESSAGE = '停用的帳號不能指定為資料管理者，這次指定沒有儲存。';
+
 /** 只接受清單上的帳號；有不認得的 id 就整批不寫入。 */
 export function normalizeDataManagers(
   accounts: readonly AccountView[],

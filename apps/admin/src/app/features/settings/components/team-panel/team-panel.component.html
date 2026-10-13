@@ -62,14 +62,18 @@
             <p class="hint">
               {{ member.deactivatedAt.slice(0, 10) }} 停用：這個帳號無法登入，停用時的資產已轉給接手人。重新啟用後可以再登入，但資產不會轉回。
             </p>
-            <button
-              type="button"
-              class="ui-button secondary"
-              [disabled]="reactivating() === member.id"
-              (click)="reactivate(member)"
-            >
-              重新啟用 {{ member.displayName }}
-            </button>
+            @if (mayOffboard(member)) {
+              <button
+                type="button"
+                class="ui-button secondary"
+                [disabled]="reactivating() === member.id"
+                (click)="reactivate(member)"
+              >
+                重新啟用 {{ member.displayName }}
+              </button>
+            } @else {
+              <p class="hint">只有管理者能重新啟用其他管理者。</p>
+            }
           } @else if (editing() === member.id) {
             <form class="member__editor" novalidate (submit)="save(member, $event)">
               <fieldset>
@@ -123,12 +127,15 @@
               <button type="button" class="ui-button secondary" (click)="startEditing(member)">
                 變更 {{ member.displayName }} 的權限
               </button>
-              @if (!member.isViewer) {
+              @if (mayOffboard(member)) {
                 <button type="button" class="ui-button secondary danger" (click)="openDeactivateDialog(member)">
                   停用 {{ member.displayName }}
                 </button>
               }
             </div>
+            @if (!member.isViewer && !mayOffboard(member)) {
+              <p class="hint">只有管理者能停用其他管理者。</p>
+            }
           }
         </li>
       }
@@ -261,10 +268,10 @@
           </p>
 
           <section class="offboarding" aria-labelledby="offboarding-transfer-title">
-            <h3 id="offboarding-transfer-title">一次轉給接手人</h3>
+            <h3 id="offboarding-transfer-title">{{ preview.successorRequired ? '一次轉給接手人' : '要轉移的資產' }}</h3>
             @let holdings = preview.holdings;
-            @if (holdings.assistants + holdings.drafts + holdings.knowledgeBases + holdings.databases + holdings.openIssues + holdings.openCases === 0) {
-              <p class="hint">{{ member.displayName }} 目前沒有需要轉移的助理、知識庫、數據庫、處理事項或案件。</p>
+            @if (!preview.successorRequired) {
+              <p class="hint">{{ member.displayName }} 目前沒有需要轉移的助理、知識庫、數據庫、處理事項或案件，不需要選擇接手人。</p>
             } @else {
               <ul class="offboarding__counts">
                 @if (holdings.assistants > 0) { <li>助理 {{ holdings.assistants }} 個</li> }
@@ -283,40 +290,42 @@
             }
           </section>
 
-          <fieldset class="successors">
-            <legend>選擇接手人</legend>
-            @if (preview.requiredPermissions.length > 0) {
-              <p class="hint">接手人必須是使用中的內部成員，並具備{{ requiredLabels(preview) }}權限。</p>
-            } @else {
-              <p class="hint">接手人必須是使用中的內部成員。</p>
-            }
-            @for (candidate of preview.candidates; track candidate.id) {
-              @let note = candidateNote(candidate, preview);
-              <div class="successor" [class.successor--disabled]="!candidate.eligible">
-                <input
-                  type="radio"
-                  name="successor"
-                  [id]="'successor-' + candidate.id"
-                  [checked]="successorId() === candidate.id"
-                  [disabled]="!candidate.eligible || deactivating()"
-                  [attr.aria-describedby]="note ? 'successor-note-' + candidate.id : null"
-                  (change)="chooseSuccessor(candidate)"
-                />
-                <label [for]="'successor-' + candidate.id">
-                  <span class="successor__name">{{ candidate.displayName }}</span>
-                  <small>{{ roleLabels[candidate.role] }}</small>
-                  @if (note) {
-                    <small class="successor__note" [id]="'successor-note-' + candidate.id">{{ note }}</small>
-                  }
-                </label>
-              </div>
-            }
-            @if (eligibleCandidates().length === 0) {
-              <p class="error" role="alert">
-                目前沒有符合資格的接手人。可以先在團隊清單為一位內部成員加上需要的權限，再回來停用。
-              </p>
-            }
-          </fieldset>
+          @if (preview.successorRequired) {
+            <fieldset class="successors">
+              <legend>選擇接手人</legend>
+              @if (preview.requiredPermissions.length > 0) {
+                <p class="hint">接手人必須是使用中的內部成員，並具備{{ requiredLabels(preview) }}權限。</p>
+              } @else {
+                <p class="hint">接手人必須是使用中的內部成員。</p>
+              }
+              @for (candidate of preview.candidates; track candidate.id) {
+                @let note = candidateNote(candidate, preview);
+                <div class="successor" [class.successor--disabled]="!candidate.eligible">
+                  <input
+                    type="radio"
+                    name="successor"
+                    [id]="'successor-' + candidate.id"
+                    [checked]="successorId() === candidate.id"
+                    [disabled]="!candidate.eligible || deactivating()"
+                    [attr.aria-describedby]="note ? 'successor-note-' + candidate.id : null"
+                    (change)="chooseSuccessor(candidate)"
+                  />
+                  <label [for]="'successor-' + candidate.id">
+                    <span class="successor__name">{{ candidate.displayName }}</span>
+                    <small>{{ roleLabels[candidate.role] }}</small>
+                    @if (note) {
+                      <small class="successor__note" [id]="'successor-note-' + candidate.id">{{ note }}</small>
+                    }
+                  </label>
+                </div>
+              }
+              @if (eligibleCandidates().length === 0) {
+                <p class="error" role="alert">
+                  目前沒有符合資格的接手人。可以先在團隊清單為一位內部成員加上需要的權限，再回來停用。
+                </p>
+              }
+            </fieldset>
+          }
         }
       </div>
       @if (deactivateError()) {
@@ -325,7 +334,11 @@
       <div class="dialog-actions">
         <button type="button" class="ui-button secondary" (click)="closeDeactivateDialog()">取消</button>
         @if (preview !== null && preview !== 'failed' && !preview.blockMessage) {
-          <button type="submit" class="ui-button danger" [disabled]="deactivating() || successorId() === null">停用並轉移</button>
+          @if (preview.successorRequired) {
+            <button type="submit" class="ui-button danger" [disabled]="deactivating() || successorId() === null">停用並轉移</button>
+          } @else {
+            <button type="submit" class="ui-button danger" [disabled]="deactivating()">停用</button>
+          }
         }
       </div>
     </form>

@@ -146,8 +146,11 @@ public static class DatabaseAutoCaseEndpoints
         var groups = await dbContext.CaseGroups.AsNoTracking()
             .Where(group => groupIds.Contains(group.Id))
             .ToDictionaryAsync(group => group.Id, cancellationToken);
+        // Members in use only (issue #361): a deactivated member keeps the membership but will not
+        // handle the cases this database opens, so they are not counted.
         var members = (await dbContext.CaseGroupMembers.AsNoTracking()
-                .Where(member => groupIds.Contains(member.GroupId))
+                .Where(member => groupIds.Contains(member.GroupId)
+                    && dbContext.Accounts.Any(account => account.Id == member.AccountId && account.DeactivatedAt == null))
                 .Select(member => new { member.GroupId, member.AccountId })
                 .ToListAsync(cancellationToken))
             .ToLookup(member => member.GroupId, member => member.AccountId);

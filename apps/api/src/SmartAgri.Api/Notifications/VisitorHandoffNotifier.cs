@@ -83,9 +83,11 @@ public sealed class VisitorHandoffNotifier
         }
     }
 
+    /// <summary>Never to a deactivated owner (issue #361): they cannot sign in to answer it.</summary>
     private async Task<bool> OwnerWantsEmailAsync(Guid ownerAccountId) =>
         await _dbContext.AccountNotificationSettings.AsNoTracking()
-            .AnyAsync(settings => settings.AccountId == ownerAccountId && settings.HandoffEmails && settings.Email != null);
+            .AnyAsync(settings => settings.AccountId == ownerAccountId && settings.HandoffEmails && settings.Email != null)
+        && await _dbContext.Accounts.AsNoTracking().AnyAsync(account => account.Id == ownerAccountId && account.DeactivatedAt == null);
 
     /// <summary>The scope may save again (LINE handles a whole delivery in one): a row that failed must
     /// not be retried by someone else's save.</summary>

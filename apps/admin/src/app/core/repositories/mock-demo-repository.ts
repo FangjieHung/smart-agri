@@ -167,12 +167,16 @@ import {
   checkMemberDeactivation,
   checkSuccessor,
   isAccountPermission,
+  isSuccessorRequired,
   lockedPermissionsFor,
+  mayManageMemberRole,
   MEMBER_DEACTIVATION_MESSAGES,
   MEMBER_NOT_DEACTIVATED_MESSAGE,
+  NO_TRANSFERS,
   normalizeMemberPermissions,
   requiredSuccessorPermissions,
   SUCCESSOR_NOT_ELIGIBLE_MESSAGE,
+  SUCCESSOR_REQUIRED_MESSAGE,
   validateMemberPermissions,
   type MemberHoldingsView,
   type MemberOffboardingView,
@@ -185,6 +189,7 @@ import {
   databaseAccessCandidates,
   normalizeDataManagers,
   DATABASE_RECORDS_DENIED_MESSAGE,
+  DEACTIVATED_DATA_MANAGER_MESSAGE,
 } from './database-access';
 import {
   dayAfter,
@@ -1431,7 +1436,7 @@ export class MockDemoRepository implements DemoRepository {
     return defer(() => of(this.readMemberOffboarding(this.viewer(), memberAccountId)));
   }
 
-  deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId): Observable<DeactivateMemberResult> {
+  deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId | null): Observable<DeactivateMemberResult> {
     return defer(() => of(this.writeDeactivateMember(this.viewer(), memberAccountId, successorAccountId)));
   }
 
@@ -1577,6 +1582,7 @@ export class MockDemoRepository implements DemoRepository {
       blockMessage: block === null ? null : MEMBER_DEACTIVATION_MESSAGES[block],
       holdings,
       requiredPermissions: required,
+      successorRequired: isSuccessorRequired(holdings),
       candidates,
     });
   }
@@ -1587,10 +1593,15 @@ export class MockDemoRepository implements DemoRepository {
       (account) => account.id !== member.id && account.role === 'smb-admin' && deactivated[account.id] === undefined,
     ).length;
     return checkMemberDeactivation(
-      viewerAccountId,
+      { id: viewerAccountId, role: this.roleOf(viewerAccountId) },
       { id: member.id, role: member.role, deactivated: deactivated[member.id] !== undefined },
       otherActiveAdmins,
     );
+  }
+
+  /** 找不到的身分當成權限最少的外部客戶：只會讓規則更嚴，不會更鬆。 */
+  private roleOf(accountId: AccountId): AccountRole {
+    return this.accounts().find((account) => account.id === accountId)?.role ?? 'external-customer';
   }
 
   /** 處理事項與案件在各自的 repository（`AssistantIssuesRepository`、`CasesRepository`），這裡是 0。 */
@@ -1627,7 +1638,7 @@ export class MockDemoRepository implements DemoRepository {
   private writeDeactivateMember(
     viewerAccountId: AccountId | null,
     memberAccountId: AccountId,
-    successorAccountId: AccountId,
+    successorAccountId: AccountId | null,
   ): DeactivateMemberResult {
     if (viewerAccountId === null || !this.canManageAssistants(viewerAccountId)) return this.teamPermissionDenied();
     const member = this.accounts().find((account) => account.id === memberAccountId);
@@ -1636,8 +1647,16 @@ export class MockDemoRepository implements DemoRepository {
     const block = this.deactivationBlock(viewerAccountId, member);
     if (block !== null) return { status: 'validation-failed', message: MEMBER_DEACTIVATION_MESSAGES[block] };
 
+    const holdings = this.memberHoldings(member.id);
+    if (successorAccountId === null) {
+      // 處理事項與案件在各自的 repository：團隊頁送出前已用合併後的數量判斷過（`isSuccessorRequired`）。
+      if (isSuccessorRequired(holdings)) return { status: 'validation-failed', message: SUCCESSOR_REQUIRED_MESSAGE };
+      this.storage.setItem(DEACTIVATED_MEMBERS_KEY, JSON.stringify({ ...this.deactivatedMembers(), [member.id]: this.now().toISOString() }));
+      return this.applyScenario({ team: this.teamView(viewerAccountId), transferred: NO_TRANSFERS });
+    }
+
     const successor = this.accounts().find((account) => account.id === successorAccountId && account.id !== member.id);
-    const required = requiredSuccessorPermissions(this.memberHoldings(member.id));
+    const required = requiredSuccessorPermissions(holdings);
     if (
       successor === undefined ||
       checkSuccessor(
@@ -1732,6 +1751,9 @@ export class MockDemoRepository implements DemoRepository {
 
     const deactivated = { ...this.deactivatedMembers() };
     if (deactivated[member.id] === undefined) return { status: 'validation-failed', message: MEMBER_NOT_DEACTIVATED_MESSAGE };
+    if (!mayManageMemberRole(this.roleOf(viewerAccountId), member.role)) {
+      return { status: 'validation-failed', message: MEMBER_DEACTIVATION_MESSAGES['admin-required'] };
+    }
     delete deactivated[member.id];
     this.storage.setItem(DEACTIVATED_MEMBERS_KEY, JSON.stringify(deactivated));
     return this.applyScenario(this.teamView(viewerAccountId));
@@ -2758,7 +2780,12 @@ export class MockDemoRepository implements DemoRepository {
     const assistant = this.publishingTarget(viewerAccountId, assistantId);
     if (assistant === undefined) return this.publishingPermissionDenied();
 
-    const allowed = normalizePlatformAccounts(assistant, this.accounts(), accountIds);
+    // 已分享的停用帳號存檔時保留；新選停用帳號與清單外的 id 一樣整批不寫入（issue #361）。
+    const allowed = normalizePlatformAccounts(
+      assistant,
+      this.accountsKeeping(this.publishingRecord(assistant).platform.allowedAccountIds),
+      accountIds,
+    );
     if (allowed === null) {
       return immutableCopy({
         status: 'validation-failed',
@@ -3410,7 +3437,8 @@ export class MockDemoRepository implements DemoRepository {
       documents: this.knowledgeDocuments(knowledgeBase.id),
       connectedAssistants: this.connectedKnowledgeAssistants(viewerAccountId, knowledgeBase.id),
       sharing: this.knowledgeRecord(knowledgeBase.id).sharing,
-      shareTargets: this.accounts()
+      // 選單只列使用中的帳號（issue #361）；已分享給停用帳號的保留在 `sharing` 裡。
+      shareTargets: this.activeAccounts()
         .filter((account) => account.id !== viewerAccountId)
         .map(({ id, displayName }) => ({ id, displayName })),
     };
@@ -3537,8 +3565,9 @@ export class MockDemoRepository implements DemoRepository {
     const knowledgeBase = this.ownedKnowledgeBase(viewerAccountId, knowledgeBaseId);
     if (knowledgeBase === undefined) return this.knowledgePermissionDenied();
 
+    // 使用中的帳號，加上已經分享的停用帳號（存檔時保留，issue #361）；新選的停用帳號與不認得的 id 一樣略過。
     const validTargets = new Set<string>(
-      this.accounts()
+      this.accountsKeeping(this.knowledgeRecord(knowledgeBase.id).sharing.sharedWithAccountIds)
         .filter((account) => account.id !== viewerAccountId)
         .map((account) => account.id),
     );
@@ -4414,6 +4443,12 @@ export class MockDemoRepository implements DemoRepository {
         status: 'validation-failed',
         message: '有不認得的帳號，這次指定沒有儲存。',
       });
+    }
+    // 停用的帳號不能新指定；已指定的保留（issue #361，與後端相同）。
+    const current = this.databaseCollection(database.id).dataManagerAccountIds;
+    const deactivated = this.deactivatedMembers();
+    if (normalized.some((id) => deactivated[id] !== undefined && !current.includes(id))) {
+      return immutableCopy({ status: 'validation-failed', message: DEACTIVATED_DATA_MANAGER_MESSAGE });
     }
 
     const record: StoredDatabaseAccess = {
@@ -6314,7 +6349,8 @@ export class MockDemoRepository implements DemoRepository {
       viewerCanReadRecords: this.canReadRecords(viewerAccountId, database.id),
       viewerCanManageAccess: canManageAccess,
       // 只有擁有者會被告知可以指定誰（API 同樣只給擁有者）。
-      candidates: canManageAccess ? databaseAccessCandidates(accounts) : [],
+      // 選單只列使用中的帳號（issue #361）；已指定的停用帳號仍列在 `dataManagers`。
+      candidates: canManageAccess ? databaseAccessCandidates(this.activeAccounts()) : [],
       savedAt: stored?.savedAt ?? null,
       savedBy: stored?.savedBy === undefined ? null : displayName(stored.savedBy),
     };
@@ -6982,9 +7018,22 @@ export class MockDemoRepository implements DemoRepository {
     return toAssistantPublishingView(
       assistant,
       this.publishingRecord(assistant),
-      this.accounts(),
+      // 分享選單只列使用中的帳號（issue #361）。
+      this.activeAccounts(),
       this.websiteContext(assistant),
     );
+  }
+
+  /** 使用中（沒有停用）的帳號：每個「選帳號」的選單只列這些（issue #361）。 */
+  private activeAccounts(): readonly AccountView[] {
+    const deactivated = this.deactivatedMembers();
+    return this.accounts().filter((account) => deactivated[account.id] === undefined);
+  }
+
+  /** 存檔時接受的帳號：使用中的，加上 `chosen` 裡已經選了的停用帳號（保留，但不能新選）。 */
+  private accountsKeeping(chosen: readonly AccountId[]): readonly AccountView[] {
+    const deactivated = this.deactivatedMembers();
+    return this.accounts().filter((account) => deactivated[account.id] === undefined || chosen.includes(account.id));
   }
 
   /** 官網實際服務狀態的輸入：驗收狀態、連接的別人的知識庫（決定 B）、用量與情境。 */

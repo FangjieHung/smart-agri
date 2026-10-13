@@ -282,6 +282,14 @@ describe('accessibility', () => {
       cy.get('[role="dialog"]').should('not.exist');
       cy.focused().should('contain.text', '停用 安心商行客服同仁');
     });
+
+    it('has no critical or serious violations without a successor to choose (issue #361)', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '停用 外部客戶').scrollIntoView().click();
+      cy.get('[role="dialog"]').contains('不需要選擇接手人').should('exist');
+      auditA11y();
+    });
   });
 
   describe('case group member editor and history expanded (issue #246)', () => {

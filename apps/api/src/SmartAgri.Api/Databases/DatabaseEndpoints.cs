@@ -572,6 +572,14 @@ public static class DatabaseEndpoints
         var removed = current.Where(designation => !requested.Contains(designation.AccountId)).ToList();
         var added = requested.Where(accountId => current.All(designation => designation.AccountId != accountId)).ToList();
 
+        // A deactivated account is never offered and cannot be newly designated (issue #361); one
+        // already designated stays (the picker sends it back unchanged) and counts again once reactivated.
+        if (added.Count > 0
+            && await dbContext.Accounts.AnyAsync(account => added.Contains(account.Id) && account.DeactivatedAt != null, cancellationToken))
+        {
+            return DataManagersInvalid(DeactivatedAccountMessage);
+        }
+
         foreach (var designation in removed)
         {
             dbContext.DatabaseDataManagers.Remove(designation);
@@ -607,6 +615,9 @@ public static class DatabaseEndpoints
     }
 
     private const string UnknownAccountMessage = "有不認得的帳號，這次指定沒有儲存。";
+
+    /// <summary>Same text as the mock (<c>database-access.ts</c>'s <c>DEACTIVATED_DATA_MANAGER_MESSAGE</c>).</summary>
+    private const string DeactivatedAccountMessage = "停用的帳號不能指定為資料管理者，這次指定沒有儲存。";
 
     private static IResult DataManagersInvalid(string message) =>
         ApiErrors.ValidationFailed(message, new Dictionary<string, string[]> { ["dataManagerAccountIds"] = [message] });
@@ -648,7 +659,7 @@ public static class DatabaseEndpoints
         var accounts = await dbContext.Accounts
             .AsNoTracking()
             .Where(account => nameIds.Contains(account.Id) || isOwner)
-            .Select(account => new { account.Id, account.DisplayName, account.Role })
+            .Select(account => new { account.Id, account.DisplayName, account.Role, Deactivated = account.DeactivatedAt != null })
             .ToListAsync(cancellationToken);
         var names = AccountNameLookup.From(accounts.ToDictionary(account => account.Id, account => account.DisplayName));
         DatabaseAccountView Named(Guid accountId) => new(accountId, names.NameOf(accountId));
@@ -664,8 +675,11 @@ public static class DatabaseEndpoints
                 .Select(grant => grant.AccountId)
                 .ToListAsync(cancellationToken)).ToHashSet()
             : [];
+        // Accounts in use only (issue #361): a deactivated data manager is still listed among the
+        // designations above, just not offered.
         var candidates = isOwner
             ? accounts
+                .Where(account => !account.Deactivated)
                 .OrderBy(account => (int)account.Role)
                 .ThenBy(account => account.DisplayName, StringComparer.Ordinal)
                 .ThenBy(account => account.Id)

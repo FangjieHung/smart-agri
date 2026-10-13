@@ -301,7 +301,8 @@ public static class KnowledgeBaseEndpoints
             [.. items.Select(ToView)],
             new KnowledgeSharingView(
                 knowledgeBase.SharingScope,
-                [.. shareTargets.Where(target => sharedWith.Contains(target.Id)).Select(target => target.Id)],
+                // Deactivated accounts it is shared with stay listed (issue #361), just not offered.
+                [.. (await SavableShareTargetIdsAsync(dbContext, knowledgeBase, cancellationToken)).Where(sharedWith.Contains)],
                 knowledgeBase.AllowOriginalDownload),
             shareTargets));
     }
@@ -419,12 +420,11 @@ public static class KnowledgeBaseEndpoints
             return ApiErrors.NotFound(ForbiddenReason.KnowledgeBase);
         }
 
-        var shareTargets = await ShareTargetsAsync(dbContext, knowledgeBase, cancellationToken);
         var normalized = KnowledgeSharingPolicy.Normalize(
             request.Scope,
             request.SharedWithAccountIds,
             request.AllowOriginalDownload ?? false,
-            [.. shareTargets.Select(target => target.Id)]);
+            await SavableShareTargetIdsAsync(dbContext, knowledgeBase, cancellationToken));
         if (!normalized.IsValid)
         {
             return ApiErrors.ValidationFailed(normalized.Failures);
@@ -477,7 +477,9 @@ public static class KnowledgeBaseEndpoints
             .SingleOrDefaultAsync(knowledgeBase => knowledgeBase.Id == id, cancellationToken);
 
     /// <summary><see cref="KnowledgeSharingPolicy.ShareTargetIds"/> with display names, in the
-    /// team list's order (account id).</summary>
+    /// team list's order (account id): the accounts the sharing picker offers. A deactivated account
+    /// is never offered (issue #361); one it is already shared with stays shared
+    /// (<see cref="SavableShareTargetIdsAsync"/>) and back on offer once reactivated.</summary>
     private static async Task<IReadOnlyList<KnowledgeShareTargetView>> ShareTargetsAsync(
         AppDbContext dbContext,
         KnowledgeBase knowledgeBase,
@@ -485,6 +487,7 @@ public static class KnowledgeBaseEndpoints
     {
         var accounts = await dbContext.Accounts
             .AsNoTracking()
+            .Where(account => account.DeactivatedAt == null)
             .OrderBy(account => account.Id)
             .Select(account => new KnowledgeShareTargetView(account.Id, account.DisplayName))
             .ToListAsync(cancellationToken);
@@ -493,6 +496,27 @@ public static class KnowledgeBaseEndpoints
             .ShareTargetIds(knowledgeBase.OwnerAccountId, accounts.Select(account => account.Id))
             .ToHashSet();
         return accounts.FindAll(account => targetIds.Contains(account.Id));
+    }
+
+    /// <summary>
+    /// What a sharing save may keep: the offered targets (<see cref="ShareTargetsAsync"/>) plus the
+    /// deactivated accounts the knowledge base is already shared with, so saving the picker never drops
+    /// those rows (issue #361) while a deactivated account cannot be newly added (silently dropped, like
+    /// an unknown id).
+    /// </summary>
+    private static async Task<IReadOnlyList<Guid>> SavableShareTargetIdsAsync(
+        AppDbContext dbContext,
+        KnowledgeBase knowledgeBase,
+        CancellationToken cancellationToken)
+    {
+        var accountIds = await dbContext.Accounts
+            .AsNoTracking()
+            .Where(account => account.DeactivatedAt == null
+                || dbContext.KnowledgeBaseShares.Any(share => share.KnowledgeBaseId == knowledgeBase.Id && share.AccountId == account.Id))
+            .OrderBy(account => account.Id)
+            .Select(account => account.Id)
+            .ToListAsync(cancellationToken);
+        return KnowledgeSharingPolicy.ShareTargetIds(knowledgeBase.OwnerAccountId, accountIds);
     }
 
     /// <summary>

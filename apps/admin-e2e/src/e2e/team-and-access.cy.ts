@@ -261,6 +261,14 @@ describe('team management and data access', () => {
     cy.get('.feedback').should('contain', '已停用「安心商行客服同仁」：知識庫 1 個、數據庫 1 個已轉給「安心商行管理者」。');
     cy.contains('.member', '安心商行客服同仁').should('contain', '已停用').and('contain', '重新啟用 安心商行客服同仁');
 
+    // Issue #361: no longer offered as a case-group member, though still listed as one of 設備組
+    // (the case-group panel reads its candidates when the page opens).
+    visitSettings();
+    cy.get('[data-case-group="設備組"] .group__members').should('contain', '安心商行客服同仁');
+    cy.contains('button', '編輯「設備組」的成員').scrollIntoView().click();
+    cy.get('[data-case-group-members-editor] input[type="checkbox"]').should('have.length', 1);
+    cy.get('[data-case-group-members-editor]').should('not.contain', '安心商行客服同仁');
+
     // The employee's knowledge base is now the admin's to manage.
     cy.visit('/app/knowledge/knowledge-staff-notes/content');
     cy.get('#main-content').contains('同仁個人筆記').should('be.visible');
@@ -279,6 +287,39 @@ describe('team management and data access', () => {
     cy.get('.feedback').should('contain', '已重新啟用「安心商行客服同仁」');
     cy.contains('.member', '安心商行客服同仁').should('not.contain', '已停用');
     loginAs('內部使用者');
+  });
+
+  it('deactivates a member holding nothing without a successor (issue #361)', () => {
+    loginAs('SMB 管理者');
+    visitSettings();
+
+    cy.contains('button', '停用 外部客戶').scrollIntoView().click();
+    cy.get('form.create-panel[aria-labelledby="deactivate-member-title"]').should('be.visible').within(() => {
+      cy.contains('不需要選擇接手人').should('exist');
+      cy.get('input[name="successor"]').should('not.exist');
+      cy.get('button[type="submit"]').should('have.text', '停用').and('be.enabled').click();
+    });
+
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('.feedback').should('contain', '已停用「外部客戶」：沒有需要轉移的資產。');
+    cy.contains('.member', '外部客戶').should('contain', '已停用');
+    cy.contains('button', '重新啟用 外部客戶').click();
+    cy.contains('.member', '外部客戶').should('not.contain', '已停用');
+  });
+
+  it('shows a team manager who is not a manager no way to deactivate a manager (issue #361)', () => {
+    loginAs('SMB 管理者');
+    visitSettings();
+    cy.contains('button', '變更 安心商行客服同仁 的權限').click();
+    cy.get('#permission-account-internal-employee-manage-assistants').should('not.be.checked').click();
+    cy.contains('button', '儲存 安心商行客服同仁 的權限').click();
+    cy.get('[aria-live="polite"]').should('contain', '已更新 安心商行客服同仁 的權限');
+
+    loginAs('內部使用者');
+    visitSettings();
+    cy.contains('.member', '安心商行管理者').should('contain', '只有管理者能停用其他管理者。');
+    cy.contains('button', '停用 安心商行管理者').should('not.exist');
+    cy.contains('button', '停用 外部客戶').should('exist');
   });
 
   it('keeps the deactivate dialog\'s buttons on screen in a 390×700 window (issue #356)', () => {

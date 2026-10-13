@@ -4,10 +4,14 @@ import type { AccountId } from '../domain/account.model';
 import {
   checkMemberDeactivation,
   checkSuccessor,
+  isSuccessorRequired,
+  mayManageMemberRole,
   MEMBER_DEACTIVATION_MESSAGES,
   requiredSuccessorPermissions,
   NO_HOLDINGS,
+  NO_TRANSFERS,
   SUCCESSOR_NOT_ELIGIBLE_MESSAGE,
+  SUCCESSOR_REQUIRED_MESSAGE,
   type DeactivatedMemberView,
   type MemberOffboardingView,
   type TeamView,
@@ -36,11 +40,30 @@ describe('member offboarding rules (same as the backend MemberOffboardingRules)'
     expect(requiredSuccessorPermissions({ ...NO_HOLDINGS, openIssues: 3, openCases: 1, borrowedSources: 2 })).toEqual([]);
   });
 
-  it('blocks self, an already deactivated member and the last manager in use, in that order', () => {
-    expect(checkMemberDeactivation(ADMIN, { id: ADMIN, role: 'smb-admin', deactivated: true }, 0)).toBe('self');
-    expect(checkMemberDeactivation(ADMIN, { id: EMPLOYEE, role: 'internal-employee', deactivated: true }, 0)).toBe('already-deactivated');
-    expect(checkMemberDeactivation(EMPLOYEE, { id: ADMIN, role: 'smb-admin', deactivated: false }, 0)).toBe('last-admin');
-    expect(checkMemberDeactivation(EMPLOYEE, { id: ADMIN, role: 'smb-admin', deactivated: false }, 1)).toBeNull();
+  it('blocks self, an already deactivated member, a manager for a non-manager and the last manager in use, in that order', () => {
+    const admin = { id: ADMIN, role: 'smb-admin' } as const;
+    const employee = { id: EMPLOYEE, role: 'internal-employee' } as const;
+    expect(checkMemberDeactivation(admin, { id: ADMIN, role: 'smb-admin', deactivated: true }, 0)).toBe('self');
+    expect(checkMemberDeactivation(admin, { id: EMPLOYEE, role: 'internal-employee', deactivated: true }, 0)).toBe('already-deactivated');
+    expect(checkMemberDeactivation(employee, { id: ADMIN, role: 'smb-admin', deactivated: true }, 0)).toBe('already-deactivated');
+    // Issue #361: only a manager deactivates a manager.
+    expect(checkMemberDeactivation(employee, { id: ADMIN, role: 'smb-admin', deactivated: false }, 1)).toBe('admin-required');
+    expect(checkMemberDeactivation({ id: 'account-x', role: 'smb-admin' }, { id: ADMIN, role: 'smb-admin', deactivated: false }, 0)).toBe('last-admin');
+    expect(checkMemberDeactivation({ id: 'account-x', role: 'smb-admin' }, { id: ADMIN, role: 'smb-admin', deactivated: false }, 1)).toBeNull();
+    expect(checkMemberDeactivation(employee, { id: CUSTOMER, role: 'external-customer', deactivated: false }, 0)).toBeNull();
+
+    expect(mayManageMemberRole('smb-admin', 'smb-admin')).toBe(true);
+    expect(mayManageMemberRole('internal-employee', 'smb-admin')).toBe(false);
+    expect(mayManageMemberRole('internal-employee', 'internal-employee')).toBe(true);
+    expect(mayManageMemberRole('external-customer', 'external-customer')).toBe(true);
+  });
+
+  it('requires a successor only when there is something to hand over (issue #361)', () => {
+    expect(isSuccessorRequired(NO_HOLDINGS)).toBe(false);
+    expect(isSuccessorRequired({ ...NO_HOLDINGS, borrowedSources: 2 })).toBe(false);
+    for (const key of ['assistants', 'drafts', 'knowledgeBases', 'databases', 'openIssues', 'openCases'] as const) {
+      expect(isSuccessorRequired({ ...NO_HOLDINGS, [key]: 1 }), key).toBe(true);
+    }
   });
 
   it('accepts only internal members in use that hold every required permission', () => {
@@ -60,7 +83,7 @@ describe('MockDemoRepository member offboarding (issue #356)', () => {
   let viewer: AccountId | null;
 
   const preview = async (member: AccountId) => firstValueFrom(repository.getMemberOffboarding(member));
-  const deactivate = async (member: AccountId, successor: AccountId) =>
+  const deactivate = async (member: AccountId, successor: AccountId | null) =>
     firstValueFrom(repository.deactivateMember(member, successor));
 
   beforeEach(() => {
@@ -136,5 +159,124 @@ describe('MockDemoRepository member offboarding (issue #356)', () => {
 
     viewer = ADMIN;
     expect(await preview('account-nobody')).toEqual(denied);
+  });
+});
+
+describe('MockDemoRepository offboarding rules of issue #361', () => {
+  let repository: MockDemoRepository;
+  let viewer: AccountId | null;
+
+  const preview = async (member: AccountId) => dataOf<MemberOffboardingView>(await firstValueFrom(repository.getMemberOffboarding(member)));
+  const deactivate = async (member: AccountId, successor: AccountId | null) =>
+    firstValueFrom(repository.deactivateMember(member, successor));
+
+  beforeEach(async () => {
+    viewer = ADMIN;
+    repository = new MockDemoRepository(DEMO_SEED, {
+      storage: createMemoryStorage(),
+      now: () => new Date('2026-10-14T02:00:00.000Z'),
+      viewer: () => viewer,
+    });
+    // The employee may open the team settings, without being a manager.
+    const team = dataOf<TeamView>(await firstValueFrom(repository.getTeam()));
+    const employee = team.members.find((member) => member.id === EMPLOYEE);
+    await firstValueFrom(repository.updateMemberPermissions(EMPLOYEE, [...(employee?.permissions ?? []), 'manage-assistants']));
+  });
+
+  it('lets only a manager deactivate or reactivate a manager', async () => {
+    viewer = EMPLOYEE;
+    expect((await preview(ADMIN)).block).toBe('admin-required');
+    expect((await preview(ADMIN)).blockMessage).toBe(MEMBER_DEACTIVATION_MESSAGES['admin-required']);
+    expect(await deactivate(ADMIN, EMPLOYEE)).toEqual({ status: 'validation-failed', message: MEMBER_DEACTIVATION_MESSAGES['admin-required'] });
+    expect((await preview(CUSTOMER)).block).toBeNull();
+
+    // A second manager, deactivated by the first: the employee cannot bring them back, the manager can.
+    viewer = ADMIN;
+    const created = await firstValueFrom(
+      repository.createMember({ loginName: 'admin2', displayName: '第二位管理者', role: 'smb-admin', permissions: ['manage-assistants'] }),
+    );
+    const admin2 = dataOf<{ member: { id: AccountId } }>(created).member.id;
+    expect((await deactivate(admin2, null)).status).toBe('ready');
+    viewer = EMPLOYEE;
+    expect(await firstValueFrom(repository.reactivateMember(admin2))).toEqual({
+      status: 'validation-failed',
+      message: MEMBER_DEACTIVATION_MESSAGES['admin-required'],
+    });
+    viewer = ADMIN;
+    expect((await firstValueFrom(repository.reactivateMember(admin2))).status).toBe('ready');
+  });
+
+  it('deactivates a member holding nothing without a successor and refuses that for one holding something', async () => {
+    expect((await preview(CUSTOMER)).successorRequired).toBe(false);
+    expect((await preview(EMPLOYEE)).successorRequired).toBe(true);
+
+    expect(await deactivate(EMPLOYEE, null)).toEqual({ status: 'validation-failed', message: SUCCESSOR_REQUIRED_MESSAGE });
+    const result = dataOf<DeactivatedMemberView>(await deactivate(CUSTOMER, null));
+    expect(result.transferred).toEqual(NO_TRANSFERS);
+    expect(result.team.members.find((member) => member.id === CUSTOMER)?.deactivatedAt).toBe('2026-10-14T02:00:00.000Z');
+    expect(result.team.members.find((member) => member.id === EMPLOYEE)?.deactivatedAt).toBeNull();
+  });
+
+  it('leaves deactivated accounts out of every picker, keeps what was chosen, and offers them again once reactivated', async () => {
+    // Chosen for the customer before deactivation: the assistant and knowledge-base shares, a data-manager seat.
+    await firstValueFrom(repository.updatePlatformSharing('assistant-customer-service', [CUSTOMER]));
+    await firstValueFrom(repository.updateKnowledgeSharing('knowledge-product-guide', {
+      scope: 'specific-accounts', sharedWithAccountIds: [CUSTOMER], allowOriginalDownload: false,
+    }));
+    await firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN, CUSTOMER]));
+    expect((await deactivate(CUSTOMER, null)).status).toBe('ready');
+
+    const picks = async () => {
+      const platform = dataOf<{ platform: { candidates: readonly { id: string }[]; allowedAccountIds: readonly string[] } }>(
+        await firstValueFrom(repository.getAssistantPublishing('assistant-customer-service')),
+      ).platform;
+      const detail = dataOf<{ shareTargets: readonly { id: string }[]; sharing: { sharedWithAccountIds: readonly string[] } }>(
+        await firstValueFrom(repository.getKnowledgeBaseDetail('knowledge-product-guide')),
+      );
+      const access = dataOf<{ access: { candidates: readonly { id: string }[]; dataManagers: readonly { id: string }[] } }>(
+        await firstValueFrom(repository.getDatabaseDetail('database-orders')),
+      ).access;
+      return {
+        assistant: platform.candidates.map((candidate) => candidate.id),
+        assistantShared: platform.allowedAccountIds,
+        knowledge: detail.shareTargets.map((target) => target.id),
+        knowledgeShared: detail.sharing.sharedWithAccountIds,
+        dataManagerCandidates: access.candidates.map((candidate) => candidate.id),
+        dataManagers: access.dataManagers.map((manager) => manager.id),
+      };
+    };
+
+    expect(await picks()).toEqual({
+      assistant: [EMPLOYEE],
+      assistantShared: [CUSTOMER],
+      knowledge: [EMPLOYEE],
+      knowledgeShared: [CUSTOMER],
+      dataManagerCandidates: [ADMIN, EMPLOYEE],
+      dataManagers: [ADMIN, CUSTOMER],
+    });
+
+    // Saving each picker with the existing choice sent back keeps it.
+    expect((await firstValueFrom(repository.updatePlatformSharing('assistant-customer-service', [CUSTOMER, EMPLOYEE]))).status).toBe('ready');
+    expect((await firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN, CUSTOMER]))).status).toBe('ready');
+    expect((await picks()).assistantShared).toEqual([EMPLOYEE, CUSTOMER]);
+    expect((await picks()).dataManagers).toEqual([ADMIN, CUSTOMER]);
+
+    viewer = ADMIN;
+    expect((await firstValueFrom(repository.reactivateMember(CUSTOMER))).status).toBe('ready');
+    const again = await picks();
+    expect(again.assistant).toContain(CUSTOMER);
+    expect(again.knowledge).toContain(CUSTOMER);
+    expect(again.dataManagerCandidates).toContain(CUSTOMER);
+  });
+
+  it('refuses a deactivated account as a new data manager or platform share', async () => {
+    expect((await deactivate(CUSTOMER, null)).status).toBe('ready');
+    expect(await firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN, CUSTOMER]))).toMatchObject({
+      status: 'validation-failed',
+    });
+    // 客服助理 was already shared with the customer (seed); this one never was.
+    expect((await firstValueFrom(repository.updatePlatformSharing('assistant-internal-onboarding', [EMPLOYEE, CUSTOMER]))).status)
+      .toBe('validation-failed');
+    expect((await firstValueFrom(repository.updatePlatformSharing('assistant-customer-service', [CUSTOMER]))).status).toBe('ready');
   });
 });

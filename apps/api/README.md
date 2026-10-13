@@ -1478,16 +1478,20 @@ owner after leaving the group. `Case.EventCount` is a concurrency token and `(Ca
 unique, so two people accepting the same version at once get one `200` and one `409`. A closed case
 is never reopened: 「另開新案」 is `POST /api/v1/cases` with `previousCaseId`.
 
-## Deactivating a member and handing their work to a successor (#356)
+## Deactivating a member and handing their work to a successor (#356, #361)
 
 `GET /api/v1/team/members/{id}/offboarding`, `POST /api/v1/team/members/{id}:deactivate` (body
-`{ "successorAccountId" }`) and `POST /api/v1/team/members/{id}:reactivate` sit in the team route
+`{ "successorAccountId" }`, which may be `null` when the preview's `successorRequired` is `false`:
+the member holds no assistant, draft, knowledge base, database, unresolved 處理事項 or open case) and `POST /api/v1/team/members/{id}:reactivate` sit in the team route
 group: they need `manage-assistants`, and an unknown id or another organization's member gets the
 same `403 team` (`MemberOffboardingEndpoints`, rules in `SmartAgri.Application.Accounts.MemberOffboardingRules`).
 
 - **Refused (`422`, with `reason`)**: your own account (`cannot-deactivate-self`), an account that is
-  already deactivated (`member-already-deactivated`), the last `smb-admin` still in use (`last-admin`),
-  or a successor that is not another internal account in use (`smb-admin` / `internal-employee`) of
+  already deactivated (`member-already-deactivated`), an `smb-admin` when the caller is not one
+  (`admin-required`, #361 — also for `:reactivate`; the caller's role is read from the database), the
+  last `smb-admin` still in use (`last-admin`; since only a manager in use deactivates a manager, only
+  concurrent requests reach it), no successor while the member holds something to hand over
+  (`successor-not-eligible`, 「請選擇接手人。」), or a successor that is not another internal account in use (`smb-admin` / `internal-employee`) of
   the same organization holding what the assets need — `manage-assistants` when there is an assistant
   or a draft, `manage-data-sources` when there is a knowledge base or a database
   (`successor-not-eligible`). Two managers deactivating each other at the same moment: the transaction
@@ -1514,6 +1518,18 @@ same `403 team` (`MemberOffboardingEndpoints`, rules in `SmartAgri.Application.A
   query as `PasswordChangeRequired` (`DatabaseAccountStandingSource`).
 - **Reactivating** clears `DeactivatedAt` and writes `member-reactivated`; the member signs in again
   with their password. Nothing transferred comes back.
+- **Without a successor** nothing is transferred; the `member-deactivated` activity has
+  `"successor": null` and every count 0.
+- **Pickers leave deactivated accounts out (#361)**: assistant platform-sharing `candidates`,
+  knowledge-base `shareTargets`, database `access.candidates` and the case groups' `candidates` list
+  accounts in use only (as the successor candidates and the issue-assignee check already did). What was
+  chosen for an account before it was deactivated stays — its share rows, data-manager seat and
+  case-group membership are kept, still listed (`allowedAccountIds`, `sharedWithAccountIds`,
+  `dataManagers`, `members`) and kept by a save that sends them back — but a deactivated account cannot
+  be newly chosen: sharing drops it like an unknown id, a data-manager or case-group save is refused
+  (`422`). Database auto-case choices count only members in use (`memberCount`,
+  `unreadableMemberCount`); 轉真人 never defaults its 處理事項 to, or Emails, a deactivated owner. Once
+  reactivated the account is offered again everywhere.
 
 ## Visitor handoffs (轉真人) and Email notifications (#355)
 

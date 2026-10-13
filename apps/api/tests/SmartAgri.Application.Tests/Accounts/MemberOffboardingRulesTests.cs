@@ -64,16 +64,53 @@ public class MemberOffboardingRulesTests
     [Fact]
     public void Nobody_deactivates_themselves_twice_or_the_last_manager_in_use()
     {
-        MemberOffboardingRules.CheckDeactivation(Caller, Caller, AccountRole.InternalEmployee, false, 3).ShouldBe(MemberDeactivationBlock.Self);
-        MemberOffboardingRules.CheckDeactivation(Caller, Member, AccountRole.InternalEmployee, true, 3).ShouldBe(MemberDeactivationBlock.AlreadyDeactivated);
-        MemberOffboardingRules.CheckDeactivation(Caller, Member, AccountRole.SmbAdmin, false, 0).ShouldBe(MemberDeactivationBlock.LastAdmin);
+        var admin = AccountRole.SmbAdmin;
+        MemberOffboardingRules.CheckDeactivation(Caller, admin, Caller, AccountRole.InternalEmployee, false, 3).ShouldBe(MemberDeactivationBlock.Self);
+        MemberOffboardingRules.CheckDeactivation(Caller, admin, Member, AccountRole.InternalEmployee, true, 3).ShouldBe(MemberDeactivationBlock.AlreadyDeactivated);
+        MemberOffboardingRules.CheckDeactivation(Caller, admin, Member, AccountRole.SmbAdmin, false, 0).ShouldBe(MemberDeactivationBlock.LastAdmin);
 
-        MemberOffboardingRules.CheckDeactivation(Caller, Member, AccountRole.SmbAdmin, false, 1).ShouldBeNull();
-        MemberOffboardingRules.CheckDeactivation(Caller, Member, AccountRole.InternalEmployee, false, 0).ShouldBeNull("only a manager can be the last manager");
+        MemberOffboardingRules.CheckDeactivation(Caller, admin, Member, AccountRole.SmbAdmin, false, 1).ShouldBeNull();
+        MemberOffboardingRules.CheckDeactivation(Caller, admin, Member, AccountRole.InternalEmployee, false, 0).ShouldBeNull("only a manager can be the last manager");
 
         foreach (var block in Enum.GetValues<MemberDeactivationBlock>())
         {
             MemberOffboardingRules.MessageOf(block).ShouldNotBeNullOrWhiteSpace();
+        }
+    }
+
+    [Fact]
+    public void Only_a_manager_deactivates_or_reactivates_another_manager()
+    {
+        // Issue #361: an internal employee with manage-assistants still manages employees and customers.
+        foreach (var role in new[] { AccountRole.InternalEmployee, AccountRole.ExternalCustomer })
+        {
+            MemberOffboardingRules.CheckDeactivation(Caller, role, Member, AccountRole.SmbAdmin, false, 2)
+                .ShouldBe(MemberDeactivationBlock.AdminRequired, $"{role}");
+            MemberOffboardingRules.MayManageRole(role, AccountRole.SmbAdmin).ShouldBeFalse($"{role}");
+            MemberOffboardingRules.CheckDeactivation(Caller, role, Member, AccountRole.InternalEmployee, false, 2).ShouldBeNull($"{role}");
+            MemberOffboardingRules.CheckDeactivation(Caller, role, Member, AccountRole.ExternalCustomer, false, 2).ShouldBeNull($"{role}");
+        }
+
+        MemberOffboardingRules.CheckDeactivation(Caller, AccountRole.SmbAdmin, Member, AccountRole.SmbAdmin, false, 1).ShouldBeNull();
+        MemberOffboardingRules.MayManageRole(AccountRole.SmbAdmin, AccountRole.SmbAdmin).ShouldBeTrue();
+
+        // Self and already-deactivated are reported first, whoever asks.
+        MemberOffboardingRules.CheckDeactivation(Caller, AccountRole.InternalEmployee, Member, AccountRole.SmbAdmin, true, 2)
+            .ShouldBe(MemberDeactivationBlock.AlreadyDeactivated);
+    }
+
+    [Fact]
+    public void A_successor_is_required_only_when_the_member_holds_something_to_hand_over()
+    {
+        MemberOffboardingRules.SuccessorRequired(Nothing).ShouldBeFalse();
+        MemberOffboardingRules.SuccessorRequired(Nothing with { BorrowedSources = 3 }).ShouldBeFalse("borrowed sources never move");
+        foreach (var holdings in new[]
+                 {
+                     Nothing with { Assistants = 1 }, Nothing with { Drafts = 1 }, Nothing with { KnowledgeBases = 1 },
+                     Nothing with { Databases = 1 }, Nothing with { OpenIssues = 1 }, Nothing with { OpenCases = 1 },
+                 })
+        {
+            MemberOffboardingRules.SuccessorRequired(holdings).ShouldBeTrue($"{holdings}");
         }
     }
 

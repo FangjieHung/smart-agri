@@ -10266,7 +10266,7 @@ export interface components {
             password: null | string;
         };
         /** @enum {unknown} */
-        MemberDeactivationBlock: "self" | "last-admin" | "already-deactivated" | null;
+        MemberDeactivationBlock: "self" | "last-admin" | "already-deactivated" | "admin-required" | null;
         MemberHoldings: {
             /** Format: int32 */
             assistants: number;
@@ -10291,6 +10291,7 @@ export interface components {
             blockMessage: null | string;
             holdings: components["schemas"]["MemberHoldings"];
             requiredPermissions: components["schemas"]["AccountPermission"][];
+            successorRequired: boolean;
             candidates: components["schemas"]["SuccessorCandidateView"][];
         };
         MemberTransferCounts: {

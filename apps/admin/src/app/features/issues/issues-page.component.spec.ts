@@ -26,6 +26,7 @@ async function setup(
   list: Observable<RepositoryView<readonly AssistantIssueView[]>> = of({ status: 'ready', data: [issue] }),
   settle = true,
   detail: AssistantIssueDetailView = { issue, events: [], linkedCase: null },
+  members: readonly unknown[] = [],
 ) {
   TestBed.resetTestingModule();
   const update = vi.fn(() => of({ status: 'ready' as const, data: { issue, events: [], linkedCase: null } as AssistantIssueDetailView }));
@@ -43,7 +44,7 @@ async function setup(
     providers: [
       provideRouter([]),
       { provide: AssistantIssuesRepository, useValue: repo },
-      { provide: DEMO_REPOSITORY, useValue: { getTeam: () => of({ status: 'ready', data: { members: [], permissions: [], savedAt: null } }) } },
+      { provide: DEMO_REPOSITORY, useValue: { getTeam: () => of({ status: 'ready', data: { members, permissions: [], savedAt: null } }) } },
       { provide: DemoSessionService, useValue: { activeAccountId: () => 'account-1' } },
       {
         provide: CaseSettingsRepository,
@@ -72,6 +73,18 @@ function text(fixture: ComponentFixture<IssuesPageComponent>): string {
 }
 
 describe('IssuesPageComponent', () => {
+  it('offers as assignees only members in use holding handle-assistant-issues (issue #361)', async () => {
+    const member = (id: string, permissions: readonly string[], deactivatedAt: string | null) =>
+      ({ id, displayName: id, role: 'internal-employee', permissions, deactivatedAt });
+    const { fixture } = await setup(undefined, true, undefined, [
+      member('in-use', ['handle-assistant-issues'], null),
+      member('deactivated', ['handle-assistant-issues'], '2026-10-14T00:00:00Z'),
+      member('no-permission', [], null),
+    ]);
+    const eligible = (fixture.componentInstance as unknown as { eligibleAssignees: () => readonly { id: string }[] }).eligibleAssignees();
+    expect(eligible.map((candidate) => candidate.id)).toEqual(['in-use']);
+  });
+
   it('distinguishes loading, permission, error, and empty states', async () => {
     const loading = await setup(NEVER, false);
     expect(text(loading.fixture)).toContain('正在載入處理事項');

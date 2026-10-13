@@ -672,8 +672,11 @@ export interface DemoRepository extends DemoScenarioController {
    * 與案件在各自的 repository）、不能停用的原因，以及每位候選接手人是否符合資格。
    */
   getMemberOffboarding(memberAccountId: AccountId): Observable<RepositoryView<MemberOffboardingView>>;
-  /** 停用並一次把資產轉給接手人；成功時回傳整個團隊與轉移的數量。 */
-  deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId): Observable<DeactivateMemberResult>;
+  /**
+   * 停用並一次把資產轉給接手人；成功時回傳整個團隊與轉移的數量。名下沒有東西要轉移時
+   * （`MemberOffboardingView.successorRequired` 為 false）`successorAccountId` 可以是 null（issue #361）。
+   */
+  deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId | null): Observable<DeactivateMemberResult>;
   /** 重新啟用：只恢復帳號（可以再登入），已轉出的資產不會轉回來。 */
   reactivateMember(memberAccountId: AccountId): Observable<ReactivateMemberResult>;
   /*

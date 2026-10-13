@@ -5,7 +5,7 @@ namespace SmartAgri.Domain.Organizations;
 /// <summary>
 /// What an <see cref="OrganizationActivity"/> row records. Stored as the wire name (not the number),
 /// so members can be reordered safely. Later slices add theirs here (M7-1: case groups; M7-2:
-/// case types; M7-10: a database's auto case).
+/// case types; M7-10: a database's auto case; #356: deactivating and reactivating members).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrganizationActivityAction>))]
 public enum OrganizationActivityAction
@@ -81,4 +81,16 @@ public enum OrganizationActivityAction
     /// (<see cref="OrganizationActivity.DatabaseAutoCaseChanged"/>).</summary>
     [JsonStringEnumMemberName("database-auto-case-changed")]
     DatabaseAutoCaseChanged,
+
+    /// <summary>A member was deactivated and their work handed to a successor (停用成員並指定接手人,
+    /// issue #356). Detail: <c>member</c> and <c>successor</c>, each <c>{ id, displayName }</c>, and
+    /// <c>transferred</c> — how many assistants, drafts, knowledge bases, databases, reassigned and
+    /// unassigned 處理事項 and handed-over cases (<see cref="OrganizationActivity.MemberDeactivated"/>).</summary>
+    [JsonStringEnumMemberName("member-deactivated")]
+    MemberDeactivated,
+
+    /// <summary>A deactivated member was put back in use (issue #356). Detail: <c>member</c>
+    /// <c>{ id, displayName }</c>. Nothing transferred at deactivation comes back.</summary>
+    [JsonStringEnumMemberName("member-reactivated")]
+    MemberReactivated,
 }

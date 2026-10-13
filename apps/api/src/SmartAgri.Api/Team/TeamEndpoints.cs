@@ -18,12 +18,15 @@ namespace SmartAgri.Api.Team;
 /// (<c>team.model.ts</c>'s <c>ACCOUNT_PERMISSIONS</c>); the API only sends ids, never a
 /// duplicate copy of that catalogue.
 /// </summary>
+/// <param name="DeactivatedAt">When the member was deactivated (issue #356; 「已停用」 in the team
+/// list), or <see langword="null"/> while in use.</param>
 public sealed record TeamMemberResponse(
     Guid Id,
     string DisplayName,
     AccountRole Role,
     IReadOnlyList<AccountPermission> Permissions,
-    IReadOnlyList<AccountPermission> LockedPermissions);
+    IReadOnlyList<AccountPermission> LockedPermissions,
+    DateTimeOffset? DeactivatedAt);
 
 /// <summary>
 /// <c>GET /api/v1/team</c> response, and also what a successful <c>PUT
@@ -70,7 +73,8 @@ public sealed record CreateMemberResponse(TeamMemberResponse Member, string OneT
 
 /// <summary>
 /// <c>GET /api/v1/team</c>, <c>PUT /api/v1/team/members/{id}/permissions</c> and
-/// <c>POST /api/v1/team/members</c> (M1 plan, Slice 8; M2 plan, Slice 18 / issue #52):
+/// <c>POST /api/v1/team/members</c> (M1 plan, Slice 8; M2 plan, Slice 18 / issue #52), plus
+/// deactivating and reactivating members (issue #356, <see cref="MemberOffboardingEndpoints"/>):
 /// replaces the frontend mock's <c>getTeam</c>/<c>updateMemberPermissions</c>, same rules.
 /// All three require <see cref="AccountPermission.ManageAssistants"/>
 /// (<see cref="ForbiddenReason.Team"/>); a member id that does not exist, or belongs to
@@ -106,6 +110,24 @@ public static class TeamEndpoints
 
         team.MapPost("/members", CreateMemberAsync)
             .Produces<CreateMemberResponse>(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        // 停用成員並指定接手人 / 重新啟用 (issue #356).
+        team.MapGet("/members/{id:guid}/offboarding", MemberOffboardingEndpoints.GetOffboardingAsync)
+            .Produces<MemberOffboardingView>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden);
+
+        team.MapPost("/members/{id:guid}:deactivate", MemberOffboardingEndpoints.DeactivateAsync)
+            .Produces<DeactivateMemberResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
+        team.MapPost("/members/{id:guid}:reactivate", MemberOffboardingEndpoints.ReactivateAsync)
+            .Produces<TeamResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status403Forbidden)
             .Produces(StatusCodes.Status422UnprocessableEntity);
@@ -304,13 +326,13 @@ public static class TeamEndpoints
         await transaction.CommitAsync(cancellationToken);
 
         var response = new CreateMemberResponse(
-            new TeamMemberResponse(account.Id, account.DisplayName, account.Role, normalized, []),
+            new TeamMemberResponse(account.Id, account.DisplayName, account.Role, normalized, [], DeactivatedAt: null),
             oneTimePassword);
 
         return Results.Created($"/api/v1/team/members/{account.Id}", response);
     }
 
-    private static async Task<TeamResponse> BuildTeamResponseAsync(
+    internal static async Task<TeamResponse> BuildTeamResponseAsync(
         AppDbContext dbContext,
         Guid viewerId,
         CancellationToken cancellationToken)
@@ -318,7 +340,7 @@ public static class TeamEndpoints
         var accounts = await dbContext.Accounts
             .AsNoTracking()
             .OrderBy(account => account.Id)
-            .Select(account => new { account.Id, account.DisplayName, account.Role })
+            .Select(account => new { account.Id, account.DisplayName, account.Role, account.DeactivatedAt })
             .ToListAsync(cancellationToken);
 
         var grantsByAccount = (await dbContext.AccountPermissions.AsNoTracking().ToListAsync(cancellationToken))
@@ -335,7 +357,7 @@ public static class TeamEndpoints
                 ? new[] { AccountPermission.ManageAssistants }
                 : [];
 
-            return new TeamMemberResponse(account.Id, account.DisplayName, account.Role, ordered, locked);
+            return new TeamMemberResponse(account.Id, account.DisplayName, account.Role, ordered, locked, account.DeactivatedAt);
         });
 
         // The current organization, not the viewer's own row's organization: both are the

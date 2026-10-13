@@ -105,3 +105,19 @@ input:focus-visible, button:focus-visible { outline: var(--focus-ring); outline-
 .control input:focus-visible,
 .control select:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-3); }
+
+// ---------- 停用成員（issue #356） ----------
+.member--deactivated { background: var(--color-background); }
+.member__status { padding: 0 var(--space-2); border: 1px solid var(--color-border); border-radius: 999px; font-size: var(--font-size-caption); }
+.danger { border-color: var(--color-error); background: var(--color-error); color: var(--color-surface); }
+.secondary.danger { background: var(--color-surface); color: var(--color-error); }
+.offboarding { display: grid; gap: var(--space-2); }
+h3 { margin: 0; font-size: var(--font-size-body); }
+.offboarding ul { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.offboarding li, .offboarding__warning { padding: var(--space-1) var(--space-2); border-radius: var(--radius-control); background: var(--color-background); }
+.offboarding__warning { border-inline-start: 4px solid var(--color-warning); }
+.successor { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-3); padding: var(--space-2) 0; border-bottom: var(--border-default); }
+.successor input { inline-size: 1.25rem; block-size: 1.25rem; margin: .15rem 0 0; accent-color: var(--color-accent); }
+.successor label { display: grid; gap: 2px; }
+.successor--disabled { color: var(--color-text-secondary); }
+.successor__name { font-weight: 600; }

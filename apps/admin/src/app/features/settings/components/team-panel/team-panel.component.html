@@ -29,12 +29,12 @@
   } @else if (team(); as data) {
     @if (apiMode) {
       <p class="hint">
-        成員是這個組織的帳號。這裡只能變更「每個成員被允許做什麼」，儲存後立即套用，該成員下次載入頁面就會看到差異。
+        成員是這個組織的帳號。這裡可以變更「每個成員被允許做什麼」，儲存後立即套用，該成員下次載入頁面就會看到差異；成員離開時，也可以停用他並指定接手人。
       </p>
     } @else {
       <p class="hint">
-        這裡的「團隊」就是 Demo 的三個身分，<strong>不是真實的身分管理</strong>：沒有邀請、沒有離職、也沒有密碼。
-        可以變更的只有「每個成員被允許做什麼」，變更會存在這台瀏覽器，切換身分後立刻看得到差異。
+        這裡的「團隊」就是 Demo 的三個身分，<strong>不是真實的身分管理</strong>：沒有邀請、也沒有密碼。
+        可以變更「每個成員被允許做什麼」，或停用成員並指定接手人；變更會存在這台瀏覽器，切換身分後立刻看得到差異。
       </p>
     }
 
@@ -44,18 +44,33 @@
 
     <ul class="member-list">
       @for (member of data.members; track member.id) {
-        <li class="member">
+        <li class="member" [class.member--deactivated]="member.deactivatedAt !== null">
           <div class="member__identity">
             <p class="member__name">
               {{ member.displayName }}
               @if (member.isViewer) {
                 <span class="member__you">目前的身分</span>
               }
+              @if (member.deactivatedAt !== null) {
+                <span class="member__status">已停用</span>
+              }
             </p>
             <p class="member__role">{{ member.roleLabel }}｜{{ member.roleDescription }}</p>
           </div>
 
-          @if (editing() === member.id) {
+          @if (member.deactivatedAt !== null) {
+            <p class="hint">
+              {{ member.deactivatedAt.slice(0, 10) }} 停用：這個帳號無法登入，停用時的資產已轉給接手人。重新啟用後可以再登入，但資產不會轉回。
+            </p>
+            <button
+              type="button"
+              class="ui-button secondary"
+              [disabled]="reactivating() === member.id"
+              (click)="reactivate(member)"
+            >
+              重新啟用 {{ member.displayName }}
+            </button>
+          } @else if (editing() === member.id) {
             <form class="member__editor" novalidate (submit)="save(member, $event)">
               <fieldset>
                 <legend>{{ member.displayName }} 可以做什麼</legend>
@@ -104,9 +119,16 @@
                 <li class="member__none">沒有任何權限</li>
               }
             </ul>
-            <button type="button" class="ui-button secondary" (click)="startEditing(member)">
-              變更 {{ member.displayName }} 的權限
-            </button>
+            <div class="actions">
+              <button type="button" class="ui-button secondary" (click)="startEditing(member)">
+                變更 {{ member.displayName }} 的權限
+              </button>
+              @if (!member.isViewer) {
+                <button type="button" class="ui-button secondary danger" (click)="openDeactivateDialog(member)">
+                  停用 {{ member.displayName }}
+                </button>
+              }
+            </div>
           }
         </li>
       }
@@ -218,5 +240,94 @@
       </div>
       <p class="feedback" aria-live="polite">{{ passwordCopyFeedback() }}</p>
     </div>
+  }
+</ng-template>
+
+<ng-template #deactivateDialog>
+  @if (offboardingMember(); as member) {
+    <form class="create-panel create-panel--scrolling" aria-labelledby="deactivate-member-title" (submit)="submitDeactivate($event)" novalidate>
+      <h2 id="deactivate-member-title">停用「{{ member.displayName }}」</h2>
+      <div class="create-panel__body">
+        @let preview = offboarding();
+        @if (preview === null) {
+          <p class="hint" role="status">正在整理要轉移的資料…</p>
+        } @else if (preview === 'failed') {
+          <p class="error" role="alert">目前無法讀取這位成員的資料，請稍後再試。</p>
+        } @else if (preview.blockMessage) {
+          <p class="error" role="alert">{{ preview.blockMessage }}</p>
+        } @else {
+          <p class="hint">
+            停用後，{{ member.displayName }} 無法再登入，已登入的裝置也會在下一次操作時登出。帳號與歷史紀錄會保留，之後可以重新啟用。
+          </p>
+
+          <section class="offboarding" aria-labelledby="offboarding-transfer-title">
+            <h3 id="offboarding-transfer-title">一次轉給接手人</h3>
+            @let holdings = preview.holdings;
+            @if (holdings.assistants + holdings.drafts + holdings.knowledgeBases + holdings.databases + holdings.openIssues + holdings.openCases === 0) {
+              <p class="hint">{{ member.displayName }} 目前沒有需要轉移的助理、知識庫、數據庫、處理事項或案件。</p>
+            } @else {
+              <ul class="offboarding__counts">
+                @if (holdings.assistants > 0) { <li>助理 {{ holdings.assistants }} 個</li> }
+                @if (holdings.drafts > 0) { <li>助理草稿 {{ holdings.drafts }} 份</li> }
+                @if (holdings.knowledgeBases > 0) { <li>知識庫 {{ holdings.knowledgeBases }} 個</li> }
+                @if (holdings.databases > 0) { <li>數據庫 {{ holdings.databases }} 個（含資料管理者的指定）</li> }
+                @if (holdings.openIssues > 0) { <li>未解決的處理事項 {{ holdings.openIssues }} 件</li> }
+                @if (holdings.openCases > 0) { <li>承辦中的案件 {{ holdings.openCases }} 件</li> }
+              </ul>
+            }
+            <p class="hint">私人對話不會轉移，依組織的對話保存設定處理。</p>
+            @if (holdings.borrowedSources > 0) {
+              <p class="offboarding__warning">
+                {{ member.displayName }} 的助理用到 {{ holdings.borrowedSources }} 個別人分享給他的知識庫或數據庫：這些不會轉移。接手人若沒有被分享，助理回答時就不會再使用它們。
+              </p>
+            }
+          </section>
+
+          <fieldset class="successors">
+            <legend>選擇接手人</legend>
+            @if (preview.requiredPermissions.length > 0) {
+              <p class="hint">接手人必須是使用中的內部成員，並具備{{ requiredLabels(preview) }}權限。</p>
+            } @else {
+              <p class="hint">接手人必須是使用中的內部成員。</p>
+            }
+            @for (candidate of preview.candidates; track candidate.id) {
+              @let note = candidateNote(candidate, preview);
+              <div class="successor" [class.successor--disabled]="!candidate.eligible">
+                <input
+                  type="radio"
+                  name="successor"
+                  [id]="'successor-' + candidate.id"
+                  [checked]="successorId() === candidate.id"
+                  [disabled]="!candidate.eligible || deactivating()"
+                  [attr.aria-describedby]="note ? 'successor-note-' + candidate.id : null"
+                  (change)="chooseSuccessor(candidate)"
+                />
+                <label [for]="'successor-' + candidate.id">
+                  <span class="successor__name">{{ candidate.displayName }}</span>
+                  <small>{{ roleLabels[candidate.role] }}</small>
+                  @if (note) {
+                    <small class="successor__note" [id]="'successor-note-' + candidate.id">{{ note }}</small>
+                  }
+                </label>
+              </div>
+            }
+            @if (eligibleCandidates().length === 0) {
+              <p class="error" role="alert">
+                目前沒有符合資格的接手人。可以先在團隊清單為一位內部成員加上需要的權限，再回來停用。
+              </p>
+            }
+          </fieldset>
+        }
+      </div>
+      @if (deactivateError()) {
+        <p class="error" role="alert">{{ deactivateError() }}</p>
+      }
+      <div class="dialog-actions">
+        <button type="button" class="ui-button secondary" (click)="closeDeactivateDialog()">取消</button>
+        @if (preview !== null && preview !== 'failed' && !preview.blockMessage) {
+          <button type="submit" class="ui-button danger" [disabled]="deactivating() || successorId() === null">停用並轉移</button>
+        }
+      </div>
+    </form>
   }
 </ng-template>

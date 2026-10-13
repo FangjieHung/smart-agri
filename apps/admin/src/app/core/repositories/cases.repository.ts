@@ -432,6 +432,30 @@ export class CasesRepository {
   }
 
   /** 範例與建立的案件，加上從對話確認建立的（issue #254，見 `mock-chat-cases.ts`）。 */
+  /** 停用成員（issue #356）在純 Demo 模式的那一半，見 `AssistantIssuesRepository.mockOpenAssignedCount`；API 模式是 0。 */
+  mockOpenOwnedCount(memberAccountId: AccountId): number {
+    if (this.apiMode) return 0;
+    return this.mockCases.filter((item) => item.owner === memberAccountId && (item.status === 'in-progress' || item.status === 'awaiting-info')).length;
+  }
+
+  /**
+   * 與後端 `Case.HandOver` 相同：他承辦中（處理中、待補件）的案件改由接手人承辦，記成接手人的一筆「受理」，
+   * 附上說明；狀態與時限不變。API 模式什麼都不做、回傳 0。
+   */
+  mockHandOverMember(memberAccountId: AccountId, successorAccountId: AccountId, note: string): number {
+    if (this.apiMode) return 0;
+    const now = new Date().toISOString();
+    let moved = 0;
+    for (const item of this.mockCases) {
+      if (item.owner !== memberAccountId || !(item.status === 'in-progress' || item.status === 'awaiting-info')) continue;
+      item.owner = successorAccountId;
+      item.updatedAt = now;
+      item.events.push(mockEvent(item, 'accepted', successorAccountId, now, { status: item.status, owner: successorAccountId, note }));
+      moved += 1;
+    }
+    return moved;
+  }
+
   private allMockCases(): readonly MockCase[] {
     this.syncMockIssueCases();
     return [

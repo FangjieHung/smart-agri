@@ -172,6 +172,39 @@ public class CaseActionTests
         }
     }
 
+    [Fact]
+    public void Handing_over_makes_the_successor_the_case_owner_and_keeps_status_due_and_accepted_at()
+    {
+        var (item, _, _) = NewCase();
+        item.Accept(Aming, Now);
+        item.RequestInfo(Aming, "請提供照片", Now.AddMinutes(1));
+        var successor = Guid.CreateVersion7();
+
+        var handedOver = item.HandOver(successor, "「阿明」的帳號已停用，案件移交給「小華」。", Now.AddMinutes(2));
+
+        (item.Status, item.OwnerAccountId, item.AcceptedAt, item.DueAt, item.EventCount)
+            .ShouldBe((CaseStatus.AwaitingInfo, (Guid?)successor, (DateTimeOffset?)Now, Now.AddHours(72), 4));
+        (handedOver.Action, handedOver.ActorAccountId, handedOver.OwnerAccountId, handedOver.Status, handedOver.Note)
+            .ShouldBe((CaseEventAction.Accepted, (Guid?)successor, (Guid?)successor, (CaseStatus?)CaseStatus.AwaitingInfo, "「阿明」的帳號已停用，案件移交給「小華」。"));
+    }
+
+    [Fact]
+    public void Only_an_open_accepted_case_is_handed_over_and_only_to_someone_else()
+    {
+        var (pending, _, _) = NewCase();
+        Should.Throw<InvalidOperationException>(() => pending.HandOver(Aming, "移交", Now), "nobody owns a pending case");
+
+        var (accepted, _, _) = NewCase();
+        accepted.Accept(Aming, Now);
+        Should.Throw<InvalidOperationException>(() => accepted.HandOver(Aming, "移交", Now));
+        Should.Throw<ArgumentException>(() => accepted.HandOver(Guid.Empty, "移交", Now));
+        Should.Throw<ArgumentException>(() => accepted.HandOver(Guid.CreateVersion7(), " ", Now), "the note is required");
+
+        accepted.Complete(Aming, "已修好", Now);
+        Should.Throw<InvalidOperationException>(() => accepted.HandOver(Guid.CreateVersion7(), "移交", Now));
+        accepted.EventCount.ShouldBe(3);
+    }
+
     private static (Case Case, CaseGroup Equipment, CaseGroup Purchasing) NewCase()
     {
         var organizationId = Guid.CreateVersion7();

@@ -218,7 +218,52 @@ public sealed class OrganizationActivity : IOrganizationScoped
             organizationId, OrganizationActivityAction.DatabaseAutoCaseChanged, actorAccountId, at,
             new { databaseId, databaseName, from, to });
     }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.MemberDeactivated"/>: detail <c>{ "member", "successor",
+    /// "transferred" }</c> — the two accounts by id and name, and the counts of what moved. Never which
+    /// assistants, records or cases.
+    /// </summary>
+    public static OrganizationActivity MemberDeactivated(
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, MemberRef member, MemberRef successor, MemberTransferCounts transferred)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(successor);
+        ArgumentNullException.ThrowIfNull(transferred);
+        if (member.Id == successor.Id)
+        {
+            throw new ArgumentException("The successor must be another account.", nameof(successor));
+        }
+
+        return Record(organizationId, OrganizationActivityAction.MemberDeactivated, actorAccountId, at, new { member, successor, transferred });
+    }
+
+    /// <summary><see cref="OrganizationActivityAction.MemberReactivated"/>: detail <c>{ "member" }</c>.</summary>
+    public static OrganizationActivity MemberReactivated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, MemberRef member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return Record(organizationId, OrganizationActivityAction.MemberReactivated, actorAccountId, at, new { member });
+    }
 }
+
+/// <summary>An account as a <see cref="OrganizationActivityAction.MemberDeactivated"/> or
+/// <see cref="OrganizationActivityAction.MemberReactivated"/> detail names it: <c>{ "id", "displayName" }</c>
+/// (its name at the time).</summary>
+public sealed record MemberRef(Guid Id, string DisplayName);
+
+/// <summary>What a deactivation handed to the successor (issue #356), counted.</summary>
+/// <param name="IssuesReassigned">Unresolved 處理事項 now assigned to the successor.</param>
+/// <param name="IssuesUnassigned">Unresolved 處理事項 left unassigned because the successor may not
+/// handle them (no <c>handle-assistant-issues</c>).</param>
+/// <param name="Cases">Open, accepted cases the successor now owns.</param>
+public sealed record MemberTransferCounts(
+    int Assistants,
+    int Drafts,
+    int KnowledgeBases,
+    int Databases,
+    int IssuesReassigned,
+    int IssuesUnassigned,
+    int Cases);
 
 /// <summary>One side of a <see cref="OrganizationActivityAction.ChatModelChanged"/> detail.</summary>
 /// <param name="Id">The organization's <see cref="Organization.ChatModelId"/>; <see langword="null"/>

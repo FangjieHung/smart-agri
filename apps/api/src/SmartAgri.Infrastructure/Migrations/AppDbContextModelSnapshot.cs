@@ -2739,6 +2739,9 @@ namespace SmartAgri.Infrastructure.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("DeactivatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(200)

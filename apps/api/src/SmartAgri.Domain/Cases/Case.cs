@@ -359,6 +359,34 @@ public sealed class Case : IOrganizationScoped
         return changed;
     }
 
+    /// <summary>
+    /// 移交 (issue #356): the case owner's account was deactivated, so an open, accepted case
+    /// (處理中 or 待補件) goes to the successor the manager chose. Recorded as an
+    /// <see cref="CaseEventAction.Accepted"/> event of the successor — exactly what
+    /// <see cref="Accept"/> records, so <c>CaseVisibility</c> lets the successor see the case and the
+    /// action table treats them as its owner — with <paramref name="note"/> saying why. The status, the
+    /// due time and <see cref="AcceptedAt"/> stay as they were.
+    /// </summary>
+    public CaseEvent HandOver(Guid successorAccountId, string note, DateTimeOffset now)
+    {
+        RequireId(successorAccountId);
+        if (Status is not (CaseStatus.InProgress or CaseStatus.AwaitingInfo) || OwnerAccountId is null)
+        {
+            throw new InvalidOperationException("Only an open case with a case owner is handed over.");
+        }
+
+        if (OwnerAccountId == successorAccountId)
+        {
+            throw new InvalidOperationException("The successor already owns this case.");
+        }
+
+        OwnerAccountId = successorAccountId;
+        var handedOver = Record(CaseEventAction.Accepted, successorAccountId, now, CheckedText(note, required: true, nameof(note)));
+        handedOver.Status = Status;
+        handedOver.OwnerAccountId = successorAccountId;
+        return handedOver;
+    }
+
     private void RequireOpen()
     {
         if (!Status.IsOpen())

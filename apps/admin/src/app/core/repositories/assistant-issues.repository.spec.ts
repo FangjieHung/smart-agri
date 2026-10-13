@@ -127,4 +127,24 @@ describe('AssistantIssuesRepository', () => {
       openCount: 1, inProgressCount: 0, assignedToMeCount: 0, overdueCount: 0,
     } });
   });
+
+  it('hands a deactivated member’s unresolved issues to a successor who may handle them, else unassigns them (issue #356)', async () => {
+    let viewer = 'account-owner';
+    TestBed.configureTestingModule({
+      providers: [{ provide: DemoSessionService, useValue: { activeAccountId: () => viewer } }],
+    });
+    const repository = TestBed.inject(AssistantIssuesRepository);
+    const first = await firstValueFrom(repository.create('assistant-1', { testResultId: 'result-1', title: '引用錯誤', assigneeAccountId: 'account-member' }));
+    const second = await firstValueFrom(repository.create('assistant-1', { testResultId: 'result-2', title: '答非所問', assigneeAccountId: 'account-member' }));
+    if (first.status !== 'ready' || second.status !== 'ready') throw new Error('expected ready');
+    expect(repository.mockOpenAssignedCount('account-member')).toBe(2);
+
+    expect(repository.mockHandOverMember('account-member', 'account-successor', true)).toEqual({ reassigned: 2, unassigned: 0 });
+    viewer = 'account-successor';
+    const assigned = await firstValueFrom(repository.list({ scope: 'assigned' }));
+    expect(assigned).toMatchObject({ status: 'ready', data: [{ assigneeAccountId: 'account-successor' }, { assigneeAccountId: 'account-successor' }] });
+
+    expect(repository.mockHandOverMember('account-successor', 'account-next', false)).toEqual({ reassigned: 0, unassigned: 2 });
+    expect(repository.mockOpenAssignedCount('account-successor')).toBe(0);
+  });
 });

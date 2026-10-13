@@ -3,10 +3,12 @@ import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { vi } from 'vitest';
 import { createMemoryStorage } from '../../core/repositories/memory-storage';
+import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { ApiSessionService, type ApiSessionNotice } from '../../core/session/api-session.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import {
   API_LOGIN_INVALID_MESSAGE,
+  DEMO_PERSONA_DEACTIVATED_MESSAGE,
   DemoLoginPageComponent,
   LAST_ORGANIZATION_CODE_KEY,
 } from './demo-login-page.component';
@@ -49,6 +51,29 @@ describe('DemoLoginPageComponent', () => {
 
     expect(switchAccount).toHaveBeenCalledWith('account-internal-employee');
     expect(navigateByUrl).toHaveBeenCalledWith('/app/home');
+  });
+
+  it('refuses a persona deactivated in the team settings, without starting a session (issue #356)', async () => {
+    const navigateByUrl = vi.fn().mockResolvedValue(true);
+    const session = new DemoSessionService({ storage: createMemoryStorage() });
+    TestBed.overrideProvider(DEMO_REPOSITORY, {
+      useValue: { listAccounts: () => ({ status: 'ready', data: [{ id: 'account-smb-admin' }, { id: 'account-external-customer' }] }) },
+    });
+    const fixture = await renderLogin(session, navigateByUrl);
+    const page = fixture.nativeElement as HTMLElement;
+
+    const username = page.querySelector('#demo-username') as HTMLInputElement;
+    username.value = 'internal';
+    username.dispatchEvent(new Event('input'));
+    const password = page.querySelector('#demo-password') as HTMLInputElement;
+    password.value = '1234';
+    password.dispatchEvent(new Event('input'));
+    (page.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit', { cancelable: true }));
+    fixture.detectChanges();
+
+    expect(page.querySelector('[role="alert"]')?.textContent).toContain(DEMO_PERSONA_DEACTIVATED_MESSAGE);
+    expect(session.activeAccountId()).toBeNull();
+    expect(navigateByUrl).not.toHaveBeenCalled();
   });
 
   it('does not show a timeout message for a first visit', async () => {

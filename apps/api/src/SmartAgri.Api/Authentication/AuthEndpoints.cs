@@ -74,8 +74,8 @@ public static class AuthEndpoints
 
     /// <summary>
     /// <c>204</c> and the Identity cookie on success. <b>Every</b> failure — unknown or
-    /// missing organization code, unknown account, wrong password, locked account, blank
-    /// fields — is the same bodiless <c>401</c>, so the response never reveals which part
+    /// missing organization code, unknown account, wrong password, locked or deactivated account,
+    /// blank fields — is the same bodiless <c>401</c>, so the response never reveals which part
     /// was wrong or whether an account exists. Five consecutive wrong passwords lock the
     /// account for 15 minutes.
     /// </summary>
@@ -118,7 +118,9 @@ public static class AuthEndpoints
             account = await signInManager.UserManager.FindByIdAsync(found.Id.ToString("D"));
         }
 
-        if (account is null)
+        // A deactivated account (issue #356) is refused exactly like an unknown one: same 401, same
+        // time spent, and no failed-attempt count, so its password is never checked at all.
+        if (account is null || account.IsDeactivated)
         {
             // Spend about as long as a real password check, so response time does not
             // tell unknown accounts apart from wrong passwords.

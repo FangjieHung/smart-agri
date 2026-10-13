@@ -364,6 +364,45 @@ export class AssistantIssuesRepository {
     };
   }
 
+  /**
+   * 停用成員（issue #356）在純 Demo 模式的那一半：處理事項只存在這次工作階段，所以由這裡清點與移交。
+   * API 模式什麼都不做、回傳 0——後端停用時已經在同一個 transaction 裡處理好了。
+   */
+  mockOpenAssignedCount(memberAccountId: string): number {
+    if (this.apiMode) return 0;
+    return [...this.mockDetails.values()].filter(
+      (detail) => detail.issue.assigneeAccountId === memberAccountId && detail.issue.status !== 'resolved',
+    ).length;
+  }
+
+  /**
+   * 與後端相同：他助理的處理事項跟著助理換擁有者；指派給他、還沒解決的，接手人具備「處理助理的處理事項」
+   * 就改指派給接手人，否則改成未指派（各記一筆「指派」紀錄）。
+   */
+  mockHandOverMember(
+    memberAccountId: string,
+    successorAccountId: string,
+    successorCanHandle: boolean,
+  ): { readonly reassigned: number; readonly unassigned: number } {
+    if (this.apiMode) return { reassigned: 0, unassigned: 0 };
+    let moved = 0;
+    const now = new Date().toISOString();
+    for (const [issueId, detail] of this.mockDetails) {
+      if (this.mockOwners.get(issueId) === memberAccountId) this.mockOwners.set(issueId, successorAccountId);
+      if (detail.issue.assigneeAccountId !== memberAccountId || detail.issue.status === 'resolved') continue;
+      const assigneeAccountId = successorCanHandle ? successorAccountId : null;
+      this.mockDetails.set(issueId, {
+        issue: { ...detail.issue, assigneeAccountId, assigneeDisplayName: null, updatedAt: now },
+        events: [...detail.events, {
+          id: crypto.randomUUID(), action: 'assigned', actorAccountId: this.session.activeAccountId() ?? '', actorDisplayName: '目前帳號',
+          at: now, note: null, assigneeAccountId, assigneeDisplayName: null, status: null, dueAt: null,
+        }],
+      });
+      moved += 1;
+    }
+    return successorCanHandle ? { reassigned: moved, unassigned: 0 } : { reassigned: 0, unassigned: moved };
+  }
+
   private mockVisible(issue: AssistantIssueView, accountId: string | null): boolean {
     return accountId !== null && (
       this.mockOwners.get(issue.id) === accountId ||

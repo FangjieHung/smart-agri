@@ -1610,6 +1610,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/team/members/{id}/offboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemberOffboardingView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/team/members/{id}:deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeactivateMemberRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeactivateMemberResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/team/members/{id}:reactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TeamResponse"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/knowledge-bases": {
         parameters: {
             query?: never;
@@ -9804,6 +9975,14 @@ export interface components {
             /** Format: int32 */
             formVersionNumber: number;
         };
+        DeactivateMemberRequest: {
+            /** Format: uuid */
+            successorAccountId: null | string;
+        };
+        DeactivateMemberResponse: {
+            team: components["schemas"]["TeamResponse"];
+            transferred: components["schemas"]["MemberTransferCounts"];
+        };
         DisableKnowledgeDocumentRequest: {
             reason: null | string;
         };
@@ -10086,6 +10265,50 @@ export interface components {
             loginName: null | string;
             password: null | string;
         };
+        /** @enum {unknown} */
+        MemberDeactivationBlock: "self" | "last-admin" | "already-deactivated" | null;
+        MemberHoldings: {
+            /** Format: int32 */
+            assistants: number;
+            /** Format: int32 */
+            drafts: number;
+            /** Format: int32 */
+            knowledgeBases: number;
+            /** Format: int32 */
+            databases: number;
+            /** Format: int32 */
+            openIssues: number;
+            /** Format: int32 */
+            openCases: number;
+            /** Format: int32 */
+            borrowedSources: number;
+        };
+        MemberOffboardingView: {
+            /** Format: uuid */
+            memberId: string;
+            displayName: string;
+            block: null | components["schemas"]["MemberDeactivationBlock"];
+            blockMessage: null | string;
+            holdings: components["schemas"]["MemberHoldings"];
+            requiredPermissions: components["schemas"]["AccountPermission"][];
+            candidates: components["schemas"]["SuccessorCandidateView"][];
+        };
+        MemberTransferCounts: {
+            /** Format: int32 */
+            assistants: number;
+            /** Format: int32 */
+            drafts: number;
+            /** Format: int32 */
+            knowledgeBases: number;
+            /** Format: int32 */
+            databases: number;
+            /** Format: int32 */
+            issuesReassigned: number;
+            /** Format: int32 */
+            issuesUnassigned: number;
+            /** Format: int32 */
+            cases: number;
+        };
         MeOrganization: {
             /** Format: uuid */
             id: string;
@@ -10341,6 +10564,18 @@ export interface components {
             consent: null | boolean;
             answers: null | Record<string, never>;
         };
+        SuccessorCandidateView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+            role: components["schemas"]["AccountRole"];
+            eligible: boolean;
+            ineligibleReason: null | components["schemas"]["SuccessorIneligibleReason"];
+            missingPermissions: components["schemas"]["AccountPermission"][];
+            canHandleIssues: boolean;
+        };
+        /** @enum {unknown} */
+        SuccessorIneligibleReason: "external-customer" | "missing-permissions" | "deactivated" | null;
         TeamMemberResponse: {
             /** Format: uuid */
             id: string;
@@ -10348,6 +10583,8 @@ export interface components {
             role: components["schemas"]["AccountRole"];
             permissions: components["schemas"]["AccountPermission"][];
             lockedPermissions: components["schemas"]["AccountPermission"][];
+            /** Format: date-time */
+            deactivatedAt: null | string;
         };
         TeamResponse: {
             members: components["schemas"]["TeamMemberResponse"][];

@@ -149,4 +149,26 @@ public sealed class Database : IOrganizationScoped
             throw new ArgumentException("An id must not be empty.", parameterName);
         }
     }
+
+    /// <summary>
+    /// Hands the database to another account of the same organization when its owner is deactivated
+    /// (停用成員並指定接手人, issue #356). The caller has checked the new owner may take it over and
+    /// records the change in the organization's activity; <see cref="UpdatedAt"/> stays, because
+    /// nothing about the database itself changed.
+    /// </summary>
+    /// <exception cref="ArgumentException"><paramref name="newOwnerAccountId"/> is empty or already the owner.</exception>
+    public void TransferOwnership(Guid newOwnerAccountId)
+    {
+        if (newOwnerAccountId == Guid.Empty)
+        {
+            throw new ArgumentException("An id must not be empty.", nameof(newOwnerAccountId));
+        }
+
+        if (newOwnerAccountId == OwnerAccountId)
+        {
+            throw new ArgumentException("The new owner must be another account.", nameof(newOwnerAccountId));
+        }
+
+        OwnerAccountId = newOwnerAccountId;
+    }
 }

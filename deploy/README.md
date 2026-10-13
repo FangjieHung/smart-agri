@@ -333,6 +333,27 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 | 群組裡 @ 官方帳號沒反應 | 要用 LINE 提及清單選到官方帳號，手打「@名稱」不算提及；也要確認官方帳號允許加入群組（第 10.2、10.5 節）。 |
 | LINE 一對一的回答很慢才出現，admin 的「本月補送次數」增加 | 回答超過回覆期限（預設 50 秒）改用 push 補送，會消耗 LINE 訊息額度（第 10.3 節）。 |
 
+### 9.1 冒煙測試：`deploy/smoke-test.sh`
+
+升級前（`git pull` 之後、對正式環境 `up --build` 之前）可以先在部署主機上確認新版的映像與 compose 檔能用。CI 的 `docker-smoke`
+job 在每個 PR 上跑的就是同一支腳本（#341）。在 repo 根目錄執行：
+
+```sh
+deploy/smoke-test.sh
+```
+
+它會：用 repo 的 Dockerfile 建置正式映像 → 以 Production 啟動 `deploy/docker-compose.yml` → 等 `/health/ready` 回 200 →
+確認 `/` 與 `/app/home` 是管理介面的 HTML、`/embed.js` 是 JavaScript → 跑一次 `setup`（只看結束碼，輸出裡的一次性密碼直接丟掉，
+不會印出）→ `down -v` 清掉。全部通過時最後一行是 `smoke-test: PASS: …`，結束碼 `0`；任何一步失敗都會印
+`smoke-test: FAIL: <原因>`（api 起不來時附上它最後的 log）並以非 0 結束，容器與 volume 一樣會清掉。
+
+- **不碰正式環境**：不讀 `deploy/.env`、不用 `deploy/certs/`，用自己的 compose 專案名稱（`smartagri-smoke-<時間>-<pid>`）、
+  只綁 `127.0.0.1:18341`。資料庫密碼、三個 `.pfx` 與它們的密碼都是當場產生的，放在 `deploy/.smoke-test.*/`（已加入
+  `.gitignore`），結束時刪除。模型設成一個沒有人在聽的位址（`OpenAICompatible`，Production 不接受 `Fake`），所以不需要任何金鑰。
+- **需要**：Docker（含 `docker compose`）、`curl`、`openssl`；第一次建置要幾分鐘；建好的映像結束時會刪掉，建置快取會留著，下次比較快。
+- **可調整的環境變數**：`SMOKE_PORT`（預設 `18341`，被占用時換一個）、`SMOKE_TIMEOUT_SECONDS`（等 `/health/ready` 的秒數，預設 180）、
+  `SMOKE_KEEP_IMAGE=1`（保留建好的映像 `smartagri-smoke-api:local`）、`SMOKE_IMAGE` 搭配 `SMOKE_SKIP_BUILD=1`（直接用已建好的映像，CI 用這個方式套用層快取）。
+
 ## 10. LINE 頻道（M5b）
 
 LINE 頻道讓助理擁有者把通過驗收的助理接上**客戶自己的 LINE 官方帳號**：LINE 使用者在一對一聊天，或在群組裡

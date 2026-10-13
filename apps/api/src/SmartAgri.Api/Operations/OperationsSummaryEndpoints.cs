@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Answers;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.Databases;
 using SmartAgri.Api.Errors;
 using SmartAgri.Application.Answers;
 using SmartAgri.Domain.Accounts;
@@ -86,7 +88,8 @@ public sealed record OperationsSummaryView(
 /// (M4 #178) the conversation database query answers by result, kept apart from the reply rates. <c>manage-assistants</c> only, no ownership check: unlike an
 /// assistant's own analytics, this is an organization-wide view, so any account that may manage
 /// assistants may see every assistant's numbers, not only its own. Never any conversation
-/// content — only what <see cref="AnswerOutcome"/> already discarded content to record.
+/// content — only what <see cref="AnswerOutcome"/> already discarded content to record. The range
+/// (<see cref="AnswerAnalyticsRange"/>) is calendar days of <c>Statistics:TimeZone</c> (#345).
 /// </summary>
 public static class OperationsSummaryEndpoints
 {
@@ -111,10 +114,11 @@ public static class OperationsSummaryEndpoints
         DateOnly? to,
         AppDbContext dbContext,
         TimeProvider clock,
+        IOptions<StatisticsOptions> statistics,
         CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
-        var (range, error) = AnswerAnalyticsRange.Resolve(from, to, now);
+        var (range, error) = AnswerAnalyticsRange.Resolve(from, to, now, statistics.Value.Resolve());
         if (range is null)
         {
             return ApiErrors.WithReason(

@@ -24,6 +24,11 @@ public sealed class StatisticsOptions
     public TimeZoneInfo? TryResolve() =>
         TimeZoneInfo.TryFindSystemTimeZoneById(TimeZone ?? string.Empty, out var zone) ? zone : null;
 
+    /// <summary>The zone, for a caller that runs after startup validation (which rejects a setting that
+    /// does not resolve): the answer analytics, operations summary and case statistics day bounds (#345).</summary>
+    public TimeZoneInfo Resolve() =>
+        TryResolve() ?? throw new InvalidOperationException("Statistics:TimeZone was validated at startup.");
+
     /// <summary>
     /// The configured zone as an IANA id, the form the SPA's <c>Intl.DateTimeFormat</c> accepts
     /// (<c>GET /api/v1/me</c>'s <c>statisticsTimeZone</c>, #177). A Windows id that the runtime

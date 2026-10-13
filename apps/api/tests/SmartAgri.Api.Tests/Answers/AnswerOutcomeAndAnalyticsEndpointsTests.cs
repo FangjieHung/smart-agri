@@ -259,6 +259,85 @@ public sealed class AnswerOutcomeAndAnalyticsEndpointsTests : IClassFixture<Auth
         issues.GetProperty("averageResolutionHours").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
+    // --- Day bounds (#345): calendar days of Statistics:TimeZone (default Asia/Taipei) -------------
+
+    /// <summary>The instants either side of Taipei's day changes: 23:59 / 00:00 local, and 08:00 on the
+    /// 3rd vs 07:59 on the 4th, which share the UTC date Sep 3 but are different Taipei days.</summary>
+    private static readonly (DateTimeOffset At, string TaipeiDay)[] DayBoundaryInstants =
+    [
+        (DateTimeOffset.Parse("2026-09-02T15:59:00Z", System.Globalization.CultureInfo.InvariantCulture), "2026-09-02"), // 23:59 +08
+        (DateTimeOffset.Parse("2026-09-02T16:00:00Z", System.Globalization.CultureInfo.InvariantCulture), "2026-09-03"), // 00:00 +08
+        (DateTimeOffset.Parse("2026-09-03T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture), "2026-09-03"), // 08:00 +08
+        (DateTimeOffset.Parse("2026-09-03T23:59:00Z", System.Globalization.CultureInfo.InvariantCulture), "2026-09-04"), // 07:59 +08 next day
+    ];
+
+    [Fact]
+    public async Task Analytics_count_Taipei_calendar_days_not_UTC_days()
+    {
+        var org = await CreateOwnerAsync();
+        var assistantId = await CreateAssistantAsync(org, keepConversations: false);
+        foreach (var (at, _) in DayBoundaryInstants)
+        {
+            await SeedOutcomeAsync(org, assistantId, AnswerOutcomeChannel.Chat, AnswerReplyKind.GeneralKnowledge, null, [], at);
+        }
+
+        async Task<int> RepliesOn(string day)
+        {
+            var response = await org.Spa.GetAsync($"/api/v1/assistants/{assistantId}/analytics?from={day}&to={day}", org.Token);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(CancellationToken));
+            var body = await BodyJsonAsync(response);
+            (body.GetProperty("from").GetString(), body.GetProperty("to").GetString()).ShouldBe((day, day));
+            return body.GetProperty("totalReplies").GetInt32();
+        }
+
+        // UTC days would give 2, 2, 0.
+        (await RepliesOn("2026-09-02")).ShouldBe(1, "only Taipei 09-02 23:59");
+        (await RepliesOn("2026-09-03")).ShouldBe(2, "Taipei 09-03 00:00 and 08:00");
+        (await RepliesOn("2026-09-04")).ShouldBe(1, "Taipei 09-04 07:59, though its UTC date is Sep 3");
+        AssertSameDaysAsTheDatabaseFixedQueries();
+    }
+
+    [Fact]
+    public async Task The_operations_summary_counts_Taipei_calendar_days_not_UTC_days()
+    {
+        var org = await CreateOwnerAsync();
+        var assistantId = await CreateAssistantAsync(org, keepConversations: false);
+        foreach (var (at, _) in DayBoundaryInstants)
+        {
+            await SeedOutcomeAsync(org, assistantId, AnswerOutcomeChannel.Chat, AnswerReplyKind.GeneralKnowledge, null, [], at);
+            await SeedDatabaseQueryOutcomeAsync(org, assistantId, AnswerDatabaseQueryResult.Answered, at);
+        }
+
+        async Task<(int Replies, int Queries)> CountsOn(string day)
+        {
+            var response = await org.Spa.GetAsync($"/api/v1/operations/summary?from={day}&to={day}", org.Token);
+            response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(CancellationToken));
+            var body = await BodyJsonAsync(response);
+            (body.GetProperty("from").GetString(), body.GetProperty("to").GetString()).ShouldBe((day, day));
+            var replies = body.GetProperty("assistants").EnumerateArray()
+                .Where(view => view.GetProperty("assistantId").GetGuid() == assistantId)
+                .Sum(view => view.GetProperty("totalReplies").GetInt32());
+            return (replies, body.GetProperty("databaseQueries").GetProperty("totalCount").GetInt32());
+        }
+
+        // UTC days would give (2, 2), (2, 2), (0, 0).
+        (await CountsOn("2026-09-02")).ShouldBe((1, 1), "only Taipei 09-02 23:59");
+        (await CountsOn("2026-09-03")).ShouldBe((2, 2), "Taipei 09-03 00:00 and 08:00");
+        (await CountsOn("2026-09-04")).ShouldBe((1, 1), "Taipei 09-04 07:59, though its UTC date is Sep 3");
+        AssertSameDaysAsTheDatabaseFixedQueries();
+    }
+
+    /// <summary>The expected days above are exactly the database fixed queries' days of the same instants.</summary>
+    private static void AssertSameDaysAsTheDatabaseFixedQueries()
+    {
+        var taipei = TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei");
+        foreach (var (at, day) in DayBoundaryInstants)
+        {
+            SmartAgri.Application.Databases.DatabaseFixedQueries.DayOf(at, taipei)
+                .ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture).ShouldBe(day, at.ToString("O"));
+        }
+    }
+
     [Fact]
     public async Task Without_manage_assistants_the_summary_is_403()
     {

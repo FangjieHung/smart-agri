@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Answers;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.Databases;
 using SmartAgri.Api.Errors;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Cases;
@@ -27,15 +29,16 @@ public sealed record CaseStatisticsRowView(
     int CancelledCount,
     double? AverageHandlingHours);
 
-/// <summary><c>GET /api/v1/cases/statistics</c>'s response: the resolved range (UTC days) and the rows,
+/// <summary><c>GET /api/v1/cases/statistics</c>'s response: the resolved range (calendar days of
+/// <c>Statistics:TimeZone</c>, #345) and the rows,
 /// by type name then group name.</summary>
 public sealed record CaseStatisticsView(DateOnly From, DateOnly To, IReadOnlyList<CaseStatisticsRowView> Rows);
 
 /// <summary>
 /// 瓶頸統計 (M7 plan §3 F, §5 Slice M7-6, decision K; issue #251): <c>GET /api/v1/cases/statistics?from=&amp;to=</c>,
 /// the manager only (<c>403 organization-settings</c> for anyone else). The range is an
-/// <see cref="AnswerAnalyticsRange"/> — the newest 30 days by default, at most 180, UTC days — like the
-/// operations summary; an invalid one is <c>422 invalid-date-range</c>. What each number means is
+/// <see cref="AnswerAnalyticsRange"/> — the newest 30 days by default, at most 180, calendar days of
+/// <c>Statistics:TimeZone</c> (#345; UTC days before) — like the operations summary; an invalid one is <c>422 invalid-date-range</c>. What each number means is
 /// <see cref="CaseStatistics"/>; each row opens the case list filtered to it (the manager sees every case,
 /// <see cref="CaseVisibility"/>).
 /// </summary>
@@ -59,10 +62,11 @@ public static class CaseStatisticsEndpoints
         DateOnly? to,
         AppDbContext dbContext,
         TimeProvider clock,
+        IOptions<StatisticsOptions> statistics,
         CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
-        var (range, error) = AnswerAnalyticsRange.Resolve(from, to, now);
+        var (range, error) = AnswerAnalyticsRange.Resolve(from, to, now, statistics.Value.Resolve());
         if (range is null)
         {
             return ApiErrors.WithReason(

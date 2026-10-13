@@ -190,8 +190,9 @@ describe('cases', () => {
     cy.visit('/app/cases');
     cy.get('[data-cases-tab="statistics"]').click();
     cy.location('search').should('eq', '?view=statistics');
-    cy.get('[data-case-statistics]').should('contain.text', '日期以 UTC 計算');
-    cy.get('[data-case-statistics-period]').should('contain.text', '（UTC）');
+    // #345：日期是統計時區的曆日（mock 是 Asia/Taipei，與瀏覽器／機器的時區無關）。
+    cy.get('[data-case-statistics]').should('contain.text', '日期以統計時區（Asia/Taipei）的曆日計算');
+    cy.get('[data-case-statistics-period]').should('contain.text', '（Asia/Taipei）');
     // 採購組只有一件未結案、沒有完成件數：平均處理時間是「—」。
     cy.contains('[data-case-statistics-row]', '採購組').find('[data-case-statistics-average]').should('have.text', '—');
 

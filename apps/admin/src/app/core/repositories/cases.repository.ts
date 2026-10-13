@@ -24,9 +24,8 @@ import {
   CASE_TYPE_INACTIVE_MESSAGE,
   CASE_TYPE_REQUIRED_MESSAGE,
   OPEN_CASE_STATUSES,
-  addUtcDays,
   isCaseOverdue,
-  resolveCaseStatisticsRange,
+  resolveAnswerAnalyticsRange,
   type CaseAction,
   type CaseAttentionView,
   type CaseDetailView,
@@ -43,6 +42,7 @@ import {
   type CreateCaseRequest,
 } from '../domain/case.model';
 import type { CaseGroupView, CaseTypeView } from '../domain/case-settings.model';
+import { MOCK_STATISTICS_TIME_ZONE, withinStatisticsDays } from '../domain/statistics-day';
 import { DemoSessionService } from '../session/demo-session.service';
 import {
   CASE_FEATURE_DENIED_MESSAGE,
@@ -297,7 +297,9 @@ export class CasesRepository {
       const scope = filter.scope ?? 'all';
       const status = filter.status ?? 'open';
       const now = new Date();
-      const closed = filter.closedFrom || filter.closedTo ? resolveCaseStatisticsRange(filter.closedFrom, filter.closedTo, now) : null;
+      const closed = filter.closedFrom || filter.closedTo
+        ? resolveAnswerAnalyticsRange(filter.closedFrom, filter.closedTo, now, MOCK_STATISTICS_TIME_ZONE)
+        : null;
       // 與 API 的 `422 invalid-date-range` 相同：只有手動改壞網址才會發生，清單顯示錯誤狀態。
       if (closed && 'message' in closed) return throwError(() => new Error(closed.message));
       const rows = this.allMockCases()
@@ -352,7 +354,7 @@ export class CasesRepository {
   /**
    * 瓶頸統計（issue #251）：只有管理者，其他人（含外部客戶）是 `403 organization-settings`。與後端
    * `CaseStatistics` 相同：未結案與逾期（`isCaseOverdue`，與 M7-5 同一個判斷）看現在；完成與取消看期間
-   * （UTC 日）；平均處理時間是建立 → 完成，只算期間內完成的，歸到完成時的承辦組（結案後不能轉組）。
+   * （統計時區的曆日，#345；mock 只在 mock 模式執行，時區就是 `MOCK_STATISTICS_TIME_ZONE`）；平均處理時間是建立 → 完成，只算期間內完成的，歸到完成時的承辦組（結案後不能轉組）。
    */
   statistics(range: Partial<CaseStatisticsRange> = {}): Observable<CaseStatisticsResult> {
     if (this.apiMode) {
@@ -370,7 +372,7 @@ export class CasesRepository {
     return defer(() => {
       if (!this.viewerIsManager()) return of<CaseStatisticsResult>(STATISTICS_DENIED);
       const now = new Date();
-      const resolved = resolveCaseStatisticsRange(range.from, range.to, now);
+      const resolved = resolveAnswerAnalyticsRange(range.from, range.to, now, MOCK_STATISTICS_TIME_ZONE);
       if ('message' in resolved) {
         return of<CaseStatisticsResult>({ status: 'validation-failed', reason: 'invalid-date-range', message: resolved.message, fieldErrors: {} });
       }
@@ -776,10 +778,9 @@ const STATISTICS_DENIED: PermissionDeniedRepositoryView = {
   message: CASE_SETTINGS_ADMIN_DENIED_MESSAGE,
 };
 
-/** 時間落在期間內：`[from 00:00Z, to 隔天 00:00Z)`。 */
+/** 時間落在期間內：統計時區的 `[from 當地 00:00, to 隔天當地 00:00)`（#345；與後端 `AnswerAnalyticsRange` 相同）。 */
 function inRange(at: string, range: CaseStatisticsRange): boolean {
-  const time = Date.parse(at);
-  return time >= Date.parse(`${range.from}T00:00:00Z`) && time < Date.parse(`${addUtcDays(range.to, 1)}T00:00:00Z`);
+  return withinStatisticsDays(at, range, MOCK_STATISTICS_TIME_ZONE);
 }
 
 /** 與後端 `CaseStatistics.ClosedWithin` 相同：期間內完成或取消。 */

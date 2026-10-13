@@ -23,7 +23,7 @@ function ready<T>(result: { status: string; data?: T }): T {
   return result.data;
 }
 
-/** 只假造 `Date`：未結案與逾期看「現在」，預設期間是到今天（UTC）為止的 30 天。 */
+/** 只假造 `Date`：未結案與逾期看「現在」，預設期間是到今天（統計時區 Asia/Taipei 的曆日，#345）為止的 30 天。 */
 function at(iso: string): void {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(iso));
@@ -109,6 +109,33 @@ describe('CasesRepository statistics (mock, issue #251)', () => {
     expect(await listed(repository, purchasing, view, 'cancelled')).toEqual(['case-compressor-purchase']);
     // 期間外：沒有任何結案的案件。
     expect(ready(await firstValueFrom(repository.list({ status: 'closed', closedFrom: '2026-09-01', closedTo: '2026-09-30' })))).toEqual([]);
+  });
+
+  it('cuts days at midnight in the statistics time zone (Asia/Taipei), not at 08:00 like UTC days (#345)', async () => {
+    // 2026-10-06 23:30 UTC is already Oct 7 07:30 in Taipei: the default range ends on Taipei's Oct 7.
+    at('2026-10-06T23:30:00.000Z');
+    const { repository, activeAccountId } = mockRepository();
+    expect(ready(await firstValueFrom(repository.statistics()))).toMatchObject({ from: '2026-09-08', to: '2026-10-07' });
+
+    // Completed at Taipei Oct 7 00:00 (UTC Oct 6 16:00): Taipei's Oct 7, though its UTC date is Oct 6.
+    activeAccountId.set('account-internal-employee');
+    at('2026-10-06T15:00:00.000Z');
+    ready(await firstValueFrom(repository.act('case-cold-room', 'accept', { eventCount: 1 })));
+    at('2026-10-06T16:00:00.000Z');
+    ready(await firstValueFrom(repository.act('case-cold-room', 'complete', { eventCount: 2, resolution: '已請廠商更換壓縮機' })));
+    // Cancelled at Taipei Oct 6 23:59 (UTC Oct 6 15:59): still Taipei's Oct 6.
+    activeAccountId.set('account-smb-admin');
+    at('2026-10-06T15:59:00.000Z');
+    ready(await firstValueFrom(repository.act('case-compressor-purchase', 'cancel', { eventCount: 1 })));
+
+    const closedOn = async (day: string) =>
+      ready(await firstValueFrom(repository.list({ status: 'closed', closedFrom: day, closedTo: day }))).map((item) => item.id);
+    expect(await closedOn('2026-10-06')).toEqual(['case-compressor-purchase']);
+    expect(await closedOn('2026-10-07')).toEqual(['case-cold-room']);
+    const completedOn = async (day: string) =>
+      ready(await firstValueFrom(repository.statistics({ from: day, to: day }))).rows.reduce((sum, row) => sum + row.completedCount, 0);
+    expect(await completedOn('2026-10-06')).toBe(0);
+    expect(await completedOn('2026-10-07')).toBe(1);
   });
 
   it('is only for the manager: everyone else gets 403 organization-settings', async () => {

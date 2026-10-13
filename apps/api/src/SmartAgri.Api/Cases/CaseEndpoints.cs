@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Accounts;
 using SmartAgri.Api.Answers;
 using SmartAgri.Api.Assistants;
@@ -305,8 +306,8 @@ public static class CaseEndpoints
     /// filter by the current type and group; <c>overdue=true</c> keeps only the overdue ones
     /// (<see cref="CaseAttention.Overdue"/>, issue #250; left out or <c>false</c> filters nothing).
     /// <c>closedFrom</c>/<c>closedTo</c> (issue #251, the bottleneck statistics' drill-down) keep only the
-    /// cases completed or cancelled within that range — an <see cref="AnswerAnalyticsRange"/> like the
-    /// statistics' own (<see cref="CaseStatistics.ClosedWithin"/>), so with <c>status=completed</c> or
+    /// cases completed or cancelled within that range — an <see cref="AnswerAnalyticsRange"/> (calendar days of
+    /// <c>Statistics:TimeZone</c>, #345) like the statistics' own (<see cref="CaseStatistics.ClosedWithin"/>), so with <c>status=completed</c> or
     /// <c>status=cancelled</c> the list is exactly a row's number. An unknown <c>scope</c> or <c>status</c>
     /// is <c>422</c>, an invalid range <c>422 invalid-date-range</c>.
     /// </summary>
@@ -322,6 +323,7 @@ public static class CaseEndpoints
         AppDbContext dbContext,
         RequestAccountRole roles,
         TimeProvider clock,
+        IOptions<StatisticsOptions> statistics,
         CancellationToken cancellationToken)
     {
         if (await CallerAsync(httpContext, roles, cancellationToken) is not { } caller)
@@ -359,7 +361,7 @@ public static class CaseEndpoints
         AnswerAnalyticsRange? closedRange = null;
         if (closedFrom is not null || closedTo is not null)
         {
-            (closedRange, var rangeError) = AnswerAnalyticsRange.Resolve(closedFrom, closedTo, clock.GetUtcNow());
+            (closedRange, var rangeError) = AnswerAnalyticsRange.Resolve(closedFrom, closedTo, clock.GetUtcNow(), statistics.Value.Resolve());
             if (closedRange is null)
             {
                 return ApiErrors.WithReason(

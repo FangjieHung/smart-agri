@@ -1,6 +1,7 @@
 import { computed, inject, Injectable, InjectionToken, signal, type Signal } from '@angular/core';
 import { Router } from '@angular/router';
 import type { AccountId, AccountPermission } from '../domain/account.model';
+import { MOCK_STATISTICS_TIME_ZONE } from '../domain/statistics-day';
 import { DEMO_REPOSITORY } from '../repositories/tokens';
 import { DemoSessionService } from './demo-session.service';
 
@@ -116,6 +117,14 @@ export class ApiSessionService {
   /** API 模式登入者的顯示名稱（來自 `/me`）；mock 模式與尚未登入時為 null。 */
   readonly displayName = computed(() =>
     this.apiMode ? (this.identity()?.displayName ?? null) : null,
+  );
+
+  /**
+   * 統計時區（IANA）：API 模式是 `/me` 的 `statisticsTimeZone`（後端 `Statistics:TimeZone`，#177），mock 模式與
+   * 尚未登入時是 `MOCK_STATISTICS_TIME_ZONE`。瓶頸統計等畫面用它算「今天」與顯示換日的時區（#345）。
+   */
+  readonly statisticsTimeZone = computed(() =>
+    (this.apiMode ? this.identity()?.statisticsTimeZone : undefined) ?? MOCK_STATISTICS_TIME_ZONE,
   );
 
   private readonly mockPermissions = computed(() => {

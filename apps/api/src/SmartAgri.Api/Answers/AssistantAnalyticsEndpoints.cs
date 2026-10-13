@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
+using SmartAgri.Api.Databases;
 using SmartAgri.Api.Errors;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Assistants;
@@ -47,8 +49,9 @@ public sealed record AssistantAnalyticsView(
 /// <c>S+MA+OWN</c>, exactly like <c>GET .../settings</c> (<see cref="AssistantAccess.ManageableBy"/>):
 /// an id that does not exist, belongs to another organization, or is not the caller's own gets the
 /// same <c>403 assistant-configuration</c>, never a <c>404</c>. <c>from</c>/<c>to</c> default to
-/// the newest 30 days and may span at most 180 (<see cref="AnswerAnalyticsRange"/>); an invalid
-/// range is <c>422 invalid-date-range</c>.
+/// the newest 30 days and may span at most 180 (<see cref="AnswerAnalyticsRange"/>), calendar days of
+/// <c>Statistics:TimeZone</c> like the database fixed queries (#345); an invalid range is
+/// <c>422 invalid-date-range</c>.
 /// </summary>
 public static class AssistantAnalyticsEndpoints
 {
@@ -80,6 +83,7 @@ public static class AssistantAnalyticsEndpoints
         HttpContext httpContext,
         AppDbContext dbContext,
         TimeProvider clock,
+        IOptions<StatisticsOptions> statistics,
         CancellationToken cancellationToken)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } viewerId)
@@ -95,7 +99,7 @@ public static class AssistantAnalyticsEndpoints
             return ApiErrors.NotFound(ForbiddenReason.AssistantConfiguration);
         }
 
-        var (range, error) = AnswerAnalyticsRange.Resolve(from, to, clock.GetUtcNow());
+        var (range, error) = AnswerAnalyticsRange.Resolve(from, to, clock.GetUtcNow(), statistics.Value.Resolve());
         if (range is null)
         {
             return ApiErrors.WithReason(StatusCodes.Status422UnprocessableEntity, InvalidDateRangeReason, error!, field: "to");

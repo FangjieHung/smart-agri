@@ -19,8 +19,8 @@ using SmartAgri.Api.Tests.Infrastructure;
 namespace SmartAgri.Api.Tests.Authorization;
 
 /// <summary>
-/// The "must change password" gate in <see cref="ApiAuthorizationResultHandler"/>, with a
-/// fake flag source, plus how the real endpoints are marked. No database needed; the flow
+/// The "must change password" gate (and, since #356, the deactivated-account check) in
+/// <see cref="ApiAuthorizationResultHandler"/>, with a fake flag source, plus how the real endpoints are marked. No database needed; the flow
 /// with real tokens is <c>PasswordChangeFlowTests</c> (Docker).
 /// </summary>
 public class PasswordChangeGateTests : IClassFixture<WebApplicationFactory<Program>>
@@ -67,7 +67,37 @@ public class PasswordChangeGateTests : IClassFixture<WebApplicationFactory<Progr
             source, SignedIn(), PolicyAuthorizationResult.Success(), AllowedWhilePasswordChangeRequiredMetadata.Instance);
 
         nextCalled.ShouldBeTrue();
-        source.Calls.ShouldBe(0);
+
+        // Read once all the same: a deactivated account is refused by exempt endpoints too (#356).
+        source.Calls.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task A_deactivated_account_gets_a_bodiless_401_everywhere_even_on_an_exempt_endpoint()
+    {
+        foreach (var metadata in new object[][] { [], [AllowedWhilePasswordChangeRequiredMetadata.Instance] })
+        {
+            var source = new FakeFlagSource(flagged: false, deactivated: true);
+            var (response, nextCalled) = await HandleAsync(source, SignedIn(), PolicyAuthorizationResult.Success(), metadata);
+
+            nextCalled.ShouldBeFalse();
+            response.StatusCode.ShouldBe(StatusCodes.Status401Unauthorized, "the bodiless 401 of a missing or expired token");
+            response.Body.ShouldBeEmpty();
+            source.Calls.ShouldBe(1);
+        }
+    }
+
+    [Fact]
+    public async Task Deactivation_wins_over_the_password_gate_and_a_permission_specific_403()
+    {
+        var (response, nextCalled) = await HandleAsync(
+            new FakeFlagSource(flagged: true, deactivated: true),
+            SignedIn(),
+            PolicyAuthorizationResult.Forbid(),
+            new ForbiddenReasonMetadata(ForbiddenReason.Team));
+
+        nextCalled.ShouldBeFalse();
+        response.StatusCode.ShouldBe(StatusCodes.Status401Unauthorized);
     }
 
     [Fact]
@@ -128,7 +158,7 @@ public class PasswordChangeGateTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     private static async Task<(ApiErrorsTests.CapturedResponse Response, bool NextCalled)> HandleAsync(
-        IPasswordChangeRequirementSource source,
+        IAccountStandingSource source,
         ClaimsPrincipal user,
         PolicyAuthorizationResult result,
         params object[] endpointMetadata)
@@ -189,21 +219,23 @@ public class PasswordChangeGateTests : IClassFixture<WebApplicationFactory<Progr
             throw new InvalidOperationException("Not expected.");
     }
 
-    private sealed class FakeFlagSource : IPasswordChangeRequirementSource
+    private sealed class FakeFlagSource : IAccountStandingSource
     {
         private readonly bool _flagged;
+        private readonly bool _deactivated;
 
-        public FakeFlagSource(bool flagged)
+        public FakeFlagSource(bool flagged, bool deactivated = false)
         {
             _flagged = flagged;
+            _deactivated = deactivated;
         }
 
         public int Calls { get; private set; }
 
-        public Task<bool> IsPasswordChangeRequiredAsync(Guid accountId, CancellationToken cancellationToken)
+        public Task<AccountStanding> GetAsync(Guid accountId, CancellationToken cancellationToken)
         {
             Calls++;
-            return Task.FromResult(_flagged && accountId == AccountId);
+            return Task.FromResult(accountId == AccountId ? new AccountStanding(_flagged, _deactivated) : AccountStanding.Unknown);
         }
     }
 }

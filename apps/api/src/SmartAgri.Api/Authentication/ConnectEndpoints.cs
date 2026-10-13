@@ -46,7 +46,7 @@ public static class ConnectEndpoints
     }
 
     /// <summary>
-    /// Signed in (valid Identity cookie, account still usable) → issue an authorization
+    /// Signed in (valid Identity cookie, account still usable: not locked out, not deactivated) → issue an authorization
     /// code. Otherwise redirect to the Angular login page with <c>returnUrl</c> set to
     /// this same authorization request, or fail with <c>login_required</c> when the client
     /// asked for <c>prompt=none</c>.
@@ -121,7 +121,9 @@ public static class ConnectEndpoints
 
     /// <summary>
     /// Whether a sign-in may still obtain tokens, checked on every code and refresh exchange: the
-    /// account is not locked out and may sign in, its security stamp is the one it signed in with (a
+    /// account is not deactivated (issue #356; deactivating also revokes its tokens and rotates the
+    /// stamp, so this is the check that holds even for a token entry the revocation missed), not
+    /// locked out and may sign in, its security stamp is the one it signed in with (a
     /// password change or <c>reset-password</c> rotates it), and the session's absolute lifetime has not
     /// run out. An account that must change its password still gets tokens: they only reach
     /// <c>GET /api/v1/me</c> and change-password (<c>PasswordChangeGate</c>).
@@ -132,7 +134,8 @@ public static class ConnectEndpoints
         DateTimeOffset now,
         UserManager<Account> userManager,
         SignInManager<Account> signInManager) =>
-        !await userManager.IsLockedOutAsync(account)
+        !account.IsDeactivated
+        && !await userManager.IsLockedOutAsync(account)
         && await signInManager.CanSignInAsync(account)
         && string.Equals(session.SecurityStamp, await userManager.GetSecurityStampAsync(account) ?? string.Empty, StringComparison.Ordinal)
         && !session.HasEnded(now);
@@ -220,7 +223,10 @@ public static class ConnectEndpoints
 
         organizationContext.Pin(organizationId);
         var account = await userManager.GetUserAsync(cookie.Principal!);
-        if (account is null || account.OrganizationId != organizationId || await userManager.IsLockedOutAsync(account))
+        if (account is null
+            || account.OrganizationId != organizationId
+            || account.IsDeactivated
+            || await userManager.IsLockedOutAsync(account))
         {
             return null;
         }

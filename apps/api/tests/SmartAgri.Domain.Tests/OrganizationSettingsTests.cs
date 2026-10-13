@@ -86,6 +86,7 @@ public class OrganizationSettingsTests
                 "case-group-created", "case-group-renamed", "case-group-archived", "case-group-unarchived",
                 "case-type-created", "case-type-updated",
                 "database-auto-case-changed",
+                "member-deactivated", "member-reactivated",
             ]);
     }
 

@@ -211,7 +211,7 @@ public static class AuthenticationServiceCollectionExtensions
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         services.AddScoped<RequestAccountRole>();
         services.AddScoped<IAuthorizationHandler, OrganizationAdminAuthorizationHandler>();
-        services.AddScoped<IPasswordChangeRequirementSource, DatabasePasswordChangeRequirementSource>();
+        services.AddScoped<IAccountStandingSource, DatabaseAccountStandingSource>();
         services.AddSingleton<IAuthorizationMiddlewareResultHandler, ApiAuthorizationResultHandler>();
         services
             .AddAuthorizationBuilder()

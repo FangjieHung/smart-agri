@@ -46,6 +46,18 @@ public class Account : IdentityUser<Guid>, IOrganizationScoped
     /// </summary>
     public bool PasswordChangeRequired { get; private set; }
 
+    /// <summary>
+    /// When a manager deactivated the account (停用成員, issue #356), or <see langword="null"/> while
+    /// it is in use. A deactivated account cannot sign in, cannot redeem a code or refresh token, and
+    /// every API call with an access token issued before is refused (<c>401</c>): like
+    /// <see cref="PasswordChangeRequired"/>, it is read from the database on every request. The row,
+    /// its permissions and its history stay, so it can be reactivated.
+    /// </summary>
+    public DateTimeOffset? DeactivatedAt { get; private set; }
+
+    /// <summary>Whether <see cref="DeactivatedAt"/> is set.</summary>
+    public bool IsDeactivated => DeactivatedAt is not null;
+
     public static Account Create(Organization organization, string loginName, string displayName, AccountRole role)
     {
         ArgumentNullException.ThrowIfNull(organization);
@@ -80,6 +92,32 @@ public class Account : IdentityUser<Guid>, IOrganizationScoped
     /// <summary>Clears <see cref="PasswordChangeRequired"/>; only after the account has
     /// set a password of its own.</summary>
     public void ClearPasswordChangeRequirement() => PasswordChangeRequired = false;
+
+    /// <summary>Deactivates the account (see <see cref="DeactivatedAt"/>). The caller also rotates the
+    /// security stamp and revokes the account's tokens in the same transaction.</summary>
+    /// <exception cref="InvalidOperationException">It is already deactivated.</exception>
+    public void Deactivate(DateTimeOffset now)
+    {
+        if (IsDeactivated)
+        {
+            throw new InvalidOperationException("The account is already deactivated.");
+        }
+
+        DeactivatedAt = now;
+    }
+
+    /// <summary>Puts a deactivated account back in use. Nothing transferred at deactivation comes
+    /// back; the account signs in again with its password.</summary>
+    /// <exception cref="InvalidOperationException">It is not deactivated.</exception>
+    public void Reactivate()
+    {
+        if (!IsDeactivated)
+        {
+            throw new InvalidOperationException("The account is not deactivated.");
+        }
+
+        DeactivatedAt = null;
+    }
 
     /// <summary>
     /// Same rule as Identity's default <c>UpperInvariantLookupNormalizer</c>, so the

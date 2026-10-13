@@ -539,10 +539,13 @@ public static partial class AssistantIssueEndpoints
     }
 
     /// <summary>An account of the caller's organization (the query filter) holding
-    /// <c>handle-assistant-issues</c>.</summary>
+    /// <c>handle-assistant-issues</c> and still in use (a deactivated member, issue #356, is never
+    /// given new work).</summary>
     private static Task<bool> IsEligibleAssigneeAsync(AppDbContext dbContext, Guid accountId, CancellationToken cancellationToken) =>
         dbContext.AccountPermissions.AsNoTracking().AnyAsync(
-            grant => grant.AccountId == accountId && grant.Permission == AccountPermission.HandleAssistantIssues,
+            grant => grant.AccountId == accountId
+                && grant.Permission == AccountPermission.HandleAssistantIssues
+                && dbContext.Accounts.Any(account => account.Id == accountId && account.DeactivatedAt == null),
             cancellationToken);
 
     private static IResult? ValidateTitle(string? title)

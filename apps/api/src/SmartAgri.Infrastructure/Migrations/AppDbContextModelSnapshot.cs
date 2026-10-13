@@ -2420,6 +2420,79 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("KnowledgeFileContents", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Notifications.AccountNotificationSettings", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<bool>("HandoffEmails")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AccountId");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AccountId", "OrganizationId");
+
+                    b.ToTable("AccountNotificationSettings", (string)null);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Notifications.VisitorHandoff", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AssistantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EmailSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("HandledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HandledByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("AssistantId", "OrganizationId");
+
+                    b.HasIndex("HandledByAccountId", "OrganizationId");
+
+                    b.HasIndex("AssistantId", "HandledAt", "CreatedAt");
+
+                    b.ToTable("VisitorHandoffs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_VisitorHandoffs_Handled", "(\"HandledAt\" IS NULL) = (\"HandledByAccountId\" IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Organizations.Organization", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3700,6 +3773,44 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasPrincipalKey("SmartAgri.Domain.Knowledge.KnowledgeDocumentVersion", "Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Notifications.AccountNotificationSettings", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Notifications.VisitorHandoff", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Assistants.Assistant", null)
+                        .WithMany()
+                        .HasForeignKey("AssistantId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Infrastructure.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("HandledByAccountId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Organizations.OrganizationActivity", b =>

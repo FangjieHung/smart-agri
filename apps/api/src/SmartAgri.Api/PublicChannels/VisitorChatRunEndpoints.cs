@@ -11,6 +11,7 @@ using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Chat;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Knowledge;
+using SmartAgri.Api.Notifications;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
 using SmartAgri.Application.Chat;
@@ -20,6 +21,7 @@ using SmartAgri.Application.Observability;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Notifications;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Ai;
 
@@ -61,6 +63,12 @@ namespace SmartAgri.Api.PublicChannels;
 /// recorded as <see cref="ModelInvocationPurpose.PublicAnswer"/> with no account, and the outcome
 /// as <c>website</c> — no content, no visitor.
 /// </para>
+/// <para>
+/// <b>轉真人</b> (#355): a <c>no-result</c> reply — the assistant's 「找不到資料時的回覆」, where the owner
+/// tells visitors a person will follow up — records a <see cref="VisitorHandoff"/> for the owner
+/// (<see cref="VisitorHandoffNotifier"/>, at most one per visitor session per half hour), after the reply
+/// is complete and before <c>RUN_FINISHED</c>. It never fails or delays the stream beyond one insert.
+/// </para>
 /// </remarks>
 public static class VisitorChatRunEndpoints
 {
@@ -80,6 +88,7 @@ public static class VisitorChatRunEndpoints
         TimeProvider clock,
         IOptions<JsonOptions> jsonOptions,
         ILoggerFactory loggerFactory,
+        VisitorHandoffNotifier handoffs,
         CancellationToken cancellationToken)
     {
         if (VisitorAuthentication.Read(httpContext.User) is not { } visitor)
@@ -152,7 +161,8 @@ public static class VisitorChatRunEndpoints
             assistant.ShowCitations,
             // AG-UI needs ids on RUN_STARTED/RUN_FINISHED: the client's own (opaque, never looked up) or fresh ones.
             string.IsNullOrEmpty(input?.ThreadId) ? Guid.NewGuid().ToString() : input.ThreadId,
-            string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId);
+            string.IsNullOrEmpty(input?.RunId) ? Guid.NewGuid().ToString() : input.RunId,
+            () => handoffs.NotifyAsync(assistant, VisitorHandoffChannel.Website, visitor.VisitorId.ToString("N")));
 
         await StreamAsync(httpContext, run, cancellationToken);
         return Results.Empty;
@@ -202,7 +212,8 @@ public static class VisitorChatRunEndpoints
         GroundedAnswerRequest request,
         bool showCitations,
         string threadId,
-        string runId)
+        string runId,
+        Func<Task> onNoResult)
     {
         public ILogger Logger { get; } = logger;
 
@@ -301,6 +312,9 @@ public static class VisitorChatRunEndpoints
                 // The default steps tell staff to contact the assistant's manager; a visitor gets the
                 // visitor wording (the owner's contact details are in the refusal message itself).
                 view = view with { Reply = noResult with { NextSteps = GroundedReply.VisitorNoResultNextSteps } };
+
+                // 轉真人 (#355): the notifier logs and drops its own failures.
+                await onNoResult();
             }
 
             if (!showCitations && view.Reply is { Citations.Count: > 0 } shown)

@@ -66,6 +66,9 @@ public class VisitorEndpointArchitectureTests
     // M7-9: LINE answers through its own handler, which must not reach the proposal stage either.
     [InlineData(typeof(SmartAgri.Api.Line.LineQuestionHandler))]
     [InlineData(typeof(SmartAgri.Api.Line.LineWebhookProcessor))]
+    // #355: the 轉真人 notifier both visitor channels call reads no conversation either. (Its Email job runs
+    // later, outside the visitor's request, and reads Statistics:TimeZone from SmartAgri.Api.Databases.)
+    [InlineData(typeof(SmartAgri.Api.Notifications.VisitorHandoffNotifier))]
     public void The_visitor_handlers_depend_on_no_form_query_or_handoff_service(Type endpoints)
     {
         var offending = ReferencedTypes(endpoints)
@@ -76,6 +79,14 @@ public class VisitorEndpointArchitectureTests
             .ToList();
 
         offending.ShouldBeEmpty($"{endpoints.Name} must compose only the answer pipeline (plan §3 D)");
+    }
+
+    /// <summary>#355: both visitor channels do reach the 轉真人 notifier (and nothing else of it).</summary>
+    [Fact]
+    public void Both_visitor_channels_record_handoffs_through_the_notifier()
+    {
+        ReferencedTypes(typeof(VisitorChatRunEndpoints)).ShouldContain(typeof(SmartAgri.Api.Notifications.VisitorHandoffNotifier));
+        ReferencedTypes(typeof(SmartAgri.Api.Line.LineQuestionHandler)).ShouldContain(typeof(SmartAgri.Api.Notifications.VisitorHandoffNotifier));
     }
 
     /// <summary>The scan itself finds what it looks for: the member endpoint does use them (the form

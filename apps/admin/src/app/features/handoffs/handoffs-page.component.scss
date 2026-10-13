@@ -1,0 +1,53 @@
+.workspace-page { display: grid; gap: var(--space-4); min-inline-size: 0; }
+p { margin: 0; }
+
+.handoffs-page__toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.handoffs-page__filter { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+.handoffs-page__filter button,
+.handoff__handle {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.handoffs-page__filter button[aria-pressed='true'] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.handoff__handle { border-color: var(--color-accent); color: var(--color-accent); font-weight: 700; }
+.handoff__handle:disabled { cursor: progress; opacity: 0.7; }
+.handoffs-page__settings,
+.handoff__link { color: var(--color-accent); font-weight: 700; overflow-wrap: anywhere; }
+
+.handoffs-page__list { display: grid; gap: var(--space-2); padding: 0; margin: 0; list-style: none; }
+.handoff {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  min-inline-size: 0;
+}
+.handoff__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
+.handoff__channel {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+  font-weight: 700;
+}
+.handoff__assistant { overflow-wrap: anywhere; }
+.handoff__time,
+.handoff__hint,
+.handoff__handled { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.handoff__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+
+.handoffs-page__error { color: var(--color-error); font-weight: 700; }
+.handoffs-page__feedback { color: var(--color-success); font-weight: 600; }
+.handoffs-page__feedback:empty { display: none; }
+
+.handoffs-page__filter button:focus-visible,
+.handoff__handle:focus-visible,
+.handoffs-page__settings:focus-visible,
+.handoff__link:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

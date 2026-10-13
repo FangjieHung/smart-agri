@@ -450,6 +450,18 @@ HTTP adapter 可把三者實作成 no-op，或在正式建置中把整個 `DemoS
 - 「保存對話」開或關都能執行；刪除所有成員在該助理上的對話串，與每日清理同樣分批。不影響 `AnswerOutcome`（依保存期限到期）與處理事項的問答副本，受影響的成員不會收到通知。
 - 確認框必須勾選「我了解刪除後無法復原」；非管理者在助理設定只看到「既有的 N 串對話會保留到保存期限；要立即刪除，請聯絡管理者」。
 
+### 2.11 轉真人通知與我的通知（#355，獨立的 repository，不在 DemoRepository）
+
+`core/repositories/handoffs.repository.ts` 的 `HandoffsRepository`：API 模式直接打下表的真實 endpoint，Demo 模式在記憶體模擬（只在這次工作階段；範例資料寫在該檔案，不放進 `demo-seed.ts`）。授權只有一條：**只有助理的擁有者**看得到、能標記自己助理的轉真人；別人的、別的組織的、不存在的 id 一律同一則 `403 handoff`。部署端的 SMTP 設定與確認方式：`deploy/README.md` 第 16 節。
+
+| 方法 | endpoint | 授權 | 成功 | 可恢復錯誤 | 不可恢復錯誤 | 前端呼叫位置 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `list(status)` | `GET /api/v1/handoffs?status=pending\|handled\|all` | 登入；只列自己擁有的助理 | `200` `VisitorHandoffView[]`（新的在前，最多 200 筆） | — | `401`／`422`（`status` 不認得）／`5xx` | `features/handoffs/handoffs-page.component.ts` |
+| `attention()` | `GET /api/v1/handoffs/attention` | 同上 | `200` `{ pendingCount }` | — | `401`／`5xx` | `features/handoffs/handoff-attention.loader.ts`（側欄「轉真人」旁的數字，由外框在換頁時、以及頁面送出 `smartagri:nav-counts-changed` 時動態載入） |
+| `markHandled(id)` | `POST /api/v1/handoffs/{id}:handle` | 擁有者 | `200` `VisitorHandoffView`（標記兩次保留第一次） | — | `401`／`403 handoff`／`5xx` | `handoffs-page.component.ts` |
+| `notificationSettings()` | `GET /api/v1/me/notification-settings` | 登入（自己的） | `200` `{ email, handoffEmails, emailDeliveryConfigured }`；沒設定過是 `email: null, handoffEmails: true` | — | `401`／`5xx` | `features/settings/components/notification-settings-panel` |
+| `updateNotificationSettings(request)` | `PUT /api/v1/me/notification-settings` `{ email, handoffEmails }` | 同上 | `200`（同上） | `422`（欄位 `email`：不是單一有效地址；空白＝清除） | `401`／`5xx` | 同上 |
+
 ---
 
 ## 3. 每個方法的「Demo 特有行為」速查

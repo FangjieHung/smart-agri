@@ -7,6 +7,7 @@ import { RouterOutlet, Router } from '@angular/router';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { of, Subject } from 'rxjs';
 import { WorkspaceLayoutComponent } from './workspace-layout.component';
+import { NAV_COUNTS_CHANGED_EVENT } from './nav-counts';
 import type { NavEntry, NavLeaf } from '../side-nav/nav-item.model';
 
 /**
@@ -93,7 +94,7 @@ describe('WorkspaceLayoutComponent', () => {
   let refresh: ReturnType<typeof vi.fn<(url: string) => void>>;
   beforeEach(() => {
     refresh = vi.fn<(url: string) => void>();
-    vi.spyOn(WorkspaceLayoutComponent.prototype as unknown as { refreshCaseOverdueCount: (url: string) => void }, 'refreshCaseOverdueCount').mockImplementation(refresh);
+    vi.spyOn(WorkspaceLayoutComponent.prototype as unknown as { refreshNavCounts: (url: string) => void }, 'refreshNavCounts').mockImplementation(refresh);
   });
   afterEach(() => vi.restoreAllMocks());
 
@@ -133,12 +134,16 @@ describe('WorkspaceLayoutComponent', () => {
     it('hands the 案件 entry one count signal and refreshes it on every navigation', async () => {
       const fakeRouter = createFakeRouter('/app/home');
       const fixture = await render(fakeRouter);
-      const app = fixture.componentInstance as unknown as { caseOverdueCount: WritableSignal<number> };
+      const app = fixture.componentInstance as unknown as { caseOverdueCount: WritableSignal<number>; handoffPendingCount: WritableSignal<number> };
       const navItems = fixture.debugElement.query(By.directive(StubSideNav)).componentInstance.navItems as NavEntry[];
       const cases = navItems.find((entry): entry is NavLeaf => 'route' in entry && entry.route === '/app/cases') as NavLeaf;
       expect(cases.count).toBe(app.caseOverdueCount);
       expect(cases.count?.()).toBe(0);
-      expect(navItems.filter((entry) => 'count' in entry)).toEqual([cases]);
+      // #355: 「轉真人」 has its own pending number, refreshed by the same call.
+      const handoffs = navItems.find((entry): entry is NavLeaf => 'route' in entry && entry.route === '/app/handoffs') as NavLeaf;
+      expect(handoffs.count).toBe(app.handoffPendingCount);
+      expect(handoffs.countLabel).toBe('則待處理');
+      expect(navItems.filter((entry) => 'count' in entry)).toEqual([cases, handoffs]);
 
       for (const url of ['/app/chat', '/app/forms/a']) {
         fakeRouter.url = url;
@@ -149,6 +154,20 @@ describe('WorkspaceLayoutComponent', () => {
 
       app.caseOverdueCount.set(3);
       expect(cases.count?.()).toBe(3);
+      app.handoffPendingCount.set(2);
+      expect(handoffs.count?.()).toBe(2);
+    });
+
+    it('refreshes the numbers at once when a page says it changed them (issue #355)', async () => {
+      const fakeRouter = createFakeRouter('/app/handoffs');
+      const fixture = await render(fakeRouter);
+
+      document.dispatchEvent(new Event(NAV_COUNTS_CHANGED_EVENT));
+      expect(refresh.mock.calls).toEqual([['/app/handoffs']]);
+
+      fixture.destroy();
+      document.dispatchEvent(new Event(NAV_COUNTS_CHANGED_EVENT));
+      expect(refresh).toHaveBeenCalledTimes(1);
     });
 
     it('stops listening once the layout is removed on leaving the workspace', async () => {

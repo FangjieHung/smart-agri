@@ -4,7 +4,7 @@
 `deploy/.env` 要填什麼、哪些東西要備份、出問題時看哪裡。第一次安裝（建立第一個組織與管理者）、
 各設定的完整行為與錯誤碼，請看英文的 [`apps/api/README.md`](../apps/api/README.md)；本文只照操作順序串起來，
 並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節，備份與還原在第 14 節，
-升級到新版本與回滾在第 15 節。
+升級到新版本與回滾在第 15 節，轉真人的 Email 通知（SMTP）在第 16 節。
 
 ## 1. 這個部署長什麼樣子
 
@@ -83,6 +83,7 @@ cp deploy/.env.example deploy/.env
 | `ADMIN_SPA_ORIGIN` | 選填。只有管理介面另外部署時才填它的來源，例如 `https://admin.example.org` | 用 `PUBLIC_BASE_URL` 的來源（api 容器提供的管理介面） |
 | `TRUSTED_PROXIES` | 反向代理的 IP 或網段，逗號分隔，例如 `172.18.0.0/16,10.0.0.5` | 忽略所有 `X-Forwarded-*`，見第 5 節 |
 | `DEFAULT_MONTHLY_TOKEN_LIMIT` | 每個組織每月可用的對話模型 token 數（輸入＋輸出）；空白 = 內建的 2,000,000；`0` = 沒有自己上限的組織一律暫停對外回覆 | 用 2,000,000 |
+| `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`SMTP_FROM_NAME` | 選填。寄「轉真人」Email 用的寄信伺服器，見第 16 節 | 不寄 Email；站內的轉真人通知照常 |
 
 **頻率限制**沒有放進 `.env`：預設值（每個 IP 每分鐘開 10 個工作階段、每個訪客每分鐘 6 題／每小時 60 題、
 每個 IP 每分鐘 20 題、每個助理每分鐘 120 題且同時最多 10 個回覆）適用多數網站，完整清單見
@@ -429,7 +430,7 @@ LINE 頻道讓助理擁有者把通過驗收的助理接上**客戶自己的 LIN
 | **Webhook** | 開啟 | 不開，LINE 不會把訊息送給系統。 |
 | **自動回應訊息** | **關閉** | 開著時，LINE 自己的自動回應可能與助理的回答同時送出，使用者收到兩則。我們的實機驗收（`docs/evals/2026-10-07-235-line-acceptance.md`）在自動回應開著時，擁有者沒有看到多餘的自動回應；但是否重複取決於自動回應的內容與關鍵字設定，所以**仍然要關閉**，避免重複回覆。 |
 | **加入群組或多人聊天室** | 要在群組使用就**允許** | 官方帳號不允許加入群組時，無法被邀進群組。 |
-| **聊天**（回應設定） | 擁有者想自己看客戶訊息時才開 | 開了之後，擁有者可在 Official Account Manager 的聊天介面看到客戶訊息並手動回覆。**系統不會通知任何人、也不會轉接真人**：「找不到資料時的回覆」若寫「店長會在這裡回覆您」，只有擁有者真的去看聊天介面才成立。 |
+| **聊天**（回應設定） | 擁有者想自己看客戶訊息時才開 | 開了之後，擁有者可在 Official Account Manager 的聊天介面看到客戶訊息並手動回覆。助理回覆「找不到資料時的回覆」時，系統會在管理介面的「轉真人」通知助理的擁有者（有設定 SMTP 時也寄 Email，第 16 節），但**不會轉接真人、也不保存客戶的訊息**：「找不到資料時的回覆」若寫「店長會在這裡回覆您」，擁有者仍要到聊天介面回覆。 |
 
 這些開關目前無法由系統檢查或設定，只能由客戶在 LINE 後台確認。
 
@@ -1024,3 +1025,96 @@ deploy/upgrade-drill.sh <舊版>
 
 要建置兩個版本的映像檔：第一次大約十幾分鐘，之後有建置快取時兩、三分鐘。最後一行是 `upgrade-drill: PASS: ...` 就代表這次的升級與回滾在這台電腦上走得通；
 `upgrade-drill: FAIL: <原因>` 就先不要升級，把畫面交給開發者。說明：`deploy/upgrade-drill.sh --help`。
+
+## 16. 轉真人通知與 Email（SMTP）
+
+官網或 LINE 的訪客問到助理答不出來的問題時，會收到助理的「找不到資料時的回覆」（例如「店長會在這裡回覆您」）。
+這時系統會**通知那個助理的擁有者**（建立助理、設定官網與 LINE 發布的人）：
+
+- **管理介面**：側欄「轉真人」旁邊顯示待處理的數量；點進去可以看到哪個助理、哪個管道（官網／LINE）、什麼時間，
+  處理完按「標記已處理」。
+- **Email**（選用）：這一節設定好寄信伺服器、而且擁有者在「團隊與設定 → 我的通知」填了自己的 Email，就會同時寄信。
+  每個人都可以在同一個地方關掉自己的轉真人 Email。
+
+一些固定的規則：
+
+- 系統**不保存訪客的任何內容**（問題、回答、LINE 的使用者 ID 都不存），信裡也只有組織、助理、管道、時間與後台連結
+  （`{管理介面網址}/app/handoffs`）。要回覆 LINE 的使用者，請到 LINE Official Account Manager 的「聊天」（第 10.2 節）；
+  官網的訪客則會依「找不到資料時的回覆」裡寫的聯絡方式找你。
+- 同一位訪客（官網的同一個對話視窗、LINE 的同一個聊天）半小時內再問到答不出來的問題，**不會再通知一次**。
+- 寄信由背景工作負責，**失敗會自動重試**（30 秒、1 分、2 分、4 分後，共 5 次），不會讓訪客的對話變慢或出錯。
+
+### 16.1 設定寄信伺服器
+
+在 `deploy/.env` 填（全部留空就是不寄 Email，其他功能照常）：
+
+| 變數 | 填什麼 |
+| --- | --- |
+| `SMTP_HOST` | 寄信伺服器，例如 `smtp.gmail.com`。留空 = 不寄 Email |
+| `SMTP_PORT` | 留空 = `587`（STARTTLS 加密）。**不支援 `465`**，填了 api 會拒絕啟動 |
+| `SMTP_USERNAME`、`SMTP_PASSWORD` | 登入寄信伺服器的帳號與密碼；兩個一起填，或一起留空（公司內部不需登入的轉寄伺服器） |
+| `SMTP_FROM` | 寄件人地址，例如 `notify@example.org`；填了 `SMTP_HOST` 就必填 |
+| `SMTP_FROM_NAME` | 收件匣顯示的寄件人名稱；留空 = 「AI 助理工作台」 |
+
+**用 Gmail 寄（以 `shop@gmail.com` 為例）**：
+
+1. 這個 Google 帳戶要先開啟「兩步驟驗證」（Google 帳戶 → 安全性）。
+2. 到 Google 帳戶 →「安全性」→「應用程式密碼」，建立一組應用程式密碼（名稱隨意，例如 smartagri），畫面會顯示 16 個字元的密碼。
+   **不要用 Google 帳戶本身的密碼**，也不要把應用程式密碼貼進聊天或工單。
+3. 在 `deploy/.env` 填：
+
+   ```sh
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USERNAME=shop@gmail.com
+   SMTP_PASSWORD=<剛才的應用程式密碼>
+   SMTP_FROM=shop@gmail.com
+   ```
+
+4. 重新啟動 api：`docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d`。
+   設定有誤（例如 `SMTP_FROM` 不是 Email、只填了帳號沒填密碼、埠填 465）時 api 不會啟動，
+   `docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs api` 會寫出是哪一個 `Smtp:` 設定。
+
+Gmail 個人帳戶每天能寄的信有上限（約幾百封），一般店家的轉真人通知用不到；量大時改用公司的郵件服務。
+
+### 16.2 每個人自己設定收信
+
+每位同仁登入管理介面 →「團隊與設定」→「我的通知」：填自己的 Email、勾選「訪客要找真人時寄 Email 給我」，按「儲存通知設定」。
+沒填 Email、或取消勾選，就不會寄信給他（站內通知不受影響）。部署沒有設定 SMTP 時，這裡會寫「這個部署還沒有設定寄信伺服器」。
+
+### 16.3 怎麼確認信有沒有寄出
+
+1. **看 api 的紀錄**：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs api | grep -E 'Visitor handoff|Handoff Email|notifications.handoff-email'
+   ```
+
+   | 紀錄 | 意思 |
+   | --- | --- |
+   | `Visitor handoff ... recorded ...; Email queued: True` | 有一則轉真人，信已排進寄信佇列 |
+   | `... Email queued: False` | 有轉真人，但沒排寄信：沒設定 SMTP，或擁有者沒填 Email／關掉了 |
+   | `Handoff Email for ... sent (attempt 1)` | 信已交給寄信伺服器 |
+   | `Background job ... (notifications.handoff-email) failed on attempt 1 of 5; retrying after ...` | 這次沒寄成功，稍後自動重試 |
+   | `Handoff Email job ... gave up after 5 attempts: ...` | 重試 5 次都失敗，不會再寄；後面會寫錯誤的種類（例如 SMTP 的狀態碼） |
+   | `Handoff Email for ... not sent: ...` | 決定不寄，後面寫原因（已經處理、擁有者關掉了等） |
+
+   紀錄裡**不會出現**收件人的 Email、SMTP 密碼或訪客的訊息。
+
+2. **看資料庫裡的寄信工作**（最近 10 筆；`Succeeded` = 已寄出，`Queued` 且 `Attempts` 大於 0 = 等著重試，`Failed` = 放棄了）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec postgres \
+     psql -U smartagri -d smartagri -c "select \"Status\", \"Attempts\", \"LastError\", \"CreatedAt\" from \"BackgroundJobs\" where \"Kind\" = 'notifications.handoff-email' order by \"CreatedAt\" desc limit 10;"
+   ```
+
+3. **常見的失敗**：
+
+   | `LastError` 或紀錄裡看到 | 怎麼辦 |
+   | --- | --- |
+   | `(SMTP 535)`、`(SMTP AuthenticationRequired)` | 帳號或密碼錯了；Gmail 要用應用程式密碼 |
+   | `(SMTP MustIssueStartTlsFirst)` | 伺服器要求加密，但連線沒有加密：確認埠是 587 |
+   | `SocketException`、`TimeoutException` | 主機或埠錯了，或這台主機的防火牆擋了往外連 587 |
+   | `MailboxUnavailable` | 收件地址不存在：請那位同仁到「我的通知」改正 |
+
+信寄出了卻沒收到時，先請收件人看垃圾郵件匣；Gmail 寄出的信也會留在寄件帳號的「寄件備份」。

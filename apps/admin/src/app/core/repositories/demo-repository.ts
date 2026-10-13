@@ -160,6 +160,8 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'case',
   /** 案件動作（issue #249）：看得到案件，但這個動作在這個狀態不是你能做的（例如別人受理的案件你不能完成）。 */
   'case-action',
+  /** 轉真人通知（issue #355）：只有助理的擁有者看得到、能標記已處理。 */
+  'handoff',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
   'password-change-required',
 ] as const;

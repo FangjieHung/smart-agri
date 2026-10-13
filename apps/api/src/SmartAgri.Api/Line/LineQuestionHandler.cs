@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SmartAgri.Api.Assistants;
+using SmartAgri.Api.Notifications;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Answers;
@@ -12,6 +13,7 @@ using SmartAgri.Application.Observability;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Ai;
 using SmartAgri.Domain.Assistants;
+using SmartAgri.Domain.Notifications;
 using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Line;
@@ -44,12 +46,15 @@ namespace SmartAgri.Api.Line;
 /// counted on the channel's 「本月補送次數」; a group's or room's is dropped (decision A: a push costs one
 /// message per member). Any other LINE failure, <c>429</c> included, is logged and dropped — never
 /// retried.</item>
-/// <item>Once delivered, the question and the answer are remembered for the chat's next question.</item>
+/// <item>Once delivered, the question and the answer are remembered for the chat's next question; and a
+/// delivered <c>no-result</c> — the assistant's 「找不到資料時的回覆」, where the owner tells LINE users a
+/// person will reply — records a 轉真人 for the owner (<see cref="VisitorHandoffNotifier"/>, #355: at most
+/// one per chat per half hour, no LINE id stored).</item>
 /// </list>
 /// </para>
 /// <para>
-/// Nothing is written but the model call and the answer outcome (by the pipeline) and, on a push, the
-/// channel's fallback counter. Logs carry the assistant id, outcomes, statuses and LINE's
+/// Nothing is written but the model call and the answer outcome (by the pipeline), on a push the
+/// channel's fallback counter, and on a delivered refusal a content-free <see cref="VisitorHandoff"/>. Logs carry the assistant id, outcomes, statuses and LINE's
 /// <c>x-line-request-id</c> — never a token, a LINE id, a question or an answer.
 /// </para>
 /// </remarks>
@@ -65,6 +70,7 @@ internal sealed class LineQuestionHandler : ILineQuestionHandler
     private readonly LineAnswerMetrics _metrics;
     private readonly TimeProvider _clock;
     private readonly PublicLineOptions _options;
+    private readonly VisitorHandoffNotifier _handoffs;
     private readonly ILogger<LineQuestionHandler> _logger;
 
     public LineQuestionHandler(
@@ -78,6 +84,7 @@ internal sealed class LineQuestionHandler : ILineQuestionHandler
         LineAnswerMetrics metrics,
         TimeProvider clock,
         IOptions<PublicChannelsOptions> options,
+        VisitorHandoffNotifier handoffs,
         ILogger<LineQuestionHandler> logger)
     {
         _dbContext = dbContext;
@@ -90,6 +97,7 @@ internal sealed class LineQuestionHandler : ILineQuestionHandler
         _metrics = metrics;
         _clock = clock;
         _options = options.Value.Line;
+        _handoffs = handoffs;
         _logger = logger;
     }
 
@@ -174,6 +182,11 @@ internal sealed class LineQuestionHandler : ILineQuestionHandler
         {
             _history.Append(context.Chat, message.Id, new ConversationTurn(ConversationAuthor.Account, validated.Value));
             _history.Append(context.Chat, message.Id, new ConversationTurn(ConversationAuthor.Assistant, reply.Text));
+            if (reply.Kind == GroundedReplyKind.NoResult)
+            {
+                // 轉真人 (#355): the notifier logs and drops its own failures.
+                await _handoffs.NotifyAsync(assistant, VisitorHandoffChannel.Line, context.Chat.ChatId);
+            }
         }
     }
 

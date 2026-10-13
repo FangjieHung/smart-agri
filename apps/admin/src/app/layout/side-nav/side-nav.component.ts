@@ -87,7 +87,7 @@ export class SideNavComponent {
    */
   protected leafLabel(item: NavLeaf): string | null {
     const count = item.count?.();
-    return count ? `${item.label}，${count} 件逾期` : this.collapsed() ? item.label : null;
+    return count ? `${item.label}，${count} ${item.countLabel ?? '件逾期'}` : this.collapsed() ? item.label : null;
   }
 
   protected isGroupActive(group: NavGroup): boolean {

@@ -66,10 +66,25 @@ public client, `admin-spa`:
    `/login?returnUrl=<this authorize request>` (the SPA's login page; `prompt=none`
    gets `login_required` instead).
 4. `POST /connect/token` (code + `code_verifier`) → a 30-minute access token (signed
-   JWT) and an identity token. No refresh tokens.
+   JWT), an identity token and — when `scope` includes `offline_access`, as the admin SPA
+   asks — a refresh token (#354, below).
 5. API calls send `Authorization: Bearer <access token>`; the Api validates its own
    tokens. `GET /api/v1/me` →
    `{ id, displayName, role, permissions[], organization, passwordChangeRequired }`.
+
+**Refresh tokens (#354).** `POST /connect/token` with `grant_type=refresh_token`,
+`refresh_token` and `client_id=admin-spa` → a new access token and a new refresh token; the
+one sent is now redeemed. A refresh token lives 8 hours (`RefreshTokenLifetime`) and every
+use issues a fresh 8-hour one, so a sign-in ends after 8 hours unused; it also ends 7 days
+after the sign-in however often it was refreshed (`SessionLifetime`: the sign-in time and
+the account's security stamp ride along in the encrypted code and refresh tokens,
+`SignInSession`). Presenting a redeemed refresh token again (no reuse leeway) revokes every
+token of that authorization. Each refresh re-checks the account like the code exchange:
+it must still exist in the organization, not be locked out, be allowed to sign in, and have
+the security stamp it signed in with — so a password change or `reset-password` ends it.
+Errors are OAuth's `400 invalid_grant`. `POST /connect/revoke` (`token`,
+`token_type_hint=refresh_token`, `client_id`) revokes a refresh token; the SPA calls it on
+logout before `/connect/endsession`.
 
 `/connect/endsession` and `/connect/userinfo` are also available. The access token only
 carries `sub`, `org_id` and `role`; **permissions are read from the database on every
@@ -93,8 +108,9 @@ endpoints are gated automatically; to exempt one, add `.AllowWhilePasswordChange
 
 `POST /api/v1/auth/change-password` `{ currentPassword, newPassword }` (bearer token) →
 `204`. It clears the flag and rotates the security stamp, so the old password and any
-earlier sign-in cookie stop working; the access token in hand keeps working, now
-ungated, until it expires. Errors:
+earlier sign-in cookie stop working, and revokes every token entry of the account, so no
+refresh token issued before (this session's included) works again; the access token in hand
+keeps working, now ungated, until it expires. Errors:
 
 | Status | When |
 | --- | --- |
@@ -2015,8 +2031,10 @@ What "the account's earlier sign-ins end" means in this Api:
   database lookup (no token-entry validation), so they keep authenticating until they expire (at
   most 30 minutes, `AccessTokenLifetime`). Because `PasswordChangeRequired` is read per request,
   such a token only reaches `GET /api/v1/me` and `POST /api/v1/auth/change-password` (which needs
-  the new one-time password); everything else is `403 password-change-required`. There are no
-  refresh tokens.
+  the new one-time password); everything else is `403 password-change-required`.
+- **Refresh tokens**: revoked (their token entries are among the account's), and the rotated
+  security stamp makes `/connect/token` refuse them anyway, so the sign-in cannot outlive its
+  access token.
 
 Exit codes: `0` done, `1` unknown organization code or login name (the message says which; nothing
 changed) or the write failed, `2` bad arguments. No `OrganizationActivity` row is written: that log

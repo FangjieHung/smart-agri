@@ -163,6 +163,7 @@ npx nx lint admin
 ### 資料保存方式
 
 - **身分存在 `sessionStorage`（key：`demo-session`），閒置 30 分鐘逾時。** 只屬於單一瀏覽器分頁，所以可以開兩個分頁同時示範兩個身分；關閉分頁或逾時後回到 `/login`，並顯示「Demo 登入已逾時」的說明。設定見 `apps/admin/src/app/core/session/demo-session.service.ts:28`。
+- **API 模式的登入時效（#354）**：access token 30 分鐘，由 refresh token 在背景換發（到期前 1 分鐘、送出請求前、或收到 401 時；同時只換一次）；閒置 8 小時或登入滿 7 天才需要重新登入，逾時回 `/login?returnUrl=<原頁>`，登入後回到原頁。token 都只存在分頁的 `sessionStorage`（key：`api-session`），登出時先撤銷 refresh token。決定與取捨見 `docs/adr/2026-09-25-authentication.md` 的「修訂」。
 - **其餘資料存在 `localStorage`，key 一律以 `sme-demo:` 開頭**（`sme-demo:created-assistants`、`sme-demo:assistant-draft:<accountId>`、`sme-demo:knowledge:<id>`、`sme-demo:created-databases`、`sme-demo:database-fields:<id>`、`sme-demo:chat:<accountId>:<assistantId>`、`sme-demo:publishing:<assistantId>`、`sme-demo:assistant-settings:<assistantId>`、`sme-demo:chat-records`、`sme-demo:team-permissions`、`sme-demo:database-access:<databaseId>`）。清空這些 key 就會回到初始 seed 狀態，清除方式見展示腳本的「事前準備」。
 
 ### 功能缺口

@@ -146,6 +146,26 @@ describe('AgUiChatRunner', () => {
     expect(calls[0].headers['Authorization']).toBeUndefined();
   });
 
+  it('waits for an asynchronous access token (e.g. renewed just before sending) before posting', async () => {
+    const calls: Captured[] = [];
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init, body: JSON.parse(String(init.body)), headers: init.headers as Record<string, string> });
+      return sse(fixture('company-data-saved.sse'))();
+    });
+    let renew: (token: string) => void = () => undefined;
+    const accessToken = vi.fn(() => new Promise<string | null>((resolve) => (renew = resolve)));
+    const runner = new AgUiChatRunner({ accessToken, onUnauthorized: vi.fn(), fetch });
+
+    const events = collect(runner);
+    await Promise.resolve();
+    expect(fetch).not.toHaveBeenCalled();
+    renew('renewed-token');
+    await events;
+
+    expect(accessToken).toHaveBeenCalledOnce();
+    expect(calls[0].headers['Authorization']).toBe('Bearer renewed-token');
+  });
+
   it('sends the thread id and, for unsaved assistants, the page history before the question', async () => {
     const { runner, calls } = setup(sse(fixture('no-result-unsaved.sse')), null);
 

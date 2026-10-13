@@ -12,6 +12,7 @@ function fakeBackend(overrides: Partial<ApiSessionBackend> = {}): ApiSessionBack
     loginOptions: () => Promise.reject(new Error('not used')),
     signIn: () => Promise.reject(new Error('not used')),
     completeSignIn: () => Promise.reject(new Error('not used')),
+    takeReturnPath: () => null,
     refreshIdentity: () => Promise.reject(new Error('not used')),
     restore: () => null,
     hasUsableToken: () => true,

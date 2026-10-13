@@ -66,8 +66,10 @@ export interface ApiSessionBackend {
   signIn(credentials: ApiLoginCredentials, returnUrl: string | null): Promise<ApiSignInResult>;
   /** 在 `/auth/callback` 完成 PKCE 並讀取 `/me`；失敗時丟出例外。 */
   completeSignIn(): Promise<ApiIdentity>;
+  /** 登入前要回去的工作區網址（逾時時所在的頁面）；只取一次，沒有就回 null。 */
+  takeReturnPath(): string | null;
   refreshIdentity(): Promise<ApiIdentity>;
-  /** 重新整理頁面後，從分頁的 sessionStorage 取回仍有效的身分。 */
+  /** 重新整理頁面後，從分頁的 sessionStorage 取回仍有效（access token 未過期或還有 refresh token）的身分。 */
   restore(): ApiIdentity | null;
   hasUsableToken(): boolean;
   /** 清除本機工作階段並導向 end-session；瀏覽器會離開這個頁面。 */
@@ -83,6 +85,13 @@ export const API_SESSION_BACKEND = new InjectionToken<ApiSessionBackend | null>(
 );
 
 const NO_PERMISSIONS: readonly AccountPermission[] = Object.freeze([]);
+
+/** 登入頁網址；`currentUrl` 是工作區的頁面時帶上 `returnUrl`（登入頁只接受 `/app` 底下的路徑）。 */
+export function loginUrl(currentUrl: string | undefined): string {
+  return typeof currentUrl === 'string' && /^\/app(?:[/?#]|$)/.test(currentUrl)
+    ? `/login?returnUrl=${encodeURIComponent(currentUrl)}`
+    : '/login';
+}
 
 /**
  * 登入工作階段的單一入口。mock 模式（GitHub Pages）只是 Demo 身分切換，行為與過去相同；
@@ -166,6 +175,11 @@ export class ApiSessionService {
     }
   }
 
+  /** `/auth/callback` 完成登入後要去的頁面：逾時前所在的工作區網址，沒有就是首頁。 */
+  takeReturnPath(): string {
+    return this.backend?.takeReturnPath() ?? '/app/home';
+  }
+
   /** 啟動時在背景重讀 `/me`，讓權限跟上伺服器（權限不在 token 裡）。 */
   async refreshIdentity(): Promise<void> {
     if (this.backend === null || this.identity() === null || !this.backend.hasUsableToken()) return;
@@ -193,7 +207,10 @@ export class ApiSessionService {
     this.session.switchAccount(identity.demoAccountId);
   }
 
-  /** 工作區守衛：mock 只看 Demo 身分與閒置時間，API 模式還要有未過期的 token。 */
+  /**
+   * 工作區守衛：mock 只看 Demo 身分與閒置時間，API 模式還要有可用的 token（access token 過期但還有
+   * refresh token 也算：下一個請求會先換發，換不到就回登入頁）。
+   */
   canEnterWorkspace(): boolean {
     const demoActive = this.session.refreshActivity();
     if (this.backend === null) {
@@ -214,11 +231,14 @@ export class ApiSessionService {
     return true;
   }
 
-  /** 任何 API 回 401：清除工作階段，回登入頁並顯示既有的逾時說明。 */
+  /**
+   * API 回 401 且換發不到新 token：清除工作階段，回登入頁並顯示既有的逾時說明。在工作區某一頁時帶上
+   * `returnUrl`，重新登入後回到那一頁（#354）。
+   */
   endExpiredSession(): void {
     this.discardApiSession();
     this.session.expireSession();
-    void this.router.navigateByUrl('/login');
+    void this.router.navigateByUrl(loginUrl(this.router.url));
   }
 
   async logout(): Promise<void> {

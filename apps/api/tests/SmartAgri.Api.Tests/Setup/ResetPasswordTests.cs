@@ -121,11 +121,13 @@ public class ResetPasswordTests : IClassFixture<AuthHostFixture>
     [Fact]
     public async Task The_accounts_earlier_sign_ins_end_as_far_as_its_tokens_allow()
     {
-        var (organization, _) = await CreateAdminAsync();
+        var (organization, account) = await CreateAdminAsync();
 
-        // A finished sign-in (cookie + access token) and one stopped between authorize and redeem.
+        // A finished sign-in (cookie + access token + refresh token, as the admin SPA asks) and one stopped
+        // between authorize and redeem.
         using var signedIn = _host.CreateSpaClient();
-        var token = await signedIn.SignInAsync(organization.Code, "admin", OldPassword);
+        var token = await signedIn.SignInAsync(organization.Code, "admin", OldPassword, SpaClient.SpaScope);
+        var refreshToken = token.RefreshToken.ShouldNotBeNull();
         (await signedIn.GetAsync(ProtectedProbeEndpoint.Path, token.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         using var midway = _host.CreateSpaClient();
@@ -155,6 +157,24 @@ public class ResetPasswordTests : IClassFixture<AuthHostFixture>
         var redeem = await midway.Http.PostAsync("/connect/token", form, CancellationToken);
         redeem.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await redeem.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("invalid_grant");
+
+        // The refresh token is revoked too (RevokeBySubjectAsync covers refresh token entries, #354), so the
+        // sign-in cannot outlive its access token.
+        await using (var dbContext = _host.Postgres.CreateDbContext())
+        {
+            var subject = account.Id.ToString("D");
+            (await dbContext.Set<OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken>()
+                    .Where(entry => entry.Subject == subject
+                        && (entry.Type == OpenIddict.Abstractions.OpenIddictConstants.TokenTypeIdentifiers.RefreshToken
+                            || entry.Type == OpenIddict.Abstractions.OpenIddictConstants.TokenTypeHints.RefreshToken))
+                    .Select(entry => entry.Status)
+                    .ToListAsync(CancellationToken))
+                .ShouldHaveSingleItem().ShouldBe(OpenIddict.Abstractions.OpenIddictConstants.Statuses.Revoked);
+        }
+
+        var refresh = await signedIn.RefreshAsync(refreshToken);
+        refresh.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await refresh.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("invalid_grant");
 
         // The access token in hand is a self-contained JWT, so it still authenticates until it expires
         // (at most AccessTokenLifetime) — but the account must change its password now, which is read

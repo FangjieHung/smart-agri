@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.Abstractions;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Tenancy;
@@ -141,7 +142,10 @@ public static class AuthEndpoints
     /// <see cref="Account.PasswordChangeRequired"/>; <c>204</c> on success. The new password
     /// must pass Identity's rules and differ from the current one. Identity also rotates
     /// the security stamp, so the old password and any sign-in cookie issued before stop
-    /// working (the access token in hand keeps working until it expires, now ungated).
+    /// working, and every token entry of the account is revoked: no refresh token issued
+    /// before — including this session's own — can be used again (#354). The access token in
+    /// hand keeps working until it expires (at most 30 minutes, now ungated); then the SPA
+    /// signs in again.
     /// </summary>
     /// <remarks>
     /// Errors, following the API's error rules:
@@ -160,7 +164,8 @@ public static class AuthEndpoints
     internal static async Task<IResult> ChangePasswordAsync(
         ChangePasswordRequest request,
         HttpContext httpContext,
-        SignInManager<Account> signInManager)
+        SignInManager<Account> signInManager,
+        IOpenIddictTokenManager tokenManager)
     {
         if (AccountClaims.GetAccountId(httpContext.User) is not { } accountId)
         {
@@ -226,6 +231,9 @@ public static class AuthEndpoints
             return PasswordNotChanged(NewPasswordField, [.. result.Errors.Select(error => error.Description)]);
         }
 
+        // The rotated stamp already stops every refresh token at the token endpoint; revoking the
+        // entries too ends them in the database (subject = account id), as reset-password does.
+        await tokenManager.RevokeBySubjectAsync(account.Id.ToString("D"));
         return Results.NoContent();
     }
 

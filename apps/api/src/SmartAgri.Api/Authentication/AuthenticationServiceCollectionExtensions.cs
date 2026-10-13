@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenIddict.Validation.AspNetCore;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.OpenApi;
@@ -12,14 +13,26 @@ namespace SmartAgri.Api.Authentication;
 
 public static class AuthenticationServiceCollectionExtensions
 {
-    /// <summary>Access token lifetime: matches the frontend's 30-minute session
-    /// (<c>DEMO_SESSION_TIMEOUT_MS</c>). No refresh tokens in M1.</summary>
+    /// <summary>Access token lifetime. The admin SPA renews it with a refresh token before it runs out
+    /// (#354); a token taken from the SPA stops working within this time.</summary>
     public static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(30);
 
     /// <summary>
+    /// Refresh token lifetime, which is the idle limit (#354): every refresh rotates the token and the new
+    /// one again lives this long (OpenIddict's sliding expiration), so a sign-in unused for this long ends.
+    /// </summary>
+    public static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromHours(8);
+
+    /// <summary>
+    /// The absolute limit of one sign-in, however often it is refreshed (#354). Enforced by the token
+    /// endpoint from the sign-in time carried in the refresh token (<see cref="SignInSession"/>).
+    /// </summary>
+    public static readonly TimeSpan SessionLifetime = TimeSpan.FromDays(7);
+
+    /// <summary>
     /// Lifetime of the Identity sign-in cookie that bridges <c>POST /api/v1/auth/login</c>
-    /// and <c>/connect/authorize</c>. Not sliding, and equal to the access token lifetime,
-    /// so the SPA cannot silently re-authorize past the 30-minute session.
+    /// and <c>/connect/authorize</c>. Not sliding: the SPA never re-authorizes with it (it renews
+    /// with refresh tokens), so it only has to outlast the redirect to <c>/connect/authorize</c>.
     /// </summary>
     public static readonly TimeSpan SignInCookieLifetime = TimeSpan.FromMinutes(30);
 
@@ -28,7 +41,7 @@ public static class AuthenticationServiceCollectionExtensions
 
     /// <summary>
     /// ASP.NET Core Identity (accounts, password hashing, lockout, the sign-in cookie),
-    /// the OpenIddict server (authorization code + PKCE only) and OpenIddict validation of
+    /// the OpenIddict server (authorization code + PKCE, rotating refresh tokens) and OpenIddict validation of
     /// the server's own access tokens, plus one authorization policy per permission.
     /// </summary>
     /// <exception cref="InvalidOperationException">Outside Development, token
@@ -132,13 +145,23 @@ public static class AuthenticationServiceCollectionExtensions
                     .SetAuthorizationEndpointUris(ConnectEndpoints.AuthorizePath)
                     .SetTokenEndpointUris(ConnectEndpoints.TokenPath)
                     .SetEndSessionEndpointUris(ConnectEndpoints.EndSessionPath)
-                    .SetUserInfoEndpointUris(ConnectEndpoints.UserInfoPath);
+                    .SetUserInfoEndpointUris(ConnectEndpoints.UserInfoPath)
+                    .SetRevocationEndpointUris(ConnectEndpoints.RevocationPath);
 
-                // Authorization code + PKCE only: no implicit, password, client
-                // credentials or refresh token flows.
+                // Authorization code + PKCE, and refresh tokens for clients granted offline_access
+                // (#354): no implicit, password or client credentials flows.
                 server.AllowAuthorizationCodeFlow().RequireProofKeyForCodeExchange();
+                server.AllowRefreshTokenFlow();
 
                 server.SetAccessTokenLifetime(AccessTokenLifetime);
+                server.SetRefreshTokenLifetime(RefreshTokenLifetime);
+
+                // Rolling refresh tokens (OpenIddict's default, kept on): each use marks the token
+                // redeemed and issues a new one. Presenting a redeemed one again is treated as theft —
+                // OpenIddict then revokes every token of that authorization (the whole chain). No reuse
+                // leeway: OpenIddict's default 30 seconds would let a stolen token be replayed once
+                // without consequence; the SPA never sends two refreshes at once (single-flight).
+                server.SetRefreshTokenReuseLeeway(null);
 
                 // Access tokens are signed JWTs, not encrypted: they only carry sub, org_id
                 // and role, and the SPA never needs to read them anyway. Authorization codes
@@ -179,6 +202,8 @@ public static class AuthenticationServiceCollectionExtensions
                 validation.UseAspNetCore();
             });
 
+        // The token endpoint reads the sign-in time against the same clock OpenIddict uses.
+        services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<AdminSpaClientRegistrar>();
 
         services.AddScoped<IAccountPermissionSource, DatabaseAccountPermissionSource>();

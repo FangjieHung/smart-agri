@@ -12,7 +12,7 @@ namespace SmartAgri.Api.Tests.Authentication;
 public class AdminSpaClientTests
 {
     [Fact]
-    public void Admin_spa_is_a_public_pkce_client_limited_to_the_code_flow()
+    public void Admin_spa_is_a_public_pkce_client_limited_to_the_code_flow_and_refresh_tokens()
     {
         var descriptor = AdminSpaClientRegistrar.Describe(["http://localhost:4200"]);
 
@@ -25,7 +25,9 @@ public class AdminSpaClientTests
                 Permissions.Endpoints.Authorization,
                 Permissions.Endpoints.Token,
                 Permissions.Endpoints.EndSession,
+                Permissions.Endpoints.Revocation,
                 Permissions.GrantTypes.AuthorizationCode,
+                Permissions.GrantTypes.RefreshToken,
                 Permissions.ResponseTypes.Code,
             ],
             ignoreOrder: true);

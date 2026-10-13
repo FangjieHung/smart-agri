@@ -224,29 +224,33 @@ public sealed class SpaClient : IDisposable
             new { organizationCode, loginName, password },
             CancellationToken);
 
-    public Task<HttpResponseMessage> AuthorizeAsync(string codeVerifier, string state = "state-1") =>
-        Http.GetAsync(AuthorizeUrl(codeVerifier, state), CancellationToken);
+    /// <summary>What the admin SPA requests (#354): an identity token and refresh tokens.</summary>
+    public const string SpaScope = "openid offline_access";
 
-    public static string AuthorizeUrl(string codeVerifier, string state) =>
+    public Task<HttpResponseMessage> AuthorizeAsync(string codeVerifier, string state = "state-1", string scope = "openid") =>
+        Http.GetAsync(AuthorizeUrl(codeVerifier, state, scope), CancellationToken);
+
+    public static string AuthorizeUrl(string codeVerifier, string state, string scope = "openid") =>
         QueryHelpers.AddQueryString("/connect/authorize", new Dictionary<string, string?>
         {
             ["client_id"] = AdminSpaClientOptions.ClientId,
             ["redirect_uri"] = AuthHostFixture.RedirectUri,
             ["response_type"] = "code",
-            ["scope"] = "openid",
+            ["scope"] = scope,
             ["state"] = state,
             ["code_challenge"] = CodeChallenge(codeVerifier),
             ["code_challenge_method"] = "S256",
         });
 
-    /// <summary>Login (expects 204) → authorize (expects a code) → token. Returns the token response.</summary>
-    public async Task<TokenResponse> SignInAsync(string? organizationCode, string loginName, string password)
+    /// <summary>Login (expects 204) → authorize (expects a code) → token. Returns the token response.
+    /// <paramref name="scope"/> <see cref="SpaScope"/> also gets a refresh token.</summary>
+    public async Task<TokenResponse> SignInAsync(string? organizationCode, string loginName, string password, string scope = "openid")
     {
         var login = await LoginAsync(organizationCode, loginName, password);
         login.StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
         var verifier = NewCodeVerifier();
-        var authorize = await AuthorizeAsync(verifier, "state-xyz");
+        var authorize = await AuthorizeAsync(verifier, "state-xyz", scope);
         authorize.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         var location = authorize.Headers.Location.ShouldNotBeNull();
         location.IsAbsoluteUri.ShouldBeTrue(location.ToString());
@@ -270,6 +274,39 @@ public sealed class SpaClient : IDisposable
             ["code_verifier"] = codeVerifier,
         });
         var response = await Http.PostAsync("/connect/token", form, CancellationToken);
+        return await ReadTokenResponseAsync(response);
+    }
+
+    /// <summary><c>POST /connect/token</c> with <c>grant_type=refresh_token</c>, as the admin SPA sends it.</summary>
+    public async Task<HttpResponseMessage> RefreshAsync(string refreshToken)
+    {
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["client_id"] = AdminSpaClientOptions.ClientId,
+        });
+        return await Http.PostAsync("/connect/token", form, CancellationToken);
+    }
+
+    /// <summary><see cref="RefreshAsync"/> that must succeed; returns the new tokens.</summary>
+    public async Task<TokenResponse> RefreshOkAsync(string refreshToken) =>
+        await ReadTokenResponseAsync(await RefreshAsync(refreshToken));
+
+    /// <summary><c>POST /connect/revoke</c> (RFC 7009) for a refresh token, as the admin SPA logs out.</summary>
+    public async Task<HttpResponseMessage> RevokeAsync(string refreshToken)
+    {
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["token"] = refreshToken,
+            ["token_type_hint"] = "refresh_token",
+            ["client_id"] = AdminSpaClientOptions.ClientId,
+        });
+        return await Http.PostAsync("/connect/revoke", form, CancellationToken);
+    }
+
+    private static async Task<TokenResponse> ReadTokenResponseAsync(HttpResponseMessage response)
+    {
         var body = await response.Content.ReadAsStringAsync(CancellationToken);
         response.StatusCode.ShouldBe(HttpStatusCode.OK, body);
 
@@ -277,7 +314,7 @@ public sealed class SpaClient : IDisposable
         var root = json.RootElement;
         return new TokenResponse(
             root.GetProperty("access_token").GetString()!,
-            root.TryGetProperty("refresh_token", out _),
+            root.TryGetProperty("refresh_token", out var refreshToken) ? refreshToken.GetString() : null,
             root.GetProperty("expires_in").GetInt32());
     }
 
@@ -367,7 +404,10 @@ public sealed class SpaClient : IDisposable
     }
 }
 
-public sealed record TokenResponse(string AccessToken, bool HasRefreshToken, int ExpiresInSeconds);
+public sealed record TokenResponse(string AccessToken, string? RefreshToken, int ExpiresInSeconds)
+{
+    public bool HasRefreshToken => RefreshToken is not null;
+}
 
 /// <summary>The observable parts of a response, for "identical response" comparisons.</summary>
 public sealed record ResponseFingerprint(HttpStatusCode Status, string? ContentType, byte[] Body, bool SetsCookie)

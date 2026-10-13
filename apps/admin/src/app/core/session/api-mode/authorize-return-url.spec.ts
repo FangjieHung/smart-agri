@@ -1,4 +1,4 @@
-import { authorizeReturnUrl } from './authorize-return-url';
+import { authorizeReturnUrl, workspaceReturnPath } from './authorize-return-url';
 
 const ORIGIN = 'http://localhost:4200';
 
@@ -22,5 +22,30 @@ describe('authorizeReturnUrl', () => {
     ['javascript URL', 'javascript:alert(1)'],
   ])('rejects %s', (_label, returnUrl) => {
     expect(authorizeReturnUrl(returnUrl, ORIGIN)).toBeNull();
+  });
+});
+
+describe('workspaceReturnPath', () => {
+  it.each([
+    ['/app/home', '/app/home'],
+    ['/app/assistants/a-1/data-sources?tab=x#top', '/app/assistants/a-1/data-sources?tab=x#top'],
+    ['/app', '/app'],
+  ])('accepts the workspace path %s', (returnUrl, expected) => {
+    expect(workspaceReturnPath(returnUrl, ORIGIN)).toBe(expected);
+  });
+
+  it.each([
+    ['missing', null],
+    ['empty', ''],
+    ['absolute URL to another site', 'https://evil.example/app/home'],
+    ['absolute URL to this site', `${ORIGIN}/app/home`],
+    ['protocol-relative URL', '//evil.example/app/home'],
+    ['backslash trick', '/\\evil.example/app/home'],
+    ['a path outside the workspace', '/login'],
+    ['a path that only starts like the workspace', '/apple'],
+    ['a path that climbs out of the workspace', '/app/../connect/token'],
+    ['javascript URL', 'javascript:alert(1)'],
+  ])('rejects %s', (_label, returnUrl) => {
+    expect(workspaceReturnPath(returnUrl, ORIGIN)).toBeNull();
   });
 });

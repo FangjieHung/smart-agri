@@ -1,0 +1,57 @@
+@if (visible()) {
+  @let state = result();
+  <section id="notification-settings" class="notification-settings" aria-labelledby="notification-settings-title" data-notification-settings>
+    <div>
+      <p class="ui-text-caption">個人</p>
+      <h2 id="notification-settings-title" class="ui-text-subtitle">我的通知</h2>
+    </div>
+
+    @if (state.status === 'loading') {
+      <app-state-panel state="loading" title="正在載入通知設定" />
+    } @else if (state.status === 'permission-denied') {
+      <app-state-panel state="permission-denied" title="無法查看通知設定" [description]="state.message" />
+    } @else if (state.status === 'error') {
+      <app-state-panel state="error" title="目前無法載入通知設定" recoveryLabel="重試" (recover)="resource.reload()" />
+    } @else if (data(); as settings) {
+      <p class="hint">
+        官網或 LINE 的訪客收到你的助理的「找不到資料時的回覆」時，側欄的「轉真人」會通知你；也可以同時寄 Email 給你。
+        信件只有助理、管道、時間與後台連結，不含訪客的對話內容。
+      </p>
+      @if (!settings.emailDeliveryConfigured) {
+        <p class="notice" data-email-delivery-off>
+          這個部署還沒有設定寄信伺服器（SMTP），目前不會寄出 Email；站內的轉真人通知照常。需要 Email 請洽系統營運者。
+        </p>
+      }
+      <form class="notification-settings__form" novalidate (submit)="save($event)">
+        <div class="field">
+          <label for="notification-email">通知 Email</label>
+          <input
+            id="notification-email"
+            type="email"
+            autocomplete="email"
+            inputmode="email"
+            maxlength="254"
+            [value]="email()"
+            [attr.aria-invalid]="fieldError() ? 'true' : null"
+            [attr.aria-describedby]="fieldError() ? 'notification-email-hint notification-email-error' : 'notification-email-hint'"
+            (input)="onEmail($event)"
+          />
+          <p id="notification-email-hint" class="hint">留空就不寄 Email 給你。</p>
+          @if (fieldError()) {
+            <p id="notification-email-error" class="error">{{ fieldError() }}</p>
+          }
+        </div>
+        <label class="checkbox">
+          <input type="checkbox" [checked]="handoffEmails()" (change)="onHandoffEmails($event)" data-handoff-emails />
+          <span>訪客要找真人時寄 Email 給我</span>
+        </label>
+        <button type="submit" class="save" [disabled]="saving()">儲存通知設定</button>
+      </form>
+    }
+
+    @if (error()) {
+      <p class="error" role="alert">{{ error() }}</p>
+    }
+    <p class="feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+  </section>
+}

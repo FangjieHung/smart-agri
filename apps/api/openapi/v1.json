@@ -852,6 +852,61 @@
         }
       }
     },
+    "/api/v1/me/notification-settings": {
+      "get": {
+        "tags": [
+          "NotificationSettingsEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "NotificationSettingsEndpoints"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
     "/api/v1/auth/login-options": {
       "get": {
         "tags": [
@@ -6557,6 +6612,101 @@
           },
           "409": {
             "description": "Conflict"
+          }
+        }
+      }
+    },
+    "/api/v1/handoffs": {
+      "get": {
+        "tags": [
+          "VisitorHandoffEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VisitorHandoffView"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/handoffs/attention": {
+      "get": {
+        "tags": [
+          "VisitorHandoffEndpoints"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisitorHandoffAttentionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/handoffs/{id}:handle": {
+      "post": {
+        "tags": [
+          "VisitorHandoffEndpoints"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisitorHandoffView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -12745,6 +12895,28 @@
           }
         }
       },
+      "NotificationSettingsView": {
+        "required": [
+          "email",
+          "handoffEmails",
+          "emailDeliveryConfigured"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "handoffEmails": {
+            "type": "boolean"
+          },
+          "emailDeliveryConfigured": {
+            "type": "boolean"
+          }
+        }
+      },
       "OpenCaseFromIssueRequest": {
         "required": [
           "typeId",
@@ -14225,6 +14397,24 @@
           }
         }
       },
+      "UpdateNotificationSettingsRequest": {
+        "required": [
+          "email",
+          "handoffEmails"
+        ],
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "handoffEmails": {
+            "type": "boolean"
+          }
+        }
+      },
       "UpdateOrganizationChatModelRequest": {
         "required": [
           "modelId",
@@ -14351,6 +14541,77 @@
           },
           "showCitations": {
             "type": "boolean"
+          }
+        }
+      },
+      "VisitorHandoffAttentionView": {
+        "required": [
+          "pendingCount"
+        ],
+        "type": "object",
+        "properties": {
+          "pendingCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "VisitorHandoffChannel": {
+        "enum": [
+          "website",
+          "line"
+        ]
+      },
+      "VisitorHandoffView": {
+        "required": [
+          "id",
+          "assistantId",
+          "assistantName",
+          "channel",
+          "createdAt",
+          "handledAt",
+          "handledByAccountId",
+          "handledByName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "assistantName": {
+            "type": "string"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/VisitorHandoffChannel"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "handledAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "handledByAccountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "handledByName": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -14577,6 +14838,9 @@
       "name": "ChatFormEndpoints"
     },
     {
+      "name": "NotificationSettingsEndpoints"
+    },
+    {
       "name": "TeamEndpoints"
     },
     {
@@ -14632,6 +14896,9 @@
     },
     {
       "name": "ChatCaseProposalEndpoints"
+    },
+    {
+      "name": "VisitorHandoffEndpoints"
     },
     {
       "name": "VisitorSessionEndpoints"

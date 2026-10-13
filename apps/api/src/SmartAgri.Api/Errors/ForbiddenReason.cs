@@ -258,6 +258,15 @@ public sealed class ForbiddenReason
         "你不能對這件案件執行這個動作。");
 
     /// <summary>
+    /// A 轉真人 notification (#355) that does not exist, belongs to another organization, or is about an
+    /// assistant the caller does not own — only the assistant's owner sees and handles them. The same
+    /// bytes in every case.
+    /// </summary>
+    public static readonly ForbiddenReason Handoff = new(
+        "handoff",
+        "你沒有這則轉真人通知的存取權限，或它已不存在。轉真人通知只給助理的擁有者。");
+
+    /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason
     /// (see <c>PermissionPolicies.RequirePermission</c>, which always declares one). Not
     /// part of the frontend union on purpose, so it shows up in review and in the UI as a

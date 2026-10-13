@@ -1248,6 +1248,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/notification-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NotificationSettingsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateNotificationSettingsRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NotificationSettingsView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login-options": {
         parameters: {
             query?: never;
@@ -8186,6 +8265,150 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/handoffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    status?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VisitorHandoffView"][];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/handoffs/attention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VisitorHandoffAttentionView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/handoffs/{id}:handle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VisitorHandoffView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/assistants/{id}/visitor-sessions": {
         parameters: {
             query?: never;
@@ -9878,6 +10101,11 @@ export interface components {
             passwordChangeRequired: boolean;
             statisticsTimeZone: string;
         };
+        NotificationSettingsView: {
+            email: null | string;
+            handoffEmails: boolean;
+            emailDeliveryConfigured: boolean;
+        };
         OpenCaseFromIssueRequest: {
             /** Format: uuid */
             typeId: null | string;
@@ -10238,6 +10466,10 @@ export interface components {
         UpdateMemberPermissionsRequest: {
             permissions: null | string[];
         };
+        UpdateNotificationSettingsRequest: {
+            email: null | string;
+            handoffEmails: boolean;
+        };
         UpdateOrganizationChatModelRequest: {
             modelId: null | string;
             /** Format: int32 */
@@ -10266,6 +10498,27 @@ export interface components {
             welcomeMessage: string;
             brandColor: components["schemas"]["WebsiteBrandColor"];
             showCitations: boolean;
+        };
+        VisitorHandoffAttentionView: {
+            /** Format: int32 */
+            pendingCount: number;
+        };
+        /** @enum {unknown} */
+        VisitorHandoffChannel: "website" | "line";
+        VisitorHandoffView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            assistantId: string;
+            assistantName: string;
+            channel: components["schemas"]["VisitorHandoffChannel"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            handledAt: null | string;
+            /** Format: uuid */
+            handledByAccountId: null | string;
+            handledByName: null | string;
         };
         VisitorSessionView: {
             token: string;

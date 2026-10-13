@@ -84,6 +84,7 @@ public class OrganizationModelTests
                 typeof(ModelInvocation),
                 typeof(AnswerOutcome),
                 typeof(OrganizationActivity),
+                typeof(SmartAgri.Domain.Notifications.VisitorHandoff), typeof(SmartAgri.Domain.Notifications.AccountNotificationSettings),
             ],
             ignoreOrder: true);
         dbContext.Model.FindEntityType(typeof(Organization)).ShouldNotBeNull();

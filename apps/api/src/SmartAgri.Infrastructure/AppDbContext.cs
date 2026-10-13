@@ -12,6 +12,7 @@ using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
+using SmartAgri.Domain.Notifications;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Domain.Reports;
 using Pgvector.EntityFrameworkCore;
@@ -24,6 +25,7 @@ using SmartAgri.Infrastructure.Chat;
 using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
+using SmartAgri.Infrastructure.Notifications;
 using SmartAgri.Infrastructure.Organizations;
 using SmartAgri.Infrastructure.Persistence;
 using SmartAgri.Infrastructure.Reports;
@@ -207,6 +209,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Each case's append-only history (M7-3; actions from M7-4).</summary>
     public DbSet<CaseEvent> CaseEvents => Set<CaseEvent>();
 
+    /// <summary>轉真人 notifications (#355): the assistant, the channel and times, never visitor content.</summary>
+    public DbSet<VisitorHandoff> VisitorHandoffs => Set<VisitorHandoff>();
+
+    /// <summary>Each account's own notification Email address and opt-out (#355).</summary>
+    public DbSet<AccountNotificationSettings> AccountNotificationSettings => Set<AccountNotificationSettings>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -383,6 +391,10 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new CaseConfiguration());
         modelBuilder.ApplyConfiguration(new CaseEventConfiguration());
         modelBuilder.ApplyConfiguration(new AssistantCaseTypeConfiguration());
+
+        // 轉真人 notifications and the accounts' notification settings (#355).
+        modelBuilder.ApplyConfiguration(new VisitorHandoffConfiguration());
+        modelBuilder.ApplyConfiguration(new AccountNotificationSettingsConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

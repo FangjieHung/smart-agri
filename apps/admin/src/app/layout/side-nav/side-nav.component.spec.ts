@@ -76,7 +76,7 @@ describe('SideNavComponent', () => {
     expect(page.querySelector('.user-card strong')?.textContent).toBe('安心商行管理者');
   });
 
-  async function renderCases(count: number | undefined, collapsed: boolean) {
+  async function renderCases(count: number | undefined, collapsed: boolean, extra: Record<string, unknown> = {}) {
     await TestBed.configureTestingModule({
       imports: [SideNavComponent],
       providers: [
@@ -88,7 +88,7 @@ describe('SideNavComponent', () => {
     const fixture = TestBed.createComponent(SideNavComponent);
     fixture.componentRef.setInput('navItems', [
       { route: '/app/home', label: '首頁', icon: 'home' },
-      { route: '/app/cases', label: '案件', icon: 'assignment', ...(count === undefined ? {} : { count: signal(count) }) },
+      { route: '/app/cases', label: '案件', icon: 'assignment', ...(count === undefined ? {} : { count: signal(count) }), ...extra },
     ]);
     fixture.componentRef.setInput('collapsed', collapsed);
     fixture.componentRef.setInput('isMobile', false);
@@ -116,6 +116,13 @@ describe('SideNavComponent', () => {
 
     expect(cases.querySelector('.nav-count')?.textContent?.trim()).toBe('12');
     expect(cases.getAttribute('aria-label')).toBe('案件，12 件逾期');
+  });
+
+  it('reads an entry\'s own words after the number (轉真人: 「N 則待處理」, issue #355)', async () => {
+    const { cases } = await renderCases(2, false, { label: '轉真人', countLabel: '則待處理' });
+
+    expect(cases.querySelector('.nav-count')?.textContent?.trim()).toBe('2');
+    expect(cases.getAttribute('aria-label')).toBe('轉真人，2 則待處理');
   });
 
   it('shows no number for 0 (or none)', async () => {

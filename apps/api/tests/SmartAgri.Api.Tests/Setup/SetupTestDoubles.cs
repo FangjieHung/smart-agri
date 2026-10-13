@@ -75,6 +75,53 @@ public sealed class FakeInitialSetupStore : IInitialSetupStore
     }
 }
 
+/// <summary>An <see cref="IPasswordResetStore"/> with a fixed result that records what it is asked to reset.</summary>
+public sealed class FakePasswordResetStore : IPasswordResetStore
+{
+    public PasswordResetResult? Result { get; set; }
+
+    /// <summary>Thrown by <see cref="ResetAsync"/> instead of returning, built from the password it was given.</summary>
+    public Func<string, Exception>? Throw { get; set; }
+
+    public List<(string OrganizationCode, string LoginName, string Password)> Resets { get; } = [];
+
+    public Task<PasswordResetResult> ResetAsync(string organizationCode, string loginName, string password, CancellationToken cancellationToken)
+    {
+        Resets.Add((organizationCode, loginName, password));
+        if (Throw is not null)
+        {
+            throw Throw(password);
+        }
+
+        return Task.FromResult(Result ?? PasswordResetResult.Done(Guid.NewGuid(), "harvest", "豐收商行", loginName));
+    }
+}
+
+/// <summary>An <see cref="ILogger{TCategoryName}"/> that keeps every entry as text (message, values, exception).</summary>
+public sealed class RecordingLogger<T> : ILogger<T>
+{
+    private readonly ConcurrentQueue<string> _entries = new();
+
+    public IReadOnlyCollection<string> Entries => _entries;
+
+    public IDisposable? BeginScope<TState>(TState state)
+        where TState : notnull
+    {
+        _entries.Enqueue($"scope: {state}");
+        return null;
+    }
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+    {
+        var values = state is IEnumerable<KeyValuePair<string, object?>> pairs
+            ? string.Join(", ", pairs.Select(pair => $"{pair.Key}={pair.Value}"))
+            : string.Empty;
+        _entries.Enqueue($"{logLevel}: {formatter(state, exception)} [{values}] {exception}");
+    }
+}
+
 /// <summary>
 /// Everything the host's telemetry pipeline sees, as text: every <c>ILogger</c> entry
 /// (message, structured values, exception) at every level through a plain logger provider

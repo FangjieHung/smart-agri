@@ -4,11 +4,16 @@ using Microsoft.Extensions.Options;
 using SmartAgri.Api.Databases;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Chat;
+using SmartAgri.Domain.Notifications;
 using SmartAgri.Domain.Observability;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Organizations;
+
+/// <summary>What one sweep of handled 轉真人 notifications did (#362).</summary>
+/// <param name="Cutoff">Handoffs handled strictly before it were deleted.</param>
+public sealed record HandoffCleanupResult(DateTimeOffset Cutoff, int Count, int Batches);
 
 /// <summary>What one cleanup did.</summary>
 /// <param name="Days">The retention applied; <see langword="null"/> for forever (nothing deleted).</param>
@@ -35,7 +40,8 @@ public sealed record RetentionCleanupResult(
 /// <item>Both in batches of <see cref="RetentionCleanupRules.BatchSize"/>, each its own transaction.</item>
 /// </list>
 /// Nothing else is touched: model invocations, handoff copies in issues, reports, database records and
-/// test runs keep their own lifecycle. A cleanup that deleted something writes one summary
+/// test runs keep their own lifecycle. 轉真人 notifications have a fixed one of their own
+/// (<see cref="DeleteHandledHandoffsAsync"/>, every organization whatever its retention, #362). A cleanup that deleted something writes one summary
 /// <c>retention-cleanup</c> activity; one that deleted nothing writes none (log and metrics only).
 /// </remarks>
 public sealed class RetentionCleanupService
@@ -116,6 +122,33 @@ public sealed class RetentionCleanupService
         return new RetentionCleanupResult(days, cutoff, tookEffect, threadCount, answerOutcomeCount, batches);
     }
 
+    /// <summary>
+    /// Deletes the organization's 轉真人 notifications handled more than
+    /// <see cref="VisitorHandoff.HandledRetentionDays"/> days before <paramref name="asOf"/> (#362): the
+    /// cutoff is <see cref="RetentionCleanupRules.Cutoff"/> for that many days, whatever the organization's
+    /// conversation retention (forever included). Pending ones stay however old. They hold no content
+    /// (assistant, channel, times), so no activity is written: a log line and the deleted counter
+    /// (<c>record</c> = <c>visitor-handoff</c>). In batches of <see cref="BatchSize"/> like the rest.
+    /// </summary>
+    public async Task<HandoffCleanupResult> DeleteHandledHandoffsAsync(DateTimeOffset asOf, CancellationToken cancellationToken)
+    {
+        var cutoff = RetentionCleanupRules.Cutoff(asOf, VisitorHandoff.HandledRetentionDays, _timeZone);
+        var deleted = await DeleteInBatchesAsync(
+            _dbContext.VisitorHandoffs
+                .Where(handoff => handoff.HandledAt != null && handoff.HandledAt < cutoff)
+                .OrderBy(handoff => handoff.HandledAt),
+            cancellationToken);
+        _metrics.DeletedHandoffs(deleted.Count);
+        if (deleted.Count > 0)
+        {
+            _logger.LogInformation(
+                "Handled visitor handoffs cleanup (cutoff {Cutoff:o}): deleted {Count} in {Batches} batches.",
+                cutoff, deleted.Count, deleted.Batches);
+        }
+
+        return new HandoffCleanupResult(cutoff, deleted.Count, deleted.Batches);
+    }
+
     /// <summary>Step 1, in its own save with its activity. Idempotent: a second call finds nothing
     /// pending. A settings <c>PUT</c> saved in between wins: the row is read again and checked once
     /// more.</summary>
@@ -191,7 +224,8 @@ public sealed record BatchedDeletion(int Count, int Batches);
 
 /// <summary>
 /// The cleanup's counters on the application's meter (<see cref="SmartAgriMeter"/>): runs, and
-/// deleted rows by kind (<c>record</c> = <c>chat-thread</c> or <c>answer-outcome</c>). A chain that
+/// deleted rows by kind (<c>record</c> = <c>chat-thread</c>, <c>answer-outcome</c> or, from the daily
+/// sweep of handled 轉真人 notifications, <c>visitor-handoff</c>). A chain that
 /// stopped running shows as no runs (M6 plan §7 technical risk 3).
 /// </summary>
 public sealed class RetentionCleanupMetrics
@@ -211,7 +245,7 @@ public sealed class RetentionCleanupMetrics
         var meter = meterFactory.Create(SmartAgriMeter.Name);
         _runs = meter.CreateCounter<long>(RunsInstrument, unit: "{run}", description: "Conversation retention cleanups run.");
         _deleted = meter.CreateCounter<long>(
-            DeletedInstrument, unit: "{record}", description: "Rows deleted by the conversation retention cleanup, by record.");
+            DeletedInstrument, unit: "{record}", description: "Rows deleted by the retention cleanups, by record.");
     }
 
     internal void Ran(int threadCount = 0, int answerOutcomeCount = 0)
@@ -225,6 +259,14 @@ public sealed class RetentionCleanupMetrics
         if (answerOutcomeCount > 0)
         {
             _deleted.Add(answerOutcomeCount, new KeyValuePair<string, object?>(RecordTag, "answer-outcome"));
+        }
+    }
+
+    internal void DeletedHandoffs(int count)
+    {
+        if (count > 0)
+        {
+            _deleted.Add(count, new KeyValuePair<string, object?>(RecordTag, "visitor-handoff"));
         }
     }
 }

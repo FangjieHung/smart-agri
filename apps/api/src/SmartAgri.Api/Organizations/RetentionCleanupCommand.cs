@@ -8,7 +8,7 @@ namespace SmartAgri.Api.Organizations;
 
 /// <summary>
 /// The one-shot <c>retention-cleanup</c> subcommand (M6 plan §3 G, issue #241): runs one organization's
-/// conversation cleanup now — the same <see cref="RetentionCleanupService"/> as the daily job, so a
+/// conversation cleanup — and its sweep of handled 轉真人 notifications (#362) — now — the same <see cref="RetentionCleanupService"/> as the daily job, so a
 /// pending retention whose buffer is over takes effect first — and exits. It does not touch the daily
 /// chain. Runs in any environment; <c>--as-of</c> ("clean up as if it were then", for the API-mode E2E
 /// that simulates 38 days later) only in Development and Testing.
@@ -21,7 +21,8 @@ public sealed class RetentionCleanupCommand
 
     public const string Usage =
         "用法：retention-cleanup --organization <組織代碼> [--as-of <ISO 8601 時間>]\n" +
-        "立即依組織的保存期限清理一次過期的對話串與回答紀錄（緩衝期已過的新期限會先生效）。" +
+        "立即依組織的保存期限清理一次過期的對話串與回答紀錄（緩衝期已過的新期限會先生效），" +
+        "並刪除已處理超過 365 天的轉真人通知（不論保存期限；待處理的不刪）。" +
         "--as-of 只能在 Development 或 Testing 使用，以指定的時間計算截止點。\n" +
         "結束代碼：0 完成；1 找不到組織或執行失敗；2 參數錯誤。";
 
@@ -93,7 +94,9 @@ public sealed class RetentionCleanupCommand
 
             await using var dbContext = new AppDbContext(options, new FixedOrganizationContext(organization.Id));
             var cleanup = ActivatorUtilities.CreateInstance<RetentionCleanupService>(_services, dbContext);
-            var result = await cleanup.RunAsync(asOf ?? _services.GetRequiredService<TimeProvider>().GetUtcNow(), cancellationToken);
+            var at = asOf ?? _services.GetRequiredService<TimeProvider>().GetUtcNow();
+            var result = await cleanup.RunAsync(at, cancellationToken);
+            var handoffs = await cleanup.DeleteHandledHandoffsAsync(at, cancellationToken);
 
             if (result.TookEffect is { } change)
             {
@@ -103,7 +106,9 @@ public sealed class RetentionCleanupCommand
             await output.WriteLineAsync(result.Cutoff is { } cutoff
                 ? $"組織 {organization.Code}（{organization.Name}）保存 {result.Days} 天，截止點 {cutoff.ToString("o", CultureInfo.InvariantCulture)}：" +
                   $"刪除 {result.ThreadCount} 串對話、{result.AnswerOutcomeCount} 筆回答紀錄。"
-                : $"組織 {organization.Code}（{organization.Name}）的對話永久保存，沒有刪除任何資料。");
+                : $"組織 {organization.Code}（{organization.Name}）的對話永久保存，沒有刪除任何對話。");
+            await output.WriteLineAsync(
+                $"轉真人通知：刪除 {handoffs.Count} 筆在 {handoffs.Cutoff.ToString("o", CultureInfo.InvariantCulture)} 之前處理的通知（已處理超過 365 天）。");
             return ExitSuccess;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

@@ -17,6 +17,14 @@ export type NotificationSettingsView = components['schemas']['NotificationSettin
 
 export type UpdateNotificationSettingsRequest = components['schemas']['UpdateNotificationSettingsRequest'];
 
+/**
+ * 「轉真人」頁上方的提醒（issue #362）：自己還沒填通知 Email、也沒有關掉轉真人 Email 時提醒去「我的通知」填寫。
+ * 部署沒有設定寄信伺服器時不提醒：填了也不會寄出。只看自己的設定，管理者不能代填。
+ */
+export function needsNotificationEmailReminder(settings: NotificationSettingsView): boolean {
+  return !settings.email && settings.handoffEmails && settings.emailDeliveryConfigured;
+}
+
 /** 清單的篩選，與 API 的 `status` 相同；預設是待處理。 */
 export type VisitorHandoffStatusFilter = 'pending' | 'handled' | 'all';
 

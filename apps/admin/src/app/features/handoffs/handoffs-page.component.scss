@@ -20,6 +20,17 @@ p { margin: 0; }
 .handoffs-page__settings,
 .handoff__link { color: var(--color-accent); font-weight: 700; overflow-wrap: anywhere; }
 
+.handoffs-page__reminder {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-default);
+  border-inline-start: 4px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+.handoffs-page__reminder a { color: var(--color-accent); font-weight: 700; }
+
 .handoffs-page__list { display: grid; gap: var(--space-2); padding: 0; margin: 0; list-style: none; }
 .handoff {
   display: grid;
@@ -50,4 +61,5 @@ p { margin: 0; }
 .handoffs-page__filter button:focus-visible,
 .handoff__handle:focus-visible,
 .handoffs-page__settings:focus-visible,
+.handoffs-page__reminder a:focus-visible,
 .handoff__link:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

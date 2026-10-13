@@ -3,6 +3,7 @@ import { loginAs } from '../support/a11y';
 /**
  * 轉真人通知（issue #355，mock 模式）：官網或 LINE 的訪客收到助理的「找不到資料時的回覆」時通知助理的擁有者。
  * mock 的範例：客服助理（擁有者：管理者）在 LINE 與官網各有一則待處理、官網一則已處理；客服同仁不是擁有者，什麼都看不到。
+ * 還沒填通知 Email 的帳號，頁面上方提醒到「我的通知」填寫（issue #362）；填了或關掉就不再提醒。
  */
 describe('handoffs', () => {
   const navLink = '.app-sidenav a[href="/app/handoffs"]';
@@ -14,6 +15,10 @@ describe('handoffs', () => {
 
     cy.location('pathname').should('eq', '/app/handoffs');
     cy.get('#main-content').contains('h1', '轉真人通知').should('be.visible');
+    cy.get('#main-content [data-email-reminder]')
+      .should('contain.text', '你還沒有填通知 Email')
+      .find('a')
+      .should('have.attr', 'href', '/app/settings#notification-settings');
     cy.get('[data-handoff]').should('have.length', 2);
     cy.get('[data-handoff]').first().within(() => {
       cy.get('[data-channel="line"]').should('have.text', 'LINE');
@@ -62,5 +67,20 @@ describe('handoffs', () => {
       cy.get('#notification-email').should('have.value', 'owner@shop.example.org');
       cy.get('[data-handoff-emails]').should('not.be.checked');
     });
+
+    // The reminder's link lands on 我的通知; with the Email filled the 轉真人 page no longer reminds.
+    cy.get(navLink).click();
+    cy.get('#main-content').contains('h1', '轉真人通知').should('be.visible');
+    cy.get('#main-content [data-handoff]').should('have.length', 2);
+    cy.get('[data-email-reminder]').should('not.exist');
+  });
+
+  it('takes an account without an Email from the reminder to 我的通知', () => {
+    loginAs('SMB 管理者');
+    cy.get(navLink).click();
+    cy.get('#main-content [data-email-reminder] a').click();
+    cy.location('pathname').should('eq', '/app/settings');
+    cy.location('hash').should('eq', '#notification-settings');
+    cy.get('[data-notification-settings]').scrollIntoView().contains('h2', '我的通知').should('be.visible');
   });
 });

@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import {
   handoffChannelInSentence,
+  needsNotificationEmailReminder,
   VISITOR_HANDOFF_CHANNEL_LABELS,
   type VisitorHandoffChannel,
   type VisitorHandoffStatusFilter,
@@ -11,6 +12,7 @@ import {
 } from '../../core/domain/handoff.model';
 import { HandoffsRepository } from '../../core/repositories/handoffs.repository';
 import { repositoryResource } from '../../core/repositories/repository-resource';
+import { DEMO_ACCOUNT_BY_ROLE } from '../../core/session/api-mode/demo-identity-bridge';
 import { DemoSessionService } from '../../core/session/demo-session.service';
 import { NAV_COUNTS_CHANGED_EVENT } from '../../layout/workspace-layout/nav-counts';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
@@ -20,6 +22,9 @@ import { StatePanelComponent } from '../../shared/ui/state-panel/state-panel.com
  * 轉真人通知（issue #355）：我的助理在官網或 LINE 回覆了「找不到資料時的回覆」的紀錄——哪個助理、哪個管道、
  * 什麼時間——以及標記已處理。系統不保存訪客的內容，所以沒有對話可開：LINE 到 Official Account Manager 的聊天回覆，
  * 官網訪客依回覆裡的聯絡方式找來；每一則都連到該助理的發布設定。
+ *
+ * 自己還沒填通知 Email 時，上方提醒到「我的通知」填寫（issue #362）；填了、關掉轉真人 Email，或部署沒有寄信伺服器
+ * 時不提醒。設定讀不到時也不提醒（清單照常）。外部客戶不會是助理的擁有者，也沒有「我的通知」，不提醒。
  */
 @Component({
   selector: 'app-handoffs-page',
@@ -46,6 +51,18 @@ export class HandoffsPageComponent {
   protected readonly items = computed(() => {
     const result = this.view();
     return result.status === 'ready' || result.status === 'partial-failure' ? result.data : [];
+  });
+
+  private readonly settingsResource = repositoryResource({
+    params: () => {
+      const account = this.session.activeAccountId();
+      return account === null || account === DEMO_ACCOUNT_BY_ROLE['external-customer'] ? undefined : account;
+    },
+    stream: () => this.handoffs.notificationSettings(),
+  });
+  protected readonly remindEmail = computed(() => {
+    const result = this.settingsResource.view();
+    return result.status === 'ready' && needsNotificationEmailReminder(result.data);
   });
 
   /** 正在標記的那一則；標記中按鈕停用，不會送出兩次。 */

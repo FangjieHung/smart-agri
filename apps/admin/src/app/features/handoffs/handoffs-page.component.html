@@ -4,6 +4,13 @@
     description="官網或 LINE 的訪客收到助理的「找不到資料時的回覆」時，會通知助理的擁有者。系統不保存訪客的對話內容：LINE 的使用者請到 LINE Official Account Manager 的「聊天」回覆；官網訪客會依回覆裡寫的聯絡方式找你。"
   />
 
+  @if (remindEmail()) {
+    <p class="handoffs-page__reminder" data-email-reminder>
+      你還沒有填通知 Email，訪客要找真人時只會在這裡通知你。
+      <a routerLink="/app/settings" fragment="notification-settings">到「我的通知」填寫 Email</a>
+    </p>
+  }
+
   <div class="handoffs-page__toolbar">
     <div class="handoffs-page__filter" role="group" aria-label="顯示哪些轉真人">
       <button type="button" [attr.aria-pressed]="status() === 'pending'" (click)="show('pending')" data-handoff-filter="pending">待處理</button>

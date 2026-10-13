@@ -4,7 +4,7 @@ import { provideRouter } from '@angular/router';
 import { NEVER, of, throwError, type Observable } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../../core/domain/account.model';
-import type { VisitorHandoffStatusFilter, VisitorHandoffView } from '../../core/domain/handoff.model';
+import type { NotificationSettingsView, VisitorHandoffStatusFilter, VisitorHandoffView } from '../../core/domain/handoff.model';
 import type { RepositoryView } from '../../core/repositories/demo-repository';
 import { HandoffsRepository } from '../../core/repositories/handoffs.repository';
 import { DemoSessionService } from '../../core/session/demo-session.service';
@@ -19,23 +19,38 @@ const website: VisitorHandoffView = { ...line, id: 'handoff-2', channel: 'websit
 
 type List = (status: VisitorHandoffStatusFilter) => Observable<RepositoryView<readonly VisitorHandoffView[]>>;
 
-async function render(list: List, markHandled = vi.fn(() => of<RepositoryView<VisitorHandoffView>>({ status: 'ready', data: line })), settle = true) {
+type Settings = () => Observable<RepositoryView<NotificationSettingsView>>;
+
+/** 預設已填 Email：只有測提醒的案例才改成別的設定。 */
+const withEmail: Settings = () => of({ status: 'ready', data: { email: 'owner@shop.example.org', handoffEmails: true, emailDeliveryConfigured: true } });
+
+async function render(
+  list: List,
+  markHandled = vi.fn(() => of<RepositoryView<VisitorHandoffView>>({ status: 'ready', data: line })),
+  settle = true,
+  notificationSettings: Settings = withEmail,
+  account: AccountId = 'account-smb-admin',
+) {
   TestBed.resetTestingModule();
   const listSpy = vi.fn(list);
+  const settingsSpy = vi.fn(notificationSettings);
   await TestBed.configureTestingModule({
     imports: [HandoffsPageComponent],
     providers: [
       provideRouter([]),
-      { provide: HandoffsRepository, useValue: { list: listSpy, markHandled } },
-      { provide: DemoSessionService, useValue: { activeAccountId: signal<AccountId | null>('account-smb-admin') } },
+      { provide: HandoffsRepository, useValue: { list: listSpy, markHandled, notificationSettings: settingsSpy } },
+      { provide: DemoSessionService, useValue: { activeAccountId: signal<AccountId | null>(account) } },
     ],
   }).compileComponents();
   const fixture = TestBed.createComponent(HandoffsPageComponent);
   fixture.detectChanges();
   if (settle) await fixture.whenStable();
   fixture.detectChanges();
-  return { fixture, page: fixture.nativeElement as HTMLElement, list: listSpy, markHandled };
+  return { fixture, page: fixture.nativeElement as HTMLElement, list: listSpy, markHandled, settings: settingsSpy };
 }
+
+const settingsView = (email: string | null, handoffEmails: boolean, emailDeliveryConfigured = true): Settings =>
+  () => of({ status: 'ready', data: { email, handoffEmails, emailDeliveryConfigured } });
 
 describe('HandoffsPageComponent (issue #355)', () => {
   afterEach(() => vi.restoreAllMocks());
@@ -102,5 +117,51 @@ describe('HandoffsPageComponent (issue #355)', () => {
     fixture.detectChanges();
 
     expect(page.querySelector('[role="alert"]')?.textContent).toContain('你沒有這則轉真人通知的存取權限');
+  });
+
+  describe('notification Email reminder (issue #362)', () => {
+    const empty: List = () => of({ status: 'ready', data: [] });
+
+    it('reminds an account without an Email above the list, with a link to 我的通知', async () => {
+      const { page, settings } = await render(empty, undefined, true, settingsView(null, true));
+
+      expect(settings).toHaveBeenCalledTimes(1);
+      const reminder = page.querySelector('[data-email-reminder]');
+      expect(reminder?.textContent).toContain('你還沒有填通知 Email，訪客要找真人時只會在這裡通知你。');
+      const link = reminder?.querySelector('a');
+      expect(link?.textContent?.trim()).toBe('到「我的通知」填寫 Email');
+      expect(link?.getAttribute('href')).toBe('/app/settings#notification-settings');
+      // Above the filter and the list.
+      const toolbar = page.querySelector('.handoffs-page__toolbar');
+      expect(reminder && toolbar ? reminder.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING : 0).toBeTruthy();
+    });
+
+    it('does not remind once the Email is filled, the 轉真人 Email is off, or the deployment cannot send', async () => {
+      for (const settings of [settingsView('owner@shop.example.org', true), settingsView(null, false), settingsView(null, true, false)]) {
+        const { page } = await render(empty, undefined, true, settings);
+        expect(page.querySelector('[data-email-reminder]')).toBeNull();
+        expect(page.textContent).toContain('目前沒有待處理的轉真人');
+      }
+    });
+
+    it('stays quiet when the settings cannot be read, and never asks for an external customer', async () => {
+      for (const settings of [
+        () => throwError(() => new Error('offline')),
+        () => of<RepositoryView<NotificationSettingsView>>({ status: 'permission-denied', reason: 'handoff', message: 'x' }),
+      ] satisfies Settings[]) {
+        const { page } = await render(empty, undefined, true, settings);
+        expect(page.querySelector('[data-email-reminder]')).toBeNull();
+        expect(page.textContent).toContain('目前沒有待處理的轉真人');
+      }
+
+      // Still loading (never answers): no reminder yet, the list is not held up. Not settled: it never is.
+      const loading = await render(empty, undefined, false, () => NEVER);
+      expect(loading.page.querySelector('[data-email-reminder]')).toBeNull();
+      expect(loading.page.textContent).toContain('目前沒有待處理的轉真人');
+
+      const external = await render(empty, undefined, true, settingsView(null, true), 'account-external-customer');
+      expect(external.settings).not.toHaveBeenCalled();
+      expect(external.page.querySelector('[data-email-reminder]')).toBeNull();
+    });
   });
 });

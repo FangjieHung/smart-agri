@@ -1338,13 +1338,15 @@ Each organization chooses how long conversations are kept: 30, 90, 180 or 365 da
      count every run.
 
   Model invocations, handoff copies in issues, periodic reports, database records and test runs are
-  never touched. The first cleanup after shortening a long-used retention may delete a lot: run the
+  never touched. 轉真人 notifications have their own fixed retention (handled ones a year after,
+  every organization; "Visitor handoffs" below). The first cleanup after shortening a long-used retention may delete a lot: run the
   first change off-peak.
 - **Safety net**: where the job worker runs (`Jobs:WorkerEnabled`), startup re-queues the chain of
   every organization with a retention in days but no queued or running cleanup job (a job that
   failed for good breaks its chain); the same compare-and-set keeps it from forking.
 - **`retention-cleanup`** is a one-shot subcommand that runs one organization's cleanup now (a due
-  pending value first), without touching the chain:
+  pending value first) and deletes its 轉真人 notifications handled over 365 days ago (#362), without
+  touching the chain:
 
   ```sh
   dotnet SmartAgri.Api.dll retention-cleanup --organization <code>
@@ -1545,6 +1547,19 @@ with .NET's `SmtpClient` (STARTTLS, `Smtp:Port` default 587; 465 refuses to star
 password. The message has the organization, assistant, channel, time (`Statistics:TimeZone`) and
 `{admin origin}/app/handoffs` (the first of `AdminSpaClientRegistrar.EffectiveOrigins`), nothing the
 visitor wrote. Without `Smtp:Host` nothing is enqueued or sent and nothing fails.
+
+**Retention** (#362): a handoff **handled** more than 365 days ago (`VisitorHandoff.HandledRetentionDays`)
+is deleted — strictly before 00:00 of the `Statistics:TimeZone` day 365 days before today, the
+conversation cleanup's calendar — by `HandoffRetentionSweep`, a hosted service that runs where the job
+worker runs (`Jobs:WorkerEnabled`) at the same local 03:00 and sweeps **every** organization in a
+context acting for it, whatever its conversation retention (forever included; so not part of the
+per-organization `retention-cleanup` chain). Pending ones are never deleted, however old. Nothing runs
+at startup; a missed day is the next day's (the deletion is idempotent). The rows hold no content, so
+no activity is written: a log line and `smartagri.retention.cleanup.deleted` with `record` =
+`visitor-handoff`. The `retention-cleanup` subcommand runs the same deletion for its organization.
+
+The admin's 轉真人 page reminds an account with no notification Email (Emails on, `Smtp:Host` set) to
+fill it in under 我的通知 (#362); only the account itself can set it.
 
 | setting | default | rule when `Smtp:Host` is set |
 | --- | --- | --- |

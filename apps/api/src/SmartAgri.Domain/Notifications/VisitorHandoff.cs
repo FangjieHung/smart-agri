@@ -23,6 +23,14 @@ namespace SmartAgri.Domain.Notifications;
 /// </remarks>
 public sealed class VisitorHandoff : IOrganizationScoped
 {
+    /// <summary>
+    /// A handled handoff is deleted once it was handled more than this many days ago (#362): the daily
+    /// sweep (<c>HandoffRetentionSweep</c>) uses the conversation cleanup's calendar — strictly before
+    /// 00:00 of the <c>Statistics:TimeZone</c> day this many days before today. Pending ones are never
+    /// deleted, however old. Independent of the organization's conversation retention.
+    /// </summary>
+    public const int HandledRetentionDays = 365;
+
     /// <summary>For EF Core materialization.</summary>
     private VisitorHandoff()
     {

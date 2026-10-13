@@ -9,7 +9,8 @@ public static class RetentionServiceCollectionExtensions
     /// Registers the conversation retention (M6-4, #241): <see cref="RetentionCleanupService"/>, the
     /// <see cref="RetentionCleanupJob.Kind"/> handler, its metrics and the startup
     /// <see cref="RetentionCleanupReconciler"/>. Requires <c>AddBackgroundJobs</c> and the
-    /// <c>Statistics</c> options.
+    /// <c>Statistics</c> options. Also the daily <see cref="HandoffRetentionSweep"/> of handled 轉真人
+    /// notifications (#362), which uses the same service and calendar for every organization.
     /// </summary>
     public static IServiceCollection AddConversationRetention(this IServiceCollection services)
     {
@@ -18,6 +19,8 @@ public static class RetentionServiceCollectionExtensions
         services.AddSingleton<RetentionCleanupReconciler>();
         services.AddHostedService(provider => provider.GetRequiredService<RetentionCleanupReconciler>());
         services.AddJobHandler<RetentionCleanupHandler>(RetentionCleanupJob.Kind);
+        services.AddSingleton<HandoffRetentionSweep>();
+        services.AddHostedService(provider => provider.GetRequiredService<HandoffRetentionSweep>());
         return services;
     }
 }

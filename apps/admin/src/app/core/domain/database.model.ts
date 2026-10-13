@@ -165,6 +165,10 @@ export interface DatabaseAccessCandidateView {
   readonly roleLabel: string;
   /** 帳號層級的「查看同意提交的紀錄」；false 代表指定了也還是看不到。 */
   readonly hasReadPermission: boolean;
+  /**
+   * 已停用、但仍被指定的帳號（issue #363）：列出來讓擁有者看得到並移除；停用的帳號不會被新選（#361）。
+   */
+  readonly deactivated: boolean;
 }
 
 export interface DatabaseAccessView {

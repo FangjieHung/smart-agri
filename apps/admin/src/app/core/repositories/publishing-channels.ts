@@ -618,11 +618,16 @@ function channelView(
   };
 }
 
+/**
+ * `accounts` 是分享選單列出的帳號（使用中的，加上仍在分享名單裡的停用帳號）；
+ * `deactivatedIds` 裡的會標示為已停用（issue #363），與 API 的 `deactivated` 相同。
+ */
 export function toAssistantPublishingView(
   assistant: AssistantConfigurationView,
   record: PublishingRecord,
   accounts: readonly AccountView[],
   websiteContext: WebsiteServingContext,
+  deactivatedIds: readonly AccountId[] = [],
 ): AssistantPublishingView {
   const platform: PlatformSharingView = {
     channel: channelView(assistant, 'platform', platformStatus(record), record.platform.updatedAt),
@@ -632,6 +637,7 @@ export function toAssistantPublishingView(
       id: account.id,
       displayName: account.displayName,
       audienceLabel: ACCOUNT_ROLE_LABELS[account.role],
+      deactivated: deactivatedIds.includes(account.id),
     })),
   };
   const { displayName, welcomeMessage, brandColor, position, allowedDomains, state, publishedAt, revision, lastSeenAt } =

@@ -292,6 +292,19 @@ describe('accessibility', () => {
     });
   });
 
+  describe('a deactivated account still shared with (issue #363)', () => {
+    it('has no critical or serious violations with the deactivated label in platform sharing', () => {
+      loginAs('SMB 管理者');
+      cy.visit('/app/settings');
+      cy.contains('button', '停用 外部客戶').scrollIntoView().click();
+      cy.get('form.create-panel[aria-labelledby="deactivate-member-title"] button[type="submit"]').click();
+      cy.contains('.member', '外部客戶').should('contain', '已停用');
+      cy.visit('/app/assistants/assistant-customer-service/publishing?channel=platform');
+      cy.get('#main-content label[for="platform-account-account-external-customer"]').should('contain', '已停用');
+      auditA11y();
+    });
+  });
+
   describe('case group member editor and history expanded (issue #246)', () => {
     it('has no critical or serious violations with the editor and the history rendered', () => {
       loginAs('SMB 管理者');

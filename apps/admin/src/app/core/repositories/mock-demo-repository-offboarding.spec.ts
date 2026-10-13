@@ -162,6 +162,35 @@ describe('MockDemoRepository member offboarding (issue #356)', () => {
   });
 });
 
+interface Listed {
+  readonly id: string;
+  readonly deactivated: boolean;
+}
+
+/** What each picker offers (accounts in use), what is chosen, and who is listed flagged deactivated (issue #363). */
+async function readPicks(repository: MockDemoRepository) {
+  const platform = dataOf<{ platform: { candidates: readonly Listed[]; allowedAccountIds: readonly string[] } }>(
+    await firstValueFrom(repository.getAssistantPublishing('assistant-customer-service')),
+  ).platform;
+  const detail = dataOf<{ shareTargets: readonly Listed[]; sharing: { sharedWithAccountIds: readonly string[] } }>(
+    await firstValueFrom(repository.getKnowledgeBaseDetail('knowledge-product-guide')),
+  );
+  const access = dataOf<{ access: { candidates: readonly Listed[]; dataManagers: readonly { id: string }[] } }>(
+    await firstValueFrom(repository.getDatabaseDetail('database-orders')),
+  ).access;
+  const offered = (listed: readonly Listed[]) => listed.filter((entry) => !entry.deactivated).map((entry) => entry.id);
+  const flagged = (listed: readonly Listed[]) => listed.filter((entry) => entry.deactivated).map((entry) => entry.id);
+  return {
+    assistant: offered(platform.candidates),
+    assistantShared: platform.allowedAccountIds,
+    knowledge: offered(detail.shareTargets),
+    knowledgeShared: detail.sharing.sharedWithAccountIds,
+    dataManagerCandidates: offered(access.candidates),
+    dataManagers: access.dataManagers.map((manager) => manager.id),
+    flagged: { assistant: flagged(platform.candidates), knowledge: flagged(detail.shareTargets), dataManagers: flagged(access.candidates) },
+  };
+}
+
 describe('MockDemoRepository offboarding rules of issue #361', () => {
   let repository: MockDemoRepository;
   let viewer: AccountId | null;
@@ -226,25 +255,7 @@ describe('MockDemoRepository offboarding rules of issue #361', () => {
     await firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN, CUSTOMER]));
     expect((await deactivate(CUSTOMER, null)).status).toBe('ready');
 
-    const picks = async () => {
-      const platform = dataOf<{ platform: { candidates: readonly { id: string }[]; allowedAccountIds: readonly string[] } }>(
-        await firstValueFrom(repository.getAssistantPublishing('assistant-customer-service')),
-      ).platform;
-      const detail = dataOf<{ shareTargets: readonly { id: string }[]; sharing: { sharedWithAccountIds: readonly string[] } }>(
-        await firstValueFrom(repository.getKnowledgeBaseDetail('knowledge-product-guide')),
-      );
-      const access = dataOf<{ access: { candidates: readonly { id: string }[]; dataManagers: readonly { id: string }[] } }>(
-        await firstValueFrom(repository.getDatabaseDetail('database-orders')),
-      ).access;
-      return {
-        assistant: platform.candidates.map((candidate) => candidate.id),
-        assistantShared: platform.allowedAccountIds,
-        knowledge: detail.shareTargets.map((target) => target.id),
-        knowledgeShared: detail.sharing.sharedWithAccountIds,
-        dataManagerCandidates: access.candidates.map((candidate) => candidate.id),
-        dataManagers: access.dataManagers.map((manager) => manager.id),
-      };
-    };
+    const picks = () => readPicks(repository);
 
     expect(await picks()).toEqual({
       assistant: [EMPLOYEE],
@@ -253,6 +264,8 @@ describe('MockDemoRepository offboarding rules of issue #361', () => {
       knowledgeShared: [CUSTOMER],
       dataManagerCandidates: [ADMIN, EMPLOYEE],
       dataManagers: [ADMIN, CUSTOMER],
+      // Listed, flagged, where still chosen (issue #363).
+      flagged: { assistant: [CUSTOMER], knowledge: [CUSTOMER], dataManagers: [CUSTOMER] },
     });
 
     // Saving each picker with the existing choice sent back keeps it.
@@ -267,6 +280,46 @@ describe('MockDemoRepository offboarding rules of issue #361', () => {
     expect(again.assistant).toContain(CUSTOMER);
     expect(again.knowledge).toContain(CUSTOMER);
     expect(again.dataManagerCandidates).toContain(CUSTOMER);
+    expect(again.flagged).toEqual({ assistant: [], knowledge: [], dataManagers: [] });
+  });
+
+  it('shows the owner a deactivated share target flagged until removed, and nobody else (issue #363)', async () => {
+    await firstValueFrom(repository.updatePlatformSharing('assistant-customer-service', [EMPLOYEE, CUSTOMER]));
+    await firstValueFrom(repository.updateKnowledgeSharing('knowledge-product-guide', {
+      scope: 'specific-accounts', sharedWithAccountIds: [EMPLOYEE, CUSTOMER], allowOriginalDownload: false,
+    }));
+    await firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN, EMPLOYEE, CUSTOMER]));
+    expect((await readPicks(repository)).flagged).toEqual({ assistant: [], knowledge: [], dataManagers: [] });
+
+    expect((await deactivate(CUSTOMER, null)).status).toBe('ready');
+    expect((await readPicks(repository)).flagged).toEqual({ assistant: [CUSTOMER], knowledge: [CUSTOMER], dataManagers: [CUSTOMER] });
+
+    // Anybody else: the publishing and knowledge-base pages are the owner's only; a data manager gets no candidates.
+    viewer = EMPLOYEE;
+    expect((await firstValueFrom(repository.getAssistantPublishing('assistant-customer-service'))).status).toBe('permission-denied');
+    expect((await firstValueFrom(repository.getKnowledgeBaseDetail('knowledge-product-guide'))).status).toBe('permission-denied');
+    const seen = dataOf<{ access: { viewerIsDataManager: boolean; candidates: readonly unknown[] } }>(
+      await firstValueFrom(repository.getDatabaseDetail('database-orders')),
+    ).access;
+    expect(seen.viewerIsDataManager).toBe(true);
+    expect(seen.candidates).toEqual([]);
+
+    // The owner removes it in each picker; it is listed no more.
+    viewer = ADMIN;
+    expect((await firstValueFrom(repository.updatePlatformSharing('assistant-customer-service', [EMPLOYEE]))).status).toBe('ready');
+    expect((await firstValueFrom(repository.updateKnowledgeSharing('knowledge-product-guide', {
+      scope: 'specific-accounts', sharedWithAccountIds: [EMPLOYEE], allowOriginalDownload: false,
+    }))).status).toBe('ready');
+    expect((await firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN, EMPLOYEE]))).status).toBe('ready');
+    expect(await readPicks(repository)).toEqual({
+      assistant: [EMPLOYEE],
+      assistantShared: [EMPLOYEE],
+      knowledge: [EMPLOYEE],
+      knowledgeShared: [EMPLOYEE],
+      dataManagerCandidates: [ADMIN, EMPLOYEE],
+      dataManagers: [ADMIN, EMPLOYEE],
+      flagged: { assistant: [], knowledge: [], dataManagers: [] },
+    });
   });
 
   it('refuses a deactivated account as a new data manager or platform share', async () => {

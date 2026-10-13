@@ -6,8 +6,8 @@ import type {
 import { SharingPanelComponent } from './sharing-panel.component';
 
 const targets: readonly KnowledgeShareTargetView[] = [
-  { id: 'account-internal-employee', displayName: '安心商行客服同仁' },
-  { id: 'account-external-customer', displayName: '外部客戶' },
+  { id: 'account-internal-employee', displayName: '安心商行客服同仁', deactivated: false },
+  { id: 'account-external-customer', displayName: '外部客戶', deactivated: false },
 ];
 
 function render(sharing: KnowledgeSharingView) {
@@ -101,5 +101,37 @@ describe('SharingPanelComponent', () => {
     fixture.detectChanges();
 
     expect(saved).toEqual([]);
+  });
+
+  it('labels a deactivated account it is still shared with, and lets the owner switch it off (issue #363)', () => {
+    TestBed.configureTestingModule({ imports: [SharingPanelComponent] });
+    const fixture = TestBed.createComponent(SharingPanelComponent);
+    fixture.componentRef.setInput('sharing', {
+      scope: 'specific-accounts',
+      sharedWithAccountIds: ['account-internal-employee', 'account-external-customer'],
+      allowOriginalDownload: false,
+    });
+    fixture.componentRef.setInput('targets', [targets[0], { ...targets[1], deactivated: true }]);
+    fixture.detectChanges();
+    const saved: KnowledgeSharingView[] = [];
+    fixture.componentInstance.save.subscribe((value) => saved.push(value));
+    const host = fixture.nativeElement as HTMLElement;
+
+    const label = host.querySelector('label[for="share-account-external-customer"]');
+    expect(label?.textContent).toContain('外部客戶（已停用）');
+    expect(host.textContent).toContain('關閉並儲存，就會從名單移除');
+    expect(host.querySelector('#share-account-external-customer')?.getAttribute('aria-label')).toBe('外部客戶（已停用）');
+    expect(host.querySelector('label[for="share-account-internal-employee"]')?.textContent).not.toContain('已停用');
+
+    host.querySelector<HTMLInputElement>('#share-account-external-customer')?.click();
+    fixture.detectChanges();
+    host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+    expect(saved.at(-1)?.sharedWithAccountIds).toEqual(['account-internal-employee']);
+
+    // The detail page reloads after a save: the removed account is no longer listed.
+    fixture.componentRef.setInput('sharing', saved.at(-1));
+    fixture.componentRef.setInput('targets', [targets[0]]);
+    fixture.detectChanges();
+    expect(host.textContent).not.toContain('已停用');
   });
 });

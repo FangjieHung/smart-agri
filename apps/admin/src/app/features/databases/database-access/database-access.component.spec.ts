@@ -192,4 +192,53 @@ describe('DatabaseAccessComponent', () => {
     fixture.detectChanges();
     expect(update).toHaveBeenCalledTimes(2);
   });
+
+  it('labels a deactivated data manager for the owner only, and drops the label once removed (issue #363)', () => {
+    const { fixture, host, repository } = render();
+    syncValue(repository.updateDatabaseAccess(RECORDS, ['account-smb-admin', 'account-internal-employee']));
+    syncValue(repository.deactivateMember('account-internal-employee', 'account-smb-admin'));
+    fixture.componentRef.setInput('access', accessOf(repository, RECORDS));
+    fixture.detectChanges();
+
+    const label = host.querySelector('label[for="data-manager-account-internal-employee"]');
+    expect(Array.from(label?.querySelectorAll('.choice__tag') ?? [], (tag) => tag.textContent?.trim())).toEqual(['已停用']);
+    expect(label?.textContent).toContain('取消勾選並儲存，就會移除指定');
+    expect(host.querySelector('.access-list .choice__tag')?.textContent?.trim()).toBe('已停用');
+    expect(host.querySelector('label[for="data-manager-account-smb-admin"]')?.textContent).not.toContain('已停用');
+
+    host.querySelector<HTMLInputElement>('#data-manager-account-internal-employee')?.click();
+    fixture.detectChanges();
+    host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click();
+    fixture.detectChanges();
+    const feedback = host.querySelector('[aria-live="polite"]')?.textContent ?? '';
+    expect(feedback).toContain('已移除 1 個停用帳號的指定');
+    expect(feedback).not.toContain('重新指定就會原封不動回來');
+
+    fixture.componentRef.setInput('access', accessOf(repository, RECORDS));
+    fixture.detectChanges();
+    expect(host.querySelector('#data-manager-account-internal-employee')).toBeNull();
+    expect(host.textContent).not.toContain('已停用');
+  });
+
+  it('shows no deactivated label to someone who cannot change the designations (issue #363)', () => {
+    const access: DatabaseAccessView = {
+      owner: { id: 'account-smb-admin', displayName: '安心商行管理者' },
+      dataManagers: [
+        { id: 'account-smb-admin', displayName: '安心商行管理者' },
+        { id: 'account-external-customer', displayName: '外部客戶' },
+      ],
+      effectiveReaders: [{ id: 'account-smb-admin', displayName: '安心商行管理者' }],
+      viewerIsDataManager: true,
+      viewerCanReadRecords: true,
+      viewerCanManageAccess: false,
+      candidates: [],
+      savedAt: null,
+      savedBy: null,
+    };
+    const { fixture, host } = render();
+    fixture.componentRef.setInput('access', access);
+    fixture.detectChanges();
+    expect(host.textContent).toContain('外部客戶');
+    expect(host.textContent).not.toContain('已停用');
+  });
 });

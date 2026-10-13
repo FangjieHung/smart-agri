@@ -13,7 +13,16 @@
     <fieldset class="group" [attr.aria-describedby]="error() ? 'sharing-error' : null">
       <legend>可連接的帳號／團隊（已選 {{ selectedCount() }} 個）</legend>
       @for (target of targets(); track target.id) {
-        <lib-setting-row [title]="target.displayName" [controlId]="'share-' + target.id" [controlValue]="target.id" [toggleable]="true" [checked]="isSelected(target.id)" (toggled)="toggleAccount(target.id, $event)" />
+        <!-- 已停用、但仍在分享名單裡的帳號（issue #363）：標示出來，關閉並儲存就會移除。 -->
+        <lib-setting-row
+          [title]="target.deactivated ? target.displayName + '（已停用）' : target.displayName"
+          [description]="target.deactivated ? deactivatedNote : ''"
+          [controlId]="'share-' + target.id"
+          [controlValue]="target.id"
+          [toggleable]="true"
+          [checked]="isSelected(target.id)"
+          (toggled)="toggleAccount(target.id, $event)"
+        />
       }
     </fieldset>
   }

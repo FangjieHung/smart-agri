@@ -645,8 +645,8 @@ function apiDetail(): ApiKnowledgeBaseDetail {
     documents: [apiDocument()],
     sharing: { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
     shareTargets: [
-      { id: EMPLOYEE_ID, displayName: '安心商行客服同仁' },
-      { id: CUSTOMER_ID, displayName: '安心商行客戶' },
+      { id: EMPLOYEE_ID, displayName: '安心商行客服同仁', deactivated: false },
+      { id: CUSTOMER_ID, displayName: '安心商行客戶', deactivated: false },
     ],
   };
 }
@@ -803,8 +803,8 @@ describe('HybridDemoRepository knowledge bases', () => {
         connectedAssistants: [],
         sharing: { scope: 'private', sharedWithAccountIds: [], allowOriginalDownload: false },
         shareTargets: [
-          { id: EMPLOYEE_ID, displayName: '安心商行客服同仁' },
-          { id: CUSTOMER_ID, displayName: '安心商行客戶' },
+          { id: EMPLOYEE_ID, displayName: '安心商行客服同仁', deactivated: false },
+          { id: CUSTOMER_ID, displayName: '安心商行客戶', deactivated: false },
         ],
       },
     });
@@ -2135,8 +2135,8 @@ function apiPublishing(overrides: Partial<ApiAssistantPublishing> = {}): ApiAssi
       usagePath: `/app/chat/${ASSISTANT_ID}`,
       allowedAccountIds: [EMPLOYEE_ID],
       candidates: [
-        { id: EMPLOYEE_ID, displayName: '安心商行客服同仁' },
-        { id: CUSTOMER_ID, displayName: '安心商行客戶' },
+        { id: EMPLOYEE_ID, displayName: '安心商行客服同仁', deactivated: false },
+        { id: CUSTOMER_ID, displayName: '安心商行客戶', deactivated: false },
       ],
     },
     website,
@@ -2877,8 +2877,8 @@ describe('HybridDemoRepository assistants (issue #81)', () => {
       usagePath: `/app/chat/${ASSISTANT_ID}`,
       allowedAccountIds: [EMPLOYEE_ID],
       candidates: [
-        { id: EMPLOYEE_ID, displayName: '安心商行客服同仁' },
-        { id: CUSTOMER_ID, displayName: '安心商行客戶' },
+        { id: EMPLOYEE_ID, displayName: '安心商行客服同仁', deactivated: false },
+        { id: CUSTOMER_ID, displayName: '安心商行客戶', deactivated: false },
       ],
       channel: { name: '組織內部分享', type: 'platform', status: 'published' },
     });

@@ -3,3 +3,7 @@
 /certs/
 # smoke-test.sh: its throwaway certificates and settings (deleted when it exits).
 /.smoke-test.*/
+# backup.sh: the default backup directory (backups hold every secret of the deployment).
+/backups/
+# backup-drill.sh: its throwaway stack's settings and backups (deleted when it exits).
+/.backup-drill.*/

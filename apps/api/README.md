@@ -189,6 +189,10 @@ docker run --rm -v smartagri_smartagri-dataprotection-keys:/keys:ro -v "$PWD":/b
 declared name, `docker volume ls` the real one. Use the real one: `-v smartagri-dataprotection-keys:...`
 would silently create and back up a new, empty volume.) Keys are rotated automatically every 90 days;
 the old ones stay in the directory and keep decrypting old data, so never delete files from it.
+`deploy/backup.sh` (#342) backs up the database (`pg_dump --format=custom`), this volume (found
+through the api container's mount, so the project name does not matter), `deploy/certs/` and
+`deploy/.env` (the certificates' passwords) into one file, and `deploy/restore.sh` puts them back;
+`deploy/backup-drill.sh` proves the round trip on a throwaway stack (deploy/README.md, section 14).
 
 **If the keys or the certificate are lost** the data is not recoverable: every stored secret
 setting (LINE credentials, an organization's own model API key) must be entered again, every

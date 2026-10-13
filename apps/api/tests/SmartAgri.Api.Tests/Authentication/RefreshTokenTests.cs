@@ -12,8 +12,9 @@ namespace SmartAgri.Api.Tests.Authentication;
 
 /// <summary>
 /// Refresh tokens on the real OpenIddict pipeline (#354): the admin SPA's sign-in gets a refresh token,
-/// every use rotates it, a rotated one presented again revokes the whole chain, 8 hours unused or 7 days
-/// since sign-in end it, and so do logout (revocation), a password change and lockout. Its own host:
+/// every use rotates it, a rotated one presented again after 30 seconds revokes the whole chain (#360), 8
+/// hours unused or 7 days since sign-in end it, and so do logout (revocation) and lockout; a password
+/// change ends every other sign-in of the account but keeps the one that made it (#360). Its own host:
 /// the tests move the host's clock (OpenIddict, Identity and the token endpoint all read the
 /// <see cref="TimeProvider"/> from DI), which only ever goes forward, and every test signs in afresh.
 /// </summary>
@@ -52,14 +53,32 @@ public class RefreshTokenTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
-    public async Task A_rotated_refresh_token_presented_again_is_rejected_and_revokes_the_whole_chain()
+    public async Task A_rotated_refresh_token_may_be_used_again_within_30_seconds()
+    {
+        var (_, spa, first) = await SignInAsync();
+        using var signedIn = spa;
+        var original = first.RefreshToken.ShouldNotBeNull();
+        var rotated = (await spa.RefreshOkAsync(original)).RefreshToken.ShouldNotBeNull();
+
+        // A retry after a lost response, or a duplicated tab sharing sessionStorage (#360).
+        _host.Clock.Advance(AuthenticationServiceCollectionExtensions.RefreshTokenReuseLeeway - TimeSpan.FromSeconds(5));
+        var retried = await spa.RefreshOkAsync(original);
+
+        (await spa.GetMeAsync(retried.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await spa.RefreshOkAsync(rotated);
+        await spa.RefreshOkAsync(retried.RefreshToken.ShouldNotBeNull());
+    }
+
+    [Fact]
+    public async Task A_rotated_refresh_token_presented_again_after_30_seconds_is_rejected_and_revokes_the_whole_chain()
     {
         var (organization, spa, first) = await SignInAsync();
         using var signedIn = spa;
         var original = first.RefreshToken.ShouldNotBeNull();
         var rotated = (await spa.RefreshOkAsync(original)).RefreshToken.ShouldNotBeNull();
 
-        // Reuse right away: no leeway, treated as theft.
+        // Past the leeway: treated as theft.
+        _host.Clock.Advance(AuthenticationServiceCollectionExtensions.RefreshTokenReuseLeeway + TimeSpan.FromSeconds(1));
         await ShouldBeRejectedAsync(await spa.RefreshAsync(original));
 
         // The legitimate holder's newer token went down with it: the chain is revoked.
@@ -125,18 +144,84 @@ public class RefreshTokenTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
-    public async Task Changing_the_password_ends_every_refresh_token_of_the_account()
+    public async Task Changing_the_password_keeps_this_sign_in_and_ends_every_other_one()
     {
         var (organization, spa, first) = await SignInAsync();
         using var signedIn = spa;
         using var otherDevice = _host.CreateSpaClient();
         var other = await otherDevice.SignInAsync(organization.Code, "admin", Password, SpaClient.SpaScope);
+        (await otherDevice.GetMeAsync(other.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         (await spa.ChangePasswordAsync(first.AccessToken, Password, NewPassword)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
 
-        await ShouldBeRejectedAsync(await spa.RefreshAsync(first.RefreshToken!));
+        // This device: the access token in hand still works, and the refresh token issued before the change
+        // (it carries the old security stamp) still renews it — and so does every one after it.
+        (await spa.GetMeAsync(first.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var renewed = await spa.RefreshOkAsync(first.RefreshToken!);
+        (await spa.GetAsync(ProtectedProbeEndpoint.Path, renewed.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var again = await spa.RefreshOkAsync(renewed.RefreshToken!);
+        (await spa.GetMeAsync(again.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // The other device: refused on its next request and at the token endpoint.
+        var otherMe = await otherDevice.GetMeAsync(other.AccessToken);
+        otherMe.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await otherMe.Content.ReadAsByteArrayAsync(CancellationToken)).ShouldBeEmpty();
         await ShouldBeRejectedAsync(await otherDevice.RefreshAsync(other.RefreshToken!));
-        (await RefreshTokenStatusesAsync(AccountIdOf(first))).ShouldAllBe(status => status == Statuses.Revoked);
+
+        var accountId = AccountIdOf(first);
+        var authorizations = await AuthorizationStatusesAsync(accountId);
+        authorizations.Count.ShouldBe(2);
+        authorizations[AuthorizationIdOf(first)].ShouldBe(Statuses.Valid);
+        authorizations[AuthorizationIdOf(other)].ShouldBe(Statuses.Revoked);
+        (await RefreshTokenStatusesAsync(accountId, AuthorizationIdOf(other))).ShouldAllBe(status => status == Statuses.Revoked);
+
+        // A second change from the same device keeps it signed in again.
+        (await spa.ChangePasswordAsync(again.AccessToken, NewPassword, Password)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        await spa.RefreshOkAsync(again.RefreshToken!);
+    }
+
+    [Fact]
+    public async Task The_sign_in_that_changed_the_password_still_ends_7_days_after_it_started()
+    {
+        var (_, spa, first) = await SignInAsync();
+        using var signedIn = spa;
+
+        // Inside the access token's 30 minutes.
+        _host.Clock.Advance(TimeSpan.FromMinutes(20));
+        (await spa.ChangePasswordAsync(first.AccessToken, Password, NewPassword)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+        var refreshToken = (await spa.RefreshOkAsync(first.RefreshToken!)).RefreshToken!;
+
+        // Refreshed every 7 hours: 161 hours 20 minutes after the sign-in.
+        for (var refresh = 0; refresh < 23; refresh++)
+        {
+            _host.Clock.Advance(TimeSpan.FromHours(7));
+            refreshToken = (await spa.RefreshOkAsync(refreshToken)).RefreshToken!;
+        }
+
+        // 20 minutes before 7 days since the sign-in (not since the change): the access token ends with it.
+        _host.Clock.Advance(TimeSpan.FromHours(6) + TimeSpan.FromMinutes(20));
+        var last = await spa.RefreshOkAsync(refreshToken);
+        last.ExpiresInSeconds.ShouldBeLessThanOrEqualTo(20 * 60);
+
+        _host.Clock.Advance(TimeSpan.FromMinutes(25));
+        await ShouldBeRejectedAsync(await spa.RefreshAsync(last.RefreshToken!));
+    }
+
+    [Fact]
+    public async Task Another_password_change_or_reset_still_ends_the_sign_in_that_changed_it_first()
+    {
+        var (organization, spa, first) = await SignInAsync();
+        using var signedIn = spa;
+        (await spa.ChangePasswordAsync(first.AccessToken, Password, NewPassword)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // A later sign-in changes the password again: the first device's re-stamped sign-in ends.
+        using var otherDevice = _host.CreateSpaClient();
+        var other = await otherDevice.SignInAsync(organization.Code, "admin", NewPassword, SpaClient.SpaScope);
+        (await otherDevice.ChangePasswordAsync(other.AccessToken, NewPassword, Password)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        await ShouldBeRejectedAsync(await spa.RefreshAsync(first.RefreshToken!));
+        (await spa.GetMeAsync(first.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        await otherDevice.RefreshOkAsync(other.RefreshToken!);
     }
 
     [Fact]
@@ -167,6 +252,20 @@ public class RefreshTokenTests : IClassFixture<AuthHostFixture>
         (await spa.GetAsync(ProtectedProbeEndpoint.Path, renewed.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task The_first_sign_in_password_change_ends_still_signed_in()
+    {
+        var (_, spa, first) = await SignInAsync(requirePasswordChange: true);
+        using var signedIn = spa;
+
+        (await spa.ChangePasswordAsync(first.AccessToken, Password, NewPassword)).StatusCode.ShouldBe(HttpStatusCode.NoContent);
+
+        // No new sign-in: the same tokens go on, now ungated.
+        (await spa.GetMeJsonAsync(first.AccessToken)).GetProperty("passwordChangeRequired").GetBoolean().ShouldBeFalse();
+        var renewed = await spa.RefreshOkAsync(first.RefreshToken!);
+        (await spa.GetAsync(ProtectedProbeEndpoint.Path, renewed.AccessToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
     /// <summary>A new organization (the only "admin" in it) signed in the way the admin SPA does.</summary>
     private async Task<(Organization Organization, SpaClient Spa, TokenResponse Token)> SignInAsync(bool requirePasswordChange = false)
     {
@@ -190,17 +289,30 @@ public class RefreshTokenTests : IClassFixture<AuthHostFixture>
         JsonDocument.Parse(body).RootElement.GetProperty("error").GetString().ShouldBe(OpenIddict.Abstractions.OpenIddictConstants.Errors.InvalidGrant, body);
     }
 
-    private async Task<List<string?>> RefreshTokenStatusesAsync(Guid accountId)
+    private async Task<List<string?>> RefreshTokenStatusesAsync(Guid accountId, string authorizationId)
     {
         await using var dbContext = _host.Postgres.CreateDbContext();
         var statuses = await dbContext.Set<OpenIddictEntityFrameworkCoreToken>()
             .Where(token => token.Subject == accountId.ToString("D")
+                && token.Authorization!.Id == authorizationId
                 && (token.Type == TokenTypeIdentifiers.RefreshToken || token.Type == TokenTypeHints.RefreshToken))
             .Select(token => token.Status)
             .ToListAsync(CancellationToken);
         statuses.ShouldNotBeEmpty();
         return statuses;
     }
+
+    private async Task<Dictionary<string, string?>> AuthorizationStatusesAsync(Guid accountId)
+    {
+        await using var dbContext = _host.Postgres.CreateDbContext();
+        return await dbContext.Set<OpenIddictEntityFrameworkCoreAuthorization>()
+            .Where(authorization => authorization.Subject == accountId.ToString("D"))
+            .ToDictionaryAsync(authorization => authorization.Id!, authorization => authorization.Status, CancellationToken);
+    }
+
+    /// <summary>The sign-in (OpenIddict authorization) the access token names.</summary>
+    private static string AuthorizationIdOf(TokenResponse token) =>
+        SpaClient.DecodePayload(token.AccessToken).GetProperty(Claims.Private.AuthorizationId).GetString().ShouldNotBeNull();
 
     private static Guid AccountIdOf(TokenResponse token) =>
         SpaClient.DecodePayload(token.AccessToken).GetProperty("sub").GetGuid();

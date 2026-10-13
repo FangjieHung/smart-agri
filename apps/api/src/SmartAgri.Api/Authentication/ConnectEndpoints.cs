@@ -91,6 +91,7 @@ public static class ConnectEndpoints
         ClaimsOrganizationContext organizationContext,
         UserManager<Account> userManager,
         SignInManager<Account> signInManager,
+        IOpenIddictAuthorizationManager authorizationManager,
         TimeProvider clock)
     {
         var request = httpContext.GetOpenIddictServerRequest()
@@ -103,6 +104,15 @@ public static class ConnectEndpoints
 
         var grant = (await httpContext.AuthenticateAsync(ServerScheme)).Principal;
         var session = SignInSession.From(grant);
+
+        // A sign-in that changed the password carries on with the new stamp, recorded on its authorization
+        // (#360); every token after this one carries it too.
+        if (session is not null
+            && await PasswordChangeSignIns.ReadSecurityStampAsync(authorizationManager, grant!.GetAuthorizationId(), httpContext.RequestAborted) is { } restamped)
+        {
+            session = session with { SecurityStamp = restamped };
+        }
+
         var account = await FindGrantAccountAsync(grant, organizationContext, userManager);
         var now = clock.GetUtcNow();
 
@@ -124,7 +134,8 @@ public static class ConnectEndpoints
     /// account is not deactivated (issue #356; deactivating also revokes its tokens and rotates the
     /// stamp, so this is the check that holds even for a token entry the revocation missed), not
     /// locked out and may sign in, its security stamp is the one it signed in with (a
-    /// password change or <c>reset-password</c> rotates it), and the session's absolute lifetime has not
+    /// password change or <c>reset-password</c> rotates it; the sign-in that changed the password
+    /// continues with the new one, <see cref="PasswordChangeSignIns"/>), and the session's absolute lifetime has not
     /// run out. An account that must change its password still gets tokens: they only reach
     /// <c>GET /api/v1/me</c> and change-password (<c>PasswordChangeGate</c>).
     /// </summary>

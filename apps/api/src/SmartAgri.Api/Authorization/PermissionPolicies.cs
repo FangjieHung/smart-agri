@@ -107,7 +107,8 @@ public sealed class ForbiddenReasonMetadata
 /// Also enforces <see cref="PasswordChangeGate"/>: a signed-in account that must change
 /// its password gets <see cref="ForbiddenReason.PasswordChangeRequired"/> from every
 /// non-exempt endpoint, before (and instead of) any permission-specific <c>403</c>; a
-/// deactivated account (issue #356) gets the bodiless <c>401</c> from every endpoint.
+/// deactivated account (issue #356), or a token whose sign-in was ended by a password change elsewhere
+/// (#360), gets the bodiless <c>401</c> from every endpoint.
 /// </remarks>
 public sealed class ApiAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
@@ -128,7 +129,8 @@ public sealed class ApiAuthorizationResultHandler : IAuthorizationMiddlewareResu
             switch (await PasswordChangeGate.EvaluateAsync(context))
             {
                 case AccountGateDecision.Deactivated:
-                    // The bodiless 401 of "not signed in" (issue #356). Written directly: a challenge
+                case AccountGateDecision.SignInEnded:
+                    // The bodiless 401 of "not signed in" (issue #356, #360). Written directly: a challenge
                     // through the bearer handler would see the still-valid token and answer 403
                     // insufficient_access instead, which the SPA would not take as "signed out".
                     await ApiErrors.Unauthorized().ExecuteAsync(context);

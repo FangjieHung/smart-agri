@@ -114,11 +114,12 @@ public class AuthenticationConfigurationTests : IClassFixture<WebApplicationFact
         server.AccessTokenLifetime.ShouldBe(TimeSpan.FromMinutes(30));
         server.DisableAccessTokenEncryption.ShouldBeTrue();
 
-        // #354: 8 hours idle (sliding, rotated on every use), reuse of a rotated token is never tolerated.
+        // #354: 8 hours idle (sliding, rotated on every use); #360: a rotated token may be reused for 30
+        // seconds (OpenIddict's default, set explicitly), later reuse revokes the chain.
         server.RefreshTokenLifetime.ShouldBe(TimeSpan.FromHours(8));
         server.DisableRollingRefreshTokens.ShouldBeFalse();
         server.DisableSlidingRefreshTokenExpiration.ShouldBeFalse();
-        server.RefreshTokenReuseLeeway.ShouldBeNull();
+        server.RefreshTokenReuseLeeway.ShouldBe(TimeSpan.FromSeconds(30));
         server.DisableTokenStorage.ShouldBeFalse();
         server.DisableAuthorizationStorage.ShouldBeFalse();
         server.RevocationEndpointUris.ShouldHaveSingleItem().OriginalString.ShouldBe("connect/revoke");

@@ -35,15 +35,17 @@
 - **access token 維持 30 分鐘**。admin SPA 登入時多要求 `offline_access`，取得 refresh token，在背景換發新的 access token。
 - **閒置 8 小時就要重新登入**：refresh token 的效期是 8 小時，每次換發都換成新的一個（rotation），新的一個又是 8 小時（OpenIddict 的 sliding expiration）。
 - **登入滿 7 天一定要重新登入**，不論期間換發過幾次。OpenIddict 本身的設定做不到這個上限（sliding 每次重新計時；關掉 sliding 會讓 8 小時變成絕對上限），所以登入時把「登入時間」與帳號的 security stamp 寫進授權碼與每一個 refresh token（沒有 destination 的 claim，只存在加密的授權碼與 refresh token 裡，不進 access token、identity token），token 端點每次換發都檢查；新發的 refresh token 與 access token 效期也不會超過 7 天的終點。
-- **重複使用視為外洩**：已經換發過的 refresh token 再被使用時，OpenIddict 撤銷同一個授權底下的所有 token（整條鏈），使用者要重新登入。不留 OpenIddict 預設 30 秒的重用寬限：前端同一個分頁同時只送一次換發（single-flight），寬限只會讓偷到的 token 多用一次。
-- **每次換發都重新檢查帳號**，與授權碼兌換相同：帳號仍存在且屬於同一組織、沒有被鎖定、可以登入、security stamp 與登入時相同（更改密碼、`reset-password` 都會換 stamp）。須先改密碼的帳號照樣可以換發，`PasswordChangeRequired` 仍是每個請求從資料庫讀取。
-- **撤銷**：登出時前端先呼叫 OpenIddict 的撤銷端點 `/connect/revoke` 撤銷 refresh token，再走 end-session；更改密碼與 `reset-password` 撤銷這個帳號的所有 token 紀錄（`RevokeBySubjectAsync`，涵蓋 refresh token），而且換過的 stamp 本身也讓舊的 refresh token 無法換發。更改密碼也會結束「這次」登入：手上的 access token 到期（最多 30 分鐘）後要用新密碼重新登入。
+- **重複使用視為外洩**：已經換發過的 refresh token 超過 30 秒後再被使用時，OpenIddict 撤銷同一個授權底下的所有 token（整條鏈），使用者要重新登入。30 秒內再用一次照樣換發（OpenIddict 預設的重用寬限，#360 起明設 `RefreshTokenReuseLeeway`）：換發回應遺失後重試，或瀏覽器「複製分頁」讓兩個分頁共用同一份 sessionStorage 時，不會兩個分頁一起被登出。代價是偷到 token 的人在使用者換發後 30 秒內也能再換一次，而且這條鏈會分岔成兩支、都不會觸發撤銷；超過 30 秒任何一方再用舊的就撤銷整條鏈。最初（#354）設為 0，負責人 2026-10-13 改回 30 秒（#360）。
+- **每次換發都重新檢查帳號**，與授權碼兌換相同：帳號仍存在且屬於同一組織、沒有被鎖定、可以登入、security stamp 與登入時相同（更改密碼、`reset-password` 都會換 stamp；改密碼的那次登入改用寫在它授權上的新 stamp，見下一點）。須先改密碼的帳號照樣可以換發，`PasswordChangeRequired` 仍是每個請求從資料庫讀取。
+- **撤銷**：登出時前端先呼叫 OpenIddict 的撤銷端點 `/connect/revoke` 撤銷 refresh token，再走 end-session；`reset-password` 撤銷這個帳號的所有 token 紀錄（`RevokeBySubjectAsync`，涵蓋 refresh token），而且換過的 stamp 本身也讓舊的 refresh token 無法換發。
+- **更改密碼保留這次登入、結束其他裝置（#360，負責人 2026-10-13 決定）**：一次登入就是一個 OpenIddict 授權（authorization），授權碼、之後的每個 refresh token 與 access token 都帶著它的 id（`oi_au_id`）。改密碼時，在同一個 transaction 裡換 stamp、把呼叫者 access token 所屬授權以外的所有授權與它們的 token 撤銷，並把新的 stamp 寫在保留的授權上（`smartagri_security_stamp` 屬性，只存在資料庫）；token 端點換發時優先採用授權上的 stamp，所以這台裝置手上（帶舊 stamp）的 refresh token 照常換發，不必重新登入，首次登入強制改密碼也一樣。登入時間不變，7 天上限仍從原本登入時起算。其他裝置的 refresh token 換發得到 `invalid_grant`；它們手上的 access token 從下一個請求起就是 `401`：每個請求本來就會讀帳號狀態的那個查詢，多讀一個 access token 所屬授權是否仍有效（`DatabaseAccountStandingSource`，同一個查詢，不另外查）。之後再從任何一台改密碼或 `reset-password`，stamp 又換了，原本保留的登入也一樣結束。
+  - 取捨：被偷走的 access token 若剛好屬於改密碼的那次登入（例如 XSS 就發生在這個分頁），改密碼救不了；要結束全部登入請登出後重新登入、或請管理者執行 `reset-password`。前端不必配合：改密碼仍回 `204`，token 不變。
 - **前端換發時機**：access token 到期前 1 分鐘，若這組 token 發出後有過 API 請求就主動換發（分頁開著沒人用時不換發，閒置才真的由 8 小時決定）；送出請求時 token 已過期或快到期就先換發；收到 401 就換發一次並重送那個請求一次。同時需要換發的請求共用同一次。伺服器拒絕換發時清除工作階段，帶著目前的網址（只接受 `/app` 底下）回登入頁，重新登入後回到原頁；伺服器暫時無法回應時保留工作階段。
 - **儲存位置不變**：refresh token 與 access token 一樣只存在分頁的 sessionStorage（關閉分頁就結束；不同分頁各自登入）。
 
 ### 取捨：XSS
 
-sessionStorage 裡的 token 能被頁面上執行的任何腳本讀取。原本被偷走的只是最多 30 分鐘的 access token；現在 refresh token 也在同一處，偷到的人可以持續換發，最長到 7 天的上限。緩解：rotation 讓攻擊者與使用者其中一方一換發，另一方再用舊的就會觸發整條鏈撤銷；登出、改密碼、`reset-password` 都會撤銷；閒置 8 小時失效。更強的作法是把 refresh token 放在 HttpOnly cookie、由後端代為換發（BFF），但要多一層後端代理與 CSRF 防護，目前不採用；若之後要接受更高風險的客戶（例如政府單位）或發現 XSS，再改為 BFF。
+sessionStorage 裡的 token 能被頁面上執行的任何腳本讀取。原本被偷走的只是最多 30 分鐘的 access token；現在 refresh token 也在同一處，偷到的人可以持續換發，最長到 7 天的上限。緩解：rotation 讓攻擊者與使用者其中一方一換發，另一方超過 30 秒再用舊的就會觸發整條鏈撤銷；登出、`reset-password` 都會撤銷，改密碼撤銷其他裝置的登入；閒置 8 小時失效。更強的作法是把 refresh token 放在 HttpOnly cookie、由後端代為換發（BFF），但要多一層後端代理與 CSRF 防護，目前不採用；若之後要接受更高風險的客戶（例如政府單位）或發現 XSS，再改為 BFF。
 
 ### 影響
 

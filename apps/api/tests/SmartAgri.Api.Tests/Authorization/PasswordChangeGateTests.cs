@@ -88,6 +88,21 @@ public class PasswordChangeGateTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
+    public async Task A_token_whose_sign_in_was_ended_gets_a_bodiless_401_everywhere_even_on_an_exempt_endpoint()
+    {
+        foreach (var metadata in new object[][] { [], [AllowedWhilePasswordChangeRequiredMetadata.Instance] })
+        {
+            var source = new FakeFlagSource(flagged: true, signInEnded: true);
+            var (response, nextCalled) = await HandleAsync(source, SignedIn("authorization-1"), PolicyAuthorizationResult.Success(), metadata);
+
+            nextCalled.ShouldBeFalse();
+            response.StatusCode.ShouldBe(StatusCodes.Status401Unauthorized, "a password change on another device ended this sign-in (#360)");
+            response.Body.ShouldBeEmpty();
+            source.AuthorizationId.ShouldBe("authorization-1", "the access token's oi_au_id is what the standing read checks");
+        }
+    }
+
+    [Fact]
     public async Task Deactivation_wins_over_the_password_gate_and_a_permission_specific_403()
     {
         var (response, nextCalled) = await HandleAsync(
@@ -192,8 +207,12 @@ public class PasswordChangeGateTests : IClassFixture<WebApplicationFactory<Progr
         return json.RootElement.GetProperty("reason").GetString();
     }
 
-    private static ClaimsPrincipal SignedIn() =>
-        new(new ClaimsIdentity([new Claim("sub", AccountId.ToString("D"))], authenticationType: "test"));
+    private static ClaimsPrincipal SignedIn(string? authorizationId = null) =>
+        new(new ClaimsIdentity(
+            authorizationId is null
+                ? [new Claim("sub", AccountId.ToString("D"))]
+                : [new Claim("sub", AccountId.ToString("D")), new Claim("oi_au_id", authorizationId)],
+            authenticationType: "test"));
 
     /// <summary>Stands in for the authentication handlers: a challenge sets a marker status.</summary>
     private sealed class ChallengeRecorder : IAuthenticationService
@@ -223,19 +242,24 @@ public class PasswordChangeGateTests : IClassFixture<WebApplicationFactory<Progr
     {
         private readonly bool _flagged;
         private readonly bool _deactivated;
+        private readonly bool _signInEnded;
 
-        public FakeFlagSource(bool flagged, bool deactivated = false)
+        public FakeFlagSource(bool flagged, bool deactivated = false, bool signInEnded = false)
         {
             _flagged = flagged;
             _deactivated = deactivated;
+            _signInEnded = signInEnded;
         }
 
         public int Calls { get; private set; }
 
-        public Task<AccountStanding> GetAsync(Guid accountId, CancellationToken cancellationToken)
+        public string? AuthorizationId { get; private set; }
+
+        public Task<AccountStanding> GetAsync(Guid accountId, string? authorizationId, CancellationToken cancellationToken)
         {
             Calls++;
-            return Task.FromResult(accountId == AccountId ? new AccountStanding(_flagged, _deactivated) : AccountStanding.Unknown);
+            AuthorizationId = authorizationId;
+            return Task.FromResult(accountId == AccountId ? new AccountStanding(_flagged, _deactivated, _signInEnded) : AccountStanding.Unknown);
         }
     }
 }

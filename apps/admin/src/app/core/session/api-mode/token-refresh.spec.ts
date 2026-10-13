@@ -310,6 +310,32 @@ describe('refresh tokens in API mode (#354)', () => {
     expect(apiSession.takeReturnPath()).toBe('/app/home');
   });
 
+  it('stays signed in after a password change: the same tokens go on and the refresh token still renews (#360)', async () => {
+    const { http, controller, apiSession, storage, navigateByUrl } = setUp({
+      session: storedSession({ identity: { ...IDENTITY, passwordChangeRequired: true } }),
+    });
+
+    const changed = apiSession.changePassword('One-Time-Pass-7x', 'New-Own-Secret-42z');
+    const change = controller.expectOne('/api/v1/auth/change-password');
+    expect(change.request.headers.get('Authorization')).toBe('Bearer access-1');
+    change.flush(null, { status: 204, statusText: 'No Content' });
+    await expect(changed).resolves.toEqual({ outcome: 'success' });
+    expect(stored(storage)).toMatchObject({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+
+    // The server keeps this sign-in, so its refresh token from before the change renews as usual.
+    http.get('/api/v1/team').subscribe();
+    controller.expectOne('/api/v1/team').flush(null, UNAUTHORIZED);
+    const refresh = await vi.waitFor(() => controller.expectOne('/connect/token'));
+    expect(grantOf(refresh).get('refresh_token')).toBe('refresh-1');
+    refresh.flush(RENEWED);
+    const retry = await vi.waitFor(() => controller.expectOne('/api/v1/team'));
+    expect(retry.request.headers.get('Authorization')).toBe('Bearer access-2');
+    retry.flush({});
+
+    expect(stored(storage)).toMatchObject({ accessToken: 'access-2', refreshToken: 'refresh-2' });
+    expect(navigateByUrl).not.toHaveBeenCalled();
+  });
+
   it('revokes the refresh token on the server when logging out, then ends the sign-in session', async () => {
     const { apiSession, controller, oidc, storage } = setUp();
 

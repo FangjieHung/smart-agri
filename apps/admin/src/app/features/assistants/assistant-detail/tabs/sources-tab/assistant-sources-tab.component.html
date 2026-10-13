@@ -21,6 +21,9 @@
       [selected]="settings.caseTypeIds"
       [busy]="store.busy()"
       [error]="store.fieldError('caseTypeIds')"
+      [keepsConversations]="settings.rules.keepOwnConversations"
+      [hasFormTarget]="settings.rules.dataWriteDatabaseId !== null"
+      [formTargetLink]="['/app/assistants', store.assistantId(), 'rules']"
       (toggled)="store.toggleCaseType($event)"
     />
   </div>

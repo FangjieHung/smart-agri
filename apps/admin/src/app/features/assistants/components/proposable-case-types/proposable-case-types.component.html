@@ -29,6 +29,16 @@
         <button type="button" class="remove" [disabled]="busy()" (click)="toggled.emit(missing.id)">移除</button>
       </p>
     }
+    @if (missingForm()) {
+      <div class="missing-form" role="status" data-missing-form>
+        <p class="missing-form__title">對話中沒有表單可以填</p>
+        <p>
+          這個助理會提議開案，但還沒有指定寫入的資料庫。作物病蟲害回報這類應該填表記錄的事，可能會被提議成案件，或只得到一般回答、沒有留下紀錄。
+        </p>
+        <p><a [routerLink]="formTargetLink()">到「回答與記錄」指定寫入的資料庫&nbsp;<span aria-hidden="true">→</span></a></p>
+        <p class="hint">還沒連接資料庫的話，請先在上方連接。</p>
+      </div>
+    }
   } @else {
     <p class="hint">目前無法讀取案件類型。</p>
   }

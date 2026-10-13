@@ -173,6 +173,34 @@ describe('CaseTypesPanelComponent (issue #247)', () => {
     expect(host.querySelector('#case-type-description-error')).toBeNull();
   });
 
+  it('asks for what the type includes and excludes, with an example, linked to the description field (#346)', async () => {
+    const { fixture, host } = await render();
+
+    button(host, '新增案件類型').click();
+    await settle(fixture);
+    const field = required<HTMLTextAreaElement>(host, '#case-type-description');
+    const hint = required(host, '#case-type-description-hint');
+    const text = hint.textContent?.replace(/\s+/g, '') ?? '';
+    expect(text).toContain('寫明這類案件包括什麼、不包括什麼，助理提議開案時會參考。');
+    expect(text).toContain('例如：「包括冷藏庫、灌溉設備故障，需要派人檢修；不包括作物病蟲害，請用表單回報。」');
+    expect(text).toContain('（0／500字）');
+    expect(field.getAttribute('aria-describedby')?.split(' ')).toEqual(['case-type-description-hint']);
+
+    // 有錯誤時，提示與錯誤都要讀得到。
+    type(field, '說'.repeat(501));
+    button(required(host, '[data-case-type-form]'), '建立案件類型').click();
+    await settle(fixture);
+    expect(field.getAttribute('aria-describedby')?.split(' ')).toEqual(['case-type-description-hint', 'case-type-description-error']);
+
+    // 編輯既有類型時也有同一段提示。
+    button(required(host, '[data-case-type-form]'), '取消').click();
+    await settle(fixture);
+    button(typeRow(host, '設備故障報修'), '編輯「設備故障報修」').click();
+    await settle(fixture);
+    const editHint = required(typeRow(host, '設備故障報修'), '#case-type-description-hint');
+    expect(editHint.textContent).toContain('包括什麼、不包括什麼');
+  });
+
   it('edits a type in place, deactivates it and reactivates it', async () => {
     const { fixture, host } = await render();
 

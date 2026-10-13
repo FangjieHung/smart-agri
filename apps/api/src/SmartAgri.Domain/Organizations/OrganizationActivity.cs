@@ -222,15 +222,16 @@ public sealed class OrganizationActivity : IOrganizationScoped
     /// <summary>
     /// <see cref="OrganizationActivityAction.MemberDeactivated"/>: detail <c>{ "member", "successor",
     /// "transferred" }</c> — the two accounts by id and name, and the counts of what moved. Never which
-    /// assistants, records or cases.
+    /// assistants, records or cases. <paramref name="successor"/> is <see langword="null"/> (detail
+    /// <c>"successor": null</c>, every count 0) when the member held nothing to hand over and no successor
+    /// was chosen (issue #361).
     /// </summary>
     public static OrganizationActivity MemberDeactivated(
-        Guid organizationId, Guid actorAccountId, DateTimeOffset at, MemberRef member, MemberRef successor, MemberTransferCounts transferred)
+        Guid organizationId, Guid actorAccountId, DateTimeOffset at, MemberRef member, MemberRef? successor, MemberTransferCounts transferred)
     {
         ArgumentNullException.ThrowIfNull(member);
-        ArgumentNullException.ThrowIfNull(successor);
         ArgumentNullException.ThrowIfNull(transferred);
-        if (member.Id == successor.Id)
+        if (member.Id == successor?.Id)
         {
             throw new ArgumentException("The successor must be another account.", nameof(successor));
         }

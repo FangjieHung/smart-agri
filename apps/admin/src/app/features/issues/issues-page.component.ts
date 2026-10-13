@@ -70,7 +70,8 @@ export class IssuesPageComponent {
   protected readonly eligibleAssignees = computed(() => {
     const view = this.teamResource.view();
     return view.status === 'ready' || view.status === 'partial-failure'
-      ? view.data.members.filter((member) => member.permissions.includes('handle-assistant-issues'))
+      // 停用的帳號不列出（issue #361；後端也不接受指派給停用的帳號）。
+      ? view.data.members.filter((member) => member.permissions.includes('handle-assistant-issues') && member.deactivatedAt === null)
       : [];
   });
 

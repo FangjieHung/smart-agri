@@ -44,6 +44,8 @@ export const CASE_GROUP_NAME_MAX_LENGTH = 40;
 export const CASE_GROUP_NAME_TOO_LONG_MESSAGE = `承辦組名稱請在 ${CASE_GROUP_NAME_MAX_LENGTH} 個字以內。`;
 export const CASE_GROUP_NAME_TAKEN_MESSAGE = '已經有同名的承辦組，請換一個名稱。';
 export const CASE_GROUP_MEMBER_NOT_ELIGIBLE_MESSAGE = '成員只能是組織內部的帳號（管理者或內部同仁），這次的名單沒有儲存。';
+/** 新加入停用的帳號時（issue #361）；已經在組裡的停用成員可以留著。與後端 `CaseGroupEndpoints.DeactivatedMemberMessage` 相同。 */
+export const CASE_GROUP_DEACTIVATED_MEMBER_MESSAGE = '停用的帳號不能加入案件群組，這次的名單沒有儲存。';
 export const CASE_GROUP_MEMBERS_CONFLICT_MESSAGE = '承辦組成員剛被其他人更新，請重新整理後再試一次。';
 
 /** 與後端 `CaseTypeRules`／`CaseTypeEndpoints` 相同的上限與訊息（issue #247）。 */
@@ -230,9 +232,11 @@ export class CaseSettingsRepository {
       const groups = this.mockGroups
         .filter((group) => (isManager && options.includeArchived) || group.archivedAt === null)
         .map((group) => this.mockView(group));
+      // 選單只列使用中的帳號（issue #361）；停用成員的成員資格保留，仍列在組的成員裡。
+      const deactivated = this.mockDeactivatedIds();
       const candidates = isManager
         ? DEMO_SEED.accounts
-          .filter((account) => account.role !== 'external-customer')
+          .filter((account) => account.role !== 'external-customer' && !deactivated.has(account.id))
           .map((account) => ({ id: account.id, displayName: account.displayName, role: account.role }))
         : [];
       return of<RepositoryView<CaseGroupListView>>({ status: 'ready', data: { groups, canManage: isManager, candidates } });
@@ -330,6 +334,10 @@ export class CaseSettingsRepository {
       const now = new Date().toISOString();
       const removed = current.members.filter((id) => !requested.includes(id));
       const added = requested.filter((id) => !current.members.includes(id));
+      const deactivated = this.mockDeactivatedIds();
+      if (added.some((id) => deactivated.has(id))) {
+        return of<CaseGroupMembersResult>({ status: 'validation-failed', message: CASE_GROUP_DEACTIVATED_MEMBER_MESSAGE });
+      }
       if (removed.length + added.length === 0) {
         return of<CaseGroupMembersResult>({ status: 'ready', data: this.mockView(current) });
       }
@@ -568,6 +576,18 @@ export class CaseSettingsRepository {
   }
 
   /**
+   * mock：停用的帳號（issue #361）。停用狀態存在 Demo repository（`listAccounts()` 只回傳使用中的帳號）；
+   * 單元測試沒有提供 `DEMO_REPOSITORY`（或只提供部分方法的替身）時視為都在使用中。
+   */
+  private mockDeactivatedIds(): ReadonlySet<AccountId> {
+    const demo = this.injector.get(DEMO_REPOSITORY, null);
+    const view = typeof demo?.listAccounts === 'function' ? demo.listAccounts() : undefined;
+    if (view === undefined || (view.status !== 'ready' && view.status !== 'partial-failure')) return new Set();
+    const active = new Set(view.data.map((account) => account.id));
+    return new Set(DEMO_SEED.accounts.map((account) => account.id).filter((id) => !active.has(id)));
+  }
+
+  /**
    * mock 的自動開案設定：數據庫要是這個身分在 mock 裡打得開的（否則同後端，一律 `403
    * organization-settings`）；無法讀取紀錄的人數用 mock 數據庫自己的「目前可讀取的人」計算。
    */
@@ -581,7 +601,9 @@ export class CaseSettingsRepository {
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
           .map((type) => {
             const group = this.mockFind(type.defaultGroupId);
-            const members = group?.members ?? [];
+            // 停用的成員不會處理這些案件，不算（issue #361，與後端相同）。
+            const deactivated = this.mockDeactivatedIds();
+            const members = (group?.members ?? []).filter((id) => !deactivated.has(id));
             return {
               id: type.id,
               name: type.name,

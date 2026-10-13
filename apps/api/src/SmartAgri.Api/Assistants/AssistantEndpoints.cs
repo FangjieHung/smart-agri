@@ -1173,18 +1173,31 @@ public static class AssistantEndpoints
             .Select(share => share.AccountId)
             .ToListAsync(cancellationToken);
 
+    /// <summary>
+    /// What a platform-sharing save may keep: every account in use except the owner, plus the
+    /// deactivated accounts the assistant is already shared with — saving the picker never drops those
+    /// rows (issue #361), while a deactivated account cannot be newly added (silently dropped by
+    /// <see cref="AssistantPublishingPolicy.Normalize"/>, like an unknown id).
+    /// </summary>
     private static async Task<IReadOnlyList<Guid>> ShareTargetIdsAsync(
         AppDbContext dbContext, Assistant assistant, CancellationToken cancellationToken)
     {
-        var accountIds = await dbContext.Accounts.AsNoTracking().Select(account => account.Id).ToListAsync(cancellationToken);
+        var accountIds = await dbContext.Accounts.AsNoTracking()
+            .Where(account => account.DeactivatedAt == null
+                || dbContext.AssistantShares.Any(share => share.AssistantId == assistant.Id && share.AccountId == account.Id))
+            .Select(account => account.Id)
+            .ToListAsync(cancellationToken);
         return AssistantPublishingPolicy.ShareTargetIds(assistant.OwnerAccountId, accountIds);
     }
 
     private static async Task<PlatformSharingView> ToPlatformSharingAsync(
         AppDbContext dbContext, Assistant assistant, IReadOnlyList<Guid> allowedAccountIds, CancellationToken cancellationToken)
     {
+        // The picker offers accounts in use only (issue #361); ones already shared stay in
+        // allowedAccountIds and are offered again once reactivated.
         var accounts = await dbContext.Accounts
             .AsNoTracking()
+            .Where(account => account.DeactivatedAt == null)
             .OrderBy(account => account.Id)
             .Select(account => new PlatformShareTargetView(account.Id, account.DisplayName))
             .ToListAsync(cancellationToken);

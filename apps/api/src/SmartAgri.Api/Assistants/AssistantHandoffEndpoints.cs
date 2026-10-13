@@ -86,9 +86,13 @@ public static class AssistantHandoffEndpoints
 
         // The owner is the default handler only while eligible. Otherwise it remains unassigned
         // for an eligible handler to claim or be assigned later (product decision pending).
+        // A deactivated owner (issue #361) is never the default handler: deactivation hands the
+        // assistant to a successor, so this only guards an inconsistent store.
         var ownerEligible = await dbContext.AccountPermissions.AsNoTracking().AnyAsync(
             grant => grant.AccountId == assistant.OwnerAccountId
-                && grant.Permission == AccountPermission.HandleAssistantIssues, cancellationToken);
+                && grant.Permission == AccountPermission.HandleAssistantIssues, cancellationToken)
+            && await dbContext.Accounts.AsNoTracking().AnyAsync(
+                account => account.Id == assistant.OwnerAccountId && account.DeactivatedAt == null, cancellationToken);
         var assigneeId = ownerEligible ? assistant.OwnerAccountId : (Guid?)null;
         var (issue, created) = AssistantIssue.OpenFromHandoff(
             assistant, callerId, question, answer, !assistant.KeepConversations, assigneeId, clock.GetUtcNow());

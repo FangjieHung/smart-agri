@@ -9,18 +9,25 @@ import type { CreateMemberResult, RepositoryView } from '../../../../core/reposi
 import { DEMO_SEED } from '../../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../../core/repositories/memory-storage';
 import { MockDemoRepository } from '../../../../core/repositories/mock-demo-repository';
+import { AssistantIssuesRepository } from '../../../../core/repositories/assistant-issues.repository';
 import { DEMO_REPOSITORY } from '../../../../core/repositories/tokens';
 import { ApiSessionService } from '../../../../core/session/api-session.service';
 import { DemoSessionService } from '../../../../core/session/demo-session.service';
 import { TeamPanelComponent } from './team-panel.component';
 
-async function render(accountId: AccountId = 'account-smb-admin') {
-  const activeAccountId = signal<AccountId | null>(accountId);
+/** `prepare` runs as the manager before the panel opens as `accountId`. */
+async function render(
+  accountId: AccountId = 'account-smb-admin',
+  prepare?: (repository: MockDemoRepository) => Promise<unknown>,
+) {
+  const activeAccountId = signal<AccountId | null>('account-smb-admin');
   const repository = new MockDemoRepository(DEMO_SEED, {
     storage: createMemoryStorage(),
     now: () => new Date('2026-09-23T02:00:00.000Z'),
     viewer: () => activeAccountId(),
   });
+  await prepare?.(repository);
+  activeAccountId.set(accountId);
   const providers: Provider[] = [
     { provide: DEMO_REPOSITORY, useValue: repository },
     { provide: DemoSessionService, useValue: { activeAccountId } },
@@ -418,7 +425,7 @@ describe('TeamPanelComponent adding a member (issue #52)', () => {
       data: {
         memberId: 'account-internal-employee', displayName: '安心商行客服同仁', block: 'last-admin',
         blockMessage: '這是組織裡最後一位使用中的管理者，停用後就沒有人能管理組織設定。請先新增另一位管理者再停用。',
-        holdings: NO_HOLDINGS, requiredPermissions: [], candidates: [],
+        holdings: NO_HOLDINGS, requiredPermissions: [], successorRequired: false, candidates: [],
       },
     }));
 
@@ -447,6 +454,66 @@ describe('TeamPanelComponent adding a member (issue #52)', () => {
 
     expect(document.querySelector('.create-panel > [role="alert"]')?.textContent).toContain('接手人必須是');
     expect(TestBed.inject(MatDialog).openDialogs.map((ref) => ref.getState())).toContain(MatDialogState.OPEN);
+    documentButton('取消').click();
+    await settle(fixture);
+  });
+
+  // ---------- issue #361 ----------
+
+  it('shows a non-manager no 停用 or 重新啟用 for a manager, only why', async () => {
+    const { host } = await render('account-internal-employee', async (repository) => {
+      await firstValueFrom(repository.updateMemberPermissions('account-internal-employee', ['manage-assistants', 'use-shared-assistants']));
+      // A second manager, deactivated, to check 重新啟用 too.
+      const created = await firstValueFrom(repository.createMember({
+        loginName: 'admin2', displayName: '第二位管理者', role: 'smb-admin', permissions: ['manage-assistants'],
+      }));
+      if (created.status !== 'ready') throw new Error('member not created');
+      await firstValueFrom(repository.deactivateMember(created.data.member.id, null));
+    });
+
+    expect(() => button(host, '停用 安心商行管理者')).toThrow();
+    expect(() => button(host, '重新啟用 第二位管理者')).toThrow();
+    const adminRow = Array.from(host.querySelectorAll('.member')).find((item) => item.textContent?.includes('安心商行管理者'));
+    expect(adminRow?.textContent).toContain('只有管理者能停用其他管理者。');
+    const admin2Row = Array.from(host.querySelectorAll('.member')).find((item) => item.textContent?.includes('第二位管理者'));
+    expect(admin2Row?.textContent).toContain('只有管理者能重新啟用其他管理者。');
+    // Employees and customers are still theirs to deactivate.
+    expect(() => button(host, '停用 外部客戶')).not.toThrow();
+  });
+
+  it('deactivates a member holding nothing without asking for a successor', async () => {
+    const { fixture, host, repository } = await render();
+    const deactivate = vi.spyOn(repository, 'deactivateMember');
+
+    button(host, '停用 外部客戶').click();
+    await settle(fixture);
+
+    const dialog = document.querySelector<HTMLFormElement>('.create-panel') as HTMLFormElement;
+    expect(dialog.textContent).toContain('不需要選擇接手人');
+    expect(document.querySelector('fieldset.successors')).toBeNull();
+    expect(document.querySelector('input[name="successor"]')).toBeNull();
+    expect(() => documentButton('停用並轉移')).toThrow();
+    const submit = document.querySelector<HTMLButtonElement>('.dialog-actions button[type="submit"]') as HTMLButtonElement;
+    expect(submit.textContent?.trim()).toBe('停用');
+    expect(submit.disabled).toBe(false);
+    submit.click();
+    await settle(fixture);
+
+    expect(deactivate).toHaveBeenCalledWith('account-external-customer', null);
+    expect(host.querySelector('.feedback')?.textContent).toContain('已停用「外部客戶」：沒有需要轉移的資產。');
+    expect(() => button(host, '重新啟用 外部客戶')).not.toThrow();
+  });
+
+  it('still asks for a successor when only open work items are held', async () => {
+    const { fixture, host } = await render();
+    const issues = TestBed.inject(AssistantIssuesRepository);
+    vi.spyOn(issues, 'mockOpenAssignedCount').mockReturnValue(2);
+
+    button(host, '停用 外部客戶').click();
+    await settle(fixture);
+
+    expect(document.querySelector('.create-panel')?.textContent).toContain('未解決的處理事項 2 件');
+    expect(documentButton('停用並轉移').disabled).toBe(true);
     documentButton('取消').click();
     await settle(fixture);
   });

@@ -87,6 +87,9 @@ public static class CaseGroupEndpoints
 
     public const string MemberNotEligibleMessage = "成員只能是組織內部的帳號（管理者或內部同仁），這次的名單沒有儲存。";
 
+    /// <summary>Adding a deactivated account (issue #361); one already in the group may stay.</summary>
+    public const string DeactivatedMemberMessage = "停用的帳號不能加入案件群組，這次的名單沒有儲存。";
+
     public const string MembersRequiredMessage = "請提供成員名單。";
 
     public const string MembersConflictReason = "case-group-members-conflict";
@@ -193,7 +196,10 @@ public static class CaseGroupEndpoints
 
         var candidates = isManager
             ? (await dbContext.Accounts.AsNoTracking()
-                    .Where(account => account.Role == AccountRole.SmbAdmin || account.Role == AccountRole.InternalEmployee)
+                    // Accounts in use only (issue #361): a deactivated member keeps their membership
+                    // (listed in the group's members) but is not offered.
+                    .Where(account => (account.Role == AccountRole.SmbAdmin || account.Role == AccountRole.InternalEmployee)
+                        && account.DeactivatedAt == null)
                     .Select(account => new { account.Id, account.DisplayName, account.Role })
                     .ToListAsync(cancellationToken))
                 .OrderBy(account => (int)account.Role)
@@ -338,12 +344,11 @@ public static class CaseGroupEndpoints
         }
 
         var requested = requestedIds.Distinct().ToList();
-        var eligible = (await dbContext.Accounts.AsNoTracking()
+        var accounts = await dbContext.Accounts.AsNoTracking()
                 .Where(account => requested.Contains(account.Id))
-                .Select(account => new { account.Id, account.Role })
-                .ToListAsync(cancellationToken))
-            .Count(account => CaseGroupRules.IsEligibleMember(account.Role));
-        if (eligible != requested.Count)
+                .Select(account => new { account.Id, account.Role, Deactivated = account.DeactivatedAt != null })
+                .ToListAsync(cancellationToken);
+        if (accounts.Count(account => CaseGroupRules.IsEligibleMember(account.Role)) != requested.Count)
         {
             return ApiErrors.WithReason(
                 StatusCodes.Status422UnprocessableEntity, MemberNotEligibleReason, MemberNotEligibleMessage, field: AccountIdsField);
@@ -352,6 +357,12 @@ public static class CaseGroupEndpoints
         var current = await dbContext.CaseGroupMembers
             .Where(member => member.GroupId == group.Id)
             .ToListAsync(cancellationToken);
+        if (accounts.Any(account => account.Deactivated && current.All(member => member.AccountId != account.Id)))
+        {
+            return ApiErrors.WithReason(
+                StatusCodes.Status422UnprocessableEntity, MemberNotEligibleReason, DeactivatedMemberMessage, field: AccountIdsField);
+        }
+
         var now = clock.GetUtcNow();
         foreach (var member in current.Where(member => !requested.Contains(member.AccountId)))
         {

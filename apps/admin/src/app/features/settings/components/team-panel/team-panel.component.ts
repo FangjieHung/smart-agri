@@ -14,6 +14,8 @@ import type { AccountId, AccountPermission, AccountRole } from '../../../../core
 import {
   ACCOUNT_ROLE_LABELS,
   caseHandOverNote,
+  isSuccessorRequired,
+  mayManageMemberRole,
   permissionDescriptor,
   SUCCESSOR_REQUIRED_MESSAGE,
   type MemberOffboardingView,
@@ -137,6 +139,15 @@ export class TeamPanelComponent {
   protected readonly deactivating = signal(false);
   /** 送出中不能再按一次重新啟用。 */
   protected readonly reactivating = signal<AccountId | null>(null);
+
+  /** 目前身分的角色：管理者只能由管理者停用或重新啟用（issue #361）。 */
+  private readonly viewerRole = computed(() => this.team()?.members.find((member) => member.isViewer)?.role ?? null);
+
+  /** 這一列要不要顯示「停用」「重新啟用」：不是自己，而且不是「非管理者面對管理者」。 */
+  protected mayOffboard(member: TeamMemberView): boolean {
+    const viewerRole = this.viewerRole();
+    return !member.isViewer && viewerRole !== null && mayManageMemberRole(viewerRole, member.role);
+  }
 
   protected readonly eligibleCandidates = computed(() => {
     const preview = this.offboarding();
@@ -356,14 +367,13 @@ export class TeamPanelComponent {
           if (result.status === 'ready' || result.status === 'partial-failure') {
             // 處理事項與案件在各自的 repository：mock 在這裡補上數量（API 模式加的是 0）。
             const data = result.data;
-            this.offboarding.set({
-              ...data,
-              holdings: {
-                ...data.holdings,
-                openIssues: data.holdings.openIssues + this.issues.mockOpenAssignedCount(member.id),
-                openCases: data.holdings.openCases + this.cases.mockOpenOwnedCount(member.id),
-              },
-            });
+            const holdings = {
+              ...data.holdings,
+              openIssues: data.holdings.openIssues + this.issues.mockOpenAssignedCount(member.id),
+              openCases: data.holdings.openCases + this.cases.mockOpenOwnedCount(member.id),
+            };
+            // 與後端同一條規則，用合併後的數量判斷（API 模式加的是 0，結果與後端的 `successorRequired` 相同）。
+            this.offboarding.set({ ...data, holdings, successorRequired: data.successorRequired || isSuccessorRequired(holdings) });
           } else if (result.status !== 'loading') {
             this.offboarding.set('failed');
           }
@@ -405,7 +415,10 @@ export class TeamPanelComponent {
     const member = this.offboardingMember();
     const preview = this.offboarding();
     if (member === null || preview === null || preview === 'failed' || this.deactivating()) return;
-    const successor = preview.candidates.find((candidate) => candidate.id === this.successorId() && candidate.eligible);
+    // 名下沒有東西要轉移時不選接手人（issue #361）；對話框也不顯示「選擇接手人」。
+    const successor = preview.successorRequired
+      ? preview.candidates.find((candidate) => candidate.id === this.successorId() && candidate.eligible)
+      : null;
     if (successor === undefined) {
       this.deactivateError.set(SUCCESSOR_REQUIRED_MESSAGE);
       return;
@@ -413,7 +426,7 @@ export class TeamPanelComponent {
 
     this.deactivating.set(true);
     this.repository
-      .deactivateMember(member.id, successor.id)
+      .deactivateMember(member.id, successor?.id ?? null)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (result) => this.deactivated(member, successor, result),
@@ -424,12 +437,17 @@ export class TeamPanelComponent {
       });
   }
 
-  private deactivated(member: TeamMemberView, successor: SuccessorCandidateView, result: DeactivateMemberResult): void {
+  private deactivated(member: TeamMemberView, successor: SuccessorCandidateView | null, result: DeactivateMemberResult): void {
     this.deactivating.set(false);
     if (result.status === 'ready' || result.status === 'partial-failure') {
       // Demo 模式的處理事項與案件在這裡移交（API 模式後端已經做完，這兩個呼叫什麼都不做）。
-      const issues = this.issues.mockHandOverMember(member.id, successor.id, successor.canHandleIssues);
-      const cases = this.cases.mockHandOverMember(member.id, successor.id, caseHandOverNote(member.displayName, successor.displayName));
+      // 沒有接手人時名下沒有處理事項與案件，沒有東西要移交。
+      const issues = successor === null
+        ? { reassigned: 0, unassigned: 0 }
+        : this.issues.mockHandOverMember(member.id, successor.id, successor.canHandleIssues);
+      const cases = successor === null
+        ? 0
+        : this.cases.mockHandOverMember(member.id, successor.id, caseHandOverNote(member.displayName, successor.displayName));
       const transferred = result.data.transferred;
       const counts: MemberTransferCountsView = {
         ...transferred,
@@ -440,7 +458,11 @@ export class TeamPanelComponent {
       this.dialog.closeAll();
       this.offboardingMember.set(null);
       this.error.set('');
-      this.feedback.set(this.deactivatedMessage(member.displayName, successor.displayName, counts));
+      this.feedback.set(
+        successor === null
+          ? `已停用「${member.displayName}」：沒有需要轉移的資產。`
+          : this.deactivatedMessage(member.displayName, successor.displayName, counts),
+      );
       this.teamResource.reload();
     } else if (result.status === 'validation-failed' || result.status === 'conflict' || result.status === 'permission-denied') {
       this.deactivateError.set(result.message);

@@ -287,6 +287,36 @@ public sealed class VisitorHandoffTests : IClassFixture<HandoffHostFixture>
         (await PendingCountAsync(org.AdminSpa, org.AdminToken)).ShouldBe(2);
     }
 
+    /// <summary>Issue #361: no Email goes to a deactivated owner, neither one queued before the deactivation
+    /// nor a new one. (Deactivating hands the assistant to a successor, so this guards a store where the
+    /// owner was deactivated without it, e.g. between queueing and sending.)</summary>
+    [Fact]
+    public async Task A_deactivated_owner_gets_no_Email()
+    {
+        var org = await CreateOrganizationAsync("停用擁有者商行");
+        var owner = OwnerAddress();
+        await SetEmailAsync(org.AdminSpa, org.AdminToken, owner, handoffEmails: true);
+        var assistantId = await PublishedWebsiteAssistantAsync(org);
+        var visitor = VisitorClient();
+        (await ReplyKindAsync(visitor, assistantId, await SessionTokenAsync(visitor, assistantId), UnrelatedQuestion)).ShouldBe("no-result");
+        (await EmailJobsAsync(org.Organization.Id)).Count.ShouldBe(1);
+
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            (await dbContext.Accounts.SingleAsync(account => account.Id == org.Admin.Id, CancellationToken)).Deactivate(DateTimeOffset.UtcNow);
+            await dbContext.SaveChangesAsync(CancellationToken);
+        }
+
+        await RunJobsAsync();
+        Smtp.To(owner).ShouldBeEmpty("the owner's standing is read again when the job runs");
+        (await EmailJobsAsync(org.Organization.Id)).Single().Status.ShouldBe(BackgroundJobStatus.Succeeded);
+
+        // Another visitor, so the per-conversation throttle does not hide the check.
+        var another = VisitorClient();
+        (await ReplyKindAsync(another, assistantId, await SessionTokenAsync(another, assistantId), UnrelatedQuestion)).ShouldBe("no-result");
+        (await EmailJobsAsync(org.Organization.Id)).Count.ShouldBe(1, "a deactivated owner's Email is not even queued");
+    }
+
     // --- Who sees and handles them ------------------------------------------------------------------------
 
     /// <summary>Acceptance: only the assistant's owner lists, counts and marks its handoffs; another

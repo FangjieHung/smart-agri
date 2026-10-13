@@ -77,14 +77,17 @@ internal sealed class SendHandoffEmailHandler : IJobHandler
             .Where(candidate => candidate.Id == handoff.AssistantId)
             .Select(candidate => new { candidate.Name, candidate.OwnerAccountId })
             .SingleAsync(cancellationToken);
+        // Read again when the job runs: the owner may have turned these off, or been deactivated
+        // (issue #361), since it was queued.
         var to = await _dbContext.AccountNotificationSettings.AsNoTracking()
-            .Where(settings => settings.AccountId == assistant.OwnerAccountId && settings.HandoffEmails)
+            .Where(settings => settings.AccountId == assistant.OwnerAccountId && settings.HandoffEmails
+                && _dbContext.Accounts.Any(account => account.Id == settings.AccountId && account.DeactivatedAt == null))
             .Select(settings => settings.Email)
             .SingleOrDefaultAsync(cancellationToken);
         if (to is null)
         {
             _logger.LogInformation(
-                "Handoff Email for {HandoffId} not sent: the assistant's owner turned these Emails off or has no address.", handoff.Id);
+                "Handoff Email for {HandoffId} not sent: the assistant's owner turned these Emails off, has no address or is deactivated.", handoff.Id);
             return;
         }
 

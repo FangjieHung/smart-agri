@@ -839,7 +839,7 @@ export class HybridDemoRepository extends MockDemoRepository {
   }
 
   /** 422（不能停用、接手人不符合資格）與 409（團隊剛被別人改過）帶後端的訊息；其餘沿用團隊的 permission-denied。 */
-  override deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId): Observable<DeactivateMemberResult> {
+  override deactivateMember(memberAccountId: AccountId, successorAccountId: AccountId | null): Observable<DeactivateMemberResult> {
     const body: DeactivateMemberRequest = { successorAccountId };
     return this.http.post<DeactivateMemberResponse>(apiMemberDeactivatePath(memberAccountId), body).pipe(
       map((response): DeactivateMemberResult => ({
@@ -3743,6 +3743,7 @@ export function toMemberOffboardingView(response: ApiMemberOffboarding): MemberO
     blockMessage: response.blockMessage,
     holdings: response.holdings,
     requiredPermissions: normalizeMemberPermissions(response.requiredPermissions),
+    successorRequired: response.successorRequired,
     candidates: response.candidates.map((candidate) => ({
       id: candidate.id,
       displayName: candidate.displayName,

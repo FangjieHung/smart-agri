@@ -175,7 +175,7 @@ export function normalizeMemberPermissions(
 // 規則與訊息與後端 `MemberOffboardingRules` 相同；mock 直接用這裡的函式，API 模式由後端判斷。
 
 /** 為什麼現在不能停用這位成員。 */
-export type MemberDeactivationBlock = 'self' | 'last-admin' | 'already-deactivated';
+export type MemberDeactivationBlock = 'self' | 'last-admin' | 'already-deactivated' | 'admin-required';
 
 /** 為什麼這個帳號不能當接手人。 */
 export type SuccessorIneligibleReason = 'external-customer' | 'missing-permissions' | 'deactivated';
@@ -212,6 +212,8 @@ export interface MemberOffboardingView {
   readonly blockMessage: string | null;
   readonly holdings: MemberHoldingsView;
   readonly requiredPermissions: readonly AccountPermission[];
+  /** 名下有東西要轉移時才需要選接手人（issue #361）；沒有時對話框不顯示「選擇接手人」。 */
+  readonly successorRequired: boolean;
   /** 其他使用中的成員（依角色、名稱排序），不論是否符合資格。 */
   readonly candidates: readonly SuccessorCandidateView[];
 }
@@ -236,6 +238,7 @@ export const MEMBER_DEACTIVATION_MESSAGES: Readonly<Record<MemberDeactivationBlo
   self: '不能停用自己的帳號。',
   'last-admin': '這是組織裡最後一位使用中的管理者，停用後就沒有人能管理組織設定。請先新增另一位管理者再停用。',
   'already-deactivated': '這位成員已經停用。',
+  'admin-required': '只有管理者能停用或重新啟用另一位管理者。',
 };
 
 export const MEMBER_NOT_DEACTIVATED_MESSAGE = '這位成員目前沒有停用。';
@@ -246,6 +249,11 @@ export const SUCCESSOR_NOT_ELIGIBLE_MESSAGE =
 /** 處理事項與案件的數量只在對應的 repository 裡（mock 存在這次工作階段），這裡先放 0。 */
 export const NO_HOLDINGS: MemberHoldingsView = {
   assistants: 0, drafts: 0, knowledgeBases: 0, databases: 0, openIssues: 0, openCases: 0, borrowedSources: 0,
+};
+
+/** 沒有選接手人（名下沒有東西要轉移）時的轉移數量。 */
+export const NO_TRANSFERS: MemberTransferCountsView = {
+  assistants: 0, drafts: 0, knowledgeBases: 0, databases: 0, issuesReassigned: 0, issuesUnassigned: 0, cases: 0,
 };
 
 /**
@@ -259,15 +267,33 @@ export function requiredSuccessorPermissions(holdings: MemberHoldingsView): read
   return normalizeMemberPermissions(required);
 }
 
-/** 順序與後端相同：自己 → 已停用 → 最後一位使用中的管理者。 */
+/** 順序與後端相同：自己 → 已停用 → 管理者只能由管理者停用（issue #361） → 最後一位使用中的管理者。 */
 export function checkMemberDeactivation(
-  viewerAccountId: AccountId,
+  viewer: { readonly id: AccountId; readonly role: AccountRole },
   member: { readonly id: AccountId; readonly role: AccountRole; readonly deactivated: boolean },
   otherActiveAdmins: number,
 ): MemberDeactivationBlock | null {
-  if (member.id === viewerAccountId) return 'self';
+  if (member.id === viewer.id) return 'self';
   if (member.deactivated) return 'already-deactivated';
+  if (!mayManageMemberRole(viewer.role, member.role)) return 'admin-required';
   return member.role === 'smb-admin' && otherActiveAdmins === 0 ? 'last-admin' : null;
+}
+
+/**
+ * 停用與重新啟用：管理者只能由管理者操作，其他角色由看得到團隊設定（具備「管理助理與團隊」）的人操作
+ * （issue #361，與後端 `MemberOffboardingRules.MayManageRole` 相同）。團隊頁用它決定要不要顯示按鈕。
+ */
+export function mayManageMemberRole(viewerRole: AccountRole, memberRole: AccountRole): boolean {
+  return memberRole !== 'smb-admin' || viewerRole === 'smb-admin';
+}
+
+/**
+ * 要不要選接手人：名下有助理、草稿、知識庫、數據庫、未解決的處理事項或承辦中的案件時才要（issue #361）。
+ * 別人分享給他的來源不會轉移，不算。
+ */
+export function isSuccessorRequired(holdings: MemberHoldingsView): boolean {
+  return holdings.assistants + holdings.drafts + holdings.knowledgeBases + holdings.databases
+    + holdings.openIssues + holdings.openCases > 0;
 }
 
 /** 接手人：使用中的內部成員（管理者或內部同仁），而且具備 `required` 的每一項權限。 */

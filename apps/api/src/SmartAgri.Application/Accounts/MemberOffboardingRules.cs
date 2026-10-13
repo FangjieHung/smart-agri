@@ -18,6 +18,11 @@ public enum MemberDeactivationBlock
     /// <summary>Already deactivated.</summary>
     [JsonStringEnumMemberName("already-deactivated")]
     AlreadyDeactivated,
+
+    /// <summary>The member is a manager (<c>smb-admin</c>) and the caller is not: only a manager deactivates
+    /// or reactivates another manager (issue #361; owner decision 2026-10-13).</summary>
+    [JsonStringEnumMemberName("admin-required")]
+    AdminRequired,
 }
 
 /// <summary>Why an account may not take over a deactivated member's work.</summary>
@@ -83,6 +88,8 @@ public static class MemberOffboardingRules
 
     public const string AlreadyDeactivatedMessage = "這位成員已經停用。";
 
+    public const string AdminRequiredMessage = "只有管理者能停用或重新啟用另一位管理者。";
+
     public const string NotDeactivatedMessage = "這位成員目前沒有停用。";
 
     public const string SuccessorRequiredMessage = "請選擇接手人。";
@@ -118,12 +125,12 @@ public static class MemberOffboardingRules
 
     /// <summary>
     /// Whether the member may be deactivated by the caller now, checked in this order: not the caller's
-    /// own account, not already deactivated, and not the last manager in use —
-    /// <paramref name="otherActiveAdmins"/> counts the <c>smb-admin</c> accounts other than the member that
-    /// are not deactivated. <see langword="null"/> when nothing stands in the way.
+    /// own account, not already deactivated, a manager only by a manager (issue #361), and not the last
+    /// manager in use — <paramref name="otherActiveAdmins"/> counts the <c>smb-admin</c> accounts other
+    /// than the member that are not deactivated. <see langword="null"/> when nothing stands in the way.
     /// </summary>
     public static MemberDeactivationBlock? CheckDeactivation(
-        Guid callerId, Guid memberId, AccountRole memberRole, bool memberDeactivated, int otherActiveAdmins)
+        Guid callerId, AccountRole callerRole, Guid memberId, AccountRole memberRole, bool memberDeactivated, int otherActiveAdmins)
     {
         if (callerId == memberId)
         {
@@ -135,7 +142,32 @@ public static class MemberOffboardingRules
             return MemberDeactivationBlock.AlreadyDeactivated;
         }
 
+        if (!MayManageRole(callerRole, memberRole))
+        {
+            return MemberDeactivationBlock.AdminRequired;
+        }
+
         return memberRole == AccountRole.SmbAdmin && otherActiveAdmins == 0 ? MemberDeactivationBlock.LastAdmin : null;
+    }
+
+    /// <summary>
+    /// Whether a caller of <paramref name="callerRole"/> (who already holds <c>manage-assistants</c>) may
+    /// deactivate or reactivate a member of <paramref name="memberRole"/>: a manager only by a manager,
+    /// anyone else by anyone who may open the team settings (issue #361).
+    /// </summary>
+    public static bool MayManageRole(AccountRole callerRole, AccountRole memberRole) =>
+        memberRole != AccountRole.SmbAdmin || callerRole == AccountRole.SmbAdmin;
+
+    /// <summary>
+    /// Whether a successor must be chosen: only when the member holds something to hand over — an
+    /// assistant, draft, knowledge base, database, unresolved 處理事項 or open case (issue #361; owner
+    /// decision 2026-10-13). <see cref="MemberHoldings.BorrowedSources"/> never moves, so it does not count.
+    /// </summary>
+    public static bool SuccessorRequired(MemberHoldings holdings)
+    {
+        ArgumentNullException.ThrowIfNull(holdings);
+        return holdings.Assistants + holdings.Drafts + holdings.KnowledgeBases + holdings.Databases
+            + holdings.OpenIssues + holdings.OpenCases > 0;
     }
 
     /// <summary>The message shown for <paramref name="block"/>.</summary>
@@ -144,6 +176,7 @@ public static class MemberOffboardingRules
         MemberDeactivationBlock.Self => SelfMessage,
         MemberDeactivationBlock.LastAdmin => LastAdminMessage,
         MemberDeactivationBlock.AlreadyDeactivated => AlreadyDeactivatedMessage,
+        MemberDeactivationBlock.AdminRequired => AdminRequiredMessage,
         _ => throw new ArgumentOutOfRangeException(nameof(block), block, "Not a declared block."),
     };
 

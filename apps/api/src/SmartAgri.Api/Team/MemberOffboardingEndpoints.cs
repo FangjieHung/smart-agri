@@ -39,6 +39,9 @@ public sealed record SuccessorCandidateView(
 /// <param name="Block">Why the member cannot be deactivated now, or <see langword="null"/>.</param>
 /// <param name="BlockMessage">The message for <paramref name="Block"/>, shown as is.</param>
 /// <param name="RequiredPermissions">What the successor must hold (frontend order).</param>
+/// <param name="SuccessorRequired">Whether a successor must be chosen: only when the member holds something
+/// to hand over (<see cref="MemberOffboardingRules.SuccessorRequired"/>, issue #361). Otherwise the dialog
+/// does not offer one and <c>:deactivate</c> accepts <c>successorAccountId: null</c>.</param>
 /// <param name="Candidates">Every other account of the organization still in use, in the team's order
 /// (role, then name), eligible or not.</param>
 public sealed record MemberOffboardingView(
@@ -48,9 +51,13 @@ public sealed record MemberOffboardingView(
     string? BlockMessage,
     MemberHoldings Holdings,
     IReadOnlyList<AccountPermission> RequiredPermissions,
+    bool SuccessorRequired,
     IReadOnlyList<SuccessorCandidateView> Candidates);
 
 /// <summary><c>POST /api/v1/team/members/{id}:deactivate</c> request.</summary>
+/// <param name="SuccessorAccountId">Who takes over; may be <see langword="null"/> only when the member holds
+/// nothing to hand over (<see cref="MemberOffboardingView.SuccessorRequired"/>). A successor given anyway
+/// is still checked.</param>
 public sealed record DeactivateMemberRequest(Guid? SuccessorAccountId);
 
 /// <summary><c>POST /api/v1/team/members/{id}:deactivate</c> response: the whole team afterwards (like
@@ -60,7 +67,9 @@ public sealed record DeactivateMemberResponse(TeamResponse Team, MemberTransferC
 /// <summary>
 /// 停用成員並指定接手人 and 重新啟用 (issue #356; owner decision 2026-10-13). Same route group, same
 /// <c>manage-assistants</c> policy and the same <c>403 team</c> for an unknown or other-organization id as
-/// the rest of <see cref="TeamEndpoints"/>.
+/// the rest of <see cref="TeamEndpoints"/>. On top of that, only a manager (<c>smb-admin</c>) deactivates
+/// or reactivates another manager (<c>422 admin-required</c>, issue #361), and the successor may be left
+/// out when the member holds nothing to hand over (issue #361).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -90,6 +99,7 @@ public static class MemberOffboardingEndpoints
     public const string BlockedReasonSelf = "cannot-deactivate-self";
     public const string BlockedReasonLastAdmin = "last-admin";
     public const string BlockedReasonAlreadyDeactivated = "member-already-deactivated";
+    public const string BlockedReasonAdminRequired = "admin-required";
     public const string SuccessorNotEligibleReason = "successor-not-eligible";
     public const string NotDeactivatedReason = "member-not-deactivated";
     public const string ConflictReason = "team-changed";
@@ -109,6 +119,11 @@ public static class MemberOffboardingEndpoints
             return ApiErrors.Unauthorized();
         }
 
+        if (await RoleOfAsync(dbContext, callerId, cancellationToken) is not { } callerRole)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
         var member = await dbContext.Accounts.AsNoTracking().SingleOrDefaultAsync(account => account.Id == id, cancellationToken);
         if (member is null)
         {
@@ -118,7 +133,7 @@ public static class MemberOffboardingEndpoints
         var holdings = await HoldingsAsync(dbContext, member.Id, cancellationToken);
         var required = MemberOffboardingRules.RequiredPermissions(holdings);
         var block = MemberOffboardingRules.CheckDeactivation(
-            callerId, member.Id, member.Role, member.IsDeactivated, await OtherActiveAdminsAsync(dbContext, member.Id, cancellationToken));
+            callerId, callerRole, member.Id, member.Role, member.IsDeactivated, await OtherActiveAdminsAsync(dbContext, member.Id, cancellationToken));
 
         var others = await dbContext.Accounts.AsNoTracking()
             .Where(account => account.Id != member.Id && account.DeactivatedAt == null)
@@ -151,6 +166,7 @@ public static class MemberOffboardingEndpoints
             block is { } blocked ? MemberOffboardingRules.MessageOf(blocked) : null,
             holdings,
             required,
+            MemberOffboardingRules.SuccessorRequired(holdings),
             candidates));
     }
 
@@ -177,6 +193,11 @@ public static class MemberOffboardingEndpoints
         // aborts one of them instead (serialization failure → 409 below).
         await using var transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
+        if (await RoleOfAsync(dbContext, callerId, cancellationToken) is not { } callerRole)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
         var member = await dbContext.Accounts.SingleOrDefaultAsync(account => account.Id == id, cancellationToken);
         if (member is null)
         {
@@ -184,22 +205,29 @@ public static class MemberOffboardingEndpoints
         }
 
         var block = MemberOffboardingRules.CheckDeactivation(
-            callerId, member.Id, member.Role, member.IsDeactivated, await OtherActiveAdminsAsync(dbContext, member.Id, cancellationToken));
+            callerId, callerRole, member.Id, member.Role, member.IsDeactivated, await OtherActiveAdminsAsync(dbContext, member.Id, cancellationToken));
         if (block is { } blocked)
         {
             return Blocked(blocked);
         }
 
+        // Whether a successor is needed is decided on what the member holds now, in this transaction.
+        var holdings = await HoldingsAsync(dbContext, member.Id, cancellationToken);
         if (request.SuccessorAccountId is not { } successorId || successorId == Guid.Empty)
         {
-            return ApiErrors.WithReason(
-                StatusCodes.Status422UnprocessableEntity,
-                SuccessorNotEligibleReason,
-                MemberOffboardingRules.SuccessorRequiredMessage,
-                field: MemberOffboardingRules.SuccessorField);
+            if (MemberOffboardingRules.SuccessorRequired(holdings))
+            {
+                return ApiErrors.WithReason(
+                    StatusCodes.Status422UnprocessableEntity,
+                    SuccessorNotEligibleReason,
+                    MemberOffboardingRules.SuccessorRequiredMessage,
+                    field: MemberOffboardingRules.SuccessorField);
+            }
+
+            return await CommitAsync(
+                transaction, dbContext, userManager, tokenManager, member, null, NoPermissions, callerId, organizationId, clock, cancellationToken);
         }
 
-        var holdings = await HoldingsAsync(dbContext, member.Id, cancellationToken);
         var successor = successorId == member.Id
             ? null
             : await dbContext.Accounts.AsNoTracking().SingleOrDefaultAsync(account => account.Id == successorId, cancellationToken);
@@ -224,6 +252,23 @@ public static class MemberOffboardingEndpoints
                 field: MemberOffboardingRules.SuccessorField);
         }
 
+        return await CommitAsync(
+            transaction, dbContext, userManager, tokenManager, member, successor, successorGrants, callerId, organizationId, clock, cancellationToken);
+    }
+
+    private static async Task<IResult> CommitAsync(
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction,
+        AppDbContext dbContext,
+        UserManager<Account> userManager,
+        IOpenIddictTokenManager tokenManager,
+        Account member,
+        Account? successor,
+        IReadOnlySet<AccountPermission> successorGrants,
+        Guid callerId,
+        Guid organizationId,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var transferred = await DeactivateAndTransferAsync(
@@ -243,15 +288,19 @@ public static class MemberOffboardingEndpoints
         UserManager<Account> userManager,
         IOpenIddictTokenManager tokenManager,
         Account member,
-        Account successor,
+        Account? successor,
         IReadOnlySet<AccountPermission> successorGrants,
         Guid callerId,
         Guid organizationId,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var transferred = await TransferAsync(
-            dbContext, member, successor, successorGrants.Contains(AccountPermission.HandleAssistantIssues), callerId, now, cancellationToken);
+        // No successor only when the member holds nothing to hand over (checked by the caller in the
+        // same transaction), so there is nothing to transfer.
+        var transferred = successor is null
+            ? new MemberTransferCounts(0, 0, 0, 0, IssuesReassigned: 0, IssuesUnassigned: 0, Cases: 0)
+            : await TransferAsync(
+                dbContext, member, successor, successorGrants.Contains(AccountPermission.HandleAssistantIssues), callerId, now, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
         // Rotating the stamp saves the account (DeactivatedAt included) in the same UPDATE, through
@@ -271,7 +320,7 @@ public static class MemberOffboardingEndpoints
             callerId,
             now,
             new MemberRef(member.Id, member.DisplayName),
-            new MemberRef(successor.Id, successor.DisplayName),
+            successor is null ? null : new MemberRef(successor.Id, successor.DisplayName),
             transferred));
         await dbContext.SaveChangesAsync(cancellationToken);
         return transferred;
@@ -289,6 +338,11 @@ public static class MemberOffboardingEndpoints
             return ApiErrors.Unauthorized();
         }
 
+        if (await RoleOfAsync(dbContext, callerId, cancellationToken) is not { } callerRole)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
         var member = await dbContext.Accounts.SingleOrDefaultAsync(account => account.Id == id, cancellationToken);
         if (member is null)
         {
@@ -299,6 +353,11 @@ public static class MemberOffboardingEndpoints
         {
             return ApiErrors.WithReason(
                 StatusCodes.Status422UnprocessableEntity, NotDeactivatedReason, MemberOffboardingRules.NotDeactivatedMessage, field: MemberField);
+        }
+
+        if (!MemberOffboardingRules.MayManageRole(callerRole, member.Role))
+        {
+            return Blocked(MemberDeactivationBlock.AdminRequired);
         }
 
         member.Reactivate();
@@ -427,6 +486,14 @@ public static class MemberOffboardingEndpoints
             Cases: cases.Count);
     }
 
+    /// <summary>The caller's role, read from the database like their permissions (the token's <c>role</c>
+    /// claim is only as fresh as the token); <see langword="null"/> when the account is gone.</summary>
+    private static Task<AccountRole?> RoleOfAsync(AppDbContext dbContext, Guid accountId, CancellationToken cancellationToken) =>
+        dbContext.Accounts.AsNoTracking()
+            .Where(account => account.Id == accountId)
+            .Select(account => (AccountRole?)account.Role)
+            .SingleOrDefaultAsync(cancellationToken);
+
     /// <summary>Managers (<c>smb-admin</c>) in use other than <paramref name="memberId"/>.</summary>
     private static Task<int> OtherActiveAdminsAsync(AppDbContext dbContext, Guid memberId, CancellationToken cancellationToken) =>
         dbContext.Accounts.CountAsync(
@@ -465,6 +532,7 @@ public static class MemberOffboardingEndpoints
         {
             MemberDeactivationBlock.Self => BlockedReasonSelf,
             MemberDeactivationBlock.LastAdmin => BlockedReasonLastAdmin,
+            MemberDeactivationBlock.AdminRequired => BlockedReasonAdminRequired,
             _ => BlockedReasonAlreadyDeactivated,
         };
         return ApiErrors.WithReason(

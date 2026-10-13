@@ -12999,6 +12999,7 @@
           "self",
           "last-admin",
           "already-deactivated",
+          "admin-required",
           null
         ]
       },
@@ -13052,6 +13053,7 @@
           "blockMessage",
           "holdings",
           "requiredPermissions",
+          "successorRequired",
           "candidates"
         ],
         "type": "object",
@@ -13087,6 +13089,9 @@
             "items": {
               "$ref": "#/components/schemas/AccountPermission"
             }
+          },
+          "successorRequired": {
+            "type": "boolean"
           },
           "candidates": {
             "type": "array",

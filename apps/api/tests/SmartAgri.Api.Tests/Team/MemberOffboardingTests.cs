@@ -271,7 +271,7 @@ public class MemberOffboardingTests : IClassFixture<AuthHostFixture>
     }
 
     [Fact]
-    public async Task Nobody_deactivates_themselves_or_the_last_manager_in_use()
+    public async Task Nobody_deactivates_themselves_and_only_a_manager_deactivates_or_reactivates_a_manager()
     {
         var org = await CreateOrganizationAsync();
 
@@ -281,20 +281,77 @@ public class MemberOffboardingTests : IClassFixture<AuthHostFixture>
         (await GetJsonOkAsync(org.AdminSpa, $"{TeamPath}/members/{org.Admin.Id}/offboarding", org.AdminToken))
             .GetProperty("block").GetString().ShouldBe("self");
 
-        // The successor manages the team (manage-assistants) but is not a manager: the admin is the
-        // organization's only smb-admin in use.
-        var lastAdmin = await org.SuccessorSpa.PostAsync(
+        // Issue #361: the successor manages the team (manage-assistants) but is not a manager, so a
+        // manager is out of reach even with a second manager in use (before #361 this was last-admin).
+        var admin2 = await _host.CreateAccountAsync(org.Organization, "admin2", Password, AccountRole.SmbAdmin, "第二位管理者", AccountPermission.ManageAssistants);
+        var byEmployee = await org.SuccessorSpa.PostAsync(
             $"{TeamPath}/members/{org.Admin.Id}:deactivate", org.SuccessorToken, new { successorAccountId = org.Successor.Id });
-        lastAdmin.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
-        (await BodyJsonAsync(lastAdmin)).GetProperty("reason").GetString().ShouldBe("last-admin");
+        byEmployee.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var refused = await BodyJsonAsync(byEmployee);
+        (refused.GetProperty("reason").GetString(), refused.GetProperty("message").GetString())
+            .ShouldBe(("admin-required", "只有管理者能停用或重新啟用另一位管理者。"));
         (await GetJsonOkAsync(org.SuccessorSpa, $"{TeamPath}/members/{org.Admin.Id}/offboarding", org.SuccessorToken))
-            .GetProperty("block").GetString().ShouldBe("last-admin");
+            .GetProperty("block").GetString().ShouldBe("admin-required");
 
-        // A second manager in use lifts it; a deactivated one would not have.
-        await _host.CreateAccountAsync(org.Organization, "admin2", Password, AccountRole.SmbAdmin, "第二位管理者", AccountPermission.ManageAssistants);
-        (await org.SuccessorSpa.PostAsync(
-                $"{TeamPath}/members/{org.Admin.Id}:deactivate", org.SuccessorToken, new { successorAccountId = org.Successor.Id }))
-            .StatusCode.ShouldBe(HttpStatusCode.OK);
+        // They still deactivate an internal employee (a manager can never be the last one left: the
+        // caller is a manager in use, so last-admin is only a guard for concurrent requests).
+        (await GetJsonOkAsync(org.SuccessorSpa, $"{TeamPath}/members/{org.Colleague.Id}/offboarding", org.SuccessorToken))
+            .GetProperty("block").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        // A manager deactivates another manager, and only a manager reactivates them.
+        (await DeactivateAsync(org, admin2.Id, org.Successor.Id)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var reactivateByEmployee = await org.SuccessorSpa.PostAsync($"{TeamPath}/members/{admin2.Id}:reactivate", org.SuccessorToken, new { });
+        reactivateByEmployee.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await BodyJsonAsync(reactivateByEmployee)).GetProperty("reason").GetString().ShouldBe("admin-required");
+        await using (var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id))
+        {
+            (await dbContext.Accounts.SingleAsync(account => account.Id == admin2.Id, CancellationToken)).IsDeactivated.ShouldBeTrue();
+        }
+
+        (await org.AdminSpa.PostAsync($"{TeamPath}/members/{admin2.Id}:reactivate", org.AdminToken, new { })).StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task A_member_holding_nothing_needs_no_successor_and_one_holding_anything_does()
+    {
+        var org = await CreateOrganizationAsync();
+        await GiveMemberAssetsAsync(org);
+
+        // Issue #361: the external customer holds nothing to hand over.
+        var nothing = await GetJsonOkAsync(org.AdminSpa, $"{TeamPath}/members/{org.Customer.Id}/offboarding", org.AdminToken);
+        nothing.GetProperty("successorRequired").GetBoolean().ShouldBeFalse();
+        var holding = await GetJsonOkAsync(org.AdminSpa, $"{TeamPath}/members/{org.Member.Id}/offboarding", org.AdminToken);
+        holding.GetProperty("successorRequired").GetBoolean().ShouldBeTrue();
+
+        var refused = await org.AdminSpa.PostAsync(
+            $"{TeamPath}/members/{org.Member.Id}:deactivate", org.AdminToken, new { successorAccountId = (Guid?)null });
+        refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var error = await BodyJsonAsync(refused);
+        (error.GetProperty("reason").GetString(), error.GetProperty("message").GetString()).ShouldBe(("successor-not-eligible", "請選擇接手人。"));
+
+        // A successor given anyway is still checked.
+        (await DeactivateAsync(org, org.Customer.Id, org.Member.Id)).StatusCode.ShouldBe(HttpStatusCode.OK, "an eligible one is accepted");
+        (await org.AdminSpa.PostAsync($"{TeamPath}/members/{org.Customer.Id}:reactivate", org.AdminToken, new { })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        var customerAsSuccessor = await org.AdminSpa.PostAsync(
+            $"{TeamPath}/members/{org.Colleague.Id}:deactivate", org.AdminToken, new { successorAccountId = org.Customer.Id });
+        customerAsSuccessor.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+
+        var response = await org.AdminSpa.PostAsync(
+            $"{TeamPath}/members/{org.Customer.Id}:deactivate", org.AdminToken, new { successorAccountId = (Guid?)null });
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(CancellationToken));
+        var transferred = (await BodyJsonAsync(response)).GetProperty("transferred");
+        transferred.EnumerateObject().Select(count => count.Value.GetInt32()).ShouldAllBe(count => count == 0);
+
+        await using var dbContext = _host.Postgres.CreateDbContext(org.Organization.Id);
+        (await dbContext.Accounts.SingleAsync(account => account.Id == org.Customer.Id, CancellationToken)).IsDeactivated.ShouldBeTrue();
+        (await dbContext.Accounts.SingleAsync(account => account.Id == org.Member.Id, CancellationToken)).IsDeactivated.ShouldBeFalse();
+        var activity = await dbContext.OrganizationActivities
+            .Where(item => item.Action == OrganizationActivityAction.MemberDeactivated)
+            .OrderByDescending(item => item.At)
+            .FirstAsync(CancellationToken);
+        var detail = JsonDocument.Parse(activity.Detail!).RootElement;
+        detail.GetProperty("member").GetProperty("id").GetGuid().ShouldBe(org.Customer.Id);
+        detail.GetProperty("successor").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     [Fact]

@@ -64,8 +64,8 @@ public static class DatabaseRecordReaders
     }
 
     /// <summary>The accounts that may read the records of <paramref name="databaseId"/> right
-    /// now: designated <b>and</b> currently holding the permission (the owner's "who can actually
-    /// read" preview).</summary>
+    /// now: designated, currently holding the permission <b>and</b> not deactivated (the owner's
+    /// "who can actually read" preview, and who the consent terms name).</summary>
     public static async Task<IReadOnlySet<Guid>> EffectiveReaderIdsAsync(
         AppDbContext dbContext, Guid databaseId, CancellationToken cancellationToken)
     {
@@ -75,6 +75,7 @@ public static class DatabaseRecordReaders
             where designation.DatabaseId == databaseId
             join grant in dbContext.AccountPermissions.AsNoTracking() on designation.AccountId equals grant.AccountId
             where grant.Permission == AccountPermission.ReadConsentedSubmissions
+            where dbContext.Accounts.Any(account => account.Id == designation.AccountId && account.DeactivatedAt == null)
             select designation.AccountId).ToListAsync(cancellationToken);
         return ids.ToHashSet();
     }

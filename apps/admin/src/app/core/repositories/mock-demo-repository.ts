@@ -4800,11 +4800,13 @@ export class MockDemoRepository implements DemoRepository {
     return this.permissionDenied('authorized-form', AUTHORIZED_FORM_DENIED_MESSAGE);
   }
 
-  /** 目前實際可讀紀錄的人（已指定且具備帳號權限），與 API 的 `viewers` 同義。 */
+  /** 目前實際可讀紀錄的人（已指定、具備帳號權限、帳號沒有停用，issue #370），與 API 的 `viewers` 同義。 */
   private effectiveReaderNames(databaseId: DatabaseId): readonly string[] {
     const accounts = this.accounts();
+    const deactivatedIds = new Set(this.deactivatedAccountIds());
     const managers = this.databaseCollection(databaseId).dataManagerAccountIds;
     return managers
+      .filter((id) => !deactivatedIds.has(id))
       .filter((id) => canReadConsentedRecords(accounts.find((account) => account.id === id), managers))
       .map((id) => this.databaseAccountRef(id).displayName);
   }

@@ -8,6 +8,7 @@ import { syncValue } from './sync-value.testing';
 
 const CUSTOMER: AccountId = 'account-external-customer';
 const ADMIN: AccountId = 'account-smb-admin';
+const EMPLOYEE: AccountId = 'account-internal-employee';
 const ORDERS = 'database-orders';
 
 const ANSWERS: DatabaseTrialAnswers = {
@@ -158,5 +159,31 @@ describe('MockDemoRepository consented submission (issue #145)', () => {
 
     expect(syncValue(repositoryFor(CUSTOMER, storage).getDatabaseSubmissionReceipt(receipt.data.id))).toEqual(receipt);
     expect(receipt.data.entries[0].label).toBe('訂單編號');
+  });
+});
+
+describe('MockDemoRepository consent viewers and deactivated accounts (issue #370)', () => {
+  it('leaves a deactivated data manager out of the form and new receipts, and keeps an earlier receipt as it was', () => {
+    const storage = createMemoryStorage();
+    const admin = repositoryFor(ADMIN, storage);
+    const customer = repositoryFor(CUSTOMER, storage);
+    syncValue(admin.updateDatabaseAccess(ORDERS, [ADMIN, EMPLOYEE]));
+    const viewersOfForm = () => {
+      const form = syncValue(customer.getDatabaseSubmissionForm(ORDERS));
+      if (form.status !== 'ready') throw new Error(form.status);
+      return form.data.viewers;
+    };
+    expect(viewersOfForm()).toEqual(['安心商行管理者', '安心商行客服同仁']);
+    const earlier = syncValue(customer.submitDatabaseEntry(ORDERS, input({ submissionId: 'key-before' })));
+    if (earlier.status !== 'ready') throw new Error(earlier.status);
+    expect(earlier.data.viewers).toEqual(['安心商行管理者', '安心商行客服同仁']);
+
+    expect(syncValue(admin.deactivateMember(EMPLOYEE, ADMIN)).status).toBe('ready');
+
+    expect(viewersOfForm()).toEqual(['安心商行管理者']);
+    const later = syncValue(customer.submitDatabaseEntry(ORDERS, input({ submissionId: 'key-after' })));
+    if (later.status !== 'ready') throw new Error(later.status);
+    expect(later.data.viewers).toEqual(['安心商行管理者']);
+    expect(syncValue(customer.getDatabaseSubmissionReceipt(earlier.data.id))).toEqual(earlier);
   });
 });

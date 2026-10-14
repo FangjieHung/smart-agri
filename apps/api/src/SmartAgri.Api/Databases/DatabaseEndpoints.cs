@@ -669,7 +669,6 @@ public static class DatabaseEndpoints
         DatabaseAccountView Named(Guid accountId) => new(accountId, names.NameOf(accountId));
 
         var readerIds = await DatabaseRecordReaders.EffectiveReaderIdsAsync(dbContext, database.Id, cancellationToken);
-        var deactivatedIds = accounts.Where(account => account.Deactivated).Select(account => account.Id).ToHashSet();
         var viewerIsDataManager = designations.Any(designation => designation.AccountId == viewerId);
 
         // Candidates (owner only) show each account's permission now, designated or not.
@@ -702,7 +701,7 @@ public static class DatabaseEndpoints
                 designation.AssignedAt,
                 Named(designation.AssignedByAccountId)))],
             [.. designations
-                .Where(designation => readerIds.Contains(designation.AccountId) && !deactivatedIds.Contains(designation.AccountId))
+                .Where(designation => readerIds.Contains(designation.AccountId))
                 .Select(designation => Named(designation.AccountId))],
             viewerIsDataManager,
             DatabaseRecordAccess.CanRead(viewerIsDataManager, viewerHasReadPermission),

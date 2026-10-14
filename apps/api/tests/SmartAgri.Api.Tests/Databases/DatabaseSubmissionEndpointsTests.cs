@@ -485,6 +485,43 @@ public class DatabaseSubmissionEndpointsTests : IClassFixture<AuthHostFixture>
 
     // --- Helpers ---------------------------------------------------------------------------
 
+    /// <summary>
+    /// Issue #370: the consent terms name only the people who can read the record now, so a
+    /// deactivated data manager leaves the form and any new submission's snapshot; a submission sent
+    /// before the deactivation keeps the terms it was consented under.
+    /// </summary>
+    [Fact]
+    public async Task A_deactivated_data_manager_leaves_the_viewers_and_new_snapshots_but_not_an_earlier_one()
+    {
+        var org = await CreateOrganizationAsync();
+        var admin = await SignInAsync(org, "admin");
+        var databaseId = await CreateDatabaseAsync(admin);
+        var customer = await SignInAsync(org, "customer");
+        await PutAccessAsync(admin, databaseId, [org.Admin.Id, org.Internal.Id]);
+        string[] both = ["安心商行管理者", "安心商行客服同仁"];
+
+        async Task<List<string?>> FormViewersAsync() => Strings((await BodyJsonAsync(
+            await customer.Spa.GetAsync($"{BasePath}/{databaseId}/submission-form", customer.Token))).GetProperty("viewers"));
+
+        (await FormViewersAsync()).ShouldBe(both);
+        var earlier = await SubmitAsync(customer, databaseId, Guid.NewGuid(), 1, true, ValidAnswers());
+        earlier.StatusCode.ShouldBe(HttpStatusCode.Created, await earlier.Content.ReadAsStringAsync(CancellationToken));
+        var earlierReceipt = await BodyJsonAsync(earlier);
+        Strings(earlierReceipt.GetProperty("viewers")).ShouldBe(both);
+
+        var deactivated = await admin.Spa.PostAsync(
+            $"/api/v1/team/members/{org.Internal.Id}:deactivate", admin.Token, new { successorAccountId = (Guid?)null });
+        deactivated.StatusCode.ShouldBe(HttpStatusCode.OK, await deactivated.Content.ReadAsStringAsync(CancellationToken));
+
+        (await FormViewersAsync()).ShouldBe(["安心商行管理者"], "a deactivated account reads nothing");
+        var later = await SubmitAsync(customer, databaseId, Guid.NewGuid(), 1, true, ValidAnswers());
+        later.StatusCode.ShouldBe(HttpStatusCode.Created, await later.Content.ReadAsStringAsync(CancellationToken));
+        Strings((await BodyJsonAsync(later)).GetProperty("viewers")).ShouldBe(["安心商行管理者"]);
+
+        var reread = await customer.Spa.GetAsync($"{ReceiptPath}/{earlierReceipt.GetProperty("id").GetGuid()}", customer.Token);
+        (await BodyJsonAsync(reread)).GetRawText().ShouldBe(earlierReceipt.GetRawText(), "the stored snapshot is untouched");
+    }
+
     private sealed record TestOrganization(Organization Organization, Account Admin, Account Internal, Account Customer);
 
     private sealed record SignedIn(SpaClient Spa, string Token);

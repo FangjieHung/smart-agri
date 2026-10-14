@@ -242,6 +242,12 @@ export const MEMBER_DEACTIVATION_MESSAGES: Readonly<Record<MemberDeactivationBlo
 };
 
 export const MEMBER_NOT_DEACTIVATED_MESSAGE = '這位成員目前沒有停用。';
+
+/** 非管理者變更管理者的權限（issue #368；後端 `422 admin-required`，訊息相同）。 */
+export const MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE = '只有管理者能變更另一位管理者的權限。';
+
+/** 非管理者新增管理者（issue #368；後端 `422 admin-required`，訊息相同）。 */
+export const CREATE_ADMIN_REQUIRED_MESSAGE = '只有管理者能新增管理者。';
 export const SUCCESSOR_REQUIRED_MESSAGE = '請選擇接手人。';
 export const SUCCESSOR_NOT_ELIGIBLE_MESSAGE =
   '接手人必須是同一組織裡仍在使用中的內部成員，並具備管理這些資產需要的權限。';
@@ -280,8 +286,9 @@ export function checkMemberDeactivation(
 }
 
 /**
- * 停用與重新啟用：管理者只能由管理者操作，其他角色由看得到團隊設定（具備「管理助理與團隊」）的人操作
- * （issue #361，與後端 `MemberOffboardingRules.MayManageRole` 相同）。團隊頁用它決定要不要顯示按鈕。
+ * 停用、重新啟用（issue #361）、變更權限與以這個角色新增成員（issue #368）：管理者只能由管理者操作，
+ * 其他角色由看得到團隊設定（具備「管理助理與團隊」）的人操作（與後端 `MemberOffboardingRules.MayManageRole`
+ * 相同）。團隊頁用它決定要不要顯示按鈕、勾選框能不能改、角色選單列不列出管理者。
  */
 export function mayManageMemberRole(viewerRole: AccountRole, memberRole: AccountRole): boolean {
   return memberRole !== 'smb-admin' || viewerRole === 'smb-admin';

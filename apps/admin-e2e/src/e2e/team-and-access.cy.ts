@@ -366,6 +366,18 @@ describe('team management and data access', () => {
     cy.contains('.member', '安心商行管理者').should('contain', '只有管理者能停用其他管理者。');
     cy.contains('button', '停用 安心商行管理者').should('not.exist');
     cy.contains('button', '停用 外部客戶').should('exist');
+
+    // Issue #368: nor change a manager's permissions, nor create a manager.
+    cy.contains('button', '變更 安心商行管理者 的權限').click();
+    cy.get('#permission-admin-note-account-smb-admin').should('have.text', '只有管理者能變更其他管理者的權限。');
+    cy.get('.member__editor input[type="checkbox"]').each((input) => cy.wrap(input).should('be.disabled'));
+    cy.contains('button', '儲存 安心商行管理者 的權限').should('be.disabled');
+    cy.contains('button', '取消').click();
+    cy.contains('button', '新增成員').click();
+    cy.get('#new-member-role option')
+      .should('have.length', 2)
+      .then((options) => expect(Array.from(options, (option) => (option as HTMLOptionElement).value)).not.to.include('smb-admin'));
+    cy.get('#new-member-role-note').should('have.text', '只有管理者能新增管理者。');
   });
 
   it('keeps the deactivate dialog\'s buttons on screen in a 390×700 window (issue #356)', () => {

@@ -220,6 +220,49 @@ public class CreateMemberEndpointTests : IClassFixture<AuthHostFixture>
         (await MemberCountAsync(organization.Id)).ShouldBe(1);
     }
 
+    /// <summary>
+    /// Issue #368: creating a manager makes one, so only a manager may (as only a manager deactivates or
+    /// changes one, #361). An internal employee holding <c>manage-assistants</c> is refused with #361's
+    /// reason on the <c>role</c> field and nothing is written; they still create an employee, and a
+    /// manager creates a manager.
+    /// </summary>
+    [Fact]
+    public async Task Only_a_manager_creates_a_manager()
+    {
+        var organization = await _host.CreateOrganizationAsync("安心商行");
+        await _host.CreateAccountAsync(
+            organization, "admin", Password, AccountRole.SmbAdmin, "安心商行管理者", AccountPermission.ManageAssistants);
+        await _host.CreateAccountAsync(
+            organization, "lead", Password, AccountRole.InternalEmployee, "管團隊的同仁", AccountPermission.ManageAssistants);
+
+        using var leadSpa = _host.CreateSpaClient();
+        var leadToken = (await leadSpa.SignInAsync(organization.Code, "lead", Password)).AccessToken;
+
+        var refused = await leadSpa.PostAsync(
+            "/api/v1/team/members",
+            leadToken,
+            new { loginName = "new-admin", displayName = "新管理者", role = "smb-admin", permissions = new[] { "manage-assistants" } });
+        refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        var body = await BodyJsonAsync(refused);
+        (body.GetProperty("reason").GetString(), body.GetProperty("message").GetString())
+            .ShouldBe(("admin-required", "只有管理者能新增管理者。"));
+        body.GetProperty("errors").GetProperty("role")[0].GetString().ShouldBe("只有管理者能新增管理者。");
+        (await MemberCountAsync(organization.Id)).ShouldBe(2);
+
+        var employee = await leadSpa.PostAsync("/api/v1/team/members", leadToken, ValidCreateBody("new-hire"));
+        employee.StatusCode.ShouldBe(HttpStatusCode.Created);
+
+        using var adminSpa = _host.CreateSpaClient();
+        var adminToken = (await adminSpa.SignInAsync(organization.Code, "admin", Password)).AccessToken;
+        var byAdmin = await adminSpa.PostAsync(
+            "/api/v1/team/members",
+            adminToken,
+            new { loginName = "new-admin", displayName = "新管理者", role = "smb-admin", permissions = new[] { "manage-assistants" } });
+        byAdmin.StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await BodyJsonAsync(byAdmin)).GetProperty("member").GetProperty("role").GetString().ShouldBe("smb-admin");
+        (await MemberCountAsync(organization.Id)).ShouldBe(4);
+    }
+
     [Fact]
     public async Task Unknown_permission_value_is_422_and_nothing_is_written()
     {

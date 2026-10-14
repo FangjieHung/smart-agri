@@ -488,7 +488,7 @@ public static class MemberOffboardingEndpoints
 
     /// <summary>The caller's role, read from the database like their permissions (the token's <c>role</c>
     /// claim is only as fresh as the token); <see langword="null"/> when the account is gone.</summary>
-    private static Task<AccountRole?> RoleOfAsync(AppDbContext dbContext, Guid accountId, CancellationToken cancellationToken) =>
+    internal static Task<AccountRole?> RoleOfAsync(AppDbContext dbContext, Guid accountId, CancellationToken cancellationToken) =>
         dbContext.Accounts.AsNoTracking()
             .Where(account => account.Id == accountId)
             .Select(account => (AccountRole?)account.Role)

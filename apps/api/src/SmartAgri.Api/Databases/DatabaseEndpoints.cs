@@ -134,11 +134,13 @@ public sealed record DatabaseAccessChangeView(DateTimeOffset ChangedAt, Database
 /// <summary>
 /// Who may read this database's consented records (M4 #144). <see cref="DataManagers"/> is who is
 /// <b>designated</b>; <see cref="EffectiveReaders"/> is who can <b>actually read right now</b>
-/// (designated and holding the permission): the owner's preview.
+/// (designated, in use and holding the permission): the owner's preview.
 /// </summary>
 /// <param name="Owner">The owner (never implies reading).</param>
 /// <param name="DataManagers">Designated accounts, in the order they were designated.</param>
-/// <param name="EffectiveReaders">The designated accounts that currently hold the permission.</param>
+/// <param name="EffectiveReaders">The designated accounts that currently hold the permission and are
+/// not deactivated (issue #368: a deactivated account cannot sign in, so it reads nothing; it stays in
+/// <see cref="DataManagers"/>, flagged on the owner's candidates, issue #363).</param>
 /// <param name="ViewerIsDataManager">Whether the caller is designated.</param>
 /// <param name="ViewerCanReadRecords">Whether the caller may read records
 /// (<see cref="DatabaseRecordAccess.CanRead"/>).</param>
@@ -667,6 +669,7 @@ public static class DatabaseEndpoints
         DatabaseAccountView Named(Guid accountId) => new(accountId, names.NameOf(accountId));
 
         var readerIds = await DatabaseRecordReaders.EffectiveReaderIdsAsync(dbContext, database.Id, cancellationToken);
+        var deactivatedIds = accounts.Where(account => account.Deactivated).Select(account => account.Id).ToHashSet();
         var viewerIsDataManager = designations.Any(designation => designation.AccountId == viewerId);
 
         // Candidates (owner only) show each account's permission now, designated or not.
@@ -698,7 +701,9 @@ public static class DatabaseEndpoints
                 readerIds.Contains(designation.AccountId),
                 designation.AssignedAt,
                 Named(designation.AssignedByAccountId)))],
-            [.. designations.Where(designation => readerIds.Contains(designation.AccountId)).Select(designation => Named(designation.AccountId))],
+            [.. designations
+                .Where(designation => readerIds.Contains(designation.AccountId) && !deactivatedIds.Contains(designation.AccountId))
+                .Select(designation => Named(designation.AccountId))],
             viewerIsDataManager,
             DatabaseRecordAccess.CanRead(viewerIsDataManager, viewerHasReadPermission),
             isOwner,

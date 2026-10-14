@@ -75,9 +75,14 @@
               <p class="hint">只有管理者能重新啟用其他管理者。</p>
             }
           } @else if (editing() === member.id) {
+            @let editable = mayEditPermissions(member);
             <form class="member__editor" novalidate (submit)="save(member, $event)">
-              <fieldset>
+              <fieldset [attr.aria-describedby]="editable ? null : 'permission-admin-note-' + member.id">
                 <legend>{{ member.displayName }} 可以做什麼</legend>
+                @if (!editable) {
+                  <!-- 與停用按鈕相同（issue #361）：管理者的權限只有管理者能改（issue #368）。 -->
+                  <p class="hint" [id]="'permission-admin-note-' + member.id">只有管理者能變更其他管理者的權限。</p>
+                }
                 @for (permission of data.permissions; track permission.id) {
                   @let locked = member.lockedPermissions.includes(permission.id);
                   <div class="choice">
@@ -104,14 +109,14 @@
                       role="switch"
                       [id]="'permission-' + member.id + '-' + permission.id"
                       [checked]="draft().has(permission.id)"
-                      [disabled]="locked"
+                      [disabled]="locked || !editable"
                       (change)="toggle(permission.id, $event)"
                     />
                   </div>
                 }
               </fieldset>
               <div class="actions">
-                <button type="submit" class="ui-button" [disabled]="saving()">儲存 {{ member.displayName }} 的權限</button>
+                <button type="submit" class="ui-button" [disabled]="saving() || !editable">儲存 {{ member.displayName }} 的權限</button>
                 <button type="button" class="ui-button secondary" (click)="cancelEditing()">取消</button>
               </div>
             </form>
@@ -187,11 +192,18 @@
       <div class="control">
         <label for="new-member-role">角色</label>
         <!-- 選項由 @for 產生：選取狀態綁在 option 上，select 的 [value] 會在選項出現前套用而落空（issue #283）。 -->
-        <select id="new-member-role" (change)="setNewRole($event)">
-          @for (role of creatableRoles; track role) {
+        <select
+          id="new-member-role"
+          [attr.aria-describedby]="adminRoleHidden() ? 'new-member-role-note' : null"
+          (change)="setNewRole($event)"
+        >
+          @for (role of creatableRoles(); track role) {
             <option [value]="role" [selected]="role === newRole()">{{ roleLabels[role] }}</option>
           }
         </select>
+        @if (adminRoleHidden()) {
+          <p class="hint" id="new-member-role-note">只有管理者能新增管理者。</p>
+        }
       </div>
       <fieldset>
         <legend>一開始擁有的權限</legend>

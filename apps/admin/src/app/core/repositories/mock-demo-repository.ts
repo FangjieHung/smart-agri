@@ -166,12 +166,14 @@ import {
   ACCOUNT_ROLE_LABELS,
   checkMemberDeactivation,
   checkSuccessor,
+  CREATE_ADMIN_REQUIRED_MESSAGE,
   isAccountPermission,
   isSuccessorRequired,
   lockedPermissionsFor,
   mayManageMemberRole,
   MEMBER_DEACTIVATION_MESSAGES,
   MEMBER_NOT_DEACTIVATED_MESSAGE,
+  MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE,
   NO_TRANSFERS,
   normalizeMemberPermissions,
   requiredSuccessorPermissions,
@@ -1464,6 +1466,11 @@ export class MockDemoRepository implements DemoRepository {
     // 不存在的成員與沒有權限共用同一句話，避免從差異推測有哪些帳號。
     if (member === undefined) return this.teamPermissionDenied();
 
+    // 與後端相同的順序：成員存在之後、檢查權限值之前（issue #368）。
+    if (!mayManageMemberRole(this.roleOf(viewerAccountId), member.role)) {
+      return immutableCopy({ status: 'validation-failed', message: MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE });
+    }
+
     const problem = validateMemberPermissions(member, viewerAccountId, permissions);
     if (problem !== null) {
       return immutableCopy({ status: 'validation-failed', message: problem });
@@ -1502,6 +1509,10 @@ export class MockDemoRepository implements DemoRepository {
     }
     if (!isAccountRole(input.role)) {
       return { status: 'validation-failed', message: '有不認得的角色值，這次沒有新增成員。' };
+    }
+    // 新增管理者等於產生一位管理者：只有管理者能做（issue #368，與後端相同）。
+    if (!mayManageMemberRole(this.roleOf(viewerAccountId), input.role)) {
+      return { status: 'validation-failed', message: CREATE_ADMIN_REQUIRED_MESSAGE };
     }
     if (input.permissions.some((permission) => !isAccountPermission(permission))) {
       return { status: 'validation-failed', message: '有不認得的權限值，這次沒有新增成員。' };
@@ -6337,6 +6348,7 @@ export class MockDemoRepository implements DemoRepository {
     const accounts = this.accounts();
     const displayName = (id: AccountId) => this.databaseAccountRef(id);
     const managers = this.databaseCollection(database.id).dataManagerAccountIds;
+    const deactivatedIds = new Set(this.deactivatedAccountIds());
 
     const stored = this.storedDatabaseAccess(database.id);
     const canManageAccess = database.ownerAccountId === viewerAccountId;
@@ -6344,8 +6356,10 @@ export class MockDemoRepository implements DemoRepository {
     return {
       owner: displayName(database.ownerAccountId),
       dataManagers: managers.map(displayName),
-      // 已指定 且 現在具備帳號層級權限；與 API 的 `effectiveReaders` 同義。
+      // 已指定、使用中（issue #368：停用的帳號無法登入，讀不到）且現在具備帳號層級權限；與 API 的
+      // `effectiveReaders` 同義。停用的帳號仍列在 `dataManagers`（issue #363）。
       effectiveReaders: managers
+        .filter((id) => !deactivatedIds.has(id))
         .filter((id) => canReadConsentedRecords(accounts.find((account) => account.id === id), managers))
         .map(displayName),
       viewerIsDataManager: managers.includes(viewerAccountId),

@@ -3,10 +3,13 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
 import { describe, expect, it } from 'vitest';
+import { CREATE_ADMIN_REQUIRED_MESSAGE, MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE } from '../domain/team.model';
 import { DEMO_SEED } from './demo-seed';
 import {
+  API_CREATE_MEMBER_PATH,
   apiMemberDeactivatePath,
   apiMemberOffboardingPath,
+  apiMemberPermissionsPath,
   apiMemberReactivatePath,
   HybridDemoRepository,
 } from './hybrid-demo-repository';
@@ -178,5 +181,41 @@ describe('HybridDemoRepository member offboarding rules of issue #361', () => {
       .expectOne({ method: 'POST', url: apiMemberDeactivatePath(R_ADMIN_ID) })
       .flush(JSON.parse(REAL_DEACTIVATE_ADMIN_REQUIRED_422_JSON), { status: 422, statusText: 'Unprocessable Content' });
     expect(await result).toEqual({ status: 'validation-failed', message: '只有管理者能停用或重新啟用另一位管理者。' });
+  });
+});
+
+/*
+ * 2026-10-14 從 API 的整合測試主機（`TeamEndpointsTests.Only_a_manager_changes_a_managers_permissions`、
+ * `CreateMemberEndpointTests.Only_a_manager_creates_a_manager`，真實的 PostgreSQL）實際取得（issue #368）：
+ * 具備「管理助理與團隊」的內部同仁改管理者的權限、新增一位管理者，各被拒一次。原樣保留成字串再 `JSON.parse`，不是依產生的型別手寫。
+ */
+const REAL_PERMISSIONS_ADMIN_REQUIRED_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"reason":"admin-required","message":"只有管理者能變更另一位管理者的權限。","errors":{"permissions":["只有管理者能變更另一位管理者的權限。"]}}`;
+const REAL_CREATE_ADMIN_REQUIRED_422_JSON = `{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"reason":"admin-required","message":"只有管理者能新增管理者。","errors":{"role":["只有管理者能新增管理者。"]}}`;
+
+describe('HybridDemoRepository manager-only team changes (issue #368)', () => {
+  it('turns admin-required on a manager’s permissions into the frontend’s message', async () => {
+    const { repository, controller } = setUp();
+    const result = firstValueFrom(repository.updateMemberPermissions(R_ADMIN_ID, ['manage-assistants']));
+    controller
+      .expectOne({ method: 'PUT', url: apiMemberPermissionsPath(R_ADMIN_ID) })
+      .flush(JSON.parse(REAL_PERMISSIONS_ADMIN_REQUIRED_422_JSON), { status: 422, statusText: 'Unprocessable Content' });
+
+    expect(await result).toEqual({ status: 'validation-failed', message: MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE });
+    expect(MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE).toBe(JSON.parse(REAL_PERMISSIONS_ADMIN_REQUIRED_422_JSON).message);
+    controller.verify();
+  });
+
+  it('turns admin-required on creating a manager into the frontend’s message', async () => {
+    const { repository, controller } = setUp();
+    const result = firstValueFrom(repository.createMember({
+      loginName: 'new-admin', displayName: '新管理者', role: 'smb-admin', permissions: ['manage-assistants'],
+    }));
+    controller
+      .expectOne({ method: 'POST', url: API_CREATE_MEMBER_PATH })
+      .flush(JSON.parse(REAL_CREATE_ADMIN_REQUIRED_422_JSON), { status: 422, statusText: 'Unprocessable Content' });
+
+    expect(await result).toEqual({ status: 'validation-failed', message: CREATE_ADMIN_REQUIRED_MESSAGE });
+    expect(CREATE_ADMIN_REQUIRED_MESSAGE).toBe(JSON.parse(REAL_CREATE_ADMIN_REQUIRED_422_JSON).message);
+    controller.verify();
   });
 });

@@ -254,6 +254,68 @@ public class TeamEndpointsTests : IClassFixture<AuthHostFixture>
             [AccountPermission.ManageAssistants]);
     }
 
+    /// <summary>
+    /// Issue #368: only a manager changes another manager's permissions (as only a manager deactivates
+    /// one, #361). An internal employee holding <c>manage-assistants</c> is refused with #361's reason
+    /// and nothing is written; a manager may, and the employee still edits a fellow employee.
+    /// </summary>
+    [Fact]
+    public async Task Only_a_manager_changes_a_managers_permissions()
+    {
+        var organization = await _host.CreateOrganizationAsync("安心商行");
+        var admin = await _host.CreateAccountAsync(
+            organization, "admin", Password, AccountRole.SmbAdmin, "安心商行管理者",
+            AccountPermission.ManageAssistants, AccountPermission.ManageDataSources);
+        var admin2 = await _host.CreateAccountAsync(
+            organization, "admin2", Password, AccountRole.SmbAdmin, "第二位管理者",
+            AccountPermission.ManageAssistants, AccountPermission.ManagePublishing);
+        await _host.CreateAccountAsync(
+            organization, "lead", Password, AccountRole.InternalEmployee, "管團隊的同仁",
+            AccountPermission.ManageAssistants);
+        var colleague = await _host.CreateAccountAsync(
+            organization, "colleague", Password, AccountRole.InternalEmployee, "客服同仁",
+            AccountPermission.UseSharedAssistants);
+
+        using var leadSpa = _host.CreateSpaClient();
+        var leadToken = (await leadSpa.SignInAsync(organization.Code, "lead", Password)).AccessToken;
+
+        // Removing a permission and adding one are both refused, before the request's values are even read.
+        foreach (var permissions in new[] { new[] { "manage-assistants" }, new[] { "manage-assistants", "manage-data-sources", "read-own-tracking" }, new[] { "not-a-real-permission" } })
+        {
+            var refused = await leadSpa.PutAsync(
+                $"/api/v1/team/members/{admin.Id}/permissions", leadToken, new { permissions });
+            refused.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+            var body = await BodyJsonAsync(refused);
+            (body.GetProperty("reason").GetString(), body.GetProperty("message").GetString())
+                .ShouldBe(("admin-required", "只有管理者能變更另一位管理者的權限。"));
+            body.GetProperty("errors").GetProperty("permissions")[0].GetString().ShouldBe("只有管理者能變更另一位管理者的權限。");
+        }
+
+        (await CurrentPermissionsAsync(organization.Id, admin.Id))
+            .ShouldBe([AccountPermission.ManageAssistants, AccountPermission.ManageDataSources], ignoreOrder: true);
+        await using (var dbContext = _host.Postgres.CreateDbContext(organization.Id))
+        {
+            (await dbContext.Organizations.SingleAsync(candidate => candidate.Id == organization.Id, CancellationToken))
+                .TeamPermissionsSavedAt.ShouldBeNull("a refused change records no save");
+        }
+
+        // The employee still changes a fellow employee's permissions.
+        var toColleague = await leadSpa.PutAsync(
+            $"/api/v1/team/members/{colleague.Id}/permissions", leadToken, new { permissions = new[] { "use-shared-assistants", "read-own-tracking" } });
+        toColleague.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CurrentPermissionsAsync(organization.Id, colleague.Id))
+            .ShouldBe([AccountPermission.UseSharedAssistants, AccountPermission.ReadOwnTracking], ignoreOrder: true);
+
+        // A manager changes another manager's.
+        using var adminSpa = _host.CreateSpaClient();
+        var adminToken = (await adminSpa.SignInAsync(organization.Code, "admin", Password)).AccessToken;
+        var byAdmin = await adminSpa.PutAsync(
+            $"/api/v1/team/members/{admin2.Id}/permissions", adminToken, new { permissions = new[] { "manage-assistants", "read-consented-submissions" } });
+        byAdmin.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CurrentPermissionsAsync(organization.Id, admin2.Id))
+            .ShouldBe([AccountPermission.ManageAssistants, AccountPermission.ReadConsentedSubmissions], ignoreOrder: true);
+    }
+
     [Fact]
     public async Task Password_change_gate_still_blocks_the_team_endpoints()
     {

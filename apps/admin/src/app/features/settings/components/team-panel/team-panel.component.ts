@@ -75,7 +75,6 @@ export class TeamPanelComponent {
   /** API 模式的成員是真實帳號，說明文字不再提 Demo 身分與這台瀏覽器。 */
   protected readonly apiMode = inject(API_SESSION_BACKEND) !== null;
 
-  protected readonly creatableRoles = CREATABLE_ROLES;
   protected readonly roleLabels = ACCOUNT_ROLE_LABELS;
   protected readonly loginNameMaxLength = LOGIN_NAME_MAX_LENGTH;
   protected readonly displayNameMaxLength = DISPLAY_NAME_MAX_LENGTH;
@@ -143,6 +142,21 @@ export class TeamPanelComponent {
   /** 目前身分的角色：管理者只能由管理者停用或重新啟用（issue #361）。 */
   private readonly viewerRole = computed(() => this.team()?.members.find((member) => member.isViewer)?.role ?? null);
 
+  /** 這一列的權限能不能改：管理者的權限只有管理者能改（issue #368，與後端 `admin-required` 相同）。 */
+  protected mayEditPermissions(member: TeamMemberView): boolean {
+    const viewerRole = this.viewerRole();
+    return viewerRole !== null && mayManageMemberRole(viewerRole, member.role);
+  }
+
+  /** 新增成員的角色選項：新增管理者等於產生一位管理者，只有管理者看得到這個選項（issue #368）。 */
+  protected readonly creatableRoles = computed(() => {
+    const viewerRole = this.viewerRole();
+    return CREATABLE_ROLES.filter((role) => viewerRole !== null && mayManageMemberRole(viewerRole, role));
+  });
+
+  /** 角色選單少了管理者時，在選單下方說明原因。 */
+  protected readonly adminRoleHidden = computed(() => !this.creatableRoles().includes('smb-admin'));
+
   /** 這一列要不要顯示「停用」「重新啟用」：不是自己，而且不是「非管理者面對管理者」。 */
   protected mayOffboard(member: TeamMemberView): boolean {
     const viewerRole = this.viewerRole();
@@ -185,7 +199,7 @@ export class TeamPanelComponent {
 
   protected save(member: TeamMemberView, event: Event): void {
     event.preventDefault();
-    if (this.saving()) return;
+    if (this.saving() || !this.mayEditPermissions(member)) return;
 
     this.saving.set(true);
     this.repository

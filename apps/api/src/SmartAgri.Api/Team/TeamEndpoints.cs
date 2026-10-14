@@ -4,6 +4,7 @@ using SmartAgri.Api.Authentication;
 using SmartAgri.Api.Authorization;
 using SmartAgri.Api.Errors;
 using SmartAgri.Api.Setup;
+using SmartAgri.Application.Accounts;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Accounts;
 using SmartAgri.Infrastructure;
@@ -80,6 +81,8 @@ public sealed record CreateMemberResponse(TeamMemberResponse Member, string OneT
 /// (<see cref="ForbiddenReason.Team"/>); a member id that does not exist, or belongs to
 /// another organization, gets the exact same <c>403</c> as "no permission" — never a
 /// <c>404</c>, never a message naming the member (<c>tasks-6-10-backend-handoff.md</c> §1.6).
+/// Only a manager (<c>smb-admin</c>) changes another manager's permissions or creates a manager
+/// (<c>422 admin-required</c>, issue #368, the same rule as deactivating one, issue #361).
 /// </summary>
 public static class TeamEndpoints
 {
@@ -152,7 +155,9 @@ public static class TeamEndpoints
     /// Order of checks mirrors the mock exactly (<c>mock-demo-repository.ts</c>'s
     /// <c>updateMemberPermissions</c>): the caller's own permission was already checked by the
     /// route's policy; then the member must exist (in the caller's organization, enforced by
-    /// the query filter); then the requested permissions are validated
+    /// the query filter); then a manager's permissions are the caller's to change only when the
+    /// caller is a manager too (<c>422 admin-required</c>, issue #368; the caller's role is read
+    /// from the database); then the requested permissions are validated
     /// (<c>team.model.ts</c>'s <c>validateMemberPermissions</c> — unknown values first, then
     /// the self-lock rule) with nothing written on failure; only then is anything saved.
     /// </summary>
@@ -176,6 +181,16 @@ public static class TeamEndpoints
         if (member is null)
         {
             return ApiErrors.NotFound(ForbiddenReason.Team);
+        }
+
+        if (await MemberOffboardingEndpoints.RoleOfAsync(dbContext, callerId, cancellationToken) is not { } callerRole)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        if (!MemberOffboardingRules.MayManageRole(callerRole, member.Role))
+        {
+            return AdminRequired("permissions", MemberOffboardingRules.AdminRequiredForPermissionsMessage);
         }
 
         var requested = new List<AccountPermission>();
@@ -264,6 +279,17 @@ public static class TeamEndpoints
         if (!TryParseRole(request.Role, out var role))
         {
             return ValidationFailed("role", UnknownRoleMessage);
+        }
+
+        // Issue #368: creating a manager makes one, so it takes a manager (as deactivating one does, #361).
+        if (await MemberOffboardingEndpoints.RoleOfAsync(dbContext, callerId, cancellationToken) is not { } callerRole)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        if (!MemberOffboardingRules.MayManageRole(callerRole, role))
+        {
+            return AdminRequired("role", MemberOffboardingRules.AdminRequiredForCreateMessage);
         }
 
         var requested = new List<AccountPermission>();
@@ -405,6 +431,11 @@ public static class TeamEndpoints
     }
 
     private static IResult ValidationFailed(string message) => ValidationFailed("permissions", message);
+
+    /// <summary><c>422</c> with #361's reason <c>admin-required</c>.</summary>
+    private static IResult AdminRequired(string field, string message) =>
+        ApiErrors.WithReason(
+            StatusCodes.Status422UnprocessableEntity, MemberOffboardingEndpoints.BlockedReasonAdminRequired, message, field: field);
 
     private static IResult ValidationFailed(string field, string message) =>
         ApiErrors.ValidationFailed(message, new Dictionary<string, string[]> { [field] = [message] });

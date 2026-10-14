@@ -90,6 +90,12 @@ public static class MemberOffboardingRules
 
     public const string AdminRequiredMessage = "只有管理者能停用或重新啟用另一位管理者。";
 
+    /// <summary><c>admin-required</c> on <c>PUT /team/members/{id}/permissions</c> (issue #368).</summary>
+    public const string AdminRequiredForPermissionsMessage = "只有管理者能變更另一位管理者的權限。";
+
+    /// <summary><c>admin-required</c> on <c>POST /team/members</c> with the <c>smb-admin</c> role (issue #368).</summary>
+    public const string AdminRequiredForCreateMessage = "只有管理者能新增管理者。";
+
     public const string NotDeactivatedMessage = "這位成員目前沒有停用。";
 
     public const string SuccessorRequiredMessage = "請選擇接手人。";
@@ -152,8 +158,9 @@ public static class MemberOffboardingRules
 
     /// <summary>
     /// Whether a caller of <paramref name="callerRole"/> (who already holds <c>manage-assistants</c>) may
-    /// deactivate or reactivate a member of <paramref name="memberRole"/>: a manager only by a manager,
-    /// anyone else by anyone who may open the team settings (issue #361).
+    /// deactivate or reactivate a member of <paramref name="memberRole"/> (issue #361), change their
+    /// permissions, or create a member with that role (issue #368): a manager only by a manager, anyone
+    /// else by anyone who may open the team settings.
     /// </summary>
     public static bool MayManageRole(AccountRole callerRole, AccountRole memberRole) =>
         memberRole != AccountRole.SmbAdmin || callerRole == AccountRole.SmbAdmin;

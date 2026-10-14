@@ -4,7 +4,12 @@ import { MatDialog, MatDialogState } from '@angular/material/dialog';
 import { firstValueFrom, of, Subject, throwError } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccountId } from '../../../../core/domain/account.model';
-import { NO_HOLDINGS, type TeamView } from '../../../../core/domain/team.model';
+import {
+  CREATE_ADMIN_REQUIRED_MESSAGE,
+  MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE,
+  NO_HOLDINGS,
+  type TeamView,
+} from '../../../../core/domain/team.model';
 import type { CreateMemberResult, RepositoryView } from '../../../../core/repositories/demo-repository';
 import { DEMO_SEED } from '../../../../core/repositories/demo-seed';
 import { createMemoryStorage } from '../../../../core/repositories/memory-storage';
@@ -514,6 +519,114 @@ describe('TeamPanelComponent adding a member (issue #52)', () => {
 
     expect(document.querySelector('.create-panel')?.textContent).toContain('未解決的處理事項 2 件');
     expect(documentButton('停用並轉移').disabled).toBe(true);
+    documentButton('取消').click();
+    await settle(fixture);
+  });
+});
+
+describe('TeamPanelComponent manager-only changes (issue #368)', () => {
+  /** The employee opens the team settings without being a manager. */
+  const asTeamLead = (repository: MockDemoRepository) =>
+    firstValueFrom(repository.updateMemberPermissions('account-internal-employee', ['manage-assistants', 'use-shared-assistants']));
+
+  it('shows a non-manager a manager’s permissions with every switch disabled, and says why', async () => {
+    const { fixture, host, repository } = await render('account-internal-employee', asTeamLead);
+    const update = vi.spyOn(repository, 'updateMemberPermissions');
+
+    button(host, '變更 安心商行管理者 的權限').click();
+    fixture.detectChanges();
+
+    const editor = host.querySelector('.member__editor') as HTMLElement;
+    const switches = Array.from(editor.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    expect(switches.length).toBeGreaterThan(0);
+    expect(switches.every((input) => input.disabled)).toBe(true);
+    const note = editor.querySelector('#permission-admin-note-account-smb-admin');
+    expect(note?.textContent?.trim()).toBe('只有管理者能變更其他管理者的權限。');
+    expect(editor.querySelector('fieldset')?.getAttribute('aria-describedby')).toBe('permission-admin-note-account-smb-admin');
+    const save = button(host, '儲存 安心商行管理者 的權限');
+    expect(save.disabled).toBe(true);
+    editor.querySelector('form')?.dispatchEvent(new Event('submit'));
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('still lets a non-manager change a non-manager’s permissions', async () => {
+    const { fixture, host } = await render('account-internal-employee', asTeamLead);
+
+    button(host, '變更 外部客戶 的權限').click();
+    fixture.detectChanges();
+
+    const editor = host.querySelector('.member__editor') as HTMLElement;
+    expect(editor.querySelector('[id^="permission-admin-note-"]')).toBeNull();
+    expect(editor.querySelector('fieldset')?.hasAttribute('aria-describedby')).toBe(false);
+    expect(Array.from(editor.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).some((input) => input.disabled)).toBe(false);
+    expect(button(host, '儲存 外部客戶 的權限').disabled).toBe(false);
+  });
+
+  it('lets a manager change another manager’s permissions', async () => {
+    const { fixture, host } = await render('account-smb-admin', (repository) =>
+      firstValueFrom(repository.createMember({
+        loginName: 'admin2', displayName: '第二位管理者', role: 'smb-admin', permissions: ['manage-assistants'],
+      })));
+
+    button(host, '變更 第二位管理者 的權限').click();
+    fixture.detectChanges();
+
+    const editor = host.querySelector('.member__editor') as HTMLElement;
+    expect(editor.querySelector('[id^="permission-admin-note-"]')).toBeNull();
+    expect(Array.from(editor.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')).every((input) => !input.disabled)).toBe(true);
+  });
+
+  it('shows the admin-required refusal when saving is refused anyway', async () => {
+    const { fixture, host, repository } = await render('account-internal-employee', asTeamLead);
+    vi.spyOn(repository, 'updateMemberPermissions').mockReturnValue(
+      of({ status: 'validation-failed', message: MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE }),
+    );
+
+    button(host, '變更 外部客戶 的權限').click();
+    fixture.detectChanges();
+    button(host, '儲存 外部客戶 的權限').click();
+    await settle(fixture);
+
+    expect(host.querySelector('.error[role="alert"]')?.textContent?.trim()).toBe('只有管理者能變更另一位管理者的權限。');
+    expect(host.querySelector('.member__editor')).not.toBeNull();
+  });
+
+  it('offers 管理者 as a new member’s role only to a manager, and says why otherwise', async () => {
+    const lead = await render('account-internal-employee', asTeamLead);
+    button(lead.host, '新增成員').click();
+    await settle(lead.fixture);
+
+    const roles = Array.from(document.querySelectorAll<HTMLSelectElement>('#new-member-role')).at(-1) as HTMLSelectElement;
+    expect(Array.from(roles.options).map((option) => option.value)).not.toContain('smb-admin');
+    expect(roles.value).toBe('internal-employee');
+    expect(roles.getAttribute('aria-describedby')).toBe('new-member-role-note');
+    expect(document.querySelector('#new-member-role-note')?.textContent?.trim()).toBe('只有管理者能新增管理者。');
+    documentButton('取消').click();
+    await settle(lead.fixture);
+    TestBed.resetTestingModule();
+
+    const manager = await render();
+    button(manager.host, '新增成員').click();
+    await settle(manager.fixture);
+    const managerRoles = Array.from(document.querySelectorAll<HTMLSelectElement>('#new-member-role')).at(-1) as HTMLSelectElement;
+    expect(Array.from(managerRoles.options).map((option) => option.value)).toContain('smb-admin');
+    expect(managerRoles.hasAttribute('aria-describedby')).toBe(false);
+    documentButton('取消').click();
+    await settle(manager.fixture);
+  });
+
+  it('shows the admin-required refusal when creating a manager is refused', async () => {
+    const { fixture, host, repository } = await render('account-internal-employee', asTeamLead);
+    vi.spyOn(repository, 'createMember').mockReturnValue(of({ status: 'validation-failed', message: CREATE_ADMIN_REQUIRED_MESSAGE }));
+
+    button(host, '新增成員').click();
+    await settle(fixture);
+    typeInto('#new-member-login-name', 'new-admin');
+    typeInto('#new-member-display-name', '新管理者');
+    document.querySelector<HTMLFormElement>('.create-panel')?.dispatchEvent(new Event('submit'));
+    await settle(fixture);
+
+    expect(document.querySelector('#add-member-error[role="alert"]')?.textContent?.trim()).toBe('只有管理者能新增管理者。');
     documentButton('取消').click();
     await settle(fixture);
   });

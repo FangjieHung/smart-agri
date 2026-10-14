@@ -71,6 +71,8 @@ import {
   ACCOUNT_PERMISSIONS,
   ACCOUNT_ROLE_DESCRIPTIONS,
   ACCOUNT_ROLE_LABELS,
+  CREATE_ADMIN_REQUIRED_MESSAGE,
+  MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE,
   normalizeMemberPermissions,
   type MemberOffboardingView,
   type TeamMemberView,
@@ -3712,20 +3714,32 @@ function toRecentConversationView(view: ApiRecentConversationView): RecentConver
   };
 }
 
-/** 422：移除自己的 `manage-assistants` 或送出不認得的權限值；後端的訊息與 mock 相同。 */
+/**
+ * 422：移除自己的 `manage-assistants`、送出不認得的權限值，或非管理者改管理者的權限
+ * （`admin-required`，issue #368，固定用前端的訊息）；其餘顯示後端的訊息（與 mock 相同）。
+ */
 function validationFailed(error: HttpErrorResponse): UpdateMemberPermissionsResult {
   return {
     status: 'validation-failed',
-    message: bodyMessage(error) ?? '這次變更沒有儲存，請再試一次。',
+    message: isAdminRequired(error)
+      ? MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE
+      : bodyMessage(error) ?? '這次變更沒有儲存，請再試一次。',
   };
 }
 
-/** 422：登入名稱重複、欄位長度不對或不認得的角色／權限值；後端的訊息直接顯示。 */
+/** 422：登入名稱重複、欄位長度不對、不認得的角色／權限值，或非管理者新增管理者（`admin-required`，issue #368）。 */
 function createMemberValidationFailed(error: HttpErrorResponse): CreateMemberResult {
   return {
     status: 'validation-failed',
-    message: bodyMessage(error) ?? '這次沒有新增成員，請再試一次。',
+    message: isAdminRequired(error)
+      ? CREATE_ADMIN_REQUIRED_MESSAGE
+      : bodyMessage(error) ?? '這次沒有新增成員，請再試一次。',
   };
+}
+
+/** 後端 #361 的原因碼：只有管理者能對另一位管理者這樣做。 */
+function isAdminRequired(error: HttpErrorResponse): boolean {
+  return (error.error as { readonly reason?: unknown } | null)?.reason === 'admin-required';
 }
 
 /** `viewerAccountId` 是目前登入者的真實帳號 GUID（來自 `/me`），不是 Demo 身分 id。 */

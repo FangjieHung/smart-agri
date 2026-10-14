@@ -243,6 +243,69 @@ public class DeactivatedAccountPickerTests : IClassFixture<AuthHostFixture>
         CandidateIds(knowledge.GetProperty("shareTargets")).ShouldBe([colleague.Id], "removed, so no longer listed");
     }
 
+    /// <summary>
+    /// Issue #368: 「目前可讀紀錄」 (<c>effectiveReaders</c>) leaves a deactivated data manager out — they
+    /// cannot sign in, so they read nothing — while <c>dataManagers</c> still lists them (the owner's
+    /// candidates flag them, #363). Reactivated, they read again.
+    /// </summary>
+    [Fact]
+    public async Task Effective_readers_leave_a_deactivated_data_manager_out_and_data_managers_keep_them()
+    {
+        var organization = await _host.CreateOrganizationAsync("可讀名單商行");
+        var owner = await _host.CreateAccountAsync(
+            organization, "owner", Password, AccountRole.SmbAdmin, "擁有者",
+            AccountPermission.ManageAssistants, AccountPermission.ManageDataSources, AccountPermission.ReadConsentedSubmissions);
+        var colleague = await _host.CreateAccountAsync(
+            organization, "colleague", Password, AccountRole.InternalEmployee, "使用中的同仁",
+            AccountPermission.ReadConsentedSubmissions);
+        var retired = await _host.CreateAccountAsync(
+            organization, "retired", Password, AccountRole.InternalEmployee, "停用的同仁",
+            AccountPermission.ReadConsentedSubmissions);
+
+        var now = DateTimeOffset.UtcNow;
+        var database = Database.Create(organization.Id, owner.Id, "回報紀錄", "回報", DatabaseTemplateId.Blank, now);
+        var form = DatabaseFormVersion.Create(
+            database, 1, [new DatabaseFormField("field-note", "備註", DatabaseFieldType.Text, false, [], null, string.Empty)], owner.Id, now);
+        await using (var dbContext = _host.Postgres.CreateDbContext(organization.Id))
+        {
+            dbContext.AddRange(database, form);
+            await dbContext.SaveChangesAsync(CancellationToken);
+            dbContext.AddRange(
+                DatabaseDataManager.Create(database, colleague.Id, owner.Id, now),
+                DatabaseDataManager.Create(database, retired.Id, owner.Id, now.AddSeconds(1)));
+            await dbContext.SaveChangesAsync(CancellationToken);
+        }
+
+        using var spa = _host.CreateSpaClient();
+        var token = (await spa.SignInAsync(organization.Code, "owner", Password)).AccessToken;
+        var colleagueToken = (await spa.SignInAsync(organization.Code, "colleague", Password)).AccessToken;
+
+        async Task<(List<Guid> Managers, List<Guid> Readers)> ReadAsync(string viewerToken)
+        {
+            var access = (await GetOkAsync(spa, viewerToken, $"/api/v1/databases/{database.Id}")).GetProperty("access");
+            return (
+                [.. access.GetProperty("dataManagers").EnumerateArray().Select(item => item.GetProperty("account").GetProperty("id").GetGuid())],
+                [.. access.GetProperty("effectiveReaders").EnumerateArray().Select(item => item.GetProperty("id").GetGuid())]);
+        }
+
+        var before = await ReadAsync(token);
+        before.Managers.ShouldBe([colleague.Id, retired.Id]);
+        before.Readers.ShouldBe([colleague.Id, retired.Id]);
+
+        var deactivated = await spa.PostAsync($"/api/v1/team/members/{retired.Id}:deactivate", token, new { successorAccountId = (Guid?)null });
+        deactivated.StatusCode.ShouldBe(HttpStatusCode.OK, await deactivated.Content.ReadAsStringAsync(CancellationToken));
+
+        foreach (var viewerToken in new[] { token, colleagueToken })
+        {
+            var after = await ReadAsync(viewerToken);
+            after.Managers.ShouldBe([colleague.Id, retired.Id], "the designation stays until the owner removes it");
+            after.Readers.ShouldBe([colleague.Id], "a deactivated account reads nothing");
+        }
+
+        (await spa.PostAsync($"/api/v1/team/members/{retired.Id}:reactivate", token, new { })).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ReadAsync(token)).Readers.ShouldBe([colleague.Id, retired.Id]);
+    }
+
     private sealed record Flags(List<Guid> Assistant, List<Guid> KnowledgeBase, List<Guid> Database)
     {
         public bool Equals(Flags? other) =>

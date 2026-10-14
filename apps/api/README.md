@@ -1485,6 +1485,11 @@ is never reopened: 「另開新案」 is `POST /api/v1/cases` with `previousCase
 the member holds no assistant, draft, knowledge base, database, unresolved 處理事項 or open case) and `POST /api/v1/team/members/{id}:reactivate` sit in the team route
 group: they need `manage-assistants`, and an unknown id or another organization's member gets the
 same `403 team` (`MemberOffboardingEndpoints`, rules in `SmartAgri.Application.Accounts.MemberOffboardingRules`).
+The same manager-only rule (`MayManageRole`) guards the other team writes that change or make a manager
+(#368): `PUT /api/v1/team/members/{id}/permissions` on an `smb-admin` and `POST /api/v1/team/members` with
+`role: "smb-admin"` are `422 admin-required` (field `permissions` / `role`) when the caller is not one,
+checked right after the member is found (or the role is parsed), before anything else, writing nothing.
+There is no other way to change a role.
 
 - **Refused (`422`, with `reason`)**: your own account (`cannot-deactivate-self`), an account that is
   already deactivated (`member-already-deactivated`), an `smb-admin` when the caller is not one

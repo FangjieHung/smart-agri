@@ -4,9 +4,11 @@ import type { AccountId } from '../domain/account.model';
 import {
   checkMemberDeactivation,
   checkSuccessor,
+  CREATE_ADMIN_REQUIRED_MESSAGE,
   isSuccessorRequired,
   mayManageMemberRole,
   MEMBER_DEACTIVATION_MESSAGES,
+  MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE,
   requiredSuccessorPermissions,
   NO_HOLDINGS,
   NO_TRANSFERS,
@@ -331,5 +333,88 @@ describe('MockDemoRepository offboarding rules of issue #361', () => {
     expect((await firstValueFrom(repository.updatePlatformSharing('assistant-internal-onboarding', [EMPLOYEE, CUSTOMER]))).status)
       .toBe('validation-failed');
     expect((await firstValueFrom(repository.updatePlatformSharing('assistant-customer-service', [CUSTOMER]))).status).toBe('ready');
+  });
+});
+
+describe('MockDemoRepository manager-only team changes and readers in use (issue #368, same as the API)', () => {
+  let repository: MockDemoRepository;
+  let viewer: AccountId | null;
+
+  const permissionsOf = async (member: AccountId) =>
+    dataOf<TeamView>(await firstValueFrom(repository.getTeam())).members.find((candidate) => candidate.id === member)?.permissions;
+
+  beforeEach(async () => {
+    viewer = ADMIN;
+    repository = new MockDemoRepository(DEMO_SEED, {
+      storage: createMemoryStorage(),
+      now: () => new Date('2026-10-14T02:00:00.000Z'),
+      viewer: () => viewer,
+    });
+    // The employee may open the team settings, without being a manager.
+    const employee = await permissionsOf(EMPLOYEE);
+    await firstValueFrom(repository.updateMemberPermissions(EMPLOYEE, [...(employee ?? []), 'manage-assistants']));
+  });
+
+  it('lets only a manager change a manager’s permissions, before the values are even checked', async () => {
+    const before = await permissionsOf(ADMIN);
+    viewer = EMPLOYEE;
+    for (const permissions of [['manage-assistants'], ['not-a-real-permission']] as const) {
+      expect(await firstValueFrom(repository.updateMemberPermissions(ADMIN, permissions as never))).toEqual({
+        status: 'validation-failed',
+        message: MEMBER_PERMISSIONS_ADMIN_REQUIRED_MESSAGE,
+      });
+    }
+    expect(await permissionsOf(ADMIN)).toEqual(before);
+
+    // An employee still edits another non-manager.
+    expect((await firstValueFrom(repository.updateMemberPermissions(CUSTOMER, ['use-shared-assistants']))).status).toBe('ready');
+    expect(await permissionsOf(CUSTOMER)).toEqual(['use-shared-assistants']);
+
+    // A manager edits a manager.
+    viewer = ADMIN;
+    const created = await firstValueFrom(
+      repository.createMember({ loginName: 'admin2', displayName: '第二位管理者', role: 'smb-admin', permissions: ['manage-assistants'] }),
+    );
+    const admin2 = dataOf<{ member: { id: AccountId } }>(created).member.id;
+    expect((await firstValueFrom(repository.updateMemberPermissions(admin2, ['manage-assistants', 'manage-publishing']))).status).toBe('ready');
+    expect(await permissionsOf(admin2)).toEqual(['manage-assistants', 'manage-publishing']);
+  });
+
+  it('lets only a manager create a manager', async () => {
+    viewer = EMPLOYEE;
+    const before = dataOf<TeamView>(await firstValueFrom(repository.getTeam())).members.length;
+    expect(
+      await firstValueFrom(repository.createMember({ loginName: 'admin2', displayName: '第二位管理者', role: 'smb-admin', permissions: [] })),
+    ).toEqual({ status: 'validation-failed', message: CREATE_ADMIN_REQUIRED_MESSAGE });
+    expect(dataOf<TeamView>(await firstValueFrom(repository.getTeam())).members).toHaveLength(before);
+    expect(
+      (await firstValueFrom(repository.createMember({ loginName: 'hire', displayName: '新同仁', role: 'internal-employee', permissions: [] }))).status,
+    ).toBe('ready');
+
+    viewer = ADMIN;
+    expect(
+      (await firstValueFrom(repository.createMember({ loginName: 'admin2', displayName: '第二位管理者', role: 'smb-admin', permissions: [] }))).status,
+    ).toBe('ready');
+  });
+
+  it('leaves a deactivated data manager out of effectiveReaders and keeps them in dataManagers', async () => {
+    const created = await firstValueFrom(repository.createMember({
+      loginName: 'reader', displayName: '可讀的同仁', role: 'internal-employee', permissions: ['read-consented-submissions'],
+    }));
+    const reader = dataOf<{ member: { id: AccountId } }>(created).member.id;
+    expect((await firstValueFrom(repository.updateDatabaseAccess('database-orders', [ADMIN, reader]))).status).toBe('ready');
+    const access = async () =>
+      dataOf<{ access: { dataManagers: readonly { id: string }[]; effectiveReaders: readonly { id: string }[] } }>(
+        await firstValueFrom(repository.getDatabaseDetail('database-orders')),
+      ).access;
+    const ids = (listed: readonly { id: string }[]) => listed.map((entry) => entry.id);
+
+    expect(ids((await access()).effectiveReaders)).toEqual([ADMIN, reader]);
+    expect((await firstValueFrom(repository.deactivateMember(reader, null))).status).toBe('ready');
+    expect(ids((await access()).dataManagers)).toEqual([ADMIN, reader]);
+    expect(ids((await access()).effectiveReaders)).toEqual([ADMIN]);
+
+    expect((await firstValueFrom(repository.reactivateMember(reader))).status).toBe('ready');
+    expect(ids((await access()).effectiveReaders)).toEqual([ADMIN, reader]);
   });
 });

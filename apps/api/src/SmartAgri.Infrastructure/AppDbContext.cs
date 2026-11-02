@@ -226,6 +226,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Each shop's 統籌助理 settings, one row per organization (#373).</summary>
     public DbSet<ShopSettings> CoordinatorShopSettings => Set<ShopSettings>();
 
+    /// <summary>統籌助理 commands, one row per 「預覽 → 確認 → 執行」 (#374).</summary>
+    public DbSet<CoordinatorCommand> CoordinatorCommands => Set<CoordinatorCommand>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -407,11 +410,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new VisitorHandoffConfiguration());
         modelBuilder.ApplyConfiguration(new AccountNotificationSettingsConfiguration());
 
-        // The 統籌助理's members and binding codes (store-coordinator design, #372) and shop settings
-        // (#373); only Coordinator/CoordinatorLookup reads them across organizations.
+        // The 統籌助理's members and binding codes (store-coordinator design, #372), shop settings
+        // (#373) and commands (#374); only Coordinator/CoordinatorLookup reads them across organizations.
         modelBuilder.ApplyConfiguration(new CoordinatorMemberConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorBindingCodeConfiguration());
         modelBuilder.ApplyConfiguration(new ShopSettingsConfiguration());
+        modelBuilder.ApplyConfiguration(new CoordinatorCommandConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

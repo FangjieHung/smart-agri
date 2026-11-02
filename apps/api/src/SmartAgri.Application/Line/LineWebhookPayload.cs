@@ -165,6 +165,14 @@ public sealed record LineWebhookEvent(
     /// echoed back by LINE; still untrusted), or <see langword="null"/>.</summary>
     public string? PostbackData { get; init; }
 
+    /// <summary>A date picker's choice (<c>postback.params.date</c>, <c>yyyy-MM-dd</c>, untrusted), or
+    /// <see langword="null"/>.</summary>
+    public string? PostbackDate { get; init; }
+
+    /// <summary>A time picker's choice (<c>postback.params.time</c>, <c>HH:mm</c>, untrusted), or
+    /// <see langword="null"/>.</summary>
+    public string? PostbackTime { get; init; }
+
     /// <summary>The event's chat, or <see langword="null"/> if its source names none.</summary>
     public string? ChatId => Source.ChatId;
 
@@ -207,9 +215,11 @@ public sealed record LineWebhookEvent(
             ? LineWebhookPayload.String(unsend, "messageId")
             : null;
 
-        var postbackData = element.TryGetProperty("postback", out var postback) && postback.ValueKind == JsonValueKind.Object
-            ? LineWebhookPayload.String(postback, "data")
-            : null;
+        var hasPostback = element.TryGetProperty("postback", out var postback) && postback.ValueKind == JsonValueKind.Object;
+        var postbackData = hasPostback ? LineWebhookPayload.String(postback, "data") : null;
+        var pickerParams = hasPostback && postback.TryGetProperty("params", out var parameters) && parameters.ValueKind == JsonValueKind.Object
+            ? parameters
+            : (JsonElement?)null;
 
         return new LineWebhookEvent(
             LineWebhookPayload.String(element, "type"),
@@ -223,6 +233,8 @@ public sealed record LineWebhookEvent(
             unsent)
         {
             PostbackData = postbackData,
+            PostbackDate = pickerParams is { } picked ? LineWebhookPayload.String(picked, "date") : null,
+            PostbackTime = pickerParams is { } pickedTime ? LineWebhookPayload.String(pickedTime, "time") : null,
         };
     }
 

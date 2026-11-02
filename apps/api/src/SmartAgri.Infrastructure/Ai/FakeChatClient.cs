@@ -5,6 +5,7 @@ using Microsoft.Extensions.AI;
 using SmartAgri.Application.Ai;
 using SmartAgri.Application.Assistants;
 using SmartAgri.Application.Cases;
+using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Reports;
 
 namespace SmartAgri.Infrastructure.Ai;
@@ -39,7 +40,9 @@ namespace SmartAgri.Infrastructure.Ai;
 /// (the combined selection, #286) it decides the form first and calls the case tool only when it would not
 /// call the form tool — the same order as two separate calls. The explicit 「都不符合」 tool (#297,
 /// <see cref="CaseProposalRules.NoMatchToolName"/>) is called only with <see cref="FakeChatDirectives.NoMatch"/>,
-/// before anything else is decided; otherwise declining stays a text answer, as before.
+/// before anything else is decided; otherwise declining stays a text answer, as before. The 統籌助理's
+/// <see cref="CoordinatorCommandTool.ToolName"/> (#374) is called exactly as a <see cref="FakeChatDirectives.Query"/>
+/// says; without one, with scenario <c>none</c> (not a command).
 /// </para>
 /// <para>
 /// Streaming always splits the answer into at least two chunks, and — whenever the answer
@@ -283,6 +286,19 @@ internal static class FakeToolChoice
                     [CaseProposalRules.DescriptionParameter] = "由模型依問題草擬的說明。",
                 })])
                 : new ChatMessage(ChatRole.Assistant, "不需要開案。");
+        }
+
+        // #374: the 統籌助理's command tool without a #query: directive reads every message as "not a command".
+        if (tools.FirstOrDefault(tool => tool.Name == CoordinatorCommandTool.ToolName) is { } commandTool)
+        {
+            return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(callId, commandTool.Name, new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [CoordinatorCommandTool.ScenarioParameter] = CoordinatorCommandTool.NoScenario,
+                [CoordinatorCommandTool.DateParameter] = null,
+                [CoordinatorCommandTool.TimeParameter] = null,
+                [CoordinatorCommandTool.ReasonParameter] = null,
+                [CoordinatorCommandTool.QuestionParameter] = null,
+            })]);
         }
 
         if (question.Contains(FakeChatDirectives.NoQuery, StringComparison.Ordinal))

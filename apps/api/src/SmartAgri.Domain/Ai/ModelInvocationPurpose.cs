@@ -75,4 +75,12 @@ public enum ModelInvocationPurpose
     /// token limit like both.</summary>
     [JsonStringEnumMemberName("proposal-selection")]
     ProposalSelection,
+
+    /// <summary>Understanding a 統籌助理 command (store-coordinator design §5 Slice 3, #374): one call with the
+    /// <c>submit_store_command</c> tool returns the scenario, date, time and reason of a shop owner's or
+    /// manager's LINE message, or a question when the date or time is unclear. Charged to the shop the
+    /// command is for (decision D), recorded without an account (and without any LINE id); the server checks
+    /// everything the model returns. Counted toward the monthly token limit like every chat-model call.</summary>
+    [JsonStringEnumMemberName("coordinator-command")]
+    CoordinatorCommand,
 }

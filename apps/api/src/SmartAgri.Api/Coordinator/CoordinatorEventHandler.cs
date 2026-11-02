@@ -9,12 +9,12 @@ using SmartAgri.Infrastructure.Coordinator;
 namespace SmartAgri.Api.Coordinator;
 
 /// <summary>
-/// Handles one 統籌助理 delivery's events (store-coordinator design §5 Slice 1, #372): finds who the
-/// sender is bound to (<see cref="CoordinatorLookup"/>), lets <see cref="CoordinatorMessageRouter"/>
+/// Handles one 統籌助理 delivery's events (store-coordinator design §5 Slices 1 and 3, #372, #374): finds who
+/// the sender is bound to (<see cref="CoordinatorLookup"/>), lets <see cref="CoordinatorMessageRouter"/>
 /// decide, and carries the decision out — binding with a code (<see cref="CoordinatorBindings"/>,
-/// throttled by <see cref="CoordinatorBindingThrottle"/>), issuing a 店長 code for a 老闆, or replying
-/// with a fixed text. Every answer is a reply (free) with the coordinator's access token; no push, no
-/// model call.
+/// throttled by <see cref="CoordinatorBindingThrottle"/>), issuing a 店長 code for a 老闆, a member's
+/// commands and their cards (<see cref="CoordinatorCommandHandler"/>, which may call the shop's model), or
+/// replying with a fixed text. Every answer is a reply (free) with the coordinator's access token; no push.
 /// </summary>
 /// <remarks>
 /// Each reply token is used at most once; a LINE failure is logged (event type, outcome, status,
@@ -26,7 +26,8 @@ internal sealed class CoordinatorEventHandler
     private readonly CoordinatorLookup _lookup;
     private readonly CoordinatorBindings _bindings;
     private readonly CoordinatorBindingThrottle _throttle;
-    private readonly ILineMessagingClient _line;
+    private readonly CoordinatorCommandHandler _commands;
+    private readonly CoordinatorReplySender _replies;
     private readonly CoordinatorLineOptions _options;
     private readonly ILogger<CoordinatorEventHandler> _logger;
 
@@ -34,14 +35,16 @@ internal sealed class CoordinatorEventHandler
         CoordinatorLookup lookup,
         CoordinatorBindings bindings,
         CoordinatorBindingThrottle throttle,
-        ILineMessagingClient line,
+        CoordinatorCommandHandler commands,
+        CoordinatorReplySender replies,
         IOptions<CoordinatorLineOptions> options,
         ILogger<CoordinatorEventHandler> logger)
     {
         _lookup = lookup;
         _bindings = bindings;
         _throttle = throttle;
-        _line = line;
+        _commands = commands;
+        _replies = replies;
         _options = options.Value;
         _logger = logger;
     }
@@ -105,6 +108,62 @@ internal sealed class CoordinatorEventHandler
 
             case CoordinatorIntentKind.IssueManagerCodeFor:
                 await IssueManagerCodeAsync(lineEvent, userId, memberships, intent.OrganizationId, cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.Command:
+                await ReplyAsync(lineEvent, await _commands.TextAsync(userId, memberships, intent.Text!, cancellationToken), cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.EditAnnouncement:
+                await ReplyAsync(lineEvent, await _commands.EditAsync(userId, memberships, intent.Text!, cancellationToken), cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.ChooseShop:
+                await ReplyAsync(lineEvent, await _commands.ChooseShopAsync(userId, memberships, intent.OrganizationId, cancellationToken), cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.FillDate:
+                await ReplyAsync(
+                    lineEvent,
+                    await _commands.FillDateAsync(userId, memberships, intent.OrganizationId!.Value, intent.CommandId!.Value, intent.Date, cancellationToken),
+                    cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.FillTime:
+                await ReplyAsync(
+                    lineEvent,
+                    await _commands.FillTimeAsync(userId, memberships, intent.OrganizationId!.Value, intent.CommandId!.Value, intent.Time, cancellationToken),
+                    cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.Confirm:
+                await ReplyAsync(
+                    lineEvent,
+                    await _commands.ConfirmAsync(
+                        userId, memberships, intent.OrganizationId!.Value, intent.CommandId!.Value, intent.Version!.Value, lineEvent.ReplyToken, cancellationToken),
+                    cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.Cancel:
+                await ReplyAsync(
+                    lineEvent,
+                    await _commands.CancelAsync(userId, memberships, intent.OrganizationId!.Value, intent.CommandId!.Value, intent.Version!.Value, cancellationToken),
+                    cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.ToggleCorrection:
+                await ReplyAsync(
+                    lineEvent,
+                    await _commands.ToggleCorrectionAsync(
+                        userId, memberships, intent.OrganizationId!.Value, intent.CommandId!.Value, intent.Version!.Value, cancellationToken),
+                    cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.ChooseReopen:
+                await ReplyAsync(
+                    lineEvent,
+                    await _commands.ChooseReopenAsync(userId, memberships, intent.OrganizationId!.Value, intent.CommandId!.Value, cancellationToken),
+                    cancellationToken);
                 return;
 
             default:
@@ -193,20 +252,10 @@ internal sealed class CoordinatorEventHandler
     private Task ReplyAsync(LineWebhookEvent lineEvent, string text, CancellationToken cancellationToken) =>
         ReplyAsync(lineEvent, LineMessages.Text(text), cancellationToken);
 
-    /// <summary>Replies once with <paramref name="message"/>; a failure is logged and dropped.</summary>
-    private async Task ReplyAsync(LineWebhookEvent lineEvent, JsonObject message, CancellationToken cancellationToken)
-    {
-        if (lineEvent.ReplyToken is not { Length: > 0 } replyToken)
-        {
-            return;
-        }
+    private Task ReplyAsync(LineWebhookEvent lineEvent, JsonObject message, CancellationToken cancellationToken) =>
+        ReplyAsync(lineEvent, [message], cancellationToken);
 
-        var result = await _line.ReplyAsync(_options.AccessToken, replyToken, [message], cancellationToken);
-        if (!result.Succeeded)
-        {
-            _logger.LogWarning(
-                "LINE refused the 統籌助理's reply to a {EventType} event: {Outcome} (HTTP {StatusCode}, x-line-request-id {RequestId}); dropped.",
-                lineEvent.Type, result.Outcome, result.StatusCode, result.RequestId);
-        }
-    }
+    /// <summary>Replies once with <paramref name="messages"/> (nothing when empty); a failure is logged and dropped.</summary>
+    private Task ReplyAsync(LineWebhookEvent lineEvent, IReadOnlyList<JsonObject> messages, CancellationToken cancellationToken) =>
+        _replies.ReplyAsync(lineEvent.ReplyToken, lineEvent.Type, messages, cancellationToken);
 }

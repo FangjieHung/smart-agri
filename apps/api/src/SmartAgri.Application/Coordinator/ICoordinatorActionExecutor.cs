@@ -73,7 +73,9 @@ public enum CoordinatorActionOutcome
     /// <summary>Tried and failed (<see cref="CoordinatorActionResult.FailureCode"/>): 〔重試〕.</summary>
     Failed,
 
-    /// <summary>Not implemented, not authorized, token revoked: it becomes a reminder (Q18).</summary>
+    /// <summary>Not implemented, not authorized, token revoked: it becomes a reminder (Q18), with
+    /// <see cref="CoordinatorActionResult.FailureCode"/> saying why when the member should know (e.g.
+    /// <see cref="CoordinatorFailureCodes.TokenRevoked"/>).</summary>
     Unavailable,
 }
 
@@ -92,10 +94,18 @@ public sealed record CoordinatorActionResult
     /// <summary>What to undo it by later (at most <see cref="CoordinatorCommandAction.ExternalRefMaxLength"/>).</summary>
     public string? ExternalRef { get; }
 
-    /// <summary>One of <see cref="CoordinatorFailureCodes"/> (or another code of ours).</summary>
+    /// <summary>One of <see cref="CoordinatorFailureCodes"/> (or another code of ours): why it failed, or why an
+    /// unavailable action became a reminder.</summary>
     public string? FailureCode { get; }
 
     public static CoordinatorActionResult Unavailable { get; } = new(CoordinatorActionOutcome.Unavailable, null, null);
+
+    /// <summary>Unavailable for a reason the report tells the member (the reminder line shows
+    /// <see cref="CoordinatorFailureCodes.Reason"/>), e.g. <see cref="CoordinatorFailureCodes.TokenRevoked"/>.</summary>
+    public static CoordinatorActionResult UnavailableBecause(string code) =>
+        CoordinatorCommandAction.IsValidFailureCode(code)
+            ? new(CoordinatorActionOutcome.Unavailable, null, code)
+            : throw new ArgumentException("A reason code is 1-32 of a-z, 0-9 and '-': a code of ours, never text from outside.", nameof(code));
 
     public static CoordinatorActionResult Succeeded(string? externalRef = null)
     {
@@ -125,8 +135,18 @@ public static class CoordinatorFailureCodes
     /// <summary>The service refused the token or the authorization was revoked.</summary>
     public const string Unauthorized = "unauthorized";
 
-    /// <summary>LINE's monthly message quota is used up.</summary>
-    public const string QuotaExceeded = "quota-exceeded";
+    /// <summary>LINE refused a broadcast: the account's monthly message limit is reached (a <c>429</c> saying so, #376).</summary>
+    public const string QuotaExhausted = "quota-exhausted";
+
+    /// <summary>LINE 群發 was not sent: its estimated recipients exceed what is left of the month's quota (#376).</summary>
+    public const string QuotaInsufficient = "quota-insufficient";
+
+    /// <summary>LINE did not answer, answered with a server error, or could not be reached (#376).</summary>
+    public const string LineUnavailable = "line-unavailable";
+
+    /// <summary>With <see cref="CoordinatorActionOutcome.Unavailable"/>: LINE refused the shop's access token (or it
+    /// can no longer be decrypted), so the action became a reminder until the operator sets it again (#376).</summary>
+    public const string TokenRevoked = "token-revoked";
 
     public const string RateLimited = "rate-limited";
 
@@ -141,7 +161,10 @@ public static class CoordinatorFailureCodes
     public static string Reason(string? code) => code switch
     {
         Unauthorized => "授權失效，請重新授權",
-        QuotaExceeded => "LINE 本月訊息額度不足",
+        QuotaExhausted => "LINE 本月訊息額度已用完",
+        QuotaInsufficient => "LINE 本月剩餘額度不足，沒有群發",
+        LineUnavailable => "LINE 暫時無法使用",
+        TokenRevoked => "LINE 權杖失效，已改為手動；請平台營運者重新設定權杖",
         RateLimited => "服務忙碌中",
         TimedOut => "服務沒有回應",
         NetworkError => "連不上服務",

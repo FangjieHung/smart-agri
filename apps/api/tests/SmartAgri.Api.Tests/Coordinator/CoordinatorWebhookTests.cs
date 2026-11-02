@@ -548,7 +548,8 @@ public sealed partial class CoordinatorWebhookTests : IClassFixture<CoordinatorH
 }
 
 /// <summary>The Api host of <see cref="CoordinatorWebhookTests"/>: the usual one, with the 統籌助理
-/// configured for a bot of the fake LINE server, and executors for the shops a test enrolls (#375).</summary>
+/// configured for a bot of the fake LINE server, and executors for the shops a test enrolls (#375) — LINE 群發's real
+/// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server.</summary>
 public sealed class CoordinatorHostFixture : AuthHostFixture
 {
     public const string Secret = "c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -573,7 +574,16 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
         services.AddSingleton<ILoggerProvider>(Log);
         foreach (var kind in FakeCoordinatorExecutors.Kinds)
         {
-            services.AddSingleton(Executors.For(kind));
+            if (kind == ShopActionKind.LineBroadcast)
+            {
+                // The real one (#376) for every shop no test enrolled.
+                services.AddScoped<ICoordinatorActionExecutor>(provider =>
+                    Executors.For(kind, provider.GetRequiredService<CoordinatorLineBroadcastExecutor>()));
+            }
+            else
+            {
+                services.AddSingleton(Executors.For(kind));
+            }
         }
 
         services.Configure<LoggerFilterOptions>(options =>

@@ -208,5 +208,17 @@ public class LineConnectionTesterTests
 
         public Task<LineApiResult> StartLoadingAsync(string accessToken, string chatId, int loadingSeconds, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<LineApiResult> BroadcastAsync(string accessToken, IReadOnlyList<JsonObject> messages, Guid retryKey, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LineApiResult<LineMessageQuota>> GetMessageQuotaAsync(string accessToken, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LineApiResult<LineQuotaConsumption>> GetMessageQuotaConsumptionAsync(string accessToken, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<LineApiResult<LineFollowersInsight>> GetFollowersInsightAsync(string accessToken, DateOnly date, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

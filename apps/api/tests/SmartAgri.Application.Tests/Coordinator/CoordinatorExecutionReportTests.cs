@@ -132,16 +132,40 @@ public class CoordinatorExecutionReportTests
     }
 
     [Fact]
+    public void An_automatic_action_that_became_a_reminder_says_why_above_its_steps()
+    {
+        var revoked = Line(
+            ShopActionKind.LineBroadcast, null, CoordinatorActionStep.Apply, CoordinatorActionStatus.AwaitingManual,
+            failure: CoordinatorFailureCodes.TokenRevoked, image: "https://example.com/a.jpg");
+
+        var messages = CoordinatorExecutionReport.FollowUp(Content([revoked]));
+
+        Texts(messages[0]["contents"]!["body"]!).ShouldBe(
+        [
+            "執行結果：",
+            "⏳ LINE 群發公告", "　LINE 權杖失效，已改為手動；請平台營運者重新設定權杖", "　步驟。", "　圖片：https://example.com/a.jpg",
+        ]);
+        Buttons(messages[0]).Select(button => button.Label).ShouldBe(["已完成"]);
+        messages[1]["text"]!.GetValue<string>().ShouldBe(Announcement);
+        WithinLimits(messages[0]);
+    }
+
+    [Fact]
     public void Failure_codes_are_short_codes_of_ours_with_a_reason_each()
     {
-        CoordinatorActionResult.Failed(CoordinatorFailureCodes.QuotaExceeded).FailureCode.ShouldBe("quota-exceeded");
+        CoordinatorActionResult.Failed(CoordinatorFailureCodes.QuotaExhausted).FailureCode.ShouldBe("quota-exhausted");
         Should.Throw<ArgumentException>(() => CoordinatorActionResult.Failed("Token revoked by the user"));
+        var revoked = CoordinatorActionResult.UnavailableBecause(CoordinatorFailureCodes.TokenRevoked);
+        (revoked.Outcome, revoked.FailureCode).ShouldBe((CoordinatorActionOutcome.Unavailable, "token-revoked"));
+        CoordinatorActionResult.Unavailable.FailureCode.ShouldBeNull();
+        Should.Throw<ArgumentException>(() => CoordinatorActionResult.UnavailableBecause("LINE said: Authentication failed"));
         Should.Throw<ArgumentException>(() => CoordinatorActionResult.Failed(new string('a', 33)));
         Should.Throw<ArgumentException>(() => CoordinatorActionResult.Succeeded(new string('x', 257)));
         CoordinatorActionResult.Succeeded(string.Empty).ExternalRef.ShouldBeNull();
         foreach (var code in new[]
                  {
-                     CoordinatorFailureCodes.Error, CoordinatorFailureCodes.Unauthorized, CoordinatorFailureCodes.QuotaExceeded,
+                     CoordinatorFailureCodes.Error, CoordinatorFailureCodes.Unauthorized, CoordinatorFailureCodes.QuotaExhausted,
+                     CoordinatorFailureCodes.QuotaInsufficient, CoordinatorFailureCodes.LineUnavailable, CoordinatorFailureCodes.TokenRevoked,
                      CoordinatorFailureCodes.RateLimited, CoordinatorFailureCodes.TimedOut, CoordinatorFailureCodes.NetworkError,
                      CoordinatorFailureCodes.Rejected,
                  })

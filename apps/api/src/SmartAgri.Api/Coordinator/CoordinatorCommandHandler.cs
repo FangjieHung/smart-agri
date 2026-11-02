@@ -37,6 +37,7 @@ public sealed class CoordinatorCommandHandler
     private readonly CoordinatorCommandInterpreter _interpreter;
     private readonly CoordinatorConversationMemory _memory;
     private readonly ICoordinatorActionModes _modes;
+    private readonly ICoordinatorActionNotes _notes;
     private readonly ICoordinatorCommandRunner _runner;
     private readonly TimeProvider _clock;
 
@@ -47,6 +48,7 @@ public sealed class CoordinatorCommandHandler
         CoordinatorCommandInterpreter interpreter,
         CoordinatorConversationMemory memory,
         ICoordinatorActionModes modes,
+        ICoordinatorActionNotes notes,
         ICoordinatorCommandRunner runner,
         TimeProvider clock)
     {
@@ -56,6 +58,7 @@ public sealed class CoordinatorCommandHandler
         _interpreter = interpreter;
         _memory = memory;
         _modes = modes;
+        _notes = notes;
         _runner = runner;
         _clock = clock;
     }
@@ -547,7 +550,7 @@ public sealed class CoordinatorCommandHandler
     }
 
     /// <summary>The current card of command <paramref name="commandId"/> (its current version), with the shop's
-    /// current settings and modes.</summary>
+    /// current settings, modes and notes (LINE 群發's quota line, #376).</summary>
     private async Task<JsonObject> CardAsync(Guid organizationId, Guid commandId, CancellationToken cancellationToken)
     {
         var command = await _commands.FindAsync(organizationId, commandId, cancellationToken)
@@ -557,10 +560,12 @@ public sealed class CoordinatorCommandHandler
         var date = command.Date!.Value;
         if (command.Scenario != ShopScenario.Reopen)
         {
-            var modes = await ModesAsync(organizationId, settings[command.Scenario].Actions, cancellationToken);
+            var actions = settings[command.Scenario].Actions;
+            var notes = await NotesAsync(organizationId, actions, cancellationToken);
+            var modes = await ModesAsync(organizationId, actions, cancellationToken);
             return CoordinatorPreviewCard.Build(new CoordinatorCardContent(
                 organizationId, command.Id, command.Version, settings.StoreName, command.Scenario, date, command.Time,
-                CoordinatorPreviewCard.Rows(settings, command.Scenario, date, command.Time, modes),
+                WithNotes(CoordinatorPreviewCard.Rows(settings, command.Scenario, date, command.Time, modes), notes),
                 command.AnnouncementText));
         }
 
@@ -569,13 +574,47 @@ public sealed class CoordinatorCommandHandler
         var undoneActions = await UndoneActionsAsync(original, settings, cancellationToken);
         var correctionOffered = CorrectionOffered(command, undoneActions);
         var correction = correctionOffered && command.CorrectionBroadcast;
+        // Only the correction broadcast uses the quota: no LINE call for a card without it.
+        IReadOnlyList<string?> undoneNotes = correction
+            ? await NotesAsync(organizationId, undoneActions, cancellationToken)
+            : [.. undoneActions.Select(_ => (string?)null)];
         var undoneModes = await ModesAsync(organizationId, undoneActions, cancellationToken);
         return CoordinatorPreviewCard.Build(new CoordinatorCardContent(
             organizationId, command.Id, command.Version, settings.StoreName, ShopScenario.Reopen, date, null,
-            CoordinatorPreviewCard.ReopenRows(undoneActions, date, undoneModes, correction),
+            WithNotes(CoordinatorPreviewCard.ReopenRows(undoneActions, date, undoneModes, correction), undoneNotes),
             command.AnnouncementText,
             new CoordinatorReopenDetails(original.Scenario, original.Date!.Value, original.Time, correctionOffered, correction)));
     }
+
+    /// <summary>The note of each of <paramref name="actions"/> the settings want automatic (asked once per kind), before
+    /// the modes are decided: finding an integration unusable makes its action a reminder on this very card.</summary>
+    private async Task<IReadOnlyList<string?>> NotesAsync(Guid organizationId, IReadOnlyList<ShopAction> actions, CancellationToken cancellationToken)
+    {
+        var byKind = new Dictionary<ShopActionKind, string?>();
+        var notes = new List<string?>(actions.Count);
+        foreach (var action in actions)
+        {
+            if (action.Mode != ShopActionMode.Auto || action.Kind == ShopActionKind.Ordering)
+            {
+                notes.Add(null);
+                continue;
+            }
+
+            if (!byKind.TryGetValue(action.Kind, out var note))
+            {
+                note = await _notes.NoteAsync(organizationId, action.Kind, cancellationToken);
+                byKind[action.Kind] = note;
+            }
+
+            notes.Add(note);
+        }
+
+        return notes;
+    }
+
+    /// <summary><paramref name="rows"/> (one per action) with their notes, on the lines that run automatically.</summary>
+    private static IReadOnlyList<CoordinatorCardRow> WithNotes(IReadOnlyList<CoordinatorCardRow> rows, IReadOnlyList<string?> notes) =>
+        [.. rows.Select((row, index) => row.Mode == ShopActionMode.Auto && notes[index] is { } note ? row with { Note = note } : row)];
 
     /// <summary>Whether reopen card <paramref name="reopen"/> offers the correction broadcast (Q21): it has the
     /// shop's reopen announcement and the command it undoes had a LINE 群發.</summary>

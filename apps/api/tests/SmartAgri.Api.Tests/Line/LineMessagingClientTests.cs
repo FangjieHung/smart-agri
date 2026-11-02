@@ -166,7 +166,77 @@ public sealed class LineMessagingClientTests : IDisposable
         { FakeLineServer.Reply, "reply" },
         { FakeLineServer.Push, "push" },
         { FakeLineServer.StartLoading, "loading" },
+        { FakeLineServer.Broadcast, "broadcast" },
+        { FakeLineServer.Quota, "quota" },
+        { FakeLineServer.QuotaConsumption, "quota consumption" },
+        { FakeLineServer.FollowersInsight, "followers insight" },
     };
+
+    // --- Broadcast and its quota (#376) --------------------------------------------------------------
+
+    [Fact]
+    public async Task Broadcast_posts_the_messages_with_notifications_on_and_the_retry_key_and_a_repeat_is_409()
+    {
+        var key = Guid.Parse("0199b6a0-0000-7000-8000-000000000076");
+        var messages = new[] { LineMessages.Text("【王記麵店】今天臨時店休。"), LineMessages.Image("https://example.com/closed.jpg") };
+
+        var sent = await _client.BroadcastAsync(_bot.AccessToken, messages, key, CancellationToken);
+        var again = await _client.BroadcastAsync(_bot.AccessToken, messages, key, CancellationToken);
+
+        (sent.Outcome, sent.StatusCode, sent.IsRetryKeyAccepted).ShouldBe((LineApiOutcome.Succeeded, (int?)200, false));
+        (again.Outcome, again.StatusCode, again.IsRetryKeyAccepted).ShouldBe((LineApiOutcome.HttpError, (int?)409, true));
+        again.ErrorMessage.ShouldBe("The retry key is already accepted");
+        var requests = _line.Requests;
+        requests.Select(request => request.Endpoint).ShouldBe([FakeLineServer.Broadcast, FakeLineServer.Broadcast]);
+        requests.ShouldAllBe(request => request.Headers["X-Line-Retry-Key"] == "0199b6a0-0000-7000-8000-000000000076");
+        requests[0].Authorization.ShouldBe("Bearer " + _bot.AccessToken);
+        var json = requests[0].Json;
+        json.EnumerateObject().Select(property => property.Name).ShouldBe(["messages", "notificationDisabled"]);
+        json.GetProperty("notificationDisabled").GetBoolean().ShouldBeFalse();
+        json.GetProperty("messages")[0].GetProperty("text").GetString().ShouldBe("【王記麵店】今天臨時店休。");
+        json.GetProperty("messages")[1].GetRawText().ShouldBe(
+            """{"type":"image","originalContentUrl":"https://example.com/closed.jpg","previewImageUrl":"https://example.com/closed.jpg"}""");
+        _line.BroadcastsOf(_bot.AccessToken).Count.ShouldBe(1);
+
+        _line.Script(_bot.AccessToken, FakeLineServer.Broadcast, LineBehavior.MonthlyLimit);
+        var full = await _client.BroadcastAsync(_bot.AccessToken, messages, Guid.NewGuid(), CancellationToken);
+        (full.Outcome, full.IsMonthlyLimit).ShouldBe((LineApiOutcome.RateLimited, true));
+        _line.Script(_bot.AccessToken, FakeLineServer.Broadcast, LineBehavior.RateLimited);
+        (await _client.BroadcastAsync(_bot.AccessToken, messages, Guid.NewGuid(), CancellationToken)).IsMonthlyLimit.ShouldBeFalse();
+
+        await Should.ThrowAsync<ArgumentException>(() => _client.BroadcastAsync(_bot.AccessToken, messages, Guid.Empty, CancellationToken));
+        await Should.ThrowAsync<ArgumentException>(() => _client.BroadcastAsync(_bot.AccessToken, [], Guid.NewGuid(), CancellationToken));
+    }
+
+    [Fact]
+    public async Task Quota_consumption_and_the_friend_count_of_a_date_are_read()
+    {
+        _line.SetQuota(_bot.AccessToken, 200);
+        _line.SetConsumption(_bot.AccessToken, 37);
+        _line.SetFollowers(_bot.AccessToken, new DateOnly(2026, 11, 1), "ready", followers: 160, blocks: 10);
+        _line.SetFollowers(_bot.AccessToken, new DateOnly(2026, 11, 2), "unready");
+
+        (await _client.GetMessageQuotaAsync(_bot.AccessToken, CancellationToken)).Value.ShouldBe(new LineMessageQuota(true, 200));
+        (await _client.GetMessageQuotaConsumptionAsync(_bot.AccessToken, CancellationToken)).Value.ShouldBe(new LineQuotaConsumption(37));
+        var ready = (await _client.GetFollowersInsightAsync(_bot.AccessToken, new DateOnly(2026, 11, 1), CancellationToken)).Value.ShouldNotBeNull();
+        (ready.Status, ready.Followers, ready.TargetedReaches, ready.Blocks, ready.IsReady).ShouldBe(("ready", (long?)160, (long?)150, (long?)10, true));
+        var unready = (await _client.GetFollowersInsightAsync(_bot.AccessToken, new DateOnly(2026, 11, 2), CancellationToken)).Value.ShouldNotBeNull();
+        (unready.Status, unready.Followers, unready.IsReady).ShouldBe(("unready", (long?)null, false));
+        _line.SetQuota(_bot.AccessToken, null);
+        (await _client.GetMessageQuotaAsync(_bot.AccessToken, CancellationToken)).Value.ShouldBe(new LineMessageQuota(false, null));
+
+        var requests = _line.Requests;
+        requests.Select(request => request.Uri.PathAndQuery).ShouldBe(
+        [
+            "/v2/bot/message/quota", "/v2/bot/message/quota/consumption",
+            "/v2/bot/insight/followers?date=20261101", "/v2/bot/insight/followers?date=20261102", "/v2/bot/message/quota",
+        ]);
+        requests.ShouldAllBe(request => request.Method == "GET" && request.Body == null && request.Authorization == "Bearer " + _bot.AccessToken);
+        _log.Lines.ShouldContain(line => line.StartsWith("Information: LINE GET /v2/bot/insight/followers answered 200", StringComparison.Ordinal));
+
+        _line.Script(_bot.AccessToken, FakeLineServer.Quota, LineBehavior.Answer(HttpStatusCode.OK, """{"type":"limited"}"""));
+        (await _client.GetMessageQuotaAsync(_bot.AccessToken, CancellationToken)).Outcome.ShouldBe(LineApiOutcome.HttpError, "a limit without its value");
+    }
 
     [Theory]
     [MemberData(nameof(Endpoints))]
@@ -280,6 +350,10 @@ public sealed class LineMessagingClientTests : IDisposable
             FakeLineServer.Reply => await _client.ReplyAsync(_bot.AccessToken, "r", [LineMessages.Text("a")], CancellationToken),
             FakeLineServer.Push => await _client.PushAsync(_bot.AccessToken, "Uaaaa", [LineMessages.Text("a")], null, CancellationToken),
             FakeLineServer.StartLoading => await _client.StartLoadingAsync(_bot.AccessToken, "Uaaaa", 5, CancellationToken),
+            FakeLineServer.Broadcast => await _client.BroadcastAsync(_bot.AccessToken, [LineMessages.Text("a")], Guid.NewGuid(), CancellationToken),
+            FakeLineServer.Quota => await _client.GetMessageQuotaAsync(_bot.AccessToken, CancellationToken),
+            FakeLineServer.QuotaConsumption => await _client.GetMessageQuotaConsumptionAsync(_bot.AccessToken, CancellationToken),
+            FakeLineServer.FollowersInsight => await _client.GetFollowersInsightAsync(_bot.AccessToken, new DateOnly(2026, 11, 1), CancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
         };
 

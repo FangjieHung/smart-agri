@@ -20,9 +20,12 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="CoordinatorCommandActions"/>, the executors of later slices through <see cref="CoordinatorActionExecutors"/>
     /// and <see cref="ExecutorActionModes"/>, <see cref="ExecutingCommandRunner"/>, <see cref="CoordinatorReports"/>,
     /// <see cref="CoordinatorReplyTokens"/>, <see cref="CoordinatorActionButtons"/> and the
-    /// <see cref="CoordinatorRunActionJob.Kind"/> job handler) and <see cref="CoordinatorEventHandler"/>. Requires
-    /// <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>, <c>AddOrganizationTokenUsage</c> and
-    /// <c>AddBackgroundJobs</c>. Nothing reads the options while the pipeline is built.
+    /// <see cref="CoordinatorRunActionJob.Kind"/> job handler), LINE 群發 (#376: <see cref="CoordinatorConnections"/>,
+    /// <see cref="CoordinatorLineEstimateCache"/>, <see cref="CoordinatorLineBroadcasting"/>, the
+    /// <see cref="CoordinatorLineBroadcastExecutor"/> and the card's <see cref="CoordinatorLineBroadcastNotes"/>) and
+    /// <see cref="CoordinatorEventHandler"/>. Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
+    /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c> and the secret protector. Nothing reads the options
+    /// while the pipeline is built.
     /// </summary>
     public static IServiceCollection AddStoreCoordinator(this IServiceCollection services, IConfiguration configuration)
     {
@@ -43,8 +46,14 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddSingleton<CoordinatorConversationMemory>();
         services.AddScoped<CoordinatorCommandInterpreter>();
         services.AddScoped<CoordinatorCommandActions>();
+        services.AddScoped<CoordinatorConnections>();
+        services.AddSingleton<CoordinatorLineEstimateCache>();
+        services.AddScoped<CoordinatorLineBroadcasting>();
+        services.AddScoped<CoordinatorLineBroadcastExecutor>();
+        services.AddScoped<ICoordinatorActionExecutor>(provider => provider.GetRequiredService<CoordinatorLineBroadcastExecutor>());
         services.AddScoped<CoordinatorActionExecutors>();
         services.TryAddScoped<ICoordinatorActionModes, ExecutorActionModes>();
+        services.TryAddScoped<ICoordinatorActionNotes, CoordinatorLineBroadcastNotes>();
         services.AddSingleton<CoordinatorReplyTokens>();
         services.AddScoped<CoordinatorReplySender>();
         services.AddScoped<CoordinatorReports>();

@@ -60,15 +60,15 @@ public class CoordinatorPreviewCardTests
     {
         var date = new DateOnly(2026, 11, 2);
         var rows = CoordinatorPreviewCard.Rows(Shop, ShopScenario.TemporaryClosure, date, null, Modes(ShopScenario.TemporaryClosure, ShopActionMode.Auto));
-        rows[0].Note.ShouldBeNull("nothing fills the LINE 群發 quota line before Slice 5");
-        var withNote = rows.Select((row, index) => index == 0 ? row with { Note = "將用掉 160 則、本月剩 200 則" } : row).ToList();
+        rows[0].Note.ShouldBeNull("the card's handler adds the LINE 群發 quota line (#376)");
+        var withNote = rows.Select((row, index) => index == 0 ? row with { Note = "約 150 則（好友 160－封鎖 10），本月剩 170 則" } : row).ToList();
 
         var plain = CoordinatorPreviewCard.Build(Content(ShopScenario.TemporaryClosure, date, null, rows, "公告"));
         var noted = CoordinatorPreviewCard.Build(Content(ShopScenario.TemporaryClosure, date, null, withNote, "公告"));
 
         Texts(plain["contents"]!["body"]!).ShouldContain("・LINE 群發公告（自動）");
         Texts(plain["contents"]!["body"]!).ShouldNotContain(text => text.Contains("則", StringComparison.Ordinal));
-        Texts(noted["contents"]!["body"]!).ShouldContain("　將用掉 160 則、本月剩 200 則");
+        Texts(noted["contents"]!["body"]!).ShouldContain("　約 150 則（好友 160－封鎖 10），本月剩 170 則");
     }
 
     [Fact]

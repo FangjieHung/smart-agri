@@ -40,6 +40,28 @@ public interface ILineMessagingClient
     /// <summary><c>POST /v2/bot/chat/loading/start</c> <c>{ chatId, loadingSeconds }</c>: the
     /// 「輸入中」 animation in a one-to-one chat, 5–60 seconds in steps of 5.</summary>
     Task<LineApiResult> StartLoadingAsync(string accessToken, string chatId, int loadingSeconds, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <c>POST /v2/bot/message/broadcast</c> <c>{ messages, notificationDisabled: false }</c> to every friend of the
+    /// account (#376): counted against its monthly quota per recipient (blocked friends excluded); 60 per hour.
+    /// 1 to 5 message objects. <paramref name="retryKey"/> (<c>X-Line-Retry-Key</c>, valid 24 hours) makes a repeat
+    /// harmless: LINE answers it <c>409</c> (<see cref="LineApiOutcome.HttpError"/>, <see cref="LineApiResult.IsRetryKeyAccepted"/>)
+    /// without sending again. On any error nothing is sent; the monthly limit is a <c>429</c>
+    /// (<see cref="LineApiResult.IsMonthlyLimit"/>).
+    /// </summary>
+    Task<LineApiResult> BroadcastAsync(string accessToken, IReadOnlyList<JsonObject> messages, Guid retryKey, CancellationToken cancellationToken);
+
+    /// <summary><c>GET /v2/bot/message/quota</c>: the account's monthly target limit (OA Manager sends included).</summary>
+    Task<LineApiResult<LineMessageQuota>> GetMessageQuotaAsync(string accessToken, CancellationToken cancellationToken);
+
+    /// <summary><c>GET /v2/bot/message/quota/consumption</c>: how many messages were sent this month (approximate; OA
+    /// Manager sends included).</summary>
+    Task<LineApiResult<LineQuotaConsumption>> GetMessageQuotaConsumptionAsync(string accessToken, CancellationToken cancellationToken);
+
+    /// <summary><c>GET /v2/bot/insight/followers?date=yyyyMMdd</c> (<paramref name="date"/> in UTC+9): the friends as of
+    /// that day — LINE needs about a day to compute it (<see cref="LineFollowersInsight.Status"/> <c>unready</c>
+    /// before); 60 per hour.</summary>
+    Task<LineApiResult<LineFollowersInsight>> GetFollowersInsightAsync(string accessToken, DateOnly date, CancellationToken cancellationToken);
 }
 
 /// <summary>How a LINE API call went.</summary>
@@ -73,6 +95,18 @@ public enum LineApiOutcome
 public record LineApiResult(LineApiOutcome Outcome, int? StatusCode, string? RequestId, string? ErrorMessage)
 {
     public bool Succeeded => Outcome == LineApiOutcome.Succeeded;
+
+    /// <summary>A <c>409</c> to a request with an <c>X-Line-Retry-Key</c> LINE had already accepted: it was done
+    /// then, and is not done again.</summary>
+    public bool IsRetryKeyAccepted => StatusCode == 409;
+
+    /// <summary>A <c>429</c> because the account's monthly message limit is reached (「You have reached your monthly
+    /// limit.」, 「Exceeded the target limit for sending messages this month.」), not a rate limit.</summary>
+    public bool IsMonthlyLimit =>
+        Outcome == LineApiOutcome.RateLimited
+        && ErrorMessage is { } message
+        && (message.Contains("monthly limit", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("this month", StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>A LINE API call's outcome and, when it succeeded, what LINE answered.</summary>
@@ -86,6 +120,29 @@ public sealed record LineApiResult<T>(LineApiOutcome Outcome, int? StatusCode, s
 /// <param name="BasicId">The account's basic id, <c>@</c> first (e.g. <c>@123abcde</c>).</param>
 /// <param name="PremiumId">The account's premium id, <c>@</c> first, if it bought one.</param>
 public sealed record LineBotInfo(string UserId, string BasicId, string DisplayName, string? PremiumId);
+
+/// <summary><c>GET /v2/bot/message/quota</c>'s answer.</summary>
+/// <param name="Limited">Whether a monthly target limit is set (<c>type</c> <c>limited</c>; <c>none</c> = no limit).</param>
+/// <param name="Value">The limit, when <paramref name="Limited"/>.</param>
+public sealed record LineMessageQuota(bool Limited, long? Value);
+
+/// <summary><c>GET /v2/bot/message/quota/consumption</c>'s answer: messages sent this month.</summary>
+public sealed record LineQuotaConsumption(long TotalUsage);
+
+/// <summary><c>GET /v2/bot/insight/followers</c>'s answer. The numbers are set only when <see cref="Status"/> is
+/// <see cref="Ready"/>.</summary>
+/// <param name="Status"><c>ready</c>, <c>unready</c> (not computed yet) or <c>out_of_service</c> (before LINE kept
+/// the data).</param>
+/// <param name="Followers">Times the account was added as a friend (never decreases).</param>
+/// <param name="Blocks">Friends who blocked the account.</param>
+public sealed record LineFollowersInsight(string Status, long? Followers, long? TargetedReaches, long? Blocks)
+{
+    public const string Ready = "ready";
+
+    public const string Unready = "unready";
+
+    public bool IsReady => Status == Ready && Followers is not null && Blocks is not null;
+}
 
 /// <summary><c>POST /v2/bot/channel/webhook/test</c>'s answer.</summary>
 /// <param name="Success">Whether the endpoint answered the test event with a 2xx.</param>
@@ -107,5 +164,13 @@ public static class LineMessages
     {
         ArgumentException.ThrowIfNullOrEmpty(text);
         return new JsonObject { ["type"] = "text", ["text"] = text };
+    }
+
+    /// <summary>An image message showing <paramref name="url"/> as both the original and the preview: an HTTPS address
+    /// of a JPEG or PNG of at most 1 MB (the preview's limit; the original's is 10 MB), at most 2,000 characters.</summary>
+    public static JsonObject Image(string url)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(url);
+        return new JsonObject { ["type"] = "image", ["originalContentUrl"] = url, ["previewImageUrl"] = url };
     }
 }

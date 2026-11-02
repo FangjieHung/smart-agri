@@ -120,7 +120,7 @@ public sealed class CoordinatorCommandActions
 
     /// <summary>
     /// Records an automatic try: succeeded (with what to undo it by), failed (with its code) or — the integration
-    /// being unavailable — a reminder now (Q18). From <c>scheduled</c>; <see langword="false"/> when the row was no
+    /// being unavailable — a reminder now (Q18), with the reason code when there is one (#376). From <c>scheduled</c>; <see langword="false"/> when the row was no
     /// longer scheduled (a reopen dropped it while it ran) — a success is then recorded anyway, since it did happen,
     /// but nobody is told and nothing undoes it.
     /// </summary>
@@ -160,6 +160,7 @@ public sealed class CoordinatorCommandActions
                         setters => setters
                             .SetProperty(action => action.Status, CoordinatorActionStatus.AwaitingManual)
                             .SetProperty(action => action.Mode, ShopActionMode.Reminder)
+                            .SetProperty(action => action.FailureCode, result.FailureCode)
                             .SetProperty(action => action.Attempts, action => action.Attempts + 1),
                         token) == 1;
         }

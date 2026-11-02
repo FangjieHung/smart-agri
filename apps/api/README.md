@@ -1421,7 +1421,7 @@ Q24, decision D). Carrying a confirmed command out is the next section (#375). O
   「{店名}｜{日期}{情境}」 (+ time), one line per action with its effective mode from `ICoordinatorActionModes`
   (`ExecutorActionModes`, #375: everything 提醒 until Slices 5/7/8 register executors), ordering systems with when they are
   reminded, the announcement and 「要修改公告，回覆「改成：新的內容」」, 「已接的訂單仍需處理」, 〔取消〕〔確認〕. Each row's
-  `Note` is Slice 5's hook for 「將用掉 N 則、本月剩 M 則」 (unset here). Button labels ≤ 20, alt text ≤ 400.
+  `Note` is LINE 群發's quota line (「約 N 則（好友 F－封鎖 B），本月剩 M 則」, set by #376). Button labels ≤ 20, alt text ≤ 400.
 - **Confirm / cancel** (`CoordinatorCommands`): one compare-and-set `previewed → confirmed` (same version,
   unexpired, the sender a member of the shop, in that shop's context), so any number of presses confirm once; then
   `ICoordinatorCommandRunner.StartAsync` (`ExecutingCommandRunner`, next section). A reopen card lists what the undone
@@ -1450,10 +1450,11 @@ Operator guide: `deploy/README.md` §17.7.
   day (`BusinessHours.FirstOpeningAfter`: regular days off skipped, the day's overnight period belongs to it); 提早打烊 —
   the new closing time / as a closure; 延後開店 — the day's first opening / the new opening time; never before now. Modes
   come from `ICoordinatorActionModes`, so the card and the execution agree.
-- **Executors** (`ICoordinatorActionExecutor`, one per kind, last registration wins; none in this slice): `IsAvailableAsync`
+- **Executors** (`ICoordinatorActionExecutor`, one per kind, last registration wins; LINE 群發's since #376): `IsAvailableAsync`
   decides `auto` (`ExecutorActionModes`), `ExecuteAsync` / `UndoAsync` (with the undone row's `ExternalRef`) answer
-  `Succeeded(externalRef)`, `Failed(code)` or `Unavailable` (→ a reminder, Q18). An exception counts as `error`; nothing is
-  retried automatically. `CoordinatorActionRequest.ActionId` is the idempotency key.
+  `Succeeded(externalRef)`, `Failed(code)` or `Unavailable` / `UnavailableBecause(code)` (→ a reminder, Q18; the code is
+  kept on the row and the report says why). An exception counts as `error`; nothing is retried automatically.
+  `CoordinatorActionRequest.ActionId` is the idempotency key.
 - **Confirm** (`ExecutingCommandRunner`): one transaction writes the rows and one `coordinator.run-action` job per row
   still `scheduled` (`RunAfter` = `DueAt`); a reminder due now starts `awaiting-manual`. The 〔確認〕 reply is the report
   (`CoordinatorExecutionReport.Confirmation`, alt text 「已確認：{店名} {日期} {情境}。」): ✅ / ❌ reason 〔重試〕 / ⏳ steps
@@ -1480,6 +1481,53 @@ Operator guide: `deploy/README.md` §17.7.
   the latest confirmed commands (default 20) with each row's kind, name, step, mode, status (+ failure code), due and
   completion times in the shop's zone; no announcement, LINE ids masked to `…` + their last four characters. Exit codes
   0 / 1 (unknown organization, read failure) / 2 (usage).
+
+## Store coordinator (統籌助理): LINE 群發 (#376)
+
+LINE 群發 runs automatically for a shop whose own LINE official account's token the operator set (store-coordinator
+design Slice 5, §3 Q10, Q14, Q18, Q21, decisions B and E). Operator guide: `deploy/README.md` §17.8.
+
+- **Storage**: `CoordinatorConnections` (`SmartAgri.Domain.Coordinator.CoordinatorConnection`, organization scoped, unique
+  `(OrganizationId, Service)`; Slice 6 reuses it for FB and Google): `Service` (`line`), `Secret` (a `ProtectedSecret`
+  under purpose `coordinator.line-access-token`, three columns `Secret_*`, write-only), `ExternalId` (the account's bot
+  user id), `DisplayName` (「{顯示名稱}（{basic id}）」), `Status` (`active` | `revoked`), `CreatedAt`, `UpdatedAt`. Settings
+  imports never touch it. `CoordinatorConnections` revokes by compare-and-set on `UpdatedAt` (a token set again meanwhile
+  stays active).
+- **CLI** `coordinator-shop line-token --organization <code>` reads the long-lived channel access token from **standard
+  input** (never an argument; one line, no white space, at most 1,000 characters), checks it with `GET /v2/bot/info`
+  (`401`/`403` → refused, nothing written), refuses the 統籌助理's own account (same bot user id), protects and stores it
+  and prints only 「{顯示名稱}（{basic id}）」; `--clear` deletes it. Each set or clear writes one
+  `coordinator-connection-updated` activity (`{ service, change: set | cleared }`, no actor). The token never appears in
+  output, errors (an argument that could be one is never echoed; exceptions print their type only) or logs. Exit codes
+  0 / 1 (unknown organization, LINE refused or unreachable, write failure) / 2 (usage, no or malformed token).
+- **LINE client** (`ILineMessagingClient`): `BroadcastAsync` (`POST /v2/bot/message/broadcast`
+  `{ messages, notificationDisabled: false }`, `X-Line-Retry-Key` required; LINE's `409` for a key it already accepted
+  is `LineApiResult.IsRetryKeyAccepted`, a `429` saying 「monthly limit」/「this month」 is `IsMonthlyLimit`),
+  `GetMessageQuotaAsync` (`/v2/bot/message/quota`: `none` or `limited` + `value`), `GetMessageQuotaConsumptionAsync`
+  (`totalUsage`) and `GetFollowersInsightAsync` (`/v2/bot/insight/followers?date=yyyyMMdd`: `ready` | `unready` |
+  `out_of_service`, `followers`, `targetedReaches`, `blocks`).
+- **Estimate** (`CoordinatorLineBroadcasting`, `LineBroadcastEstimate`): remaining = `value − totalUsage` (≥ 0; none →
+  unlimited); recipients ≈ `followers − blocks` of yesterday in UTC+9, the day before when `unready` (unknown otherwise —
+  an upper bound: deleted accounts still count). *Insufficient* = remaining 0, or recipients > remaining. Cached per
+  organization for 10 minutes (`CoordinatorLineEstimateCache`; the insight allows 60 calls an hour), per credential
+  (`UpdatedAt`), dropped after a broadcast was sent.
+- **Card** (`ICoordinatorActionNotes` → `CoordinatorLineBroadcastNotes`, asked for actions the settings want `auto`
+  before the modes are decided): `CoordinatorCardRow.Note` of an automatic LINE 群發 line (and of a reopen's correction
+  when toggled) is 「約 N 則（好友 F－封鎖 B），本月剩 M 則」 / 「…，本月不限則數」 / 「則數無法估計（LINE 尚未提供好友數），…」,
+  prefixed 「額度不足，無法群發：」 when insufficient; 「暫時查不到 LINE 本月額度」 when the quota could not be read. LINE
+  refusing the token there revokes the connection, so that very card shows 提醒. No active connection → 提醒, no note.
+- **Executor** (`CoordinatorLineBroadcastExecutor`, available exactly while the shop has an active `line` connection):
+  messages = the command's announcement (a reopen's correction too) + an image message whose original and preview are
+  the action's `ImageUrl` (decision B: HTTPS, JPEG/PNG ≤ 1 MB). The quota and consumption are asked again first (the
+  friend count may come from the cache): insufficient → `Failed(quota-insufficient)`, broadcast never called. The retry
+  key is the action id, so a rerun job or 〔重試〕 within 24 hours never sends twice (`409` → `Succeeded`). `401`/`403` (on
+  any call), or a token that no longer decrypts → the connection is `revoked` and the row
+  `UnavailableBecause(token-revoked)` (a reminder: 「LINE 權杖失效，已改為手動；請平台營運者重新設定權杖」); a monthly-limit
+  `429` → `quota-exhausted`; another `429` → `rate-limited`; `5xx`, timeout, network, unreadable answer →
+  `line-unavailable`; another `4xx` → `rejected`. `UndoAsync` is `Unavailable` (a broadcast cannot be taken back, Q21).
+  Logs carry the action id, LINE's status and `x-line-request-id` — never the token or the announcement.
+- **Tests**: the fake LINE server answers broadcast (accepting each retry key once, `409` after), quota, consumption and
+  the insight per date; `CoordinatorHostFixture` hands every shop no test enrolled to the real executor.
 
 ## Monthly token limit: `set-token-limit`
 

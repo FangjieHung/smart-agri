@@ -4,7 +4,7 @@
 `deploy/.env` 要填什麼、哪些東西要備份、出問題時看哪裡。第一次安裝（建立第一個組織與管理者）、
 各設定的完整行為與錯誤碼，請看英文的 [`apps/api/README.md`](../apps/api/README.md)；本文只照操作順序串起來，
 並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節，備份與還原在第 14 節，
-升級到新版本與回滾在第 15 節，轉真人的 Email 通知（SMTP）在第 16 節。
+升級到新版本與回滾在第 15 節，轉真人的 Email 通知（SMTP）在第 16 節，店家共用的「統籌助理」LINE 帳號與綁定碼在第 17 節。
 
 ## 1. 這個部署長什麼樣子
 
@@ -84,6 +84,7 @@ cp deploy/.env.example deploy/.env
 | `TRUSTED_PROXIES` | 反向代理的 IP 或網段，逗號分隔，例如 `172.18.0.0/16,10.0.0.5` | 忽略所有 `X-Forwarded-*`，見第 5 節 |
 | `DEFAULT_MONTHLY_TOKEN_LIMIT` | 每個組織每月可用的對話模型 token 數（輸入＋輸出）；空白 = 內建的 2,000,000；`0` = 沒有自己上限的組織一律暫停對外回覆 | 用 2,000,000 |
 | `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`SMTP_FROM_NAME` | 選填。寄「轉真人」Email 用的寄信伺服器，見第 16 節 | 不寄 Email；站內的轉真人通知照常 |
+| `COORDINATOR_LINE_CHANNEL_SECRET`、`COORDINATOR_LINE_CHANNEL_ACCESS_TOKEN` | 選填。平台共用的「統籌助理」LINE 官方帳號的 Channel secret 與 Channel access token，見第 17 節；**兩個一起填** | 不啟用統籌助理（它的 webhook 回 `404`）；只填一個時 api 拒絕啟動 |
 
 **頻率限制**沒有放進 `.env`：預設值（每個 IP 每分鐘開 10 個工作階段、每個訪客每分鐘 6 題／每小時 60 題、
 每個 IP 每分鐘 20 題、每個助理每分鐘 120 題且同時最多 10 個回覆）適用多數網站，完整清單見
@@ -1126,3 +1127,81 @@ Gmail 個人帳戶每天能寄的信有上限（約幾百封），一般店家�
    | `MailboxUnavailable` | 收件地址不存在：請那位同仁到「我的通知」改正 |
 
 信寄出了卻沒收到時，先請收件人看垃圾郵件匣；Gmail 寄出的信也會留在寄件帳號的「寄件備份」。
+
+## 17. 統籌助理：店家共用的 LINE 帳號與綁定碼
+
+「統籌助理」是**平台共用的一個 LINE 官方帳號**（不是各店自己的帳號，也和第 10 節「助理的 LINE 頻道」無關）。
+各店的老闆、店長加它為好友，輸入**綁定碼**，就綁到自己的店（一家店＝一個組織）；之後在 LINE 對它下店務指令。
+這個版本（#372）只做好友與綁定：綁定後傳任何訊息，它都回「我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店」，
+臨時店休等指令在後續版本加入。統籌助理**不回答知識庫問題、不呼叫對話模型**，回覆全部用 reply（免費），不用推播額度。
+設計見 `docs/plans/2026-11-02-store-coordinator-assistant.md`，各設定的完整行為見 `apps/api/README.md`「Store coordinator」。
+
+### 17.1 建立官方帳號並設定 webhook
+
+1. 在 LINE Official Account Manager 建立「統籌助理」官方帳號，於「設定 → Messaging API」啟用 Messaging API（同第 10.1 節步驟 1）。
+2. 在 LINE Developers Console 打開這個 channel，取得：
+   - **Channel secret**：「Basic settings」分頁；
+   - **Channel access token（long-lived）**：「Messaging API」分頁最下方，按「Issue」。
+3. 填進 `deploy/.env`，再 `docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d` 讓 api 套用：
+
+   | 變數 | 填什麼 |
+   | --- | --- |
+   | `COORDINATOR_LINE_CHANNEL_SECRET` | Channel secret |
+   | `COORDINATOR_LINE_CHANNEL_ACCESS_TOKEN` | Channel access token（long-lived） |
+
+   兩個都留空 = 不啟用統籌助理。**只填一個，api 不會啟動**，`docker compose -f deploy/docker-compose.yml --env-file deploy/.env logs api`
+   會寫出缺的是哪一個 `Coordinator:Line:` 設定（不會印出任何值）。這兩個值是平台的設定，不屬於任何組織，不寫入資料庫、紀錄或 API 回應；
+   換 token 之後要重新啟動 api。
+4. 回到 LINE Developers Console 的「Messaging API」分頁，把 **Webhook URL** 設成
+
+   ```text
+   {PUBLIC_BASE_URL}/api/v1/coordinator/line/webhook
+   ```
+
+   例如 `https://assistant.example.org/api/v1/coordinator/line/webhook`，打開「Use webhook」，按「Verify」應該顯示 Success。
+   **這個網址要自己貼**：統籌助理沒有第 10 節那種「測試連線」。反向代理要轉發 `/api/v1/coordinator/line/webhook`（第 5 節）。
+   簽章錯誤一律回 `401`；送到別的官方帳號的事件、群組與多人聊天室裡的訊息都會被忽略。
+5. Official Account Manager 的「回應設定」：**Webhook 開**、**自動回應訊息關**、**加入好友的歡迎訊息關**（統籌助理自己會回歡迎詞，
+   開著會收到兩則）。
+6. **圖文選單**由營運者在 Official Account Manager 手動建立（不用寫程式）：四個按鈕「臨時店休」「恢復營業」「提早打烊」「延後開店」，
+   動作選「文字」，送出和按鈕一樣的字。
+
+### 17.2 老闆綁定碼：`coordinator-binding-code`
+
+店家（組織）先用第 6.1 節的 `add-organization` 建立；再為它產生一組**老闆綁定碼**：
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
+  coordinator-binding-code --organization harvest
+```
+
+輸出範例：
+
+```text
+組織 harvest（豐收商行）的老闆綁定碼：K7PQ-3XWM
+有效期限：2026-11-09 14:03（Asia/Taipei），只能使用一次。
+請老闆加統籌助理的 LINE 好友後輸入這組碼。這組碼不會再顯示，遺失請重新產生。
+```
+
+- 預設 168 小時（7 天）內有效；`--hours <1-720>` 可以改，最多 720 小時（30 天）。**只能使用一次。**
+- **只顯示這一次**：資料庫只存它的雜湊，遺失了就再產生一組（舊的到期自然失效）。請用安全的方式交給老闆本人。
+- 老闆加統籌助理好友後直接輸入這組碼（全形、小寫、有沒有連字號或空格都可以），統籌助理回「已綁定 豐收商行（老闆）。」。
+- 結束代碼：`0` 完成；`1` 找不到組織或寫入失敗；`2` 參數錯誤。統籌助理沒有啟用時也可以先產生。
+
+### 17.3 店長綁定碼、多家店
+
+- 老闆在統籌助理傳「**產生店長綁定碼**」，會收到一組**24 小時內有效、只能用一次**的店長綁定碼，附店名與到期時間（台北時間）；
+  交給店長，店長加好友後輸入即可，統籌助理回「已綁定 {店名}（店長）。」。
+- **只有老闆能產生店長綁定碼**；店長傳「產生店長綁定碼」會收到「只有老闆可以產生店長綁定碼。」。
+- **同一個 LINE 帳號可以綁多家店**（每家店各輸入一組碼）。老闆綁了兩家以上時，傳「產生店長綁定碼」會先出現店名按鈕讓他選一家。
+- 已經綁定某家店的人再輸入那家店的碼，統籌助理回「你已經綁定 {店名}（{角色}）。」，**那組碼不會被用掉**，可以交給別人。
+- 這個版本還不能解除綁定或更改角色。
+
+### 17.4 防猜碼、單一程序與保存的資料
+
+- 同一個 LINE 帳號在 15 分鐘內輸入 5 次無效的碼（不存在、過期或用過），之後的嘗試一律回「嘗試太多次，請 15 分鐘後再試。」，
+  連正確的碼也不會被檢查，直到最早那次失敗滿 15 分鐘。
+- 和第 10.4 節一樣**只能跑一個 api 容器**：webhook 的佇列、重送去重與上面的嘗試次數都記在 api 的記憶體，重新啟動會歸零。
+- 資料庫只存：**成員**（組織、統籌助理看到的 LINE 使用者 ID、老闆或店長、綁定時間）與**綁定碼**（雜湊、角色、產生與到期時間、
+  使用的時間與 LINE 使用者 ID、由哪位老闆產生），**不存任何人傳的訊息內容**。這是系統第一次保存 LINE 的使用者 ID
+  （第 10.6、16 節說「不存 LINE 的使用者 ID」指的是各店助理的 LINE 頻道），請在隱私權政策補上統籌助理的說明。

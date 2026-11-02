@@ -20,6 +20,9 @@ public enum PublicRateLimitedEndpoint
 
     /// <summary><c>POST /api/v1/line/webhook/{assistantId}</c> (M5b #231).</summary>
     LineWebhook,
+
+    /// <summary><c>POST /api/v1/coordinator/line/webhook</c>, the 統籌助理's shared account (#372).</summary>
+    CoordinatorLineWebhook,
 }
 
 /// <summary>Endpoint metadata that puts an endpoint under the visitor API's rate limits.</summary>
@@ -48,7 +51,8 @@ public sealed record PublicRateLimitMarker(PublicRateLimitedEndpoint Kind);
 /// <para>
 /// <b>LINE webhook</b> (M5b #231): per assistant id in the URL, a one-minute sliding window; the
 /// request has not been authenticated at that point (the signature is checked by the endpoint), so the
-/// limit bounds what a flood of forged requests can cost.
+/// limit bounds what a flood of forged requests can cost. The 統籌助理's webhook (#372) has the same
+/// limit (<see cref="PublicRateLimitOptions.LineWebhooksPerAssistantPerMinute"/>) in a partition of its own.
 /// </para>
 /// <para>
 /// <b>Where it runs</b>: after authorization, so the visitor claims are known (a request with no or
@@ -119,6 +123,9 @@ public static class PublicRateLimiting
                 })),
             // LINE webhook: per assistant in the URL, before the body is read (M5b #231).
             Layer(PublicRateLimitedEndpoint.LineWebhook, LineWebhookAssistantKey, Minute, key =>
+                Sliding(key, limits.LineWebhooksPerAssistantPerMinute, Minute, segments: 6)),
+            // The 統籌助理's webhook: one account, one partition, the same limit (#372).
+            Layer(PublicRateLimitedEndpoint.CoordinatorLineWebhook, _ => CoordinatorWebhookKey, Minute, key =>
                 Sliding(key, limits.LineWebhooksPerAssistantPerMinute, Minute, segments: 6)));
 
     private static RateLimitPartition<string> Sliding(string key, int permits, TimeSpan window, int segments) =>
@@ -160,6 +167,9 @@ public static class PublicRateLimiting
         VisitorAuthentication.Read(context.User) is { } visitor ? visitor.AssistantId.ToString("N") : null;
 
     private static string? ClientKey(HttpContext context) => ClientPartition(context.Connection.RemoteIpAddress);
+
+    /// <summary>The 統籌助理 webhook's partition (#372).</summary>
+    internal const string CoordinatorWebhookKey = "line:coordinator";
 
     /// <summary>The webhook URL's assistant id; every value that is not a GUID shares one partition.</summary>
     internal static string LineWebhookAssistantKey(HttpContext context) =>

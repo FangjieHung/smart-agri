@@ -60,6 +60,26 @@ public class PublicRateLimitingTests
     }
 
     [Fact]
+    public void The_coordinator_webhook_has_the_same_limit_in_a_partition_of_its_own()
+    {
+        using var limiter = PublicRateLimiting.CreateLimiter(new PublicRateLimitOptions { LineWebhooksPerAssistantPerMinute = 2 });
+
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorLineWebhook).ShouldBeTrue();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorLineWebhook).ShouldBeTrue();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorLineWebhook).ShouldBeFalse();
+
+        // The assistants' webhook with no (or an invalid) assistant id is not charged for it.
+        Acquire(limiter, PublicRateLimitedEndpoint.LineWebhook).ShouldBeTrue();
+
+        static bool Acquire(System.Threading.RateLimiting.PartitionedRateLimiter<HttpContext> limiter, PublicRateLimitedEndpoint kind)
+        {
+            var context = new DefaultHttpContext();
+            context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(new PublicRateLimitMarker(kind)), kind.ToString()));
+            return limiter.AttemptAcquire(context).IsAcquired;
+        }
+    }
+
+    [Fact]
     public async Task The_429_body_is_one_fixed_problem_whichever_partition_refused()
     {
         var context = new DefaultHttpContext();

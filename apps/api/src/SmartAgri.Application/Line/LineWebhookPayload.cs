@@ -161,6 +161,10 @@ public sealed record LineWebhookEvent(
     /// <summary>The bot is in standby mode for this chat: it must not send anything.</summary>
     public bool IsStandby => Mode == "standby";
 
+    /// <summary>A <c>postback</c> event's <c>postback.data</c> (what this server put in the action,
+    /// echoed back by LINE; still untrusted), or <see langword="null"/>.</summary>
+    public string? PostbackData { get; init; }
+
     /// <summary>The event's chat, or <see langword="null"/> if its source names none.</summary>
     public string? ChatId => Source.ChatId;
 
@@ -203,6 +207,10 @@ public sealed record LineWebhookEvent(
             ? LineWebhookPayload.String(unsend, "messageId")
             : null;
 
+        var postbackData = element.TryGetProperty("postback", out var postback) && postback.ValueKind == JsonValueKind.Object
+            ? LineWebhookPayload.String(postback, "data")
+            : null;
+
         return new LineWebhookEvent(
             LineWebhookPayload.String(element, "type"),
             LineWebhookPayload.String(element, "webhookEventId"),
@@ -212,7 +220,10 @@ public sealed record LineWebhookEvent(
             LineWebhookPayload.String(element, "replyToken"),
             source,
             message,
-            unsent);
+            unsent)
+        {
+            PostbackData = postbackData,
+        };
     }
 
     private static bool MentionsSelf(JsonElement message) => SelfMentionees(message).Any();
@@ -263,5 +274,8 @@ public sealed record LineWebhookEvent(
         public const string Join = "join";
         public const string Leave = "leave";
         public const string Unsend = "unsend";
+
+        /// <summary>A user tapped a postback action (#372: the 統籌助理's store choice).</summary>
+        public const string Postback = "postback";
     }
 }

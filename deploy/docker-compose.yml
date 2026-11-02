@@ -128,6 +128,10 @@ services:
       Smtp__Password: ${SMTP_PASSWORD:-}
       Smtp__From: ${SMTP_FROM:-}
       Smtp__FromName: ${SMTP_FROM_NAME:-}
+      # 統籌助理 (store coordinator, #372; deploy/README.md, section 17): the platform's shared LINE
+      # official account. Both blank = off (its webhook answers 404); only one set refuses to start.
+      Coordinator__Line__ChannelSecret: ${COORDINATOR_LINE_CHANNEL_SECRET:-}
+      Coordinator__Line__ChannelAccessToken: ${COORDINATOR_LINE_CHANNEL_ACCESS_TOKEN:-}
     volumes:
       - ./certs:/app/certs:ro
       - smartagri-dataprotection-keys:/app/keys

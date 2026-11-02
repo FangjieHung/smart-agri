@@ -171,5 +171,27 @@ public class LineWebhookPayloadTests
         }
     }
 
+    [Fact]
+    public void A_postback_carries_its_data_which_is_never_logged()
+    {
+        var payload = Parse("""
+            {"destination":"Uaaaa","events":[{
+              "type":"postback","mode":"active","timestamp":1727000000000,
+              "source":{"type":"user","userId":"Uuser"},
+              "webhookEventId":"01J0000000000000000000000P",
+              "deliveryContext":{"isRedelivery":false},
+              "replyToken":"reply-postback",
+              "postback":{"data":"coordinator:manager-code:0194a1000000700080000000000000c1"}
+            },{"type":"postback","source":{"type":"user","userId":"Uuser"},"postback":{"data":7}},
+              {"type":"message","source":{"type":"user","userId":"Uuser"},"message":{"id":"m","type":"text","text":"嗨"}}]}
+            """).ShouldNotBeNull();
+
+        payload.Events[0].Type.ShouldBe(LineWebhookEvent.Types.Postback);
+        payload.Events[0].PostbackData.ShouldBe("coordinator:manager-code:0194a1000000700080000000000000c1");
+        payload.Events[0].ToString().ShouldNotContain("manager-code");
+        payload.Events[1].PostbackData.ShouldBeNull();
+        payload.Events[2].PostbackData.ShouldBeNull();
+    }
+
     private static LineWebhookPayload? Parse(string body) => LineWebhookPayload.TryParse(Encoding.UTF8.GetBytes(body));
 }

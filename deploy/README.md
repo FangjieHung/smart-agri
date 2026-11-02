@@ -1356,7 +1356,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
     "close-early": {
       "enabled": true,
       "announcement": {
-        "template": "【{店名}】{日期} 今天提早到 {時間} 打烊，請見諒。\n原因：{原因}"
+        "template": "【{店名}】{日期} 提早到 {時間} 打烊，請見諒。\n原因：{原因}"
       },
       "actions": [
         {

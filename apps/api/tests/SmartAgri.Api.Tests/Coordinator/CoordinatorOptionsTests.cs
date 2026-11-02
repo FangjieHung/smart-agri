@@ -150,6 +150,25 @@ public sealed class CoordinatorOptionsTests : IDisposable
             .ShouldBe(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task The_link_page_the_callback_and_the_selection_form_share_one_rate_limit_per_client()
+    {
+        // #377: two requests a minute here; none of these reaches the database (see the test above).
+        using var factory = ProductionHost(builder => builder.UseSetting("PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute", "2"));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var link = $"/api/v1/coordinator/connect?token={SmartAgri.Domain.Coordinator.AuthorizationLinkTokens.Generate()}";
+        using var form = new FormUrlEncodedContent([new("state", "s"), new("choice", "c")]);
+
+        (await client.GetAsync(link, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await client.PostAsync("/api/v1/coordinator/oauth/google/select", form, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var refused = await client.GetAsync("/api/v1/coordinator/oauth/facebook/callback?code=c&state=s", CancellationToken);
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        refused.Headers.RetryAfter.ShouldNotBeNull().Delta.ShouldBe(TimeSpan.FromSeconds(60));
+        (await client.GetAsync(link, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        (await client.GetAsync("/health/live", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK, "nothing else is limited");
+    }
+
     private static async Task<HttpResponseMessage> PostAsync(HttpClient client, string body, string? signature)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, CoordinatorWebhookEndpoints.Route)

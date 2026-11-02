@@ -1685,6 +1685,10 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 - **每次失效只傳一次**：之後其他動作再失敗也不會一直推播；老闆完成重新授權後，下一次失效才會再傳。新連結過期沒用的話，請用 `auth-link` 再產生一個。
 - 推播算在統籌助理這個官方帳號的額度（平台負擔）。LINE 群發的權杖不走這個流程，仍由營運者用 `line-token` 重新設定（第 17.8 節）。
 
+**頻率限制**：打開連結、服務的回呼與選擇表單三者合計，每個用戶端 IP 每分鐘最多 20 次（一次授權只用兩到三次），超過回 `429`
+（一分鐘後再試）。要調整就設 `PublicChannels__RateLimits__CoordinatorAuthorizationRequestsPerIpPerMinute`（第 3 節「頻率限制」的做法）；
+代理後面一定要設 `TRUSTED_PROXIES`（第 5 節），否則所有老闆共用代理的一個 IP。
+
 **保存的資料與紀錄**：資料庫只存連結的雜湊、有效期限與是否用過；憑證加密保存。連結、服務給的 code、`state`、憑證都不會出現在 api 的紀錄、
 API 回應或指令輸出（`auth-link` 只印一次連結本身）。注意兩件事：
 

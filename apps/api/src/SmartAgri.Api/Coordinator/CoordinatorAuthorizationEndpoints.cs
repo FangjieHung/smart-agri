@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Primitives;
+using SmartAgri.Api.PublicChannels;
 using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Observability;
 using SmartAgri.Application.Secrets;
@@ -29,6 +30,9 @@ namespace SmartAgri.Api.Coordinator;
 /// the provider offered is accepted.</item>
 /// </list>
 /// Every answer is <c>no-store</c>, <c>Referrer-Policy: no-referrer</c>, <c>noindex</c>, with a CSP that loads nothing.
+/// The three share one rate limit per client IP (<see cref="PublicRateLimitedEndpoint.CoordinatorAuthorization"/>,
+/// <c>PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute</c>): beyond it the rate limiter's
+/// <c>429</c> with <c>Retry-After</c>.
 /// The link's token, the code, the state, the verifier and the credential never appear in a page, a log or a redirect
 /// other than to the service; a failure shows at most a short code.
 /// </remarks>
@@ -39,9 +43,12 @@ public static class CoordinatorAuthorizationEndpoints
 
     public static IEndpointRouteBuilder MapCoordinatorAuthorizationEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet(CoordinatorAuthorizationLinks.ConnectPath, OpenAsync).AllowAnonymous().ExcludeFromDescription();
-        endpoints.MapGet(CallbackRoute, CallbackAsync).AllowAnonymous().ExcludeFromDescription();
-        endpoints.MapPost(SelectRoute, SelectAsync).AllowAnonymous().ExcludeFromDescription();
+        endpoints.MapGet(CoordinatorAuthorizationLinks.ConnectPath, OpenAsync)
+            .AllowAnonymous().ExcludeFromDescription().WithPublicRateLimit(PublicRateLimitedEndpoint.CoordinatorAuthorization);
+        endpoints.MapGet(CallbackRoute, CallbackAsync)
+            .AllowAnonymous().ExcludeFromDescription().WithPublicRateLimit(PublicRateLimitedEndpoint.CoordinatorAuthorization);
+        endpoints.MapPost(SelectRoute, SelectAsync)
+            .AllowAnonymous().ExcludeFromDescription().WithPublicRateLimit(PublicRateLimitedEndpoint.CoordinatorAuthorization);
         return endpoints;
     }
 

@@ -23,6 +23,10 @@ public enum PublicRateLimitedEndpoint
 
     /// <summary><c>POST /api/v1/coordinator/line/webhook</c>, the 統籌助理's shared account (#372).</summary>
     CoordinatorLineWebhook,
+
+    /// <summary>The 統籌助理's anonymous authorization pages (#377): <c>GET /api/v1/coordinator/connect</c>,
+    /// <c>GET /api/v1/coordinator/oauth/{service}/callback</c> and <c>POST …/select</c>, one budget per client IP.</summary>
+    CoordinatorAuthorization,
 }
 
 /// <summary>Endpoint metadata that puts an endpoint under the visitor API's rate limits.</summary>
@@ -53,6 +57,11 @@ public sealed record PublicRateLimitMarker(PublicRateLimitedEndpoint Kind);
 /// request has not been authenticated at that point (the signature is checked by the endpoint), so the
 /// limit bounds what a flood of forged requests can cost. The 統籌助理's webhook (#372) has the same
 /// limit (<see cref="PublicRateLimitOptions.LineWebhooksPerAssistantPerMinute"/>) in a partition of its own.
+/// </para>
+/// <para>
+/// <b>Authorization links</b> (#377): the three anonymous pages share one sliding window per client IP
+/// (<see cref="PublicRateLimitOptions.CoordinatorAuthorizationRequestsPerIpPerMinute"/>), so a script cannot make them
+/// look links up or call the services' token endpoints at will.
 /// </para>
 /// <para>
 /// <b>Where it runs</b>: after authorization, so the visitor claims are known (a request with no or
@@ -126,7 +135,10 @@ public static class PublicRateLimiting
                 Sliding(key, limits.LineWebhooksPerAssistantPerMinute, Minute, segments: 6)),
             // The 統籌助理's webhook: one account, one partition, the same limit (#372).
             Layer(PublicRateLimitedEndpoint.CoordinatorLineWebhook, _ => CoordinatorWebhookKey, Minute, key =>
-                Sliding(key, limits.LineWebhooksPerAssistantPerMinute, Minute, segments: 6)));
+                Sliding(key, limits.LineWebhooksPerAssistantPerMinute, Minute, segments: 6)),
+            // The 統籌助理's authorization pages: per client IP, the three together (#377).
+            Layer(PublicRateLimitedEndpoint.CoordinatorAuthorization, ClientKey, Minute, key =>
+                Sliding(key, limits.CoordinatorAuthorizationRequestsPerIpPerMinute, Minute, segments: 6)));
 
     private static RateLimitPartition<string> Sliding(string key, int permits, TimeSpan window, int segments) =>
         RateLimitPartition.GetSlidingWindowLimiter(key, _ => new SlidingWindowRateLimiterOptions

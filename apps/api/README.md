@@ -972,6 +972,7 @@ queries and handoffs are not on this path at all (an architecture test checks th
   | `LineQuestionsPerGroupPerMinute` | assistant + group or room, LINE questions | sliding window, 1 minute | 10 |
   | `LineQuestionsPerAssistantPerMinute` | assistant, all LINE questions | sliding window, 1 minute | 120 |
   | `LineMaxConcurrentQuestionsPerAssistant` | assistant, LINE answers being generated | answers at once | 10 |
+  | `CoordinatorAuthorizationRequestsPerIpPerMinute` | client IP, the 統籌助理's authorization pages together (#377) | sliding window, 1 minute | 20 |
 
   The `LineQuestions*` limits are not HTTP limits (LINE's servers send every request, so there is no
   client to partition by): the background processor applies them per question and answers a refused
@@ -1592,6 +1593,9 @@ with FB 貼文 (#379) and Google 特殊營業時間 (#378). Operator guide: `dep
   `Microsoft.AspNetCore: Warning`.
 - **Tests**: `CoordinatorHostFixture` registers `FakeOAuthProvider`s (FB without PKCE, Google with) whose consent screen
   is never requested — the tests play the owner's browser (cookies by hand) and the service.
+- **Rate limit**: the three endpoints carry `PublicRateLimitedEndpoint.CoordinatorAuthorization` and share one sliding
+  window per client IP, `PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute` (default 20; a whole
+  authorization is two or three requests); beyond it the usual `429 rate-limited` with `Retry-After: 60`.
 
 ## Monthly token limit: `set-token-limit`
 

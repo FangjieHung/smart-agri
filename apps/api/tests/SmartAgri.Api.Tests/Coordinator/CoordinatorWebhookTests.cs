@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
@@ -6,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using SmartAgri.Api.Coordinator;
 using SmartAgri.Api.Tests.Authentication;
@@ -195,8 +197,9 @@ public sealed partial class CoordinatorWebhookTests : IClassFixture<CoordinatorH
         used.UsedAt.ShouldNotBeNull();
         used.UsedByLineUserId.ShouldBe(owner);
 
-        (await SendAsync(owner, "你好")).ShouldBe(CoordinatorReplies.Menu);
-        (await SendAsync(owner, "今天臨時店休")).ShouldBe(CoordinatorReplies.Menu);
+        // A shop without settings has no commands yet (#374); a follow or a sticker still gets the menu.
+        (await SendAsync(owner, "你好")).ShouldBe(CoordinatorCommandReplies.NotConfigured);
+        (await SendAsync(owner, "今天臨時店休")).ShouldBe(CoordinatorCommandReplies.NotConfigured);
         await PostAsync(Body(Bot.UserId, Follow(owner, "rt-member-follow")), sign: true);
         (await ReplyTextAsync("rt-member-follow")).ShouldBe(CoordinatorReplies.Menu);
         await PostAsync(
@@ -553,6 +556,9 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
     public LineBot Bot { get; } = new(
         "fake-coordinator-token-" + Guid.NewGuid().ToString("N"), "U" + Guid.NewGuid().ToString("N"), "@coordinator", "統籌助理");
 
+    /// <summary>Every log entry of the host while <see cref="CoordinatorTestLog.Start"/>ed (#374).</summary>
+    public CoordinatorTestLog Log { get; } = new();
+
     protected override void ConfigureServices(IServiceCollection services)
     {
         Line.AddBot(Bot);
@@ -561,5 +567,61 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
             options.ChannelSecret = Secret;
             options.ChannelAccessToken = Bot.AccessToken;
         });
+        services.AddSingleton<ILoggerProvider>(Log);
+        services.Configure<LoggerFilterOptions>(options =>
+            options.Rules.Add(new LoggerFilterRule(typeof(CoordinatorTestLog).FullName, categoryName: null, LogLevel.Trace, filter: null)));
+    }
+}
+
+/// <summary>Every log entry of every category at every level — message, structured values, scopes and exception —
+/// between <see cref="Start"/> and <see cref="Stop"/> (the tests of a class run one at a time).</summary>
+public sealed class CoordinatorTestLog : ILoggerProvider
+{
+    private readonly ConcurrentQueue<string> _lines = new();
+    private volatile bool _capturing;
+
+    public IReadOnlyList<string> Lines => [.. _lines];
+
+    public void Start()
+    {
+        _lines.Clear();
+        _capturing = true;
+    }
+
+    public void Stop() => _capturing = false;
+
+    public ILogger CreateLogger(string categoryName) => new Logger(categoryName, this);
+
+    public void Dispose()
+    {
+    }
+
+    private sealed class Logger(string category, CoordinatorTestLog log) : ILogger
+    {
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+        {
+            if (log._capturing)
+            {
+                log._lines.Enqueue($"{category} scope: {Describe(state)}");
+            }
+
+            return null;
+        }
+
+        public bool IsEnabled(LogLevel logLevel) => log._capturing;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (log._capturing)
+            {
+                log._lines.Enqueue($"{category} {logLevel}: {formatter(state, exception)} | {Describe(state)} | {exception}");
+            }
+        }
+
+        private static string Describe<TState>(TState state) =>
+            state is IEnumerable<KeyValuePair<string, object?>> values
+                ? string.Join("; ", values.Select(pair => $"{pair.Key}={pair.Value}"))
+                : state?.ToString() ?? string.Empty;
     }
 }

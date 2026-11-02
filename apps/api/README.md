@@ -1266,8 +1266,8 @@ and `chat` = `one-to-one`/`group`), `smartagri.line.push_fallbacks` and `smartag
 The platform's shared 統籌助理 LINE official account (store-coordinator design,
 `docs/plans/2026-11-02-store-coordinator-assistant.md`, Slice 1). Shop owners (老闆) and managers (店長)
 add it as a friend and bind themselves to their shop (one shop = one organization) with a single-use
-binding code. This slice does binding only: a bound member's other messages get the capability menu
-「我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店」; no knowledge-base answers, no model calls.
+binding code. This slice does binding only; a bound member's commands and preview cards are #374 (below). The
+coordinator never answers knowledge-base questions.
 
 - **Settings** (`Coordinator:Line`, `SmartAgri.Api.Coordinator.CoordinatorLineOptions`):
   `ChannelSecret` and `ChannelAccessToken` (`Coordinator__Line__ChannelSecret`,
@@ -1290,9 +1290,9 @@ binding code. This slice does binding only: a bound member's other messages get 
 - **Routing** (`SmartAgri.Application.Coordinator.CoordinatorMessageRouter`, pure; text read as NFKC,
   trimmed): `follow` — unbound 「歡迎使用統籌助理。請輸入老闆或平台營運者給你的綁定碼。」, bound the menu;
   text that looks like a code — a bind attempt, bound or not; unbound, anything else (stickers too) —
-  「請輸入綁定碼。」; bound, 「產生店長綁定碼」 — a 店長 code (below); bound, anything else — the menu (the
-  seam where Slice 3's scenario commands go). Every answer is a reply with the coordinator's token
-  (free); no push.
+  「請輸入綁定碼。」; bound, 「產生店長綁定碼」 — a 店長 code (below); bound, 「改成：…」 — an announcement edit,
+  other text — a command (#374, below); bound, a sticker or image — the menu. Every answer is a reply with the
+  coordinator's token (free); no push.
 - **Binding codes** (`SmartAgri.Domain.Coordinator.BindingCodes`): 8 characters of
   `23456789ABCDEFGHJKMNPQRSTUVWXYZ` from a CSPRNG, shown `XXXX-XXXX`; typed input is NFKC'd, trimmed,
   upper-cased, spaces and hyphens dropped. Only the SHA-256 of the code is stored
@@ -1372,6 +1372,62 @@ the example byte for byte).
   organization's name; `CoordinatorBindings.TimeZoneOfAsync` is the settings' zone (Asia/Taipei without
   settings), used for code expiries.
 
+## Store coordinator (統籌助理): commands and preview cards (#374)
+
+A bound owner or manager says 「今天臨時店休」; the 統籌助理 answers with a preview card built from the shop's
+settings and confirms it once (store-coordinator design Slice 3, §3 Q4–Q6, Q13, Q14, Q17, Q18, Q20, Q21, Q23,
+Q24, decision D). Carrying a confirmed command out is Slice 4 (#375). Operator guide: `deploy/README.md` §17.6.
+
+- **Storage**: `CoordinatorCommands` (`SmartAgri.Domain.Coordinator.CoordinatorCommand`, organization scoped; the
+  「每次指令一筆」 record of decision F that Slice 4 adds result rows to): who asked (coordinator LINE user id),
+  `Scenario`, the shop-local `Date` and, for `close-early`/`open-late`, `Time`; `AnnouncementText` (rendered,
+  ≤ 1,000, editable); `Version` (1, +1 per edit or toggle); `Status` `awaiting-details` | `previewed` |
+  `confirmed` | `cancelled`; `CreatedAt`, `ExpiresAt` (30 minutes after the latest card or question — expiry is
+  computed, never a status); `ConfirmedAt`/`ConfirmedByLineUserId`; reopen only: `ReopensCommandId` (same
+  organization) and `CorrectionBroadcast`. Check constraints tie the columns to status and scenario; a filtered
+  unique index allows one confirmed reopen per command. Nothing else a person wrote is stored (no message, no
+  separate reason: it lives only in the announcement).
+- **Routing** (`CoordinatorMessageRouter`, `CoordinatorCommandHandler`): a member's text (kept as written, not
+  NFKC'd) → (1) 「改成：」/「改成:」 replaces the announcement of the sender's latest open card (version + 1, 30 more
+  minutes); (2) when the sender has commands waiting for details, the text answers them (one model call each,
+  told the pending scenario, what is known and the question asked); (3) a member of several shops gets 「哪一家？」
+  (store-name buttons, plus 「全部」 for at most five shops — one reply holds five messages) and the text is held in
+  memory for ten minutes (`CoordinatorConversationMemory`, never stored or logged); (4) otherwise the shop's model.
+  A shop without settings gets 「這家店還沒設定店務指令，請聯絡平台營運者。」 before any model call. Postbacks
+  (`coordinator:<kind>:<org>:<command>[:<version>|:<date>]`, ≤ 300 characters) carry ids and the card version; each
+  is checked against the sender's memberships and again inside the shop's own context.
+- **Model** (`CoordinatorCommandTool`, pure; `CoordinatorCommandInterpreter`): one call with one tool,
+  `submit_store_command(scenario, date, time, reason ≤ 50, question)`, `ChatToolMode.Auto` like the other tool
+  calls (no call reads as `none`). The prompt gives the shop's local now, a 14-day calendar with weekdays and
+  「下週」, the week's hours, the four scenarios and "never guess: null and a question". The call runs in a scope
+  pinned to the shop (`ClaimsOrganizationContext.Pin`), so it uses the shop's chat model and is recorded as
+  `coordinator-command` (no account, no LINE id; counted toward the monthly limit, which is checked first —
+  exceeded → an apology, no call). `Ai:Chat:ReasoningEffort`/`MaxOutputTokens` apply as for every call. A failure
+  is logged by exception type only. The Fake provider calls the tool exactly as a `#query:` directive says,
+  otherwise with `none`.
+- **Server checks** (`CoordinatorCommandPlanner`, pure): the scenario is enabled; a date from today to today + 90
+  (shop zone; else asked again); not a regular day off (「{日期} 本來就是公休日。」, no card); for `close-early`/
+  `open-late` a time after the day's first opening and before its last closing (an overnight period's small hours
+  count) that has not passed (else explained and asked again). A missing date or time creates an
+  `awaiting-details` command and asks: 「今天」「明天」 postbacks with the date plus a LINE date picker
+  (today…today + 90), or a time picker. Then the announcement is rendered (`ShopAnnouncements.Render`; the reason
+  given with an unclear command is kept in memory until the details arrive).
+- **Reopen**: candidates are the shop's confirmed closures/early closings/late openings dated today or later that no
+  confirmed reopen undid; one (or the one on the given date) → card, several → a quick-reply choice, none →
+  「目前沒有可以恢復的店休或營業時間調整。」. Its card lists how each action of the undone scenario is undone; with a
+  reopen announcement and a LINE 群發 in the undone scenario it has the 「加發更正公告」 toggle (off by default; a
+  press flips it, bumps the version and re-sends the card).
+- **Card** (`CoordinatorPreviewCard.Build`, pure Flex; alt text 「{店名} {日期} {情境}預覽」): header
+  「{店名}｜{日期}{情境}」 (+ time), one line per action with its effective mode from `ICoordinatorActionModes`
+  (`ReminderOnlyActionModes` in this slice: everything 提醒 until Slices 5/7/8), ordering systems with when they are
+  reminded, the announcement and 「要修改公告，回覆「改成：新的內容」」, 「已接的訂單仍需處理」, 〔取消〕〔確認〕. Each row's
+  `Note` is Slice 5's hook for 「將用掉 N 則、本月剩 M 則」 (unset here). Button labels ≤ 20, alt text ≤ 400.
+- **Confirm / cancel** (`CoordinatorCommands`): one compare-and-set `previewed → confirmed` (same version,
+  unexpired, the sender a member of the shop, in that shop's context), so any number of presses confirm once; then
+  `ICoordinatorCommandRunner.StartAsync` — this slice's `AcknowledgingCommandRunner` replies
+  「已確認：{店名} {日期} {情境}。」. Refusals: 「這張預覽卡已經確認過了。」, 「這張預覽卡已經取消了。」,
+  「已失效，請重新下指令。」, 「預覽卡已更新，請按最新的那張。」, not a member. Cancel → 「已取消。」.
+
 ## Monthly token limit: `set-token-limit`
 
 Every organization has a monthly budget of chat-model tokens (M5a #195;
@@ -1386,8 +1442,9 @@ next month or until the limit is raised. There is no settings screen: operators 
 - **What counts**: the sum of `InputTokens + OutputTokens` of the organization's `ModelInvocations`
   in the current calendar month **of `Statistics:TimeZone`** (midnight on the 1st to midnight on the
   1st), over the chat-model purposes only: conversations, wizard trial answers, acceptance reruns,
-  form-request decisions, database-query tool selection, report summaries and website visitors'
-  answers (`public-answer`) — also the internal
+  form-request decisions, database-query tool selection, report summaries, website visitors'
+  answers (`public-answer`), LINE answers, case proposals and the 統籌助理's command understanding
+  (`coordinator-command`, #374) — also the internal
   ones, because the cost is the organization's as a whole. Embedding calls (`embed-document`,
   `embed-query`) never count; a call whose provider reported no usage (`null`) counts as 0, never
   estimated. A reply that finishes after the check can push usage slightly past the limit.

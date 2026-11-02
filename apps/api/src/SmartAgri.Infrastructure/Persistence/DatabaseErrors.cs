@@ -23,6 +23,16 @@ public static class DatabaseErrors
             && violation.ConstraintName == constraintName;
     }
 
+    /// <summary>Whether <paramref name="exception"/> — a save's <see cref="DbUpdateException"/>, or the provider's
+    /// own exception as a bulk <c>ExecuteUpdate</c> throws it — is a violation of the unique index or constraint
+    /// named <paramref name="constraintName"/>.</summary>
+    public static bool IsUniqueViolationOf(Exception exception, string constraintName)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        var postgres = exception as PostgresException ?? exception.InnerException as PostgresException;
+        return postgres is { SqlState: PostgresErrorCodes.UniqueViolation } && postgres.ConstraintName == constraintName;
+    }
+
     /// <summary>Whether a save failed because a row it refers to is gone (e.g. a document
     /// deleted by a concurrent request while a new version of it was being saved).</summary>
     public static bool IsForeignKeyViolation(DbUpdateException exception)

@@ -65,9 +65,69 @@ public class CoordinatorMessageRouterTests
     [InlineData("今天臨時店休")]
     [InlineData("產生 店長綁定碼")]
     [InlineData("請問營業時間")]
-    public void Anything_else_from_a_member_gets_the_menu(string text)
+    public void Any_other_text_from_a_member_is_a_command_kept_as_written(string text)
     {
-        Route(Text(text), bound: true).Kind.ShouldBe(CoordinatorIntentKind.Menu);
+        var intent = Route(Text($"  {text}\n"), bound: true);
+
+        intent.Kind.ShouldBe(CoordinatorIntentKind.Command);
+        intent.Text.ShouldBe(text);
+        intent.ToString().ShouldNotContain(text);
+    }
+
+    [Fact]
+    public void A_command_is_not_nfkc_normalized_because_it_may_end_up_in_an_announcement()
+    {
+        Route(Text("１１／１５店休！"), bound: true).Text.ShouldBe("１１／１５店休！");
+    }
+
+    [Theory]
+    [InlineData("改成：今天休息，明天見！", "今天休息，明天見！")]
+    [InlineData("改成:今天休息", "今天休息")]
+    [InlineData("  改成：  第一行\n第二行  ", "第一行\n第二行")]
+    [InlineData("改成：", "")]
+    public void Text_starting_with_kai_cheng_edits_the_announcement(string text, string expected)
+    {
+        var intent = Route(Text(text), bound: true);
+
+        intent.Kind.ShouldBe(CoordinatorIntentKind.EditAnnouncement);
+        intent.Text.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void The_command_postbacks_round_trip_and_need_a_member()
+    {
+        var command = Guid.Parse("0194a100-0000-7000-8000-0000000000d1");
+        var cases = new (string Data, CoordinatorIntent Expected, string? Params)[]
+        {
+            (CoordinatorMessageRouter.ShopPostback(Organization), new(CoordinatorIntentKind.ChooseShop, OrganizationId: Organization), null),
+            (CoordinatorMessageRouter.ShopPostback(null), new(CoordinatorIntentKind.ChooseShop), null),
+            (CoordinatorMessageRouter.DatePostback(Organization, command, new DateOnly(2026, 11, 3)),
+                new(CoordinatorIntentKind.FillDate, OrganizationId: Organization, CommandId: command, Date: new DateOnly(2026, 11, 3)), null),
+            (CoordinatorMessageRouter.DatePostback(Organization, command),
+                new(CoordinatorIntentKind.FillDate, OrganizationId: Organization, CommandId: command, Date: new DateOnly(2026, 11, 9)),
+                ""","params":{"date":"2026-11-09"}"""),
+            (CoordinatorMessageRouter.DatePostback(Organization, command),
+                new(CoordinatorIntentKind.FillDate, OrganizationId: Organization, CommandId: command), ""","params":{"date":"11/9"}"""),
+            (CoordinatorMessageRouter.TimePostback(Organization, command),
+                new(CoordinatorIntentKind.FillTime, OrganizationId: Organization, CommandId: command, Time: new TimeOnly(16, 0)),
+                ""","params":{"time":"16:00"}"""),
+            (CoordinatorMessageRouter.ConfirmPostback(Organization, command, 3),
+                new(CoordinatorIntentKind.Confirm, OrganizationId: Organization, CommandId: command, Version: 3), null),
+            (CoordinatorMessageRouter.CancelPostback(Organization, command, 1),
+                new(CoordinatorIntentKind.Cancel, OrganizationId: Organization, CommandId: command, Version: 1), null),
+            (CoordinatorMessageRouter.CorrectionPostback(Organization, command, 2),
+                new(CoordinatorIntentKind.ToggleCorrection, OrganizationId: Organization, CommandId: command, Version: 2), null),
+            (CoordinatorMessageRouter.ReopenPostback(Organization, command),
+                new(CoordinatorIntentKind.ChooseReopen, OrganizationId: Organization, CommandId: command), null),
+        };
+
+        foreach (var (data, expected, parameters) in cases)
+        {
+            data.Length.ShouldBeLessThanOrEqualTo(300, "LINE's limit on postback data");
+            var postback = Event("postback", UserSource(), $$""","postback":{"data":"{{data}}"{{parameters}}}""");
+            Route(postback, bound: true).ShouldBe(expected, data);
+            Route(postback, bound: false).Kind.ShouldBe(CoordinatorIntentKind.AskForCode, data);
+        }
     }
 
     [Fact]
@@ -86,6 +146,13 @@ public class CoordinatorMessageRouterTests
     [InlineData("coordinator:manager-code:")]
     [InlineData("coordinator:manager-code:not-a-guid")]
     [InlineData("coordinator:manager-code:00000000000000000000000000000000")]
+    [InlineData("coordinator:confirm:0194a1000000700080000000000000c1:0194a1000000700080000000000000d1")]
+    [InlineData("coordinator:confirm:0194a1000000700080000000000000c1:0194a1000000700080000000000000d1:0")]
+    [InlineData("coordinator:confirm:0194a1000000700080000000000000c1:0194a1000000700080000000000000d1:-1")]
+    [InlineData("coordinator:cancel:0194a1000000700080000000000000c1:not-a-guid:1")]
+    [InlineData("coordinator:shop:everything")]
+    [InlineData("coordinator:time:0194a1000000700080000000000000c1")]
+    [InlineData("coordinator:date:0194a1000000700080000000000000c1:0194a1000000700080000000000000d1:2026-11-03:x")]
     [InlineData("action=buy&item=1")]
     public void Any_other_postback_is_ignored(string data)
     {

@@ -1743,6 +1743,89 @@ namespace SmartAgri.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorCommand", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnnouncementText")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ConfirmedByLineUserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("CorrectionBroadcast")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateOnly?>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ReopensCommandId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestedByLineUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Scenario")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<TimeOnly?>("Time")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReopensCommandId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CoordinatorCommands_ReopensCommandId")
+                        .HasFilter("\"Status\" = 'confirmed'");
+
+                    b.HasIndex("ReopensCommandId", "OrganizationId");
+
+                    b.HasIndex("OrganizationId", "RequestedByLineUserId", "Status");
+
+                    b.HasIndex("OrganizationId", "Status", "Date");
+
+                    b.ToTable("CoordinatorCommands", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorCommands_Confirmed", "(\"Status\" = 'confirmed') = (\"ConfirmedAt\" IS NOT NULL) AND (\"ConfirmedAt\" IS NULL) = (\"ConfirmedByLineUserId\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommands_Details", "\"Status\" IN ('awaiting-details', 'cancelled') OR (\"Date\" IS NOT NULL AND (\"Time\" IS NOT NULL) = (\"Scenario\" IN ('close-early', 'open-late')))");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommands_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommands_Reopen", "(\"Scenario\" = 'reopen') = (\"ReopensCommandId\" IS NOT NULL) AND (\"Scenario\" = 'reopen' OR NOT \"CorrectionBroadcast\")");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommands_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3624,6 +3707,21 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorCommand", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Coordinator.CoordinatorCommand", null)
+                        .WithMany()
+                        .HasForeignKey("ReopensCommandId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>

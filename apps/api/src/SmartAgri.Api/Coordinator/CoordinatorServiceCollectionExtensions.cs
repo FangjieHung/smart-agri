@@ -13,8 +13,12 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="CoordinatorWebhookDeduplicator"/>, <see cref="CoordinatorWebhookQueue"/> and the
     /// <see cref="CoordinatorWebhookProcessor"/> that drains it, <see cref="CoordinatorBotIdentity"/>,
     /// <see cref="CoordinatorBindingThrottle"/>, <see cref="CoordinatorLookup"/>,
-    /// <see cref="CoordinatorBindings"/>, <see cref="CoordinatorShops"/> (#373) and
-    /// <see cref="CoordinatorEventHandler"/>. Requires <c>AddLineMessaging</c> (the LINE client). Nothing reads the options while the pipeline is built.
+    /// <see cref="CoordinatorBindings"/>, <see cref="CoordinatorShops"/> (#373), the commands of #374
+    /// (<see cref="CoordinatorCommands"/>, <see cref="CoordinatorConversationMemory"/>,
+    /// <see cref="CoordinatorCommandInterpreter"/>, the seams <see cref="ICoordinatorActionModes"/> and
+    /// <see cref="ICoordinatorCommandRunner"/> — later slices replace them —, <see cref="CoordinatorCommandHandler"/>)
+    /// and <see cref="CoordinatorEventHandler"/>. Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>
+    /// and <c>AddOrganizationTokenUsage</c>. Nothing reads the options while the pipeline is built.
     /// </summary>
     public static IServiceCollection AddStoreCoordinator(this IServiceCollection services, IConfiguration configuration)
     {
@@ -31,6 +35,13 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddScoped<CoordinatorLookup>();
         services.AddScoped<CoordinatorBindings>();
         services.AddScoped<CoordinatorShops>();
+        services.AddScoped<CoordinatorCommands>();
+        services.AddSingleton<CoordinatorConversationMemory>();
+        services.AddScoped<CoordinatorCommandInterpreter>();
+        services.TryAddSingleton<ICoordinatorActionModes, ReminderOnlyActionModes>();
+        services.AddScoped<CoordinatorReplySender>();
+        services.TryAddScoped<ICoordinatorCommandRunner, AcknowledgingCommandRunner>();
+        services.AddScoped<CoordinatorCommandHandler>();
         services.AddScoped<CoordinatorEventHandler>();
         services.AddHostedService<CoordinatorWebhookProcessor>();
         return services;

@@ -29,7 +29,7 @@ public static class OrganizationTokenUsageRules
     /// limit (decision E): the organization's own conversations, trial answers, acceptance reruns,
     /// form-request decisions, database-query tool selection, report summaries, website visitors' and
     /// LINE users' answers (M5b #232), case-proposal decisions (M7-9 #254), the combined form-or-case selection
-    /// (#286) — not only the public channels', because the cost is the
+    /// (#286), the 統籌助理's command understanding (#374) — not only the public channels', because the cost is the
     /// organization's as a whole.
     /// </summary>
     public static readonly IReadOnlyList<ModelInvocationPurpose> CountedPurposes =
@@ -44,6 +44,7 @@ public static class OrganizationTokenUsageRules
         ModelInvocationPurpose.LineAnswer,
         ModelInvocationPurpose.CaseProposal,
         ModelInvocationPurpose.ProposalSelection,
+        ModelInvocationPurpose.CoordinatorCommand,
     ];
 
     /// <summary>The embedding-model purposes, which never count. A new

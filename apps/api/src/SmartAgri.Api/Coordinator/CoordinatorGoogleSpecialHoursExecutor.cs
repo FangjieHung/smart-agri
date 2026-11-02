@@ -18,13 +18,15 @@ namespace SmartAgri.Api.Coordinator;
 /// <c>regularHours</c> and <c>specialHours</c>, replaces the command date's periods by the ones the shop's own weekly
 /// hours give (<see cref="CoordinatorGoogleSpecialHours.PeriodsFor"/>, Q22) and writes the list back
 /// (<c>updateMask=specialHours</c>): every other date is written back exactly as read. Running it again writes the
-/// same, so a repeated job or 〔重試〕 is harmless. The result keeps the date and the location
-/// (<see cref="CoordinatorGoogleSpecialHours.ExternalRef"/>); a reopen's undo (Q21) removes that date's periods from
-/// that location — nothing to remove is a success.
+/// same, so a repeated job or 〔重試〕 is harmless. The result keeps the date, the location and the date's periods it
+/// replaced — what the owner had set for that day (<see cref="CoordinatorGoogleSpecialHours.ExternalRef"/>; left out, and
+/// logged, when they do not fit, and not kept when they were ours already); a reopen's undo (Q21) puts those back on that
+/// location, or removes the day's when there were none — already as it should be is a success without a write.
 /// </para>
 /// <para>
-/// A location without regular hours fails (<see cref="CoordinatorFailureCodes.GoogleNoRegularHours"/>: Google sets
-/// special hours only on top of regular ones). The platform's project without Basic API Access (quota 0, API not
+/// A location without regular hours becomes a reminder (<see cref="CoordinatorFailureCodes.GoogleNoRegularHours"/>:
+/// Google sets special hours only on top of regular ones; also when Google answers
+/// <c>SPECIAL_HOURS_SET_WITHOUT_REGULAR_HOURS</c>). The platform's project without Basic API Access (quota 0, API not
 /// enabled) makes it a reminder (<see cref="CoordinatorFailureCodes.GoogleAccessPending"/>). Google refusing the
 /// authorization — <c>invalid_grant</c> on refresh, a <c>401</c>, a <c>403</c> on the location, or a refresh token that can
 /// no longer be decrypted — makes it a reminder with <see cref="CoordinatorFailureCodes.TokenRevoked"/>, for which the
@@ -96,7 +98,7 @@ public sealed class CoordinatorGoogleSpecialHoursExecutor : ICoordinatorActionEx
         if (!CoordinatorGoogleSpecialHours.HasRegularHours(Property(root, "regularHours")))
         {
             _logger.LogWarning("統籌助理 action {ActionId}: the Google location has no regular hours; special hours cannot be set.", request.ActionId);
-            return CoordinatorActionResult.Failed(CoordinatorFailureCodes.GoogleNoRegularHours);
+            return CoordinatorActionResult.UnavailableBecause(CoordinatorFailureCodes.GoogleNoRegularHours);
         }
 
         var patch = CoordinatorGoogleSpecialHours.Replace(Property(root, "specialHours"), request.Date, periods);
@@ -107,10 +109,21 @@ public sealed class CoordinatorGoogleSpecialHoursExecutor : ICoordinatorActionEx
         }
 
         written.Value!.Dispose();
+
+        // What the owner had on that day, for the undo — unless it was ours already (this action run again).
+        IReadOnlyList<string> previous = CoordinatorGoogleSpecialHours.SameAs(patch.Replaced, periods) ? [] : patch.Replaced;
+        var reference = CoordinatorGoogleSpecialHours.ExternalRef(request.Date, location, previous, out var keptPrevious);
+        if (!keptPrevious)
+        {
+            _logger.LogWarning(
+                "統籌助理 action {ActionId}: the {Count} special hour period(s) Google had on {Date} are too long to keep; a reopen will remove the day instead of restoring them.",
+                request.ActionId, previous.Count, request.Date);
+        }
+
         _logger.LogInformation(
             "統籌助理 action {ActionId}: Google special hours of {Date} set ({Periods} period(s), {Removed} replaced, {Kept} other kept).",
             request.ActionId, request.Date, periods.Count, patch.Removed, patch.Kept);
-        return CoordinatorActionResult.Succeeded(CoordinatorGoogleSpecialHours.ExternalRef(request.Date, location));
+        return CoordinatorActionResult.Succeeded(reference);
     }
 
     public async Task<CoordinatorActionResult> UndoAsync(CoordinatorActionRequest request, CancellationToken cancellationToken)
@@ -127,11 +140,12 @@ public sealed class CoordinatorGoogleSpecialHoursExecutor : ICoordinatorActionEx
             return refusal;
         }
 
-        // The location written then (the owner may have chosen another since); the command's date otherwise.
-        var (date, location) = CoordinatorGoogleSpecialHours.TryReadExternalRef(request.UndoneExternalRef, out var appliedOn, out var appliedTo)
-            ? (appliedOn, appliedTo)
-            : (request.Date, access.Connection!.ExternalId);
-        var read = await _google.GetHoursAsync(access.AccessToken!, location, cancellationToken);
+        // The location written then (the owner may have chosen another since) and what it had on that day; the command's
+        // date otherwise (the day is removed).
+        var applied = CoordinatorGoogleSpecialHours.TryReadExternalRef(request.UndoneExternalRef, out var reference)
+            ? reference
+            : new GoogleAppliedRef(request.Date, access.Connection!.ExternalId, []);
+        var read = await _google.GetHoursAsync(access.AccessToken!, applied.Location, cancellationToken);
         if (!read.Succeeded)
         {
             return ResultOf(request, "locations.get", read.Outcome, read.ErrorReason);
@@ -139,14 +153,15 @@ public sealed class CoordinatorGoogleSpecialHoursExecutor : ICoordinatorActionEx
 
         using var document = read.Value!;
         var specialHours = Property(document.RootElement, "specialHours");
-        if (!CoordinatorGoogleSpecialHours.HasPeriodOn(specialHours, date))
+        if (CoordinatorGoogleSpecialHours.SameAs(CoordinatorGoogleSpecialHours.PeriodsOn(specialHours, applied.Date), applied.Previous))
         {
-            _logger.LogInformation("統籌助理 action {ActionId}: Google has no special hours on {Date}; nothing to take back.", request.ActionId, date);
+            _logger.LogInformation(
+                "統籌助理 action {ActionId}: Google's special hours of {Date} are already as before; nothing to take back.", request.ActionId, applied.Date);
             return CoordinatorActionResult.Succeeded();
         }
 
-        var patch = CoordinatorGoogleSpecialHours.Replace(specialHours, date, []);
-        var written = await _google.PatchSpecialHoursAsync(access.AccessToken!, location, patch.Body, cancellationToken);
+        var patch = CoordinatorGoogleSpecialHours.ReplaceRaw(specialHours, applied.Date, applied.Previous);
+        var written = await _google.PatchSpecialHoursAsync(access.AccessToken!, applied.Location, patch.Body, cancellationToken);
         if (!written.Succeeded)
         {
             return ResultOf(request, "locations.patch", written.Outcome, written.ErrorReason);
@@ -154,8 +169,8 @@ public sealed class CoordinatorGoogleSpecialHoursExecutor : ICoordinatorActionEx
 
         written.Value!.Dispose();
         _logger.LogInformation(
-            "統籌助理 action {ActionId}: Google special hours of {Date} removed ({Removed} period(s), {Kept} other kept).",
-            request.ActionId, date, patch.Removed, patch.Kept);
+            "統籌助理 action {ActionId}: Google special hours of {Date} taken back ({Removed} removed, {Restored} restored, {Kept} other kept).",
+            request.ActionId, applied.Date, patch.Removed, applied.Previous.Count, patch.Kept);
         return CoordinatorActionResult.Succeeded();
     }
 
@@ -207,7 +222,7 @@ public sealed class CoordinatorGoogleSpecialHoursExecutor : ICoordinatorActionEx
     {
         var result = (outcome, reason) switch
         {
-            (_, "SPECIAL_HOURS_SET_WITHOUT_REGULAR_HOURS") => CoordinatorActionResult.Failed(CoordinatorFailureCodes.GoogleNoRegularHours),
+            (_, "SPECIAL_HOURS_SET_WITHOUT_REGULAR_HOURS") => CoordinatorActionResult.UnavailableBecause(CoordinatorFailureCodes.GoogleNoRegularHours),
             _ => ResultOf(outcome),
         };
         _logger.LogWarning(

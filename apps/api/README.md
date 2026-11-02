@@ -1627,7 +1627,8 @@ Management `accounts.list`, Business Information `accounts.locations.list` / `lo
   (「這個 Google 帳號沒有可管理的商家」). Listing refused for access is `google-access-pending`. Access tokens are never stored.
 - **Executor** (`CoordinatorGoogleSpecialHoursExecutor`, kind `google-special-hours`): available — so the card and the run
   agree — when the provider is configured and the shop has an active `google` connection. Each run refreshes an access
-  token, reads the location, refuses one without `regularHours` periods (`google-no-regular-hours`, failed for 〔重試〕; also
+  token, reads the location, turns one without `regularHours` periods into a reminder
+  (`UnavailableBecause(google-no-regular-hours)`, 「Google 商家沒有設定一般營業時間，無法自動設定特殊營業時間，先以提醒處理」; also
   when Google answers `SPECIAL_HOURS_SET_WITHOUT_REGULAR_HOURS`), and patches `specialHours` with
   `CoordinatorGoogleSpecialHours.Replace` (Application, pure): every period whose `startDate` is the command's date is
   dropped, every other one written back as Google's raw JSON, the new ones appended (an empty result is the body `{}`,
@@ -1636,8 +1637,10 @@ Management `accounts.list`, Business Information `accounts.locations.list` / `lo
   cut at T; 延後開店 T those closing after T, the one running at T starting at T; T read as the command's checks read it
   (small hours of an overnight period = the next day); a period past midnight has `endDate` D+1, one ending at midnight
   `24:00`; only periods opening on D are written (a late opening in D+1's small hours leaves D closed rather than touching
-  D+1). `ExternalRef` = `{yyyy-MM-dd}|{location}`; the reopen's undo removes that date's periods from that location
-  (none there is a success). Results: `invalid_grant`, `401`, `403` or a refresh token that cannot be decrypted →
+  D+1). `ExternalRef` = `{yyyy-MM-dd}|{location}` plus `|[…]` — the date's periods the apply replaced (what the owner had),
+  raw, else without white space, else left out (logged) to stay within the column's 256 characters; not kept when they
+  say what we write (a repeated run). The reopen's undo (`ReplaceRaw`) puts those back on that location, or removes the
+  date's periods when there were none; already as before is a success without a write. Results: `invalid_grant`, `401`, `403` or a refresh token that cannot be decrypted →
   `UnavailableBecause(token-revoked)` (the run handler revokes the connection and pushes the #377 re-authorization link);
   quota 0 / API disabled → `UnavailableBecause(google-access-pending)` (「Google 商家 API 尚未開通，先以提醒處理」); `429` →
   `rate-limited`; `5xx`, timeout, network → `google-unavailable` (「Google 暫時無法使用」); anything else → `rejected`.

@@ -72,6 +72,7 @@ public class CoordinatorGoogleSpecialHoursTests
         var patch = CoordinatorGoogleSpecialHours.Replace(read.RootElement, Monday, ours);
 
         (patch.Removed, patch.Kept).ShouldBe((1, 3));
+        patch.Replaced.ShouldBe([oldMonday], "the day's entry as Google sent it, for the undo");
         patch.Body.ShouldBe(
             $$$"""{"specialHours":{"specialHourPeriods":[{{{christmas}}},{{{midnight}}},{"startDate": {"year": 2026}},""" +
             """{"startDate":{"year":2026,"month":11,"day":2},"openTime":{"hours":11,"minutes":0},"endDate":{"year":2026,"month":11,"day":2},"closeTime":{"hours":14,"minutes":0}},""" +
@@ -84,7 +85,13 @@ public class CoordinatorGoogleSpecialHoursTests
         var specialHours = written.RootElement.GetProperty("specialHours");
         CoordinatorGoogleSpecialHours.HasPeriodOn(specialHours, Monday).ShouldBeTrue();
         CoordinatorGoogleSpecialHours.HasPeriodOn(specialHours, Saturday).ShouldBeFalse();
-        CoordinatorGoogleSpecialHours.Replace(specialHours, Monday, []).ShouldBe(new GoogleSpecialHoursPatch("{}", 1, 0), "nothing left: the masked field is cleared");
+        var cleared = CoordinatorGoogleSpecialHours.Replace(specialHours, Monday, []);
+        (cleared.Body, cleared.Removed, cleared.Kept).ShouldBe(("{}", 1, 0), "nothing left: the masked field is cleared");
+
+        // An undo puts the owner's own entry back, raw.
+        CoordinatorGoogleSpecialHours.ReplaceRaw(specialHours, Monday, [oldMonday]).Body
+            .ShouldBe($$$"""{"specialHours":{"specialHourPeriods":[{{{oldMonday}}}]}}""");
+        CoordinatorGoogleSpecialHours.PeriodsOn(read.RootElement, Monday).ShouldBe([oldMonday]);
         CoordinatorGoogleSpecialHours.Replace(read.RootElement, Monday, []).Body.ShouldBe(
             $$$"""{"specialHours":{"specialHourPeriods":[{{{christmas}}},{{{midnight}}},{"startDate": {"year": 2026}}]}}""");
     }
@@ -98,20 +105,66 @@ public class CoordinatorGoogleSpecialHoursTests
         CoordinatorGoogleSpecialHours.HasRegularHours(hours.RootElement.GetProperty("empty")).ShouldBeFalse();
         CoordinatorGoogleSpecialHours.HasRegularHours(null).ShouldBeFalse();
 
-        var reference = CoordinatorGoogleSpecialHours.ExternalRef(Saturday, "locations/1234567890");
-        reference.ShouldBe("2026-11-07|locations/1234567890");
-        CoordinatorGoogleSpecialHours.TryReadExternalRef(reference, out var date, out var location).ShouldBeTrue();
-        (date, location).ShouldBe((Saturday, "locations/1234567890"));
-        foreach (var bad in new[] { null, "", "post-9", "2026-13-01|locations/1", "2026-11-07|", "2026-11-07|locations/1|x", "2026-11-07|has space" })
+        // Nothing replaced: the date and the location.
+        var reference = CoordinatorGoogleSpecialHours.ExternalRef(Saturday, "locations/1234567890", [], out var kept);
+        (reference, kept).ShouldBe(("2026-11-07|locations/1234567890", true));
+        CoordinatorGoogleSpecialHours.TryReadExternalRef(reference, out var applied).ShouldBeTrue();
+        (applied.Date, applied.Location, applied.Previous.Count).ShouldBe((Saturday, "locations/1234567890", 0));
+
+        // The owner's entries of the day: as Google sent them when they fit, without white space when only that fits,
+        // else left out (the undo then removes the day).
+        const string spaced = """{"startDate": {"year": 2026, "month": 11, "day": 7}, "openTime": {"hours": 9}, "closeTime": {"hours": 12}}""";
+        reference = CoordinatorGoogleSpecialHours.ExternalRef(Saturday, "locations/1234567890", [spaced], out kept);
+        (reference, kept).ShouldBe(($"2026-11-07|locations/1234567890|[{spaced}]", true));
+        CoordinatorGoogleSpecialHours.TryReadExternalRef(reference, out applied).ShouldBeTrue();
+        applied.Previous.ShouldBe([spaced]);
+
+        var padded = """{"startDate": {"year": 2026, "month": 11, "day": 7},""" + new string(' ', 120) + """ "closed": true}""";
+        reference = CoordinatorGoogleSpecialHours.ExternalRef(Saturday, "locations/1234567890", [padded, padded], out kept);
+        (reference, kept).ShouldBe(("""2026-11-07|locations/1234567890|[{"startDate":{"year":2026,"month":11,"day":7},"closed":true},{"startDate":{"year":2026,"month":11,"day":7},"closed":true}]""", true));
+        reference.Length.ShouldBeLessThanOrEqualTo(CoordinatorCommandAction.ExternalRefMaxLength);
+
+        var many = Enumerable.Repeat(spaced, 3).ToList();
+        reference = CoordinatorGoogleSpecialHours.ExternalRef(Saturday, "locations/1234567890", many, out kept);
+        (reference, kept).ShouldBe(("2026-11-07|locations/1234567890", false));
+
+        foreach (var bad in new[]
+                 {
+                     null, "", "post-9", "2026-13-01|locations/1", "2026-11-07|", "2026-11-07|locations/1|x", "2026-11-07|has space",
+                     """2026-11-07|locations/1|{"startDate":{"year":2026,"month":11,"day":7},"closed":true}""",
+                     """2026-11-07|locations/1|[{"startDate":{"year":2026,"month":11,"day":8},"closed":true}]""",
+                 })
         {
-            CoordinatorGoogleSpecialHours.TryReadExternalRef(bad, out _, out _).ShouldBeFalse(bad ?? "null");
+            CoordinatorGoogleSpecialHours.TryReadExternalRef(bad, out _).ShouldBeFalse(bad ?? "null");
         }
+    }
+
+    [Fact]
+    public void Periods_are_compared_as_Google_means_them()
+    {
+        var ours = CoordinatorGoogleSpecialHours.PeriodsFor(Shop, ShopScenario.CloseEarly, Monday, new TimeOnly(19, 0));
+        string[] google =
+        [
+            """{"startDate":{"year":2026,"month":11,"day":2},"openTime":{"hours":17},"closeTime":{"hours":19}}""",
+            """{"startDate":{"year":2026,"month":11,"day":2},"openTime":{"hours":11},"endDate":{"year":2026,"month":11,"day":2},"closeTime":{"hours":14}}""",
+        ];
+        CoordinatorGoogleSpecialHours.SameAs(google, ours).ShouldBeTrue("00:00 left out, no endDate, another order");
+        CoordinatorGoogleSpecialHours.SameAs([.. ours.Select(CoordinatorGoogleSpecialHours.Json)], ours).ShouldBeTrue();
+        CoordinatorGoogleSpecialHours.SameAs(google[..1], ours).ShouldBeFalse();
+        CoordinatorGoogleSpecialHours.SameAs(
+            ["""{"startDate":{"year":2026,"month":11,"day":2},"closed":true,"openTime":{"hours":9}}"""],
+            [GoogleSpecialHourPeriod.ClosedOn(Monday)]).ShouldBeTrue("a closed day's times are ignored");
+        CoordinatorGoogleSpecialHours.SameAs([], Array.Empty<GoogleSpecialHourPeriod>()).ShouldBeTrue();
+        CoordinatorGoogleSpecialHours.SameAs(["""{"startDate":{"year":2026,"month":11,"day":2},"openTime":{"hours":9}}"""], ours).ShouldBeFalse("unreadable");
+        CoordinatorGoogleSpecialHours.SameAs(google, [.. Enumerable.Reverse(google)]).ShouldBeTrue();
+        CoordinatorGoogleSpecialHours.SameAs(["""{"odd":1}"""], ["""{"odd":1}"""]).ShouldBeTrue("unreadable ones match as text");
+        CoordinatorGoogleSpecialHours.SameAs(["""{"odd":1}"""], ["""{"odd":2}"""]).ShouldBeFalse();
     }
 
     [Fact]
     public void Google_failures_are_explained()
     {
-        CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.GoogleNoRegularHours).ShouldBe("Google 商家沒有設定一般營業時間，無法設定特殊營業時間");
+        CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.GoogleNoRegularHours).ShouldBe("Google 商家沒有設定一般營業時間，無法自動設定特殊營業時間，先以提醒處理");
         CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.GoogleAccessPending).ShouldBe("Google 商家 API 尚未開通，先以提醒處理");
         CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.GoogleUnavailable).ShouldBe("Google 暫時無法使用");
         CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.GoogleAccessPending, ShopActionKind.GoogleSpecialHours)

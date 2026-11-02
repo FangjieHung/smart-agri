@@ -155,8 +155,8 @@ public static class CoordinatorFailureCodes
     /// 特殊營業時間 became a reminder (#378).</summary>
     public const string GoogleAccessPending = "google-access-pending";
 
-    /// <summary>The Google 商家 location has no regular hours, and Google sets special hours only for one that has (#378):
-    /// the owner sets them in Google first, then presses 〔重試〕.</summary>
+    /// <summary>With <see cref="CoordinatorActionOutcome.Unavailable"/>: the Google 商家 location has no regular hours, and
+    /// Google sets special hours only for one that has (#378), so Google 特殊營業時間 became a reminder.</summary>
     public const string GoogleNoRegularHours = "google-no-regular-hours";
 
     /// <summary>Google did not answer, answered with a server error, or could not be reached (#378).</summary>
@@ -186,7 +186,7 @@ public static class CoordinatorFailureCodes
         QuotaInsufficient => "LINE 本月剩餘額度不足，沒有群發",
         LineUnavailable => "LINE 暫時無法使用",
         GoogleAccessPending => "Google 商家 API 尚未開通，先以提醒處理",
-        GoogleNoRegularHours => "Google 商家沒有設定一般營業時間，無法設定特殊營業時間",
+        GoogleNoRegularHours => "Google 商家沒有設定一般營業時間，無法自動設定特殊營業時間，先以提醒處理",
         GoogleUnavailable => "Google 暫時無法使用",
         TokenRevoked => "LINE 權杖失效，已改為手動；請平台營運者重新設定權杖",
         RateLimited => "服務忙碌中",

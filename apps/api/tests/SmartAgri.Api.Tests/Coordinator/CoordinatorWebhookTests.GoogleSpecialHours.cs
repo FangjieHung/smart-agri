@@ -16,7 +16,8 @@ namespace SmartAgri.Api.Tests.Coordinator;
 /// <see cref="FakeGoogleServer"/> standing in for Google: connecting with one, several (see the authorization links'
 /// tests) or no location; the day closed, cut short, opened late — from the shop's own weekly hours, a split day and an
 /// overnight period included — with every other date's special hours written back byte for byte, an existing entry of
-/// the day replaced, and a reopen removing only that day; a location without regular hours, a project not yet approved
+/// the day replaced and restored by a reopen (or the day removed when it had none, or its entries were too long to keep);
+/// a location without regular hours, a project not yet approved
 /// (quota 0), a revoked authorization, rate limits and Google being unavailable. 「Now」 is Monday 2026-11-02 10:00 in
 /// Taipei.
 /// </summary>
@@ -25,6 +26,16 @@ public sealed partial class CoordinatorWebhookTests
     private const string ChristmasClosed = """{"startDate": {"year": 2026, "month": 12, "day": 25}, "closed": true}""";
 
     private const string MidnightOpening = """{"startDate": {"year": 2026, "month": 11, "day": 20}, "openTime": {}, "closeTime": {"hours": 24}}""";
+
+    /// <summary>An entry the owner set themselves for 11/15 (Google's own spacing).</summary>
+    private const string OwnersMorning = """{"startDate": {"year": 2026, "month": 11, "day": 15}, "openTime": {"hours": 9}, "endDate": {"year": 2026, "month": 11, "day": 15}, "closeTime": {"hours": 12}}""";
+
+    /// <summary>Two entries the owner set for 11/16: together too long to keep in the action's reference.</summary>
+    private static readonly string[] OwnersSplitDay =
+    [
+        """{"startDate": {"year": 2026, "month": 11, "day": 16}, "openTime": {"hours": 8, "minutes": 30}, "endDate": {"year": 2026, "month": 11, "day": 16}, "closeTime": {"hours": 12}}""",
+        """{"startDate": {"year": 2026, "month": 11, "day": 16}, "openTime": {"hours": 18}, "endDate": {"year": 2026, "month": 11, "day": 16}, "closeTime": {"hours": 22, "minutes": 30}}""",
+    ];
 
     [Fact]
     public async Task An_owner_with_one_Google_location_is_connected_at_once_and_only_the_refresh_token_is_stored_encrypted()
@@ -126,13 +137,13 @@ public sealed partial class CoordinatorWebhookTests
     }
 
     [Fact]
-    public async Task A_closure_closes_the_day_on_Google_keeping_other_dates_byte_for_byte_and_a_reopen_removes_only_that_day()
+    public async Task A_closure_closes_the_day_on_Google_keeping_other_dates_byte_for_byte_and_a_reopen_restores_what_the_day_had()
     {
         SetNow(CommandNow);
         var (shop, owner) = await CommandShopAsync("谷歌休息店", GoogleShopFile("谷歌休息店"));
         var location = GoogleApi.AddLocation(
             "谷歌休息店",
-            specialHours: $$$"""{"specialHourPeriods": [{{{ChristmasClosed}}}, {"startDate": {"year": 2026, "month": 11, "day": 15}, "openTime": {"hours": 9}, "endDate": {"year": 2026, "month": 11, "day": 15}, "closeTime": {"hours": 12}}, {{{MidnightOpening}}}]}""");
+            specialHours: $$$"""{"specialHourPeriods": [{{{ChristmasClosed}}}, {{{OwnersMorning}}}, {{{MidnightOpening}}}]}""");
         var user = GoogleApi.AddUser([location]);
         await ConnectGoogleAsync(shop, user);
 
@@ -143,36 +154,55 @@ public sealed partial class CoordinatorWebhookTests
 
         Report(PushedMessages(Pushes(owner).ShouldHaveSingleItem()).ShouldHaveSingleItem()).Body
             .ShouldBe(["執行結果：", "✅ Google 特殊營業時間：11/15（日） 休息"]);
-        location.SpecialHourPeriods().ShouldBe([ChristmasClosed, MidnightOpening, Closed(2026, 11, 15)], "other dates as Google sent them; the day's old entry replaced");
-        var patch = location.Patches.ShouldHaveSingleItem();
+        location.SpecialHourPeriods().ShouldBe([ChristmasClosed, MidnightOpening, Closed(2026, 11, 15)], "other dates as Google sent them; the day's own entry replaced");
+        location.Patches.ShouldHaveSingleItem().ShouldContain(ChristmasClosed);
         GoogleApi.RequestsFor(FakeGoogleServer.PatchLocation, location).ShouldHaveSingleItem().Query["updateMask"].ShouldBe("specialHours");
         GoogleApi.RequestsFor(FakeGoogleServer.GetLocation, location).ShouldHaveSingleItem().Query["readMask"].ShouldContain("specialHours");
-        patch.ShouldContain(ChristmasClosed);
         var applied = (await ActionsAsync(shop)).ShouldHaveSingleItem();
-        (applied.Status, applied.ExternalRef).ShouldBe((CoordinatorActionStatus.Succeeded, $"2026-11-15|{location.Name}"));
+        (applied.Status, applied.ExternalRef).ShouldBe((CoordinatorActionStatus.Succeeded, $"2026-11-15|{location.Name}|[{OwnersMorning}]"), "the owner's entry kept as Google sent it");
 
-        // Reopen: the day's entry removed through the executor; the others untouched.
+        // Reopen: the owner's own entry of that day put back, byte for byte; the other dates untouched.
         var reopen = Card(await SendForMessageAsync(owner, Scripted("11/15 恢復營業", "reopen", "2026-11-15")));
         reopen.Body.ShouldContain("・Google 特殊營業時間：移除 11/15（日） 的設定（自動）");
         await PostbackForMessagesAsync(owner, reopen.Button("確認"));
         await RunJobsAsync();
         Report(PushedMessages(Pushes(owner)[1]).ShouldHaveSingleItem()).Body.ShouldContain("✅ Google 特殊營業時間：移除 11/15（日） 的設定");
-        location.SpecialHourPeriods().ShouldBe([ChristmasClosed, MidnightOpening]);
+        location.SpecialHourPeriods().ShouldBe([ChristmasClosed, MidnightOpening, OwnersMorning]);
 
-        // A second closure and its undo when the owner already removed the day by hand: nothing to take back.
-        await ConfirmAsync(owner, Scripted("11/16 店休", "temporary-closure", "2026-11-16"));
-        await RunJobsAsync();
-        location.SpecialHourPeriods().ShouldBe([ChristmasClosed, MidnightOpening, Closed(2026, 11, 16)]);
-        location.SpecialHours = $$"""{"specialHourPeriods": [{{ChristmasClosed}}]}""";
-        var patches = location.Patches.Count;
+        // A day whose entries are too long to keep: the apply says so in the log, and the reopen removes the day.
+        location.SpecialHours = $$$"""{"specialHourPeriods": [{{{ChristmasClosed}}}, {{{OwnersSplitDay[0]}}}, {{{OwnersSplitDay[1]}}}]}""";
+        _host.Log.Start();
+        try
+        {
+            await ConfirmAsync(owner, Scripted("11/16 店休", "temporary-closure", "2026-11-16"));
+            await RunJobsAsync();
+        }
+        finally
+        {
+            _host.Log.Stop();
+        }
+
+        _host.Log.Lines.ShouldContain(line => line.Contains("too long to keep; a reopen will remove the day", StringComparison.Ordinal));
+        (await ActionsAsync(shop)).Last().ExternalRef.ShouldBe($"2026-11-16|{location.Name}");
+        location.SpecialHourPeriods().ShouldBe([ChristmasClosed, Closed(2026, 11, 16)]);
         await PostbackForMessagesAsync(owner, Card(await SendForMessageAsync(owner, Scripted("11/16 恢復營業", "reopen", "2026-11-16"))).Button("確認"));
+        await RunJobsAsync();
+        location.SpecialHourPeriods().ShouldBe([ChristmasClosed]);
+
+        // A day without entries, whose closure the owner already removed by hand: nothing to take back, nothing written.
+        await ConfirmAsync(owner, Scripted("11/17 店休", "temporary-closure", "2026-11-17"));
+        await RunJobsAsync();
+        location.SpecialHourPeriods().ShouldBe([ChristmasClosed, Closed(2026, 11, 17)]);
+        location.SpecialHours = $$$"""{"specialHourPeriods": [{{{ChristmasClosed}}}]}""";
+        var patches = location.Patches.Count;
+        await PostbackForMessagesAsync(owner, Card(await SendForMessageAsync(owner, Scripted("11/17 恢復營業", "reopen", "2026-11-17"))).Button("確認"));
         await RunJobsAsync();
         location.Patches.Count.ShouldBe(patches, "nothing to remove, nothing written");
         (await ActionsAsync(shop)).Last().Status.ShouldBe(CoordinatorActionStatus.Succeeded);
 
         GoogleApi.RequestsFor(FakeGoogleServer.PatchLocation, location).ShouldAllBe(request => request.AccessToken != null && request.ErrorFormatVersion == "2");
         var refreshes = GoogleApi.Requests.Where(request => request.Endpoint == FakeGoogleServer.Token && request.Subject == user.RefreshToken).ToList();
-        refreshes.Count.ShouldBe(4, "a fresh access token for each run");
+        refreshes.Count.ShouldBe(6, "a fresh access token for each run");
         refreshes.ShouldAllBe(request => request.Form["grant_type"] == "refresh_token" && request.Form["client_secret"] == GoogleApi.ClientSecret);
     }
 
@@ -214,15 +244,16 @@ public sealed partial class CoordinatorWebhookTests
         await using var scope = _host.Factory.Services.CreateAsyncScope();
         var executor = scope.ServiceProvider.GetRequiredService<CoordinatorGoogleSpecialHoursExecutor>();
         var settings = (await ShopSettingsAsync(shop)).ShouldNotBeNull().Document;
-        (await executor.ExecuteAsync(
+        var again = await executor.ExecuteAsync(
             new CoordinatorActionRequest(shop.Id, Guid.CreateVersion7(), ShopActionKind.GoogleSpecialHours, CoordinatorActionStep.Apply,
                 ShopScenario.OpenLate, new DateOnly(2026, 11, 7), new TimeOnly(18, 0), null, null, null, settings),
-            CancellationToken)).Outcome.ShouldBe(CoordinatorActionOutcome.Succeeded);
+            CancellationToken);
+        (again.Outcome, again.ExternalRef).ShouldBe((CoordinatorActionOutcome.Succeeded, $"2026-11-07|{location.Name}"), "what it replaced was ours: nothing to restore");
         location.SpecialHourPeriods().Count(period => period.Contains("\"day\":7", StringComparison.Ordinal)).ShouldBe(1);
     }
 
     [Fact]
-    public async Task A_location_without_regular_hours_fails_with_the_reason_and_a_retry_works_once_they_are_set()
+    public async Task A_location_without_regular_hours_becomes_a_reminder_that_says_why()
     {
         SetNow(CommandNow);
         var (shop, owner) = await CommandShopAsync("無營業時間店", GoogleShopFile("無營業時間店"));
@@ -233,25 +264,32 @@ public sealed partial class CoordinatorWebhookTests
         await RunJobsAsync();
 
         var report = Report(PushedMessages(Pushes(owner).ShouldHaveSingleItem()).ShouldHaveSingleItem());
-        report.Body.ShouldBe(["執行結果：", "❌ Google 特殊營業時間：11/2（一） 休息：Google 商家沒有設定一般營業時間，無法設定特殊營業時間"]);
+        report.Body.ShouldBe(
+        [
+            "執行結果：",
+            "⏳ Google 特殊營業時間：11/2（一） 休息",
+            "　Google 商家沒有設定一般營業時間，無法自動設定特殊營業時間，先以提醒處理",
+            "　Google 設為休息。",
+        ]);
+        report.Buttons.Select(button => button.Label).ShouldBe(["已完成"], "no 〔重試〕");
         location.Patches.ShouldBeEmpty("nothing Google would refuse is sent");
         var row = (await ActionsAsync(shop)).ShouldHaveSingleItem();
-        (row.Status, row.FailureCode).ShouldBe((CoordinatorActionStatus.Failed, CoordinatorFailureCodes.GoogleNoRegularHours));
+        (row.Status, row.FailureCode).ShouldBe((CoordinatorActionStatus.AwaitingManual, CoordinatorFailureCodes.GoogleNoRegularHours));
+        (await ConnectionOfAsync(shop, CoordinatorService.Google)).ShouldNotBeNull().Status.ShouldBe(CoordinatorConnectionStatus.Active);
+        ReauthorizationPushes(owner).ShouldBeEmpty();
 
         // Google refusing it for that reason after all (regular hours removed meanwhile) reads the same.
         var reason = await RunGoogleAsync(shop, location, FakeGoogleServer.PatchLocation, GoogleBehavior.Answer(
             HttpStatusCode.BadRequest,
             """{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"SPECIAL_HOURS_SET_WITHOUT_REGULAR_HOURS","domain":"mybusinessbusinessinformation.googleapis.com"}]}}"""),
             regularHours: FakeGoogleServer.WeekdayHours);
-        (reason.Outcome, reason.FailureCode).ShouldBe((CoordinatorActionOutcome.Failed, CoordinatorFailureCodes.GoogleNoRegularHours));
+        (reason.Outcome, reason.FailureCode).ShouldBe((CoordinatorActionOutcome.Unavailable, CoordinatorFailureCodes.GoogleNoRegularHours));
 
-        // The owner sets them in Google and presses 〔重試〕.
+        // Once the owner sets regular hours in Google, the next command is set automatically.
         location.RegularHours = FakeGoogleServer.WeekdayHours;
-        var retried = "rt-google-retry-" + Guid.NewGuid().ToString("N");
-        await PressSilentlyAsync(owner, report.Button("重試"), retried);
+        await ConfirmAsync(owner, Scripted("明天店休", "temporary-closure", "2026-11-03"));
         await RunJobsAsync();
-        Report((await ReplyMessagesAsync(retried)).ShouldHaveSingleItem()).Body.ShouldBe(["執行結果：", "✅ Google 特殊營業時間：11/2（一） 休息"]);
-        location.SpecialHourPeriods().ShouldBe([Closed(2026, 11, 2)]);
+        location.SpecialHourPeriods().ShouldBe([Closed(2026, 11, 3)]);
     }
 
     [Fact]

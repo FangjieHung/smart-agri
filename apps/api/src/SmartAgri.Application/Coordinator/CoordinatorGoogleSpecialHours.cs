@@ -44,7 +44,13 @@ public sealed record GoogleSpecialHourPeriod(
 /// <param name="Body">The <c>locations.patch</c> body (<c>updateMask=specialHours</c>).</param>
 /// <param name="Removed">How many periods of the date were dropped.</param>
 /// <param name="Kept">How many periods of other dates are written back unchanged.</param>
-public sealed record GoogleSpecialHoursPatch(string Body, int Removed, int Kept);
+/// <param name="Replaced">The date's periods that were dropped, each as the raw JSON Google sent.</param>
+public sealed record GoogleSpecialHoursPatch(string Body, int Removed, int Kept, IReadOnlyList<string> Replaced);
+
+/// <summary>What an applied Google action keeps to be taken back (<see cref="CoordinatorGoogleSpecialHours.ExternalRef"/>):
+/// the date, the location written and the date's periods it replaced (raw JSON; empty when there were none, or when they
+/// did not fit — the undo then removes the day).</summary>
+public sealed record GoogleAppliedRef(DateOnly Date, string Location, IReadOnlyList<string> Previous);
 
 /// <summary>
 /// Google 特殊營業時間 (store-coordinator design §3 Q3, Q21, Q22, §5 Slice 7, #378), pure: the periods a command sets on
@@ -64,8 +70,9 @@ public sealed record GoogleSpecialHoursPatch(string Body, int Removed, int Kept)
 /// <para>
 /// A write replaces the location's whole list (<c>updateMask=specialHours</c>), so the list is read first: each period
 /// whose <c>startDate</c> is the date is dropped, every other one is written back as the very JSON Google sent, and the
-/// new ones follow. Removing (恢復營業, Q21) is the same without new periods; when nothing is left the body is <c>{}</c>, which
-/// resets the masked field.
+/// new ones follow; the date's replaced periods are returned so the apply can keep them (<see cref="ExternalRef"/>). Taking
+/// it back (恢復營業, Q21) puts those periods back in place of ours — or, when there were none, just removes the date's;
+/// when nothing is left the body is <c>{}</c>, which resets the masked field.
 /// </para>
 /// </remarks>
 public static class CoordinatorGoogleSpecialHours
@@ -111,29 +118,24 @@ public static class CoordinatorGoogleSpecialHours
     public static GoogleSpecialHoursPatch Replace(JsonElement? specialHours, DateOnly date, IReadOnlyList<GoogleSpecialHourPeriod> periods)
     {
         ArgumentNullException.ThrowIfNull(periods);
+        return ReplaceRaw(specialHours, date, [.. periods.Select(Json)]);
+    }
+
+    /// <summary>As <see cref="Replace"/>, with the new periods given as raw JSON (the ones an undo puts back).</summary>
+    public static GoogleSpecialHoursPatch ReplaceRaw(JsonElement? specialHours, DateOnly date, IReadOnlyList<string> periods)
+    {
+        ArgumentNullException.ThrowIfNull(periods);
         var kept = new List<string>();
-        var removed = 0;
-        if (specialHours is { ValueKind: JsonValueKind.Object } hours
-            && hours.TryGetProperty("specialHourPeriods", out var list)
-            && list.ValueKind == JsonValueKind.Array)
+        var replaced = new List<string>();
+        foreach (var period in AllPeriods(specialHours))
         {
-            foreach (var period in list.EnumerateArray())
-            {
-                if (StartDateOf(period) == date)
-                {
-                    removed++;
-                }
-                else
-                {
-                    kept.Add(period.GetRawText());
-                }
-            }
+            (StartDateOf(period) == date ? replaced : kept).Add(period.GetRawText());
         }
 
         if (kept.Count == 0 && periods.Count == 0)
         {
             // Nothing left: the masked field absent from the body is reset (AIP-134's field mask rule).
-            return new GoogleSpecialHoursPatch("{}", removed, 0);
+            return new GoogleSpecialHoursPatch("{}", replaced.Count, 0, replaced);
         }
 
         using var stream = new MemoryStream();
@@ -142,14 +144,9 @@ public static class CoordinatorGoogleSpecialHours
             writer.WriteStartObject();
             writer.WriteStartObject("specialHours");
             writer.WriteStartArray("specialHourPeriods");
-            foreach (var raw in kept)
+            foreach (var raw in kept.Concat(periods))
             {
                 writer.WriteRawValue(raw, skipInputValidation: true);
-            }
-
-            foreach (var period in periods)
-            {
-                Write(writer, period);
             }
 
             writer.WriteEndArray();
@@ -157,15 +154,38 @@ public static class CoordinatorGoogleSpecialHours
             writer.WriteEndObject();
         }
 
-        return new GoogleSpecialHoursPatch(Encoding.UTF8.GetString(stream.ToArray()), removed, kept.Count);
+        return new GoogleSpecialHoursPatch(Encoding.UTF8.GetString(stream.ToArray()), replaced.Count, kept.Count, replaced);
     }
 
+    /// <summary>The periods of <paramref name="specialHours"/> starting on <paramref name="date"/>, as raw JSON.</summary>
+    public static IReadOnlyList<string> PeriodsOn(JsonElement? specialHours, DateOnly date) =>
+        [.. AllPeriods(specialHours).Where(period => StartDateOf(period) == date).Select(period => period.GetRawText())];
+
     /// <summary>Whether <paramref name="specialHours"/> has a period starting on <paramref name="date"/>.</summary>
-    public static bool HasPeriodOn(JsonElement? specialHours, DateOnly date) =>
-        specialHours is { ValueKind: JsonValueKind.Object } hours
-        && hours.TryGetProperty("specialHourPeriods", out var list)
-        && list.ValueKind == JsonValueKind.Array
-        && list.EnumerateArray().Any(period => StartDateOf(period) == date);
+    public static bool HasPeriodOn(JsonElement? specialHours, DateOnly date) => PeriodsOn(specialHours, date).Count > 0;
+
+    /// <summary>Whether the raw periods <paramref name="raw"/> say the same as <paramref name="periods"/> (Google may write
+    /// them differently: <c>00:00</c> as <c>{}</c>, no <c>endDate</c> for the same day, times ignored when closed).</summary>
+    public static bool SameAs(IReadOnlyList<string> raw, IReadOnlyList<GoogleSpecialHourPeriod> periods)
+    {
+        ArgumentNullException.ThrowIfNull(raw);
+        ArgumentNullException.ThrowIfNull(periods);
+        var parsed = raw.Select(Parse).ToList();
+        return parsed.All(period => period is not null)
+            && Canonical(parsed.OfType<GoogleSpecialHourPeriod>()).SequenceEqual(Canonical(periods), StringComparer.Ordinal);
+    }
+
+    /// <summary>Whether two lists of raw periods say the same (as <see cref="SameAs(IReadOnlyList{string}, IReadOnlyList{GoogleSpecialHourPeriod})"/>;
+    /// unreadable ones must match character for character).</summary>
+    public static bool SameAs(IReadOnlyList<string> left, IReadOnlyList<string> right)
+    {
+        ArgumentNullException.ThrowIfNull(left);
+        ArgumentNullException.ThrowIfNull(right);
+        var parsed = right.Select(Parse).ToList();
+        return parsed.All(period => period is not null)
+            ? SameAs(left, [.. parsed.OfType<GoogleSpecialHourPeriod>()])
+            : left.Order(StringComparer.Ordinal).SequenceEqual(right.Order(StringComparer.Ordinal), StringComparer.Ordinal);
+    }
 
     /// <summary>Whether a location's <c>regularHours</c> (as read) has at least one period: Google sets special hours
     /// only for a location with regular hours.</summary>
@@ -193,26 +213,145 @@ public static class CoordinatorGoogleSpecialHours
         return new DateOnly(year, month, day);
     }
 
-    /// <summary>The date of an apply's <c>ExternalRef</c> (<see cref="ExternalRef"/>) and its location.</summary>
-    public static bool TryReadExternalRef(string? externalRef, out DateOnly date, out string location)
+    /// <summary>
+    /// What an applied Google action keeps to be taken back (at most <see cref="CoordinatorCommandAction.ExternalRefMaxLength"/>):
+    /// 「{yyyy-MM-dd}|{location}」 (the location written, which a later authorization may have changed), followed by
+    /// 「|[…]」 — the date's periods it replaced — when there were some: as Google sent them, else without white space, else
+    /// (still too long) left out, which <paramref name="keptPrevious"/> says.
+    /// </summary>
+    public static string ExternalRef(DateOnly date, string location, IReadOnlyList<string> previous, out bool keptPrevious)
     {
-        date = default;
-        location = string.Empty;
-        if (externalRef?.Split('|') is not [var day, var name]
-            || !DateOnly.TryParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date)
-            || !CoordinatorConnection.IsValidExternalId(name))
+        ArgumentNullException.ThrowIfNull(previous);
+        var head = string.Create(CultureInfo.InvariantCulture, $"{date:yyyy-MM-dd}|{location}");
+        keptPrevious = previous.Count == 0;
+        if (previous.Count == 0 || location.Contains('|', StringComparison.Ordinal))
+        {
+            return head;
+        }
+
+        foreach (var list in new Func<IEnumerable<string>>[] { () => previous, () => previous.Select(Compact) })
+        {
+            var candidate = $"{head}|[{string.Join(",", list())}]";
+            if (candidate.Length <= CoordinatorCommandAction.ExternalRefMaxLength)
+            {
+                keptPrevious = true;
+                return candidate;
+            }
+        }
+
+        return head;
+    }
+
+    /// <summary>An apply's <c>ExternalRef</c> (<see cref="ExternalRef"/>) read back; <see langword="false"/> when it is not
+    /// one (e.g. written by something else).</summary>
+    public static bool TryReadExternalRef(string? externalRef, out GoogleAppliedRef applied)
+    {
+        applied = null!;
+        var parts = externalRef?.Split('|', 3);
+        if (parts is not { Length: 2 or 3 }
+            || !DateOnly.TryParseExact(parts[0], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            || !CoordinatorConnection.IsValidExternalId(parts[1]))
         {
             return false;
         }
 
-        location = name;
+        var name = parts[1];
+
+        var previous = new List<string>();
+        if (parts.Length == 3)
+        {
+            try
+            {
+                using var list = JsonDocument.Parse(parts[2]);
+                if (list.RootElement.ValueKind != JsonValueKind.Array
+                    || list.RootElement.EnumerateArray().Any(period => StartDateOf(period) != date))
+                {
+                    return false;
+                }
+
+                previous.AddRange(list.RootElement.EnumerateArray().Select(period => period.GetRawText()));
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+
+        applied = new GoogleAppliedRef(date, name, previous);
         return true;
     }
 
-    /// <summary>What an applied Google action keeps to be taken back: 「{yyyy-MM-dd}|{location}」 (the location written,
-    /// which a later authorization may have changed).</summary>
-    public static string ExternalRef(DateOnly date, string location) =>
-        string.Create(CultureInfo.InvariantCulture, $"{date:yyyy-MM-dd}|{location}");
+    /// <summary>A period as the executor writes it.</summary>
+    public static string Json(GoogleSpecialHourPeriod period)
+    {
+        ArgumentNullException.ThrowIfNull(period);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            Write(writer, period);
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>A raw period read the way Google means it, or <see langword="null"/> when it cannot be.</summary>
+    private static GoogleSpecialHourPeriod? Parse(string raw)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(raw);
+            var period = document.RootElement;
+            if (StartDateOf(period) is not { } start)
+            {
+                return null;
+            }
+
+            if (period.TryGetProperty("closed", out var closed) && closed.ValueKind == JsonValueKind.True)
+            {
+                return GoogleSpecialHourPeriod.ClosedOn(start);
+            }
+
+            var end = period.TryGetProperty("endDate", out var endDate) ? DateOf(endDate) : start;
+            return end is null || TimeOf(period, "openTime") is not { } opens || TimeOf(period, "closeTime") is not { } closes
+                ? null
+                : new GoogleSpecialHourPeriod(start, false, opens, end, closes);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static GoogleTimeOfDay? TimeOf(JsonElement period, string name)
+    {
+        if (!period.TryGetProperty(name, out var time) || time.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        // Proto3 JSON leaves zero fields out: 00:00 is {}.
+        Int(time, "hours", out var hours);
+        Int(time, "minutes", out var minutes);
+        return new GoogleTimeOfDay(hours, minutes);
+    }
+
+    private static IEnumerable<string> Canonical(IEnumerable<GoogleSpecialHourPeriod> periods) =>
+        periods.Select(period => period.Closed ? GoogleSpecialHourPeriod.ClosedOn(period.StartDate) : period with { EndDate = period.EndDate ?? period.StartDate })
+            .Select(period => period.ToString())
+            .Order(StringComparer.Ordinal);
+
+    private static string Compact(string raw)
+    {
+        using var document = JsonDocument.Parse(raw);
+        return JsonSerializer.Serialize(document.RootElement);
+    }
+
+    private static IEnumerable<JsonElement> AllPeriods(JsonElement? specialHours) =>
+        specialHours is { ValueKind: JsonValueKind.Object } hours
+        && hours.TryGetProperty("specialHourPeriods", out var list)
+        && list.ValueKind == JsonValueKind.Array
+            ? list.EnumerateArray()
+            : [];
 
     private static GoogleSpecialHourPeriod PeriodOf(BusinessHours hours, BusinessInterval interval)
     {

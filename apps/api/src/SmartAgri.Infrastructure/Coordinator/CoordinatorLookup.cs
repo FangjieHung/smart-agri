@@ -4,7 +4,8 @@ using SmartAgri.Domain.Coordinator;
 namespace SmartAgri.Infrastructure.Coordinator;
 
 /// <summary>A shop a LINE user is bound to through the 統籌助理, and as what.</summary>
-/// <param name="StoreName">The organization's name (the shop settings of Slice 2 will give a store name).</param>
+/// <param name="StoreName">The store name of the shop's settings (#373), or the organization's name when it
+/// has none.</param>
 public sealed record CoordinatorMembership(Guid OrganizationId, string StoreName, CoordinatorRole Role);
 
 /// <summary>The binding code with a given hash: its id and organization, nothing else.</summary>
@@ -18,9 +19,9 @@ public sealed record CoordinatorCodeMatch(Guid CodeId, Guid OrganizationId);
 /// switch the organization filter off for coordinator data (a source-scanning test enforces it).
 /// </summary>
 /// <remarks>
-/// It only reads. Everything else — checking and using a code, adding a member, issuing a code — runs
-/// in a context acting for the organization found here (<c>FixedOrganizationContext</c>), under the
-/// usual filter and write guard.
+/// It only reads (with the store names of the shops' settings, #373). Everything else — checking and
+/// using a code, adding a member, issuing a code — runs in a context acting for the organization found
+/// here (<c>FixedOrganizationContext</c>), under the usual filter and write guard.
 /// </remarks>
 public sealed class CoordinatorLookup
 {
@@ -31,7 +32,8 @@ public sealed class CoordinatorLookup
         _dbContext = dbContext;
     }
 
-    /// <summary>Every shop <paramref name="lineUserId"/> is bound to, by store name; empty when none.</summary>
+    /// <summary>Every shop <paramref name="lineUserId"/> is bound to, by store name (the shop settings',
+    /// else the organization's); empty when none.</summary>
     public async Task<IReadOnlyList<CoordinatorMembership>> FindMembershipsAsync(string lineUserId, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrEmpty(lineUserId);
@@ -44,6 +46,16 @@ public sealed class CoordinatorLookup
                 member => member.OrganizationId,
                 organization => organization.Id,
                 (member, organization) => new { member.OrganizationId, organization.Name, member.Role })
+            .LeftJoin(
+                _dbContext.CoordinatorShopSettings.IgnoreQueryFilters([AppDbContext.OrganizationFilter]),
+                member => member.OrganizationId,
+                settings => settings.OrganizationId,
+                (member, settings) => new
+                {
+                    member.OrganizationId,
+                    Name = settings == null ? member.Name : settings.StoreName,
+                    member.Role,
+                })
             .ToListAsync(cancellationToken);
         return
         [

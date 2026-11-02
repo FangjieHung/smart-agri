@@ -1775,6 +1775,52 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("CoordinatorMembers", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.ShopSettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Scenarios")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("StoreName")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("WeeklyHours")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId")
+                        .IsUnique();
+
+                    b.ToTable("CoordinatorShopSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorShopSettings_Scenarios", "jsonb_typeof(\"Scenarios\") = 'object'");
+
+                            t.HasCheckConstraint("CK_CoordinatorShopSettings_WeeklyHours", "jsonb_typeof(\"WeeklyHours\") = 'object'");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Databases.Database", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3581,6 +3627,15 @@ namespace SmartAgri.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.ShopSettings", b =>
                 {
                     b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
                         .WithMany()

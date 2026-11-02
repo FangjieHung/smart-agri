@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Shouldly;
+using SmartAgri.Domain.Coordinator;
 using SmartAgri.Domain.Organizations;
 
 namespace SmartAgri.Domain.Tests;
@@ -87,7 +88,38 @@ public class OrganizationSettingsTests
                 "case-type-created", "case-type-updated",
                 "database-auto-case-changed",
                 "member-deactivated", "member-reactivated",
+                "coordinator-shop-settings-updated",
             ]);
+    }
+
+    [Fact]
+    public void A_shop_settings_change_records_section_and_scenario_names_only()
+    {
+        var organizationId = Guid.CreateVersion7();
+        var before = ShopSettingsSamples.ValidDocument();
+        var tree = ShopSettingsSamples.ValidTree();
+        tree["storeName"] = "王記麵店（新店）";
+        tree["scenarios"]!["close-early"]!["announcement"]!["template"] = "{日期} 提早到 {時間} 打烊，祕密配方賣完了";
+        var change = ShopSettingsChange.Between(before, ShopSettingsSamples.Parse(tree.ToJsonString()));
+
+        var activity = OrganizationActivity.CoordinatorShopSettingsUpdated(organizationId, At, created: false, change);
+
+        (activity.Action, activity.ActorAccountId).ShouldBe((OrganizationActivityAction.CoordinatorShopSettingsUpdated, (Guid?)null));
+        using (var detail = JsonDocument.Parse(activity.Detail!))
+        {
+            detail.RootElement.EnumerateObject().Select(property => property.Name).ShouldBe(["created", "changed", "scenarios"]);
+            detail.RootElement.GetProperty("created").GetBoolean().ShouldBeFalse();
+            detail.RootElement.GetProperty("changed").EnumerateArray().Select(name => name.GetString()).ShouldBe(["storeName", "scenarios"]);
+            detail.RootElement.GetProperty("scenarios").EnumerateArray().Select(name => name.GetString()).ShouldBe(["close-early"]);
+        }
+
+        activity.Detail!.ShouldNotContain("王記");
+        activity.Detail!.ShouldNotContain("祕密");
+        var first = OrganizationActivity.CoordinatorShopSettingsUpdated(organizationId, At, created: true, ShopSettingsChange.All);
+        first.Detail.ShouldBe(
+            """{"created":true,"changed":["storeName","timeZone","weeklyHours","scenarios"],"scenarios":["temporary-closure","close-early","open-late","reopen"]}""");
+        Should.Throw<ArgumentException>(() => OrganizationActivity.CoordinatorShopSettingsUpdated(
+            organizationId, At, created: false, ShopSettingsChange.Between(before, before)));
     }
 
     [Fact]

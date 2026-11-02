@@ -9,3 +9,5 @@
 /.backup-drill.*/
 # upgrade-drill.sh: its throwaway stack, the old version's git worktree and backups (deleted when it exits).
 /.upgrade-drill.*/
+# coordinator-shop (README §17.5): the shops' settings files, kept on the host, not in git.
+/shops/

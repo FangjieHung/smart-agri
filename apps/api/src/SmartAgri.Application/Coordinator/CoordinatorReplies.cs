@@ -33,8 +33,8 @@ public static class CoordinatorReplies
     /// <summary>LINE's limit on quick-reply buttons per message.</summary>
     public const int QuickReplyMaxItems = 13;
 
-    /// <summary>The time zone codes' expiry is shown in until shops have their own (Slice 2).</summary>
-    public const string DefaultTimeZoneId = "Asia/Taipei";
+    /// <summary>The time zone named 「台北時間」 rather than by its id (the shops' default, #373).</summary>
+    public const string DefaultTimeZoneId = ShopSettings.DefaultTimeZoneId;
 
     /// <summary>「已綁定 {店名}（{老闆/店長}）。」</summary>
     public static string Bound(string storeName, CoordinatorRole role) =>

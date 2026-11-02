@@ -223,6 +223,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Single-use 統籌助理 binding codes, stored as their SHA-256 (#372).</summary>
     public DbSet<CoordinatorBindingCode> CoordinatorBindingCodes => Set<CoordinatorBindingCode>();
 
+    /// <summary>Each shop's 統籌助理 settings, one row per organization (#373).</summary>
+    public DbSet<ShopSettings> CoordinatorShopSettings => Set<ShopSettings>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -404,10 +407,11 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new VisitorHandoffConfiguration());
         modelBuilder.ApplyConfiguration(new AccountNotificationSettingsConfiguration());
 
-        // The 統籌助理's members and binding codes (store-coordinator design, #372); only
-        // Coordinator/CoordinatorLookup reads them across organizations.
+        // The 統籌助理's members and binding codes (store-coordinator design, #372) and shop settings
+        // (#373); only Coordinator/CoordinatorLookup reads them across organizations.
         modelBuilder.ApplyConfiguration(new CoordinatorMemberConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorBindingCodeConfiguration());
+        modelBuilder.ApplyConfiguration(new ShopSettingsConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

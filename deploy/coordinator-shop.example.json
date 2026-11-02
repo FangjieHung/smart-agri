@@ -1,0 +1,177 @@
+{
+  "storeName": "王記麵店",
+  "timeZone": "Asia/Taipei",
+  "weeklyHours": {
+    "mon": [],
+    "tue": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "wed": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "thu": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "fri": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "sat": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "01:00"
+      }
+    ],
+    "sun": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ]
+  },
+  "scenarios": {
+    "temporary-closure": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 臨時店休一天，{恢復營業} 恢復營業，造成不便敬請見諒。\n原因：{原因}",
+        "imageUrl": "https://example.com/images/wang-closed.jpg"
+      },
+      "actions": [
+        {
+          "kind": "line-broadcast",
+          "mode": "auto",
+          "steps": "LINE 官方帳號管理後台 →「群發訊息」→ 建立訊息，貼上公告文字與圖片 → 傳送。"
+        },
+        {
+          "kind": "google-special-hours",
+          "mode": "reminder",
+          "steps": "Google 商家檔案 →「編輯個人檔案」→「營業時間」→「特殊營業時間」→ 加入這一天並設為「休息」（提早打烊、延後開店就改成當天的時間）。"
+        },
+        {
+          "kind": "facebook-post",
+          "mode": "reminder",
+          "steps": "Facebook 粉絲專頁 →「建立貼文」→ 貼上公告文字、加入圖片 →「發佈」。"
+        },
+        {
+          "kind": "ordering",
+          "name": "Xurf",
+          "mode": "reminder",
+          "pauseSteps": "Xurf iPad 點左側選單 →「接單設定」→ 關閉外帶與外送的接單。",
+          "resumeSteps": "Xurf iPad 點左側選單 →「接單設定」→ 打開外帶與外送的接單。"
+        },
+        {
+          "kind": "ordering",
+          "name": "foodpanda",
+          "mode": "reminder",
+          "pauseSteps": "foodpanda 商家 App（GO App）→「暫停接單」→ 選到今天結束。",
+          "resumeSteps": "foodpanda 商家 App（GO App）→「恢復接單」。"
+        }
+      ]
+    },
+    "close-early": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 提早到 {時間} 打烊，請見諒。\n原因：{原因}"
+      },
+      "actions": [
+        {
+          "kind": "line-broadcast",
+          "mode": "auto",
+          "steps": "LINE 官方帳號管理後台 →「群發訊息」→ 建立訊息，貼上公告文字與圖片 → 傳送。"
+        },
+        {
+          "kind": "google-special-hours",
+          "mode": "reminder",
+          "steps": "Google 商家檔案 →「編輯個人檔案」→「營業時間」→「特殊營業時間」→ 加入這一天並設為「休息」（提早打烊、延後開店就改成當天的時間）。"
+        },
+        {
+          "kind": "ordering",
+          "name": "Xurf",
+          "mode": "reminder",
+          "pauseSteps": "Xurf iPad 點左側選單 →「接單設定」→ 關閉外帶與外送的接單。",
+          "resumeSteps": "Xurf iPad 點左側選單 →「接單設定」→ 打開外帶與外送的接單。"
+        },
+        {
+          "kind": "ordering",
+          "name": "foodpanda",
+          "mode": "reminder",
+          "pauseSteps": "foodpanda 商家 App（GO App）→「暫停接單」→ 選到今天結束。",
+          "resumeSteps": "foodpanda 商家 App（GO App）→「恢復接單」。"
+        }
+      ]
+    },
+    "open-late": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 延後到 {時間} 開店，請見諒。\n原因：{原因}"
+      },
+      "actions": [
+        {
+          "kind": "line-broadcast",
+          "mode": "auto",
+          "steps": "LINE 官方帳號管理後台 →「群發訊息」→ 建立訊息，貼上公告文字與圖片 → 傳送。"
+        },
+        {
+          "kind": "google-special-hours",
+          "mode": "reminder",
+          "steps": "Google 商家檔案 →「編輯個人檔案」→「營業時間」→「特殊營業時間」→ 加入這一天並設為「休息」（提早打烊、延後開店就改成當天的時間）。"
+        },
+        {
+          "kind": "ordering",
+          "name": "Xurf",
+          "mode": "reminder",
+          "pauseSteps": "Xurf iPad 點左側選單 →「接單設定」→ 關閉外帶與外送的接單。",
+          "resumeSteps": "Xurf iPad 點左側選單 →「接單設定」→ 打開外帶與外送的接單。"
+        },
+        {
+          "kind": "ordering",
+          "name": "foodpanda",
+          "mode": "reminder",
+          "pauseSteps": "foodpanda 商家 App（GO App）→「暫停接單」→ 選到今天結束。",
+          "resumeSteps": "foodpanda 商家 App（GO App）→「恢復接單」。"
+        }
+      ]
+    },
+    "reopen": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 照常營業，先前的店休公告取消，歡迎光臨！"
+      }
+    }
+  }
+}

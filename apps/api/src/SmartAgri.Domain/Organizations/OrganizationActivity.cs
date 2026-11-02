@@ -1,4 +1,5 @@
 using System.Text.Json;
+using SmartAgri.Domain.Coordinator;
 
 namespace SmartAgri.Domain.Organizations;
 
@@ -237,6 +238,31 @@ public sealed class OrganizationActivity : IOrganizationScoped
         }
 
         return Record(organizationId, OrganizationActivityAction.MemberDeactivated, actorAccountId, at, new { member, successor, transferred });
+    }
+
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.CoordinatorShopSettingsUpdated"/> (system: the operator's
+    /// command-line tool acts for no account): detail <c>{ "created", "changed", "scenarios" }</c> —
+    /// whether these are the shop's first settings, the wire names of the top-level sections that changed
+    /// and of the scenarios that changed. Nothing the operator or the shop wrote. Only for a change.
+    /// </summary>
+    public static OrganizationActivity CoordinatorShopSettingsUpdated(
+        Guid organizationId, DateTimeOffset at, bool created, ShopSettingsChange change)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        if (change.IsEmpty)
+        {
+            throw new ArgumentException("Settings are recorded only when something changed.", nameof(change));
+        }
+
+        return Record(
+            organizationId, OrganizationActivityAction.CoordinatorShopSettingsUpdated, actorAccountId: null, at,
+            new
+            {
+                created,
+                changed = change.Sections,
+                scenarios = change.Scenarios.Select(WireNames<ShopScenario>.ToWire).ToList(),
+            });
     }
 
     /// <summary><see cref="OrganizationActivityAction.MemberReactivated"/>: detail <c>{ "member" }</c>.</summary>

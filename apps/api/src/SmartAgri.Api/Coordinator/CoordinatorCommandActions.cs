@@ -176,6 +176,26 @@ public sealed class CoordinatorCommandActions
                 token) == 1;
     }
 
+    /// <summary>
+    /// Keeps <paramref name="externalRef"/> — what an integration answered, e.g. the FB post's id (#379) — on the row at
+    /// once, before the try is recorded: a run of the same row again (the job retried after the database failed, or
+    /// 〔重試〕 after it gave up) then finds it and does not act twice, where the service has no idempotency key. Only
+    /// a row without one yet; <see langword="false"/> otherwise. Not cancellable: the service has acted already.
+    /// </summary>
+    public async Task<bool> KeepExternalRefAsync(Guid organizationId, Guid actionId, string externalRef)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(externalRef);
+        if (externalRef.Length > CoordinatorCommandAction.ExternalRefMaxLength)
+        {
+            throw new ArgumentException($"At most {CoordinatorCommandAction.ExternalRefMaxLength} characters.", nameof(externalRef));
+        }
+
+        await using var dbContext = ForOrganization(organizationId);
+        return await dbContext.CoordinatorCommandActions
+            .Where(action => action.Id == actionId && action.ExternalRef == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(action => action.ExternalRef, externalRef), CancellationToken.None) == 1;
+    }
+
     /// <summary>The job gave up on a row (it kept failing before recording anything): <c>scheduled → failed</c>
     /// (<see cref="CoordinatorFailureCodes.Error"/>), in <paramref name="dbContext"/> — the job's own, in its
     /// final-failure transaction.</summary>

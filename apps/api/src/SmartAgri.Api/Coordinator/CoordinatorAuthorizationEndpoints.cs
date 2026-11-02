@@ -416,6 +416,11 @@ public static class CoordinatorAuthorizationPages
 
     public const string CancelledMessage = "你取消了授權，統籌助理不會使用這個帳號。要完成授權，請重新打開原本的授權連結。";
 
+    /// <summary>FB: the account has no page it can post on (<see cref="CoordinatorFacebookOAuthProvider.NoPagesCode"/>, #379).</summary>
+    public const string NoFacebookPagesMessage =
+        "這個 Facebook 帳號沒有可以發文的粉專。請確認你是粉專的管理者（或有建立內容的權限），並在 Facebook 的授權畫面勾選要給統籌助理使用的粉專，"
+        + "然後向平台營運者索取新的連結再授權一次。";
+
     private const string HtmlContentType = "text/html; charset=utf-8";
 
     private const string Style =
@@ -451,9 +456,16 @@ public static class CoordinatorAuthorizationPages
     /// <summary>The link is unknown, used, expired or its service is not available: one page for all of them.</summary>
     public static IResult InvalidLink() => Page("連結已失效", $"<p>{InvalidLinkMessage}</p>", StatusCodes.Status404NotFound);
 
-    /// <summary>Anything else that went wrong, with a short code of ours when there is one.</summary>
+    /// <summary>Anything else that went wrong, with a short code of ours when there is one — and what to do instead of
+    /// the general advice when the code has its own message (<see cref="NoFacebookPagesMessage"/>).</summary>
     public static IResult Failed(string? code) =>
-        Page("授權沒有完成", $"<p>{FailedMessage}</p>{Code(code)}", StatusCodes.Status400BadRequest);
+        Page("授權沒有完成", $"<p>{FailureMessage(code)}</p>{Code(code)}", StatusCodes.Status400BadRequest);
+
+    private static string FailureMessage(string? code) => code switch
+    {
+        CoordinatorFacebookOAuthProvider.NoPagesCode => NoFacebookPagesMessage,
+        _ => FailedMessage,
+    };
 
     /// <summary>The owner said no on the service's screen.</summary>
     public static IResult Cancelled(string? code) => Page("已取消授權", $"<p>{CancelledMessage}</p>{Code(code)}", StatusCodes.Status200OK);

@@ -25,9 +25,11 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="CoordinatorLineBroadcastExecutor"/> and the card's <see cref="CoordinatorLineBroadcastNotes"/>) and
     /// <see cref="CoordinatorEventHandler"/>, and the FB and Google authorization links (#377:
     /// <see cref="CoordinatorFacebookOptions"/> and <see cref="CoordinatorGoogleOptions"/> validated on start, the
-    /// <see cref="CoordinatorOAuthProviders"/> registered by later slices — none here, so neither is configured —,
+    /// <see cref="CoordinatorOAuthProviders"/> registered by later slices,
     /// <see cref="CoordinatorAuthorizationLinks"/>, <see cref="CoordinatorOAuthStates"/>, <see cref="CoordinatorOAuthSelections"/>,
-    /// <see cref="CoordinatorAuthorizationFlow"/> and <see cref="CoordinatorReauthorization"/>). Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
+    /// <see cref="CoordinatorAuthorizationFlow"/> and <see cref="CoordinatorReauthorization"/>), and FB 粉專貼文 (#379: the
+    /// <see cref="FacebookGraphClient"/>, the <see cref="CoordinatorFacebookOAuthProvider"/> and the
+    /// <see cref="CoordinatorFacebookPostExecutor"/>). Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
     /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c>, the secret protector and Data Protection, and
     /// <c>PublicChannelsOptions</c>. Nothing reads the options while the pipeline is built.
     /// </summary>
@@ -74,6 +76,15 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddJobHandler<CoordinatorRunActionHandler>(CoordinatorRunActionJob.Kind);
         services.AddScoped<CoordinatorCommandHandler>();
         services.AddScoped<CoordinatorEventHandler>();
+        services.AddHttpClient<FacebookGraphClient>(FacebookGraphClient.HttpClientName, http =>
+            {
+                http.BaseAddress = FacebookGraphClient.BaseAddress;
+                http.Timeout = FacebookGraphClient.Timeout;
+            })
+            .RemoveAllLoggers();
+        services.AddScoped<ICoordinatorOAuthProvider, CoordinatorFacebookOAuthProvider>();
+        services.AddScoped<CoordinatorFacebookPostExecutor>();
+        services.AddScoped<ICoordinatorActionExecutor>(provider => provider.GetRequiredService<CoordinatorFacebookPostExecutor>());
         services.AddScoped<CoordinatorOAuthProviders>();
         services.AddScoped<CoordinatorAuthorizationLinks>();
         services.AddSingleton<CoordinatorOAuthStates>();

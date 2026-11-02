@@ -1542,8 +1542,8 @@ with FB 貼文 (#379) and Google 特殊營業時間 (#378). Operator guide: `dep
   code, the redirect URI and the verifier) and `SelectAsync`. Each answers a `CoordinatorOAuthOutcome`: `Connected`
   (`CoordinatorOAuthCredential`: the secret to store, the external id — page or location — and a display name),
   `NeedsSelection` (1–100 `CoordinatorOAuthChoice`s with distinct valid external ids, plus opaque `CoordinatorOAuthPending`
-  data kept in memory only) or `Failed(code)` (a short code of ours, never the service's text). None is registered here,
-  so both services are *not configured*. Platform settings: `Coordinator:Facebook:AppId` / `AppSecret` and
+  data kept in memory only) or `Failed(code)` (a short code of ours, never the service's text). FB's real provider comes
+  with #379 (next section); Google stays *not configured* until #378. Platform settings: `Coordinator:Facebook:AppId` / `AppSecret` and
   `Coordinator:Google:ClientId` / `ClientSecret` (`CoordinatorFacebookOptions`, `CoordinatorGoogleOptions`; both or
   neither, validated on start; `COORDINATOR_FACEBOOK_*`, `COORDINATOR_GOOGLE_*` in `deploy/.env`). A service's flow is
   *available* when its provider is configured and `PublicChannels:PublicBaseUrl` is set.
@@ -1592,10 +1592,64 @@ with FB 貼文 (#379) and Google 特殊營業時間 (#378). Operator guide: `dep
   (`OpenTelemetryExtensions.RedactSecretUrls`). ASP.NET Core's own request lines (full URL) are below the shipped
   `Microsoft.AspNetCore: Warning`.
 - **Tests**: `CoordinatorHostFixture` registers `FakeOAuthProvider`s (FB without PKCE, Google with) whose consent screen
-  is never requested — the tests play the owner's browser (cookies by hand) and the service.
+  is never requested — the tests play the owner's browser (cookies by hand) and the service. (Since #379 the FB fake can
+  `ForwardTo` the real provider for a test.)
 - **Rate limit**: the three endpoints carry `PublicRateLimitedEndpoint.CoordinatorAuthorization` and share one sliding
   window per client IP, `PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute` (default 20; a whole
   authorization is two or three requests); beyond it the usual `429 rate-limited` with `Retry-After: 60`.
+
+## Store coordinator (統籌助理): FB 粉專貼文 (#379)
+
+FB 貼文 runs automatically on the shop's own page (store-coordinator design Slice 8, §3 Q3, Q13, Q18, Q21): the Facebook
+provider behind the authorization links of #377, and the executor. Operator guide: `deploy/README.md` §17.10. Graph API
+facts were checked on 2026-11-02 against developers.facebook.com (version changelog, manual login flow, Facebook Login for
+Business, long-lived tokens, `/me/accounts`, the Pages posts guide, the page photos reference, securing requests, error
+handling, rate limiting).
+
+- **Graph client** (`SmartAgri.Api.Coordinator.FacebookGraphClient`, typed `HttpClient` `facebook-graph`, base
+  `https://graph.facebook.com/v26.0/`, 30 s timeout, `IHttpClientFactory` loggers removed): `ExchangeCodeAsync`
+  (`GET oauth/access_token` with `client_id`, `redirect_uri`, `client_secret`, `code`), `ExchangeForLongLivedAsync`
+  (`grant_type=fb_exchange_token`), `PagesAsync` (`GET me/accounts?fields=id,name,access_token,tasks&limit=100`),
+  `PostPhotoAsync` (`POST {page-id}/photos` form `url` + `caption` — Graph documents `message` there as deprecated),
+  `PostTextAsync` (`POST {page-id}/feed` form `message`) and `DeleteAsync` (`DELETE {post-id}` → `{"success":true}`).
+  Every call made with an access token carries `appsecret_proof` = lowercase hex HMAC-SHA256 of the token keyed with
+  `Coordinator:Facebook:AppSecret` (`AppSecretProof`); tokens and the proof go in the form body of a `POST` and the query
+  of a `GET`/`DELETE` (the documented `access_token` parameter). Results are `FacebookGraphResult` (`Succeeded`,
+  `GraphError` with `FacebookGraphError(code, subcode, type, fbtrace_id)` — never Graph's `message` —, `HttpError`,
+  `TimedOut`, `NetworkError`); one log line per call with the endpoint's shape, status, code, subcode and `fbtrace_id`.
+- **Errors** (`FacebookGraphErrors`): token refused = code 190 or 102, or subcode 458/459/460/463/464/467/492; permission
+  missing = 10 or 200–299; throttled = 4, 17, 32, 341, 613, 80001 (or a bodiless `429`); unavailable = 1, 2, a bodiless
+  `5xx`, a timeout or no connection; missing object = 100/33.
+- **Provider** (`CoordinatorFacebookOAuthProvider`, `facebook`, no PKCE, configured with `Coordinator:Facebook:AppId` and
+  `AppSecret`): the consent URL is `https://www.facebook.com/v26.0/dialog/oauth` with `client_id`, `redirect_uri`,
+  `state`, `response_type=code` and `scope=pages_show_list,pages_manage_posts,pages_read_engagement` — or, when the
+  optional `Coordinator:Facebook:ConfigId` (digits; needs the app settings, validated on start) is set, `config_id`
+  instead of `scope` (Facebook Login for Business). The exchange is code → user token → long-lived user token →
+  `/me/accounts`, keeping only pages whose `tasks` contain `CREATE_CONTENT` with a token (distinct, at most 100): one →
+  `Connected` (secret = the page token, which does not expire; external id = the page id; display name = the page name,
+  else its id); several → `NeedsSelection` (the pages' ids, names and tokens as the pending data, in memory only); none →
+  `Failed(facebook-no-pages)`, whose page says 「這個 Facebook 帳號沒有可以發文的粉專…」
+  (`CoordinatorAuthorizationPages.NoFacebookPagesMessage`). Other failures: `facebook-permission` (10/200 on
+  `/me/accounts`), `facebook-unavailable` (down, throttled, unreachable), `facebook-exchange` (Graph refused the code or a
+  token). User tokens are never stored.
+- **Executor** (`CoordinatorFacebookPostExecutor`, kind `facebook-post`): available exactly while FB is configured and the
+  shop has an active `facebook` connection, so the card and the execution agree (`ExecutorActionModes`). Apply: the
+  command's announcement as a photo post with the action's `ImageUrl`, else a text post; the post id (`post_id`, else the
+  photo's `id`) is kept on the row at once (`CoordinatorCommandActions.KeepExternalRefAsync`, before the try is recorded)
+  and returned as `ExternalRef`; a row that has one already is `Succeeded` without posting (Graph has no idempotency key —
+  the remaining risk is a post accepted whose answer never arrives: `facebook-timed-out`, whose reason asks the member to
+  check the page before 〔重試〕). Undo (a reopen): `DELETE` the applied row's `ExternalRef` — only an id of the connected
+  page (`{page-id}_…`), else a reminder; 100/33 (gone already) is a success. Results: token refused or a token that no
+  longer decrypts → `UnavailableBecause(token-revoked)` (the run handler revokes the connection and pushes #377's
+  re-authorization link); permission missing → `UnavailableBecause(facebook-permission)` (「FB 權限不足（應用程式審核未通過或
+  未授權發文），先以提醒處理」); throttled → `Failed(rate-limited)`; a post timed out or answered without an id →
+  `Failed(facebook-timed-out)`; unavailable → `Failed(facebook-unavailable)`; 324 or 100 on a photo post →
+  `Failed(facebook-image)`; anything else → `Failed(rejected)`. Logs carry the action, page and post ids and Graph's
+  status/code/subcode/fbtrace_id — never a token, the app secret, a proof, the announcement or Graph's message.
+- **Tests**: `FakeGraphServer` (`Infrastructure/`) plays Graph `v26.0` — users with a code and short/long tokens, pages
+  with tokens and tasks, posts `{page-id}_{n}`, `100/33` for a post that is gone, `400` code 100 for a wrong or missing
+  `appsecret_proof`, scripted errors, timeouts and accepted-then-timed-out posts. `CoordinatorHostFixture` configures the
+  host's Meta app, routes `facebook-graph` to it and hands every shop no test enrolled to the real executor.
 
 ## Monthly token limit: `set-token-limit`
 

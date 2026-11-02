@@ -9,7 +9,8 @@ namespace SmartAgri.Api.Tests.Coordinator;
 /// Executors for LINE 群發, Google and FB that stand in for Slices 5, 7 and 8 (#375): available only for the shops a
 /// test <see cref="Enroll"/>s for a kind — every other shop sees no executor, so the other tests sharing the host still
 /// get reminders — answering each call with the next scripted outcome (a success when the script is used up), and
-/// recording every call. A kind with a real executor (LINE 群發 since #376) hands every shop not enrolled to it.
+/// recording every call. A kind with a real executor (LINE 群發 since #376, FB 貼文 since #379) hands every shop not
+/// enrolled to it.
 /// </summary>
 public sealed class FakeCoordinatorExecutors
 {

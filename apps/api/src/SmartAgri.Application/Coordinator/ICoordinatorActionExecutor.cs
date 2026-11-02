@@ -150,6 +150,21 @@ public static class CoordinatorFailureCodes
     /// (<see cref="ICoordinatorReauthorization"/>, #377).</summary>
     public const string TokenRevoked = "token-revoked";
 
+    /// <summary>With <see cref="CoordinatorActionOutcome.Unavailable"/>: FB refused for want of a permission (Graph error
+    /// 10 or 200–299: the Meta app's App Review has not passed, or the owner did not grant publishing), so FB 貼文 became
+    /// a reminder (#379).</summary>
+    public const string FacebookPermission = "facebook-permission";
+
+    /// <summary>FB is down, answered with a server error or could not be reached (#379).</summary>
+    public const string FacebookUnavailable = "facebook-unavailable";
+
+    /// <summary>FB could not use the announcement's image (Graph error 324, or 100 on a photo post) (#379).</summary>
+    public const string FacebookImage = "facebook-image";
+
+    /// <summary>FB did not answer a post in time: it may have been posted (Graph has no idempotency key), so the
+    /// member looks at the page before pressing 〔重試〕 (#379).</summary>
+    public const string FacebookTimedOut = "facebook-timed-out";
+
     public const string RateLimited = "rate-limited";
 
     public const string TimedOut = "timed-out";
@@ -174,6 +189,10 @@ public static class CoordinatorFailureCodes
         QuotaInsufficient => "LINE 本月剩餘額度不足，沒有群發",
         LineUnavailable => "LINE 暫時無法使用",
         TokenRevoked => "LINE 權杖失效，已改為手動；請平台營運者重新設定權杖",
+        FacebookPermission => "FB 權限不足（應用程式審核未通過或未授權發文），先以提醒處理",
+        FacebookUnavailable => "FB 暫時無法使用",
+        FacebookImage => "FB 讀不到公告圖片（圖片網址要能公開下載，JPG 或 PNG、4MB 以內）",
+        FacebookTimedOut => "FB 沒有及時回應，貼文可能已經發出；按〔重試〕前請先到粉專確認",
         RateLimited => "服務忙碌中",
         TimedOut => "服務沒有回應",
         NetworkError => "連不上服務",

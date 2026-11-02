@@ -132,8 +132,16 @@ public static class CoordinatorPreviewCard
         ShopSettingsDocument settings, ShopScenario undone, DateOnly date, IReadOnlyList<ShopActionMode> modes, bool correction)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        return ReopenRows(settings[undone].Actions, date, modes, correction);
+    }
+
+    /// <summary>The lines of a reopen card undoing <paramref name="actions"/> — what the undone command did, as
+    /// recorded when it was confirmed (<see cref="CoordinatorActionSchedule.ActionsOf"/>, #375).</summary>
+    public static IReadOnlyList<CoordinatorCardRow> ReopenRows(
+        IReadOnlyList<ShopAction> actions, DateOnly date, IReadOnlyList<ShopActionMode> modes, bool correction)
+    {
+        ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(modes);
-        var actions = settings[undone].Actions;
         CheckModes(actions, modes);
         var day = ShopAnnouncements.FormatDate(date);
         return
@@ -146,7 +154,7 @@ public static class CoordinatorPreviewCard
                 ShopActionKind.GoogleSpecialHours => new CoordinatorCardRow($"Google 特殊營業時間：移除 {day} 的設定", modes[index]),
                 ShopActionKind.FacebookPost => new CoordinatorCardRow("FB 粉專：刪除公告貼文", modes[index]),
                 ShopActionKind.Ordering => new CoordinatorCardRow($"{action.Name} 重新開啟接單", modes[index]),
-                _ => throw new ArgumentOutOfRangeException(nameof(settings), action.Kind, "Not an action kind."),
+                _ => throw new ArgumentOutOfRangeException(nameof(actions), action.Kind, "Not an action kind."),
             }),
         ];
     }

@@ -163,3 +163,75 @@ internal sealed class CoordinatorCommandConfiguration : IEntityTypeConfiguration
             .HasDatabaseName("IX_CoordinatorCommands_ReopensCommandId");
     }
 }
+
+/// <summary>
+/// Table <c>CoordinatorCommandActions</c> (#375): one row per action of a confirmed command (decision F). Check
+/// constraints keep a row consistent with its kind, step and status (an ordering system pauses and resumes, is
+/// named and always a reminder; an undo names what it undoes; 〔已完成〕 records who; a failure has its code);
+/// positions are unique per command. The command and the undone row are foreign keys within the same organization.
+/// Indexes serve a command's rows.
+/// </summary>
+internal sealed class CoordinatorCommandActionConfiguration : IEntityTypeConfiguration<CoordinatorCommandAction>
+{
+    public void Configure(EntityTypeBuilder<CoordinatorCommandAction> builder)
+    {
+        builder.ToTable("CoordinatorCommandActions", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_CoordinatorCommandActions_Ordering",
+                "(\"Kind\" = 'ordering') = (\"Step\" IN ('pause', 'resume')) AND (\"Kind\" = 'ordering') = (\"Name\" IS NOT NULL) "
+                + "AND (\"Kind\" <> 'ordering' OR \"Mode\" = 'reminder')");
+            table.HasCheckConstraint(
+                "CK_CoordinatorCommandActions_Undo",
+                "(\"Step\" <> 'undo' OR \"UndoesActionId\" IS NOT NULL) AND (\"Step\" NOT IN ('apply', 'pause') OR \"UndoesActionId\" IS NULL)");
+            table.HasCheckConstraint(
+                "CK_CoordinatorCommandActions_Done",
+                "(\"Status\" = 'done-manually') = (\"CompletedByLineUserId\" IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_CoordinatorCommandActions_Completed",
+                "\"Status\" NOT IN ('succeeded', 'failed', 'done-manually') OR \"CompletedAt\" IS NOT NULL");
+            table.HasCheckConstraint(
+                "CK_CoordinatorCommandActions_Failure",
+                "\"Status\" <> 'failed' OR \"FailureCode\" IS NOT NULL");
+            table.HasCheckConstraint("CK_CoordinatorCommandActions_Position", "\"Position\" >= 0 AND \"Attempts\" >= 0");
+        });
+        builder.HasKey(action => action.Id);
+        builder.Property(action => action.Id).ValueGeneratedNever();
+        builder.Property(action => action.Kind)
+            .HasConversion<WireNameConverter<ShopActionKind>>()
+            .HasMaxLength(32)
+            .IsRequired();
+        builder.Property(action => action.Name).HasMaxLength(ShopSettingsJson.OrderingNameMaxLength);
+        builder.Property(action => action.Step)
+            .HasConversion<WireNameConverter<CoordinatorActionStep>>()
+            .HasMaxLength(16)
+            .IsRequired();
+        builder.Property(action => action.Mode)
+            .HasConversion<WireNameConverter<ShopActionMode>>()
+            .HasMaxLength(16)
+            .IsRequired();
+        builder.Property(action => action.Status)
+            .HasConversion<WireNameConverter<CoordinatorActionStatus>>()
+            .HasMaxLength(32)
+            .IsRequired();
+        builder.Property(action => action.StepsText).HasMaxLength(CoordinatorCommandAction.StepsTextMaxLength).IsRequired();
+        builder.Property(action => action.ImageUrl).HasMaxLength(ShopSettingsJson.ImageUrlMaxLength);
+        builder.Property(action => action.RecipientLineUserId).HasMaxLength(CoordinatorMember.LineUserIdMaxLength).IsRequired();
+        builder.Property(action => action.CompletedByLineUserId).HasMaxLength(CoordinatorMember.LineUserIdMaxLength);
+        builder.Property(action => action.FailureCode).HasMaxLength(CoordinatorCommandAction.FailureCodeMaxLength);
+        builder.Property(action => action.ExternalRef).HasMaxLength(CoordinatorCommandAction.ExternalRefMaxLength);
+        builder.Ignore(action => action.IsOrdering);
+        builder.HasAlternateKey(action => new { action.Id, action.OrganizationId });
+        builder.HasOne<CoordinatorCommand>()
+            .WithMany()
+            .HasForeignKey(action => new { action.CommandId, action.OrganizationId })
+            .HasPrincipalKey(command => new { command.Id, command.OrganizationId })
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<CoordinatorCommandAction>()
+            .WithMany()
+            .HasForeignKey(action => new { action.UndoesActionId, action.OrganizationId })
+            .HasPrincipalKey(action => new { action.Id, action.OrganizationId })
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(action => new { action.CommandId, action.Position }).IsUnique();
+    }
+}

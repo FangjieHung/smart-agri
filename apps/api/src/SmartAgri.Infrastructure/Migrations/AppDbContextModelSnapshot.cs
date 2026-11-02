@@ -1826,6 +1826,116 @@ namespace SmartAgri.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorCommandAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CommandId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CompletedByLineUserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("DueAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExternalRef")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RecipientLineUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("ReportedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Step")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("StepsText")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("UndoesActionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("CommandId", "OrganizationId");
+
+                    b.HasIndex("CommandId", "Position")
+                        .IsUnique();
+
+                    b.HasIndex("UndoesActionId", "OrganizationId");
+
+                    b.ToTable("CoordinatorCommandActions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorCommandActions_Completed", "\"Status\" NOT IN ('succeeded', 'failed', 'done-manually') OR \"CompletedAt\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommandActions_Done", "(\"Status\" = 'done-manually') = (\"CompletedByLineUserId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommandActions_Failure", "\"Status\" <> 'failed' OR \"FailureCode\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommandActions_Ordering", "(\"Kind\" = 'ordering') = (\"Step\" IN ('pause', 'resume')) AND (\"Kind\" = 'ordering') = (\"Name\" IS NOT NULL) AND (\"Kind\" <> 'ordering' OR \"Mode\" = 'reminder')");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommandActions_Position", "\"Position\" >= 0 AND \"Attempts\" >= 0");
+
+                            t.HasCheckConstraint("CK_CoordinatorCommandActions_Undo", "(\"Step\" <> 'undo' OR \"UndoesActionId\" IS NOT NULL) AND (\"Step\" NOT IN ('apply', 'pause') OR \"UndoesActionId\" IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3720,6 +3830,28 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasOne("SmartAgri.Domain.Coordinator.CoordinatorCommand", null)
                         .WithMany()
                         .HasForeignKey("ReopensCommandId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorCommandAction", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Coordinator.CoordinatorCommand", null)
+                        .WithMany()
+                        .HasForeignKey("CommandId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Coordinator.CoordinatorCommandAction", null)
+                        .WithMany()
+                        .HasForeignKey("UndoesActionId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });

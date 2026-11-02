@@ -1376,7 +1376,7 @@ the example byte for byte).
 
 A bound owner or manager says 「今天臨時店休」; the 統籌助理 answers with a preview card built from the shop's
 settings and confirms it once (store-coordinator design Slice 3, §3 Q4–Q6, Q13, Q14, Q17, Q18, Q20, Q21, Q23,
-Q24, decision D). Carrying a confirmed command out is Slice 4 (#375). Operator guide: `deploy/README.md` §17.6.
+Q24, decision D). Carrying a confirmed command out is the next section (#375). Operator guide: `deploy/README.md` §17.6.
 
 - **Storage**: `CoordinatorCommands` (`SmartAgri.Domain.Coordinator.CoordinatorCommand`, organization scoped; the
   「每次指令一筆」 record of decision F that Slice 4 adds result rows to): who asked (coordinator LINE user id),
@@ -1419,14 +1419,67 @@ Q24, decision D). Carrying a confirmed command out is Slice 4 (#375). Operator g
   press flips it, bumps the version and re-sends the card).
 - **Card** (`CoordinatorPreviewCard.Build`, pure Flex; alt text 「{店名} {日期} {情境}預覽」): header
   「{店名}｜{日期}{情境}」 (+ time), one line per action with its effective mode from `ICoordinatorActionModes`
-  (`ReminderOnlyActionModes` in this slice: everything 提醒 until Slices 5/7/8), ordering systems with when they are
+  (`ExecutorActionModes`, #375: everything 提醒 until Slices 5/7/8 register executors), ordering systems with when they are
   reminded, the announcement and 「要修改公告，回覆「改成：新的內容」」, 「已接的訂單仍需處理」, 〔取消〕〔確認〕. Each row's
   `Note` is Slice 5's hook for 「將用掉 N 則、本月剩 M 則」 (unset here). Button labels ≤ 20, alt text ≤ 400.
 - **Confirm / cancel** (`CoordinatorCommands`): one compare-and-set `previewed → confirmed` (same version,
   unexpired, the sender a member of the shop, in that shop's context), so any number of presses confirm once; then
-  `ICoordinatorCommandRunner.StartAsync` — this slice's `AcknowledgingCommandRunner` replies
-  「已確認：{店名} {日期} {情境}。」. Refusals: 「這張預覽卡已經確認過了。」, 「這張預覽卡已經取消了。」,
+  `ICoordinatorCommandRunner.StartAsync` (`ExecutingCommandRunner`, next section). A reopen card lists what the undone
+  command recorded at its confirmation (`CoordinatorActionSchedule.ActionsOf`), not today's settings. Refusals:
+  「這張預覽卡已經確認過了。」, 「這張預覽卡已經取消了。」,
   「已失效，請重新下指令。」, 「預覽卡已更新，請按最新的那張。」, not a member. Cancel → 「已取消。」.
+
+## Store coordinator (統籌助理): carrying commands out (#375)
+
+A confirmed command runs action by action and is reported; whatever cannot run automatically is a reminder with manual
+steps and 〔已完成〕 (store-coordinator design Slice 4, §3 Q7, Q8, Q15, Q17, Q18, Q20, Q21, Q25, decisions E and F).
+Operator guide: `deploy/README.md` §17.7.
+
+- **Storage**: `CoordinatorCommandActions` (`SmartAgri.Domain.Coordinator.CoordinatorCommandAction`, organization scoped;
+  with `CoordinatorCommands` the execution record of decision F): `CommandId` (same organization), `Position` (unique per
+  command), `Kind` (`line-broadcast` | `google-special-hours` | `facebook-post` | `ordering`), `Name` (ordering only),
+  `Step` (`apply` | `undo` | `pause` | `resume`), `Mode` (the effective `auto` | `reminder`), `Status` (`scheduled` |
+  `succeeded` | `failed` | `awaiting-manual` | `done-manually` | `cancelled`), `DueAt` (UTC), `StepsText` and `ImageUrl`
+  (snapshots of the settings at confirmation, or a fixed undo text), `RecipientLineUserId` (who confirmed), `UndoesActionId`
+  (an undo, and a reopen's resume), `FailureCode` (a short code of ours, `^[a-z0-9-]{1,32}$`), `ExternalRef` (what an
+  integration returned, for its undo), `Attempts`, `CompletedAt`, `CompletedByLineUserId` (〔已完成〕), `ReportedAt` (the
+  outcome was told). Check constraints tie kind/step/name/mode, undo, done and failure together. No user text besides the
+  command's announcement.
+- **Plan** (`CoordinatorActionSchedule`, pure): LINE 群發 / Google / FB `apply` now; an ordering system `pause` and
+  `resume` reminders `OrderingLead` (30 minutes) before: 臨時店休 — the day's first opening / the first opening of a later
+  day (`BusinessHours.FirstOpeningAfter`: regular days off skipped, the day's overnight period belongs to it); 提早打烊 —
+  the new closing time / as a closure; 延後開店 — the day's first opening / the new opening time; never before now. Modes
+  come from `ICoordinatorActionModes`, so the card and the execution agree.
+- **Executors** (`ICoordinatorActionExecutor`, one per kind, last registration wins; none in this slice): `IsAvailableAsync`
+  decides `auto` (`ExecutorActionModes`), `ExecuteAsync` / `UndoAsync` (with the undone row's `ExternalRef`) answer
+  `Succeeded(externalRef)`, `Failed(code)` or `Unavailable` (→ a reminder, Q18). An exception counts as `error`; nothing is
+  retried automatically. `CoordinatorActionRequest.ActionId` is the idempotency key.
+- **Confirm** (`ExecutingCommandRunner`): one transaction writes the rows and one `coordinator.run-action` job per row
+  still `scheduled` (`RunAfter` = `DueAt`); a reminder due now starts `awaiting-manual`. The 〔確認〕 reply is the report
+  (`CoordinatorExecutionReport.Confirmation`, alt text 「已確認：{店名} {日期} {情境}。」): ✅ / ❌ reason 〔重試〕 / ⏳ steps
+  〔已完成〕 / ⌛ 「執行中…」 / 🕒 「11/2（一）10:30 會提醒你關閉接單」 / 🚫, plus the announcement as a plain text message when
+  a LINE 群發 or FB 貼文 is the owner's to post.
+- **Jobs** (`CoordinatorRunActionHandler`): nothing unless the row is still `scheduled` (cancelling = setting it
+  `cancelled`). A reminder → `awaiting-manual`, pushed to the recipient (if still a member) with `X-Line-Retry-Key` = the
+  row id; a failed push is logged and the row stays. An automatic row → its executor (none → `Unavailable`), the outcome
+  compare-and-set from `scheduled`, then `CoordinatorReports.SendFollowUpAsync`: once no automatic try of the command due
+  by now is still waiting (serialized per command by a row lock of a no-op update of the command), the untold outcomes
+  are marked told and sent as one follow-up — a reply with a 〔重試〕 token kept in memory for 50 s
+  (`CoordinatorReplyTokens`), otherwise a push (the coordinator account's quota, decision E). When the queue gives up on
+  a job, a row still `scheduled` becomes `failed` (`error`).
+- **Buttons** (`CoordinatorActionButtons`; postbacks `coordinator:done:<org>:<action>`, `coordinator:retry:<org>:<action>`):
+  〔已完成〕 is `awaiting-manual → done-manually` with who/when, the sender a member of the shop (「已記錄：{項目} 已完成。」;
+  later presses change nothing). 〔重試〕 is `failed → scheduled` now plus a new job in one transaction, never for a row that
+  succeeded or waits for a hand (Q8); it answers nothing at once — the follow-up does.
+- **Reopen** (`CoordinatorActionSchedule.PlanReopen`): the undone command's rows still `scheduled` or `failed` become
+  `cancelled` (their jobs then do nothing); an applied Google / FB that `succeeded` gets an `undo` (automatic while its
+  executor is available, else a reminder), one done by hand or still awaiting gets an `undo` reminder with a fixed text;
+  an ordering system whose pause happened (reminded, done, or due already) and whose resume had not come gets a `resume`
+  reminder now; LINE 群發 is never taken back — with `CorrectionBroadcast` a LINE 群發 `apply` of the reopen announcement.
+- **CLI** `coordinator-commands --organization <code> [--limit <1-200>]` (`CoordinatorCommandsCommand`, any environment):
+  the latest confirmed commands (default 20) with each row's kind, name, step, mode, status (+ failure code), due and
+  completion times in the shop's zone; no announcement, LINE ids masked to `…` + their last four characters. Exit codes
+  0 / 1 (unknown organization, read failure) / 2 (usage).
 
 ## Monthly token limit: `set-token-limit`
 

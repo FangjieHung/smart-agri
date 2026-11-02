@@ -548,7 +548,7 @@ public sealed partial class CoordinatorWebhookTests : IClassFixture<CoordinatorH
 }
 
 /// <summary>The Api host of <see cref="CoordinatorWebhookTests"/>: the usual one, with the 統籌助理
-/// configured for a bot of the fake LINE server.</summary>
+/// configured for a bot of the fake LINE server, and executors for the shops a test enrolls (#375).</summary>
 public sealed class CoordinatorHostFixture : AuthHostFixture
 {
     public const string Secret = "c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -559,6 +559,9 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
     /// <summary>Every log entry of the host while <see cref="CoordinatorTestLog.Start"/>ed (#374).</summary>
     public CoordinatorTestLog Log { get; } = new();
 
+    /// <summary>LINE 群發, Google and FB executors, available only for enrolled shops (#375).</summary>
+    public FakeCoordinatorExecutors Executors { get; } = new();
+
     protected override void ConfigureServices(IServiceCollection services)
     {
         Line.AddBot(Bot);
@@ -568,6 +571,11 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
             options.ChannelAccessToken = Bot.AccessToken;
         });
         services.AddSingleton<ILoggerProvider>(Log);
+        foreach (var kind in FakeCoordinatorExecutors.Kinds)
+        {
+            services.AddSingleton(Executors.For(kind));
+        }
+
         services.Configure<LoggerFilterOptions>(options =>
             options.Rules.Add(new LoggerFilterRule(typeof(CoordinatorTestLog).FullName, categoryName: null, LogLevel.Trace, filter: null)));
     }

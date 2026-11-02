@@ -62,8 +62,8 @@ public static class CoordinatorCommandReplies
     /// <summary>The most shops 「全部」 is offered for: one reply holds at most this many messages, one per shop.</summary>
     public const int AllShopsMax = LineMessages.MaxPerRequest;
 
-    /// <summary>「已確認：{店名} {日期} {情境}。」 (with the time for 提早打烊／延後開店): what this slice says on
-    /// 〔確認〕; Slice 4 replaces it with carrying the command out.</summary>
+    /// <summary>「已確認：{店名} {日期} {情境}。」 (with the time for 提早打烊／延後開店): the alt text of the report
+    /// sent on 〔確認〕 (<see cref="CoordinatorExecutionReport.Confirmation"/>, #375).</summary>
     public static string Confirmed(string storeName, ShopScenario scenario, DateOnly date, TimeOnly? time) =>
         $"已確認：{storeName} {ShopAnnouncements.FormatDate(date)} {Title(scenario, time)}。";
 

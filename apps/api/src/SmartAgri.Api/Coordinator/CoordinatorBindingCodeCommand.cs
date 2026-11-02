@@ -10,7 +10,8 @@ namespace SmartAgri.Api.Coordinator;
 /// <summary>
 /// The one-shot <c>coordinator-binding-code</c> subcommand (store-coordinator design §5 Slice 1, #372):
 /// the platform operator issues a 老闆 binding code for one organization (a shop) and the command prints
-/// it once, with its expiry, to standard output. Like <c>set-token-limit</c> it runs in any environment —
+/// it once, with its expiry (in the shop's time zone), to standard output; the shop is named by its
+/// settings' store name when it has settings (#373). Like <c>set-token-limit</c> it runs in any environment —
 /// operators run it inside the Production container. The organization code is the one used at login
 /// (<see cref="Organization.Code"/>), matched case-insensitively.
 /// </summary>
@@ -93,9 +94,9 @@ public sealed class CoordinatorBindingCodeCommand
                 return ExitFailed;
             }
 
-            var zone = CoordinatorBindings.TimeZoneOf(organization.Id);
+            var zone = await _services.GetRequiredService<CoordinatorBindings>().TimeZoneOfAsync(organization.Id, cancellationToken);
             var local = TimeZoneInfo.ConvertTime(issued.ExpiresAt, zone);
-            await output.WriteLineAsync($"組織 {organization.Code}（{organization.Name}）的老闆綁定碼：{BindingCodes.Format(issued.Code)}");
+            await output.WriteLineAsync($"組織 {organization.Code}（{issued.StoreName}）的老闆綁定碼：{BindingCodes.Format(issued.Code)}");
             await output.WriteLineAsync(
                 $"有效期限：{local.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}（{zone.Id}），只能使用一次。");
             await output.WriteLineAsync("請老闆加統籌助理的 LINE 好友後輸入這組碼。這組碼不會再顯示，遺失請重新產生。");
@@ -109,7 +110,9 @@ public sealed class CoordinatorBindingCodeCommand
         }
     }
 
-    private static async Task<Organization?> FindAsync(AppDbContext dbContext, string code, CancellationToken cancellationToken)
+    /// <summary>The organization whose login code is <paramref name="code"/> (any case); <see langword="null"/>
+    /// when there is none or it is not a code. Also used by <c>coordinator-shop</c>.</summary>
+    internal static async Task<Organization?> FindAsync(AppDbContext dbContext, string code, CancellationToken cancellationToken)
     {
         string normalized;
         try

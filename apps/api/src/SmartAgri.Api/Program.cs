@@ -231,6 +231,14 @@ if (args is [SmartAgriCommands.CoordinatorBindingCode, .. var coordinatorBinding
     return;
 }
 
+// `coordinator-shop` is one-shot too, in any environment: import a shop's 統籌助理 settings from a JSON
+// file (validated whole first; nothing written on any error) or print them in that format, and exit (#373).
+if (args is [SmartAgriCommands.CoordinatorShop, .. var coordinatorShopArgs])
+{
+    Environment.ExitCode = await CoordinatorShopCommand.RunAsync(app.Services, coordinatorShopArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `case-set-due` is one-shot too, Development/Testing only: move one open case's due time (also into
 // the past, which the API refuses) with an actor-less due-changed event, and exit (M7-11 #256). The
 // API-mode E2E runs it to make a case overdue.
@@ -337,6 +345,7 @@ internal static class SmartAgriCommands
     public const string RetentionCleanup = "retention-cleanup";
     public const string CaseSetDue = "case-set-due";
     public const string CoordinatorBindingCode = "coordinator-binding-code";
+    public const string CoordinatorShop = "coordinator-shop";
 }
 
 namespace SmartAgri.Api

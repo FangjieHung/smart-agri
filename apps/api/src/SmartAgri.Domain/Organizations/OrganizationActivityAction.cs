@@ -5,7 +5,8 @@ namespace SmartAgri.Domain.Organizations;
 /// <summary>
 /// What an <see cref="OrganizationActivity"/> row records. Stored as the wire name (not the number),
 /// so members can be reordered safely. Later slices add theirs here (M7-1: case groups; M7-2:
-/// case types; M7-10: a database's auto case; #356: deactivating and reactivating members).
+/// case types; M7-10: a database's auto case; #356: deactivating and reactivating members; #373: the
+/// 統籌助理's shop settings).
 /// </summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrganizationActivityAction>))]
 public enum OrganizationActivityAction
@@ -93,4 +94,12 @@ public enum OrganizationActivityAction
     /// <c>{ id, displayName }</c>. Nothing transferred at deactivation comes back.</summary>
     [JsonStringEnumMemberName("member-reactivated")]
     MemberReactivated,
+
+    /// <summary>The platform operator imported the shop's 統籌助理 settings and something changed
+    /// (<c>coordinator-shop import</c>, #373); a system action (no account). Detail: <c>created</c>,
+    /// <c>changed</c> (the top-level sections that changed) and <c>scenarios</c> (the scenarios that
+    /// changed) — wire names only, never the store name, templates or steps
+    /// (<see cref="OrganizationActivity.CoordinatorShopSettingsUpdated"/>).</summary>
+    [JsonStringEnumMemberName("coordinator-shop-settings-updated")]
+    CoordinatorShopSettingsUpdated,
 }

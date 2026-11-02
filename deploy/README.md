@@ -4,7 +4,7 @@
 `deploy/.env` 要填什麼、哪些東西要備份、出問題時看哪裡。第一次安裝（建立第一個組織與管理者）、
 各設定的完整行為與錯誤碼，請看英文的 [`apps/api/README.md`](../apps/api/README.md)；本文只照操作順序串起來，
 並在每一節標出該去哪一節看細節。對話模型清單（讓組織選模型）與對話保存期限的部署注意事項在第 11、12 節，備份與還原在第 14 節，
-升級到新版本與回滾在第 15 節，轉真人的 Email 通知（SMTP）在第 16 節，店家共用的「統籌助理」LINE 帳號與綁定碼在第 17 節。
+升級到新版本與回滾在第 15 節，轉真人的 Email 通知（SMTP）在第 16 節，店家共用的「統籌助理」LINE 帳號、綁定碼與店家設定在第 17 節。
 
 ## 1. 這個部署長什麼樣子
 
@@ -1132,8 +1132,8 @@ Gmail 個人帳戶每天能寄的信有上限（約幾百封），一般店家�
 
 「統籌助理」是**平台共用的一個 LINE 官方帳號**（不是各店自己的帳號，也和第 10 節「助理的 LINE 頻道」無關）。
 各店的老闆、店長加它為好友，輸入**綁定碼**，就綁到自己的店（一家店＝一個組織）；之後在 LINE 對它下店務指令。
-這個版本（#372）只做好友與綁定：綁定後傳任何訊息，它都回「我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店」，
-臨時店休等指令在後續版本加入。統籌助理**不回答知識庫問題、不呼叫對話模型**，回覆全部用 reply（免費），不用推播額度。
+這個版本（#372、#373）做好友、綁定與**店家設定**（第 17.5 節）：綁定後傳任何訊息，它都回「我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店」，
+臨時店休等指令在後續版本加入，屆時照第 17.5 節的設定執行。統籌助理**不回答知識庫問題、不呼叫對話模型**，回覆全部用 reply（免費），不用推播額度。
 設計見 `docs/plans/2026-11-02-store-coordinator-assistant.md`，各設定的完整行為見 `apps/api/README.md`「Store coordinator」。
 
 ### 17.1 建立官方帳號並設定 webhook
@@ -1202,6 +1202,256 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 - 同一個 LINE 帳號在 15 分鐘內輸入 5 次無效的碼（不存在、過期或用過），之後的嘗試一律回「嘗試太多次，請 15 分鐘後再試。」，
   連正確的碼也不會被檢查，直到最早那次失敗滿 15 分鐘。
 - 和第 10.4 節一樣**只能跑一個 api 容器**：webhook 的佇列、重送去重與上面的嘗試次數都記在 api 的記憶體，重新啟動會歸零。
-- 資料庫只存：**成員**（組織、統籌助理看到的 LINE 使用者 ID、老闆或店長、綁定時間）與**綁定碼**（雜湊、角色、產生與到期時間、
-  使用的時間與 LINE 使用者 ID、由哪位老闆產生），**不存任何人傳的訊息內容**。這是系統第一次保存 LINE 的使用者 ID
+- 資料庫只存：**成員**（組織、統籌助理看到的 LINE 使用者 ID、老闆或店長、綁定時間）、**綁定碼**（雜湊、角色、產生與到期時間、
+  使用的時間與 LINE 使用者 ID、由哪位老闆產生）與第 17.5 節的**店家設定**，**不存任何人傳的訊息內容**。這是系統第一次保存 LINE 的使用者 ID
   （第 10.6、16 節說「不存 LINE 的使用者 ID」指的是各店助理的 LINE 頻道），請在隱私權政策補上統籌助理的說明。
+
+### 17.5 店家設定：`coordinator-shop`
+
+每家店（組織）有一份**店家設定**：統籌助理顯示的**店名**、**時區**、**每週營業時間**，以及四個情境（臨時店休、提早打烊、延後開店、
+恢復營業）各自**要不要提供**、**公告樣板與圖片**、**要做哪些動作**。之後的版本下指令時會照這份設定預覽與執行；
+點餐系統的提醒時間（當天開店前、下一個營業日開店前）也是用這裡的營業時間算的（不看 Google 上的營業時間）。
+
+**步驟：**
+
+1. 複製範例檔，一家店一個檔案（`deploy/shops/` 不會進 git）：
+
+   ```sh
+   mkdir -p deploy/shops
+   cp deploy/coordinator-shop.example.json deploy/shops/harvest.json
+   ```
+
+2. 照下面的說明修改 `deploy/shops/harvest.json`。
+3. 匯入（把 `deploy/shops` 唯讀掛進容器）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -T \
+     -v "$PWD/deploy/shops:/shops:ro" api \
+     coordinator-shop import --organization harvest --file /shops/harvest.json
+   ```
+
+   檔案會**先整份檢查**：有任何錯誤就逐條列出「位置：說明」（例如
+   `$.weeklyHours.sun[0]：和 sat[0] 的 17:00–01:00（跨午夜） 重疊。`），**一筆都不寫入**；全部正確才寫入，
+   輸出「已匯入組織 harvest（王記麵店）的店家設定。」。再匯入一次一樣的內容會說「沒有變更」，不寫任何東西。
+4. 看目前的設定（印出的格式就是匯入的格式，可以存檔、修改後再匯入；要加 `-T`，否則存下來的檔案會混進終端機的控制字元）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -T api \
+     coordinator-shop show --organization harvest > deploy/shops/harvest.current.json
+   ```
+
+   存到**另一個檔名**：這家店還沒有設定或讀取失敗時，標準輸出是空的，`>` 會把原本的檔案清空。
+
+結束代碼：`0` 完成；`1` 找不到組織、這家店還沒有設定（`show`）或寫入失敗；`2` 參數錯誤或設定檔不正確。
+每次匯入**有變更**時，組織紀錄會記一筆 `coordinator-shop-settings-updated`，只記哪些段落、哪些情境改了，不記店名、樣板或步驟的內容。
+
+**完整範例**（`deploy/coordinator-shop.example.json`）：週一公休；週二到週日午餐 11:00–14:00、晚餐 17:00–21:00，週六晚餐到隔天 01:00。
+
+```json
+{
+  "storeName": "王記麵店",
+  "timeZone": "Asia/Taipei",
+  "weeklyHours": {
+    "mon": [],
+    "tue": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "wed": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "thu": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "fri": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ],
+    "sat": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "01:00"
+      }
+    ],
+    "sun": [
+      {
+        "open": "11:00",
+        "close": "14:00"
+      },
+      {
+        "open": "17:00",
+        "close": "21:00"
+      }
+    ]
+  },
+  "scenarios": {
+    "temporary-closure": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 臨時店休一天，{恢復營業} 恢復營業，造成不便敬請見諒。\n原因：{原因}",
+        "imageUrl": "https://example.com/images/wang-closed.jpg"
+      },
+      "actions": [
+        {
+          "kind": "line-broadcast",
+          "mode": "auto",
+          "steps": "LINE 官方帳號管理後台 →「群發訊息」→ 建立訊息，貼上公告文字與圖片 → 傳送。"
+        },
+        {
+          "kind": "google-special-hours",
+          "mode": "reminder",
+          "steps": "Google 商家檔案 →「編輯個人檔案」→「營業時間」→「特殊營業時間」→ 加入這一天並設為「休息」（提早打烊、延後開店就改成當天的時間）。"
+        },
+        {
+          "kind": "facebook-post",
+          "mode": "reminder",
+          "steps": "Facebook 粉絲專頁 →「建立貼文」→ 貼上公告文字、加入圖片 →「發佈」。"
+        },
+        {
+          "kind": "ordering",
+          "name": "Xurf",
+          "mode": "reminder",
+          "pauseSteps": "Xurf iPad 點左側選單 →「接單設定」→ 關閉外帶與外送的接單。",
+          "resumeSteps": "Xurf iPad 點左側選單 →「接單設定」→ 打開外帶與外送的接單。"
+        },
+        {
+          "kind": "ordering",
+          "name": "foodpanda",
+          "mode": "reminder",
+          "pauseSteps": "foodpanda 商家 App（GO App）→「暫停接單」→ 選到今天結束。",
+          "resumeSteps": "foodpanda 商家 App（GO App）→「恢復接單」。"
+        }
+      ]
+    },
+    "close-early": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 今天提早到 {時間} 打烊，請見諒。\n原因：{原因}"
+      },
+      "actions": [
+        {
+          "kind": "line-broadcast",
+          "mode": "auto",
+          "steps": "LINE 官方帳號管理後台 →「群發訊息」→ 建立訊息，貼上公告文字與圖片 → 傳送。"
+        },
+        {
+          "kind": "google-special-hours",
+          "mode": "reminder",
+          "steps": "Google 商家檔案 →「編輯個人檔案」→「營業時間」→「特殊營業時間」→ 加入這一天並設為「休息」（提早打烊、延後開店就改成當天的時間）。"
+        },
+        {
+          "kind": "ordering",
+          "name": "Xurf",
+          "mode": "reminder",
+          "pauseSteps": "Xurf iPad 點左側選單 →「接單設定」→ 關閉外帶與外送的接單。",
+          "resumeSteps": "Xurf iPad 點左側選單 →「接單設定」→ 打開外帶與外送的接單。"
+        },
+        {
+          "kind": "ordering",
+          "name": "foodpanda",
+          "mode": "reminder",
+          "pauseSteps": "foodpanda 商家 App（GO App）→「暫停接單」→ 選到今天結束。",
+          "resumeSteps": "foodpanda 商家 App（GO App）→「恢復接單」。"
+        }
+      ]
+    },
+    "open-late": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 延後到 {時間} 開店，請見諒。\n原因：{原因}"
+      },
+      "actions": [
+        {
+          "kind": "line-broadcast",
+          "mode": "auto",
+          "steps": "LINE 官方帳號管理後台 →「群發訊息」→ 建立訊息，貼上公告文字與圖片 → 傳送。"
+        },
+        {
+          "kind": "google-special-hours",
+          "mode": "reminder",
+          "steps": "Google 商家檔案 →「編輯個人檔案」→「營業時間」→「特殊營業時間」→ 加入這一天並設為「休息」（提早打烊、延後開店就改成當天的時間）。"
+        },
+        {
+          "kind": "ordering",
+          "name": "Xurf",
+          "mode": "reminder",
+          "pauseSteps": "Xurf iPad 點左側選單 →「接單設定」→ 關閉外帶與外送的接單。",
+          "resumeSteps": "Xurf iPad 點左側選單 →「接單設定」→ 打開外帶與外送的接單。"
+        },
+        {
+          "kind": "ordering",
+          "name": "foodpanda",
+          "mode": "reminder",
+          "pauseSteps": "foodpanda 商家 App（GO App）→「暫停接單」→ 選到今天結束。",
+          "resumeSteps": "foodpanda 商家 App（GO App）→「恢復接單」。"
+        }
+      ]
+    },
+    "reopen": {
+      "enabled": true,
+      "announcement": {
+        "template": "【{店名}】{日期} 照常營業，先前的店休公告取消，歡迎光臨！"
+      }
+    }
+  }
+}
+```
+
+**欄位說明：**
+
+- `storeName`：統籌助理對老闆、店長顯示的店名（綁定回覆、選店按鈕、綁定碼），最多 50 個字、一行；沒有設定的店顯示組織名稱。
+- `timeZone`：選填，預設 `Asia/Taipei`；IANA 時區名稱（例如 `Asia/Tokyo`）。日期、營業時間與綁定碼的到期時間都用這個時區。
+- `weeklyHours`：`mon`、`tue`、`wed`、`thu`、`fri`、`sat`、`sun` **七天都要寫**；`[]` 是固定公休。每段 `{ "open": "HH:mm", "close": "HH:mm" }`
+  是 24 小時制，一天最多 4 段；**打烊時間比開店早表示跨午夜**（`17:00`–`01:00` 是到隔天凌晨 1 點，算在開店那一天）。
+  開店與打烊相同、時段重疊（包含跨午夜的時段和隔天第一段重疊）、整週沒有任何時段，都不能匯入。
+- `scenarios`：`temporary-closure`（臨時店休）、`close-early`（提早打烊）、`open-late`（延後開店）、`reopen`（恢復營業）**四個都要寫**；
+  不提供的情境寫 `{ "enabled": false }`。
+  - `announcement`：公告。`template` 最多 1000 個字，換行寫 `\n`；`imageUrl` 選填，必須是完整的 `https://` 公開圖片網址（不檢查網址連不連得上），
+    沒有圖片就只發文字。啟用的情境一定要有公告（`reopen` 除外：它的公告是選用的「更正群發」，預設不勾）。
+  - `actions`：動作清單，啟用的情境至少一個；`reopen` **不能**寫 `actions`（恢復營業要做的事，由它要恢復的那次指令決定）。
+    - `line-broadcast`（LINE 群發）、`google-special-hours`（Google 特殊營業時間）、`facebook-post`（FB 粉專貼文）：每個情境各最多一個；
+      `mode` 是 `auto`（自動）或 `reminder`（提醒）；`steps` 必填，是提醒時（或自動做不到時）給老闆的手動步驟，最多 500 個字。
+      寫 `auto` 不代表一定自動：還沒串接或還沒授權的服務，執行時會改成提醒並附上 `steps`。
+    - `ordering`（點餐系統，例如 Xurf、foodpanda）：`mode` 只能是 `reminder`；`name` 最多 20 個字、同一個情境裡不能重複；
+      `pauseSteps`（暫停接單）與 `resumeSteps`（恢復接單）必填，各最多 500 個字。可以有好幾個。
+- **公告樣板的變數**（只有這五個，大括號只能用來寫變數）：
+
+  | 變數 | 帶入 | 哪些情境能用 |
+  | --- | --- | --- |
+  | `{店名}` | `storeName` | 全部 |
+  | `{日期}` | 指令的日期，例如 `11/2（一）` | 全部；臨時店休、恢復營業**必須**有 |
+  | `{時間}` | 提早打烊的新打烊時間、延後開店的新開店時間，例如 `16:00` | 只有提早打烊、延後開店，而且**必須**有 |
+  | `{恢復營業}` | 店休後下一次開店，例如 `11/3（二）11:00` | 只有臨時店休 |
+  | `{原因}` | 老闆說的原因（選填） | 全部 |
+
+  **沒有原因時，含 `{原因}` 的那一整行會省略**，所以 `{原因}` 要自己放一行（例如 `\n原因：{原因}`），不能和這個情境必須有的 `{日期}` 或 `{時間}` 放在同一行。

@@ -185,8 +185,8 @@ internal sealed class CoordinatorEventHandler
             return;
         }
 
-        var text = CoordinatorReplies.ManagerCode(
-            issued.Code, issued.StoreName, issued.ExpiresAt, CoordinatorBindings.TimeZoneOf(target!.OrganizationId));
+        var zone = await _bindings.TimeZoneOfAsync(target!.OrganizationId, cancellationToken);
+        var text = CoordinatorReplies.ManagerCode(issued.Code, issued.StoreName, issued.ExpiresAt, zone);
         await ReplyAsync(lineEvent, text, cancellationToken);
     }
 

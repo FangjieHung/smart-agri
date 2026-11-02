@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + add-organization + list-organizations + reset-password + reindex + rechunk + set-token-limit + retention-cleanup + coordinator-binding-code subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + add-organization + list-organizations + reset-password + reindex + rechunk + set-token-limit + retention-cleanup + coordinator-binding-code + coordinator-shop subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -1305,7 +1305,7 @@ binding code. This slice does binding only: a bound member's other messages get 
   further attempts get 「嘗試太多次，請 15 分鐘後再試。」 without looking at the code
   (`CoordinatorBindingThrottle`, in memory). One LINE user may be bound to several shops.
 - **店長 codes**: a 老闆 sends 「產生店長綁定碼」 and gets a 24-hour manager code with the shop name and its
-  expiry (Asia/Taipei until shops have their own time zone). An owner of several shops first gets a quick
+  expiry in the shop's time zone (its settings', #373; Asia/Taipei without settings). An owner of several shops first gets a quick
   reply of shop names (labels at most 20 characters, at most 13) whose postback carries the organization id;
   the postback is checked again (the sender must be that shop's 老闆, also inside the shop's own context).
   A manager, or anyone else, gets 「只有老闆可以產生店長綁定碼。」.
@@ -1318,6 +1318,59 @@ binding code. This slice does binding only: a bound member's other messages get 
   runs in a `FixedOrganizationContext` for one organization. `CoordinatorMembers` and
   `CoordinatorBindingCodes` are organization scoped; they store LINE user ids of the coordinator account
   (the members, who used a code, who issued it), never anything a person wrote.
+
+## Store coordinator (統籌助理): shop settings (#373)
+
+Each shop (organization) has one row of 統籌助理 settings (store-coordinator design Slice 2, decisions A and
+B): the store name shown to people, its time zone, its weekly business hours and, per scenario
+(`temporary-closure`, `close-early`, `open-late`, `reopen`), whether it is offered, its announcement template
+and image, and its actions. The platform operator sets them with a JSON file; there is no settings screen.
+Operator guide and a complete example: `deploy/README.md` §17.5, `deploy/coordinator-shop.example.json`
+(a test checks that the example and every settings block in the guide are valid, and that `show` prints
+the example byte for byte).
+
+- **Storage**: `CoordinatorShopSettings` (`SmartAgri.Domain.Coordinator.ShopSettings`), organization scoped,
+  unique `OrganizationId`; `StoreName` (≤ 50), `TimeZoneId` (IANA, default `Asia/Taipei`), `WeeklyHours` and
+  `Scenarios` as `jsonb` objects in the file's own format, read whole. Stored sections are read back with
+  their shape checked but not the import rules, so a rule tightened later never makes stored settings
+  unreadable.
+- **The file** (`ShopSettingsJson.Parse`/`Write`, `SmartAgri.Domain.Coordinator`): parsed with
+  `JsonDocument` and walked by hand so that *every* error is reported with its JSON path
+  (`$.scenarios['temporary-closure'].actions[2].mode：點餐系統沒有可以串接的 API，只能是 reminder（提醒）。`).
+  Unknown fields, repeated fields, a missing day or scenario, `HH:mm` other than 00:00–23:59, more than four
+  periods a day, `open == close`, overlapping periods (on the week's wall clock, an overnight period spilling
+  into the next day, Sunday's into Monday; touching is fine), a week without periods, a time zone that is not
+  an IANA id this host resolves, text over its limit (store name 50, ordering name 20, steps 500, template
+  1,000, image URL 2,000; one-line fields without control characters or surrounding blanks), an image URL that
+  is not absolute `https`, an enabled scenario without announcement (except `reopen`) or actions,
+  `actions` under `reopen`, a second `line-broadcast`/`google-special-hours`/`facebook-post` in one scenario,
+  two ordering systems of one name (case-insensitive), `ordering` in `auto`, and template problems
+  (`ShopAnnouncements.Problems`) are all errors. `auto` on the other kinds is accepted: whether an action can
+  run automatically is decided when it runs (Slice 4).
+- **Templates** (`ShopAnnouncements`): `{店名}`, `{日期}` (`11/2（一）`), `{時間}` (`16:00`; `close-early`,
+  `open-late`), `{恢復營業}` (`11/3（二）11:00` in the shop's zone; `temporary-closure`), `{原因}`. Required:
+  `{日期}` for `temporary-closure` and `reopen`, `{時間}` for `close-early` and `open-late`. Braces are only for
+  variables. `Render(settings, scenario, values)` is pure: values are put in once (a reason containing `{店名}`
+  stays as written) and every line containing `{原因}` is dropped when there is no reason — so a line with
+  `{原因}` may not hold the scenario's required variable.
+- **Business hours** (`BusinessHours`, pure, from `ShopSettingsDocument.Hours`): a period belongs to the date
+  it opens on (Saturday 18:00–02:00 closes on Sunday). `PeriodsOn(date)` (instants, earliest first),
+  `FirstOpeningOn(date)` (null on a day off), `FirstOpeningAfter(date)` (reopening after a day closed —
+  Slice 4's 「下一個營業日開店前」 and `{恢復營業}`), `NextOpeningAfter(instant)` (strictly after), `DateAt`,
+  `At(date, time)`. A local time skipped by daylight saving moves forward by the gap; one that happens twice
+  is the first.
+- **`coordinator-shop`** (any environment): `import --organization <code> --file <path>` reads at most 1 MB,
+  validates everything, prints each error to standard error as `<path>：<說明>` and writes nothing unless
+  there are none; then creates or replaces the row (`CoordinatorShops.ImportAsync`, in a
+  `FixedOrganizationContext`). An import that changes anything writes one `coordinator-shop-settings-updated`
+  `OrganizationActivity` (no actor; detail `{ created, changed, scenarios }` — section and scenario wire
+  names only); an identical one writes nothing. `show --organization <code>` prints only the stored settings,
+  in the import format, to standard output. Exit codes: `0` done, `1` no such organization, no settings
+  (`show`) or the write failed, `2` bad arguments or an invalid file.
+- **Used by Slice 1**: `CoordinatorLookup` (memberships, the store choice), `CoordinatorBindings` (bind
+  replies, issued codes) and `coordinator-binding-code` name the shop by its settings' `storeName`, else the
+  organization's name; `CoordinatorBindings.TimeZoneOfAsync` is the settings' zone (Asia/Taipei without
+  settings), used for code expiries.
 
 ## Monthly token limit: `set-token-limit`
 

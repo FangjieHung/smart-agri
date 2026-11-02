@@ -13,7 +13,8 @@ namespace SmartAgri.Api.Tests.Tenancy;
 /// and when the page embedded in a customer's website looks up its assistant's website channel
 /// (<c>PublicWebsiteChannelLookup</c>, M5a #201, which returns nothing but the channel's state and
 /// allowed domains), and when the 統籌助理's shared LINE account finds whose message it is — the
-/// shops a LINE user is bound to and the shop of a binding code (<c>CoordinatorLookup</c>, #372) —
+/// shops a LINE user is bound to with their store names, and the shop of a binding code
+/// (<c>CoordinatorLookup</c>, #372, #373) —
 /// all before any organization exists.</item>
 /// <item>Raw SQL, which neither the filter nor the write guard sees: only claiming
 /// background jobs across organizations (<c>JobClaimer</c>, M2 plan §3).</item>
@@ -44,6 +45,7 @@ public class IgnoreQueryFiltersSourceTests
                     "SmartAgri.Infrastructure/Assistants/PublicAssistantLookup.cs",
                     "SmartAgri.Infrastructure/Assistants/PublicWebsiteChannelLookup.cs",
                     "SmartAgri.Infrastructure/Assistants/PublicWebsiteChannelLookup.cs",
+                    "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
                     "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
                     "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
                 ]);

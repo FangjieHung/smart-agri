@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using SmartAgri.Application.Coordinator;
 using SmartAgri.Domain.Coordinator;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Coordinator;
@@ -161,21 +160,30 @@ public sealed class CoordinatorBindings
         }
     }
 
-    /// <summary>The time zone a shop's times are shown in: Asia/Taipei until shops have their own
-    /// (Slice 2's shop settings).</summary>
-    public static TimeZoneInfo TimeZoneOf(Guid organizationId)
+    /// <summary>The time zone a shop's times are shown in: its settings' (#373), else
+    /// <see cref="ShopSettings.DefaultTimeZoneId"/> — also when the stored id no longer resolves.</summary>
+    public async Task<TimeZoneInfo> TimeZoneOfAsync(Guid organizationId, CancellationToken cancellationToken)
     {
-        _ = organizationId;
-        return TimeZoneInfo.FindSystemTimeZoneById(CoordinatorReplies.DefaultTimeZoneId);
+        await using var dbContext = ForOrganization(organizationId);
+        var id = await dbContext.CoordinatorShopSettings
+            .AsNoTracking()
+            .Select(settings => settings.TimeZoneId)
+            .SingleOrDefaultAsync(cancellationToken);
+        return id is not null && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone)
+            ? zone
+            : TimeZoneInfo.FindSystemTimeZoneById(ShopSettings.DefaultTimeZoneId);
     }
 
     private AppDbContext ForOrganization(Guid organizationId) => new(_options, new FixedOrganizationContext(organizationId));
 
+    /// <summary>The shop's store name — its settings' (#373), else the organization's name;
+    /// <see langword="null"/> when the organization does not exist. <paramref name="dbContext"/> acts for
+    /// <paramref name="organizationId"/>, so its settings are the only ones it sees.</summary>
     private static Task<string?> StoreNameAsync(AppDbContext dbContext, Guid organizationId, CancellationToken cancellationToken) =>
         dbContext.Organizations
             .AsNoTracking()
             .Where(organization => organization.Id == organizationId)
-            .Select(organization => organization.Name)
+            .Select(organization => dbContext.CoordinatorShopSettings.Select(settings => settings.StoreName).FirstOrDefault() ?? organization.Name)
             .SingleOrDefaultAsync(cancellationToken);
 
     private static async Task<CoordinatorRole?> RoleOfAsync(AppDbContext dbContext, string lineUserId, CancellationToken cancellationToken) =>

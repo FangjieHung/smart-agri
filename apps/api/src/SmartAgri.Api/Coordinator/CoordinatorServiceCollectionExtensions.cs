@@ -23,9 +23,13 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="CoordinatorRunActionJob.Kind"/> job handler), LINE 群發 (#376: <see cref="CoordinatorConnections"/>,
     /// <see cref="CoordinatorLineEstimateCache"/>, <see cref="CoordinatorLineBroadcasting"/>, the
     /// <see cref="CoordinatorLineBroadcastExecutor"/> and the card's <see cref="CoordinatorLineBroadcastNotes"/>) and
-    /// <see cref="CoordinatorEventHandler"/>. Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
-    /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c> and the secret protector. Nothing reads the options
-    /// while the pipeline is built.
+    /// <see cref="CoordinatorEventHandler"/>, and the FB and Google authorization links (#377:
+    /// <see cref="CoordinatorFacebookOptions"/> and <see cref="CoordinatorGoogleOptions"/> validated on start, the
+    /// <see cref="CoordinatorOAuthProviders"/> registered by later slices — none here, so neither is configured —,
+    /// <see cref="CoordinatorAuthorizationLinks"/>, <see cref="CoordinatorOAuthStates"/>, <see cref="CoordinatorOAuthSelections"/>,
+    /// <see cref="CoordinatorAuthorizationFlow"/> and <see cref="CoordinatorReauthorization"/>). Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
+    /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c>, the secret protector and Data Protection, and
+    /// <c>PublicChannelsOptions</c>. Nothing reads the options while the pipeline is built.
     /// </summary>
     public static IServiceCollection AddStoreCoordinator(this IServiceCollection services, IConfiguration configuration)
     {
@@ -33,6 +37,14 @@ public static class CoordinatorServiceCollectionExtensions
             .Bind(configuration.GetSection(CoordinatorLineOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<CoordinatorLineOptions>, CoordinatorLineOptionsValidator>();
+        services.AddOptions<CoordinatorFacebookOptions>()
+            .Bind(configuration.GetSection(CoordinatorFacebookOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<CoordinatorFacebookOptions>, CoordinatorFacebookOptionsValidator>();
+        services.AddOptions<CoordinatorGoogleOptions>()
+            .Bind(configuration.GetSection(CoordinatorGoogleOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<CoordinatorGoogleOptions>, CoordinatorGoogleOptionsValidator>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(provider => new CoordinatorWebhookDeduplicator(provider.GetRequiredService<TimeProvider>()));
@@ -62,6 +74,12 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddJobHandler<CoordinatorRunActionHandler>(CoordinatorRunActionJob.Kind);
         services.AddScoped<CoordinatorCommandHandler>();
         services.AddScoped<CoordinatorEventHandler>();
+        services.AddScoped<CoordinatorOAuthProviders>();
+        services.AddScoped<CoordinatorAuthorizationLinks>();
+        services.AddSingleton<CoordinatorOAuthStates>();
+        services.AddSingleton<CoordinatorOAuthSelections>();
+        services.AddScoped<CoordinatorAuthorizationFlow>();
+        services.TryAddScoped<ICoordinatorReauthorization, CoordinatorReauthorization>();
         services.AddHostedService<CoordinatorWebhookProcessor>();
         return services;
     }
@@ -69,6 +87,18 @@ public static class CoordinatorServiceCollectionExtensions
     private sealed class CoordinatorLineOptionsValidator : IValidateOptions<CoordinatorLineOptions>
     {
         public ValidateOptionsResult Validate(string? name, CoordinatorLineOptions options) =>
+            options.Validate() is { } error ? ValidateOptionsResult.Fail(error) : ValidateOptionsResult.Success;
+    }
+
+    private sealed class CoordinatorFacebookOptionsValidator : IValidateOptions<CoordinatorFacebookOptions>
+    {
+        public ValidateOptionsResult Validate(string? name, CoordinatorFacebookOptions options) =>
+            options.Validate() is { } error ? ValidateOptionsResult.Fail(error) : ValidateOptionsResult.Success;
+    }
+
+    private sealed class CoordinatorGoogleOptionsValidator : IValidateOptions<CoordinatorGoogleOptions>
+    {
+        public ValidateOptionsResult Validate(string? name, CoordinatorGoogleOptions options) =>
             options.Validate() is { } error ? ValidateOptionsResult.Fail(error) : ValidateOptionsResult.Success;
     }
 }

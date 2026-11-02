@@ -144,8 +144,10 @@ public static class CoordinatorFailureCodes
     /// <summary>LINE did not answer, answered with a server error, or could not be reached (#376).</summary>
     public const string LineUnavailable = "line-unavailable";
 
-    /// <summary>With <see cref="CoordinatorActionOutcome.Unavailable"/>: LINE refused the shop's access token (or it
-    /// can no longer be decrypted), so the action became a reminder until the operator sets it again (#376).</summary>
+    /// <summary>With <see cref="CoordinatorActionOutcome.Unavailable"/>: the service refused the shop's credential (or it
+    /// can no longer be decrypted), so the action became a reminder — for LINE until the operator sets the token again
+    /// (#376), for FB and Google until the owner authorizes again through the link the 統籌助理 pushes them
+    /// (<see cref="ICoordinatorReauthorization"/>, #377).</summary>
     public const string TokenRevoked = "token-revoked";
 
     public const string RateLimited = "rate-limited";
@@ -156,6 +158,13 @@ public static class CoordinatorFailureCodes
 
     /// <summary>The service answered with an error.</summary>
     public const string Rejected = "rejected";
+
+    /// <summary>「{原因}」 of <paramref name="code"/> for an action of <paramref name="kind"/>: as <see cref="Reason(string?)"/>,
+    /// except that FB's and Google's <see cref="TokenRevoked"/> is the owner's authorization (#377).</summary>
+    public static string Reason(string? code, ShopActionKind kind) =>
+        code == TokenRevoked && CoordinatorAuthorizations.ServiceOf(kind) is { } service
+            ? $"{CoordinatorAuthorizations.Label(service)}授權失效，已改為手動；請老闆用統籌助理傳的連結重新授權"
+            : Reason(code);
 
     /// <summary>「{原因}」 of <paramref name="code"/>, for the report.</summary>
     public static string Reason(string? code) => code switch

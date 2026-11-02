@@ -8,10 +8,20 @@ namespace SmartAgri.Domain.Coordinator;
 [JsonConverter(typeof(JsonStringEnumConverter<CoordinatorService>))]
 public enum CoordinatorService
 {
-    /// <summary>The shop's own LINE official account, for LINE 群發 (Slice 5, #376). Slice 6 adds <c>facebook</c> and
-    /// <c>google</c>.</summary>
+    /// <summary>The shop's own LINE official account, for LINE 群發 (Slice 5, #376): its token is set by the platform
+    /// operator (<c>coordinator-shop line-token</c>).</summary>
     [JsonStringEnumMemberName("line")]
     Line,
+
+    /// <summary>The shop's FB 粉專, for FB 貼文 (Slices 6 and 8, #377, #379): authorized by the shop's owner through an
+    /// authorization link.</summary>
+    [JsonStringEnumMemberName("facebook")]
+    Facebook,
+
+    /// <summary>The shop's Google 商家 location, for Google 特殊營業時間 (Slices 6 and 7, #377, #378): authorized by the
+    /// shop's owner through an authorization link.</summary>
+    [JsonStringEnumMemberName("google")]
+    Google,
 }
 
 /// <summary>Whether a <see cref="CoordinatorConnection"/> can be used.</summary>
@@ -31,7 +41,8 @@ public enum CoordinatorConnectionStatus
 /// A shop's credential for one external service (table <c>CoordinatorConnections</c>, store-coordinator design §3 Q10,
 /// Q18, §5 Slices 5 and 6, #376): at most one per organization and service. Slice 5 stores the shop's LINE official
 /// account's long-lived channel access token, set by the platform operator with <c>coordinator-shop line-token</c>;
-/// Slice 6 reuses the table for the FB and Google authorizations. Shop settings imports never touch it.
+/// Slice 6 (#377) reuses the table for the FB and Google authorizations the shop's owner gives through an authorization
+/// link (<see cref="CoordinatorAuthorizationLink"/>). Shop settings imports never touch it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,6 +55,10 @@ public enum CoordinatorConnectionStatus
 /// <see cref="DisplayName"/> a label for people (for LINE 「{顯示名稱}（{basic id}）」). A service refusing the credential
 /// marks the row <see cref="CoordinatorConnectionStatus.Revoked"/> (compare-and-set on <see cref="UpdatedAt"/>, so a
 /// credential set again meanwhile stays active); setting it again makes it active.
+/// </para>
+/// <para>
+/// <see cref="ReauthorizationRequestedAt"/> (FB and Google, #377) records that the owner was sent a new authorization
+/// link for the current revocation, so a revocation sends at most one; setting the credential again clears it.
 /// </para>
 /// </remarks>
 public sealed class CoordinatorConnection : IOrganizationScoped
@@ -84,10 +99,16 @@ public sealed class CoordinatorConnection : IOrganizationScoped
     /// <summary>When the credential was last set or the connection revoked.</summary>
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    /// <summary>When the shop's owners were sent a new authorization link for the current revocation (FB and Google,
+    /// #377); <see langword="null"/> while active, or revoked and not yet asked for.</summary>
+    public DateTimeOffset? ReauthorizationRequestedAt { get; private set; }
+
     /// <summary>The <c>ISecretProtector</c> purpose of <paramref name="service"/>'s credential.</summary>
     public static string PurposeOf(CoordinatorService service) => service switch
     {
         CoordinatorService.Line => "coordinator.line-access-token",
+        CoordinatorService.Facebook => "coordinator.facebook-credential",
+        CoordinatorService.Google => "coordinator.google-credential",
         _ => throw new ArgumentOutOfRangeException(nameof(service), service, "Not a coordinator service."),
     };
 
@@ -116,11 +137,17 @@ public sealed class CoordinatorConnection : IOrganizationScoped
         return connection;
     }
 
+    /// <summary>Whether <paramref name="externalId"/> can be a connection's <see cref="ExternalId"/>: 1 to
+    /// <see cref="ExternalIdMaxLength"/> characters, no white space or control characters.</summary>
+    public static bool IsValidExternalId(string? externalId) =>
+        externalId is { Length: > 0 and <= ExternalIdMaxLength }
+        && !externalId.Any(character => char.IsWhiteSpace(character) || char.IsControl(character));
+
     /// <summary>Replaces the credential (a new token, or the same one again after a revocation): active again.</summary>
     public void Set(ProtectedSecret secret, string externalId, string displayName, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(secret);
-        if (string.IsNullOrWhiteSpace(externalId) || externalId.Length > ExternalIdMaxLength || externalId.Any(char.IsWhiteSpace))
+        if (!IsValidExternalId(externalId))
         {
             throw new ArgumentException($"An external id is 1-{ExternalIdMaxLength} characters without white space.", nameof(externalId));
         }
@@ -132,6 +159,7 @@ public sealed class CoordinatorConnection : IOrganizationScoped
         DisplayName = label.Length <= DisplayNameMaxLength ? label : label[..DisplayNameMaxLength];
         Status = CoordinatorConnectionStatus.Active;
         UpdatedAt = now.ToUniversalTime();
+        ReauthorizationRequestedAt = null;
     }
 
     /// <summary>Shows no part of the credential.</summary>

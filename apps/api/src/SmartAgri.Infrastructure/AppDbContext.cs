@@ -235,6 +235,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Each shop's credentials for external services: its LINE official account's token (#376).</summary>
     public DbSet<CoordinatorConnection> CoordinatorConnections => Set<CoordinatorConnection>();
 
+    /// <summary>Single-use FB and Google authorization links of the shops' owners (#377).</summary>
+    public DbSet<CoordinatorAuthorizationLink> CoordinatorAuthorizationLinks => Set<CoordinatorAuthorizationLink>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -425,6 +428,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new CoordinatorCommandConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorCommandActionConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorConnectionConfiguration());
+        modelBuilder.ApplyConfiguration(new CoordinatorAuthorizationLinkConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

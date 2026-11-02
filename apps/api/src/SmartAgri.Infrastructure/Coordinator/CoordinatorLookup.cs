@@ -11,10 +11,14 @@ public sealed record CoordinatorMembership(Guid OrganizationId, string StoreName
 /// <summary>The binding code with a given hash: its id and organization, nothing else.</summary>
 public sealed record CoordinatorCodeMatch(Guid CodeId, Guid OrganizationId);
 
+/// <summary>The authorization link with a given token hash (#377): its id and organization, nothing else.</summary>
+public sealed record CoordinatorLinkMatch(Guid LinkId, Guid OrganizationId);
+
 /// <summary>
-/// The 統籌助理's two cross-organization reads (store-coordinator design decision C, #372). The
+/// The 統籌助理's cross-organization reads (store-coordinator design decision C, #372, #377). The
 /// platform's shared LINE account does not know which shop a message is for until it knows who sent it,
-/// so — like <see cref="SmartAgri.Infrastructure.Assistants.PublicAssistantLookup"/> for an anonymous visitor — nobody's
+/// and an owner opening an authorization link is anonymous until the link is found, so — like
+/// <see cref="SmartAgri.Infrastructure.Assistants.PublicAssistantLookup"/> for an anonymous visitor — nobody's
 /// organization exists yet when these run, and this is the one place in <c>apps/api/src</c> allowed to
 /// switch the organization filter off for coordinator data (a source-scanning test enforces it).
 /// </summary>
@@ -76,6 +80,19 @@ public sealed class CoordinatorLookup
             .AsNoTracking()
             .Where(code => code.CodeHash == codeHash)
             .Select(code => new CoordinatorCodeMatch(code.Id, code.OrganizationId))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>The authorization link whose <see cref="AuthorizationLinkTokens.Hash"/> is <paramref name="tokenHash"/>,
+    /// in any organization, used or not; <see langword="null"/> when there is none (#377).</summary>
+    public async Task<CoordinatorLinkMatch?> FindAuthorizationLinkAsync(string tokenHash, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(tokenHash);
+        return await _dbContext.CoordinatorAuthorizationLinks
+            .IgnoreQueryFilters([AppDbContext.OrganizationFilter])
+            .AsNoTracking()
+            .Where(link => link.TokenHash == tokenHash)
+            .Select(link => new CoordinatorLinkMatch(link.Id, link.OrganizationId))
             .SingleOrDefaultAsync(cancellationToken);
     }
 }

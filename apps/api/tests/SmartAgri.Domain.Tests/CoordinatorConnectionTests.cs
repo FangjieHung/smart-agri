@@ -25,7 +25,10 @@ public class CoordinatorConnectionTests
         connection.ToString().ShouldNotContain("ciphertext");
         connection.ToString().ShouldNotContain("wxyz");
         CoordinatorConnection.PurposeOf(CoordinatorService.Line).ShouldBe("coordinator.line-access-token");
-        WireNames<CoordinatorService>.All.ShouldBe(["line"]);
+        CoordinatorConnection.PurposeOf(CoordinatorService.Facebook).ShouldBe("coordinator.facebook-credential");
+        CoordinatorConnection.PurposeOf(CoordinatorService.Google).ShouldBe("coordinator.google-credential");
+        WireNames<CoordinatorService>.All.ShouldBe(["line", "facebook", "google"]);
+        connection.ReauthorizationRequestedAt.ShouldBeNull();
         WireNames<CoordinatorConnectionStatus>.All.ShouldBe(["active", "revoked"]);
     }
 
@@ -50,6 +53,11 @@ public class CoordinatorConnectionTests
         Should.Throw<ArgumentOutOfRangeException>(() => CoordinatorConnection.Create(Organization, (CoordinatorService)7, Secret, "U1", "x", At));
         Should.Throw<ArgumentException>(() => CoordinatorConnection.Create(Organization, CoordinatorService.Line, Secret, "U 1", "x", At));
         Should.Throw<ArgumentException>(() => CoordinatorConnection.Create(Organization, CoordinatorService.Line, Secret, new string('U', 65), "x", At));
+        Should.Throw<ArgumentException>(() => CoordinatorConnection.Create(Organization, CoordinatorService.Google, Secret, "loc\u00001", "x", At));
+        CoordinatorConnection.IsValidExternalId("locations/123").ShouldBeTrue();
+        CoordinatorConnection.IsValidExternalId(new string('1', 64)).ShouldBeTrue();
+        CoordinatorConnection.IsValidExternalId(string.Empty).ShouldBeFalse();
+        CoordinatorConnection.IsValidExternalId(null).ShouldBeFalse();
         Should.Throw<ArgumentNullException>(() => CoordinatorConnection.Create(Organization, CoordinatorService.Line, null!, "U1", "x", At));
     }
 }

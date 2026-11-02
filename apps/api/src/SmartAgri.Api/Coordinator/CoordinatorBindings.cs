@@ -174,6 +174,14 @@ public sealed class CoordinatorBindings
             : TimeZoneInfo.FindSystemTimeZoneById(ShopSettings.DefaultTimeZoneId);
     }
 
+    /// <summary>The shop's store name — its settings' (#373), else the organization's name; <see langword="null"/> when
+    /// the organization does not exist.</summary>
+    public async Task<string?> StoreNameAsync(Guid organizationId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        return await StoreNameAsync(dbContext, organizationId, cancellationToken);
+    }
+
     private AppDbContext ForOrganization(Guid organizationId) => new(_options, new FixedOrganizationContext(organizationId));
 
     /// <summary>The shop's store name — its settings' (#373), else the organization's name;

@@ -85,6 +85,7 @@ cp deploy/.env.example deploy/.env
 | `DEFAULT_MONTHLY_TOKEN_LIMIT` | 每個組織每月可用的對話模型 token 數（輸入＋輸出）；空白 = 內建的 2,000,000；`0` = 沒有自己上限的組織一律暫停對外回覆 | 用 2,000,000 |
 | `SMTP_HOST`、`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`、`SMTP_FROM_NAME` | 選填。寄「轉真人」Email 用的寄信伺服器，見第 16 節 | 不寄 Email；站內的轉真人通知照常 |
 | `COORDINATOR_LINE_CHANNEL_SECRET`、`COORDINATOR_LINE_CHANNEL_ACCESS_TOKEN` | 選填。平台共用的「統籌助理」LINE 官方帳號的 Channel secret 與 Channel access token，見第 17 節；**兩個一起填** | 不啟用統籌助理（它的 webhook 回 `404`）；只填一個時 api 拒絕啟動 |
+| `COORDINATOR_FACEBOOK_APP_ID`、`COORDINATOR_FACEBOOK_APP_SECRET`、`COORDINATOR_GOOGLE_CLIENT_ID`、`COORDINATOR_GOOGLE_CLIENT_SECRET` | 選填。平台的 Meta 應用程式與 Google OAuth 用戶端，讓店家老闆用授權連結授權 FB 粉專、Google 商家，見第 17.9 節；**每一組兩個一起填** | 那個服務不能產生授權連結（FB、Google 的動作維持提醒）；同一組只填一個時 api 拒絕啟動 |
 
 **頻率限制**沒有放進 `.env`：預設值（每個 IP 每分鐘開 10 個工作階段、每個訪客每分鐘 6 題／每小時 60 題、
 每個 IP 每分鐘 20 題、每個助理每分鐘 120 題且同時最多 10 個回覆）適用多數網站，完整清單見
@@ -1133,7 +1134,7 @@ Gmail 個人帳戶每天能寄的信有上限（約幾百封），一般店家�
 「統籌助理」是**平台共用的一個 LINE 官方帳號**（不是各店自己的帳號，也和第 10 節「助理的 LINE 頻道」無關）。
 各店的老闆、店長加它為好友，輸入**綁定碼**，就綁到自己的店（一家店＝一個組織）；之後在 LINE 對它下店務指令。
 這個版本（#372–#376）做好友、綁定、**店家設定**（第 17.5 節）、**指令的預覽卡**（第 17.6 節）、**確認後的執行、回報與提醒**（第 17.7 節）
-與 **LINE 群發的自動執行**（第 17.8 節）：老闆或店長說「今天臨時店休」，統籌助理回一張照店家設定組出的預覽卡，按〔確認〕後逐項回報。
+與 **LINE 群發的自動執行**（第 17.8 節），以及讓老闆授權 FB、Google 的**授權連結**（第 17.9 節，#377）：老闆或店長說「今天臨時店休」，統籌助理回一張照店家設定組出的預覽卡，按〔確認〕後逐項回報。
 設定了店家自己官方帳號權杖的店，LINE 群發會**自動群發**；其他動作都是「提醒」——給手動步驟與〔已完成〕按鈕，點餐系統在開店前 30 分鐘推播提醒；
 Google、FB 的自動執行在後續版本串接。
 統籌助理**不回答知識庫問題**；理解指令時會呼叫**那家店的對話模型**（第 11 節；沒有設定對話模型時只會回「抱歉，現在無法理解指令」），用量計入那家店的每月 token 上限（第 6 節）。
@@ -1624,3 +1625,69 @@ rm token.txt
   LINE 已經收過的就不會再送（LINE 回 409，統籌助理當作已群發）。超過 24 小時才重試的話，LINE 會當成新的群發。
 - 恢復營業勾了「加發更正公告」時，更正公告（`reopen` 的公告）也用同一個權杖群發，一樣會算額度。
 - 群發用的是**店家自己帳號**的每月訊息額度（依好友人數計算；台灣的輕用量方案每月 200 則），不是統籌助理的額度。
+
+### 17.9 FB、Google 授權連結（#377）
+
+FB 粉專與 Google 商家只能由**店家老闆本人**授權（設計問答 Q12）。平台營運者為那家店產生一個**授權連結**傳給老闆，老闆用手機或電腦打開、
+登入自己的 FB 或 Google 帳號並按同意，就完成授權；統籌助理把拿到的憑證**加密保存**（和第 17.8 節的 LINE 權杖一樣，只能寫、不能讀出）。
+**這個版本只有授權的流程**：FB 貼文（#379）、Google 特殊營業時間（#378）的自動執行與它們的服務提供者在後續版本加入；在那之前，
+這兩個服務都算「沒有設定」，`auth-link` 會拒絕產生連結，FB、Google 的動作照舊是提醒。
+
+**平台設定（一次）**：
+
+| 服務 | `.env` | 在服務那邊要登記的重新導向網址（redirect URI） |
+| --- | --- | --- |
+| FB 粉專 | `COORDINATOR_FACEBOOK_APP_ID`、`COORDINATOR_FACEBOOK_APP_SECRET`：Meta 應用程式（設計文件附錄 A.1，類型「商家」）的應用程式編號與密鑰 | `{PUBLIC_BASE_URL}/api/v1/coordinator/oauth/facebook/callback`，填在「Facebook 登入（企業版）→ 設定 → 有效的 OAuth 重新導向 URI」 |
+| Google 商家 | `COORDINATOR_GOOGLE_CLIENT_ID`、`COORDINATOR_GOOGLE_CLIENT_SECRET`：Google Cloud「憑證」裡「網頁應用程式」類型的 OAuth 用戶端（設計文件附錄 A.2） | `{PUBLIC_BASE_URL}/api/v1/coordinator/oauth/google/callback`，填在那個用戶端的「已授權的重新導向 URI」 |
+
+- 例如 `https://assistant.example.org/api/v1/coordinator/oauth/facebook/callback`。網址要**一字不差**（https、沒有結尾的 `/`），
+  否則服務會拒絕導回。`PUBLIC_BASE_URL` 一定要設，而且要是 **https**（授權時用的 cookie 只走 HTTPS；開發用的 `http://localhost` 例外）。
+- 每一組的兩個值都是平台的設定，不屬於任何組織，不寫入資料庫、紀錄或回應；只填一個時 api 拒絕啟動並說缺哪一個（不會印出值）。
+- 反向代理（第 5 節）整個網址都轉給 api，所以 `/api/v1/coordinator/connect` 與 `/api/v1/coordinator/oauth/*` 不需要另外設定；
+  如果你的代理只轉特定路徑，要把這兩個也加進去。
+
+**產生授權連結：`coordinator-shop auth-link`**
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
+  coordinator-shop auth-link --organization harvest --service facebook
+```
+
+- `--service` 是 `facebook` 或 `google`；`--hours` 選填，預設 72 小時、最多 168 小時。輸出那家店的名稱、**連結本身**（只顯示這一次，
+  資料庫只存它的雜湊）與有效期限，例如：
+
+  ```text
+  組織 harvest（王記麵店）的FB 粉專授權連結：
+  https://assistant.example.org/api/v1/coordinator/connect?token=…
+  有效期限：2026-11-05 10:00（Asia/Taipei），只能使用一次。請傳給老闆本人，…
+  ```
+- 連結**只能完成一次授權**，遺失或過期就再產生一個（舊的會自己過期）。打開連結本身不會用掉它：老闆在服務的畫面按「取消」，可以再打開同一個連結重來。
+- 結束代碼：`0` 完成；`1` 找不到組織、這個部署沒有設定那個服務或 `PUBLIC_BASE_URL`、寫入失敗；`2` 參數錯誤。
+
+**老闆看到的畫面**（都是很簡單的繁體中文頁面，不留快取、不帶 referrer）：
+
+1. 打開連結 → 直接轉到 FB 或 Google 的同意畫面（帶著一個 30 分鐘內有效、加密簽章的 `state`，並在瀏覽器存一個只給回呼用的 cookie）。
+2. 按同意 → 回到統籌助理：「授權完成：{店名} 已連結FB 粉專：{粉專名稱}。」；一個帳號有好幾個粉專或營業地點時，先出現「選擇要連結的粉專／營業地點」，選一個按〔連結〕。
+3. 其他情況只會看到一句話（不顯示細節）：
+   - 「連結已失效，請向平台營運者索取新的連結。」——連結不存在、已經用過、過期，或那個服務在這個部署沒有設定。
+   - 「已取消授權」——老闆在服務的畫面按了取消（連結沒有用掉，可以再打開）。
+   - 「授權沒有完成…」——超過 30 分鐘才回來、換了瀏覽器或清掉 cookie、網址被改過、服務換憑證失敗等；頁面最多附一個簡短代碼。
+4. 授權完成會記一筆組織紀錄（`coordinator-connection-updated`，只記 `facebook`／`google` 與 `set`）。重新授權會取代原本的憑證。
+
+**授權失效與重新授權**：FB 或 Google 拒絕保存的憑證（老闆改了密碼、移除了應用程式、撤銷授權）時，那一項動作改成提醒
+（執行結果寫「FB 粉專授權失效，已改為手動；請老闆用統籌助理傳的連結重新授權」），連線標成失效，統籌助理**自動產生一個 72 小時的新連結**，
+用推播傳給那家店**每一位老闆**（店長不會收到，只有老闆能授權）：
+
+```text
+王記麵店 的 FB 粉專 授權已失效，相關動作先改為提醒。請點此重新授權：https://assistant.example.org/api/v1/coordinator/connect?token=…
+```
+
+- **每次失效只傳一次**：之後其他動作再失敗也不會一直推播；老闆完成重新授權後，下一次失效才會再傳。新連結過期沒用的話，請用 `auth-link` 再產生一個。
+- 推播算在統籌助理這個官方帳號的額度（平台負擔）。LINE 群發的權杖不走這個流程，仍由營運者用 `line-token` 重新設定（第 17.8 節）。
+
+**保存的資料與紀錄**：資料庫只存連結的雜湊、有效期限與是否用過；憑證加密保存。連結、服務給的 code、`state`、憑證都不會出現在 api 的紀錄、
+API 回應或指令輸出（`auth-link` 只印一次連結本身）。注意兩件事：
+
+- **不要把 `Logging__LogLevel__Microsoft.AspNetCore` 調到 `Warning` 以下**：ASP.NET Core 的請求紀錄會寫出完整網址（含查詢字串），
+  也就會寫出連結與服務回傳的 code。預設設定（`appsettings.json`）是 `Warning`。
+- 反向代理的 access log 預設也會記完整網址。連結只能用一次、最多 7 天，code 只能換一次，但仍建議別把代理的 access log 公開或長期保存。

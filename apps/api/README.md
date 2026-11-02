@@ -1529,6 +1529,70 @@ design Slice 5, §3 Q10, Q14, Q18, Q21, decisions B and E). Operator guide: `dep
 - **Tests**: the fake LINE server answers broadcast (accepting each retry key once, `409` after), quota, consumption and
   the insight per date; `CoordinatorHostFixture` hands every shop no test enrolled to the real executor.
 
+## Store coordinator (統籌助理): FB and Google authorization links (#377)
+
+A shop's owner authorizes FB 粉專 and Google 商家 themselves through a single-use link the operator makes (store-coordinator
+design Slice 6, §3 Q12, Q18). This slice is the provider-agnostic flow, proven with a fake provider; the real providers come
+with FB 貼文 (#379) and Google 特殊營業時間 (#378). Operator guide: `deploy/README.md` §17.9.
+
+- **Providers** (`SmartAgri.Application.Coordinator.ICoordinatorOAuthProvider`, by `Service`: `facebook` | `google`;
+  `CoordinatorOAuthProviders` keeps the last one registered per service and only one that `IsConfigured`): `ConsentUrl`
+  (scopes, client id, redirect URI, state, and a PKCE `S256` challenge when `UsesPkce`), `ExchangeAsync` (the callback's
+  code, the redirect URI and the verifier) and `SelectAsync`. Each answers a `CoordinatorOAuthOutcome`: `Connected`
+  (`CoordinatorOAuthCredential`: the secret to store, the external id — page or location — and a display name),
+  `NeedsSelection` (1–100 `CoordinatorOAuthChoice`s with distinct valid external ids, plus opaque `CoordinatorOAuthPending`
+  data kept in memory only) or `Failed(code)` (a short code of ours, never the service's text). None is registered here,
+  so both services are *not configured*. Platform settings: `Coordinator:Facebook:AppId` / `AppSecret` and
+  `Coordinator:Google:ClientId` / `ClientSecret` (`CoordinatorFacebookOptions`, `CoordinatorGoogleOptions`; both or
+  neither, validated on start; `COORDINATOR_FACEBOOK_*`, `COORDINATOR_GOOGLE_*` in `deploy/.env`). A service's flow is
+  *available* when its provider is configured and `PublicChannels:PublicBaseUrl` is set.
+- **Storage**: `CoordinatorAuthorizationLinks` (`CoordinatorAuthorizationLink`, organization scoped): `Service`
+  (`facebook` | `google`, check constraint), `Purpose` (`initial` | `reauthorize`), `TokenHash` (SHA-256 hex of a
+  32-byte random base64url token — `AuthorizationLinkTokens`; unique across organizations), `CreatedAt`, `ExpiresAt`,
+  `UsedAt`. The anonymous lookup by hash is `CoordinatorLookup.FindAuthorizationLinkAsync` (the one place allowed to
+  switch the organization filter off). Credentials go to `CoordinatorConnections` (#376) under purposes
+  `coordinator.facebook-credential` / `coordinator.google-credential`; its new `ReauthorizationRequestedAt` (only while
+  `revoked`, check constraint) marks a revocation whose owners were already sent a link.
+- **CLI** `coordinator-shop auth-link --organization <code> --service facebook|google [--hours 1-168]` (default 72)
+  refuses a service that is not available (exit 1) and prints `{public base URL}/api/v1/coordinator/connect?token={token}`
+  once, with the shop and its expiry. Exit codes 0 / 1 / 2.
+- **Endpoints** (anonymous, outside the OpenAPI document, `CoordinatorAuthorizationEndpoints`; every answer `Cache-Control:
+  no-store`, `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex`, CSP `default-src 'none'`, the one inline style by
+  hash, `frame-ancestors 'none'`, `form-action 'none'` — `'self'` on the selection page):
+  1. `GET /api/v1/coordinator/connect?token=…`: a link that exists, is unused and unexpired and whose service is available
+     sets the cookie `coordinator_oauth_{service}` (a 32-byte nonce; `HttpOnly`, `Secure`, `SameSite=Lax`, 30 minutes,
+     path `/api/v1/coordinator/oauth/{service}` under the public base URL's path) and redirects (`302`) to the consent
+     URL with `state` = Data Protection–protected `{ link, organization, service, nonce, verifier, expiry }`
+     (`CoordinatorOAuthStates`, 30 minutes, expiry checked against `TimeProvider`). Anything else: the same
+     「連結已失效，請向平台營運者索取新的連結」 page (`404`) whatever the reason. Opening does not use the link (a link preview
+     or a cancelled consent costs nothing). The token is a query parameter, not a path segment, because ASP.NET Core
+     puts the request path in the logging scope that the OpenTelemetry log exporter sends along.
+  2. `GET /api/v1/coordinator/oauth/{service}/callback`: `404` (bodiless) for a service that is not available; the state
+     must read for that service and its nonce match the cookie (constant-time), else 「授權沒有完成」 (`400`); the
+     service's `error` → 「已取消授權」 (`200`, at most the error's short code, link still usable); otherwise the link is
+     taken by compare-and-set (unused, unexpired; a second callback gets 「連結已失效」), the code exchanged, and either
+     the credential stored (protected; `coordinator-connection-updated` `{ service, change: set }`, no actor) with
+     「授權完成」 naming the shop (store name, else the organization's name) and the account, or the selection form.
+  3. `POST /api/v1/coordinator/oauth/{service}/select` (`application/x-www-form-urlencoded`, a `Content-Length` of at
+     most 16 KB): the form's own protected state (no verifier; it cannot stand in for the consent state or the other
+     way round) and the same cookie; only a choice the provider offered; the pending choices are taken once
+     (`CoordinatorOAuthSelections`, in memory for 30 minutes — a restart loses them and the owner needs a new link).
+- **Re-authorization** (`ICoordinatorReauthorization` → `CoordinatorReauthorization`): when an executor answers
+  `UnavailableBecause(token-revoked)` for FB 貼文 or Google 特殊營業時間, `CoordinatorRunActionHandler` asks for it before
+  recording the result: the connection is revoked (when still active), and only the call that sets
+  `ReauthorizationRequestedAt` on the revoked row — in one transaction with a new `reauthorize` link (72 hours) — pushes
+  「{店名} 的 {FB 粉專／Google 商家} 授權已失效，相關動作先改為提醒。請點此重新授權：{link}」 through the 統籌助理 to every 老闆
+  member (not 店長). So one revocation sends one link however many actions fail; authorizing again clears the mark.
+  The report's reason for those rows is 「{FB 粉專／Google 商家}授權失效，已改為手動；請老闆用統籌助理傳的連結重新授權」
+  (`CoordinatorFailureCodes.Reason(code, kind)`). LINE's token stays operator-managed (#376).
+- **Secrets**: the link token, the code, the state, the nonce, the verifier, the credential and the pending data never
+  appear in a page, a log, a redirect other than to the service, `ToString()` or CLI output (but the link, once). Logs
+  carry link and organization ids, the service and why something was refused. Traces drop `url.query` for both paths
+  (`OpenTelemetryExtensions.RedactSecretUrls`). ASP.NET Core's own request lines (full URL) are below the shipped
+  `Microsoft.AspNetCore: Warning`.
+- **Tests**: `CoordinatorHostFixture` registers `FakeOAuthProvider`s (FB without PKCE, Google with) whose consent screen
+  is never requested — the tests play the owner's browser (cookies by hand) and the service.
+
 ## Monthly token limit: `set-token-limit`
 
 Every organization has a monthly budget of chat-model tokens (M5a #195;

@@ -1692,6 +1692,54 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("ChatThreads", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorAuthorizationLink", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Service")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "Service");
+
+                    b.ToTable("CoordinatorAuthorizationLinks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorAuthorizationLinks_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
+
+                            t.HasCheckConstraint("CK_CoordinatorAuthorizationLinks_Service", "\"Service\" IN ('facebook', 'google')");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorBindingCode", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1958,6 +2006,9 @@ namespace SmartAgri.Infrastructure.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ReauthorizationRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Service")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -1992,7 +2043,10 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("OrganizationId", "Service")
                         .IsUnique();
 
-                    b.ToTable("CoordinatorConnections", (string)null);
+                    b.ToTable("CoordinatorConnections", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorConnections_Reauthorization", "\"ReauthorizationRequestedAt\" IS NULL OR \"Status\" = 'revoked'");
+                        });
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
@@ -3866,6 +3920,15 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("AssistantId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorAuthorizationLink", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

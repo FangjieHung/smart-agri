@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Lets the PackageVersion entries below also pin transitive dependencies. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
   <ItemGroup>
@@ -38,6 +40,11 @@
     <PackageVersion Include="Pgvector.EntityFrameworkCore" Version="0.3.0" />
     <PackageVersion Include="AGUI.Abstractions" Version="1.0.0" />
     <PackageVersion Include="AGUI.Formatting" Version="1.0.0" />
+    <!-- Transitive only (DataProtection, OpenIddict): pinned to the first versions patched for
+         GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7, GHSA-7hqp-7c5m-4vq6, GHSA-c399-9853-6jmj and
+         GHSA-r955-8q5j-3h83 (published 2026-10-13); 10.0.11 fails restore under NuGet audit. -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.13" />
   </ItemGroup>
 
 </Project>

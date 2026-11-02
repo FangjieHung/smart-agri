@@ -171,7 +171,7 @@ public static class LineWebhookEndpoints
 
     /// <summary>The body as received, or <see langword="null"/> when it is larger than
     /// <see cref="MaxBodyBytes"/>.</summary>
-    private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
+    internal static async Task<byte[]?> ReadBodyAsync(HttpRequest request, CancellationToken cancellationToken)
     {
         if (request.ContentLength > MaxBodyBytes)
         {

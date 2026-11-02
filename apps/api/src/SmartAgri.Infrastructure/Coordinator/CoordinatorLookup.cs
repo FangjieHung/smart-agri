@@ -1,0 +1,69 @@
+using Microsoft.EntityFrameworkCore;
+using SmartAgri.Domain.Coordinator;
+
+namespace SmartAgri.Infrastructure.Coordinator;
+
+/// <summary>A shop a LINE user is bound to through the 統籌助理, and as what.</summary>
+/// <param name="StoreName">The organization's name (the shop settings of Slice 2 will give a store name).</param>
+public sealed record CoordinatorMembership(Guid OrganizationId, string StoreName, CoordinatorRole Role);
+
+/// <summary>The binding code with a given hash: its id and organization, nothing else.</summary>
+public sealed record CoordinatorCodeMatch(Guid CodeId, Guid OrganizationId);
+
+/// <summary>
+/// The 統籌助理's two cross-organization reads (store-coordinator design decision C, #372). The
+/// platform's shared LINE account does not know which shop a message is for until it knows who sent it,
+/// so — like <see cref="SmartAgri.Infrastructure.Assistants.PublicAssistantLookup"/> for an anonymous visitor — nobody's
+/// organization exists yet when these run, and this is the one place in <c>apps/api/src</c> allowed to
+/// switch the organization filter off for coordinator data (a source-scanning test enforces it).
+/// </summary>
+/// <remarks>
+/// It only reads. Everything else — checking and using a code, adding a member, issuing a code — runs
+/// in a context acting for the organization found here (<c>FixedOrganizationContext</c>), under the
+/// usual filter and write guard.
+/// </remarks>
+public sealed class CoordinatorLookup
+{
+    private readonly AppDbContext _dbContext;
+
+    public CoordinatorLookup(AppDbContext dbContext)
+    {
+        _dbContext = dbContext;
+    }
+
+    /// <summary>Every shop <paramref name="lineUserId"/> is bound to, by store name; empty when none.</summary>
+    public async Task<IReadOnlyList<CoordinatorMembership>> FindMembershipsAsync(string lineUserId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(lineUserId);
+        var memberships = await _dbContext.CoordinatorMembers
+            .IgnoreQueryFilters([AppDbContext.OrganizationFilter])
+            .AsNoTracking()
+            .Where(member => member.LineUserId == lineUserId)
+            .Join(
+                _dbContext.Organizations,
+                member => member.OrganizationId,
+                organization => organization.Id,
+                (member, organization) => new { member.OrganizationId, organization.Name, member.Role })
+            .ToListAsync(cancellationToken);
+        return
+        [
+            .. memberships
+                .OrderBy(membership => membership.Name, StringComparer.Ordinal)
+                .ThenBy(membership => membership.OrganizationId)
+                .Select(membership => new CoordinatorMembership(membership.OrganizationId, membership.Name, membership.Role)),
+        ];
+    }
+
+    /// <summary>The binding code whose <see cref="BindingCodes.Hash"/> is <paramref name="codeHash"/>, in
+    /// any organization, used or not; <see langword="null"/> when there is none.</summary>
+    public async Task<CoordinatorCodeMatch?> FindCodeAsync(string codeHash, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(codeHash);
+        return await _dbContext.CoordinatorBindingCodes
+            .IgnoreQueryFilters([AppDbContext.OrganizationFilter])
+            .AsNoTracking()
+            .Where(code => code.CodeHash == codeHash)
+            .Select(code => new CoordinatorCodeMatch(code.Id, code.OrganizationId))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+}

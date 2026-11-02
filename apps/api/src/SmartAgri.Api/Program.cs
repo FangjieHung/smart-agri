@@ -9,6 +9,7 @@ using SmartAgri.Api.Answers.Evaluation;
 using SmartAgri.Api.Assistants;
 using SmartAgri.Api.Cases;
 using SmartAgri.Api.Chat;
+using SmartAgri.Api.Coordinator;
 using SmartAgri.Api.Databases;
 using SmartAgri.Api.DataProtection;
 using SmartAgri.Api.Authentication;
@@ -56,6 +57,7 @@ builder.Services.AddSingleton<Microsoft.Extensions.Options.IValidateOptions<Smar
 builder.Services.AddOrganizationTokenUsage();
 builder.Services.AddLineMessaging(builder.Configuration);
 builder.Services.AddLineWebhook();
+builder.Services.AddStoreCoordinator(builder.Configuration);
 builder.Services.AddOptions<SmartAgri.Api.PublicChannels.WidgetOptions>()
     .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.WidgetOptions.SectionName));
 builder.Services.AddSingleton<SmartAgri.Api.PublicChannels.WidgetIndexTemplate>();
@@ -221,6 +223,14 @@ if (args is [SmartAgriCommands.RetentionCleanup, .. var retentionCleanupArgs])
     return;
 }
 
+// `coordinator-binding-code` is one-shot too, in any environment: issue a single-use 老闆 binding code
+// for one organization's 統籌助理 membership, print it once with its expiry, and exit (#372).
+if (args is [SmartAgriCommands.CoordinatorBindingCode, .. var coordinatorBindingCodeArgs])
+{
+    Environment.ExitCode = await CoordinatorBindingCodeCommand.RunAsync(app.Services, coordinatorBindingCodeArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `case-set-due` is one-shot too, Development/Testing only: move one open case's due time (also into
 // the past, which the API refuses) with an actor-less due-changed event, and exit (M7-11 #256). The
 // API-mode E2E runs it to make a case overdue.
@@ -298,6 +308,7 @@ app.MapNotificationSettingsEndpoints();
 app.MapVisitorEndpoints();
 app.MapWidgetEndpoints();
 app.MapLineWebhookEndpoints();
+app.MapCoordinatorWebhookEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API
@@ -325,6 +336,7 @@ internal static class SmartAgriCommands
     public const string SetTokenLimit = "set-token-limit";
     public const string RetentionCleanup = "retention-cleanup";
     public const string CaseSetDue = "case-set-due";
+    public const string CoordinatorBindingCode = "coordinator-binding-code";
 }
 
 namespace SmartAgri.Api

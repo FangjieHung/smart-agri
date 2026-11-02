@@ -1,0 +1,145 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Options;
+using Shouldly;
+using SmartAgri.Api.Coordinator;
+using SmartAgri.Api.Tests.Infrastructure;
+using SmartAgri.Application.Line;
+
+namespace SmartAgri.Api.Tests.Coordinator;
+
+/// <summary>
+/// <c>Coordinator:Line</c> (store-coordinator design decision E, #372): both values turn the 統籌助理 on,
+/// neither keeps it off — its webhook is then <c>404</c> — and only one refuses to start, saying which
+/// setting is missing but never a value. Production hosts without a database: none of this reads one.
+/// </summary>
+public sealed class CoordinatorOptionsTests : IDisposable
+{
+    private const string CertificatePassword = "test-password";
+    private const string SecretValue = "s3cr3t-value-never-shown-0123456789";
+    private const string TokenValue = "t0k3n-value-never-shown-0123456789";
+
+    private readonly string _directory = Directory.CreateTempSubdirectory("smartagri-coordinator-options-").FullName;
+
+    private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
+
+    public void Dispose() => Directory.Delete(_directory, recursive: true);
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", "")]
+    [InlineData("  ", " ")]
+    [InlineData("secret", "token")]
+    public void Both_or_neither_is_valid(string? secret, string? token)
+    {
+        var options = new CoordinatorLineOptions { ChannelSecret = secret, ChannelAccessToken = token };
+
+        options.Validate().ShouldBeNull();
+        options.IsConfigured.ShouldBe(secret == "secret");
+    }
+
+    [Theory]
+    [InlineData(SecretValue, null, "Coordinator:Line:ChannelSecret is set but Coordinator:Line:ChannelAccessToken is not")]
+    [InlineData(SecretValue, "", "Coordinator:Line:ChannelSecret is set but Coordinator:Line:ChannelAccessToken is not")]
+    [InlineData(null, TokenValue, "Coordinator:Line:ChannelAccessToken is set but Coordinator:Line:ChannelSecret is not")]
+    public void Only_one_names_the_missing_setting_and_no_value(string? secret, string? token, string expected)
+    {
+        var error = new CoordinatorLineOptions { ChannelSecret = secret, ChannelAccessToken = token }.Validate().ShouldNotBeNull();
+
+        error.ShouldContain(expected);
+        error.ShouldNotContain(SecretValue);
+        error.ShouldNotContain(TokenValue);
+    }
+
+    [Theory]
+    [InlineData("Coordinator:Line:ChannelSecret", SecretValue, "Coordinator:Line:ChannelAccessToken is not")]
+    [InlineData("Coordinator:Line:ChannelAccessToken", TokenValue, "Coordinator:Line:ChannelSecret is not")]
+    public void A_host_with_only_one_setting_refuses_to_start_and_says_why(string key, string value, string expected)
+    {
+        using var factory = ProductionHost(builder => builder.UseSetting(key, value));
+
+        // ValidateOnStart fails inside app.Run(), so read the reason from the host (see StartupFailure).
+        var message = StartupFailure.Of(factory).ShouldBeOfType<OptionsValidationException>().Message;
+        message.ShouldContain(expected);
+        message.ShouldNotContain(value);
+    }
+
+    [Fact]
+    public async Task Without_settings_or_with_the_blank_values_compose_passes_the_webhook_is_404()
+    {
+        foreach (var configure in new Action<IWebHostBuilder>[]
+                 {
+                     _ => { },
+                     builder => builder.UseSetting("Coordinator:Line:ChannelSecret", "").UseSetting("Coordinator:Line:ChannelAccessToken", ""),
+                 })
+        {
+            using var factory = ProductionHost(configure);
+            using var client = factory.CreateClient();
+
+            (await client.GetAsync("/health/live", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+            var body = """{"destination":"U0","events":[]}""";
+            var response = await PostAsync(client, body, LineWebhookSignature.Compute(SecretValue, Encoding.UTF8.GetBytes(body)));
+            response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        }
+    }
+
+    [Fact]
+    public async Task With_both_settings_a_bad_signature_is_401_and_a_signed_verify_is_200()
+    {
+        using var factory = ProductionHost(builder => builder
+            .UseSetting("Coordinator:Line:ChannelSecret", SecretValue)
+            .UseSetting("Coordinator:Line:ChannelAccessToken", TokenValue));
+        using var client = factory.CreateClient();
+        var body = """{"destination":"U0","events":[]}""";
+
+        (await PostAsync(client, body, LineWebhookSignature.Compute("another-secret", Encoding.UTF8.GetBytes(body)))).StatusCode
+            .ShouldBe(HttpStatusCode.Unauthorized);
+        (await PostAsync(client, body, signature: null)).StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await PostAsync(client, body, LineWebhookSignature.Compute(SecretValue, Encoding.UTF8.GetBytes(body)))).StatusCode
+            .ShouldBe(HttpStatusCode.OK);
+    }
+
+    private static async Task<HttpResponseMessage> PostAsync(HttpClient client, string body, string? signature)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, CoordinatorWebhookEndpoints.Route)
+        {
+            Content = new StringContent(body, Encoding.UTF8, new MediaTypeHeaderValue("application/json")),
+        };
+        if (signature is not null)
+        {
+            request.Headers.TryAddWithoutValidation("x-line-signature", signature);
+        }
+
+        return await client.SendAsync(request, CancellationToken);
+    }
+
+    private WebApplicationFactory<Program> ProductionHost(Action<IWebHostBuilder> configure) =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Production");
+            builder.UseSetting("ConnectionStrings:Default", PostgresFixture.UnreachableConnectionString);
+            builder.UseSetting("Authentication:SigningCertificatePath", WritePfx("signing", X509KeyUsageFlags.DigitalSignature));
+            builder.UseSetting("Authentication:SigningCertificatePassword", CertificatePassword);
+            builder.UseSetting("Authentication:EncryptionCertificatePath", WritePfx("encryption", X509KeyUsageFlags.KeyEncipherment));
+            builder.UseSetting("Authentication:EncryptionCertificatePassword", CertificatePassword);
+            DataProtectionTestSettings.Use(builder, _directory);
+            configure(builder);
+        });
+
+    private string WritePfx(string name, X509KeyUsageFlags usage)
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest($"CN=smartagri-test-{name}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        request.CertificateExtensions.Add(new X509KeyUsageExtension(usage, critical: true));
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
+
+        var path = Path.Combine(_directory, $"{name}-{Guid.NewGuid():N}.pfx");
+        File.WriteAllBytes(path, certificate.Export(X509ContentType.Pfx, CertificatePassword));
+        return path;
+    }
+}

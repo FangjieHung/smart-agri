@@ -12,7 +12,9 @@ namespace SmartAgri.Api.Tests.Tenancy;
 /// session (<c>PublicAssistantLookup</c>, M5a #196, which returns nothing but the organization id),
 /// and when the page embedded in a customer's website looks up its assistant's website channel
 /// (<c>PublicWebsiteChannelLookup</c>, M5a #201, which returns nothing but the channel's state and
-/// allowed domains) — all before any organization exists.</item>
+/// allowed domains), and when the 統籌助理's shared LINE account finds whose message it is — the
+/// shops a LINE user is bound to and the shop of a binding code (<c>CoordinatorLookup</c>, #372) —
+/// all before any organization exists.</item>
 /// <item>Raw SQL, which neither the filter nor the write guard sees: only claiming
 /// background jobs across organizations (<c>JobClaimer</c>, M2 plan §3).</item>
 /// <item>Acting for a background job's organization: only the job runner.</item>
@@ -31,7 +33,7 @@ public class IgnoreQueryFiltersSourceTests
         ["FromSql", "SqlQuery", "ExecuteSql", "NpgsqlCommand", "NpgsqlBatch", "CreateCommand", "GetDbConnection"];
 
     [Fact]
-    public void IgnoreQueryFilters_appears_only_in_AccountLookup_PublicAssistantLookup_and_PublicWebsiteChannelLookup()
+    public void IgnoreQueryFilters_appears_only_in_AccountLookup_PublicAssistantLookup_PublicWebsiteChannelLookup_and_CoordinatorLookup()
     {
         Occurrences(Token)
             .Select(occurrence => occurrence[..occurrence.LastIndexOf(':')])
@@ -42,6 +44,8 @@ public class IgnoreQueryFiltersSourceTests
                     "SmartAgri.Infrastructure/Assistants/PublicAssistantLookup.cs",
                     "SmartAgri.Infrastructure/Assistants/PublicWebsiteChannelLookup.cs",
                     "SmartAgri.Infrastructure/Assistants/PublicWebsiteChannelLookup.cs",
+                    "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
+                    "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
                 ]);
     }
 

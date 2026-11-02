@@ -9,6 +9,7 @@ using SmartAgri.Domain.Answers;
 using SmartAgri.Domain.Assistants;
 using SmartAgri.Domain.Cases;
 using SmartAgri.Domain.Chat;
+using SmartAgri.Domain.Coordinator;
 using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
@@ -22,6 +23,7 @@ using SmartAgri.Infrastructure.Answers;
 using SmartAgri.Infrastructure.Assistants;
 using SmartAgri.Infrastructure.Cases;
 using SmartAgri.Infrastructure.Chat;
+using SmartAgri.Infrastructure.Coordinator;
 using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
@@ -215,6 +217,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Each account's own notification Email address and opt-out (#355).</summary>
     public DbSet<AccountNotificationSettings> AccountNotificationSettings => Set<AccountNotificationSettings>();
 
+    /// <summary>LINE users bound to a shop through the 統籌助理, as 老闆 or 店長 (#372).</summary>
+    public DbSet<CoordinatorMember> CoordinatorMembers => Set<CoordinatorMember>();
+
+    /// <summary>Single-use 統籌助理 binding codes, stored as their SHA-256 (#372).</summary>
+    public DbSet<CoordinatorBindingCode> CoordinatorBindingCodes => Set<CoordinatorBindingCode>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -395,6 +403,11 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         // 轉真人 notifications and the accounts' notification settings (#355).
         modelBuilder.ApplyConfiguration(new VisitorHandoffConfiguration());
         modelBuilder.ApplyConfiguration(new AccountNotificationSettingsConfiguration());
+
+        // The 統籌助理's members and binding codes (store-coordinator design, #372); only
+        // Coordinator/CoordinatorLookup reads them across organizations.
+        modelBuilder.ApplyConfiguration(new CoordinatorMemberConfiguration());
+        modelBuilder.ApplyConfiguration(new CoordinatorBindingCodeConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

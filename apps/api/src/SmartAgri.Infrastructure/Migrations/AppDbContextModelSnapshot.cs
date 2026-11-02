@@ -1692,6 +1692,89 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("ChatThreads", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorBindingCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IssuedByLineUserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UsedByLineUserId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId");
+
+                    b.ToTable("CoordinatorBindingCodes", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorBindingCodes_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
+
+                            t.HasCheckConstraint("CK_CoordinatorBindingCodes_Used", "(\"UsedAt\" IS NULL) = (\"UsedByLineUserId\" IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("BoundAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LineUserId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LineUserId");
+
+                    b.HasIndex("OrganizationId", "LineUserId")
+                        .IsUnique();
+
+                    b.ToTable("CoordinatorMembers", (string)null);
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Databases.Database", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3485,6 +3568,24 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("AssistantId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorBindingCode", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

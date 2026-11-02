@@ -7,7 +7,7 @@
 src/SmartAgri.Domain/               entities (POCOs), enums; no third-party dependencies
 src/SmartAgri.Application/          business rules (e.g. knowledge base visibility, sharing, upload checks), processing and embedding orchestration, retrieval (KnowledgeRetriever), job handler contract; Domain + abstraction packages only
 src/SmartAgri.Infrastructure/       AppDbContext, EF mapping, Identity accounts, migrations, health checks, job claiming, text extraction, embedding clients and the model-call audit middleware, the pgvector VectorStoreCollection
-src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + add-organization + list-organizations + reset-password + reindex + rechunk + set-token-limit + retention-cleanup subcommands
+src/SmartAgri.Api/                  Minimal API, sign-in (Identity + OpenIddict), background job runner/worker, Dockerfile, migrate + setup + add-organization + list-organizations + reset-password + reindex + rechunk + set-token-limit + retention-cleanup + coordinator-binding-code subcommands
 tests/SmartAgri.Domain.Tests/       unit tests, no Docker needed
 tests/SmartAgri.Application.Tests/  unit tests and the Application dependency rule, no Docker needed
 tests/SmartAgri.Api.Tests/          integration tests; some need Docker (see below)
@@ -1260,6 +1260,64 @@ Nothing is written to `ChatThreads`/`ChatMessages`. Metrics (meter `SmartAgri`, 
 `smartagri.line.answer.duration` (seconds from the event, tagged `delivery` = `reply`/`push`/`dropped`
 and `chat` = `one-to-one`/`group`), `smartagri.line.push_fallbacks` and `smartagri.line.rate_limited`
 (tagged `limit`).
+
+## Store coordinator (統籌助理): webhook and binding (#372)
+
+The platform's shared 統籌助理 LINE official account (store-coordinator design,
+`docs/plans/2026-11-02-store-coordinator-assistant.md`, Slice 1). Shop owners (老闆) and managers (店長)
+add it as a friend and bind themselves to their shop (one shop = one organization) with a single-use
+binding code. This slice does binding only: a bound member's other messages get the capability menu
+「我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店」; no knowledge-base answers, no model calls.
+
+- **Settings** (`Coordinator:Line`, `SmartAgri.Api.Coordinator.CoordinatorLineOptions`):
+  `ChannelSecret` and `ChannelAccessToken` (`Coordinator__Line__ChannelSecret`,
+  `Coordinator__Line__ChannelAccessToken`; compose: `COORDINATOR_LINE_CHANNEL_SECRET`,
+  `COORDINATOR_LINE_CHANNEL_ACCESS_TOKEN`). Platform settings, not organization data. Both blank: the
+  coordinator is off and its webhook answers `404`. Only one set: the Api refuses to start
+  (`ValidateOnStart`), naming the missing setting, never a value. Neither value is logged or returned.
+- **Webhook** `POST /api/v1/coordinator/line/webhook` (`CoordinatorWebhookEndpoints`; paste
+  `{PublicChannels:PublicBaseUrl}/api/v1/coordinator/line/webhook` into LINE Developers Console by hand):
+  built like the assistants' webhook above — anonymous, not in the OpenAPI document, rate limited
+  (`LineWebhooksPerAssistantPerMinute` in a partition of its own), body at most 1 MB, `x-line-signature`
+  over the raw bytes (bodiless `401`), `400` for a signed non-object, `200` for Verify. `destination`
+  must be the coordinator bot's user id, read once with `GET /v2/bot/info` and the configured token and
+  kept in memory (`CoordinatorBotIdentity`); a mismatch, or LINE not answering, ignores the events with
+  `200`. Only one-to-one events (`source.type` `user`) are kept; groups and rooms are ignored.
+  `webhookEventId`s are deduplicated for 10 minutes (`CoordinatorWebhookDeduplicator`, separate from the
+  assistants'), the rest queued in memory (`CoordinatorWebhookQueue`, 1,000 deliveries) and handled by
+  `CoordinatorWebhookProcessor` (16 deliveries at once, each delivery's events in order). Single
+  instance, like the assistants' webhook.
+- **Routing** (`SmartAgri.Application.Coordinator.CoordinatorMessageRouter`, pure; text read as NFKC,
+  trimmed): `follow` — unbound 「歡迎使用統籌助理。請輸入老闆或平台營運者給你的綁定碼。」, bound the menu;
+  text that looks like a code — a bind attempt, bound or not; unbound, anything else (stickers too) —
+  「請輸入綁定碼。」; bound, 「產生店長綁定碼」 — a 店長 code (below); bound, anything else — the menu (the
+  seam where Slice 3's scenario commands go). Every answer is a reply with the coordinator's token
+  (free); no push.
+- **Binding codes** (`SmartAgri.Domain.Coordinator.BindingCodes`): 8 characters of
+  `23456789ABCDEFGHJKMNPQRSTUVWXYZ` from a CSPRNG, shown `XXXX-XXXX`; typed input is NFKC'd, trimmed,
+  upper-cased, spaces and hyphens dropped. Only the SHA-256 of the code is stored
+  (`CoordinatorBindingCodes.CodeHash`, unique); the code is shown once and never logged. A bind
+  (`CoordinatorBindings.BindAsync`, in a context acting for the code's organization) takes the code with a
+  compare-and-set (`UsedAt IS NULL AND ExpiresAt > now`) in the same transaction as the new
+  `CoordinatorMembers` row, so of two people sending one code exactly one is bound; a member of that shop
+  already gets 「你已經綁定 {店名}（{角色}）。」 and the code stays unused. Unknown, used or expired:
+  「綁定碼無效或已過期，請向老闆或平台營運者索取新的綁定碼。」; 5 of those per LINE user in 15 minutes and
+  further attempts get 「嘗試太多次，請 15 分鐘後再試。」 without looking at the code
+  (`CoordinatorBindingThrottle`, in memory). One LINE user may be bound to several shops.
+- **店長 codes**: a 老闆 sends 「產生店長綁定碼」 and gets a 24-hour manager code with the shop name and its
+  expiry (Asia/Taipei until shops have their own time zone). An owner of several shops first gets a quick
+  reply of shop names (labels at most 20 characters, at most 13) whose postback carries the organization id;
+  the postback is checked again (the sender must be that shop's 老闆, also inside the shop's own context).
+  A manager, or anyone else, gets 「只有老闆可以產生店長綁定碼。」.
+- **`coordinator-binding-code`** (any environment, like `set-token-limit`):
+  `coordinator-binding-code --organization <組織代碼> [--hours <1-720>]` issues an owner code (default 168
+  hours) and prints it with its expiry once. Exit codes: `0` done, `1` no such organization or the write
+  failed, `2` bad arguments.
+- **Cross-organization reads** go through `SmartAgri.Infrastructure.Coordinator.CoordinatorLookup` only
+  (the sender's shops, a code's shop; allowed by `Tenancy/IgnoreQueryFiltersSourceTests`). Everything else
+  runs in a `FixedOrganizationContext` for one organization. `CoordinatorMembers` and
+  `CoordinatorBindingCodes` are organization scoped; they store LINE user ids of the coordinator account
+  (the members, who used a code, who issued it), never anything a person wrote.
 
 ## Monthly token limit: `set-token-limit`
 

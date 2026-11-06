@@ -32,6 +32,7 @@ namespace SmartAgri.Api.Coordinator;
 public sealed class CoordinatorCommandHandler
 {
     private readonly CoordinatorCommands _commands;
+    private readonly CoordinatorCommandActions _actions;
     private readonly CoordinatorShops _shops;
     private readonly CoordinatorCommandInterpreter _interpreter;
     private readonly CoordinatorConversationMemory _memory;
@@ -41,6 +42,7 @@ public sealed class CoordinatorCommandHandler
 
     public CoordinatorCommandHandler(
         CoordinatorCommands commands,
+        CoordinatorCommandActions actions,
         CoordinatorShops shops,
         CoordinatorCommandInterpreter interpreter,
         CoordinatorConversationMemory memory,
@@ -49,6 +51,7 @@ public sealed class CoordinatorCommandHandler
         TimeProvider clock)
     {
         _commands = commands;
+        _actions = actions;
         _shops = shops;
         _interpreter = interpreter;
         _memory = memory;
@@ -236,7 +239,7 @@ public sealed class CoordinatorCommandHandler
         if (await _commands.FindAsync(organizationId, commandId, cancellationToken) is { Scenario: ShopScenario.Reopen } reopen
             && await _shops.FindAsync(organizationId, cancellationToken) is { } settings
             && await _commands.FindAsync(organizationId, reopen.ReopensCommandId!.Value, cancellationToken) is { } undone
-            && !CorrectionOffered(reopen, settings, undone))
+            && !CorrectionOffered(reopen, await UndoneActionsAsync(undone, settings, cancellationToken)))
         {
             // Only a card that shows the toggle can be toggled (the postback is the sender's to forge).
             return [LineMessages.Text(CoordinatorCommandReplies.Outdated)];
@@ -563,22 +566,30 @@ public sealed class CoordinatorCommandHandler
 
         var original = await _commands.FindAsync(organizationId, command.ReopensCommandId!.Value, cancellationToken)
             ?? throw new InvalidOperationException("A reopen's command is gone.");
-        var undoneActions = settings[original.Scenario].Actions;
-        var correctionOffered = CorrectionOffered(command, settings, original);
+        var undoneActions = await UndoneActionsAsync(original, settings, cancellationToken);
+        var correctionOffered = CorrectionOffered(command, undoneActions);
         var correction = correctionOffered && command.CorrectionBroadcast;
         var undoneModes = await ModesAsync(organizationId, undoneActions, cancellationToken);
         return CoordinatorPreviewCard.Build(new CoordinatorCardContent(
             organizationId, command.Id, command.Version, settings.StoreName, ShopScenario.Reopen, date, null,
-            CoordinatorPreviewCard.ReopenRows(settings, original.Scenario, date, undoneModes, correction),
+            CoordinatorPreviewCard.ReopenRows(undoneActions, date, undoneModes, correction),
             command.AnnouncementText,
             new CoordinatorReopenDetails(original.Scenario, original.Date!.Value, original.Time, correctionOffered, correction)));
     }
 
     /// <summary>Whether reopen card <paramref name="reopen"/> offers the correction broadcast (Q21): it has the
     /// shop's reopen announcement and the command it undoes had a LINE 群發.</summary>
-    private static bool CorrectionOffered(CoordinatorCommand reopen, ShopSettingsDocument settings, CoordinatorCommand undone) =>
-        reopen.AnnouncementText is not null
-        && settings[undone.Scenario].Actions.Any(action => action.Kind == ShopActionKind.LineBroadcast);
+    private static bool CorrectionOffered(CoordinatorCommand reopen, IReadOnlyList<ShopAction> undoneActions) =>
+        reopen.AnnouncementText is not null && undoneActions.Any(action => action.Kind == ShopActionKind.LineBroadcast);
+
+    /// <summary>What confirmed command <paramref name="undone"/> does, as recorded at its confirmation (#375) — so a
+    /// reopen card describes it whatever the settings say now; the current settings for a command without records.</summary>
+    private async Task<IReadOnlyList<ShopAction>> UndoneActionsAsync(
+        CoordinatorCommand undone, ShopSettingsDocument settings, CancellationToken cancellationToken)
+    {
+        var rows = await _actions.ListAsync(undone.OrganizationId, undone.Id, cancellationToken);
+        return rows.Count > 0 ? CoordinatorActionSchedule.ActionsOf(rows) : settings[undone.Scenario].Actions;
+    }
 
     private async Task<IReadOnlyList<ShopActionMode>> ModesAsync(Guid organizationId, IReadOnlyList<ShopAction> actions, CancellationToken cancellationToken)
     {

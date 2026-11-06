@@ -13,8 +13,10 @@ namespace SmartAgri.Api.Coordinator;
 /// the sender is bound to (<see cref="CoordinatorLookup"/>), lets <see cref="CoordinatorMessageRouter"/>
 /// decide, and carries the decision out — binding with a code (<see cref="CoordinatorBindings"/>,
 /// throttled by <see cref="CoordinatorBindingThrottle"/>), issuing a 店長 code for a 老闆, a member's
-/// commands and their cards (<see cref="CoordinatorCommandHandler"/>, which may call the shop's model), or
-/// replying with a fixed text. Every answer is a reply (free) with the coordinator's access token; no push.
+/// commands and their cards (<see cref="CoordinatorCommandHandler"/>, which may call the shop's model), 〔已完成〕 and
+/// 〔重試〕 on a running command's actions (<see cref="CoordinatorActionButtons"/>, #375), or replying with a fixed text.
+/// Every answer here is a reply (free) with the coordinator's access token (a 〔重試〕 is answered by the follow-up of
+/// its result, <see cref="CoordinatorReports"/>).
 /// </summary>
 /// <remarks>
 /// Each reply token is used at most once; a LINE failure is logged (event type, outcome, status,
@@ -27,6 +29,7 @@ internal sealed class CoordinatorEventHandler
     private readonly CoordinatorBindings _bindings;
     private readonly CoordinatorBindingThrottle _throttle;
     private readonly CoordinatorCommandHandler _commands;
+    private readonly CoordinatorActionButtons _buttons;
     private readonly CoordinatorReplySender _replies;
     private readonly CoordinatorLineOptions _options;
     private readonly ILogger<CoordinatorEventHandler> _logger;
@@ -36,6 +39,7 @@ internal sealed class CoordinatorEventHandler
         CoordinatorBindings bindings,
         CoordinatorBindingThrottle throttle,
         CoordinatorCommandHandler commands,
+        CoordinatorActionButtons buttons,
         CoordinatorReplySender replies,
         IOptions<CoordinatorLineOptions> options,
         ILogger<CoordinatorEventHandler> logger)
@@ -44,6 +48,7 @@ internal sealed class CoordinatorEventHandler
         _bindings = bindings;
         _throttle = throttle;
         _commands = commands;
+        _buttons = buttons;
         _replies = replies;
         _options = options.Value;
         _logger = logger;
@@ -163,6 +168,21 @@ internal sealed class CoordinatorEventHandler
                 await ReplyAsync(
                     lineEvent,
                     await _commands.ChooseReopenAsync(userId, memberships, intent.OrganizationId!.Value, intent.CommandId!.Value, cancellationToken),
+                    cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.CompleteAction:
+                await ReplyAsync(
+                    lineEvent,
+                    await _buttons.CompleteAsync(userId, memberships, intent.OrganizationId!.Value, intent.ActionId!.Value, cancellationToken),
+                    cancellationToken);
+                return;
+
+            case CoordinatorIntentKind.RetryAction:
+                await ReplyAsync(
+                    lineEvent,
+                    await _buttons.RetryAsync(
+                        userId, memberships, intent.OrganizationId!.Value, intent.ActionId!.Value, lineEvent.ReplyToken, cancellationToken),
                     cancellationToken);
                 return;
 

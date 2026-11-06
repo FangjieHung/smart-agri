@@ -66,11 +66,17 @@ public enum CoordinatorIntentKind
     /// <summary>The confirmed command (<see cref="CoordinatorIntent.CommandId"/>) a reopen is for, picked
     /// from several (#374).</summary>
     ChooseReopen,
+
+    /// <summary>〔已完成〕 on a reminder (<see cref="CoordinatorIntent.ActionId"/>) (#375).</summary>
+    CompleteAction,
+
+    /// <summary>〔重試〕 on a failed action (<see cref="CoordinatorIntent.ActionId"/>) (#375).</summary>
+    RetryAction,
 }
 
 /// <summary>One routing decision: the kind and what it carries — for <see cref="CoordinatorIntentKind.Bind"/>
 /// the normalized code; for the postbacks the organization (untrusted: the handler checks the sender is a
-/// member), command, card version, date or time; for <see cref="CoordinatorIntentKind.Command"/> and
+/// member), command, card version, date, time or action; for <see cref="CoordinatorIntentKind.Command"/> and
 /// <see cref="CoordinatorIntentKind.EditAnnouncement"/> what the member wrote.</summary>
 public sealed record CoordinatorIntent(
     CoordinatorIntentKind Kind,
@@ -80,7 +86,8 @@ public sealed record CoordinatorIntent(
     int? Version = null,
     DateOnly? Date = null,
     TimeOnly? Time = null,
-    string? Text = null)
+    string? Text = null,
+    Guid? ActionId = null)
 {
     public static CoordinatorIntent Of(CoordinatorIntentKind kind) => new(kind);
 
@@ -108,7 +115,8 @@ public sealed record CoordinatorIntent(
 /// a question or goes to the model). Other messages (stickers, images, …) → the menu.</item>
 /// <item>A postback this server made (<see cref="ManagerCodePostback"/>, <see cref="ShopPostback"/>,
 /// <see cref="DatePostback"/>, <see cref="TimePostback"/>, <see cref="ConfirmPostback"/>,
-/// <see cref="CancelPostback"/>, <see cref="CorrectionPostback"/>, <see cref="ReopenPostback"/>) → its intent
+/// <see cref="CancelPostback"/>, <see cref="CorrectionPostback"/>, <see cref="ReopenPostback"/>,
+/// <see cref="CompletePostback"/>, <see cref="RetryPostback"/>) → its intent
 /// when bound, <see cref="CoordinatorIntentKind.AskForCode"/> when not; any other postback is ignored.</item>
 /// </list>
 /// The command and edit text are kept as written (not NFKC'd): they may end up in an announcement.
@@ -130,6 +138,8 @@ public static class CoordinatorMessageRouter
     private const string CancelPostbackPrefix = "coordinator:cancel:";
     private const string CorrectionPostbackPrefix = "coordinator:correction:";
     private const string ReopenPostbackPrefix = "coordinator:reopen:";
+    private const string CompletePostbackPrefix = "coordinator:done:";
+    private const string RetryPostbackPrefix = "coordinator:retry:";
 
     public static CoordinatorIntent Route(LineWebhookEvent lineEvent, bool isBound)
     {
@@ -193,6 +203,12 @@ public static class CoordinatorMessageRouter
 
     /// <summary>The <c>postback.data</c> of choosing to undo confirmed command <paramref name="commandId"/>.</summary>
     public static string ReopenPostback(Guid organizationId, Guid commandId) => $"{ReopenPostbackPrefix}{organizationId:N}:{commandId:N}";
+
+    /// <summary>The <c>postback.data</c> of 〔已完成〕 on action <paramref name="actionId"/>'s reminder (#375).</summary>
+    public static string CompletePostback(Guid organizationId, Guid actionId) => $"{CompletePostbackPrefix}{organizationId:N}:{actionId:N}";
+
+    /// <summary>The <c>postback.data</c> of 〔重試〕 on failed action <paramref name="actionId"/> (#375).</summary>
+    public static string RetryPostback(Guid organizationId, Guid actionId) => $"{RetryPostbackPrefix}{organizationId:N}:{actionId:N}";
 
     /// <summary>The <c>postback.data</c> of the store choice for issuing a 店長 code for
     /// <paramref name="organizationId"/>.</summary>
@@ -310,6 +326,19 @@ public static class CoordinatorMessageRouter
             && TryId(reopenOrganization, out var reopenOrganizationId) && TryId(reopenCommand, out var reopenCommandId))
         {
             return new CoordinatorIntent(CoordinatorIntentKind.ChooseReopen, OrganizationId: reopenOrganizationId, CommandId: reopenCommandId);
+        }
+
+        foreach (var (prefix, kind) in new[]
+                 {
+                     (CompletePostbackPrefix, CoordinatorIntentKind.CompleteAction),
+                     (RetryPostbackPrefix, CoordinatorIntentKind.RetryAction),
+                 })
+        {
+            if (Parts(data, prefix) is [var organization, var action]
+                && TryId(organization, out var organizationId) && TryId(action, out var actionId))
+            {
+                return new CoordinatorIntent(kind, OrganizationId: organizationId, ActionId: actionId);
+            }
         }
 
         return null;

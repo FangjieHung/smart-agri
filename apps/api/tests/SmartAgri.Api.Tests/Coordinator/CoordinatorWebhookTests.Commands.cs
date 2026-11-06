@@ -242,7 +242,7 @@ public sealed partial class CoordinatorWebhookTests
         var confirm = first.Button("確認");
         (await PostbackTextAsync(stranger, confirm)).ShouldBe(CoordinatorCommandReplies.NotAMember, "a member of another shop");
         (await PostbackTextAsync(NewUser(), confirm)).ShouldBe(CoordinatorReplies.AskForCode, "someone bound nowhere");
-        (await PostbackTextAsync(manager, confirm)).ShouldBe("已確認：確認店 11/2（一） 臨時店休。");
+        (await PressConfirmAsync(manager, confirm)).ShouldBe("已確認：確認店 11/2（一） 臨時店休。");
         (await PostbackTextAsync(owner, confirm)).ShouldBe(CoordinatorCommandReplies.AlreadyConfirmed);
         var confirmed = (await CommandsAsync(shop)).ShouldHaveSingleItem();
         confirmed.Status.ShouldBe(CoordinatorCommandStatus.Confirmed);
@@ -255,7 +255,7 @@ public sealed partial class CoordinatorWebhookTests
         var edited = Card(await SendForMessageAsync(owner, "改成：明天公休一天，週四見！"));
         edited.Body.ShouldContain("明天公休一天，週四見！");
         (await PostbackTextAsync(owner, second.Button("確認"))).ShouldBe(CoordinatorCommandReplies.Outdated);
-        (await PostbackTextAsync(owner, edited.Button("確認"))).ShouldBe("已確認：確認店 11/3（二） 臨時店休。");
+        (await PressConfirmAsync(owner, edited.Button("確認"))).ShouldBe("已確認：確認店 11/3（二） 臨時店休。");
         var secondRow = (await CommandsAsync(shop)).Single(command => command.Date == new DateOnly(2026, 11, 3));
         secondRow.Version.ShouldBe(2);
         secondRow.AnnouncementText.ShouldBe("明天公休一天，週四見！");
@@ -279,7 +279,7 @@ public sealed partial class CoordinatorWebhookTests
             PostAsync(Body(Bot.UserId, Postback(owner, data, "rt-double-1")), sign: true),
             PostAsync(Body(Bot.UserId, Postback(manager, data, "rt-double-2")), sign: true));
         posts.ShouldAllBe(response => response.StatusCode == HttpStatusCode.OK);
-        var replies = new[] { await ReplyTextAsync("rt-double-1"), await ReplyTextAsync("rt-double-2") };
+        var replies = new[] { Said((await ReplyMessagesAsync("rt-double-1"))[0]), Said((await ReplyMessagesAsync("rt-double-2"))[0]) };
         replies.Count(reply => reply == "已確認：確認店 11/17（二） 臨時店休。").ShouldBe(1);
         replies.Count(reply => reply == CoordinatorCommandReplies.AlreadyConfirmed).ShouldBe(1);
     }
@@ -335,7 +335,7 @@ public sealed partial class CoordinatorWebhookTests
         toggled.Body.ShouldContain("【恢復店】11/15（日） 照常營業。");
         toggled.Buttons.Select(button => button.Label).ShouldBe(["不加發更正公告", "取消", "確認"]);
         (await PostbackTextAsync(owner, reopen.Button("確認"))).ShouldBe(CoordinatorCommandReplies.Outdated);
-        (await PostbackTextAsync(owner, toggled.Button("確認"))).ShouldBe("已確認：恢復店 11/15（日） 恢復營業。");
+        (await PressConfirmAsync(owner, toggled.Button("確認"))).ShouldBe("已確認：恢復店 11/15（日） 恢復營業。");
         var row = (await CommandsAsync(shop)).Single(command => command.Scenario == ShopScenario.Reopen);
         row.CorrectionBroadcast.ShouldBeTrue();
         row.Version.ShouldBe(2);
@@ -354,7 +354,7 @@ public sealed partial class CoordinatorWebhookTests
 
         // Two reopen cards of one command: only the first confirmation counts.
         var other = Card(await PostbackForMessageAsync(owner, options[1].GetProperty("data").GetString()!));
-        (await PostbackTextAsync(owner, picked.Button("確認"))).ShouldBe("已確認：恢復店 11/21（六） 恢復營業。");
+        (await PressConfirmAsync(owner, picked.Button("確認"))).ShouldBe("已確認：恢復店 11/21（六） 恢復營業。");
         (await PostbackTextAsync(owner, other.Button("確認"))).ShouldBe(CoordinatorCommandReplies.AlreadyReopened);
 
         // Without a LINE 群發 to correct there is no toggle, and a forged one changes nothing.
@@ -483,7 +483,7 @@ public sealed partial class CoordinatorWebhookTests
     private async Task ConfirmAsync(string user, string text)
     {
         var card = Card(await SendForMessageAsync(user, text));
-        (await PostbackTextAsync(user, card.Button("確認"))).ShouldStartWith("已確認：");
+        (await PressConfirmAsync(user, card.Button("確認"))).ShouldStartWith("已確認：");
     }
 
     /// <summary>Drops any question waiting for <paramref name="user"/> (an answer that is not one).</summary>
@@ -499,6 +499,14 @@ public sealed partial class CoordinatorWebhookTests
         (await PostAsync(Body(Bot.UserId, Text(user, text, replyToken)), sign: true)).StatusCode.ShouldBe(HttpStatusCode.OK);
         return await ReplyMessagesAsync(replyToken);
     }
+
+    /// <summary>Presses 〔確認〕 and returns what the first message says: the report's alt text (「已確認：…」, #375), or a
+    /// refusal's text.</summary>
+    private async Task<string> PressConfirmAsync(string user, string data) => Said((await PostbackForMessagesAsync(user, data))[0]);
+
+    /// <summary>A Flex message's alt text, or a text message's text.</summary>
+    private static string Said(JsonElement message) =>
+        message.GetProperty("type").GetString() == "flex" ? message.GetProperty("altText").GetString()! : message.GetProperty("text").GetString()!;
 
     private async Task<string> PostbackTextAsync(string user, string data, string? parameters = null) =>
         (await PostbackForMessageAsync(user, data, parameters)).GetProperty("text").GetString()!;

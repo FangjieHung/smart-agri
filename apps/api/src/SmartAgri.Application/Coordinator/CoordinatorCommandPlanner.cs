@@ -154,8 +154,20 @@ public static class CoordinatorCommandPlanner
     public static DateTimeOffset? ResumesAt(ShopSettingsDocument settings, ShopScenario scenario, DateOnly date, TimeOnly? time)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        return scenario == ShopScenario.OpenLate && time is { } opens ? InstantOf(settings, date, opens) : settings.Hours.FirstOpeningAfter(date);
+    }
+
+    /// <summary>The instant of a command's <paramref name="time"/> on <paramref name="date"/> (提早打烊's closing,
+    /// 延後開店's opening): on the day itself, or on the next day when that is the small hours of the day's
+    /// overnight period — as the checks of <see cref="Plan"/> read it.</summary>
+    public static DateTimeOffset InstantOf(ShopSettingsDocument settings, DateOnly date, TimeOnly time)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
         var hours = settings.Hours;
-        return scenario == ShopScenario.OpenLate && time is { } opens ? hours.At(date, opens) : hours.FirstOpeningAfter(date);
+        var periods = hours.PeriodsOn(date);
+        return periods.Count == 0
+            ? hours.At(date, time)
+            : InstantOn(hours, date, time, periods[0].Opens, periods.Max(period => period.Closes));
     }
 
     /// <summary><paramref name="clock"/> on <paramref name="day"/>, or on the next day when that is the small

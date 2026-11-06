@@ -123,6 +123,20 @@ public sealed class CoordinatorCommands
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>The shop's <paramref name="limit"/> latest confirmed commands, newest confirmation first (the execution
+    /// records of decision F, #375).</summary>
+    public async Task<IReadOnlyList<CoordinatorCommand>> RecentConfirmedAsync(Guid organizationId, int limit, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        return await dbContext.CoordinatorCommands
+            .AsNoTracking()
+            .Where(command => command.Status == CoordinatorCommandStatus.Confirmed)
+            .OrderByDescending(command => command.ConfirmedAt)
+            .ThenByDescending(command => command.Id)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     /// <summary>Records what is known of a command still waiting for details, and restarts its 30 minutes;
     /// <see langword="false"/> when it no longer waits (answered, cancelled or expired meanwhile).</summary>
     public async Task<bool> UpdateAwaitingAsync(

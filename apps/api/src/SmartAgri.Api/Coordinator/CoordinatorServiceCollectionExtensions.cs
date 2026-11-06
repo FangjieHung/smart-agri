@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using SmartAgri.Api.Jobs;
 using SmartAgri.Application.Coordinator;
 using SmartAgri.Infrastructure.Coordinator;
 
@@ -15,10 +16,13 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="CoordinatorBindingThrottle"/>, <see cref="CoordinatorLookup"/>,
     /// <see cref="CoordinatorBindings"/>, <see cref="CoordinatorShops"/> (#373), the commands of #374
     /// (<see cref="CoordinatorCommands"/>, <see cref="CoordinatorConversationMemory"/>,
-    /// <see cref="CoordinatorCommandInterpreter"/>, the seams <see cref="ICoordinatorActionModes"/> and
-    /// <see cref="ICoordinatorCommandRunner"/> — later slices replace them —, <see cref="CoordinatorCommandHandler"/>)
-    /// and <see cref="CoordinatorEventHandler"/>. Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>
-    /// and <c>AddOrganizationTokenUsage</c>. Nothing reads the options while the pipeline is built.
+    /// <see cref="CoordinatorCommandInterpreter"/>, <see cref="CoordinatorCommandHandler"/>), carrying them out (#375:
+    /// <see cref="CoordinatorCommandActions"/>, the executors of later slices through <see cref="CoordinatorActionExecutors"/>
+    /// and <see cref="ExecutorActionModes"/>, <see cref="ExecutingCommandRunner"/>, <see cref="CoordinatorReports"/>,
+    /// <see cref="CoordinatorReplyTokens"/>, <see cref="CoordinatorActionButtons"/> and the
+    /// <see cref="CoordinatorRunActionJob.Kind"/> job handler) and <see cref="CoordinatorEventHandler"/>. Requires
+    /// <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>, <c>AddOrganizationTokenUsage</c> and
+    /// <c>AddBackgroundJobs</c>. Nothing reads the options while the pipeline is built.
     /// </summary>
     public static IServiceCollection AddStoreCoordinator(this IServiceCollection services, IConfiguration configuration)
     {
@@ -38,9 +42,15 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddScoped<CoordinatorCommands>();
         services.AddSingleton<CoordinatorConversationMemory>();
         services.AddScoped<CoordinatorCommandInterpreter>();
-        services.TryAddSingleton<ICoordinatorActionModes, ReminderOnlyActionModes>();
+        services.AddScoped<CoordinatorCommandActions>();
+        services.AddScoped<CoordinatorActionExecutors>();
+        services.TryAddScoped<ICoordinatorActionModes, ExecutorActionModes>();
+        services.AddSingleton<CoordinatorReplyTokens>();
         services.AddScoped<CoordinatorReplySender>();
-        services.TryAddScoped<ICoordinatorCommandRunner, AcknowledgingCommandRunner>();
+        services.AddScoped<CoordinatorReports>();
+        services.TryAddScoped<ICoordinatorCommandRunner, ExecutingCommandRunner>();
+        services.AddScoped<CoordinatorActionButtons>();
+        services.AddJobHandler<CoordinatorRunActionHandler>(CoordinatorRunActionJob.Kind);
         services.AddScoped<CoordinatorCommandHandler>();
         services.AddScoped<CoordinatorEventHandler>();
         services.AddHostedService<CoordinatorWebhookProcessor>();

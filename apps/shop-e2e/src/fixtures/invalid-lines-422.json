@@ -1,0 +1,1 @@
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.21","title":"Unprocessable Content","status":422,"reason":"invalid-order","message":"購物車裡有品項的選項不正確，請重新選擇。","errors":null,"lineErrors":[{"line":0,"code":"too-few","path":"noodle"}],"menuVersion":null,"orderNumber":null,"orderStatus":null}

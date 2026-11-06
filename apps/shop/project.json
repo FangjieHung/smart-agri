@@ -28,8 +28,8 @@
           "budgets": [
             {
               "type": "initial",
-              "maximumWarning": "300kB",
-              "maximumError": "400kB"
+              "maximumWarning": "200kB",
+              "maximumError": "260kB"
             },
             {
               "type": "anyComponentStyle",
@@ -67,6 +67,22 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "api-types": {
+      "executor": "nx:run-commands",
+      "cache": true,
+      "dependsOn": ["SmartAgri.Api:build"],
+      "inputs": [
+        "{workspaceRoot}/apps/api/openapi/v1.json",
+        {
+          "externalDependencies": ["openapi-typescript"]
+        }
+      ],
+      "outputs": ["{projectRoot}/src/app/api/api-schema.ts"],
+      "options": {
+        "cwd": "{workspaceRoot}",
+        "command": "openapi-typescript apps/api/openapi/v1.json -o apps/shop/src/app/api/api-schema.ts"
+      }
     }
   }
 }

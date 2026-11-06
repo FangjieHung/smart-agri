@@ -2035,3 +2035,48 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 備註一起），由每天凌晨 3 點的保存期限清理對每個組織執行，`retention-cleanup` 也會刪（第 12 節）。api 的紀錄與組織紀錄**不寫**顧客的姓名、電話、Email
 或備註，只寫訂位 ID、組織、日期、人數與被拒絕的原因；LINE 卡片與回覆只送給這家店的成員。統籌助理每次推播 LINE 接受後，
 會在 `CoordinatorPushLogs` 記一筆（店家、時間、用途、則數，沒有收件人或內容），保存 400 天。平台代店家處理這些資料：請在隱私權政策加上 `deploy/privacy-policy-template.md` 的「線上訂位」一節。
+
+## 18. 線上點餐（#397 起）
+
+線上點餐是獨立的模組，**不需要**統籌助理：每家店（組織）一份**點餐設定**與**菜單**，用 `ordering-shop` 匯入。
+設計與後續的工作單見 `docs/plans/2026-11-06-online-ordering.md`。目前（#397）只有設定與菜單；顧客點餐網頁（#398）、
+後台接單（#399）等完成之前，匯入的設定不會對外顯示。
+
+### 18.1 點餐設定與菜單：`ordering-shop`
+
+1. 複製範例檔，一家店一個檔案（`deploy/shops/` 不會進 git）：
+
+   ```sh
+   mkdir -p deploy/shops
+   cp deploy/ordering-shop.example.json deploy/shops/harvest-ordering.json
+   ```
+
+2. 修改檔案。`shop` 是店家資訊與點餐規則，`menu` 是菜單，兩段都必填：
+   - `slug`：點餐網址的代號（之後的網址是 `/order/<slug>`），和訂位頁的代號分開設定，不能和別家店重複。
+   - `services`：`takeoutScheduled`（外帶預約）、`takeoutAsap`（外帶即時，「儘快」），至少開一種。
+   - `orderingHours`：可點餐時間，格式和第 17.5 節的 `weeklyHours` 相同（可跨午夜，例如 `17:00`–`01:00`）。
+   - `slotMinutes`（10、15、20、30、60，預設 30）、`daysAhead`（可預約幾天，含今天，1–14，預設 3）、
+     `minLeadMinutes`（最短準備時間，預設 15）、`maxOrdersPerSlot`（每個取餐時段最多幾筆，不填＝不限）。
+   - 菜單：分類 → 品項 → 選項群組 → 選項，選項底下可以再有選項群組，最多四層。`id` 由你自己取（小寫英數與 `-`），
+     **之後不要改**：售完狀態與訂單都用它對應品項。價格是新台幣整數元；選項的 `price` 是加價。
+     群組的 `min`／`max` 是至少、最多選幾個（`min: 1, max: 1` 就是必選單選），`repeatable: true` 可以同一選項選多份。
+   - 暫停接單、即時單準備時間不在檔案裡：由店員在後台切換（#399），匯入不會改動它們。
+3. 匯入：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -T \
+     -v "$PWD/deploy/shops:/shops:ro" api \
+     ordering-shop import --organization harvest --file /shops/harvest-ordering.json
+   ```
+
+   檔案會**先整份檢查**，有任何錯誤就逐條列出「位置：說明」，**一筆都不寫入**。菜單和上一次不同時會存成新的一版
+   （「菜單第 N 版」）；內容完全相同時輸出「沒有變更」，不寫任何東西。
+4. 看目前的設定摘要（取餐方式、可點餐時間、時段規則、暫停接單、菜單版本與品項數）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
+     ordering-shop show --organization harvest
+   ```
+
+結束代碼：`0` 完成；`1` 找不到組織、這家店還沒有點餐設定（`show`）或寫入失敗；`2` 參數錯誤、設定檔不正確或網址代號已被別家店使用。
+每次匯入**有變更**時，組織紀錄會記一筆 `ordering-shop-updated`，只記哪些欄位改了與菜單版本，不記店名、公告或菜單內容。

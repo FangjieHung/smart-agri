@@ -353,6 +353,89 @@
     即時單準備時間檔位在外帶即時或外送即時任一開著時顯示（外送儘快用同一個檔位）。示範資料多一筆已接單的外送訂單 #010（王太太，新營區其他里）。
     清單與篩選不變。顧客網頁的選項寫「外送（預約）」「外送（儘快）」，後台沿用外帶的「預約／即時」說法。
 
+### 4.8 O6（#402）內用實作決定（可以推翻）
+
+**設定（匯入檔 `shop` 段）**
+
+1. **開關與段落**：`services.dineIn`（選填，預設 `false`）；`dineIn: { tables: [{ id, name }], autoAccept?, orderingHours?, note?, maxPendingPerTable? }`，
+   開內用時必填、關著時可以留著（同外送）。桌子 1–200 張，`id` 同菜單 id 規則且不重複，`name` 一行最多 20 字；`autoAccept` 預設 `false`；
+   `orderingHours` 不填＝外帶的可點餐時間；`note` 最多 300 字（付款說明，不填顯示「用餐後至櫃台結帳」）；`maxPendingPerTable` 1–20，預設 5。
+   `services` 只開內用也可以。`OrderingShops` 新增 `DineIn` 與 `DineInSettings`（jsonb，`OrderingShopJson.WriteDineIn`），組織紀錄的變更欄位多 `dineIn`。
+2. **桌號 QR code token（`OrderingTables`）**：32 個隨機位元組的 base64url（43 字），伺服器在桌號 `id` 第一次出現在匯入檔時產生，重新匯入不變
+   （名稱跟著檔案改）；從檔案拿掉（或整個 `dineIn` 段拿掉）就停用，停用的那一列保留舊 token 但不再有效，同一個 `id` 加回來是新的一列、新的 token
+   （`OrderingTable.Sync`）。`ordering-shop tables --regenerate <id>` 換一個新 token（舊的立刻失效），記一筆 `ordering-shop-updated`（變更欄位 `tables`）。
+   **token 原樣存放**（不像訂單狀態 token 只存雜湊）：它本來就印在桌上給所有人看，操作者也要能再印一次；它只能向那一桌點餐、看那一桌目前桌次的
+   編號、狀態、品名與金額。唯一索引在 `Token`，`(OrganizationId, TableId)` 只對未停用的列唯一。內用沒開時（`services.dineIn: false` 或沒有桌子），
+   所有 token 一律當成不存在（`404 table-not-found`），重新開放後恢復。
+3. **網址**：顧客網址 `/order/{slug}/table#<token>`；token 只放在網址 fragment 與 `X-Ordering-Table` 請求標頭，**不放在任何路徑或查詢字串**（原因同 D4）。
+   `apps/shop` 讀出 fragment 後存在 `sessionStorage`（每個分頁、每家店一個鍵），換到狀態頁再回來、重新整理都還在；之後另開分頁進 `/order/{slug}`
+   是一般外帶。
+4. **CLI**：`ordering-shop tables --organization <code>` 依檔案順序印出「名稱（id）：網址」；網址前面是 `PublicChannels:PublicBaseUrl`（通知信也用它），
+   沒設定時只印路徑並提醒。`--html <path>` 寫出自含的可列印 HTML（沒有 script、沒有外部檔）：A4、每頁 2 × 3 張卡片，卡片上有店名、桌號、
+   QR code（inline SVG，`OrderingTablePrint`）、「掃描點餐，用餐後至櫃台結帳」；沒有對外網址時拒絕輸出（QR code 不能只有路徑）。
+   QR code 用 **QRCoder 1.8.1**（MIT，NuGet）的模組矩陣自己畫成一條 SVG path（錯誤修正 M、四格靜區），不用它的點陣圖輸出。
+   2026-11-07 用錄製資料庫實際輸出、以瀏覽器渲染後用 OpenCV 解碼兩張 QR，內容與 CLI 印出的網址相同。
+
+**訂單與桌次**
+
+5. **取餐方式 `dine-in`**：不選時間，`PickupAt`＝送出時間（當日號碼、逾時與保存期限都從它算）；`BusinessDate` 依內用時間算（同儘快單）。
+   稱呼選填（可以是空字串），不問電話與 Email（`CustomerPhone` 是空字串、`CustomerEmail` 是 `null`，check constraint 保證），所以內用**不寄任何信**；
+   `tableware` 不存。訂單存桌號 `TableId`、當時的名稱 `TableName` 與桌次 `TableSessionId`（三者只在內用時有值，check constraint）。
+6. **檢查順序**（接在 §4.2 的表裡）：欄位錯誤 → **token 格式不對或內用沒開 `404 table-not-found`** →（鎖住店家那一列）送出鍵重複 →
+   **找不到啟用中的桌子 `404 table-not-found`** → 暫停 `409 shop-paused` → **不在內用時間 `409 service-unavailable`** → 菜單版本 → 選項 → 總額 →
+   售完／分類供應時間（以現在為取餐時間）→ **這桌待確認已達 `maxPendingPerTable` `429 too-many-pending`**（取代電話的上限）。
+7. **自動接單**：`autoAccept` 時在送出的同一個交易裡 `OrderingOrder.AcceptAutomatically`：狀態直接是已接單、沒有接單的成員、`AutoAccepted = true`
+   （後台與顧客頁都有這個欄位，顯示「自動接單」），一樣經過 `IOrderingOrderOutcomes.Decided`（今天不會寄信，因為沒有 Email），不排逾時工作。
+   不是自動接單時逾時照舊，但內用的 `ExpiresAt` 是「內用時間開放起算的逾時」，不被取餐時間（＝送出時間）截斷。
+8. **接單不給時間**：內用的〔接單〕帶 `promisedAt` 會被拒絕（`422 errors.promisedAt`「內用訂單不需要指定時間。」）；`PromisedAt` 記成送出時間。
+9. **桌次（`OrderingTableSessions`）**：一桌沒有進行中的桌次時，第一筆訂單開一個（記下桌號與當時的名稱、開始時間），之後的訂單加入它；
+   每加入一筆 `Version` 加一。同一桌最多一個進行中的桌次（只對未結帳的列唯一的索引）。不同桌號永遠不會合併。桌次本身不含個資。
+10. **〔已結帳〕**：`POST /api/v1/ordering/tables/sessions/{id}/close { version }`。先鎖住店家那一列（和送出訂單同一把鎖），所以同時送來的訂單
+    要嘛先加入桌次（版本變了，結帳回 `409 session-changed`，附上目前的桌次讓店員重新確認金額），要嘛在結帳之後開一個新的桌次——訂單不會遺失，
+    也不會掛在已結帳的桌次（整合測試讓兩者同時發生五次驗證）。還有待確認的訂單時 `409 table-has-pending`。結帳時把已接單與可取餐的訂單改成
+    「完成」（由結帳的店員完成），婉拒、取消、逾時的不動；這些訂單的 compare-and-set 和桌次一起寫入，同時有人處理其中一筆時整個結帳失敗重來。
+    別家的桌次 id 是 `403 ordering`。桌次合計＝待確認、已接單、可取餐、完成的訂單總額（不算婉拒、取消、逾時）。
+11. **後台 API**：`GET tables`（進行中的桌次，舊的在前，每個桌次附全部訂單）；`summary` 新增 `openTableCount` 與 `services.dineIn`，
+    而且桌次開始、加入訂單、結帳都會推進 `changedAt`（前端用同一個游標重新讀清單與桌次）。訂單的 `OrderingStaffOrderView` 新增
+    `table {id, name, sessionId}` 與 `autoAccepted`。
+12. **公開 API**：`GET {slug}/table`（標頭 `X-Ordering-Table`）回 `{ name, canOrder, session }`，`session` 是 `{ openedAt, orderCount, total,
+    orders[{displayNumber, status, total, createdAt, items[{name, quantity}]}] }`（只有編號、狀態、品名、數量與金額，沒有任何人的稱呼或備註）。
+    `GET {slug}` 新增 `services.dineIn` 與 `dineIn { note, autoAccept, open, canOrder, orderingHours }`；`OrderingOrderView` 新增 `table {name}` 與
+    `autoAccepted`。新端點算在 `OrderingRequestsPerIpPerMinute`。
+13. **個資**：內用的稱呼、訂單備註、品項備註在送出時間滿 90 天後和其他訂單一樣清除；桌號、桌名與桌次保留。隱私權範本第 5.6 節寫明內用只有選填的
+    稱呼與備註、桌上的代碼只代表桌子。
+**顧客網頁（`apps/shop`）**
+
+14. **桌號模式**：`/order/{slug}/table#<token>` 是入口而不是頁面：讀出 fragment（格式要是 43 字 base64url）後存進
+    `sessionStorage` 的 `smart-agri-shop:table:{slug}`，再用 `replaceState` 換成 `/order/{slug}`，網址列與瀏覽紀錄都不留 token。
+    這個分頁記得某家店的 token 時就是「桌號模式」：取餐方式固定是內用（購物車裡原本選的外帶時間留著不動）、**不讀可選時段**、不開選時間的
+    面板；取餐單換成「內用・桌號 A1」、沒有〔更改〕。`GET {slug}/table` 只帶 `X-Ordering-Table` 標頭，送出訂單也只多這個標頭，
+    token 不進任何路徑、查詢字串、請求本文或 localStorage（單元測試與 Cypress 都檢查）。
+15. **失效的 QR code**：fragment 格式不對，或 `GET …/table`、送出訂單回 `404 table-not-found`，就忘掉這桌的 token，整頁顯示
+    「這個桌號的 QR code 已失效，請洽店員」，下面一顆〔看菜單〕改成一般外帶點餐（店家沒開外帶時就只能看菜單）。
+16. **菜單頁**：每次出現都重讀 `GET …/table`；這桌有進行中的桌次時，取餐單下方是可以展開的「這桌已點 N 筆，共 NT$X」，展開後每筆是
+    號碼、狀態、金額與品名×份數（不顯示稱呼或備註）。暫停接單或不在內用時間時顯示「請洽店員」的說明，加入購物車與結帳都擋下。
+    售完不寫「明天幾點起可預訂」、分類不供應寫「現在不供應」（內用沒有時間可改）。
+17. **購物車與結帳**：不問餐具；訂單備註和外帶一樣在購物車填（範例改成「小孩的餐先上」）。結帳只問選填的「稱呼」（說明「店員送餐或
+    叫號時方便稱呼」），沒有電話與 Email；付款寫店家的 `dineIn.note`（去掉句尾的「。」），沒寫時是「用餐後至櫃台結帳」，店家的 `notices.checkout`（範例檔寫的是外帶的「取餐時付款」）在桌號模式不顯示；個資告知改成
+    只蒐集稱呼與備註、不填稱呼也可以下單。錯誤代碼都換成「請洽店員」的說法：`table-not-found`、`too-many-pending`（這桌的上限，用伺服器
+    的訊息）、`shop-paused`、`service-unavailable`、`items-unavailable`／`invalid-order` 的「現在無法供應」。
+18. **訂單頁**：顯示「內用・桌號 A1」、選填的稱呼（沒留就不顯示）與付款說明；說法是「店家已接單／已自動接單，餐點準備中」→
+    「已出餐」（和後台的〔已出餐〕同一個詞）→ 店家〔已結帳〕後「已結帳，謝謝光臨」；進度條最後一步是「已出餐」。這個分頁還記得這桌時，
+    〔回到菜單〕換成主要按鈕〔繼續加點〕，回到菜單仍是同一桌。
+
+**後台「點餐」頁**
+
+19. 店家開了內用（或還有沒結帳的桌次）時，三欄下面多一個「內用桌次」區：每桌一張卡片，桌名、開桌時間與經過時間、每筆訂單（號碼、
+    狀態、金額、品名；婉拒／取消／逾時的劃掉、不算合計）、合計與〔已結帳〕。還有待確認的訂單時〔已結帳〕停用並寫「還有 N 筆待確認，
+    接單或婉拒後才能結帳」。按〔已結帳〕先跳確認框「A1 共 NT$X，確定已結帳？」，說明會有幾筆標示為完成、客人再掃會開新桌次；
+    `409 session-changed`／`table-has-pending` 時在框裡顯示原因與新的金額讓店員重新確認。訂單卡片的取餐方式是「內用・A1」、
+    沒有電話與「剩 N 分鐘」，〔可取餐〕叫〔已出餐〕，自動接單的寫「自動接單」。
+
+20. **錄製**：`apps/shop-e2e/src/fixtures/` 與後台 Hybrid spec 的回應在 2026-11-07 凌晨用 #402 的 API 重新錄（5301 埠、暫存資料庫
+    `ordering402pub`、`ordering402adm`、`ordering402dine`，腳本在 scratchpad `ordering/402rec/`）。因為錄製時是週六凌晨（休息中），錄製用的匯入檔把
+    `dineIn.orderingHours` 改成每天 00:00–23:59，其餘同範例檔；內用的那一組另外用一個資料庫錄，所以號碼從 #001 起算，既有的外帶與外送流程號碼不變。
+
 ---
 
 ## 5. 名詞

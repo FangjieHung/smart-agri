@@ -16,7 +16,8 @@ namespace SmartAgri.Application.Ordering;
 /// It says what happened (with the shop's reason and note when it declined or cancelled), then the order: its number, the
 /// shop, how and when it is picked up (the promised time once accepted), 「取餐時付款」, the shop's phone, the lines with
 /// their options and totals, and — when the platform's public address is set — the shop's ordering page
-/// <c>/order/{slug}</c>.
+/// <c>/order/{slug}</c>. A delivery order (#401) says 外送 and 「預計送達」, its zone (never the address) and fee, and
+/// 「貨到付款」.
 /// </para>
 /// <para>
 /// Never the status page's address: only the token's hash is stored, and a token is never put in a URL's path or query
@@ -77,6 +78,10 @@ public static class OrderingOrderEmail
 
         var opening = order.Status switch
         {
+            OrderingOrderStatus.Accepted when order.ServiceType.IsDelivery() =>
+                $"{store}已接受您的外送訂單 {number}，預計 {Format(order.PromisedAt ?? order.PickupAt, order, zone)} 送達"
+                + (order.ServiceType == OrderingServiceType.DeliveryScheduled && order.PromisedAt > order.PickupAt ? "（店家調整了外送時間）" : string.Empty)
+                + $"。餐點送達時付款（貨到付款）。如需更改或取消，{call}。",
             OrderingOrderStatus.Accepted =>
                 $"{store}已接受您的訂單 {number}，預計 {Format(order.PromisedAt ?? order.PickupAt, order, zone)} 可取餐"
                 + (order.ServiceType == OrderingServiceType.TakeoutScheduled && order.PromisedAt > order.PickupAt ? "（店家調整了取餐時間）" : string.Empty)
@@ -99,8 +104,18 @@ public static class OrderingOrderEmail
         body.Append(opening).Append("\n\n");
         body.Append(CultureInfo.InvariantCulture, $"訂單編號：{number}\n");
         body.Append(CultureInfo.InvariantCulture, $"店家：{store}\n");
-        body.Append(CultureInfo.InvariantCulture, $"取餐：{Pickup(order, zone)}\n");
-        body.Append("付款：取餐時付款\n");
+        if (order.Delivery is { } delivery)
+        {
+            // The zone is the shop's own words; the customer's address stays out of the Email (#401).
+            body.Append(CultureInfo.InvariantCulture, $"外送：{Pickup(order, zone)}\n");
+            body.Append(CultureInfo.InvariantCulture, $"外送區域：{OneLine(delivery.ZoneName)}\n");
+            body.Append("付款：貨到付款\n");
+        }
+        else
+        {
+            body.Append(CultureInfo.InvariantCulture, $"取餐：{Pickup(order, zone)}\n");
+            body.Append("付款：取餐時付款\n");
+        }
         if (phone is not null)
         {
             body.Append(CultureInfo.InvariantCulture, $"店家電話：{phone}\n");
@@ -117,9 +132,14 @@ public static class OrderingOrderEmail
             }
         }
 
-        if (order.Subtotal != order.Total)
+        if (order.Subtotal != order.Total || order.ServiceType.IsDelivery())
         {
             body.Append(CultureInfo.InvariantCulture, $"小計：{Money(order.Subtotal)}\n");
+        }
+
+        if (order.ServiceType.IsDelivery())
+        {
+            body.Append(CultureInfo.InvariantCulture, $"運費：{Money(order.DeliveryFee)}\n");
         }
 
         body.Append(CultureInfo.InvariantCulture, $"合計：{Money(order.Total)}\n");
@@ -165,23 +185,26 @@ public static class OrderingOrderEmail
     };
 
     /// <summary>「外帶，11/17（二）12:30」; an ASAP order not yet accepted 「外帶，儘快（11/17（二）約 12:15–12:30）」; an accepted
-    /// one at its promised time.</summary>
+    /// one at its promised time. A delivery order (#401): 「預計送達 11/17（二）12:30」, 「儘快（11/17（二）約 12:35–12:50 送達）」.</summary>
     private static string Pickup(OrderingOrder order, TimeZoneInfo zone)
     {
+        var delivery = order.ServiceType.IsDelivery();
+        var prefix = delivery ? "預計送達 " : "外帶，";
         if (order.PromisedAt is { } promised)
         {
-            return $"外帶，{Format(promised, order, zone)}";
+            return prefix + Format(promised, order, zone);
         }
 
-        if (order.ServiceType == OrderingServiceType.TakeoutAsap && order.AsapMinMinutes is { } min)
+        if (order.ServiceType.IsAsap() && order.AsapMinMinutes is { } min)
         {
             var from = TimeZoneInfo.ConvertTime(order.CreatedAt.AddMinutes(min), zone);
             var until = TimeZoneInfo.ConvertTime(order.PickupAt, zone);
-            return $"外帶，儘快（{ShopAnnouncements.FormatDate(DateOnly.FromDateTime(from.DateTime))}約 "
-                + $"{ShopAnnouncements.FormatTime(TimeOnly.FromDateTime(from.DateTime))}–{ShopAnnouncements.FormatTime(TimeOnly.FromDateTime(until.DateTime))}）";
+            return (delivery ? string.Empty : "外帶，") + $"儘快（{ShopAnnouncements.FormatDate(DateOnly.FromDateTime(from.DateTime))}約 "
+                + $"{ShopAnnouncements.FormatTime(TimeOnly.FromDateTime(from.DateTime))}–{ShopAnnouncements.FormatTime(TimeOnly.FromDateTime(until.DateTime))}"
+                + (delivery ? " 送達）" : "）");
         }
 
-        return $"外帶，{Format(order.PickupAt, order, zone)}";
+        return prefix + Format(order.PickupAt, order, zone);
     }
 
     /// <summary>「11/17（二）12:30」 in <paramref name="zone"/>; the small hours of an overnight business day 「11/14（六）00:30（隔天）」

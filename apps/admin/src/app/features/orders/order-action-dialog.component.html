@@ -16,7 +16,7 @@
 
     @if (kind() === 'accept') {
       <fieldset class="dialog__choices">
-        <legend>預計可取餐時間</legend>
+        <legend>{{ timeName() }}</legend>
         @for (option of acceptChoices(); track option.key) {
           <label class="dialog__choice">
             <input type="radio" name="order-accept-time" [checked]="choice() === option.key" (change)="pick(option.key)" />

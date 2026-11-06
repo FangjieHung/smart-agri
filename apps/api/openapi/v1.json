@@ -7033,7 +7033,7 @@
         "tags": [
           "Ordering (public)"
         ],
-        "summary": "The business days and times a scheduled takeout order can be picked up",
+        "summary": "The business days and times a scheduled takeout order can be picked up, and a scheduled delivery delivered",
         "parameters": [
           {
             "name": "slug",
@@ -7077,7 +7077,7 @@
           "Ordering (public)"
         ],
         "summary": "Send an order: priced by the server, never by the client",
-        "description": "201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors). 429 too-many-pending, or rate-limited with Retry-After.",
+        "description": "201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). 429 too-many-pending, or rate-limited with Retry-After.",
         "parameters": [
           {
             "name": "slug",
@@ -14541,6 +14541,95 @@
           }
         }
       },
+      "OrderingDeliveryInfoView": {
+        "required": [
+          "zones",
+          "note",
+          "open",
+          "asap",
+          "minLeadMinutes",
+          "orderingHours",
+          "addressMaxLength",
+          "noteMaxLength"
+        ],
+        "type": "object",
+        "properties": {
+          "zones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingZoneView"
+            }
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "open": {
+            "$ref": "#/components/schemas/OrderingOpenView"
+          },
+          "asap": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingAsapView"
+              }
+            ]
+          },
+          "minLeadMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "orderingHours": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingDayHoursView"
+            }
+          },
+          "addressMaxLength": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "noteMaxLength": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingDeliveryView": {
+        "required": [
+          "zoneId",
+          "zoneName",
+          "fee",
+          "address",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string"
+          },
+          "zoneName": {
+            "type": "string"
+          },
+          "fee": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "address": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "OrderingGroupView": {
         "required": [
           "id",
@@ -15011,6 +15100,24 @@
               "null",
               "string"
             ]
+          },
+          "deliveryZoneId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deliveryAddress": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deliveryNote": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -15051,7 +15158,9 @@
           "declineNote",
           "cancelledBy",
           "cancelReason",
-          "cancelNote"
+          "cancelNote",
+          "deliveryFee",
+          "delivery"
         ],
         "type": "object",
         "properties": {
@@ -15183,6 +15292,20 @@
               "null",
               "string"
             ]
+          },
+          "deliveryFee": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "delivery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingDeliveryView"
+              }
+            ]
           }
         }
       },
@@ -15226,7 +15349,9 @@
           "lineErrors",
           "menuVersion",
           "orderNumber",
-          "orderStatus"
+          "orderStatus",
+          "minimumSubtotal",
+          "shortfall"
         ],
         "type": "object",
         "properties": {
@@ -15289,6 +15414,20 @@
                 "$ref": "#/components/schemas/OrderingOrderStatus"
               }
             ]
+          },
+          "minimumSubtotal": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "shortfall": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -15331,7 +15470,9 @@
       "OrderingServicesView": {
         "required": [
           "takeoutScheduled",
-          "takeoutAsap"
+          "takeoutAsap",
+          "delivery",
+          "deliveryAsap"
         ],
         "type": "object",
         "properties": {
@@ -15340,13 +15481,21 @@
           },
           "takeoutAsap": {
             "type": "boolean"
+          },
+          "delivery": {
+            "type": "boolean"
+          },
+          "deliveryAsap": {
+            "type": "boolean"
           }
         }
       },
       "OrderingServiceType": {
         "enum": [
           "takeout-scheduled",
-          "takeout-asap"
+          "takeout-asap",
+          "delivery-scheduled",
+          "delivery-asap"
         ]
       },
       "OrderingShopCancelRequest": {
@@ -15400,7 +15549,8 @@
           "showTableware",
           "menuVersion",
           "orderingHours",
-          "limits"
+          "limits",
+          "delivery"
         ],
         "type": "object",
         "properties": {
@@ -15469,6 +15619,16 @@
           },
           "limits": {
             "$ref": "#/components/schemas/OrderingLimitsView"
+          },
+          "delivery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingDeliveryInfoView"
+              }
+            ]
           }
         }
       },
@@ -15497,7 +15657,8 @@
       "OrderingSlotsView": {
         "required": [
           "now",
-          "dates"
+          "dates",
+          "deliveryDates"
         ],
         "type": "object",
         "properties": {
@@ -15506,6 +15667,12 @@
             "format": "date-time"
           },
           "dates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingDateView"
+            }
+          },
+          "deliveryDates": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/OrderingDateView"
@@ -15800,7 +15967,9 @@
           "cancelled",
           "actions",
           "expiresAt",
-          "personalDataClearedAt"
+          "personalDataClearedAt",
+          "deliveryFee",
+          "delivery"
         ],
         "type": "object",
         "properties": {
@@ -15968,6 +16137,20 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "deliveryFee": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "delivery": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingDeliveryView"
+              }
+            ]
           }
         }
       },
@@ -16101,6 +16284,31 @@
           },
           "order": {
             "$ref": "#/components/schemas/OrderingOrderView"
+          }
+        }
+      },
+      "OrderingZoneView": {
+        "required": [
+          "id",
+          "name",
+          "fee",
+          "minimumSubtotal"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "fee": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "minimumSubtotal": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

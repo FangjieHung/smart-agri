@@ -25,17 +25,21 @@ import { PageHeader } from '../ui/page-header';
 import { PickupTicket } from '../ui/pickup-ticket';
 import { TimeSheet } from '../ui/time-sheet';
 
-type Field = 'name' | 'phone' | 'email';
+type Field = 'name' | 'phone' | 'email' | 'address' | 'deliveryNote';
+
+const FIELDS: readonly Field[] = ['name', 'phone', 'email', 'address', 'deliveryNote'];
 
 /** 伺服器的欄位名稱 → 這頁的欄位。 */
 const SERVER_FIELDS: Record<string, Field> = {
   'customer.name': 'name',
   'customer.phone': 'phone',
   'customer.email': 'email',
+  deliveryAddress: 'address',
+  deliveryNote: 'deliveryNote',
 };
 
 /**
- * 結帳：確認明細與取餐時間、填聯絡資料、送出。送出前先把送出鍵（UUID）與內容存進 localStorage，
+ * 結帳：確認明細與取餐時間、填聯絡資料（外送另填地址與給外送的備註，#401）、送出。送出前先把送出鍵（UUID）與內容存進 localStorage，
  * 回應遺失時重試沿用同一個鍵，伺服器只會建立一筆訂單；成功就存下 token、清空購物車、前往訂單頁。
  */
 @Component({
@@ -58,6 +62,8 @@ export default class CheckoutPage {
   protected readonly name = signal('');
   protected readonly phone = signal('');
   protected readonly email = signal('');
+  protected readonly address = signal('');
+  protected readonly deliveryNote = signal('');
   protected readonly errors = signal<Partial<Record<Field, string>>>({});
   protected readonly sending = signal(false);
   protected readonly failure = signal<SubmitFailure | null>(null);
@@ -79,13 +85,21 @@ export default class CheckoutPage {
       this.name.set(customer.name ?? '');
       this.phone.set(customer.phone ?? '');
       this.email.set(customer.email ?? '');
+      this.address.set(pending?.request.deliveryAddress ?? '');
+      this.deliveryNote.set(pending?.request.deliveryNote ?? '');
     }
     void this.store.loadMenu();
     void this.store.loadSlots();
   }
 
   protected set(field: Field, value: string): void {
-    ({ name: this.name, phone: this.phone, email: this.email })[field].set(value);
+    ({
+      name: this.name,
+      phone: this.phone,
+      email: this.email,
+      address: this.address,
+      deliveryNote: this.deliveryNote,
+    })[field].set(value);
     if (this.errors()[field]) this.errors.update((errors) => ({ ...errors, [field]: undefined }));
   }
 
@@ -104,6 +118,15 @@ export default class CheckoutPage {
     const email = this.email().trim();
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
       errors.email = 'Email 的格式不正確，例如 name@example.com。';
+    const delivery = this.store.shop()?.delivery;
+    if (this.store.isDelivery() && delivery) {
+      const address = this.address().trim();
+      if (!address) errors.address = '請填寫外送地址。';
+      else if (address.length > delivery.addressMaxLength)
+        errors.address = `外送地址最多 ${delivery.addressMaxLength} 個字。`;
+      if (this.deliveryNote().trim().length > delivery.noteMaxLength)
+        errors.deliveryNote = `給外送的備註最多 ${delivery.noteMaxLength} 個字。`;
+    }
     return errors;
   }
 
@@ -112,15 +135,27 @@ export default class CheckoutPage {
     this.failure.set(null);
     const errors = this.validate();
     this.errors.set(errors);
-    const firstInvalid = (['name', 'phone', 'email'] as const).find((field) => errors[field]);
+    const firstInvalid = FIELDS.find((field) => errors[field]);
     if (firstInvalid) {
       this.announcer.announce('有些資料需要修正，請看欄位旁的說明。');
       this.document.getElementById(`checkout-${firstInvalid}`)?.focus();
       return;
     }
     if (!this.store.serviceReady()) {
-      this.timeMessage.set('請先選擇取餐時間。');
+      this.timeMessage.set(
+        this.store.isDelivery() ? '請先選擇外送區域與時間。' : '請先選擇取餐時間。',
+      );
       this.timeOpen.set(true);
+      return;
+    }
+    if (this.store.shortfall() > 0) {
+      this.failure.set({
+        recovery: 'add-more',
+        message: `還差 ${ntd(this.store.shortfall())} 達外送門檻，請回購物車再加點。`,
+        fields: {},
+        lines: [],
+        orderNumber: null,
+      });
       return;
     }
     if (this.blockedLines()) {
@@ -195,6 +230,7 @@ export default class CheckoutPage {
         break;
       }
       case 'stop':
+      case 'add-more':
         await this.store.refreshShop();
         break;
       case 'retry':
@@ -210,7 +246,9 @@ export default class CheckoutPage {
     const cart = this.store.cart();
     const email = this.email().trim();
     const orderComment = cart.orderComment.trim();
-    const scheduled = service.type === 'takeout-scheduled';
+    const scheduled = service.type === 'takeout-scheduled' || service.type === 'delivery-scheduled';
+    const delivery = this.store.isDelivery();
+    const note = this.deliveryNote().trim();
     return {
       serviceType: service.type,
       pickupDate: scheduled ? service.date : null,
@@ -226,6 +264,9 @@ export default class CheckoutPage {
       orderComment: shop.showOrderComment && orderComment ? orderComment : null,
       tableware: shop.showTableware ? (cart.tableware ?? false) : null,
       submissionKey: this.submissionKey,
+      deliveryZoneId: delivery ? (service.zoneId ?? null) : null,
+      deliveryAddress: delivery ? this.address().trim() : null,
+      deliveryNote: delivery && note ? note : null,
     };
   }
 

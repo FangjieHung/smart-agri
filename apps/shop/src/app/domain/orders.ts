@@ -12,6 +12,8 @@ export interface RecentOrder {
   readonly status: OrderStatus;
   readonly pickupAt: string;
   readonly createdAt: string;
+  /** 外帶或外送（#401 之前記下的沒有）。 */
+  readonly serviceType?: Order['serviceType'];
 }
 
 const recentKey = (slug: string) => `smart-agri-shop:orders:${slug}`;
@@ -47,6 +49,7 @@ export function rememberOrder(
     status: order.status ?? 'pending',
     pickupAt: order.pickupAt,
     createdAt: order.createdAt,
+    serviceType: order.serviceType,
   };
   const rest = recentOrders(slug).filter((existing) => existing.token !== token);
   writeJson(recentKey(slug), [entry, ...rest].slice(0, MAX_RECENT));

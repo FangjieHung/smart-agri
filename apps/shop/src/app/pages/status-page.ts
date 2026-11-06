@@ -12,7 +12,14 @@ import {
 import { OrderingApi } from '../api/ordering-api';
 import type { ChosenOption, Order } from '../api/types';
 import { isFinal, recentOrders, tokenFromHash, updateRecentStatus } from '../domain/orders';
-import { progressIndex, PROGRESS_STEPS, reasonText, statusWords } from '../domain/status';
+import {
+  DELIVERY_STEPS,
+  isDeliveryOrder,
+  progressIndex,
+  PROGRESS_STEPS,
+  reasonText,
+  statusWords,
+} from '../domain/status';
 import { addMinutes, pickupText, wallClock } from '../domain/time';
 import { Announcer } from '../state/announcer';
 import { Nav } from '../state/nav';
@@ -44,7 +51,6 @@ export default class StatusPage {
 
   protected readonly ntd = ntd;
   protected readonly telHref = telHref;
-  protected readonly steps = PROGRESS_STEPS;
 
   protected readonly token = computed(() => tokenFromHash(this.nav.hash()));
   protected readonly order = signal<Order | null>(null);
@@ -54,9 +60,19 @@ export default class StatusPage {
   protected readonly cancelError = signal<string | null>(null);
   protected readonly recent = computed(() => recentOrders(this.store.slug()));
 
+  /** 外送訂單（#401）：顯示外送、地址、「已出發」與貨到付款。 */
+  protected readonly delivery = computed(() => {
+    const order = this.order();
+    return !!order && isDeliveryOrder(order);
+  });
+
+  protected readonly steps = computed(() => (this.delivery() ? DELIVERY_STEPS : PROGRESS_STEPS));
+
   protected readonly words = computed(() => {
     const order = this.order();
-    return order?.status ? statusWords(order.status, order.cancelledBy ?? null) : null;
+    return order?.status
+      ? statusWords(order.status, order.cancelledBy ?? null, this.delivery())
+      : null;
   });
 
   /** 店家婉拒或取消的原因（#399）。 */
@@ -74,14 +90,19 @@ export default class StatusPage {
     const order = this.order();
     const shop = this.store.shop();
     if (!order || !shop) return '';
-    // 接單時店家給的時間（#399）：儘快取餐是預計好的時間，預約取餐可能比顧客選的晚。
+    // 接單時店家給的時間（#399）：儘快取餐是預計好的時間，預約取餐可能比顧客選的晚。外送（#401）說「送達」。
+    const delivery = this.delivery();
+    const arrive = delivery ? '送達' : '可取餐';
+    const asap = delivery ? '儘快外送' : '儘快取餐';
     const promisedAt = order.promisedAt ?? null;
     if (promisedAt) {
       const promised = pickupText(promisedAt, shop.timeZone, this.store.now());
-      if (order.estimate) return `預計 ${promised} 可取餐（儘快取餐）`;
+      if (order.estimate) return `預計 ${promised} ${arrive}（${asap}）`;
       return Date.parse(promisedAt) === Date.parse(order.pickupAt)
-        ? promised
-        : `${promised}（店家調整了取餐時間）`;
+        ? delivery
+          ? `預計 ${promised} 送達`
+          : promised
+        : `${delivery ? `預計 ${promised} 送達` : promised}（店家調整了${delivery ? '外送' : '取餐'}時間）`;
     }
     if (order.estimate) {
       const from = wallClock(
@@ -89,9 +110,10 @@ export default class StatusPage {
         shop.timeZone,
       ).time;
       const to = wallClock(order.pickupAt, shop.timeZone).time;
-      return `預計 ${from}–${to} 可取餐（儘快取餐）`;
+      return `預計 ${from}–${to} ${arrive}（${asap}）`;
     }
-    return pickupText(order.pickupAt, shop.timeZone, this.store.now());
+    const at = pickupText(order.pickupAt, shop.timeZone, this.store.now());
+    return delivery ? `預計 ${at} 送達` : at;
   });
 
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -209,7 +231,10 @@ export default class StatusPage {
       .join('、');
   }
 
-  protected statusOf(entry: { status: Order['status'] }): string {
-    return entry.status ? statusWords(entry.status).title : '';
+  protected statusOf(entry: { status: Order['status']; serviceType?: Order['serviceType'] }): string {
+    return entry.status
+      ? statusWords(entry.status, null, !!entry.serviceType && isDeliveryOrder({ serviceType: entry.serviceType }))
+          .title
+      : '';
   }
 }

@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { inject, Injectable } from '@angular/core';
 import { catchError, defer, map, of, throwError, type Observable } from 'rxjs';
 import {
+  isDelivery,
   listOf,
   ORDERING_ASAP_MINUTES,
   shopClock,
@@ -108,7 +109,7 @@ export class OrderingRepository {
     return this.mock((state, now) => this.mockSummary(state, now));
   }
 
-  /** 一個清單：待確認、處理中（已接單與可取餐）或今日完成。 */
+  /** 一個清單：待確認、處理中（已接單與可取餐／已出發）或今日完成。 */
   orders(view: OrderingListView): Observable<OrderingRead<OrderingOrdersView>> {
     if (this.apiMode) return this.read<OrderingOrdersView>(API_ORDERING_ORDERS_PATH, new HttpParams().set('view', view));
     return this.mock((state, now) => ({
@@ -268,7 +269,7 @@ export class OrderingRepository {
       paused: state.paused,
       asapBand: state.asapBand,
       asap: { ...ORDERING_ASAP_MINUTES[state.asapBand] },
-      services: { takeoutScheduled: true, takeoutAsap: true },
+      services: { takeoutScheduled: true, takeoutAsap: true, delivery: true, deliveryAsap: true },
       menuVersion: MOCK_ORDERING_SHOP.menuVersion,
       shopVersion: state.shopVersion,
     };
@@ -343,12 +344,14 @@ function mockInvalid(order: OrderingOrderView, request: OrderingActionRequest, n
   }
   if (request.action === 'accept' && request.promisedAt !== null) {
     const promised = Date.parse(request.promisedAt);
-    const earliest = order.serviceType === 'takeout-asap' ? now - CLOCK_SKEW_MS : Date.parse(order.pickupAt);
+    const asap = order.serviceType === 'takeout-asap' || order.serviceType === 'delivery-asap';
+    const what = isDelivery(order.serviceType) ? '預計送達時間' : '預計取餐時間';
+    const earliest = asap ? now - CLOCK_SKEW_MS : Date.parse(order.pickupAt);
     const latest = Math.max(Date.parse(order.pickupAt), now) + MAX_DELAY_MS;
     if (Number.isNaN(promised) || promised < earliest) {
-      return invalid('promisedAt', order.serviceType === 'takeout-asap' ? '預計取餐時間不能早於現在。' : '預計取餐時間不能早於顧客選的時間。');
+      return invalid('promisedAt', asap ? `${what}不能早於現在。` : `${what}不能早於顧客選的時間。`);
     }
-    if (promised > latest) return invalid('promisedAt', '預計取餐時間最多延後 24 小時。');
+    if (promised > latest) return invalid('promisedAt', `${what}最多延後 24 小時。`);
   }
   return null;
 }

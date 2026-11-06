@@ -1,4 +1,5 @@
 @let item = order();
+@let drop = delivery();
 <article
   class="order"
   [id]="'order-' + item.id"
@@ -10,7 +11,7 @@
   <div class="order__head">
     <h3 class="order__title" [id]="'order-title-' + item.id">
       <span class="order__number">{{ item.displayNumber }}</span>
-      <span class="order__service">{{ service() }}</span>
+      <span class="order__service" [class.order__service--delivery]="drop">{{ service() }}</span>
     </h3>
     <span class="order__status" [attr.data-status]="item.status">{{ status() }}</span>
   </div>
@@ -34,6 +35,26 @@
       <a class="order__link order__email" [href]="'mailto:' + item.customerEmail">{{ item.customerEmail }}</a>
     }
   </p>
+  @if (drop) {
+    <p class="order__address" data-delivery>
+      <span class="order__zone">{{ drop.zoneName }}</span>
+      @if (drop.address) {
+        <a
+          class="order__link"
+          [href]="mapsSearchUrl(drop.address)"
+          target="_blank"
+          rel="noopener noreferrer"
+          [attr.aria-label]="drop.address + '：在 Google 地圖開啟（另開視窗）'"
+          data-delivery-address
+        >{{ drop.address }}</a>
+      } @else {
+        <span data-delivery-address>（已刪除）</span>
+      }
+    </p>
+    @if (drop.note) {
+      <p class="order__comment" data-delivery-note><strong>給外送的備註：</strong>{{ drop.note }}</p>
+    }
+  }
 
   <ul class="order__lines" aria-label="明細">
     @for (row of item.lines; track $index) {
@@ -59,6 +80,9 @@
   <p class="order__footer">
     @if (item.tableware !== null) {
       <span class="order__tableware">{{ item.tableware ? '需要餐具' : '不需要餐具' }}</span>
+    }
+    @if (drop) {
+      <span class="order__fee" data-delivery-fee>運費 {{ priceText(item.deliveryFee) }}</span>
     }
     <span class="order__total">合計 <strong>{{ priceText(item.total) }}</strong></span>
   </p>

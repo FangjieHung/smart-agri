@@ -1,8 +1,8 @@
 import { auditA11y, loginAs } from '../support/a11y';
 
 /**
- * 線上點餐的後台（issue #399，mock 模式）：王記麵店的示範訂單——待確認 #016（預約）與 #015（儘快）、處理中 #014 與 #013、
- * 今日完成 #012 與 #011。老闆與內部同仁有「處理線上點餐」；外部客戶沒有，側欄不顯示、頁面顯示沒有權限。
+ * 線上點餐的後台（issue #399，mock 模式）：王記麵店的示範訂單——待確認 #016（預約）與 #015（儘快）、處理中 #014、#013
+ * 與外送 #010（#401）、今日完成 #012 與 #011。老闆與內部同仁有「處理線上點餐」；外部客戶沒有，側欄不顯示、頁面顯示沒有權限。
  */
 describe('orders', () => {
   const navLink = '.app-sidenav a[href="/app/orders"]';
@@ -44,6 +44,28 @@ describe('orders', () => {
     cy.get(`[data-orders-column="active"] ${card('016')} [data-action="complete"]`).click();
     cy.get(`[data-orders-column="done"] ${card('016')}`).should('contain', '已完成').find('[data-action]').should('not.exist');
     cy.get('[data-orders-notice]').should('contain', '#016 已完成。');
+  });
+
+  it('shows a delivery order with its zone, a map link for the address, the fee and 〔已出發〕 (#401)', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/orders');
+    cy.get('#main-content').contains('h1', '線上點餐').should('be.visible');
+    cy.get(`#main-content [data-orders-column="active"] ${card('010')}`).scrollIntoView().should('be.visible').within(() => {
+      cy.contains('.order__service', '外送預約').should('be.visible');
+      cy.contains('.order__zone', '新營區其他里');
+      cy.get('a[data-delivery-address]')
+        .should('have.text', '台南市新營區中山路 1 號 3 樓')
+        .and('have.attr', 'href', `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent('台南市新營區中山路 1 號 3 樓')}`)
+        .and('have.attr', 'target', '_blank')
+        .and('have.attr', 'rel', 'noopener noreferrer');
+      cy.get('[data-delivery-note]').should('have.text', '給外送的備註：請按電鈴');
+      cy.get('[data-delivery-fee]').invoke('text').should((text) => expect(text.trim()).to.eq('運費 NT$30'));
+      cy.get('.order__total').should('contain', 'NT$400');
+      cy.get('.order__when').should('contain', '送達');
+      cy.get('[data-action="ready"]').should('have.text', '已出發').click();
+    });
+    cy.get(`[data-orders-column="active"] ${card('010')} .order__status`).should('have.text', '已出發');
+    cy.get('[data-orders-notice]').should('contain', '#010 已標示為已出發。');
   });
 
   it('declines with a reason and a note the customer will see', () => {

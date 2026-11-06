@@ -12,7 +12,9 @@ namespace SmartAgri.Infrastructure.Ordering;
 /// <summary>
 /// Table <c>OrderingShops</c> (online-ordering Slice O1, #397): one row per organization (unique <c>OrganizationId</c>);
 /// <c>Slug</c> unique across all organizations (the anonymous ordering page finds its shop by it, #398). The ordering hours
-/// are a <c>jsonb</c> object in the 統籌助理 settings' <c>weeklyHours</c> format. <c>Version</c> is the concurrency token.
+/// are a <c>jsonb</c> object in the 統籌助理 settings' <c>weeklyHours</c> format, the delivery section (#401) a nullable
+/// <c>jsonb</c> object in the import file's format (<see cref="OrderingShopJson.WriteDelivery"/>). <c>Version</c> is the
+/// concurrency token.
 /// </summary>
 internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<OrderingShop>
 {
@@ -23,6 +25,12 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
         (left, right) => ShopSettingsJson.WriteWeeklyHours(left!) == ShopSettingsJson.WriteWeeklyHours(right!),
         hours => ShopSettingsJson.WriteWeeklyHours(hours).GetHashCode(StringComparison.Ordinal),
         hours => ShopSettingsJson.ReadWeeklyHours(ShopSettingsJson.WriteWeeklyHours(hours)));
+
+    // Immutable records: equal when written the same.
+    private static readonly ValueComparer<OrderingDeliverySettings?> DeliveryComparer = new(
+        (left, right) => OrderingShopJson.WriteDelivery(left) == OrderingShopJson.WriteDelivery(right),
+        delivery => OrderingShopJson.WriteDelivery(delivery).GetHashCode(StringComparison.Ordinal),
+        delivery => delivery);
 
     public void Configure(EntityTypeBuilder<OrderingShop> builder)
     {
@@ -41,6 +49,12 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
             table.HasCheckConstraint(
                 "CK_OrderingShops_PendingTimeoutMinutes",
                 $"\"PendingTimeoutMinutes\" BETWEEN {OrderingShopSettings.MinPendingTimeoutMinutes} AND {OrderingShopSettings.MaxPendingTimeoutMinutes}");
+            // #401: delivery needs its zones; ASAP delivery needs delivery.
+            table.HasCheckConstraint(
+                "CK_OrderingShops_Delivery",
+                "(NOT \"Delivery\" OR \"DeliverySettings\" IS NOT NULL) AND (NOT \"DeliveryAsap\" OR \"Delivery\")");
+            table.HasCheckConstraint(
+                "CK_OrderingShops_DeliverySettings", "\"DeliverySettings\" IS NULL OR jsonb_typeof(\"DeliverySettings\") = 'object'");
         });
         builder.HasKey(shop => shop.Id);
         builder.Property(shop => shop.Id).ValueGeneratedNever();
@@ -59,6 +73,13 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
                 WeeklyHoursComparer)
             .HasColumnType("jsonb")
             .IsRequired();
+        builder.Property(shop => shop.DeliverySettings)
+            .HasConversion(
+                new ValueConverter<OrderingDeliverySettings?, string?>(
+                    delivery => delivery == null ? null : OrderingShopJson.WriteDelivery(delivery),
+                    json => json == null ? null : OrderingShopJson.ReadDelivery(json)),
+                DeliveryComparer)
+            .HasColumnType("jsonb");
         builder.Property(shop => shop.AsapPrepBand)
             .HasConversion<WireNameConverter<AsapPrepBand>>()
             .HasMaxLength(16)
@@ -67,6 +88,8 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
         builder.Ignore(shop => shop.Settings);
         builder.Ignore(shop => shop.Services);
         builder.Ignore(shop => shop.Hours);
+        builder.Ignore(shop => shop.DeliveryOffered);
+        builder.Ignore(shop => shop.DeliveryHours);
         builder.HasIndex(shop => shop.OrganizationId).IsUnique();
         builder.HasIndex(shop => shop.Slug).IsUnique().HasDatabaseName(SlugIndex);
     }
@@ -164,7 +187,16 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
             table.HasCheckConstraint("CK_OrderingOrders_Total", "\"Subtotal\" >= 0 AND \"Total\" >= \"Subtotal\"");
             table.HasCheckConstraint(
                 "CK_OrderingOrders_Asap",
-                "(\"ServiceType\" = 'takeout-asap') = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
+                "(\"ServiceType\" IN ('takeout-asap', 'delivery-asap')) = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
+            // #401: a delivery order has its zone and address (an empty address once cleared); the fee is in the total.
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_Delivery",
+                "(\"ServiceType\" IN ('delivery-scheduled', 'delivery-asap')) = "
+                + "(\"DeliveryZoneId\" IS NOT NULL AND \"DeliveryZoneName\" IS NOT NULL AND \"DeliveryAddress\" IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_DeliveryFee",
+                "\"DeliveryFee\" >= 0 AND \"Total\" = \"Subtotal\" + \"DeliveryFee\" "
+                + "AND (\"DeliveryFee\" = 0 OR \"ServiceType\" IN ('delivery-scheduled', 'delivery-asap'))");
             table.HasCheckConstraint(
                 "CK_OrderingOrders_CancelledAt", "(\"Status\" = 'cancelled') = (\"CancelledAt\" IS NOT NULL)");
             // #399: who and why. A NULL comparison would pass a CHECK, so every side is a definite boolean.
@@ -181,7 +213,8 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
             // #400: a cleared order keeps no contact details (design D12).
             table.HasCheckConstraint(
                 "CK_OrderingOrders_PersonalData",
-                "\"PersonalDataClearedAt\" IS NULL OR (\"CustomerName\" = '' AND \"CustomerPhone\" = '' AND \"CustomerEmail\" IS NULL AND \"OrderComment\" IS NULL)");
+                "\"PersonalDataClearedAt\" IS NULL OR (\"CustomerName\" = '' AND \"CustomerPhone\" = '' AND \"CustomerEmail\" IS NULL AND \"OrderComment\" IS NULL "
+                + "AND COALESCE(\"DeliveryAddress\", '') = '' AND \"DeliveryNote\" IS NULL)");
         });
         builder.HasKey(order => order.Id);
         builder.Property(order => order.Id).ValueGeneratedNever();
@@ -198,6 +231,10 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
         builder.Property(order => order.CustomerPhone).HasMaxLength(ReservationContact.PhoneMaxLength).IsRequired();
         builder.Property(order => order.CustomerEmail).HasMaxLength(ReservationContact.EmailMaxLength);
         builder.Property(order => order.OrderComment).HasMaxLength(OrderingContact.OrderCommentMaxLength);
+        builder.Property(order => order.DeliveryZoneId).HasMaxLength(MenuLimits.IdMaxLength);
+        builder.Property(order => order.DeliveryZoneName).HasMaxLength(OrderingDeliverySettings.ZoneNameMaxLength);
+        builder.Property(order => order.DeliveryAddress).HasMaxLength(OrderingContact.AddressMaxLength);
+        builder.Property(order => order.DeliveryNote).HasMaxLength(OrderingContact.DeliveryNoteMaxLength);
         builder.Property(order => order.Lines)
             .HasConversion(
                 new ValueConverter<IReadOnlyList<OrderingOrderLine>, string>(
@@ -224,6 +261,7 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
         builder.Property(order => order.CancelNote).HasMaxLength(OrderingOrder.StaffNoteMaxLength);
         builder.Ignore(order => order.CanCancel);
         builder.Ignore(order => order.AllowedActions);
+        builder.Ignore(order => order.Delivery);
         builder.HasIndex(order => new { order.OrganizationId, order.BusinessDate, order.Number }).IsUnique().HasDatabaseName(NumberIndex);
         builder.HasIndex(order => new { order.OrganizationId, order.SubmissionKey }).IsUnique().HasDatabaseName(SubmissionKeyIndex);
         builder.HasIndex(order => order.StatusTokenHash).IsUnique();

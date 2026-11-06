@@ -23,7 +23,7 @@
       </p>
     </div>
 
-    @if (shop.services.takeoutAsap) {
+    @if (shop.services.takeoutAsap || shop.services.deliveryAsap) {
       <fieldset class="controls__band">
         <legend>即時單準備時間</legend>
         <div class="controls__segments">

@@ -79,7 +79,7 @@ public static class OrderingPublicEndpoints
 
         shop.MapGet("/slots", (string slug, HttpContext context, OrderingPublicFlow flow) => flow.SlotsAsync(slug, context.RequestAborted))
             .WithPublicRateLimit(PublicRateLimitedEndpoint.Ordering)
-            .WithSummary("The business days and times a scheduled takeout order can be picked up")
+            .WithSummary("The business days and times a scheduled takeout order can be picked up, and a scheduled delivery delivered")
             .Produces<OrderingSlotsView>()
             .Produces<OrderingProblem>(StatusCodes.Status404NotFound, Problem)
             .Produces(StatusCodes.Status429TooManyRequests);
@@ -92,7 +92,8 @@ public static class OrderingPublicEndpoints
             .WithDescription(
                 "201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. " +
                 "404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, " +
-                "slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors). " +
+                "slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), " +
+                "unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). " +
                 "429 too-many-pending, or rate-limited with Retry-After.")
             .Accepts<OrderingOrderRequest>("application/json")
             .Produces<OrderingSubmittedView>(StatusCodes.Status201Created)
@@ -176,8 +177,12 @@ public sealed class OrderingPublicFlow
         }
 
         var now = _clock.GetUtcNow();
-        var counts = await _orders.SlotCountsAsync(found.Shop.OrganizationId, now, cancellationToken);
-        return Results.Ok(OrderingPublicViews.Slots(OrderingSlots.Scheduled(found.Shop, now, counts), now));
+        var counts = await _orders.SlotCountsAsync(found.Shop.OrganizationId, now, OrderingChannel.Takeout, cancellationToken);
+        var deliveryCounts = await _orders.SlotCountsAsync(found.Shop.OrganizationId, now, OrderingChannel.Delivery, cancellationToken);
+        return Results.Ok(OrderingPublicViews.Slots(
+            OrderingSlots.Scheduled(found.Shop, now, counts),
+            OrderingSlots.Scheduled(found.Shop, now, deliveryCounts, OrderingChannel.Delivery),
+            now));
     }
 
     public async Task<IResult> OrderAsync(string slug, string? token, CancellationToken cancellationToken)
@@ -258,11 +263,28 @@ public sealed class OrderingPublicFlow
             case OrderingSubmitOutcome.ServiceUnavailable:
                 return Refuse(
                     StatusCodes.Status409Conflict, "service-unavailable",
-                    submission.ServiceType == OrderingServiceType.TakeoutAsap ? "現在無法接受儘快取餐的訂單，請改選預約取餐時間。" : "店家目前不接受預約取餐。");
+                    submission.ServiceType switch
+                    {
+                        OrderingServiceType.TakeoutAsap => "現在無法接受儘快取餐的訂單，請改選預約取餐時間。",
+                        OrderingServiceType.DeliveryAsap when shop.DeliveryOffered && shop.DeliveryAsap => "現在無法接受儘快外送的訂單，請改選預約外送時間。",
+                        OrderingServiceType.DeliveryScheduled or OrderingServiceType.DeliveryAsap => "店家目前不提供外送。",
+                        _ => "店家目前不接受預約取餐。",
+                    });
+            case OrderingSubmitOutcome.UnknownZone:
+                return Refuse(StatusCodes.Status422UnprocessableEntity, "unknown-zone", "這個外送區域已經不能選了，請重新選擇。");
+            case OrderingSubmitOutcome.BelowMinimum:
+                var zone = result.Zone!;
+                return Refuse(
+                    StatusCodes.Status422UnprocessableEntity, "below-minimum",
+                    $"外送到「{zone.Name}」最低消費 {Money(zone.MinimumSubtotal)}，還差 {Money(result.Shortfall!.Value)}。",
+                    minimumSubtotal: zone.MinimumSubtotal, shortfall: result.Shortfall);
             case OrderingSubmitOutcome.SlotUnavailable:
-                return Refuse(StatusCodes.Status409Conflict, "slot-unavailable", "這個取餐時間已經不能選了，請重新選擇。");
+                return Refuse(
+                    StatusCodes.Status409Conflict, "slot-unavailable",
+                    $"這個{TimeWord(submission.ServiceType)}已經不能選了，請重新選擇。");
             case OrderingSubmitOutcome.SlotFull:
-                return Refuse(StatusCodes.Status409Conflict, "slot-full", "這個取餐時間已經額滿，請選擇其他時間。");
+                return Refuse(
+                    StatusCodes.Status409Conflict, "slot-full", $"這個{TimeWord(submission.ServiceType)}已經額滿，請選擇其他時間。");
             case OrderingSubmitOutcome.MenuChanged:
                 return Refuse(
                     StatusCodes.Status409Conflict, "menu-changed", "菜單剛剛更新了，請確認購物車裡的品項與價格後再送出。", menuVersion: result.MenuVersion);
@@ -292,11 +314,12 @@ public sealed class OrderingPublicFlow
         }
 
         var customer = request.Customer!;
+        var delivery = request.ServiceType!.Value.IsDelivery();
         return new OrderingSubmission(
             shop.OrganizationId,
             request.ServiceType!.Value,
-            request.ServiceType == OrderingServiceType.TakeoutScheduled ? ParseDate(request.PickupDate) : null,
-            request.ServiceType == OrderingServiceType.TakeoutScheduled ? request.PickupSlot : null,
+            Scheduled(request.ServiceType) ? ParseDate(request.PickupDate) : null,
+            Scheduled(request.ServiceType) ? request.PickupSlot : null,
             request.MenuVersion!.Value,
             [.. request.Lines!.Select(line => new OrderingLineInput(
                 line.ItemId, line.Quantity, line.Selections?.Select(selection => selection.ToSelection()).ToList(), Trimmed(line.Comment)))],
@@ -305,8 +328,19 @@ public sealed class OrderingPublicFlow
             Trimmed(customer.Email),
             shop.ShowOrderComment ? Trimmed(request.OrderComment) : null,
             shop.ShowTableware ? request.Tableware ?? false : null,
-            OrderingOrder.NormalizeSubmissionKey(request.SubmissionKey)!);
+            OrderingOrder.NormalizeSubmissionKey(request.SubmissionKey)!,
+            delivery ? request.DeliveryZoneId : null,
+            delivery ? Trimmed(request.DeliveryAddress) : null,
+            delivery ? Trimmed(request.DeliveryNote) : null);
     }
+
+    private static bool Scheduled(OrderingServiceType? type) =>
+        type is OrderingServiceType.TakeoutScheduled or OrderingServiceType.DeliveryScheduled;
+
+    /// <summary>「取餐時間」 or 「外送時間」.</summary>
+    private static string TimeWord(OrderingServiceType type) => type.IsDelivery() ? "外送時間" : "取餐時間";
+
+    private static string Money(int amount) => "NT$" + amount.ToString("#,0", CultureInfo.InvariantCulture);
 
     /// <summary>Every field's problem, by field: what can be checked without the shop's lock and menu.</summary>
     private static Dictionary<string, string[]> FieldErrors(OrderingShop shop, OrderingOrderRequest request)
@@ -322,9 +356,16 @@ public sealed class OrderingPublicFlow
 
         Add("submissionKey", OrderingOrder.NormalizeSubmissionKey(request.SubmissionKey) is null ? "請重新整理頁面後再送出。" : null);
         Add("serviceType", request.ServiceType is null ? "請選擇取餐方式。" : null);
-        if (request.ServiceType == OrderingServiceType.TakeoutScheduled && (ParseDate(request.PickupDate) is null || string.IsNullOrEmpty(request.PickupSlot)))
+        if (Scheduled(request.ServiceType) && (ParseDate(request.PickupDate) is null || string.IsNullOrEmpty(request.PickupSlot)))
         {
-            Add("pickupSlot", "請選擇取餐時間。");
+            Add("pickupSlot", request.ServiceType == OrderingServiceType.DeliveryScheduled ? "請選擇外送時間。" : "請選擇取餐時間。");
+        }
+
+        if (request.ServiceType is { } type && type.IsDelivery())
+        {
+            Add("deliveryZoneId", string.IsNullOrEmpty(request.DeliveryZoneId) ? "請選擇外送區域。" : null);
+            Add("deliveryAddress", OrderingContact.AddressProblem(Trimmed(request.DeliveryAddress)));
+            Add("deliveryNote", OrderingContact.DeliveryNoteProblem(Trimmed(request.DeliveryNote)));
         }
 
         Add("menuVersion", request.MenuVersion is null ? "請重新整理頁面後再送出。" : null);
@@ -390,7 +431,9 @@ public sealed class OrderingPublicFlow
         IReadOnlyList<OrderingLineError>? lineErrors = null,
         int? menuVersion = null,
         string? orderNumber = null,
-        OrderingOrderStatus? orderStatus = null)
+        OrderingOrderStatus? orderStatus = null,
+        int? minimumSubtotal = null,
+        int? shortfall = null)
     {
         var (type, title) = status switch
         {
@@ -400,7 +443,7 @@ public sealed class OrderingPublicFlow
             _ => ("https://tools.ietf.org/html/rfc6585#section-4", "Too Many Requests"),
         };
         return Results.Json(
-            new OrderingProblem(type, title, status, reason, message, errors, lineErrors, menuVersion, orderNumber, orderStatus),
+            new OrderingProblem(type, title, status, reason, message, errors, lineErrors, menuVersion, orderNumber, orderStatus, minimumSubtotal, shortfall),
             contentType: "application/problem+json",
             statusCode: status);
     }

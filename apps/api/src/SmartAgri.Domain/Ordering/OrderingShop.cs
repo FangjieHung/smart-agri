@@ -46,6 +46,16 @@ public sealed class OrderingShop : IOrganizationScoped
 
     public bool TakeoutAsap { get; private set; }
 
+    /// <summary>外送（預約）(#401).</summary>
+    public bool Delivery { get; private set; }
+
+    /// <summary>外送（儘快）(#401).</summary>
+    public bool DeliveryAsap { get; private set; }
+
+    /// <summary>The zones, hours and lead time of delivery (#401); <see langword="null"/> when the file has no
+    /// <c>delivery</c> section.</summary>
+    public OrderingDeliverySettings? DeliverySettings { get; private set; }
+
     public WeeklyHours OrderingHours { get; private set; }
 
     public int SlotMinutes { get; private set; }
@@ -79,12 +89,28 @@ public sealed class OrderingShop : IOrganizationScoped
     /// <summary>The imported settings.</summary>
     public OrderingShopSettings Settings => new(
         Slug, Name, TimeZoneId, Phone, Address, ReminderNotice, CheckoutNotice, Services, OrderingHours, SlotMinutes, DaysAhead,
-        MinLeadMinutes, MaxOrdersPerSlot, ShowOrderComment, ShowTableware, PendingTimeoutMinutes);
+        MinLeadMinutes, MaxOrdersPerSlot, ShowOrderComment, ShowTableware, PendingTimeoutMinutes, DeliverySettings);
 
-    public OrderingServices Services => new(TakeoutScheduled, TakeoutAsap);
+    public OrderingServices Services => new(TakeoutScheduled, TakeoutAsap, Delivery, DeliveryAsap);
 
     /// <summary>The calculations over <see cref="OrderingHours"/> in the shop's time zone.</summary>
     public BusinessHours Hours => new(OrderingHours, TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId));
+
+    /// <summary>Delivery is offered (scheduled; ASAP only with <see cref="DeliveryAsap"/>) and has zones.</summary>
+    public bool DeliveryOffered => Delivery && DeliverySettings is { Zones.Count: > 0 };
+
+    /// <summary>When delivery orders are delivered: the delivery section's own hours, else the takeout ordering hours.</summary>
+    public WeeklyHours DeliveryHours => DeliverySettings?.OrderingHours ?? OrderingHours;
+
+    /// <summary>The hours of <paramref name="channel"/> in the shop's time zone.</summary>
+    public BusinessHours HoursFor(OrderingChannel channel) =>
+        channel == OrderingChannel.Delivery ? new BusinessHours(DeliveryHours, TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId)) : Hours;
+
+    /// <summary>The earliest a scheduled slot of <paramref name="channel"/> can be after now.</summary>
+    public int MinLeadMinutesFor(OrderingChannel channel) =>
+        channel == OrderingChannel.Delivery
+            ? DeliverySettings?.MinLeadMinutes ?? OrderingDeliverySettings.DefaultMinLeadMinutes
+            : MinLeadMinutes;
 
     /// <summary>The first settings of <paramref name="organizationId"/>: taking orders, ASAP band
     /// <see cref="AsapPrepBands.Default"/>, version 1.</summary>
@@ -171,6 +197,9 @@ public sealed class OrderingShop : IOrganizationScoped
         CheckoutNotice = settings.CheckoutNotice;
         TakeoutScheduled = settings.Services.TakeoutScheduled;
         TakeoutAsap = settings.Services.TakeoutAsap;
+        Delivery = settings.Services.Delivery;
+        DeliveryAsap = settings.Services.DeliveryAsap;
+        DeliverySettings = settings.Delivery;
         OrderingHours = settings.OrderingHours;
         SlotMinutes = settings.SlotMinutes;
         DaysAhead = settings.DaysAhead;

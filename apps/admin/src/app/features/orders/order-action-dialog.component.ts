@@ -1,6 +1,7 @@
 import { A11yModule } from '@angular/cdk/a11y';
 import { afterNextRender, ChangeDetectionStrategy, Component, computed, ElementRef, input, output, signal, viewChild } from '@angular/core';
 import {
+  arrivalWord,
   clockText,
   ORDERING_CANCEL_REASONS,
   ORDERING_DECLINE_REASONS,
@@ -65,12 +66,19 @@ export class OrderActionDialogComponent {
     return this.kind() === 'accept' ? `接單 ${number}` : this.kind() === 'decline' ? `婉拒 ${number}` : `取消訂單 ${number}`;
   });
 
+  /** 「取餐」或「送達」（外送單，#401）。 */
+  protected readonly word = computed(() => arrivalWord(this.order().serviceType));
+
+  /** 「預計可取餐時間」或「預計送達時間」。 */
+  protected readonly timeName = computed(() => (this.word() === '取餐' ? '預計可取餐時間' : '預計送達時間'));
+
   protected readonly detail = computed(() => {
     const order = this.order();
     if (this.kind() === 'accept') {
+      const word = this.word();
       return order.estimate
-        ? `顧客希望儘快取餐（約 ${order.estimate.minMinutes}–${order.estimate.maxMinutes} 分鐘）。請選預計可取餐的時間。`
-        : `顧客選的取餐時間是 ${this.clock(Date.parse(order.pickupAt))}。可以維持，或改成較晚的時間。`;
+        ? `顧客希望儘快${word}（約 ${order.estimate.minMinutes}–${order.estimate.maxMinutes} 分鐘）。請選${this.timeName()}。`
+        : `顧客選的${word}時間是 ${this.clock(Date.parse(order.pickupAt))}。可以維持，或改成較晚的時間。`;
     }
     return this.kind() === 'decline'
       ? '請選擇婉拒的原因。顧客會在訂單頁看到原因與你寫的說明。'
@@ -111,14 +119,15 @@ export class OrderActionDialogComponent {
     let at = shopInstant(shopClock(earliest, this.timeZone()).date, time, this.timeZone());
     // 比下限早半天以上，是指隔天（例如 23:50 接單、選 00:20）。
     if (at < earliest && earliest - at > DAY / 2) at += DAY;
-    if (at < earliest) return { problem: order.estimate ? '預計取餐時間不能早於現在。' : `預計取餐時間不能早於顧客選的時間（${this.clock(earliest)}）。` };
-    if (at > Math.max(Date.parse(order.pickupAt), this.now()) + DAY) return { problem: '預計取餐時間最多延後 24 小時。' };
+    const what = this.word() === '取餐' ? '預計取餐時間' : '預計送達時間';
+    if (at < earliest) return { problem: order.estimate ? `${what}不能早於現在。` : `${what}不能早於顧客選的時間（${this.clock(earliest)}）。` };
+    if (at > Math.max(Date.parse(order.pickupAt), this.now()) + DAY) return { problem: `${what}最多延後 24 小時。` };
     return { at };
   });
 
   protected readonly promisedText = computed(() => {
     const promised = this.promised();
-    return 'at' in promised ? `顧客會在訂單頁看到：預計 ${this.clock(promised.at)} 可取餐。` : '';
+    return 'at' in promised ? `顧客會在訂單頁看到：預計 ${this.clock(promised.at)} ${this.word() === '取餐' ? '可取餐' : '送達'}。` : '';
   });
 
   protected readonly reasons = computed<readonly (readonly [string, string])[]>(() =>

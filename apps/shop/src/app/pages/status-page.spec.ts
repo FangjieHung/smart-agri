@@ -33,6 +33,8 @@ const order = (status: Order['status']): Order =>
     cancelledBy: null,
     cancelReason: null,
     cancelNote: null,
+    deliveryFee: 0,
+    delivery: null,
   }) as Order;
 
 describe('StatusPage', () => {
@@ -200,5 +202,60 @@ describe('StatusPage', () => {
       (fixture.nativeElement as HTMLElement).querySelector('[data-testid="order-not-found"]'),
     ).not.toBeNull();
     expect(api.order).not.toHaveBeenCalled();
+  });
+});
+
+describe('StatusPage: delivery (#401)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('shows the zone, the address, the fee, cash on delivery and 已出發 for a ready delivery', async () => {
+    history.replaceState(null, '', `/order/wangji-noodles/o#${TOKEN}`);
+    const ready = {
+      ...order('ready'),
+      serviceType: 'delivery-scheduled',
+      promisedAt: '2026-11-07T05:00:00+00:00',
+      pickupAt: '2026-11-07T05:00:00+00:00',
+      subtotal: 340,
+      deliveryFee: 30,
+      total: 370,
+      delivery: {
+        zoneId: 'xinying',
+        zoneName: '新營區其他里',
+        fee: 30,
+        address: '台南市新營區中山路 1 號 3 樓',
+        note: '請按電鈴',
+      },
+    } as Order;
+    const api = { order: vi.fn(async () => ({ ok: true as const, status: 200, data: ready })) };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), { provide: OrderingApi, useValue: api }],
+    });
+    const store = TestBed.inject(ShopStore);
+    store.slug.set('wangji-noodles');
+    store.shop.set({
+      name: '王記麵店',
+      phone: '06-123-4567',
+      timeZone: 'Asia/Taipei',
+      now: '2026-11-07T04:20:00Z',
+    } as ShopInfo);
+
+    const fixture = TestBed.createComponent(StatusPage);
+    const root = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+      fixture.detectChanges();
+    }
+    const text = (id: string) => root.querySelector(`[data-testid="${id}"]`)?.textContent?.trim();
+    expect(text('order-status')).toBe('外送已出發');
+    expect(text('order-pickup')).toBe('預計 今天 13:00 送達');
+    expect(text('order-zone')).toBe('新營區其他里');
+    expect(text('order-address')).toBe('台南市新營區中山路 1 號 3 樓');
+    expect(text('order-fee')).toBe('NT$30');
+    expect(root.textContent).toContain('貨到付款');
+    expect(root.textContent).toContain('請按電鈴');
+    expect(root.querySelector('[aria-current="step"]')?.textContent).toContain('已出發');
+    fixture.destroy();
   });
 });

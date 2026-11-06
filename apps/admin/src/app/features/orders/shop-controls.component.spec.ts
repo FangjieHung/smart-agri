@@ -17,7 +17,7 @@ const NOW = Date.parse('2026-11-07T03:40:00Z');
 const summary: OrderingSummaryView = {
   now: new Date(NOW).toISOString(), businessDate: '2026-11-07', timeZone: 'Asia/Taipei', shopName: '王記麵店', slug: 'wangji-noodles',
   pendingCount: 0, activeCount: 0, latestOrderAt: null, changedAt: null, paused: false, asapBand: '15-30',
-  asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true }, menuVersion: 1, shopVersion: 1,
+  asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true, delivery: false, deliveryAsap: false }, menuVersion: 1, shopVersion: 1,
 };
 
 const menu: OrderingMenuView = {
@@ -89,6 +89,17 @@ describe('ShopControlsComponent (issue #399)', () => {
     fixture.detectChanges();
     expect(repository.setAsapBand).toHaveBeenCalledWith('30-45');
     expect(changes.at(-1)?.asapBand).toBe('30-45');
+  });
+
+  it('shows the ASAP band when only 外送即時 is offered, and hides it without any ASAP service (#401)', () => {
+    const { fixture, page } = setup();
+    fixture.componentRef.setInput('summary', { ...summary, services: { takeoutScheduled: true, takeoutAsap: false, delivery: true, deliveryAsap: true } });
+    fixture.detectChanges();
+    expect(page.querySelectorAll('input[name="shop-asap-band"]')).toHaveLength(4);
+
+    fixture.componentRef.setInput('summary', { ...summary, services: { takeoutScheduled: true, takeoutAsap: false, delivery: true, deliveryAsap: false } });
+    fixture.detectChanges();
+    expect(page.querySelectorAll('input[name="shop-asap-band"]')).toHaveLength(0);
   });
 
   it('lists the items when opened, finds one by name, and marks it sold out until the next opening', () => {

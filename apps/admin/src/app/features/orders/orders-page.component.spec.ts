@@ -30,7 +30,7 @@ function order(fields: Partial<OrderingOrderView> & Pick<OrderingOrderView, 'id'
     ] }],
     orderComment: null, tableware: true, subtotal: 160, total: 160, menuVersion: 1, createdAt: '2026-11-07T03:35:00Z',
     statusChangedAt: '2026-11-07T03:35:00Z', accepted: null, ready: null, completed: null, declined: null, cancelled: null,
-    expiresAt: '2026-11-07T03:50:00Z', personalDataClearedAt: null,
+    expiresAt: '2026-11-07T03:50:00Z', personalDataClearedAt: null, deliveryFee: 0, delivery: null,
     actions: fields.status === 'pending' ? ['accept', 'decline'] : fields.status === 'accepted' ? ['ready', 'complete', 'cancel'] : [],
     ...fields,
   };
@@ -40,7 +40,7 @@ function summaryOf(fields: Partial<OrderingSummaryView> = {}): OrderingSummaryVi
   return {
     now: new Date(NOW).toISOString(), businessDate: '2026-11-07', timeZone: 'Asia/Taipei', shopName: '王記麵店', slug: 'wangji-noodles',
     pendingCount: 1, activeCount: 1, latestOrderAt: '2026-11-07T03:35:00Z', changedAt: '2026-11-07T03:35:00Z', paused: false,
-    asapBand: '15-30', asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true },
+    asapBand: '15-30', asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true, delivery: false, deliveryAsap: false },
     menuVersion: 1, shopVersion: 1, ...fields,
   };
 }
@@ -217,6 +217,31 @@ describe('OrdersPageComponent (issue #399)', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('[data-accept-result]')?.textContent).toContain('預計 12:20 可取餐');
     click(fixture, '[data-order-dialog-confirm]');
     expect(repository.act).toHaveBeenCalledWith('o-16', { action: 'accept', version: 1, promisedAt: '2026-11-07T04:20:00.000Z' });
+  });
+
+  it('words the accept dialog and the notices with 送達 and 已出發 for a delivery order (#401)', () => {
+    const delivery = { zoneId: 'xinying', zoneName: '新營區其他里', fee: 30, address: '台南市新營區中山路 1 號 3 樓', note: null };
+    const pending = order({ id: 'o-17', number: 17, status: 'pending', serviceType: 'delivery-scheduled', deliveryFee: 30, total: 190, delivery });
+    const accepted = { ...pending, status: 'accepted' as const, version: 2, promisedAt: pending.pickupAt, actions: ['ready', 'complete', 'cancel'] as OrderingOrderView['actions'] };
+    const ready = { ...accepted, status: 'ready' as const, version: 3, actions: ['complete', 'cancel'] as OrderingOrderView['actions'] };
+    let next: OrderingOrderView = accepted;
+    const { fixture, page, lists } = setup({ lists: { pending: [pending] }, act: () => of<OrderingActionResult>({ status: 'ready', data: next }) });
+
+    click(fixture, '[data-order="o-17"] [data-action="accept"]');
+    const dialog = el(page, '[data-order-dialog="accept"]');
+    expect(dialog.querySelector('legend')?.textContent).toBe('預計送達時間');
+    expect(dialog.textContent).toContain('顧客選的送達時間是 12:00。');
+    expect(dialog.querySelector('[data-accept-result]')?.textContent).toContain('預計 12:00 送達。');
+    lists.pending = [];
+    lists.active = [accepted, ...lists.active];
+    click(fixture, '[data-order-dialog-confirm]');
+    expect(page.querySelector('[data-orders-notice]')?.textContent).toContain('已接單 #017，預計 12:00 送達。');
+
+    next = ready;
+    lists.active = lists.active.map((row) => (row.id === ready.id ? ready : row));
+    click(fixture, '[data-order="o-17"] [data-action="ready"]');
+    expect(page.querySelector('[data-orders-notice]')?.textContent).toContain('#017 已標示為已出發。');
+    expect(page.querySelector('[data-order="o-17"] .order__status')?.textContent).toBe('已出發');
   });
 
   it('refuses a picked time before the customer\'s, and closes with Escape giving focus back', () => {

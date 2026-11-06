@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, output } from '@angular/cor
 import { ShopStore } from '../state/shop-store';
 
 /**
- * 取餐單：一直顯示目前選的取餐方式與時間，旁邊是「更改」。版面像店裡的取餐聯，左邊直排「取餐」，
+ * 取餐單：一直顯示目前選的取餐方式與時間（外送另外寫送到哪一區，#401），旁邊是「更改」。版面像店裡的取餐聯，左邊直排「取餐」，
  * 虛線撕口隔開——這是整個點餐網頁唯一的裝飾，其他地方保持安靜。
  */
 @Component({
@@ -13,11 +13,16 @@ import { ShopStore } from '../state/shop-store';
       [class.ticket--empty]="!store.serviceLabel()"
       aria-labelledby="ticket-label"
     >
-      <span class="ticket__stub" id="ticket-label" lang="zh-Hant-TW">取餐</span>
+      <span class="ticket__stub" id="ticket-label" lang="zh-Hant-TW">{{
+        store.isDelivery() ? '外送' : '取餐'
+      }}</span>
       <div class="ticket__body" aria-live="polite">
         @if (store.serviceLabel(); as label) {
           <span class="ticket__kind">{{ label.kind }}</span>
           <span class="ticket__when" data-testid="pickup-when">{{ label.when }}</span>
+          @if (label.zone) {
+            <span class="ticket__kind" data-testid="pickup-zone">送到 {{ label.zone }}</span>
+          }
         } @else {
           <span class="ticket__kind">還沒選取餐時間</span>
           <span class="ticket__when ticket__when--empty">選好時間才能送出訂單</span>
@@ -30,7 +35,7 @@ import { ShopStore } from '../state/shop-store';
         (click)="edit.emit()"
       >
         {{ store.serviceLabel() ? '更改' : '選擇時間'
-        }}<span class="visually-hidden">取餐時間</span>
+        }}<span class="visually-hidden">{{ store.isDelivery() ? '外送區域與時間' : '取餐時間' }}</span>
       </button>
     </section>
   `,

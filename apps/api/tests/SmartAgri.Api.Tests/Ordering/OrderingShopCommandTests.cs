@@ -43,6 +43,7 @@ public sealed class OrderingShopCommandTests : IClassFixture<AuthHostFixture>
             var stored = await dbContext.OrderingShops.AsNoTracking().SingleAsync(CancellationToken);
             (stored.Name, stored.Version, stored.Paused, stored.AsapPrepBand, stored.MaxOrdersPerSlot).ShouldBe(("王記麵店", 1, false, AsapPrepBand.From15To30, (int?)8));
             stored.OrderingHours[DayOfWeek.Saturday].Count.ShouldBe(2);
+            (stored.Delivery, stored.DeliveryAsap, stored.DeliverySettings!.Zones.Count).ShouldBe((true, true, 3));
             var menu = await dbContext.OrderingMenus.AsNoTracking().SingleAsync(CancellationToken);
             menu.Version.ShouldBe(1);
             OrderingShopJson.WriteMenu(menu.Document).ShouldBe(OrderingShopJson.WriteMenu(OrderingShopJson.Parse(file).Import!.Menu));
@@ -60,12 +61,16 @@ public sealed class OrderingShopCommandTests : IClassFixture<AuthHostFixture>
 
         shown.Exit.ShouldBe(OrderingShopCommand.ExitSuccess, shown.Error);
         shown.Output.ShouldContain($"組織 {shop.Code}（王記麵店）的線上點餐設定\n");
-        shown.Output.ShouldContain("取餐方式：外帶預約（開放）、外帶即時（開放）\n");
+        shown.Output.ShouldContain("取餐方式：外帶預約（開放）、外帶即時（開放）、外送預約（開放）、外送儘快（開放）\n");
         shown.Output.ShouldContain("  週一：不開放\n");
         shown.Output.ShouldContain("  週六：11:00–14:00、17:00–01:00（跨午夜）\n");
         shown.Output.ShouldContain("時段：每 30 分鐘，可預約 3 天（含今天），最短準備 20 分鐘，每時段上限 8 筆\n");
         shown.Output.ShouldContain("待確認逾時：營業中 15 分鐘沒有處理就自動取消\n");
         shown.Output.ShouldContain("即時單準備時間：15–30 分鐘\n");
+        shown.Output.ShouldContain("外送區域（3 個）：\n  新營區・民權里（minquan）：運費 NT$0，最低消費 NT$150\n  新營區其他里（xinying）：運費 NT$30，最低消費 NT$200\n");
+        shown.Output.ShouldContain("外送時間：\n  週一：不開放\n  週二：11:00–13:30、17:00–20:30\n");
+        shown.Output.ShouldContain("外送準備：最短 45 分鐘，儘快外送另加 20 分鐘\n");
+        shown.Output.ShouldContain("外送說明：外送由店員騎車送達");
         shown.Output.ShouldContain("暫停接單：否\n");
         shown.Output.ShouldEndWith("菜單：第 1 版，3 個分類、6 個品項\n");
     }

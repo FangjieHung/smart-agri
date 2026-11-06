@@ -107,8 +107,9 @@
 }
 
 .sum {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
   align-items: baseline;
   padding-top: var(--space-3);
   border-top: 2px solid var(--c-ink);

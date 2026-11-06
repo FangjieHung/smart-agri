@@ -2,9 +2,11 @@ import { DOCUMENT } from '@angular/common';
 import { afterNextRender, ChangeDetectionStrategy, Component, computed, DestroyRef, inject, Injector, signal } from '@angular/core';
 import { catchError, forkJoin, of, type Subscription } from 'rxjs';
 import {
+  isDelivery,
   listOf,
   ORDERING_LIST_LABELS,
   ORDERING_LIST_VIEWS,
+  ORDERING_SERVICE_LABELS,
   shopClock,
   clockText,
   sortOrders,
@@ -340,11 +342,11 @@ export class OrdersPageComponent {
     const number = order.displayNumber;
     switch (request.action) {
       case 'accept':
-        return `已接單 ${number}，預計 ${clockText(order.promisedAt ?? order.pickupAt, this.timeZone(), this.now())} 可取餐。`;
+        return `已接單 ${number}，預計 ${clockText(order.promisedAt ?? order.pickupAt, this.timeZone(), this.now())} ${isDelivery(order.serviceType) ? '送達' : '可取餐'}。`;
       case 'decline':
         return `已婉拒 ${number}。`;
       case 'ready':
-        return `${number} 已標示為可取餐。`;
+        return `${number} 已標示為${isDelivery(order.serviceType) ? '已出發' : '可取餐'}。`;
       case 'complete':
         return `${number} 已完成。`;
       case 'cancel':
@@ -353,7 +355,8 @@ export class OrdersPageComponent {
   }
 
   private pickupBrief(order: OrderingOrderView): string {
-    return order.estimate ? '外帶即時' : `外帶預約 ${shopClock(order.pickupAt, this.timeZone()).time}`;
+    const service = ORDERING_SERVICE_LABELS[order.serviceType] ?? order.serviceType;
+    return order.estimate ? service : `${service} ${shopClock(order.pickupAt, this.timeZone()).time}`;
   }
 
   /**

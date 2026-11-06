@@ -167,6 +167,39 @@ public class OrderingOrderEmailTests
 
     private static string Fill(string pickup) => string.Format(System.Globalization.CultureInfo.InvariantCulture, Facts, pickup);
 
+    [Fact]
+    public void A_delivery_order_says_delivery_its_zone_and_fee_and_cash_on_delivery_but_never_the_address()
+    {
+        var order = Delivery(OrderingServiceType.DeliveryScheduled, null);
+        order.Accept(Guid.NewGuid(), Slot.AddMinutes(15), Sent.AddMinutes(2));
+
+        var message = Compose(order);
+
+        message.Subject.ShouldBe("王記麵店：已接單（訂單 #007）");
+        message.Body.ShouldBe(
+            "王記麵店已接受您的外送訂單 #007，預計 11/17（二） 12:45 送達（店家調整了外送時間）。餐點送達時付款（貨到付款）。如需更改或取消，請來電 06-123-4567。\n\n"
+            + "訂單編號：#007\n店家：王記麵店\n外送：預計送達 11/17（二） 12:45\n外送區域：新營區其他里\n付款：貨到付款\n店家電話：06-123-4567\n\n"
+            + "明細：\n・紅燒牛肉麵 ×5　NT$1,350\n　大碗、滷蛋 ×2、小菜飲料套餐（涼拌小黃瓜、冬瓜檸檬）\n・餛飩湯 ×1　NT$60\n"
+            + "小計：NT$1,410\n運費：NT$30\n合計：NT$1,440\n\n"
+            + "王記麵店的點餐網頁：https://order.example.org/order/wangji\n\n"
+            + "——\n這封信由線上點餐系統代王記麵店寄出；回覆這封信不會有人讀取。\n");
+        message.Body.ShouldNotContain("中山路");
+        message.Body.ShouldNotContain("按電鈴");
+        message.Body.ShouldNotContain("取餐時付款");
+    }
+
+    [Fact]
+    public void An_ASAP_delivery_not_yet_accepted_gives_the_delivery_estimate()
+    {
+        var order = Delivery(OrderingServiceType.DeliveryAsap, new AsapEstimate(35, 50));
+        order.CancelByCustomer(Sent.AddMinutes(1));
+
+        var body = Compose(order).Body;
+
+        body.ShouldContain("\n外送：儘快（11/17（二）約 12:35–12:50 送達）\n外送區域：新營區其他里\n付款：貨到付款\n");
+        body.ShouldNotContain("中山路");
+    }
+
     private static EmailMessage Compose(OrderingOrder order) => OrderingOrderEmail.Compose("王記麵店", "06-123-4567", Taipei, Page, order);
 
     private static IReadOnlyList<OrderingOrderLine> Lines() =>
@@ -205,4 +238,9 @@ public class OrderingOrderEmailTests
     private static OrderingOrder Asap() => OrderingOrder.Submit(
         Organization, OrderingServiceType.TakeoutAsap, new DateOnly(2026, 11, 17), 7, default, new AsapEstimate(15, 30), "陳小姐", "0912345678",
         "chen@example.com", "請放門口", true, Lines(), 3, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), Hours(), 15, Sent);
+
+    private static OrderingOrder Delivery(OrderingServiceType type, AsapEstimate? asap) => OrderingOrder.Submit(
+        Organization, type, new DateOnly(2026, 11, 17), 7, Slot, asap, "陳小姐", "0912345678", "chen@example.com", null, null,
+        Lines(), 3, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), Hours(), 15, Sent,
+        new OrderingOrderDelivery("xinying", "新營區其他里", 30, "新營區中山路 1 號 3 樓", "請按電鈴"));
 }

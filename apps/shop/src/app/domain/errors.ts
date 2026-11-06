@@ -15,6 +15,8 @@ export type Recovery =
   | 'show-existing'
   /** 店家不接單：停在畫面上，只能聯絡店家。 */
   | 'stop'
+  /** 未達外送門檻（#401）：回購物車再加點。 */
+  | 'add-more'
   /** 可以用同一個送出鍵再試一次。 */
   | 'retry';
 
@@ -85,6 +87,21 @@ export function describeSubmitFailure(
         ...base,
         recovery: 'pick-time',
         message: serverMessage || '這個取餐方式目前無法使用，請改選取餐時間。',
+      };
+    case 'unknown-zone':
+      return {
+        ...base,
+        recovery: 'pick-time',
+        message: '這個外送區域已經不能選了，請重新選擇外送區域。',
+      };
+    case 'below-minimum':
+      return {
+        ...base,
+        recovery: 'add-more',
+        message:
+          problem.shortfall != null
+            ? `還差 NT$${problem.shortfall.toLocaleString('en-US')} 達外送門檻，請回購物車再加點。`
+            : serverMessage || '還沒達到外送門檻，請回購物車再加點。',
       };
     case 'items-unavailable':
       return {

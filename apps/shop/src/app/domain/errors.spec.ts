@@ -112,3 +112,29 @@ describe('submit errors → messages and next steps', () => {
     expect(failure.message).toContain('不會重複下單');
   });
 });
+
+describe('delivery submit errors (#401)', () => {
+  it('below the zone minimum: back to the cart with the shortfall', () => {
+    const failure = describeSubmitFailure(
+      refused(full(422, 'below-minimum', { minimumSubtotal: 200, shortfall: 130 })),
+      '06-123-4567',
+    );
+    expect(failure.recovery).toBe('add-more');
+    expect(failure.message).toBe('還差 NT$130 達外送門檻，請回購物車再加點。');
+  });
+
+  it('a zone the shop no longer has: choose the zone and time again', () => {
+    const failure = describeSubmitFailure(refused(full(422, 'unknown-zone')), '06-123-4567');
+    expect(failure.recovery).toBe('pick-time');
+    expect(failure.message).toBe('這個外送區域已經不能選了，請重新選擇外送區域。');
+  });
+
+  it('a missing address is a field error', () => {
+    const failure = describeSubmitFailure(
+      refused(full(422, 'invalid-order', { errors: { deliveryAddress: ['請填寫外送地址。'] } })),
+      '06-123-4567',
+    );
+    expect(failure.recovery).toBe('fix-fields');
+    expect(failure.fields).toEqual({ deliveryAddress: '請填寫外送地址。' });
+  });
+});

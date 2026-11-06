@@ -1,8 +1,10 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { OrderingApi } from '../api/ordering-api';
-import type { Menu, ShopInfo, Slot, Slots } from '../api/types';
+import type { Menu, ServiceType, ShopInfo, Slot, SlotDate, Slots, Zone } from '../api/types';
 import {
   EMPTY_CART,
+  isAsap,
+  isDelivery,
   loadCart,
   newLineKey,
   priceLine,
@@ -70,20 +72,73 @@ export class ShopStore {
     () => !!this.shop()?.services.takeoutAsap && !!this.shop()?.asap,
   );
 
+  /** 外送的區域（#401）；店家不外送時是空的。舊的錄製回應沒有 `delivery` 時當成不外送。 */
+  readonly zones = computed<readonly Zone[]>(() => this.shop()?.delivery?.zones ?? []);
+
+  /** 預約外送有沒有任何可選（未滿）的時段。 */
+  readonly hasDeliverySlots = computed(
+    () =>
+      !!this.shop()?.services.delivery &&
+      this.zones().length > 0 &&
+      (this.slots()?.deliveryDates ?? []).some((date) => date.slots.some((slot) => !slot.isFull)),
+  );
+
+  /** 現在能不能點「外送儘快」。 */
+  readonly deliveryAsapAvailable = computed(
+    () =>
+      !!this.shop()?.services.deliveryAsap &&
+      this.zones().length > 0 &&
+      !!this.shop()?.delivery?.asap,
+  );
+
   /** 店家現在能不能接任何一種訂單。 */
   readonly canOrder = computed(() => {
     const shop = this.shop();
     if (!shop || shop.paused) return false;
-    return this.asapAvailable() || this.hasScheduledSlots();
+    return (
+      this.asapAvailable() ||
+      this.hasScheduledSlots() ||
+      this.deliveryAsapAvailable() ||
+      this.hasDeliverySlots()
+    );
   });
 
   readonly service = computed(() => this.cart().service);
 
+  /** 選的是外送（#401）。 */
+  readonly isDelivery = computed(() => isDelivery(this.service()?.type));
+
+  /** 選好的外送區域（還在店家的清單裡）。 */
+  readonly zone = computed<Zone | null>(() => {
+    const service = this.service();
+    if (!isDelivery(service?.type)) return null;
+    return this.zones().find((zone) => zone.id === service?.zoneId) ?? null;
+  });
+
+  /** 外送費：選了外送區域時是那一區的運費，否則 0。伺服器送出時會依店家設定重算。 */
+  readonly deliveryFee = computed(() => this.zone()?.fee ?? 0);
+
+  /** 還差多少達外送門檻（小計，不含運費）；不是外送或已達門檻時是 0。 */
+  readonly shortfall = computed(() => {
+    const zone = this.zone();
+    return zone ? Math.max(0, zone.minimumSubtotal - this.subtotal()) : 0;
+  });
+
+  /** 小計加外送費。 */
+  readonly total = computed(() => this.subtotal() + this.deliveryFee());
+
+  /** 某種方式的可選日期與時段：外帶是 `dates`，外送是 `deliveryDates`。 */
+  datesFor(type: ServiceType | null | undefined): readonly SlotDate[] {
+    const slots = this.slots();
+    if (!slots) return [];
+    return isDelivery(type) ? (slots.deliveryDates ?? []) : slots.dates;
+  }
+
   /** 選好的預約時段（還在可選清單、而且未滿）。 */
   readonly chosenSlot = computed<{ date: string; slot: Slot } | null>(() => {
     const service = this.service();
-    if (service?.type !== 'takeout-scheduled') return null;
-    for (const date of this.slots()?.dates ?? []) {
+    if (service?.type !== 'takeout-scheduled' && service?.type !== 'delivery-scheduled') return null;
+    for (const date of this.datesFor(service.type)) {
       if (date.date !== service.date) continue;
       const slot = date.slots.find(
         (candidate) => candidate.value === service.slot && !candidate.isFull,
@@ -93,38 +148,61 @@ export class ShopStore {
     return null;
   });
 
-  /** 取餐方式與時間都還有效。 */
+  /** 取餐方式與時間都還有效（外送還要有效的區域）。 */
   readonly serviceReady = computed(() => {
     const service = this.service();
     if (!service) return false;
-    return service.type === 'takeout-asap' ? this.asapAvailable() : this.chosenSlot() !== null;
+    switch (service.type) {
+      case 'takeout-asap':
+        return this.asapAvailable();
+      case 'delivery-asap':
+        return this.deliveryAsapAvailable() && this.zone() !== null;
+      case 'delivery-scheduled':
+        return this.zone() !== null && this.chosenSlot() !== null;
+      default:
+        return this.chosenSlot() !== null;
+    }
   });
 
-  /** 預計取餐時刻：決定分類是否供應、品項是否售完（同伺服器：儘快＝現在＋估計上限）。 */
+  /** 預計取餐（送達）時刻：決定分類是否供應、品項是否售完（同伺服器：儘快＝現在＋估計上限）。 */
   readonly pickupAt = computed<Date | null>(() => {
     const service = this.service();
     const shop = this.shop();
     if (!service || !shop) return null;
-    if (service.type === 'takeout-asap') {
-      return shop.asap ? addMinutes(this.now(), shop.asap.maxMinutes) : null;
+    if (isAsap(service.type)) {
+      const asap = service.type === 'delivery-asap' ? shop.delivery?.asap : shop.asap;
+      return asap ? addMinutes(this.now(), asap.maxMinutes) : null;
     }
     const chosen = this.chosenSlot();
     return chosen ? new Date(chosen.slot.at) : null;
   });
 
-  /** 畫面上的取餐時間：「外帶預約」「今天 12:30」。 */
-  readonly serviceLabel = computed<{ kind: string; when: string } | null>(() => {
-    const service = this.service();
-    const shop = this.shop();
-    if (!service || !shop || !this.serviceReady()) return null;
-    if (service.type === 'takeout-asap') {
-      return { kind: '外帶，儘快取餐', when: shop.asap ? asapText(shop.asap) : '' };
-    }
-    const chosen = this.chosenSlot();
-    return chosen
-      ? { kind: '外帶，預約取餐', when: slotText(chosen.date, chosen.slot, this.today()) }
-      : null;
-  });
+  /** 畫面上的取餐時間：「外帶，預約取餐」「今天 12:30」；外送另外帶區域名稱。 */
+  readonly serviceLabel = computed<{ kind: string; when: string; zone: string | null } | null>(
+    () => {
+      const service = this.service();
+      const shop = this.shop();
+      if (!service || !shop || !this.serviceReady()) return null;
+      const zone = this.zone()?.name ?? null;
+      if (isAsap(service.type)) {
+        const delivery = service.type === 'delivery-asap';
+        const asap = delivery ? shop.delivery?.asap : shop.asap;
+        return {
+          kind: delivery ? '外送，儘快送達' : '外帶，儘快取餐',
+          when: asap ? asapText(asap) : '',
+          zone,
+        };
+      }
+      const chosen = this.chosenSlot();
+      return chosen
+        ? {
+            kind: isDelivery(service.type) ? '外送，預約送達' : '外帶，預約取餐',
+            when: slotText(chosen.date, chosen.slot, this.today()),
+            zone,
+          }
+        : null;
+    },
+  );
 
   readonly pricedLines = computed<{ line: CartLine; priced: PricedCartLine | null }[]>(() => {
     const menu = this.menu();
@@ -251,10 +329,12 @@ export class ShopStore {
     this.announcer.announce(notice);
   }
 
-  /** 選好的時段已經不在清單（過了、額滿）時清掉，讓顧客重選。 */
+  /** 選好的時段已經不在清單（過了、額滿）、或外送區域已經不在時清掉，讓顧客重選。 */
   private dropStaleService(): void {
     const service = this.service();
-    if (service?.type === 'takeout-scheduled' && !this.chosenSlot()) {
+    const scheduled = service?.type === 'takeout-scheduled' || service?.type === 'delivery-scheduled';
+    const zoneGone = isDelivery(service?.type) && this.shop() !== null && this.zone() === null;
+    if ((scheduled && !this.chosenSlot()) || zoneGone) {
       this.updateCart({ ...this.cart(), service: null });
     }
   }
@@ -268,7 +348,12 @@ export class ShopStore {
   chooseService(service: ServiceChoice): void {
     this.updateCart({ ...this.cart(), service });
     const label = this.serviceLabel();
-    if (label) this.announcer.announce(`取餐時間：${label.when}`);
+    if (label)
+      this.announcer.announce(
+        isDelivery(service.type)
+          ? `外送到${label.zone ?? ''}：${label.when}`
+          : `取餐時間：${label.when}`,
+      );
   }
 
   clearService(): void {

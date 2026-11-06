@@ -35,10 +35,18 @@ public sealed record OrderingImportParseResult(OrderingImport? Import, IReadOnly
 /// <c>shop</c>: <c>slug</c> (<see cref="ShopReservationSettings.IsValidSlug"/>), <c>name</c> (one line, at most
 /// <see cref="OrderingShopSettings.NameMaxLength"/>), <c>timeZone</c> (IANA, optional, Asia/Taipei), <c>phone</c>
 /// (<see cref="ShopReservationSettings.IsValidPhone"/>), optional <c>address</c>, optional <c>notices</c>
-/// <c>{ reminder?, checkout? }</c>, <c>services</c> <c>{ takeoutScheduled, takeoutAsap }</c> (at least one on),
-/// <c>orderingHours</c> (the 統籌助理 settings' <c>weeklyHours</c> format and rules), and optional <c>slotMinutes</c>,
-/// <c>daysAhead</c>, <c>minLeadMinutes</c>, <c>maxOrdersPerSlot</c> (or <c>null</c>), <c>showOrderComment</c>,
-/// <c>showTableware</c>, <c>pendingTimeoutMinutes</c> (#400).
+/// <c>{ reminder?, checkout? }</c>, <c>services</c> <c>{ takeoutScheduled, takeoutAsap, delivery?, deliveryAsap? }</c> (at
+/// least one on; <c>deliveryAsap</c> only with <c>delivery</c>), <c>orderingHours</c> (the 統籌助理 settings' <c>weeklyHours</c>
+/// format and rules), and optional <c>slotMinutes</c>, <c>daysAhead</c>, <c>minLeadMinutes</c>, <c>maxOrdersPerSlot</c> (or
+/// <c>null</c>), <c>showOrderComment</c>, <c>showTableware</c>, <c>pendingTimeoutMinutes</c> (#400), <c>delivery</c> (#401,
+/// required when <c>services.delivery</c> is on).
+/// </para>
+/// <para>
+/// <c>delivery</c>: <c>{ zones: [{ id, name, fee, minimumSubtotal? }], orderingHours?, minLeadMinutes?, asapExtraMinutes?,
+/// note? }</c> — 1 to <see cref="OrderingDeliverySettings.MaxZones"/> zones with unique ids, the name one line of at most
+/// <see cref="OrderingDeliverySettings.ZoneNameMaxLength"/>, the fee 0 to <see cref="OrderingDeliverySettings.MaxFee"/>, the
+/// minimum 0 to <see cref="OrderingDeliverySettings.MaxMinimumSubtotal"/>; hours as <c>orderingHours</c> (default: those);
+/// lead 0–1440 (default 45); ASAP extra 0–120 (default 20); a note of at most 300 characters.
 /// </para>
 /// <para>
 /// <c>menu</c>: <c>categories</c> <c>[{ id, name, description?, availability? { days?, from?, to? }, items }]</c>; an item
@@ -59,12 +67,16 @@ public static partial class OrderingShopJson
     private static readonly string[] ShopFields =
     [
         "slug", "name", "timeZone", "phone", "address", "notices", "services", "orderingHours", "slotMinutes", "daysAhead",
-        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes",
+        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes", "delivery",
     ];
 
     private static readonly string[] NoticeFields = ["reminder", "checkout"];
 
-    private static readonly string[] ServiceFields = ["takeoutScheduled", "takeoutAsap"];
+    private static readonly string[] ServiceFields = ["takeoutScheduled", "takeoutAsap", "delivery", "deliveryAsap"];
+
+    private static readonly string[] DeliveryFields = ["zones", "orderingHours", "minLeadMinutes", "asapExtraMinutes", "note"];
+
+    private static readonly string[] ZoneFields = ["id", "name", "fee", "minimumSubtotal"];
 
     private static readonly string[] MenuFields = ["categories"];
 
@@ -144,6 +156,63 @@ public static partial class OrderingShopJson
         return reader.Errors.Count == 0 && menu is not null
             ? menu
             : throw new FormatException($"The stored menu is not a menu: {string.Join("; ", reader.Errors.Select(error => error.Path))}");
+    }
+
+    /// <summary><paramref name="delivery"/> as compact JSON in the file's <c>delivery</c> format, written the same way every
+    /// time (the stored <c>jsonb</c>, and what tells whether it changed); <c>null</c> for none.</summary>
+    public static string WriteDelivery(OrderingDeliverySettings? delivery)
+    {
+        if (delivery is null)
+        {
+            return "null";
+        }
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, Compact))
+        {
+            writer.WriteStartObject();
+            writer.WriteStartArray("zones");
+            foreach (var zone in delivery.Zones)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", zone.Id);
+                writer.WriteString("name", zone.Name);
+                writer.WriteNumber("fee", zone.Fee);
+                writer.WriteNumber("minimumSubtotal", zone.MinimumSubtotal);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            if (delivery.OrderingHours is { } hours)
+            {
+                writer.WritePropertyName("orderingHours");
+                writer.WriteRawValue(ShopSettingsJson.WriteWeeklyHours(hours));
+            }
+
+            writer.WriteNumber("minLeadMinutes", delivery.MinLeadMinutes);
+            writer.WriteNumber("asapExtraMinutes", delivery.AsapExtraMinutes);
+            if (delivery.Note is { } note)
+            {
+                writer.WriteString("note", note);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>Reads a stored <c>delivery</c> section (#401): only its shape is checked, as <see cref="ReadMenu"/>. Throws
+    /// <see cref="FormatException"/> when the shape is wrong.</summary>
+    public static OrderingDeliverySettings ReadDelivery(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        using var document = JsonDocument.Parse(json);
+        var reader = new Reader(strict: false);
+        var delivery = reader.Delivery(document.RootElement, Child(Child(RootPath, "shop"), "delivery"));
+        return reader.Errors.Count == 0 && delivery is not null
+            ? delivery
+            : throw new FormatException($"The stored delivery settings are not: {string.Join("; ", reader.Errors.Select(error => error.Path))}");
     }
 
     private static void Write(Utf8JsonWriter writer, MenuCategory category)
@@ -367,12 +436,19 @@ public static partial class OrderingShopJson
             {
                 var scheduled = RequiredBoolean(serviceProperties, servicesPath, "takeoutScheduled");
                 var asap = RequiredBoolean(serviceProperties, servicesPath, "takeoutAsap");
-                if (scheduled is not null && asap is not null)
+                var delivers = OptionalBoolean(serviceProperties, servicesPath, "delivery", fallback: false);
+                var deliversAsap = OptionalBoolean(serviceProperties, servicesPath, "deliveryAsap", fallback: false);
+                if (scheduled is not null && asap is not null && delivers is not null && deliversAsap is not null)
                 {
-                    services = new OrderingServices(scheduled.Value, asap.Value);
+                    services = new OrderingServices(scheduled.Value, asap.Value, delivers.Value, deliversAsap.Value);
                     if (!services.Any)
                     {
                         Rule(servicesPath, "至少要開放一種取餐方式（暫停接單請在後台切換）。");
+                    }
+
+                    if (services.DeliveryAsap && !services.Delivery)
+                    {
+                        Rule(Child(servicesPath, "deliveryAsap"), "要先開放外送（delivery: true）才能開放外送儘快。");
                     }
                 }
             }
@@ -415,12 +491,125 @@ public static partial class OrderingShopJson
             var timeout = Integer(
                 properties, path, "pendingTimeoutMinutes", OrderingShopSettings.DefaultPendingTimeoutMinutes,
                 OrderingShopSettings.MinPendingTimeoutMinutes, OrderingShopSettings.MaxPendingTimeoutMinutes);
+            OrderingDeliverySettings? delivery = null;
+            var deliveryRead = true;
+            var deliveryPath = Child(path, "delivery");
+            if (properties.TryGetValue("delivery", out var deliveryElement) && deliveryElement.ValueKind != JsonValueKind.Null)
+            {
+                delivery = Delivery(deliveryElement, deliveryPath);
+                deliveryRead = delivery is not null;
+            }
+            else if (services is { Delivery: true })
+            {
+                Error(deliveryPath, "開放外送時必填：外送區域、運費與最低消費，例如 { \"zones\": [{ \"id\": \"near\", \"name\": \"3 公里內\", \"fee\": 30, \"minimumSubtotal\": 200 }] }。");
+                deliveryRead = false;
+            }
+
             complete &= slotMinutes is not null && daysAhead is not null && minLead is not null && maxOrdersRead
-                && showComment is not null && showTableware is not null && timeout is not null;
+                && showComment is not null && showTableware is not null && timeout is not null && deliveryRead;
             return complete
                 ? new OrderingShopSettings(
                     slug!, name!, timeZoneId, phone!, address, reminder, checkout, services!, hours!, slotMinutes!.Value,
-                    daysAhead!.Value, minLead!.Value, maxOrders, showComment!.Value, showTableware!.Value, timeout!.Value)
+                    daysAhead!.Value, minLead!.Value, maxOrders, showComment!.Value, showTableware!.Value, timeout!.Value, delivery)
+                : null;
+        }
+
+        /// <summary>The <c>delivery</c> section (#401).</summary>
+        public OrderingDeliverySettings? Delivery(JsonElement element, string path)
+        {
+            var properties = Properties(element, path, DeliveryFields);
+            if (properties is null)
+            {
+                return null;
+            }
+
+            var complete = true;
+            var zonesPath = Child(path, "zones");
+            List<DeliveryZone>? zones = null;
+            if (!properties.TryGetValue("zones", out var zonesElement))
+            {
+                Error(zonesPath, "缺少這個欄位：至少一個外送區域。");
+            }
+            else if (Array(zonesElement, zonesPath) is { } elements)
+            {
+                if (elements.Count == 0)
+                {
+                    Rule(zonesPath, "至少要有一個外送區域；不外送請把 services.delivery 設成 false。");
+                }
+                else if (elements.Count > OrderingDeliverySettings.MaxZones)
+                {
+                    Rule(zonesPath, $"最多 {OrderingDeliverySettings.MaxZones} 個外送區域（目前 {elements.Count} 個）。");
+                }
+
+                zones = [];
+                var ids = new Dictionary<string, string>(StringComparer.Ordinal);
+                for (var index = 0; index < elements.Count; index++)
+                {
+                    if (Zone(elements[index], Item(zonesPath, index), ids) is { } zone)
+                    {
+                        zones?.Add(zone);
+                    }
+                    else
+                    {
+                        zones = null;
+                    }
+                }
+            }
+
+            complete &= zones is not null;
+            WeeklyHours? hours = null;
+            if (properties.TryGetValue("orderingHours", out var hoursElement) && hoursElement.ValueKind != JsonValueKind.Null)
+            {
+                var hoursPath = Child(path, "orderingHours");
+                if (strict)
+                {
+                    var hoursErrors = new List<ShopSettingsError>();
+                    hours = ShopSettingsJson.ParseWeeklyHours(hoursElement, hoursPath, hoursErrors);
+                    Errors.AddRange(hoursErrors.Select(error => new OrderingImportError(error.Path, error.Message)));
+                }
+                else
+                {
+                    try
+                    {
+                        hours = ShopSettingsJson.ReadWeeklyHours(hoursElement.GetRawText());
+                    }
+                    catch (Exception exception) when (exception is FormatException or JsonException or InvalidOperationException)
+                    {
+                        Error(hoursPath, "不是每週時間。");
+                    }
+                }
+
+                complete &= hours is not null;
+            }
+
+            var minLead = Integer(
+                properties, path, "minLeadMinutes", OrderingDeliverySettings.DefaultMinLeadMinutes, 0, OrderingShopSettings.MaxMinLeadMinutes);
+            var extra = Integer(
+                properties, path, "asapExtraMinutes", OrderingDeliverySettings.DefaultAsapExtraMinutes, 0, OrderingDeliverySettings.MaxAsapExtraMinutes);
+            var (note, noteRead) = OptionalText(properties, path, "note", OrderingDeliverySettings.NoteMaxLength, multiLine: true);
+            complete &= minLead is not null && extra is not null && noteRead;
+            return complete ? new OrderingDeliverySettings(zones!, hours, minLead!.Value, extra!.Value, note) : null;
+        }
+
+        private DeliveryZone? Zone(JsonElement element, string path, Dictionary<string, string> ids)
+        {
+            var properties = Properties(element, path, ZoneFields);
+            if (properties is null)
+            {
+                return null;
+            }
+
+            var id = Id(properties, path, ids, "外送區域");
+            var name = RequiredString(properties, path, "name");
+            if (name is not null)
+            {
+                SingleLine(name, Child(path, "name"), OrderingDeliverySettings.ZoneNameMaxLength);
+            }
+
+            var fee = RequiredInteger(properties, path, "fee", 0, OrderingDeliverySettings.MaxFee);
+            var minimum = Integer(properties, path, "minimumSubtotal", 0, 0, OrderingDeliverySettings.MaxMinimumSubtotal);
+            return id is not null && name is not null && fee is not null && minimum is not null
+                ? new DeliveryZone(id, name, fee.Value, minimum.Value)
                 : null;
         }
 

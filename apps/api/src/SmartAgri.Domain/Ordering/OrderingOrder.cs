@@ -8,7 +8,7 @@ using SmartAgri.Domain.Organizations;
 
 namespace SmartAgri.Domain.Ordering;
 
-/// <summary>How a customer gets an order (design O2). Delivery (#401) and dine-in (#402) are added beside these.</summary>
+/// <summary>How a customer gets an order (design O2, D10). Dine-in (#402) is added beside these.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrderingServiceType>))]
 public enum OrderingServiceType
 {
@@ -19,6 +19,14 @@ public enum OrderingServiceType
     /// <summary>外帶即時: as soon as possible (<see cref="OrderingSlots.Asap"/>).</summary>
     [JsonStringEnumMemberName("takeout-asap")]
     TakeoutAsap,
+
+    /// <summary>外送（預約）(#401): delivered at a chosen slot of the delivery hours (<see cref="OrderingChannel.Delivery"/>).</summary>
+    [JsonStringEnumMemberName("delivery-scheduled")]
+    DeliveryScheduled,
+
+    /// <summary>外送（儘快）(#401): as soon as possible, the ASAP band plus the ride.</summary>
+    [JsonStringEnumMemberName("delivery-asap")]
+    DeliveryAsap,
 }
 
 /// <summary>Where an <see cref="OrderingOrder"/> is (design D5). The customer sends it (<see cref="Pending"/>) and may cancel it
@@ -35,7 +43,7 @@ public enum OrderingOrderStatus
     [JsonStringEnumMemberName("accepted")]
     Accepted,
 
-    /// <summary>可取餐 (#399).</summary>
+    /// <summary>可取餐 (#399); for a delivery order 已出發 (#401: the same status, other words).</summary>
     [JsonStringEnumMemberName("ready")]
     Ready,
 
@@ -163,7 +171,7 @@ public sealed record OrderingOrderLine(
 /// </summary>
 /// <remarks>
 /// <para>
-/// The customer's name, phone, Email and comments are personal data the platform processes for the shop: never logged,
+/// The customer's name, phone, Email, comments and delivery address and note (#401) are personal data the platform processes for the shop: never logged,
 /// never in an activity, and cleared <see cref="RetentionDays"/> days after the pickup (<see cref="ClearPersonalData"/>,
 /// design D12, #400) while the row — number, status, times, items and totals — stays for the shop's sales figures.
 /// </para>
@@ -261,8 +269,27 @@ public sealed class OrderingOrder : IOrganizationScoped
     /// <summary>The sum of the lines' totals.</summary>
     public int Subtotal { get; private set; }
 
-    /// <summary>What the customer pays (= <see cref="Subtotal"/>; #401 adds a delivery fee).</summary>
+    /// <summary>What the customer pays: <see cref="Subtotal"/> + <see cref="DeliveryFee"/>.</summary>
     public int Total { get; private set; }
+
+    /// <summary>運費 the server charged from the zone when it was sent (#401); 0 for takeout.</summary>
+    public int DeliveryFee { get; private set; }
+
+    /// <summary>The delivery zone's id when it was sent (#401); <see langword="null"/> for takeout.</summary>
+    public string? DeliveryZoneId { get; private set; }
+
+    /// <summary>The delivery zone's name when it was sent (#401); <see langword="null"/> for takeout.</summary>
+    public string? DeliveryZoneName { get; private set; }
+
+    /// <summary>The customer's delivery address (#401): personal data, empty once cleared; <see langword="null"/> for takeout.</summary>
+    public string? DeliveryAddress { get; private set; }
+
+    /// <summary>給外送的備註 (#401): personal data, <see langword="null"/> once cleared.</summary>
+    public string? DeliveryNote { get; private set; }
+
+    /// <summary>The delivery part (#401) as stored; <see langword="null"/> for takeout.</summary>
+    public OrderingOrderDelivery? Delivery =>
+        DeliveryZoneId is { } zoneId ? new OrderingOrderDelivery(zoneId, DeliveryZoneName ?? string.Empty, DeliveryFee, DeliveryAddress ?? string.Empty, DeliveryNote) : null;
 
     /// <summary>The menu version (<see cref="OrderingMenu.Version"/>) it was priced on.</summary>
     public int MenuVersion { get; private set; }
@@ -345,7 +372,10 @@ public sealed class OrderingOrder : IOrganizationScoped
     /// </summary>
     /// <param name="pickupAt">The scheduled time; ignored for ASAP, whose pickup is <paramref name="now"/> + the estimate's
     /// upper bound.</param>
-    /// <param name="asap">The ASAP estimate; required exactly for <see cref="OrderingServiceType.TakeoutAsap"/>.</param>
+    /// <param name="asap">The ASAP estimate; required exactly for the ASAP types (<see cref="OrderingServiceTypes.IsAsap"/>).</param>
+    /// <param name="delivery">The zone (its fee is added to the total) and address; required exactly for the delivery types
+    /// (#401).</param>
+    /// <param name="hours">The ordering hours of the order's channel (delivery's for delivery, #401).</param>
     /// <param name="pendingTimeoutMinutes">The shop's <c>pendingTimeoutMinutes</c>: with <paramref name="hours"/>, when the
     /// order expires unanswered (<see cref="ExpiryFor"/>).</param>
     public static OrderingOrder Submit(
@@ -366,7 +396,8 @@ public sealed class OrderingOrder : IOrganizationScoped
         string submissionKey,
         BusinessHours hours,
         int pendingTimeoutMinutes,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        OrderingOrderDelivery? delivery = null)
     {
         if (organizationId == Guid.Empty)
         {
@@ -375,9 +406,23 @@ public sealed class OrderingOrder : IOrganizationScoped
 
         ArgumentNullException.ThrowIfNull(hours);
 
-        if (!Enum.IsDefined(serviceType) || (serviceType == OrderingServiceType.TakeoutAsap) != (asap is not null))
+        if (!Enum.IsDefined(serviceType) || serviceType.IsAsap() != (asap is not null))
         {
             throw new ArgumentException("An ASAP order has an estimate and a scheduled one has none.", nameof(asap));
+        }
+
+        if (serviceType.IsDelivery() != (delivery is not null))
+        {
+            throw new ArgumentException("A delivery order has a zone and an address; a takeout one has neither.", nameof(delivery));
+        }
+
+        if (delivery is not null
+            && (string.IsNullOrEmpty(delivery.ZoneId) || string.IsNullOrEmpty(delivery.ZoneName)
+                || delivery.Fee is < 0 or > OrderingDeliverySettings.MaxFee
+                || OrderingContact.AddressProblem(delivery.Address) is not null
+                || OrderingContact.DeliveryNoteProblem(delivery.Note) is not null))
+        {
+            throw new ArgumentException("The zone and the address are checked before an order is made.", nameof(delivery));
         }
 
         ArgumentOutOfRangeException.ThrowIfLessThan(number, 1);
@@ -408,7 +453,8 @@ public sealed class OrderingOrder : IOrganizationScoped
         }
 
         var subtotal = lines.Sum(line => (long)line.LineTotal);
-        if (subtotal > MaxTotal)
+        var fee = delivery?.Fee ?? 0;
+        if (subtotal + fee > MaxTotal)
         {
             throw new ArgumentException($"An order totals at most NT${MaxTotal}.", nameof(lines));
         }
@@ -434,7 +480,12 @@ public sealed class OrderingOrder : IOrganizationScoped
             Tableware = tableware,
             Lines = [.. lines],
             Subtotal = (int)subtotal,
-            Total = (int)subtotal,
+            Total = (int)subtotal + fee,
+            DeliveryFee = fee,
+            DeliveryZoneId = delivery?.ZoneId,
+            DeliveryZoneName = delivery?.ZoneName,
+            DeliveryAddress = delivery?.Address,
+            DeliveryNote = delivery?.Note,
             MenuVersion = menuVersion,
             StatusTokenHash = HashStatusToken(statusToken),
             SubmissionKey = submissionKey,
@@ -502,12 +553,13 @@ public sealed class OrderingOrder : IOrganizationScoped
             return null;
         }
 
-        if (ServiceType == OrderingServiceType.TakeoutScheduled ? at < PickupAt : at < now.AddMinutes(-1))
+        var what = ServiceType.IsDelivery() ? "預計送達時間" : "預計取餐時間";
+        if (!ServiceType.IsAsap() ? at < PickupAt : at < now.AddMinutes(-1))
         {
-            return ServiceType == OrderingServiceType.TakeoutScheduled ? "預計取餐時間不能早於顧客選的時間。" : "預計取餐時間不能早於現在。";
+            return !ServiceType.IsAsap() ? $"{what}不能早於顧客選的時間。" : $"{what}不能早於現在。";
         }
 
-        return at > (PickupAt > now ? PickupAt : now) + MaxPromiseDelay ? "預計取餐時間最多延後 24 小時。" : null;
+        return at > (PickupAt > now ? PickupAt : now) + MaxPromiseDelay ? $"{what}最多延後 24 小時。" : null;
     }
 
     /// <summary>The longest the shop can push a pickup back when accepting.</summary>
@@ -543,7 +595,7 @@ public sealed class OrderingOrder : IOrganizationScoped
         }
 
         Move(OrderingOrderAction.Accept, OrderingOrderStatus.Accepted, now);
-        var promised = promisedAt ?? (ServiceType == OrderingServiceType.TakeoutAsap && PickupAt < now ? now : PickupAt);
+        var promised = promisedAt ?? (ServiceType.IsAsap() && PickupAt < now ? now : PickupAt);
         PromisedAt = promised.ToUniversalTime();
         AcceptedAt = StatusChangedAt;
         AcceptedByAccountId = StaffMember(accountId);
@@ -623,9 +675,9 @@ public sealed class OrderingOrder : IOrganizationScoped
     public static DateTimeOffset RetentionCutoff(DateTimeOffset asOf) => asOf.ToUniversalTime().AddDays(-RetentionDays);
 
     /// <summary>
-    /// Clears the customer's personal data (design D12, #400): name and phone become empty, Email and the order comment
-    /// <see langword="null"/>, and each line's comment is dropped from the snapshot; the number, status, times, items,
-    /// options and totals stay. Not a status change: <see cref="Version"/> stays. Idempotent.
+    /// Clears the customer's personal data (design D12, #400): name, phone and a delivery address (#401) become empty, Email,
+    /// the order comment and the delivery note <see langword="null"/>, and each line's comment is dropped from the snapshot;
+    /// the number, status, times, items, options, delivery zone and totals stay. Not a status change: <see cref="Version"/> stays. Idempotent.
     /// </summary>
     public void ClearPersonalData(DateTimeOffset now)
     {
@@ -639,6 +691,9 @@ public sealed class OrderingOrder : IOrganizationScoped
         CustomerEmail = null;
         OrderComment = null;
         Lines = [.. Lines.Select(line => line with { Comment = null })];
+        // #401: the address goes, the zone (the shop's own words) and the fee stay for the figures.
+        DeliveryAddress = DeliveryAddress is null ? null : string.Empty;
+        DeliveryNote = null;
         PersonalDataClearedAt = now.ToUniversalTime();
     }
 
@@ -736,6 +791,31 @@ public static class OrderingContact
 
     /// <summary>Longest order comment (訂單備註).</summary>
     public const int OrderCommentMaxLength = 200;
+
+    /// <summary>Longest delivery address (#401).</summary>
+    public const int AddressMaxLength = 120;
+
+    /// <summary>Longest note to the delivery (給外送的備註, #401).</summary>
+    public const int DeliveryNoteMaxLength = 100;
+
+    /// <summary>The delivery address (#401): required, one line, at most <see cref="AddressMaxLength"/>.</summary>
+    public static string? AddressProblem(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return "請填寫外送地址。";
+        }
+
+        if (address.Length > AddressMaxLength)
+        {
+            return $"外送地址最多 {AddressMaxLength} 個字（目前 {address.Length} 個）。";
+        }
+
+        return address.Any(char.IsControl) ? "外送地址不能有換行或特殊字元。" : null;
+    }
+
+    /// <summary>給外送的備註 (#401): optional, at most <see cref="DeliveryNoteMaxLength"/>.</summary>
+    public static string? DeliveryNoteProblem(string? note) => CommentProblem(note, DeliveryNoteMaxLength, "給外送的備註");
 
     public static string? NameProblem(string? name)
     {

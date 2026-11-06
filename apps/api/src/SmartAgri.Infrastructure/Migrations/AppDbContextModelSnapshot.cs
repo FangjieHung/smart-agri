@@ -3223,6 +3223,25 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<Guid?>("DeclinedByAccountId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DeliveryAddress")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<int>("DeliveryFee")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("DeliveryNote")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("DeliveryZoneId")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("DeliveryZoneName")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -3321,7 +3340,7 @@ namespace SmartAgri.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_OrderingOrders_Accepted", "(\"AcceptedAt\" IS NOT NULL) = (\"PromisedAt\" IS NOT NULL)");
 
-                            t.HasCheckConstraint("CK_OrderingOrders_Asap", "(\"ServiceType\" = 'takeout-asap') = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
+                            t.HasCheckConstraint("CK_OrderingOrders_Asap", "(\"ServiceType\" IN ('takeout-asap', 'delivery-asap')) = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
 
                             t.HasCheckConstraint("CK_OrderingOrders_CancelReason", "COALESCE(\"CancelledBy\" = 'shop', false) = (\"CancelReason\" IS NOT NULL AND \"CancelledByAccountId\" IS NOT NULL)");
 
@@ -3331,11 +3350,15 @@ namespace SmartAgri.Infrastructure.Migrations
 
                             t.HasCheckConstraint("CK_OrderingOrders_Declined", "(\"Status\" = 'declined') = (\"DeclineReason\" IS NOT NULL AND \"DeclinedAt\" IS NOT NULL)");
 
+                            t.HasCheckConstraint("CK_OrderingOrders_Delivery", "(\"ServiceType\" IN ('delivery-scheduled', 'delivery-asap')) = (\"DeliveryZoneId\" IS NOT NULL AND \"DeliveryZoneName\" IS NOT NULL AND \"DeliveryAddress\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_DeliveryFee", "\"DeliveryFee\" >= 0 AND \"Total\" = \"Subtotal\" + \"DeliveryFee\" AND (\"DeliveryFee\" = 0 OR \"ServiceType\" IN ('delivery-scheduled', 'delivery-asap'))");
+
                             t.HasCheckConstraint("CK_OrderingOrders_Lines", "jsonb_typeof(\"Lines\") = 'array'");
 
                             t.HasCheckConstraint("CK_OrderingOrders_Number", "\"Number\" >= 1");
 
-                            t.HasCheckConstraint("CK_OrderingOrders_PersonalData", "\"PersonalDataClearedAt\" IS NULL OR (\"CustomerName\" = '' AND \"CustomerPhone\" = '' AND \"CustomerEmail\" IS NULL AND \"OrderComment\" IS NULL)");
+                            t.HasCheckConstraint("CK_OrderingOrders_PersonalData", "\"PersonalDataClearedAt\" IS NULL OR (\"CustomerName\" = '' AND \"CustomerPhone\" = '' AND \"CustomerEmail\" IS NULL AND \"OrderComment\" IS NULL AND COALESCE(\"DeliveryAddress\", '') = '' AND \"DeliveryNote\" IS NULL)");
 
                             t.HasCheckConstraint("CK_OrderingOrders_Total", "\"Subtotal\" >= 0 AND \"Total\" >= \"Subtotal\"");
 
@@ -3366,6 +3389,15 @@ namespace SmartAgri.Infrastructure.Migrations
 
                     b.Property<int>("DaysAhead")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("Delivery")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("DeliveryAsap")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("DeliverySettings")
+                        .HasColumnType("jsonb");
 
                     b.Property<int?>("MaxOrdersPerSlot")
                         .HasColumnType("integer");
@@ -3445,6 +3477,10 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("OrderingShops", null, t =>
                         {
                             t.HasCheckConstraint("CK_OrderingShops_DaysAhead", "\"DaysAhead\" BETWEEN 1 AND 14");
+
+                            t.HasCheckConstraint("CK_OrderingShops_Delivery", "(NOT \"Delivery\" OR \"DeliverySettings\" IS NOT NULL) AND (NOT \"DeliveryAsap\" OR \"Delivery\")");
+
+                            t.HasCheckConstraint("CK_OrderingShops_DeliverySettings", "\"DeliverySettings\" IS NULL OR jsonb_typeof(\"DeliverySettings\") = 'object'");
 
                             t.HasCheckConstraint("CK_OrderingShops_MaxOrdersPerSlot", "\"MaxOrdersPerSlot\" IS NULL OR \"MaxOrdersPerSlot\" BETWEEN 1 AND 999");
 

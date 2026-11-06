@@ -199,6 +199,64 @@
 8. **個資告知**沿用訂位頁的寫法（保存到取餐時間後 90 天）；實際刪除在 O4（#400）。
 9. **E2E**：`apps/shop-e2e`（Cypress，4311 埠）對 production 建置回放從真實 API 錄下的回應，CI 的 e2e job 跟在 admin-e2e 後面跑。
 
+### 4.4 O3（#399）後台 API 與實作決定
+
+後端與權限在 #399 的第一個 commit 完成；後台「點餐」頁（含示範模式）由前端票補上。
+
+**權限與共通規則**
+
+- 新權限 `manage-orders`（「處理線上點餐」），排在 `handle-assistant-issues` 之後（`AccountPermissionOrder`、`ACCOUNT_PERMISSIONS`）。預設：開發種子與示範資料的老闆（`smb-admin`）與內部同仁（`internal-employee`）都有；`setup` 建立的第一位管理者本來就拿到所有權限；migration `AddOrderingStaffActions` 把它補給**現有**的所有老闆與內部同仁帳號（#126 新增 `handle-assistant-issues` 時沒有補，這次因為議題寫明「預設給老闆與內部員工」而補）。之後新增的成員照團隊頁勾選。
+- 路徑前綴 `/api/v1/ordering`（tag `Ordering (admin)`），要登入且有 `manage-orders`，組織取自登入的權杖。所有回應 `Cache-Control: no-store`。所有欄位一定會送出，沒有值時是 `null`。
+- 錯誤沿用後台慣例（`ApiErrors`）：
+  - `401`：沒有登入（無 body）。
+  - `403 ordering`：沒有 `manage-orders`，**或**這個組織沒有這筆訂單（別家店的訂單 id）——兩種回應逐位元組相同（後台一向不用 404 表示「不存在」，避免探測別的組織）。
+  - `404 ordering-not-configured`：這個組織沒有點餐設定或菜單（每個端點都一樣，前端顯示「尚未設定線上點餐」）。`ApiErrors.WithReason` 因此新增 404，只用在「自己的組織沒有設定」，不用在可能屬於別的組織的資源。
+  - `404 item-not-found`：目前的菜單沒有這個品項。
+  - `422`：`{ message, errors: { 欄位: [訊息] } }`（沒有 `reason`）。
+  - `400`：body 不是 JSON，或列舉值不認得（例如 `reason: "bored"`）——框架預設回應。
+  - `409`：只有訂單動作會回，body 是 `OrderingStaffConflict`（見下）。
+- 紀錄只寫組織、訂單 id 與號碼、成員帳號 id、動作與結果狀態，不寫顧客姓名、電話、Email、備註、店家給顧客的說明（整合測試檢查）。
+
+**端點**
+
+| 方法與路徑 | 成功 | 內容 |
+| --- | --- | --- |
+| `GET summary` | 200 `OrderingStaffSummaryView` | `now`、`businessDate`（店家目前的營業日 `yyyy-MM-dd`；跨午夜的營業時段算開始那天）、`timeZone`、`shopName`、`slug`、`pendingCount`（所有待確認，不分取餐日）、`activeCount`（已接單＋可取餐，不分取餐日）、`latestOrderAt`（最新一筆訂單的送出時間，沒有訂單時 `null`）、`changedAt`（任何訂單最後一次狀態改變的時間，包括新訂單與顧客取消；沒有訂單時 `null`）、`paused`、`asapBand`（`under-15`、`15-30`、`30-45`、`45-60`）、`asap{minMinutes,maxMinutes}`（目前檔位的分鐘數）、`services{takeoutScheduled,takeoutAsap}`、`menuVersion`、`shopVersion` |
+| `GET orders?view=pending\|active\|done` | 200 `OrderingStaffOrdersView` `{now, view, orders[]}` | `pending`：所有待確認，送出時間舊的在前。`active`：已接單與可取餐，`promisedAt` 早的在前。`done`：完成、婉拒、取消、逾時之中，取餐營業日是今天的，加上今天（店家時區 00:00 起）才結束的（例如今天婉拒的明天預約單），最近結束的在前。每個清單最多 500 筆。`view` 不是這三個：`422`（`errors.view`） |
+| `GET orders/{id}` | 200 `OrderingStaffOrderView` | 一筆訂單 |
+| `POST orders/{id}/accept` | 200 `OrderingStaffOrderView` | `{ version, promisedAt? }`。`promisedAt`（含時差的 ISO 8601）不填＝顧客選的時間（儘快單是估計上限；若已經過了，則是現在）。預約單不能早於顧客選的時間，儘快單不能早於現在（容許 1 分鐘時鐘誤差），兩者都最多比「顧客選的時間與現在較晚者」晚 24 小時；超出 `422 errors.promisedAt` |
+| `POST orders/{id}/decline` | 200 | `{ version, reason, note? }`；`reason`：`too-busy`、`sold-out`、`closed`、`cannot-meet-request`、`other`；`note` 去頭尾空白後最多 100 字、單行，`other` 必填。`note` **會顯示給顧客** |
+| `POST orders/{id}/ready` | 200 | `{ version }`：已接單 → 可取餐 |
+| `POST orders/{id}/complete` | 200 | `{ version }`：已接單或可取餐 → 完成（可以跳過〔可取餐〕） |
+| `POST orders/{id}/cancel` | 200 | `{ version, reason, note? }`：店家取消已接單或可取餐的訂單；`reason`：`customer-no-show`、`customer-request`、`other`（`other` 要 `note`，規則同婉拒，也會顯示給顧客）。待確認的訂單請用〔婉拒〕 |
+| `PUT pause` | 200 `OrderingStaffSummaryView` | `{ paused: true\|false }`；沒填 `422 errors.paused` |
+| `PUT asap-band` | 200 `OrderingStaffSummaryView` | `{ band }`；沒填 `422 errors.band` |
+| `GET items` | 200 `OrderingStaffMenuView` | `{ now, menuVersion, categories[{id, name, items[{id, name, price, availability, resetsAt}]}] }`；`availability`：`available`、`sold-out-today`（到 `resetsAt` 自動恢復）、`unavailable`。售完時間已過的品項是 `available` |
+| `PUT items/{itemId}/state` | 200 `OrderingStaffItemView` | `{ state: "available"\|"sold-out-today"\|"unavailable" }`；沒填 `422 errors.state`；品項不在目前的菜單 `404 item-not-found` |
+
+**`OrderingStaffOrderView`**：`id`、`number`、`displayNumber`（「#001」）、`status`、`version`、`serviceType`、`businessDate`、`pickupAt`（顧客選的時間；儘快單是送出時的估計上限）、`estimate{minMinutes,maxMinutes}`（儘快單才有）、`promisedAt`（接單時給的時間，接單前 `null`）、`customerName`、`customerPhone`（只有數字，給 `tel:`）、`customerPhoneDisplay`（「0912-345-678」）、`customerEmail`、`lines`（同公開 API 的明細快照，含品項備註 `comment`）、`orderComment`、`tableware`、`subtotal`、`total`、`menuVersion`、`createdAt`、`statusChangedAt`、`accepted`／`ready`／`completed`（`{at, by}` 或 `null`）、`declined`（`{at, by, reason, note}` 或 `null`）、`cancelled`（`{at, by: "customer"|"shop", member, reason, note}` 或 `null`；顧客取消時 `member`、`reason`、`note` 是 `null`）、`actions`（現在可以做的動作，依序：`accept`、`decline`、`ready`、`complete`、`cancel`——按鈕依它顯示）。`by`／`member` 是 `{id, displayName}`，帳號已不存在時 `null`。
+
+**同時操作（compare-and-set）**：每個動作都帶畫面上看到的 `version`。伺服器在交易裡讀出訂單：`version` 不同 → `409 order-changed`；`version` 相同但狀態不允許這個動作 → `409 action-not-allowed`；否則改狀態、`version` 加一，以 `Version` 當並行權杖寫回（`UPDATE … WHERE Version = 讀到的值`）——兩個人（或店員與取消的顧客）同時從同一個版本出手，只有一個寫得進去，另一個也得到 `409 order-changed`（顧客那邊是 `409 not-cancellable`）。`409` 的 body 是 `{ type, title, status: 409, reason, message, order }`，`order` 是**目前**的 `OrderingStaffOrderView`：前端直接用它取代畫面上的那一筆並顯示 `message`，不必再查一次。
+
+**輪詢與新訂單提示（給前端）**
+
+- 側邊選單與點餐頁每 10 秒 `GET summary`（每個分頁每分鐘 6 次）。徽章顯示 `pendingCount`；分頁標題可用 `pendingCount`。
+- **有新訂單**：`latestOrderAt` 比上一次看到的新（第一次載入只記下、不響）。這時播提示音（使用者在頁面上互動過、而且開關開著才播）並重新讀 `pending`。
+- **清單過期**：`changedAt` 或 `shopVersion` 跟上一次不同時，重新讀目前分頁的清單（或品項）。其他分頁的店員接單、顧客取消都會改 `changedAt`。
+- 時間比較一律用回應的 `now`（伺服器時間），不看裝置時鐘。`done` 分頁跨日時自動換成新的營業日。
+
+**顧客端看到的（公開 API 的 `OrderingOrderView` 新增欄位）**：`promisedAt`、`declineReason`、`declineNote`、`cancelledBy`（`customer`|`shop`）、`cancelReason`、`cancelNote`。接單後 `canCancel` 是 `false`、取消回 `409 not-cancellable`。`apps/shop` 的狀態頁已顯示：店家給的時間（預約單晚於原時間時加「（店家調整了取餐時間）」，儘快單顯示「預計 HH:mm 可取餐」）、婉拒與店家取消的原因與說明、店家取消的標題「店家已取消這筆訂單」；舊的錄製回應沒有這些欄位時當成沒有。
+
+**實作決定（可以推翻）**
+
+1. **狀態機在領域模型**：`OrderingOrder.Allows(status, action)`；`Accept`、`Decline`、`MarkReady`、`Complete`、`CancelByShop`、`CancelByCustomer` 各自檢查、`Version` 加一、記 `StatusChangedAt`。新欄位：`StatusChangedAt`、`PromisedAt`、`AcceptedAt/ByAccountId`、`ReadyAt/ByAccountId`、`CompletedAt/ByAccountId`、`DeclinedAt/ByAccountId`、`DeclineReason`、`DeclineNote`、`CancelledBy`、`CancelledByAccountId`、`CancelReason`、`CancelNote`，由 check constraint 保持一致（例如婉拒才有理由、店家取消才有成員與理由）。成員只存帳號 id，不設外鍵；名稱在回應時查。
+2. **改時間不動名額**：接單時改的時間存在 `PromisedAt`；`PickupAt`（顧客選的時段）不變，所以時段名額、當日號碼、待確認上限照舊依它計算。
+3. **顧客取消也改成同一套 compare-and-set**（原本是 `ExecuteUpdate`），並記 `CancelledBy = customer`；migration 把既有的已取消訂單補成 `customer`、`StatusChangedAt` 補成取消或送出時間。
+4. **`IOrderingOrderOutcomes.Decided`**（#400 的寄信接點，現在是不做事的 `NoOrderingOrderOutcomes`）：只在贏得 compare-and-set 之後、同一個交易裡呼叫，涵蓋接單、婉拒、顧客取消、店家取消；可取餐與完成不呼叫。輸掉的人不會呼叫（整合測試以記錄用的實作確認每筆只呼叫一次）。
+5. **店家開關**（暫停、即時單檔位、品項狀態）是頻繁切換的操作：**不寫組織活動紀錄**；有改到時 `OrderingShops.Version` 加一（重按同一個值不加），讓其他分頁從 `summary.shopVersion` 看得出來。暫停與檔位用條件式 `ExecuteUpdate`（值不同才更新）；品項狀態先鎖住店家那一列（與送出訂單相同），所以和同時送出的訂單不會各看到一半。
+6. **今日售完**沿用 `OrderingItemState.SoldOutToday`：到下一個營業日第一段可點餐時間自動恢復，不需要排程；過了恢復時間的那一列等下一次切換時才被取代，查詢時已當成可點。
+7. 店家婉拒或取消時的說明會顯示給顧客，前端的輸入框要說明這一點。
+
 ---
 
 ## 5. 名詞

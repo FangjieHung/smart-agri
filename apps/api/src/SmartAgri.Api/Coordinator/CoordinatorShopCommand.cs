@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using SmartAgri.Api.PublicChannels;
 using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Line;
 using SmartAgri.Application.Secrets;
@@ -29,7 +30,8 @@ namespace SmartAgri.Api.Coordinator;
 /// 「JSON 路徑：說明」 and nothing is written unless there are none. A change writes one
 /// <see cref="OrganizationActivityAction.CoordinatorShopSettingsUpdated"/>; an identical import writes
 /// nothing. <c>show</c> prints only the settings file to standard output, so it can be saved, edited and
-/// imported again.
+/// imported again. A shop that takes reservations (#389) gets its reservation page's address — on standard output after an
+/// import, on standard error after <c>show</c>; a slug another shop has is refused like an error of the file.
 /// </para>
 /// <para>
 /// <c>line-token</c> reads the token from standard input — never from an argument, which would stay in the shell's
@@ -64,9 +66,9 @@ public sealed class CoordinatorShopCommand
         "      coordinator-shop line-token --organization <組織代碼> < token.txt\n" +
         "      coordinator-shop line-token --organization <組織代碼> --clear\n" +
         "      coordinator-shop auth-link --organization <組織代碼> --service facebook|google [--hours <1-168>]\n" +
-        "import：先完整檢查設定檔（店名、時區、每週營業時間、四個情境的公告與動作），有錯就逐條列出「位置：說明」且不寫入；" +
-        "全部正確才寫入，有變更時記一筆組織紀錄。\n" +
-        "show：以匯入的格式印出目前的設定，可以存檔、修改後再匯入。\n" +
+        "import：先完整檢查設定檔（店名、時區、每週營業時間、四個情境的公告與動作、線上訂位），有錯就逐條列出「位置：說明」且不寫入；" +
+        "全部正確才寫入，有變更時記一筆組織紀錄；有開放線上訂位時印出訂位網址。\n" +
+        "show：以匯入的格式印出目前的設定，可以存檔、修改後再匯入；有開放線上訂位時，訂位網址印在標準錯誤（不會混進存下來的檔案）。\n" +
         "line-token：從標準輸入讀取該店自己 LINE 官方帳號的長期 channel access token（不要寫在參數裡），向 LINE 確認後加密保存，" +
         "只印出帳號名稱與 basic id；--clear 清除。之後設為 auto 的 LINE 群發會自動群發。每次設定或清除記一筆組織紀錄。\n" +
         "auth-link：產生一個讓老闆授權 FB 粉專（facebook）或 Google 商家（google）的連結，只顯示這一次；預設 72 小時內有效，" +
@@ -186,10 +188,23 @@ public sealed class CoordinatorShopCommand
                 }
 
                 await output.WriteLineAsync(ShopSettingsJson.Write(stored));
+                if (ReservationPage(stored) is { } storedPage)
+                {
+                    await error.WriteLineAsync(storedPage);
+                }
+
                 return ExitSuccess;
             }
 
             var result = await shops.ImportAsync(organization.Id, document, cancellationToken);
+            if (result.Outcome == ShopImportOutcome.SlugTaken)
+            {
+                await error.WriteLineAsync(
+                    $"$.reservations.slug：「{document.Reservations!.Slug}」已經是另一家店的訂位網址代號，請換一個。");
+                await error.WriteLineAsync("設定檔有 1 個錯誤，沒有寫入任何設定。");
+                return ExitUsage;
+            }
+
             var shop = $"組織 {organization.Code}（{document.StoreName}）";
             await output.WriteLineAsync(result.Outcome switch
             {
@@ -197,6 +212,11 @@ public sealed class CoordinatorShopCommand
                 ShopImportOutcome.Updated => $"已更新{shop}的店家設定，變更：{Describe(result.Change)}。",
                 _ => $"{shop}的店家設定和檔案相同，沒有變更。",
             });
+            if (ReservationPage(document) is { } page)
+            {
+                await output.WriteLineAsync(page);
+            }
+
             return ExitSuccess;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -338,6 +358,19 @@ public sealed class CoordinatorShopCommand
             await error.WriteLineAsync($"無法產生授權連結：{exception.GetType().Name}（資料庫是否已執行 migrate？）");
             return ExitFailed;
         }
+    }
+
+    /// <summary>「線上訂位網址：…」 of a shop that takes reservations (#389); <see langword="null"/> for one that does not.</summary>
+    private string? ReservationPage(ShopSettingsDocument settings)
+    {
+        if (settings.Reservations is not { IsOpen: true, Slug: { } slug })
+        {
+            return null;
+        }
+
+        return _services.GetRequiredService<IOptions<PublicChannelsOptions>>().Value.ResolvedPublicBaseUrl is { } baseUrl
+            ? $"線上訂位網址：{CoordinatorReservationEndpoints.Url(baseUrl, slug)}"
+            : $"線上訂位網址：{{PUBLIC_BASE_URL}}/reserve/{slug}（這個部署還沒有設定 PublicChannels:PublicBaseUrl，.env 的 PUBLIC_BASE_URL）";
     }
 
     /// <summary>Whether <paramref name="bot"/> is the 統籌助理's own account (its broadcast would reach every shop owner).</summary>

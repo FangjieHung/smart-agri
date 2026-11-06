@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using SmartAgri.Api.Coordinator;
 using SmartAgri.Api.Errors;
 
 namespace SmartAgri.Api.PublicChannels;
@@ -27,6 +28,10 @@ public enum PublicRateLimitedEndpoint
     /// <summary>The 統籌助理's anonymous authorization pages (#377): <c>GET /api/v1/coordinator/connect</c>,
     /// <c>GET /api/v1/coordinator/oauth/{service}/callback</c> and <c>POST …/select</c>, one budget per client IP.</summary>
     CoordinatorAuthorization,
+
+    /// <summary>The shops' reservation pages (#389): <c>GET</c> and <c>POST /reserve/{slug}</c>, one budget per client IP
+    /// whatever the shop; refused with a page, not JSON.</summary>
+    CoordinatorReservation,
 }
 
 /// <summary>Endpoint metadata that puts an endpoint under the visitor API's rate limits.</summary>
@@ -61,7 +66,9 @@ public sealed record PublicRateLimitMarker(PublicRateLimitedEndpoint Kind);
 /// <para>
 /// <b>Authorization links</b> (#377): the three anonymous pages share one sliding window per client IP
 /// (<see cref="PublicRateLimitOptions.CoordinatorAuthorizationRequestsPerIpPerMinute"/>), so a script cannot make them
-/// look links up or call the services' token endpoints at will.
+/// look links up or call the services' token endpoints at will. The shops' reservation pages (#389) share one sliding
+/// window per client IP (<see cref="PublicRateLimitOptions.CoordinatorReservationRequestsPerIpPerMinute"/>), whatever
+/// the shop, and their refusal is a page (<see cref="CoordinatorReservationPages.TooManyRequests"/>), not JSON.
 /// </para>
 /// <para>
 /// <b>Where it runs</b>: after authorization, so the visitor claims are known (a request with no or
@@ -138,7 +145,10 @@ public static class PublicRateLimiting
                 Sliding(key, limits.LineWebhooksPerAssistantPerMinute, Minute, segments: 6)),
             // The 統籌助理's authorization pages: per client IP, the three together (#377).
             Layer(PublicRateLimitedEndpoint.CoordinatorAuthorization, ClientKey, Minute, key =>
-                Sliding(key, limits.CoordinatorAuthorizationRequestsPerIpPerMinute, Minute, segments: 6)));
+                Sliding(key, limits.CoordinatorAuthorizationRequestsPerIpPerMinute, Minute, segments: 6)),
+            // The shops' reservation pages: per client IP, every shop together (#389).
+            Layer(PublicRateLimitedEndpoint.CoordinatorReservation, ClientKey, Minute, key =>
+                Sliding(key, limits.CoordinatorReservationRequestsPerIpPerMinute, Minute, segments: 6)));
 
     private static RateLimitPartition<string> Sliding(string key, int permits, TimeSpan window, int segments) =>
         RateLimitPartition.GetSlidingWindowLimiter(key, _ => new SlidingWindowRateLimiterOptions
@@ -218,6 +228,15 @@ public static class PublicRateLimiting
             ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
             : FallbackRetryAfterSeconds;
         var response = context.HttpContext.Response;
+        if (context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<PublicRateLimitMarker>() is { Kind: PublicRateLimitedEndpoint.CoordinatorReservation })
+        {
+            // A customer's browser: a page in Chinese.
+            CoordinatorReservationPages.SetHeaders(response);
+            response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+            await CoordinatorReservationPages.TooManyRequests().ExecuteAsync(context.HttpContext);
+            return;
+        }
+
         response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
         response.Headers.CacheControl = "no-store";
         await ApiErrors.RateLimited().ExecuteAsync(context.HttpContext);

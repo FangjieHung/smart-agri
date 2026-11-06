@@ -63,8 +63,9 @@ internal sealed class CoordinatorBindingCodeConfiguration : IEntityTypeConfigura
 
 /// <summary>
 /// Table <c>CoordinatorShopSettings</c> (#373): one row per organization (unique <c>OrganizationId</c>),
-/// read whole. <c>WeeklyHours</c> and <c>Scenarios</c> are <c>jsonb</c> objects in the settings file's own
-/// format (<see cref="ShopSettingsJson"/>), never queried by content.
+/// read whole. <c>WeeklyHours</c>, <c>Scenarios</c> and <c>Reservations</c> (#389, nullable) are <c>jsonb</c> objects in
+/// the settings file's own format (<see cref="ShopSettingsJson"/>), never queried by content; the reservation page
+/// finds its shop by <c>ReservationSlug</c>, unique across all organizations.
 /// </summary>
 internal sealed class ShopSettingsConfiguration : IEntityTypeConfiguration<ShopSettings>
 {
@@ -78,12 +79,24 @@ internal sealed class ShopSettingsConfiguration : IEntityTypeConfiguration<ShopS
         scenarios => ShopSettingsJson.WriteScenarios(scenarios).GetHashCode(StringComparison.Ordinal),
         scenarios => ShopSettingsJson.ReadScenarios(ShopSettingsJson.WriteScenarios(scenarios)));
 
+    // A record: equal by value, and immutable, so the snapshot can be the same instance.
+    private static readonly ValueComparer<ShopReservationSettings?> ReservationsComparer = new(
+        (left, right) => Equals(left, right),
+        reservations => reservations == null ? 0 : reservations.GetHashCode(),
+        reservations => reservations);
+
+    /// <summary>The unique index on <c>ReservationSlug</c>: an import that loses the race for a slug fails on it.</summary>
+    public const string ReservationSlugIndex = "IX_CoordinatorShopSettings_ReservationSlug";
+
     public void Configure(EntityTypeBuilder<ShopSettings> builder)
     {
         builder.ToTable("CoordinatorShopSettings", table =>
         {
             table.HasCheckConstraint("CK_CoordinatorShopSettings_WeeklyHours", "jsonb_typeof(\"WeeklyHours\") = 'object'");
             table.HasCheckConstraint("CK_CoordinatorShopSettings_Scenarios", "jsonb_typeof(\"Scenarios\") = 'object'");
+            table.HasCheckConstraint(
+                "CK_CoordinatorShopSettings_Reservations",
+                "\"Reservations\" IS NULL OR jsonb_typeof(\"Reservations\") = 'object'");
         });
         builder.HasKey(settings => settings.Id);
         builder.Property(settings => settings.Id).ValueGeneratedNever();
@@ -105,8 +118,20 @@ internal sealed class ShopSettingsConfiguration : IEntityTypeConfiguration<ShopS
                 ScenariosComparer)
             .HasColumnType("jsonb")
             .IsRequired();
+        builder.Property(settings => settings.Reservations)
+            .HasConversion(
+                new ValueConverter<ShopReservationSettings?, string?>(
+                    reservations => reservations == null ? null : ShopSettingsJson.WriteReservations(reservations),
+                    json => json == null ? null : ShopSettingsJson.ReadReservations(json)),
+                ReservationsComparer)
+            .HasColumnType("jsonb");
+        builder.Property(settings => settings.ReservationSlug).HasMaxLength(ShopReservationSettings.SlugMaxLength);
         builder.Ignore(settings => settings.Document);
         builder.HasIndex(settings => settings.OrganizationId).IsUnique();
+        builder.HasIndex(settings => settings.ReservationSlug)
+            .IsUnique()
+            .HasFilter("\"ReservationSlug\" IS NOT NULL")
+            .HasDatabaseName(ReservationSlugIndex);
     }
 }
 
@@ -300,5 +325,72 @@ internal sealed class CoordinatorAuthorizationLinkConfiguration : IEntityTypeCon
         builder.Property(link => link.TokenHash).HasMaxLength(CoordinatorAuthorizationLink.TokenHashLength).IsRequired();
         builder.HasIndex(link => link.TokenHash).IsUnique();
         builder.HasIndex(link => new { link.OrganizationId, link.Service });
+    }
+}
+
+/// <summary>
+/// Table <c>CoordinatorReservations</c> (#389): one row per reservation a customer sent (store-reservations design
+/// §3.1 point 6). Check constraints keep the status to its five values, a member's accept or decline with its time, a
+/// cancellation with its reason (a 店休 scenario) and command, and the time of the last status change exactly when
+/// it is no longer pending; the submission key is unique across all organizations (a form sent twice is one row).
+/// Indexes serve the pending count per phone, a day's reservations (Slice R4) and the list and retention by time.
+/// The cancelling command is a foreign key within the same organization; the member who handled it is not (members
+/// can leave, the history stays).
+/// </summary>
+internal sealed class CoordinatorReservationConfiguration : IEntityTypeConfiguration<CoordinatorReservation>
+{
+    /// <summary>The unique index on <c>SubmissionKey</c>.</summary>
+    public const string SubmissionKeyIndex = "IX_CoordinatorReservations_SubmissionKey";
+
+    public void Configure(EntityTypeBuilder<CoordinatorReservation> builder)
+    {
+        builder.ToTable("CoordinatorReservations", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_CoordinatorReservations_Status",
+                "\"Status\" IN ('pending', 'accepted', 'declined', 'cancelled', 'expired')");
+            table.HasCheckConstraint(
+                "CK_CoordinatorReservations_MembersNotified",
+                "\"MembersNotified\" IN ('pending', 'sent', 'not-sent')");
+            table.HasCheckConstraint(
+                "CK_CoordinatorReservations_Handled",
+                "(\"HandledByMemberId\" IS NULL) = (\"HandledAt\" IS NULL) AND (\"Status\" NOT IN ('accepted', 'declined') OR \"HandledAt\" IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_CoordinatorReservations_Cancelled",
+                "(\"Status\" = 'cancelled') = (\"CancelReason\" IS NOT NULL) AND (\"CancelledByCommandId\" IS NULL OR \"Status\" = 'cancelled') "
+                + "AND (\"CancelReason\" IS NULL OR \"CancelReason\" IN ('temporary-closure', 'close-early', 'open-late'))");
+            table.HasCheckConstraint(
+                "CK_CoordinatorReservations_StatusChanged",
+                "(\"Status\" = 'pending') = (\"StatusChangedAt\" IS NULL)");
+            table.HasCheckConstraint("CK_CoordinatorReservations_PartySize", "\"PartySize\" >= 1");
+            table.HasCheckConstraint("CK_CoordinatorReservations_Version", "\"Version\" >= 1");
+        });
+        builder.HasKey(reservation => reservation.Id);
+        builder.Property(reservation => reservation.Id).ValueGeneratedNever();
+        builder.Property(reservation => reservation.CustomerName).HasMaxLength(ReservationContact.NameMaxLength).IsRequired();
+        builder.Property(reservation => reservation.CustomerPhone).HasMaxLength(ReservationContact.PhoneMaxLength).IsRequired();
+        builder.Property(reservation => reservation.CustomerEmail).HasMaxLength(ReservationContact.EmailMaxLength);
+        builder.Property(reservation => reservation.Note).HasMaxLength(ReservationContact.NoteMaxLength);
+        builder.Property(reservation => reservation.Status)
+            .HasConversion<WireNameConverter<CoordinatorReservationStatus>>()
+            .HasMaxLength(16)
+            .IsRequired();
+        builder.Property(reservation => reservation.SubmissionKey).HasMaxLength(CoordinatorReservation.SubmissionKeyLength).IsRequired();
+        builder.Property(reservation => reservation.CancelReason)
+            .HasConversion<WireNameConverter<ShopScenario>>()
+            .HasMaxLength(32);
+        builder.Property(reservation => reservation.MembersNotified)
+            .HasConversion<WireNameConverter<CoordinatorReservationNotice>>()
+            .HasMaxLength(16)
+            .IsRequired();
+        builder.HasOne<CoordinatorCommand>()
+            .WithMany()
+            .HasForeignKey(reservation => new { reservation.CancelledByCommandId, reservation.OrganizationId })
+            .HasPrincipalKey(command => new { command.Id, command.OrganizationId })
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(reservation => reservation.SubmissionKey).IsUnique().HasDatabaseName(SubmissionKeyIndex);
+        builder.HasIndex(reservation => new { reservation.OrganizationId, reservation.CustomerPhone, reservation.Status });
+        builder.HasIndex(reservation => new { reservation.OrganizationId, reservation.Date });
+        builder.HasIndex(reservation => new { reservation.OrganizationId, reservation.ReservedAt });
     }
 }

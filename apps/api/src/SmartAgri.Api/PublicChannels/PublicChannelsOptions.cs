@@ -228,8 +228,9 @@ public sealed class PublicChannelsOptions
 /// <summary>
 /// <c>PublicChannels:RateLimits</c> (M5a plan §3 E and decision C): how often the visitor API
 /// (<c>/api/v1/public/*</c>) answers before it refuses with <c>429</c> and <c>Retry-After</c>; from
-/// M5b (plan §3 F) also the LINE webhook's limits, named <c>Line*</c>, and from #377 the 統籌助理's authorization
-/// links (<see cref="CoordinatorAuthorizationRequestsPerIpPerMinute"/>). The
+/// M5b (plan §3 F) also the LINE webhook's limits, named <c>Line*</c>, from #377 the 統籌助理's authorization
+/// links (<see cref="CoordinatorAuthorizationRequestsPerIpPerMinute"/>) and from #389 the shops' reservation pages
+/// (<see cref="CoordinatorReservationRequestsPerIpPerMinute"/>). The
 /// counters live in this process's memory (one API container per deployment; several instances would
 /// each count on their own). Every value is a count of at least 1; the window is part of the name.
 /// </summary>
@@ -289,6 +290,11 @@ public sealed class PublicRateLimitOptions
     /// two or three requests. Beyond it: <c>429</c>. Default 20.</summary>
     public int CoordinatorAuthorizationRequestsPerIpPerMinute { get; set; } = 20;
 
+    /// <summary>Requests one client IP may send per minute to the shops' reservation pages — showing a page, showing a
+    /// date's times without JavaScript and sending the form together, whatever the shop (#389; sliding window). A
+    /// reservation is two to four requests. Beyond it: a <c>429</c> page. Default 10.</summary>
+    public int CoordinatorReservationRequestsPerIpPerMinute { get; set; } = 10;
+
     internal IEnumerable<(string Name, int Value)> Values()
     {
         yield return (nameof(SessionsPerIpPerMinute), SessionsPerIpPerMinute);
@@ -305,6 +311,7 @@ public sealed class PublicRateLimitOptions
         yield return (nameof(LineQuestionsPerAssistantPerMinute), LineQuestionsPerAssistantPerMinute);
         yield return (nameof(LineMaxConcurrentQuestionsPerAssistant), LineMaxConcurrentQuestionsPerAssistant);
         yield return (nameof(CoordinatorAuthorizationRequestsPerIpPerMinute), CoordinatorAuthorizationRequestsPerIpPerMinute);
+        yield return (nameof(CoordinatorReservationRequestsPerIpPerMinute), CoordinatorReservationRequestsPerIpPerMinute);
     }
 }
 

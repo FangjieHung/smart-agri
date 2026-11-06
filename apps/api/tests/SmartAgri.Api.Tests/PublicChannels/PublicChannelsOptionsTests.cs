@@ -203,6 +203,7 @@ public class PublicChannelsOptionsTests
             options.RateLimits.LineQuestionsPerAssistantPerMinute.ShouldBe(120);
             options.RateLimits.LineMaxConcurrentQuestionsPerAssistant.ShouldBe(10);
             options.RateLimits.CoordinatorAuthorizationRequestsPerIpPerMinute.ShouldBe(20);
+            options.RateLimits.CoordinatorReservationRequestsPerIpPerMinute.ShouldBe(10);
             options.Line.ReplyDeadlineSeconds.ShouldBe(50);
             options.TrustedProxies.ShouldBeEmpty();
             Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();
@@ -228,10 +229,11 @@ public class PublicChannelsOptionsTests
             ["PublicChannels:RateLimits:LineQuestionsPerAssistantPerMinute"] = "14",
             ["PublicChannels:RateLimits:LineMaxConcurrentQuestionsPerAssistant"] = "15",
             ["PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute"] = "16",
+            ["PublicChannels:RateLimits:CoordinatorReservationRequestsPerIpPerMinute"] = "17",
             ["PublicChannels:Line:ReplyDeadlineSeconds"] = "30",
         });
 
-        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
         options.Line.ReplyDeadline.ShouldBe(TimeSpan.FromSeconds(30));
         Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
@@ -251,6 +253,7 @@ public class PublicChannelsOptionsTests
     [InlineData("LineQuestionsPerAssistantPerMinute", "0")]
     [InlineData("LineMaxConcurrentQuestionsPerAssistant", "0")]
     [InlineData("CoordinatorAuthorizationRequestsPerIpPerMinute", "0")]
+    [InlineData("CoordinatorReservationRequestsPerIpPerMinute", "0")]
     public void A_rate_limit_below_one_fails_startup_and_says_which_setting(string name, string value)
     {
         var result = Validator("Production").Validate(null, BindSettings(new Dictionary<string, string?> { [$"PublicChannels:RateLimits:{name}"] = value }));

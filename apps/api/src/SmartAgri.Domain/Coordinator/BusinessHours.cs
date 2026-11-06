@@ -74,6 +74,26 @@ public sealed class BusinessHours
             .OrderBy(interval => interval.Opens),
     ];
 
+    /// <summary>
+    /// The instant of <paramref name="time"/> on the business day <paramref name="date"/> — a 店休 command's 提早打烊
+    /// closing or 延後開店 opening: on <paramref name="date"/> itself, or on the next day when that is the small hours of
+    /// the date's overnight period (Saturday's 18:00–02:00 closing early at 01:00 is Sunday 01:00).
+    /// </summary>
+    public DateTimeOffset OnBusinessDay(DateOnly date, TimeOnly time)
+    {
+        var instant = At(date, time);
+        var periods = PeriodsOn(date);
+        if (periods.Count > 0
+            && instant <= periods[0].Opens
+            && At(date.AddDays(1), time) is var nextDay
+            && nextDay < periods.Max(period => period.Closes))
+        {
+            return nextDay;
+        }
+
+        return instant;
+    }
+
     /// <summary>When the shop first opens on <paramref name="date"/>; <see langword="null"/> on a regular
     /// day off. Slice 4 reminds the owner to pause ordering before this on a closed day.</summary>
     public DateTimeOffset? FirstOpeningOn(DateOnly date) => PeriodsOn(date) is [var first, ..] ? first.Opens : null;

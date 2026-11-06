@@ -10,9 +10,11 @@ namespace SmartAgri.Domain.Coordinator;
 /// read whole, one organization at a time, by the 統籌助理.
 /// </summary>
 /// <remarks>
-/// <see cref="WeeklyHours"/> and <see cref="Scenarios"/> are <c>jsonb</c> in the settings file's own
-/// format. A change writes one <see cref="OrganizationActivityAction.CoordinatorShopSettingsUpdated"/>
-/// naming the sections and scenarios that changed — never their text.
+/// <see cref="WeeklyHours"/>, <see cref="Scenarios"/> and <see cref="Reservations"/> are <c>jsonb</c> in the settings
+/// file's own format; <see cref="ReservationSlug"/> repeats the reservation page's slug in a column of its own, unique
+/// across all shops, so the anonymous page can find its shop (#389). A change writes one
+/// <see cref="OrganizationActivityAction.CoordinatorShopSettingsUpdated"/> naming the sections and scenarios that
+/// changed — never their text.
 /// </remarks>
 public sealed class ShopSettings : IOrganizationScoped
 {
@@ -25,8 +27,9 @@ public sealed class ShopSettings : IOrganizationScoped
     /// <summary>Longest time zone id stored.</summary>
     public const int TimeZoneIdMaxLength = 64;
 
-    /// <summary>The settings file's top-level sections, as <see cref="ShopSettingsChange.Sections"/> names them.</summary>
-    public static readonly IReadOnlyList<string> SectionNames = ["storeName", "timeZone", "weeklyHours", "scenarios"];
+    /// <summary>The settings file's top-level sections, as <see cref="ShopSettingsChange.Sections"/> names them;
+    /// <c>reservations</c> is optional (#389).</summary>
+    public static readonly IReadOnlyList<string> SectionNames = ["storeName", "timeZone", "weeklyHours", "scenarios", "reservations"];
 
     /// <summary>For EF Core materialization.</summary>
     private ShopSettings()
@@ -51,13 +54,19 @@ public sealed class ShopSettings : IOrganizationScoped
 
     public IReadOnlyDictionary<ShopScenario, ShopScenarioSettings> Scenarios { get; private set; }
 
+    /// <summary>Online reservations (#389); <see langword="null"/> when the settings have none.</summary>
+    public ShopReservationSettings? Reservations { get; private set; }
+
+    /// <summary><see cref="Reservations"/>' slug, enabled or not; unique across all organizations.</summary>
+    public string? ReservationSlug { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     /// <summary>When an import last changed something.</summary>
     public DateTimeOffset UpdatedAt { get; private set; }
 
     /// <summary>The stored settings, as the file has them.</summary>
-    public ShopSettingsDocument Document => new(StoreName, TimeZoneId, WeeklyHours, Scenarios);
+    public ShopSettingsDocument Document => new(StoreName, TimeZoneId, WeeklyHours, Scenarios, Reservations);
 
     /// <summary>The first settings of <paramref name="organizationId"/>.</summary>
     public static ShopSettings Create(Guid organizationId, ShopSettingsDocument document, DateTimeOffset now)
@@ -104,6 +113,8 @@ public sealed class ShopSettings : IOrganizationScoped
         TimeZoneId = document.TimeZoneId;
         WeeklyHours = document.WeeklyHours;
         Scenarios = new Dictionary<ShopScenario, ShopScenarioSettings>(document.Scenarios);
+        Reservations = document.Reservations;
+        ReservationSlug = document.Reservations?.Slug;
         UpdatedAt = now;
     }
 }
@@ -114,8 +125,17 @@ public sealed record ShopSettingsChange(IReadOnlyList<string> Sections, IReadOnl
 {
     public bool IsEmpty => Sections.Count == 0;
 
-    /// <summary>Everything, for a shop's first settings.</summary>
-    public static ShopSettingsChange All { get; } = new(ShopSettings.SectionNames, Enum.GetValues<ShopScenario>());
+    /// <summary>Everything a settings file always has, for a shop's first settings (<see cref="Created"/> adds
+    /// <c>reservations</c> when they have it).</summary>
+    public static ShopSettingsChange All { get; } = new(["storeName", "timeZone", "weeklyHours", "scenarios"], Enum.GetValues<ShopScenario>());
+
+    /// <summary>What a shop's first settings, <paramref name="document"/>, set: <see cref="All"/>, and
+    /// <c>reservations</c> when it has them.</summary>
+    public static ShopSettingsChange Created(ShopSettingsDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return document.Reservations is null ? All : new ShopSettingsChange([.. All.Sections, "reservations"], All.Scenarios);
+    }
 
     /// <summary>What differs between <paramref name="before"/> and <paramref name="after"/>, compared
     /// as the settings file writes them.</summary>
@@ -148,6 +168,12 @@ public sealed record ShopSettingsChange(IReadOnlyList<string> Sections, IReadOnl
         if (scenarios.Count > 0)
         {
             sections.Add("scenarios");
+        }
+
+        if ((before.Reservations is null ? null : ShopSettingsJson.WriteReservations(before.Reservations))
+            != (after.Reservations is null ? null : ShopSettingsJson.WriteReservations(after.Reservations)))
+        {
+            sections.Add("reservations");
         }
 
         return new ShopSettingsChange(sections, scenarios);

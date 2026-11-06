@@ -22,7 +22,7 @@ public sealed class RetentionCleanupCommand
     public const string Usage =
         "用法：retention-cleanup --organization <組織代碼> [--as-of <ISO 8601 時間>]\n" +
         "立即依組織的保存期限清理一次過期的對話串與回答紀錄（緩衝期已過的新期限會先生效），" +
-        "並刪除已處理超過 365 天的轉真人通知（不論保存期限；待處理的不刪）。" +
+        "並刪除已處理超過 365 天的轉真人通知（不論保存期限；待處理的不刪），以及訂位時間已過 90 天的線上訂位（不論狀態）。" +
         "--as-of 只能在 Development 或 Testing 使用，以指定的時間計算截止點。\n" +
         "結束代碼：0 完成；1 找不到組織或執行失敗；2 參數錯誤。";
 
@@ -97,6 +97,7 @@ public sealed class RetentionCleanupCommand
             var at = asOf ?? _services.GetRequiredService<TimeProvider>().GetUtcNow();
             var result = await cleanup.RunAsync(at, cancellationToken);
             var handoffs = await cleanup.DeleteHandledHandoffsAsync(at, cancellationToken);
+            var reservations = await cleanup.DeleteExpiredReservationsAsync(at, cancellationToken);
 
             if (result.TookEffect is { } change)
             {
@@ -109,6 +110,8 @@ public sealed class RetentionCleanupCommand
                 : $"組織 {organization.Code}（{organization.Name}）的對話永久保存，沒有刪除任何對話。");
             await output.WriteLineAsync(
                 $"轉真人通知：刪除 {handoffs.Count} 筆在 {handoffs.Cutoff.ToString("o", CultureInfo.InvariantCulture)} 之前處理的通知（已處理超過 365 天）。");
+            await output.WriteLineAsync(
+                $"線上訂位：刪除 {reservations.Count} 筆訂位時間在 {reservations.Cutoff.ToString("o", CultureInfo.InvariantCulture)} 之前的訂位（已過 90 天）。");
             return ExitSuccess;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

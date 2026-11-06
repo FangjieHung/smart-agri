@@ -17,7 +17,8 @@ public sealed record CoordinatorLinkMatch(Guid LinkId, Guid OrganizationId);
 /// <summary>
 /// The 統籌助理's cross-organization reads (store-coordinator design decision C, #372, #377). The
 /// platform's shared LINE account does not know which shop a message is for until it knows who sent it,
-/// and an owner opening an authorization link is anonymous until the link is found, so — like
+/// an owner opening an authorization link is anonymous until the link is found, and a customer opening a
+/// reservation page is anonymous for good (#389), so — like
 /// <see cref="SmartAgri.Infrastructure.Assistants.PublicAssistantLookup"/> for an anonymous visitor — nobody's
 /// organization exists yet when these run, and this is the one place in <c>apps/api/src</c> allowed to
 /// switch the organization filter off for coordinator data (a source-scanning test enforces it).
@@ -93,6 +94,19 @@ public sealed class CoordinatorLookup
             .AsNoTracking()
             .Where(link => link.TokenHash == tokenHash)
             .Select(link => new CoordinatorLinkMatch(link.Id, link.OrganizationId))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>The organization whose shop settings have the reservation page <paramref name="slug"/> (#389), enabled
+    /// or not — the reservation page's shop, and whether an import's slug is taken; <see langword="null"/> when none.</summary>
+    public async Task<Guid?> FindReservationShopAsync(string slug, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(slug);
+        return await _dbContext.CoordinatorShopSettings
+            .IgnoreQueryFilters([AppDbContext.OrganizationFilter])
+            .AsNoTracking()
+            .Where(settings => settings.ReservationSlug == slug)
+            .Select(settings => (Guid?)settings.OrganizationId)
             .SingleOrDefaultAsync(cancellationToken);
     }
 }

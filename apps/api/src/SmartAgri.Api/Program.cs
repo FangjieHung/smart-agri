@@ -249,6 +249,14 @@ if (args is [SmartAgriCommands.CoordinatorCommands, .. var coordinatorCommandsAr
     return;
 }
 
+// `coordinator-reservations` is one-shot too, in any environment: list a shop's upcoming and recent online reservations
+// (phone numbers masked to their last three digits, no Email address or note), and exit (#389).
+if (args is [SmartAgriCommands.CoordinatorReservations, .. var coordinatorReservationsArgs])
+{
+    Environment.ExitCode = await CoordinatorReservationsCommand.RunAsync(app.Services, coordinatorReservationsArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `case-set-due` is one-shot too, Development/Testing only: move one open case's due time (also into
 // the past, which the API refuses) with an actor-less due-changed event, and exit (M7-11 #256). The
 // API-mode E2E runs it to make a case overdue.
@@ -328,6 +336,7 @@ app.MapWidgetEndpoints();
 app.MapLineWebhookEndpoints();
 app.MapCoordinatorWebhookEndpoints();
 app.MapCoordinatorAuthorizationEndpoints();
+app.MapCoordinatorReservationEndpoints();
 
 // Only in Development: the committed apps/api/openapi/v1.json (generated at build time,
 // see SmartAgri.Api.csproj) is the source frontend types are generated from, so the API
@@ -358,6 +367,7 @@ internal static class SmartAgriCommands
     public const string CoordinatorBindingCode = "coordinator-binding-code";
     public const string CoordinatorShop = "coordinator-shop";
     public const string CoordinatorCommands = "coordinator-commands";
+    public const string CoordinatorReservations = "coordinator-reservations";
 }
 
 namespace SmartAgri.Api

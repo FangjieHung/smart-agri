@@ -2081,6 +2081,111 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("CoordinatorMembers", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorReservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid?>("CancelledByCommandId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("CustomerPhone")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset?>("HandledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("HandledByMemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MembersNotified")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PartySize")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("ReservedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset?>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SubmissionKey")
+                        .IsRequired()
+                        .HasMaxLength(43)
+                        .HasColumnType("character varying(43)");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubmissionKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CoordinatorReservations_SubmissionKey");
+
+                    b.HasIndex("CancelledByCommandId", "OrganizationId");
+
+                    b.HasIndex("OrganizationId", "Date");
+
+                    b.HasIndex("OrganizationId", "ReservedAt");
+
+                    b.HasIndex("OrganizationId", "CustomerPhone", "Status");
+
+                    b.ToTable("CoordinatorReservations", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorReservations_Cancelled", "(\"Status\" = 'cancelled') = (\"CancelReason\" IS NOT NULL) AND (\"CancelledByCommandId\" IS NULL OR \"Status\" = 'cancelled') AND (\"CancelReason\" IS NULL OR \"CancelReason\" IN ('temporary-closure', 'close-early', 'open-late'))");
+
+                            t.HasCheckConstraint("CK_CoordinatorReservations_Handled", "(\"HandledByMemberId\" IS NULL) = (\"HandledAt\" IS NULL) AND (\"Status\" NOT IN ('accepted', 'declined') OR \"HandledAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_CoordinatorReservations_MembersNotified", "\"MembersNotified\" IN ('pending', 'sent', 'not-sent')");
+
+                            t.HasCheckConstraint("CK_CoordinatorReservations_PartySize", "\"PartySize\" >= 1");
+
+                            t.HasCheckConstraint("CK_CoordinatorReservations_Status", "\"Status\" IN ('pending', 'accepted', 'declined', 'cancelled', 'expired')");
+
+                            t.HasCheckConstraint("CK_CoordinatorReservations_StatusChanged", "(\"Status\" = 'pending') = (\"StatusChangedAt\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_CoordinatorReservations_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.ShopSettings", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2092,6 +2197,13 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<Guid>("OrganizationId")
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ReservationSlug")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Reservations")
+                        .HasColumnType("jsonb");
 
                     b.Property<string>("Scenarios")
                         .IsRequired()
@@ -2119,8 +2231,15 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.HasIndex("OrganizationId")
                         .IsUnique();
 
+                    b.HasIndex("ReservationSlug")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CoordinatorShopSettings_ReservationSlug")
+                        .HasFilter("\"ReservationSlug\" IS NOT NULL");
+
                     b.ToTable("CoordinatorShopSettings", null, t =>
                         {
+                            t.HasCheckConstraint("CK_CoordinatorShopSettings_Reservations", "\"Reservations\" IS NULL OR jsonb_typeof(\"Reservations\") = 'object'");
+
                             t.HasCheckConstraint("CK_CoordinatorShopSettings_Scenarios", "jsonb_typeof(\"Scenarios\") = 'object'");
 
                             t.HasCheckConstraint("CK_CoordinatorShopSettings_WeeklyHours", "jsonb_typeof(\"WeeklyHours\") = 'object'");
@@ -3994,6 +4113,21 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorReservation", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("SmartAgri.Domain.Coordinator.CoordinatorCommand", null)
+                        .WithMany()
+                        .HasForeignKey("CancelledByCommandId", "OrganizationId")
+                        .HasPrincipalKey("Id", "OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.ShopSettings", b =>

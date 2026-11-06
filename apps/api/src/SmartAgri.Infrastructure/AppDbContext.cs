@@ -238,6 +238,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Single-use FB and Google authorization links of the shops' owners (#377).</summary>
     public DbSet<CoordinatorAuthorizationLink> CoordinatorAuthorizationLinks => Set<CoordinatorAuthorizationLink>();
 
+    /// <summary>The reservations customers sent from the shops' reservation pages (#389).</summary>
+    public DbSet<CoordinatorReservation> CoordinatorReservations => Set<CoordinatorReservation>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -420,8 +423,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new AccountNotificationSettingsConfiguration());
 
         // The 統籌助理's members and binding codes (store-coordinator design, #372), shop settings
-        // (#373), commands (#374), their actions (#375) and the shops' service credentials (#376); only
-        // Coordinator/CoordinatorLookup reads them across organizations.
+        // (#373), commands (#374), their actions (#375), the shops' service credentials (#376) and
+        // authorization links (#377), and the reservations (#389); only Coordinator/CoordinatorLookup reads
+        // them across organizations.
         modelBuilder.ApplyConfiguration(new CoordinatorMemberConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorBindingCodeConfiguration());
         modelBuilder.ApplyConfiguration(new ShopSettingsConfiguration());
@@ -429,6 +433,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new CoordinatorCommandActionConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorConnectionConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorAuthorizationLinkConfiguration());
+        modelBuilder.ApplyConfiguration(new CoordinatorReservationConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

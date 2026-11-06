@@ -394,3 +394,29 @@ internal sealed class CoordinatorReservationConfiguration : IEntityTypeConfigura
         builder.HasIndex(reservation => new { reservation.OrganizationId, reservation.ReservedAt });
     }
 }
+
+/// <summary>
+/// Table <c>CoordinatorPushLogs</c> (#390): one row per push of the 統籌助理 that LINE accepted — the shop, when, the
+/// purpose (check constraint on its four wire names) and the recipient count (at least 1). Indexed by organization and
+/// time for a month's counts and the retention sweep.
+/// </summary>
+internal sealed class CoordinatorPushLogConfiguration : IEntityTypeConfiguration<CoordinatorPushLog>
+{
+    public void Configure(EntityTypeBuilder<CoordinatorPushLog> builder)
+    {
+        builder.ToTable("CoordinatorPushLogs", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_CoordinatorPushLogs_Purpose",
+                "\"Purpose\" IN ('reservation', 'reminder', 'follow-up', 're-authorization')");
+            table.HasCheckConstraint("CK_CoordinatorPushLogs_Recipients", "\"Recipients\" >= 1");
+        });
+        builder.HasKey(log => log.Id);
+        builder.Property(log => log.Id).ValueGeneratedNever();
+        builder.Property(log => log.Purpose)
+            .HasConversion<WireNameConverter<CoordinatorPushPurpose>>()
+            .HasMaxLength(32)
+            .IsRequired();
+        builder.HasIndex(log => new { log.OrganizationId, log.SentAt });
+    }
+}

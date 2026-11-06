@@ -241,6 +241,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>The reservations customers sent from the shops' reservation pages (#389).</summary>
     public DbSet<CoordinatorReservation> CoordinatorReservations => Set<CoordinatorReservation>();
 
+    /// <summary>The 統籌助理's pushes LINE accepted, per shop and purpose (#390).</summary>
+    public DbSet<CoordinatorPushLog> CoordinatorPushLogs => Set<CoordinatorPushLog>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -424,8 +427,8 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
 
         // The 統籌助理's members and binding codes (store-coordinator design, #372), shop settings
         // (#373), commands (#374), their actions (#375), the shops' service credentials (#376) and
-        // authorization links (#377), and the reservations (#389); only Coordinator/CoordinatorLookup reads
-        // them across organizations.
+        // authorization links (#377), the reservations (#389) and the push log (#390); only
+        // Coordinator/CoordinatorLookup reads them across organizations.
         modelBuilder.ApplyConfiguration(new CoordinatorMemberConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorBindingCodeConfiguration());
         modelBuilder.ApplyConfiguration(new ShopSettingsConfiguration());
@@ -434,6 +437,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new CoordinatorConnectionConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorAuthorizationLinkConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorReservationConfiguration());
+        modelBuilder.ApplyConfiguration(new CoordinatorPushLogConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

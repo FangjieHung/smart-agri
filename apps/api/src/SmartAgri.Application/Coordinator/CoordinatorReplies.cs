@@ -22,8 +22,8 @@ public static class CoordinatorReplies
 
     public const string OwnersOnly = "只有老闆可以產生店長綁定碼。";
 
-    /// <summary>The capability menu (Q24): the reply to a bound member's message that is not a command.</summary>
-    public const string Menu = "我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店";
+    /// <summary>The capability menu (Q24; 查看訂位 since #390): the reply to a bound member's message that is not a command.</summary>
+    public const string Menu = "我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店／查看訂位（傳「訂位」）";
 
     public const string ChooseStore = "要產生哪一家店的店長綁定碼？";
 

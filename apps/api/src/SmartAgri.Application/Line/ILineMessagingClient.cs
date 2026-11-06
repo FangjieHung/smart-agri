@@ -58,6 +58,11 @@ public interface ILineMessagingClient
     /// Manager sends included).</summary>
     Task<LineApiResult<LineQuotaConsumption>> GetMessageQuotaConsumptionAsync(string accessToken, CancellationToken cancellationToken);
 
+    /// <summary><c>GET /v2/bot/profile/{userId}</c> (#390): a user's display name — only of a friend of the account (or one
+    /// who wrote to it) who has not blocked it, otherwise <c>404</c> (<see cref="LineApiOutcome.HttpError"/>). Free (not a
+    /// message); 2,000 per second.</summary>
+    Task<LineApiResult<LineProfile>> GetProfileAsync(string accessToken, string userId, CancellationToken cancellationToken);
+
     /// <summary><c>GET /v2/bot/insight/followers?date=yyyyMMdd</c> (<paramref name="date"/> in UTC+9): the friends as of
     /// that day — LINE needs about a day to compute it (<see cref="LineFollowersInsight.Status"/> <c>unready</c>
     /// before); 60 per hour.</summary>
@@ -120,6 +125,13 @@ public sealed record LineApiResult<T>(LineApiOutcome Outcome, int? StatusCode, s
 /// <param name="BasicId">The account's basic id, <c>@</c> first (e.g. <c>@123abcde</c>).</param>
 /// <param name="PremiumId">The account's premium id, <c>@</c> first, if it bought one.</param>
 public sealed record LineBotInfo(string UserId, string BasicId, string DisplayName, string? PremiumId);
+
+/// <summary><c>GET /v2/bot/profile/{userId}</c>'s answer (the fields used here; never logged).</summary>
+public sealed record LineProfile(string UserId, string DisplayName)
+{
+    /// <summary>Only that there is one: a display name is a person's.</summary>
+    public override string ToString() => nameof(LineProfile);
+}
 
 /// <summary><c>GET /v2/bot/message/quota</c>'s answer.</summary>
 /// <param name="Limited">Whether a monthly target limit is set (<c>type</c> <c>limited</c>; <c>none</c> = no limit).</param>

@@ -1,9 +1,14 @@
 using System.Collections.Concurrent;
 using System.Text.Json.Nodes;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Line;
+using SmartAgri.Application.Observability;
+using SmartAgri.Domain;
 using SmartAgri.Domain.Coordinator;
+using SmartAgri.Infrastructure;
+using SmartAgri.Infrastructure.Tenancy;
 
 namespace SmartAgri.Api.Coordinator;
 
@@ -170,22 +175,79 @@ public sealed class CoordinatorReplyTokens
         _tokens.TryRemove(commandId, out var kept) && _clock.GetUtcNow() - kept.ReceivedAt < Freshness ? kept.Token : null;
 }
 
+/// <summary>How a push of the 統籌助理 went (<see cref="CoordinatorReplySender.PushAsync"/>, #390).</summary>
+public enum CoordinatorPushOutcome
+{
+    /// <summary>LINE accepted it now (and it is in the push log).</summary>
+    Sent,
+
+    /// <summary>LINE had accepted a push with the same retry key before (<c>409</c>): sent then, not again.</summary>
+    AlreadySent,
+
+    /// <summary>The coordinator account's monthly message limit is reached (<c>429</c> 「You have reached your monthly
+    /// limit.」): LINE refuses every push until next month or a bigger plan.</summary>
+    MonthlyLimit,
+
+    /// <summary>A failure a later try may get past: a rate limit, a timeout, the network, LINE's own error (5xx).</summary>
+    Failed,
+
+    /// <summary>A refusal trying again will not change (the token refused, a <c>4xx</c> such as an unknown user).</summary>
+    Refused,
+
+    /// <summary>The 統籌助理 is not configured: nothing was sent.</summary>
+    NotConfigured,
+}
+
+/// <summary>A push's <see cref="Outcome"/>, with LINE's answer when there was one (never a message or a LINE id).</summary>
+public sealed record CoordinatorPushResult(CoordinatorPushOutcome Outcome, LineApiResult? Line = null)
+{
+    /// <summary>The recipient has it: sent now or before.</summary>
+    public bool Delivered => Outcome is CoordinatorPushOutcome.Sent or CoordinatorPushOutcome.AlreadySent;
+
+    /// <summary><paramref name="result"/> of a push with a retry key, classified.</summary>
+    public static CoordinatorPushResult Of(LineApiResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var outcome = result switch
+        {
+            { Succeeded: true } => CoordinatorPushOutcome.Sent,
+            { IsRetryKeyAccepted: true } => CoordinatorPushOutcome.AlreadySent,
+            { IsMonthlyLimit: true } => CoordinatorPushOutcome.MonthlyLimit,
+            { Outcome: LineApiOutcome.RateLimited or LineApiOutcome.TimedOut or LineApiOutcome.NetworkError } => CoordinatorPushOutcome.Failed,
+            { Outcome: LineApiOutcome.HttpError, StatusCode: null or >= 500 } => CoordinatorPushOutcome.Failed,
+            _ => CoordinatorPushOutcome.Refused,
+        };
+        return new CoordinatorPushResult(outcome, result);
+    }
+}
+
 /// <summary>
-/// Sends the 統籌助理's messages with its access token (#372, #374, #375): replies (free; 1 to 5 message objects per
-/// reply token, used once) and, for reminders and follow-ups, pushes — counted against the coordinator account's
-/// monthly quota, which the platform bears (decision E). A LINE failure is logged (event type or what was pushed,
-/// outcome, status, <c>x-line-request-id</c> — never a token, a LINE id or a message) and dropped.
+/// Sends the 統籌助理's messages with its access token (#372, #374, #375, #390): replies (free; 1 to 5 message objects per
+/// reply token, used once) and pushes — reservation cards, reminders, follow-ups, re-authorization links — counted
+/// against the coordinator account's monthly quota, which the platform bears (decision E). Every push LINE accepts is
+/// written to the shop's push log (<see cref="CoordinatorPushLog"/>, for <c>coordinator-quota</c>). A LINE failure is
+/// logged (event type or what was pushed, outcome, status, <c>x-line-request-id</c> — never a token, a LINE id or a
+/// message) and dropped; the monthly limit is logged as such.
 /// </summary>
 public sealed class CoordinatorReplySender
 {
     private readonly ILineMessagingClient _line;
     private readonly CoordinatorLineOptions _options;
+    private readonly DbContextOptions<AppDbContext> _dbOptions;
+    private readonly TimeProvider _clock;
     private readonly ILogger<CoordinatorReplySender> _logger;
 
-    public CoordinatorReplySender(ILineMessagingClient line, IOptions<CoordinatorLineOptions> options, ILogger<CoordinatorReplySender> logger)
+    public CoordinatorReplySender(
+        ILineMessagingClient line,
+        IOptions<CoordinatorLineOptions> options,
+        DbContextOptions<AppDbContext> dbOptions,
+        TimeProvider clock,
+        ILogger<CoordinatorReplySender> logger)
     {
         _line = line;
         _options = options.Value;
+        _dbOptions = dbOptions;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -212,32 +274,93 @@ public sealed class CoordinatorReplySender
         return result.Succeeded;
     }
 
-    /// <summary>Pushes <paramref name="messages"/> (<paramref name="what"/> names them in the log) to
-    /// <paramref name="to"/>; <paramref name="retryKey"/> makes a repeated push harmless. <see langword="false"/> when
-    /// it was not sent.</summary>
-    public async Task<bool> PushAsync(string to, IReadOnlyList<JsonObject> messages, Guid retryKey, string what, CancellationToken cancellationToken)
+    /// <summary>
+    /// Pushes <paramref name="messages"/> for <paramref name="purpose"/> of shop <paramref name="organizationId"/> to
+    /// <paramref name="to"/>; <paramref name="retryKey"/> (<c>X-Line-Retry-Key</c>, kept by LINE for 24 hours) makes a
+    /// repeated push harmless (<see cref="CoordinatorPushOutcome.AlreadySent"/>). A push LINE accepts gets a row in the
+    /// shop's push log; failing to write it is logged and does not change the outcome.
+    /// </summary>
+    public async Task<CoordinatorPushResult> PushAsync(
+        Guid organizationId,
+        string to,
+        IReadOnlyList<JsonObject> messages,
+        Guid retryKey,
+        CoordinatorPushPurpose purpose,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(to);
         ArgumentNullException.ThrowIfNull(messages);
         if (messages.Count == 0)
         {
-            return false;
+            throw new ArgumentException("A push carries at least one message.", nameof(messages));
         }
 
+        var what = WireNames<CoordinatorPushPurpose>.ToWire(purpose);
         if (!_options.IsConfigured)
         {
             _logger.LogWarning("The 統籌助理 is not configured: a {What} was not pushed.", what);
-            return false;
+            return new CoordinatorPushResult(CoordinatorPushOutcome.NotConfigured);
         }
 
-        var result = await _line.PushAsync(_options.AccessToken, to, [.. messages.Take(LineMessages.MaxPerRequest)], retryKey, cancellationToken);
-        if (!result.Succeeded)
+        var result = CoordinatorPushResult.Of(
+            await _line.PushAsync(_options.AccessToken, to, [.. messages.Take(LineMessages.MaxPerRequest)], retryKey, cancellationToken));
+        var line = result.Line!;
+        switch (result.Outcome)
+        {
+            case CoordinatorPushOutcome.Sent:
+                await LogPushAsync(organizationId, purpose, cancellationToken);
+                break;
+
+            case CoordinatorPushOutcome.AlreadySent:
+                _logger.LogInformation(
+                    "The 統籌助理's push of a {What} was accepted before with the same retry key (x-line-request-id {RequestId}); not sent again.",
+                    what, line.RequestId);
+                break;
+
+            case CoordinatorPushOutcome.MonthlyLimit:
+                _logger.LogWarning(
+                    "The 統籌助理's monthly message limit is reached: LINE refused the push of a {What} of organization {OrganizationId} "
+                    + "(HTTP {StatusCode}, x-line-request-id {RequestId}). Check coordinator-quota and the account's plan.",
+                    what, organizationId, line.StatusCode, line.RequestId);
+                break;
+
+            default:
+                _logger.LogWarning(
+                    "LINE refused the 統籌助理's push of a {What}: {Outcome} (HTTP {StatusCode}, x-line-request-id {RequestId}); dropped.",
+                    what, line.Outcome, line.StatusCode, line.RequestId);
+                break;
+        }
+
+        return result;
+    }
+
+    /// <summary>The LINE display name of <paramref name="lineUserId"/> as the coordinator account sees them (free, not a
+    /// message); <see langword="null"/> when LINE does not give it (blocked, not a friend, any failure). Never logged.</summary>
+    public async Task<string?> DisplayNameAsync(string lineUserId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(lineUserId);
+        if (!_options.IsConfigured)
+        {
+            return null;
+        }
+
+        var profile = await _line.GetProfileAsync(_options.AccessToken, lineUserId, cancellationToken);
+        return profile is { Succeeded: true, Value.DisplayName: { } name } && !string.IsNullOrWhiteSpace(name) ? name.Trim() : null;
+    }
+
+    private async Task LogPushAsync(Guid organizationId, CoordinatorPushPurpose purpose, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var dbContext = new AppDbContext(_dbOptions, new FixedOrganizationContext(organizationId));
+            dbContext.CoordinatorPushLogs.Add(CoordinatorPushLog.Record(organizationId, purpose, recipients: 1, _clock.GetUtcNow()));
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(
-                "LINE refused the 統籌助理's push of a {What}: {Outcome} (HTTP {StatusCode}, x-line-request-id {RequestId}); dropped.",
-                what, result.Outcome, result.StatusCode, result.RequestId);
+                "A {Purpose} push of organization {OrganizationId} was sent but not written to the push log: {Failure}",
+                WireNames<CoordinatorPushPurpose>.ToWire(purpose), organizationId, ExceptionSummary.Of(exception));
         }
-
-        return result.Succeeded;
     }
 }

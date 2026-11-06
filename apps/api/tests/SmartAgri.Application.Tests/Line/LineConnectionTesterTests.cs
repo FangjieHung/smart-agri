@@ -220,5 +220,8 @@ public class LineConnectionTesterTests
 
         public Task<LineApiResult<LineFollowersInsight>> GetFollowersInsightAsync(string accessToken, DateOnly date, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+
+        public Task<LineApiResult<LineProfile>> GetProfileAsync(string accessToken, string userId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

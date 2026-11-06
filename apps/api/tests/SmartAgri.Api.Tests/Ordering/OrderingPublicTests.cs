@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -7,6 +9,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
 using Shouldly;
 using SmartAgri.Api.Ordering;
 using SmartAgri.Api.Tests.Authentication;
@@ -21,7 +25,8 @@ namespace SmartAgri.Api.Tests.Ordering;
 /// The anonymous online-ordering API (online-ordering Slice O2, #398) through the real endpoints and PostgreSQL: the shop,
 /// menu and slots; an order priced by the server only; a slot's last place and the day's numbers under concurrency; the
 /// menu version, sold-out items, category windows, a paused shop, the pending limit per phone, a resent key; looking up and
-/// cancelling by token; the same 404 for unknown and other shops; the rate limits; no customer detail in a log.
+/// cancelling by the token in its header; the same 404 for unknown and other shops; the rate limits; no customer detail or
+/// token in a log line, log scope or span.
 /// </summary>
 /// <remarks>The clock stands at Tuesday 2026-11-17 12:00 in Taipei for every test; each shop takes orders every day
 /// 11:00–14:00 and 17:00–21:00, 20 minutes ahead, so the first time is 12:30 and ASAP is 15–30 minutes.</remarks>
@@ -157,7 +162,7 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
         (order["orderComment"]!.GetValue<string>(), order["tableware"]!.GetValue<bool>(), order["canCancel"]!.GetValue<bool>()).ShouldBe(("請放門口", true, true));
         order.AsObject().Select(property => property.Key).ShouldNotContain("customerEmail");
 
-        var lookedUp = await _client.GetAsync($"/api/v1/public/ordering/{slug}/orders/{token}", CancellationToken);
+        var lookedUp = await GetOrderAsync(_client, slug, token);
         lookedUp.Headers.GetValues("Referrer-Policy").ShouldBe(["no-referrer"]);
         (await JsonAsync(lookedUp)).ToJsonString().ShouldBe(order.ToJsonString());
 
@@ -318,7 +323,7 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
         }
 
         await ProblemAsync(await PostAsync(slug, Order(1, Asap(), [Wonton()], phone: "0912-000-555")), HttpStatusCode.TooManyRequests, "too-many-pending");
-        (await _client.PostAsync($"/api/v1/public/ordering/{slug}/orders/{tokens[0]}/cancel", null, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CancelAsync(_client, slug, tokens[0])).StatusCode.ShouldBe(HttpStatusCode.OK);
         await SubmitAsync(slug, Order(1, Asap(), [Wonton()], phone: "0912000555"));
     }
 
@@ -349,16 +354,16 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
         var slot = Scheduled("2026-11-17", "2026-11-17T14:00");
         var token = (await SubmitAsync(slug, Order(1, slot, [Wonton()], phone: "0955000001")))["token"]!.GetValue<string>();
 
-        var cancelled = await _client.PostAsync($"/api/v1/public/ordering/{slug}/orders/{token}/cancel", null, CancellationToken);
+        var cancelled = await CancelAsync(_client, slug, token);
         var order = await JsonAsync(cancelled);
         (order["status"]!.GetValue<string>(), order["canCancel"]!.GetValue<bool>()).ShouldBe(("cancelled", false));
         Instant(order["cancelledAt"]).ShouldBe(_host.Clock.GetUtcNow(), TimeSpan.FromSeconds(5));
         cancelled.Headers.GetValues("Referrer-Policy").ShouldBe(["no-referrer"]);
 
         var twice = await ProblemAsync(
-            await _client.PostAsync($"/api/v1/public/ordering/{slug}/orders/{token}/cancel", null, CancellationToken), HttpStatusCode.Conflict, "not-cancellable");
+            await CancelAsync(_client, slug, token), HttpStatusCode.Conflict, "not-cancellable");
         twice["orderStatus"]!.GetValue<string>().ShouldBe("cancelled");
-        (await JsonAsync(await _client.GetAsync($"/api/v1/public/ordering/{slug}/orders/{token}", CancellationToken)))["status"]!.GetValue<string>()
+        (await JsonAsync(await GetOrderAsync(_client, slug, token)))["status"]!.GetValue<string>()
             .ShouldBe("cancelled");
         var stored = (await OrdersAsync(shop)).ShouldHaveSingleItem();
         (stored.Status, stored.Version).ShouldBe((OrderingOrderStatus.Cancelled, 2));
@@ -374,19 +379,21 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
         var (_, other) = await CreateShopAsync();
         var token = (await SubmitAsync(slug, Order(1, Asap(), [Wonton()])))["token"]!.GetValue<string>();
 
-        foreach (var path in new[]
+        foreach (var (shopSlug, header) in new (string, string?)[]
                  {
-                     $"/api/v1/public/ordering/{other}/orders/{token}",
-                     $"/api/v1/public/ordering/{slug}/orders/{OrderingOrder.NewStatusToken()}",
-                     $"/api/v1/public/ordering/{slug}/orders/not-a-token",
+                     (other, token),
+                     (slug, OrderingOrder.NewStatusToken()),
+                     (slug, "not-a-token"),
+                     (slug, null),
                  })
         {
-            await ProblemAsync(await _client.GetAsync(path, CancellationToken), HttpStatusCode.NotFound, "order-not-found");
+            await ProblemAsync(await GetOrderAsync(_client, shopSlug, header), HttpStatusCode.NotFound, "order-not-found");
+            await ProblemAsync(await CancelAsync(_client, shopSlug, header), HttpStatusCode.NotFound, "order-not-found");
         }
 
-        await ProblemAsync(
-            await _client.PostAsync($"/api/v1/public/ordering/{other}/orders/{token}/cancel", null, CancellationToken), HttpStatusCode.NotFound, "order-not-found");
-        (await JsonAsync(await _client.GetAsync($"/api/v1/public/ordering/{slug}/orders/{token}", CancellationToken)))["status"]!.GetValue<string>()
+        // The old shape with the token in the path does not exist.
+        (await _client.GetAsync($"/api/v1/public/ordering/{slug}/orders/" + token, CancellationToken)).StatusCode.ShouldNotBe(HttpStatusCode.OK);
+        (await JsonAsync(await GetOrderAsync(_client, slug, token)))["status"]!.GetValue<string>()
             .ShouldBe("pending");
     }
 
@@ -429,9 +436,18 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
     }
 
     [Fact]
-    public async Task The_customers_details_and_the_token_never_reach_a_log()
+    public async Task The_customers_details_and_the_token_never_reach_a_log_scope_or_a_span()
     {
         var (shop, slug) = await CreateShopAsync();
+        var spans = new ConcurrentQueue<Activity>();
+        using var traced = _host.Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+                services.AddOpenTelemetry().WithTracing(tracing => tracing.AddProcessor(new SpanProcessor(spans)))));
+        using var client = traced.CreateClient();
+
+        // The processor sees every host's spans in this process: ours are told apart by their user agent.
+        var userAgent = "ordering-token-test-" + Guid.NewGuid().ToString("N");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
         var name = "林" + Guid.NewGuid().ToString("N")[..6];
         var email = $"log-{Guid.NewGuid():N}@example.com";
         var comment = "備註" + Guid.NewGuid().ToString("N")[..8];
@@ -444,7 +460,9 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
             var body = Order(1, Asap(), [Item("wonton-soup", comment: comment)], phone: "0933-221-100", name: name, email: email, comment: comment);
             token = (await SubmitAsync(slug, body))["token"]!.GetValue<string>();
             await PostAsync(slug, body);
-            await _client.PostAsync($"/api/v1/public/ordering/{slug}/orders/{token}/cancel", null, CancellationToken);
+            (await GetOrderAsync(client, slug, token)).StatusCode.ShouldBe(HttpStatusCode.OK);
+            (await CancelAsync(client, slug, token)).StatusCode.ShouldBe(HttpStatusCode.OK);
+            (await GetOrderAsync(client, slug, token[..^1] + "x")).StatusCode.ShouldBe(HttpStatusCode.NotFound);
         }
         finally
         {
@@ -454,14 +472,34 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
         var stored = (await OrdersAsync(shop)).ShouldHaveSingleItem();
         var lines = _host.Log.Lines;
         lines.ShouldContain(line => line.Contains(stored.Id.ToString(), StringComparison.Ordinal), "not vacuous: the order was logged");
-        foreach (var secret in new[] { name, "0933221100", "0933-221-100", "221-100", email, comment })
+        lines.ShouldContain(line => line.Contains("/orders/current/cancel", StringComparison.Ordinal), "not vacuous: the scopes were captured");
+        foreach (var secret in new[] { name, "0933221100", "0933-221-100", "221-100", email, comment, token, token[..^1] })
         {
             lines.ShouldNotContain(line => line.Contains(secret, StringComparison.Ordinal), secret);
         }
 
-        // The request path (a logging scope of the host) carries it; the ordering code's own messages never do.
-        lines.Where(line => line.StartsWith("SmartAgri.Api.Ordering", StringComparison.Ordinal) && !line.Contains(" scope: ", StringComparison.Ordinal))
-            .ShouldNotContain(line => line.Contains(token, StringComparison.Ordinal));
+        bool Ours(Activity span) =>
+            span.Source.Name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal)
+            && Equals(span.GetTagItem("user_agent.original"), userAgent);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (spans.Count(Ours) < 3 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50, CancellationToken);
+        }
+
+        spans.Where(Ours).Select(span => span.GetTagItem("url.path")).ShouldBe(
+            [
+                $"/api/v1/public/ordering/{slug}/orders/current",
+                $"/api/v1/public/ordering/{slug}/orders/current/cancel",
+                $"/api/v1/public/ordering/{slug}/orders/current",
+            ],
+            ignoreOrder: true);
+        var secretPrefix = token[..^1];
+        foreach (var span in spans)
+        {
+            span.TagObjects.ShouldAllBe(tag => !$"{tag.Value}".Contains(secretPrefix), span.DisplayName);
+            span.DisplayName.ShouldNotContain(secretPrefix);
+        }
     }
 
     // --- Helpers ---------------------------------------------------------------------------------------------
@@ -568,6 +606,24 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
         ],
         comment: "麵硬一點");
 
+    /// <summary><c>GET …/orders/current</c> with the token in its header (none when <see langword="null"/>).</summary>
+    private static Task<HttpResponseMessage> GetOrderAsync(HttpClient client, string slug, string? token) =>
+        SendWithTokenAsync(client, HttpMethod.Get, $"/api/v1/public/ordering/{slug}/orders/current", token);
+
+    private static Task<HttpResponseMessage> CancelAsync(HttpClient client, string slug, string? token) =>
+        SendWithTokenAsync(client, HttpMethod.Post, $"/api/v1/public/ordering/{slug}/orders/current/cancel", token);
+
+    private static async Task<HttpResponseMessage> SendWithTokenAsync(HttpClient client, HttpMethod method, string path, string? token)
+    {
+        using var request = new HttpRequestMessage(method, path);
+        if (token is not null)
+        {
+            request.Headers.Add(OrderingPublicEndpoints.TokenHeader, token);
+        }
+
+        return await client.SendAsync(request, CancellationToken);
+    }
+
     private Task<HttpResponseMessage> PostAsync(string slug, JsonNode body) =>
         _client.PostAsync(
             $"/api/v1/public/ordering/{slug}/orders",
@@ -607,6 +663,11 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
 
         throw new InvalidOperationException("Could not find the repository root (nx.json) above " + AppContext.BaseDirectory);
     }
+}
+
+internal sealed class SpanProcessor(ConcurrentQueue<Activity> sink) : BaseProcessor<Activity>
+{
+    public override void OnEnd(Activity data) => sink.Enqueue(data);
 }
 
 public sealed class OrderingHostFixture : AuthHostFixture

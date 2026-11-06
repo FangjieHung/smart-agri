@@ -5,7 +5,7 @@ import { App, slugFromPath } from './app';
 describe('shop placeholder', () => {
   it('reads the shop slug from /order/{slug}', () => {
     expect(slugFromPath('/order/wangji-noodles')).toBe('wangji-noodles');
-    expect(slugFromPath('/order/WangJi/o/abc')).toBe('wangji');
+    expect(slugFromPath('/order/WangJi/o')).toBe('wangji');
     expect(slugFromPath('/order/')).toBeNull();
     expect(slugFromPath('/reserve/wangji')).toBeNull();
   });

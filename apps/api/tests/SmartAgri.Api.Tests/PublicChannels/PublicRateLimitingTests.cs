@@ -191,12 +191,12 @@ public class PublicRateLimitingTests
         [
             "GET /api/v1/public/ordering/{slug}",
             "GET /api/v1/public/ordering/{slug}/menu",
-            "GET /api/v1/public/ordering/{slug}/orders/{token}",
+            "GET /api/v1/public/ordering/{slug}/orders/current",
             "GET /api/v1/public/ordering/{slug}/slots",
             "POST /api/v1/public/assistants/{id}/chat/runs",
             "POST /api/v1/public/assistants/{id}/visitor-sessions",
             "POST /api/v1/public/ordering/{slug}/orders",
-            "POST /api/v1/public/ordering/{slug}/orders/{token}/cancel",
+            "POST /api/v1/public/ordering/{slug}/orders/current/cancel",
         ]);
     }
 

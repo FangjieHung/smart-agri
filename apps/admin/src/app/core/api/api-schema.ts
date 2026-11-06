@@ -8972,7 +8972,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/public/ordering/{slug}/orders/{token}": {
+    "/api/v1/public/ordering/{slug}/orders/current": {
         parameters: {
             query?: never;
             header?: never;
@@ -8980,16 +8980,17 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * An order by its status token (the status page polls it)
-         * @description 404 shop-not-found, or order-not-found for a token the shop has no order of.
+         * The order of the status token in the X-Ordering-Token header (the status page polls it)
+         * @description 404 shop-not-found, or order-not-found for a missing or malformed header or a token the shop has no order of.
          */
         get: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    "X-Ordering-Token"?: string;
+                };
                 path: {
                     slug: string;
-                    token: string;
                 };
                 cookie?: never;
             };
@@ -9030,7 +9031,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/public/ordering/{slug}/orders/{token}/cancel": {
+    "/api/v1/public/ordering/{slug}/orders/current/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -9046,10 +9047,11 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    "X-Ordering-Token"?: string;
+                };
                 path: {
                     slug: string;
-                    token: string;
                 };
                 cookie?: never;
             };

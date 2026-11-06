@@ -247,8 +247,8 @@ check_admin /
 # A deep link the browser reloads: every GET that is not the api's own path gets the admin.
 check_admin /app/home
 
-# The online-ordering app (#398): /order/{slug} and its status page get apps/shop's index.html.
-for path in /order/smoke-shop /order/smoke-shop/o/x; do
+# The online-ordering app (#398): /order/{slug} and its status page (/order/{slug}/o#<token>) get apps/shop's index.html.
+for path in /order/smoke-shop /order/smoke-shop/o; do
   result="$(fetch "$path")"
   [ "${result%% *}" = 200 ] || fail "GET $path answered ${result%% *}, not 200 (the ordering app)"
   grep -qF "$shop_marker" "$work/body" \

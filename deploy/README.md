@@ -2083,7 +2083,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 
 ### 18.2 顧客點餐網頁 `/order/<slug>`（#398）
 
-- **網址**：`<PUBLIC_BASE_URL>/order/<slug>`；訂單狀態頁是 `/order/<slug>/o/<token>`（送出訂單時產生的隨機長字串，只顯示一次）。
+- **網址**：`<PUBLIC_BASE_URL>/order/<slug>`；訂單狀態頁是 `/order/<slug>/o#<token>`（送出訂單時產生的隨機長字串，只顯示一次；放在 `#` 後面，瀏覽器不會送到伺服器，所以不會出現在 api 的紀錄裡）。
   映像內含點餐網頁（`apps/shop`，設定 `Shop__RootPath=wwwroot/shop`，設為空字串就不提供）。反向代理只轉特定路徑時，`/order/` 也要轉給 api。
 - 網頁呼叫的公開 API 在 `/api/v1/public/ordering/<slug>/…`，只接受同一個網址來源的瀏覽器請求（別的網站的頁面送出會被拒絕）。
 - **頻率限制**（每個用戶端 IP、不分店家）：讀取店家、菜單、時段、訂單狀態（狀態頁每 10 秒更新一次）與取消合計每分鐘 120 次

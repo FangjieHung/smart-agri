@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Mvc;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Coordinator;
@@ -18,10 +19,16 @@ namespace SmartAgri.Api.Ordering;
 /// <para>
 /// Anonymous (a sign-in cookie sent along decides nothing), under <c>/api/v1/public</c> so a foreign <c>Origin</c> is refused
 /// (<see cref="PublicOriginGuard"/>), in the OpenAPI document so the app can generate its types. Every answer is
-/// <c>Cache-Control: no-store</c> and <c>Referrer-Policy: no-referrer</c> (the order routes carry the status token). Rate
+/// <c>Cache-Control: no-store</c> and <c>Referrer-Policy: no-referrer</c>. Rate
 /// limits per client IP, every shop together: sending an order (<see cref="PublicRateLimitedEndpoint.OrderingSubmission"/>)
 /// and everything else (<see cref="PublicRateLimitedEndpoint.Ordering"/>); beyond them <c>429 rate-limited</c> with
 /// <c>Retry-After</c>.
+/// </para>
+/// <para>
+/// The status token is sent only in the <see cref="TokenHeader"/> request header, never in a path or query: ASP.NET Core
+/// puts the request path into every log scope (exported over OTLP) and traces record <c>url.path</c>, while request headers
+/// are recorded by neither (no HTTP logging is registered; the ASP.NET Core trace instrumentation adds no header tags). The
+/// customer's status page keeps it in the URL fragment (<c>/order/{slug}/o#&lt;token&gt;</c>), which browsers never send.
 /// </para>
 /// <para>
 /// An unknown slug, a shop without a menu and an order token of another shop are the same <c>404</c>. Refusals are
@@ -35,6 +42,9 @@ public static class OrderingPublicEndpoints
 
     /// <summary>Largest request body (bytes): 30 lines with four levels of options fit many times over.</summary>
     public const long MaxBodyBytes = 64 * 1024;
+
+    /// <summary>The request header that carries an order's status token.</summary>
+    public const string TokenHeader = "X-Ordering-Token";
 
     private const string Problem = "application/problem+json";
 
@@ -91,16 +101,16 @@ public static class OrderingPublicEndpoints
             .Produces<OrderingProblem>(StatusCodes.Status422UnprocessableEntity, Problem)
             .Produces<OrderingProblem>(StatusCodes.Status429TooManyRequests, Problem);
 
-        shop.MapGet("/orders/{token}", (string slug, string token, HttpContext context, OrderingPublicFlow flow) =>
+        shop.MapGet("/orders/current", (string slug, [FromHeader(Name = TokenHeader)] string? token, HttpContext context, OrderingPublicFlow flow) =>
                 flow.OrderAsync(slug, token, context.RequestAborted))
             .WithPublicRateLimit(PublicRateLimitedEndpoint.Ordering)
-            .WithSummary("An order by its status token (the status page polls it)")
-            .WithDescription("404 shop-not-found, or order-not-found for a token the shop has no order of.")
+            .WithSummary("The order of the status token in the X-Ordering-Token header (the status page polls it)")
+            .WithDescription("404 shop-not-found, or order-not-found for a missing or malformed header or a token the shop has no order of.")
             .Produces<OrderingOrderView>()
             .Produces<OrderingProblem>(StatusCodes.Status404NotFound, Problem)
             .Produces(StatusCodes.Status429TooManyRequests);
 
-        shop.MapPost("/orders/{token}/cancel", (string slug, string token, HttpContext context, OrderingPublicFlow flow) =>
+        shop.MapPost("/orders/current/cancel", (string slug, [FromHeader(Name = TokenHeader)] string? token, HttpContext context, OrderingPublicFlow flow) =>
                 flow.CancelAsync(slug, token, context.RequestAborted))
             .WithPublicRateLimit(PublicRateLimitedEndpoint.Ordering)
             .WithSummary("Cancel an order while the shop has not answered it")
@@ -170,7 +180,7 @@ public sealed class OrderingPublicFlow
         return Results.Ok(OrderingPublicViews.Slots(OrderingSlots.Scheduled(found.Shop, now, counts), now));
     }
 
-    public async Task<IResult> OrderAsync(string slug, string token, CancellationToken cancellationToken)
+    public async Task<IResult> OrderAsync(string slug, string? token, CancellationToken cancellationToken)
     {
         if (await FindAsync(slug, cancellationToken) is not { } found)
         {
@@ -182,7 +192,7 @@ public sealed class OrderingPublicFlow
             : OrderNotFound();
     }
 
-    public async Task<IResult> CancelAsync(string slug, string token, CancellationToken cancellationToken)
+    public async Task<IResult> CancelAsync(string slug, string? token, CancellationToken cancellationToken)
     {
         if (await FindAsync(slug, cancellationToken) is not { } found)
         {

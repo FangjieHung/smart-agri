@@ -152,8 +152,8 @@ public sealed record OrderingSelectionRequest(string? GroupId, string? OptionId,
 public sealed record OrderingCustomerRequest(string? Name, string? Phone, string? Email);
 
 /// <summary><c>201</c> of <c>POST …/orders</c>.</summary>
-/// <param name="Token">The status page's token, given only here: keep it (the status page is
-/// <c>/order/{slug}/o/{token}</c>).</param>
+/// <param name="Token">The status page's token, given only here: keep it. The status page is <c>/order/{slug}/o#&lt;token&gt;</c>
+/// (in the fragment, never sent), and the API takes it in the <c>X-Ordering-Token</c> header.</param>
 public sealed record OrderingSubmittedView(string Token, OrderingOrderView Order);
 
 /// <summary>An order as its customer sees it: never the Email, and only the last three digits of the phone.</summary>

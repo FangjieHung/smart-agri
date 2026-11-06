@@ -236,7 +236,7 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
     // The ordering app's prefix (#398) is the Api's even without Shop:RootPath, and its API is under /api.
     [InlineData("GET", "/order")]
     [InlineData("GET", "/order/wangji")]
-    [InlineData("GET", "/order/wangji/o/abc")]
+    [InlineData("GET", "/order/wangji/o")]
     [InlineData("GET", "/api/v1/public/ordering/x")]
     public async Task An_api_path_answers_exactly_as_without_the_admin(string method, string path)
     {
@@ -272,7 +272,8 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
     [InlineData("/order")]
     [InlineData("/order/")]
     [InlineData("/order/wangji")]
-    [InlineData("/order/wangji/o/0123456789abcdefghijklmnopqrstuvwxyzABCDEFG")]
+    // The status page: its token is in the fragment (/order/wangji/o#…), which the browser never sends.
+    [InlineData("/order/wangji/o")]
     [InlineData("/ORDER/wangji")]
     public async Task An_ordering_route_is_the_shops_index_html_never_cached(string path)
     {

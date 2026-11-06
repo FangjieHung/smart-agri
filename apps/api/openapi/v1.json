@@ -7152,13 +7152,13 @@
         }
       }
     },
-    "/api/v1/public/ordering/{slug}/orders/{token}": {
+    "/api/v1/public/ordering/{slug}/orders/current": {
       "get": {
         "tags": [
           "Ordering (public)"
         ],
-        "summary": "An order by its status token (the status page polls it)",
-        "description": "404 shop-not-found, or order-not-found for a token the shop has no order of.",
+        "summary": "The order of the status token in the X-Ordering-Token header (the status page polls it)",
+        "description": "404 shop-not-found, or order-not-found for a missing or malformed header or a token the shop has no order of.",
         "parameters": [
           {
             "name": "slug",
@@ -7169,9 +7169,8 @@
             }
           },
           {
-            "name": "token",
-            "in": "path",
-            "required": true,
+            "name": "X-Ordering-Token",
+            "in": "header",
             "schema": {
               "type": "string"
             }
@@ -7204,7 +7203,7 @@
         }
       }
     },
-    "/api/v1/public/ordering/{slug}/orders/{token}/cancel": {
+    "/api/v1/public/ordering/{slug}/orders/current/cancel": {
       "post": {
         "tags": [
           "Ordering (public)"
@@ -7221,9 +7220,8 @@
             }
           },
           {
-            "name": "token",
-            "in": "path",
-            "required": true,
+            "name": "X-Ordering-Token",
+            "in": "header",
             "schema": {
               "type": "string"
             }

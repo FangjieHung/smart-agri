@@ -75,6 +75,12 @@ describe('accessibility', () => {
       });
     }
 
+    it('has no critical or serious violations on /app/orders with the dine-in tables shown (#402)', () => {
+      cy.visit('/app/orders');
+      cy.get('#main-content [data-table-session="A1"] [data-table-checkout]').scrollIntoView().should('be.visible');
+      auditA11y();
+    });
+
     it('has no critical or serious violations on a case\'s actions and its open form (issue #249)', () => {
       cy.visit('/app/cases?case=case-compressor-purchase');
       cy.get('[data-case-actions]').scrollIntoView().should('be.visible');

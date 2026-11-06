@@ -14,6 +14,7 @@ function order(fields: Partial<OrderingOrderView> = {}): OrderingOrderView {
     orderComment: null, tableware: null, subtotal: 80, total: 80, menuVersion: 1, createdAt: '2026-11-07T03:35:00Z',
     statusChangedAt: '2026-11-07T03:35:00Z', accepted: null, ready: null, completed: null, declined: null, cancelled: null,
     actions: ['accept', 'decline'], expiresAt: '2026-11-07T03:50:00Z', personalDataClearedAt: null, deliveryFee: 0, delivery: null,
+    table: null, autoAccepted: false,
     ...fields,
   };
 }
@@ -120,5 +121,41 @@ describe('OrderCardComponent, delivery (#401)', () => {
     expect(card.querySelector('a[href*="google.com/maps"]')).toBeNull();
     expect(card.querySelector('[data-delivery-note]')).toBeNull();
     expect(card.querySelector('[data-delivery-fee]')?.textContent?.trim()).toBe('運費 NT$30');
+  });
+
+  describe('dine-in (#402)', () => {
+    const dineIn = (fields: Partial<OrderingOrderView> = {}) => order({
+      serviceType: 'dine-in', pickupAt: '2026-11-07T03:15:00Z', createdAt: '2026-11-07T03:15:00Z', customerName: '', customerPhone: '',
+      customerPhoneDisplay: '', table: { id: 'a1', name: 'A1', sessionId: '01a1b300-0000-7000-8000-0000000000a1' }, ...fields,
+    });
+
+    it('shows 內用・A1, when it was ordered without a countdown, and no customer line without a name', () => {
+      const card = render(dineIn());
+      expect(card.querySelector('[data-service="dine-in"]')?.textContent).toBe('內用・A1');
+      expect(card.querySelector('.order__when')?.textContent?.trim()).toBe('11:15 點餐');
+      expect(card.querySelector('.order__remaining')).toBeNull();
+      expect(card.querySelector('.order__customer')).toBeNull();
+      expect(card.querySelector('a[href^="tel:"]')).toBeNull();
+      // 待確認的內用單一樣會逾時自動取消（#400）。
+      expect(card.querySelector('.order__expiry')?.textContent).toContain('11:50 前未確認將自動取消');
+    });
+
+    it('shows the optional name without a phone, 〔已出餐〕, and 自動接單 instead of a member', () => {
+      const accepted = render(dineIn({
+        status: 'accepted', customerName: '小明', actions: ['ready', 'complete', 'cancel'], promisedAt: '2026-11-07T03:15:00Z',
+        accepted: { at: '2026-11-07T03:15:00Z', by: null }, autoAccepted: true,
+      }));
+      expect(accepted.querySelector('.order__name')?.textContent).toBe('小明');
+      expect(accepted.querySelector('a[href^="tel:"]')).toBeNull();
+      expect(accepted.querySelector('[data-action="ready"]')?.textContent).toBe('已出餐');
+      expect(accepted.querySelector('.order__outcome')?.textContent).toBe('11:15 自動接單');
+
+      const ready = render(dineIn({
+        status: 'ready', actions: ['complete', 'cancel'], accepted: { at: '2026-11-07T03:16:00Z', by: { id: 'a', displayName: '老闆' } },
+        ready: { at: '2026-11-07T03:30:00Z', by: null },
+      }));
+      expect(ready.querySelector('.order__status')?.textContent).toBe('已出餐');
+      expect(ready.querySelector('.order__outcome')?.textContent).toBe('11:16 接單，老闆；11:30 已出餐');
+    });
   });
 });

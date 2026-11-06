@@ -11,23 +11,24 @@ import {
   type Type,
 } from '@angular/core';
 import { Announcer } from './state/announcer';
-import { Nav, type PageName } from './state/nav';
+import { Nav, type PageTarget } from './state/nav';
 import { ShopStore } from './state/shop-store';
 import { telHref } from './ui/format';
 
 /** 每個頁面一個延遲載入的 chunk：初始 bundle 只有這個外框、導覽與狀態。 */
-const PAGES: Record<Exclude<PageName, 'not-found'>, () => Promise<{ default: Type<unknown> }>> = {
+const PAGES: Record<PageTarget, () => Promise<{ default: Type<unknown> }>> = {
   menu: () => import('./pages/menu-page'),
   cart: () => import('./pages/cart-page'),
   checkout: () => import('./pages/checkout-page'),
   status: () => import('./pages/status-page'),
 };
 
-const PAGE_TITLES: Record<Exclude<PageName, 'not-found'>, string> = {
+const PAGE_TITLES: Record<PageTarget | 'table', string> = {
   menu: '線上點餐',
   cart: '購物車',
   checkout: '結帳',
   status: '訂單狀態',
+  table: '線上點餐',
 };
 
 /**
@@ -55,6 +56,12 @@ const PAGE_TITLES: Record<Exclude<PageName, 'not-found'>, string> = {
           <button type="button" class="btn btn--primary" (click)="store.refreshShop()">
             重新整理
           </button>
+        </main>
+      } @else if (store.tableInvalid()) {
+        <main class="missing page-pad" data-testid="table-invalid">
+          <h1 id="page-title" tabindex="-1">這個桌號的 QR code 已失效，請洽店員</h1>
+          <p>店家可能換了桌上的 QR code。請洽店員協助點餐，或重新掃描桌上的 QR code。</p>
+          <button type="button" class="btn" (click)="leaveTable()">看菜單</button>
         </main>
       } @else if (store.shop() && page(); as component) {
         <main>
@@ -110,6 +117,12 @@ export class App {
   protected readonly page = signal<Type<unknown> | null>(null);
   private loadingFor = '';
 
+  /** 失效的桌號頁按〔看菜單〕：改成一般點餐。 */
+  protected leaveTable(): void {
+    this.store.tableInvalid.set(false);
+    this.nav.go(this.store.slug(), 'menu');
+  }
+
   constructor() {
     effect(() => {
       const route = this.nav.route();
@@ -117,6 +130,14 @@ export class App {
         if (route.slug) void this.store.load(route.slug);
         if (route.page === 'not-found') {
           this.page.set(null);
+          return;
+        }
+        if (route.page === 'table') {
+          // 內用掃碼（#402）：記住桌號 token，把網址換成菜單頁（token 不留在網址列）。
+          this.page.set(null);
+          this.loadingFor = '';
+          if (route.slug && this.store.adoptTable(route.slug, this.nav.hash()))
+            this.nav.go(route.slug, 'menu', { replace: true });
           return;
         }
         const wanted = route.page;

@@ -98,6 +98,17 @@
           </section>
         }
       </div>
+
+      <!-- 內用桌次（#402）放在三欄之後：待確認的訂單最急，手機上要先看到。 -->
+      @if (dineInShown()) {
+        <app-table-sessions
+          [sessions]="tables()"
+          [now]="now()"
+          [timeZone]="timeZone()"
+          [busyId]="checkoutBusy() ? checkout()?.session?.id ?? null : null"
+          (checkout)="onCheckout($event)"
+        />
+      }
     }
   }
 
@@ -112,5 +123,25 @@
       (submitted)="submitDialog($event)"
       (closed)="closeDialog()"
     />
+  }
+
+  @if (checkout(); as open) {
+    <app-confirm-dialog
+      name="table-checkout"
+      [heading]="checkoutHeading()"
+      [detail]="checkoutDetail()"
+      cancelLabel="返回"
+      [confirmLabel]="checkoutBusy() ? '處理中…' : '已結帳'"
+      confirmClass="table-checkout-confirm"
+      confirmTone="accent"
+      [busy]="checkoutBusy()"
+      [confirmDisabled]="open.session.pendingCount > 0"
+      (cancelled)="cancelCheckout()"
+      (confirmed)="confirmCheckout()"
+    >
+      @if (checkoutError()) {
+        <p class="orders-page__error" role="alert" data-table-checkout-error>{{ checkoutError() }}</p>
+      }
+    </app-confirm-dialog>
   }
 </section>

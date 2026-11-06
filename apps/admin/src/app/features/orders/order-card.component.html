@@ -11,7 +11,7 @@
   <div class="order__head">
     <h3 class="order__title" [id]="'order-title-' + item.id">
       <span class="order__number">{{ item.displayNumber }}</span>
-      <span class="order__service" [class.order__service--delivery]="drop">{{ service() }}</span>
+      <span class="order__service" [class.order__service--delivery]="drop || dineIn()" [attr.data-service]="item.serviceType">{{ service() }}</span>
     </h3>
     <span class="order__status" [attr.data-status]="item.status">{{ status() }}</span>
   </div>
@@ -26,15 +26,19 @@
     <p class="order__expiry" [class.order__expiry--soon]="limit.soon">{{ limit.text }}</p>
   }
 
-  <p class="order__customer">
-    <span class="order__name">{{ item.customerName }}</span>
-    @if (item.customerPhone) {
-      <a class="order__link" [href]="'tel:' + item.customerPhone" [attr.aria-label]="'撥打給' + item.customerName + '：' + item.customerPhoneDisplay">{{ item.customerPhoneDisplay }}</a>
-    }
-    @if (item.customerEmail) {
-      <a class="order__link order__email" [href]="'mailto:' + item.customerEmail">{{ item.customerEmail }}</a>
-    }
-  </p>
+  @if (item.customerName || item.customerPhone || item.customerEmail) {
+    <p class="order__customer">
+      @if (item.customerName) {
+        <span class="order__name">{{ item.customerName }}</span>
+      }
+      @if (item.customerPhone) {
+        <a class="order__link" [href]="'tel:' + item.customerPhone" [attr.aria-label]="'撥打給' + item.customerName + '：' + item.customerPhoneDisplay">{{ item.customerPhoneDisplay }}</a>
+      }
+      @if (item.customerEmail) {
+        <a class="order__link order__email" [href]="'mailto:' + item.customerEmail">{{ item.customerEmail }}</a>
+      }
+    </p>
+  }
   @if (drop) {
     <p class="order__address" data-delivery>
       <span class="order__zone">{{ drop.zoneName }}</span>

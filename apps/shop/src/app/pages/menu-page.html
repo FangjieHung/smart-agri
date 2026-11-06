@@ -45,7 +45,40 @@
       </a>
     }
 
-    @if (shop.paused) {
+    @if (store.isTable()) {
+      <app-pickup-ticket />
+      @if (shop.paused) {
+        <div class="callout callout--danger" role="status" data-testid="table-closed">
+          <p><strong>店家暫停接受線上點餐。</strong></p>
+          <p>菜單可以先看看；要點餐請洽店員。</p>
+        </div>
+      } @else if (!store.canOrder()) {
+        <div class="callout" role="status" data-testid="table-closed">
+          <p><strong>現在不是內用點餐的時間，請洽店員。</strong></p>
+        </div>
+      }
+      @if (session(); as s) {
+        <details class="reminder table-session" data-testid="table-session">
+          <summary>
+            <span class="reminder__label"
+              >這桌已點 {{ s.orderCount }} 筆，共 {{ ntd(s.total) }}</span
+            >
+          </summary>
+          <ul class="table-session__list">
+            @for (order of s.orders; track order.displayNumber) {
+              <li>
+                <span class="table-session__head"
+                  ><span class="num">{{ order.displayNumber }}</span>
+                  {{ tableOrderStatus(order) }}
+                  <span class="price">{{ ntd(order.total) }}</span></span
+                >
+                <span class="table-session__items">{{ tableOrderItems(order) }}</span>
+              </li>
+            }
+          </ul>
+        </details>
+      }
+    } @else if (shop.paused) {
       <div class="callout callout--danger" role="status">
         <p><strong>店家暫停接受線上點餐。</strong></p>
         <p>
@@ -83,7 +116,7 @@
       </div>
     }
 
-    @if (store.canOrder()) {
+    @if (store.canOrder() && !store.isTable()) {
       <app-pickup-ticket (edit)="openTime()" />
     }
   </div>
@@ -130,8 +163,7 @@
             }
             @if (entry.category.availability; as availability) {
               <p class="category__window" [class.category__window--off]="!entry.offered">
-                {{ entry.offered ? '' : '這個取餐時間不供應。'
-                }}{{ availabilityText(availability) }}
+                {{ entry.offered ? '' : offText() + '。' }}{{ availabilityText(availability) }}
               </p>
             }
           </div>
@@ -175,7 +207,7 @@
         @if (count > 0) {
           <span class="added">已加 {{ count }} 份</span>
         }
-        @if (row.reason && row.reason !== '這個取餐時間不供應') {
+        @if (row.reason && row.reason !== offText()) {
           <span class="off">{{ row.reason }}</span>
         }
       </span>

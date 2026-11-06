@@ -1,0 +1,47 @@
+<section class="tables" aria-labelledby="orders-tables-title" data-table-sessions>
+  <h2 class="tables__title" id="orders-tables-title" tabindex="-1">
+    內用桌次<span class="tables__count">{{ sessions()?.length ?? 0 }}</span>
+  </h2>
+  @let rows = sessions();
+  @if (rows === null) {
+    <p class="tables__empty">正在載入…</p>
+  } @else if (rows.length === 0) {
+    <p class="tables__empty">目前沒有用餐中的桌子。客人掃桌上的 QR code 點餐後，這一桌會出現在這裡。</p>
+  } @else {
+    <ul class="tables__list">
+      @for (session of rows; track session.id) {
+        <li class="table" [attr.data-table-session]="session.tableName">
+          <div class="table__head">
+            <h3 class="table__name">{{ session.tableName }}</h3>
+            <span class="table__opened"><time [attr.datetime]="session.openedAt">{{ clock(session.openedAt) }}</time> 開桌・{{ elapsed(session.openedAt) }}</span>
+          </div>
+          <ul class="table__orders" [attr.aria-label]="session.tableName + ' 的訂單'">
+            @for (order of session.orders; track order.id) {
+              <li class="table__order" [class.table__order--void]="!counts(order.status)" [attr.data-status]="order.status">
+                <span class="table__number">{{ order.displayNumber }}</span>
+                <span class="table__status">{{ statusLabel(order) }}</span>
+                <span class="table__price">{{ priceText(order.total) }}</span>
+                <span class="table__items">{{ itemsBrief(order.lines) }}</span>
+              </li>
+            }
+          </ul>
+          @if (session.pendingCount > 0) {
+            <p class="table__hint" [id]="'table-hint-' + session.id">還有 {{ session.pendingCount }} 筆待確認，接單或婉拒後才能結帳。</p>
+          }
+          <div class="table__foot">
+            <span class="table__total">合計 <strong data-table-total>{{ priceText(session.total) }}</strong></span>
+            <button
+              type="button"
+              class="table__checkout"
+              [attr.aria-label]="'已結帳 ' + session.tableName"
+              [attr.aria-describedby]="session.pendingCount > 0 ? 'table-hint-' + session.id : null"
+              [disabled]="session.pendingCount > 0 || busyId() === session.id"
+              (click)="emit(session, $event)"
+              data-table-checkout
+            >已結帳</button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+</section>

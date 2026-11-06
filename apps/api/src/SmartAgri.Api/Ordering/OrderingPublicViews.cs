@@ -15,6 +15,8 @@ namespace SmartAgri.Api.Ordering;
 /// <param name="MenuVersion">The current menu version: send it with an order.</param>
 /// <param name="Delivery">外送 (#401) when the shop offers it: zones, hours, whether 外送（儘快） can be sent now; otherwise
 /// <see langword="null"/>.</param>
+/// <param name="DineIn">內用 (#402) when the shop offers it: hours, whether a dine-in order can be sent now, how to pay;
+/// otherwise <see langword="null"/>. Ordering to a table needs its QR code (<c>GET …/table</c>).</param>
 public sealed record OrderingShopInfoView(
     string Slug,
     string Name,
@@ -33,7 +35,59 @@ public sealed record OrderingShopInfoView(
     int MenuVersion,
     IReadOnlyList<OrderingDayHoursView> OrderingHours,
     OrderingLimitsView Limits,
-    OrderingDeliveryInfoView? Delivery);
+    OrderingDeliveryInfoView? Delivery,
+    OrderingDineInInfoView? DineIn);
+
+/// <summary>The shop's dine-in (#402).</summary>
+/// <param name="Note">「用餐後請至櫃台結帳」, shown instead of the takeout payment words; <see langword="null"/> = say
+/// 「用餐後至櫃台結帳」.</param>
+/// <param name="AutoAccept">Dine-in orders are accepted as they are sent.</param>
+/// <param name="Open">By the dine-in hours.</param>
+/// <param name="CanOrder">Open now and not paused: a dine-in order can be sent.</param>
+/// <param name="OrderingHours">When dine-in orders are taken (the takeout hours unless the shop set its own).</param>
+public sealed record OrderingDineInInfoView(
+    string? Note,
+    bool AutoAccept,
+    OrderingOpenView Open,
+    bool CanOrder,
+    IReadOnlyList<OrderingDayHoursView> OrderingHours);
+
+/// <summary><c>GET …/table</c> (#402): the table of the QR code in the <c>X-Ordering-Table</c> header, and what it has ordered
+/// since its session opened — numbers, statuses, item names and totals, never anyone's name.</summary>
+/// <param name="Name">「A1」.</param>
+/// <param name="CanOrder">A dine-in order can be sent now (open, not paused).</param>
+/// <param name="Session">The table's open session; <see langword="null"/> before its first order (and after 〔已結帳〕).</param>
+public sealed record OrderingTableView(string Name, bool CanOrder, OrderingTableSessionView? Session);
+
+/// <summary>A table's open session (#402).</summary>
+/// <param name="OrderCount">Orders sent to it (all of them, declined ones too).</param>
+/// <param name="Total">What its orders come to: pending, accepted, ready and completed ones.</param>
+public sealed record OrderingTableSessionView(DateTimeOffset OpenedAt, int OrderCount, int Total, IReadOnlyList<OrderingTableOrderView> Orders)
+{
+    public static OrderingTableSessionView Of(OrderingSessionOrders session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return new OrderingTableSessionView(
+            session.Session.OpenedAt,
+            session.Orders.Count,
+            OrderingTableSession.Total(session.Orders),
+            [
+                .. session.Orders.Select(order => new OrderingTableOrderView(
+                    OrderingOrder.FormatNumber(order.Number),
+                    order.Status,
+                    order.Total,
+                    order.CreatedAt,
+                    [.. order.Lines.Select(line => new OrderingTableItemView(line.ItemName, line.Quantity))])),
+            ]);
+    }
+}
+
+/// <summary>One order of a table's session, as everyone at the table may see it.</summary>
+public sealed record OrderingTableOrderView(
+    string DisplayNumber, OrderingOrderStatus Status, int Total, DateTimeOffset CreatedAt, IReadOnlyList<OrderingTableItemView> Items);
+
+/// <summary>An item name and how many.</summary>
+public sealed record OrderingTableItemView(string Name, int Quantity);
 
 /// <summary>The shop's delivery (#401): no map, no distance — the customer picks a zone the shop named and types the address.</summary>
 /// <param name="Note">外送範圍說明, shown with the zones.</param>
@@ -67,10 +121,11 @@ public sealed record OrderingNoticesView(string? Reminder, string? Checkout);
 /// <see cref="OrderingShopInfoView.Asap"/>, the slots).</summary>
 /// <param name="Delivery">外送（預約）(#401).</param>
 /// <param name="DeliveryAsap">外送（儘快）(#401).</param>
-public sealed record OrderingServicesView(bool TakeoutScheduled, bool TakeoutAsap, bool Delivery, bool DeliveryAsap)
+/// <param name="DineIn">內用掃碼 (#402), when the shop has tables.</param>
+public sealed record OrderingServicesView(bool TakeoutScheduled, bool TakeoutAsap, bool Delivery, bool DeliveryAsap, bool DineIn)
 {
     public static OrderingServicesView Of(OrderingShop shop) =>
-        new(shop.TakeoutScheduled, shop.TakeoutAsap, shop.DeliveryOffered, shop.DeliveryOffered && shop.DeliveryAsap);
+        new(shop.TakeoutScheduled, shop.TakeoutAsap, shop.DeliveryOffered, shop.DeliveryOffered && shop.DeliveryAsap, shop.DineInOffered);
 }
 
 /// <summary>「營業中」 or 「打烊中．明天 11:00 開始營業」 by the ordering hours.</summary>
@@ -161,6 +216,9 @@ public sealed record OrderingSlotView(string Value, DateTimeOffset At, string Ti
 /// <param name="DeliveryZoneId">Delivery only (#401): <see cref="OrderingZoneView.Id"/>. The fee is the server's.</param>
 /// <param name="DeliveryAddress">Delivery only: required, one line, at most 120 characters.</param>
 /// <param name="DeliveryNote">Delivery only: 給外送的備註, at most 100 characters.</param>
+/// <remarks>Dine-in (#402, <c>serviceType: "dine-in"</c>): the table's QR code token goes in the <c>X-Ordering-Table</c>
+/// header; no pickup date or slot; <c>customer</c> is only an optional 稱呼 (<c>name</c>), its phone and Email are ignored;
+/// <c>tableware</c> is ignored.</remarks>
 public sealed record OrderingOrderRequest(
     OrderingServiceType? ServiceType,
     string? PickupDate,
@@ -188,7 +246,8 @@ public sealed record OrderingSelectionRequest(string? GroupId, string? OptionId,
         new(GroupId ?? string.Empty, OptionId ?? string.Empty, Count, Selections?.Select(selection => selection.ToSelection()).ToList());
 }
 
-/// <param name="Phone">A Taiwanese mobile or landline number in any common writing (<c>0912-345-678</c>).</param>
+/// <param name="Name">Required, except for dine-in (#402: an optional 稱呼).</param>
+/// <param name="Phone">A Taiwanese mobile or landline number in any common writing (<c>0912-345-678</c>); not asked for dine-in.</param>
 public sealed record OrderingCustomerRequest(string? Name, string? Phone, string? Email);
 
 /// <summary><c>201</c> of <c>POST …/orders</c>.</summary>
@@ -214,6 +273,9 @@ public sealed record OrderingSubmittedView(string Token, OrderingOrderView Order
 /// <param name="DeliveryFee">運費 in <see cref="Total"/> (#401); 0 for takeout.</param>
 /// <param name="Delivery">A delivery order's zone and address (#401); <see langword="null"/> for takeout. Its <c>ready</c>
 /// status means 已出發.</param>
+/// <param name="Table">A dine-in order's table (#402); <see langword="null"/> otherwise. Its <see cref="PickupAt"/> is when it
+/// was sent.</param>
+/// <param name="AutoAccepted">Accepted by the shop's 「自動接單」 as it was sent (#402).</param>
 public sealed record OrderingOrderView(
     int Number,
     string DisplayNumber,
@@ -240,7 +302,9 @@ public sealed record OrderingOrderView(
     OrderingCancelReason? CancelReason,
     string? CancelNote,
     int DeliveryFee,
-    OrderingDeliveryView? Delivery)
+    OrderingDeliveryView? Delivery,
+    OrderingOrderTableView? Table,
+    bool AutoAccepted)
 {
     public static OrderingOrderView Of(OrderingOrder order) => new(
         order.Number,
@@ -268,8 +332,13 @@ public sealed record OrderingOrderView(
         order.CancelReason,
         order.CancelNote,
         order.DeliveryFee,
-        OrderingDeliveryView.Of(order));
+        OrderingDeliveryView.Of(order),
+        order.TableName is { } table ? new OrderingOrderTableView(table) : null,
+        order.AutoAccepted);
 }
+
+/// <summary>A dine-in order's table as the customer sees it (#402): its name when the order was sent.</summary>
+public sealed record OrderingOrderTableView(string Name);
 
 /// <summary>A delivery order's zone (as it was when sent), fee, address and note (#401). The address is empty and the note
 /// <see langword="null"/> once the personal data was cleared.</summary>
@@ -338,7 +407,15 @@ internal static class OrderingPublicViews
             new OrderingLimitsView(
                 OrderingOrder.MaxLines, MenuLimits.MaxQuantity, OrderingContact.NameMaxLength, OrderingContact.LineCommentMaxLength,
                 OrderingContact.OrderCommentMaxLength, OrderingOrder.MaxTotal),
-            shop.DeliveryOffered ? Delivery(shop, now) : null);
+            shop.DeliveryOffered ? Delivery(shop, now) : null,
+            shop.DineInOffered ? DineIn(shop, now) : null);
+    }
+
+    private static OrderingDineInInfoView DineIn(OrderingShop shop, DateTimeOffset now)
+    {
+        var settings = shop.DineInSettings!;
+        return new OrderingDineInInfoView(
+            settings.Note, settings.AutoAccept, Open(shop.DineInBusinessHours, now), OrderingDineIn.CanOrder(shop, now), Week(shop.DineInHours));
     }
 
     private static OrderingDeliveryInfoView Delivery(OrderingShop shop, DateTimeOffset now)

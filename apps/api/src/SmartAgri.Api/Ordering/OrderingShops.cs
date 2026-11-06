@@ -74,7 +74,9 @@ public sealed class OrderingShops
     /// Makes <paramref name="import"/> (already validated by <see cref="OrderingShopJson.Parse"/>) the ordering settings of
     /// <paramref name="organizationId"/>, adding a menu version when the menu differs from the current one. When anything
     /// changed, one <see cref="OrganizationActivityAction.OrderingShopUpdated"/> is written in the same save; an identical
-    /// import writes nothing. The staff's switches (paused, ASAP band) are kept.
+    /// import writes nothing. The staff's switches (paused, ASAP band) are kept. The tables (#402) follow the <c>dineIn</c>
+    /// section (<see cref="OrderingTable.Sync"/>): a new table id gets a QR code token, a kept one keeps its token, a removed one
+    /// is deactivated.
     /// </summary>
     public async Task<OrderingImportResult> ImportAsync(Guid organizationId, OrderingImport import, CancellationToken cancellationToken)
     {
@@ -105,8 +107,16 @@ public sealed class OrderingShops
         }
 
         var menuVersion = newVersion ?? latest!.Version;
+        var tables = await dbContext.OrderingTables.Where(table => table.DeactivatedAt == null).ToListAsync(cancellationToken);
+        dbContext.OrderingTables.AddRange(OrderingTable.Sync(organizationId, tables, import.Shop.DineIn, now));
         if (changed.Count == 0)
         {
+            // The tables follow the file, so they changed only with it — unless they predate it (none to add then, normally).
+            if (dbContext.ChangeTracker.HasChanges())
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+
             return new OrderingImportResult(OrderingImportOutcome.Unchanged, [], menuVersion);
         }
 
@@ -130,6 +140,38 @@ public sealed class OrderingShops
         }
 
         return new OrderingImportResult(created ? OrderingImportOutcome.Created : OrderingImportOutcome.Updated, changed, menuVersion);
+    }
+
+    /// <summary>The shop's active tables (#402), in the file's order.</summary>
+    public async Task<IReadOnlyList<OrderingTable>> TablesAsync(Guid organizationId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        var shop = await dbContext.OrderingShops.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+        var tables = await dbContext.OrderingTables.AsNoTracking().Where(table => table.DeactivatedAt == null).ToListAsync(cancellationToken);
+        var order = (shop?.DineInSettings?.Tables ?? []).Select((table, index) => (table.Id, index)).ToDictionary(entry => entry.Id, entry => entry.index);
+        return [.. tables.OrderBy(table => order.GetValueOrDefault(table.TableId, int.MaxValue)).ThenBy(table => table.TableId, StringComparer.Ordinal)];
+    }
+
+    /// <summary>
+    /// A new QR code token for table <paramref name="tableId"/> (#402): the old one stops working at once. Writes one
+    /// <see cref="OrganizationActivityAction.OrderingShopUpdated"/> naming <c>tables</c>. <see langword="null"/> when the shop has
+    /// no active table of that id.
+    /// </summary>
+    public async Task<OrderingTable?> RegenerateAsync(Guid organizationId, string tableId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        var table = await dbContext.OrderingTables.SingleOrDefaultAsync(
+            candidate => candidate.TableId == tableId && candidate.DeactivatedAt == null, cancellationToken);
+        if (table is null)
+        {
+            return null;
+        }
+
+        var now = _clock.GetUtcNow();
+        table.Regenerate(now);
+        dbContext.OrganizationActivities.Add(OrganizationActivity.OrderingShopUpdated(organizationId, now, created: false, ["tables"], null));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return table;
     }
 
     private static IQueryable<OrderingMenu> LatestMenuQuery(AppDbContext dbContext) =>

@@ -29,6 +29,8 @@ namespace SmartAgri.Api.Ordering;
 /// puts the request path into every log scope (exported over OTLP) and traces record <c>url.path</c>, while request headers
 /// are recorded by neither (no HTTP logging is registered; the ASP.NET Core trace instrumentation adds no header tags). The
 /// customer's status page keeps it in the URL fragment (<c>/order/{slug}/o#&lt;token&gt;</c>), which browsers never send.
+/// A table's QR code token (dine-in, #402) likewise travels only in the <see cref="TableHeader"/> header and the fragment of
+/// <c>/order/{slug}/table#&lt;token&gt;</c>.
 /// </para>
 /// <para>
 /// An unknown slug, a shop without a menu and an order token of another shop are the same <c>404</c>. Refusals are
@@ -45,6 +47,9 @@ public static class OrderingPublicEndpoints
 
     /// <summary>The request header that carries an order's status token.</summary>
     public const string TokenHeader = "X-Ordering-Token";
+
+    /// <summary>The request header that carries a table's QR code token (dine-in, #402).</summary>
+    public const string TableHeader = "X-Ordering-Table";
 
     private const string Problem = "application/problem+json";
 
@@ -84,17 +89,29 @@ public static class OrderingPublicEndpoints
             .Produces<OrderingProblem>(StatusCodes.Status404NotFound, Problem)
             .Produces(StatusCodes.Status429TooManyRequests);
 
-        shop.MapPost("/orders", (string slug, OrderingOrderRequest request, HttpContext context, OrderingPublicFlow flow) =>
-                flow.SubmitAsync(slug, request, context.RequestAborted))
+        shop.MapGet("/table", (string slug, [FromHeader(Name = TableHeader)] string? table, HttpContext context, OrderingPublicFlow flow) =>
+                flow.TableAsync(slug, table, context.RequestAborted))
+            .WithPublicRateLimit(PublicRateLimitedEndpoint.Ordering)
+            .WithSummary("The table of the QR code token in the X-Ordering-Table header, and its open session (dine-in)")
+            .WithDescription(
+                "404 shop-not-found, or table-not-found for a missing or malformed header, a token the shop has no active table of " +
+                "(a removed or regenerated table, another shop's token) or a shop that does not offer dine-in.")
+            .Produces<OrderingTableView>()
+            .Produces<OrderingProblem>(StatusCodes.Status404NotFound, Problem)
+            .Produces(StatusCodes.Status429TooManyRequests);
+
+        shop.MapPost("/orders", (string slug, OrderingOrderRequest request, [FromHeader(Name = TableHeader)] string? table, HttpContext context, OrderingPublicFlow flow) =>
+                flow.SubmitAsync(slug, request, table, context.RequestAborted))
             .WithPublicRateLimit(PublicRateLimitedEndpoint.OrderingSubmission)
             .WithMetadata(new BodySizeLimit(MaxBodyBytes))
             .WithSummary("Send an order: priced by the server, never by the client")
             .WithDescription(
                 "201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. " +
-                "404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, " +
+                "Dine-in: the table's token in the X-Ordering-Table header. " +
+                "404 shop-not-found, table-not-found (dine-in). 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, " +
                 "slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), " +
                 "unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). " +
-                "429 too-many-pending, or rate-limited with Retry-After.")
+                "429 too-many-pending (a phone's, or a table's for dine-in), or rate-limited with Retry-After.")
             .Accepts<OrderingOrderRequest>("application/json")
             .Produces<OrderingSubmittedView>(StatusCodes.Status201Created)
             .Produces<OrderingProblem>(StatusCodes.Status404NotFound, Problem)
@@ -136,14 +153,17 @@ public sealed class OrderingPublicFlow
     private readonly OrderingLookup _lookup;
     private readonly OrderingShops _shops;
     private readonly OrderingOrders _orders;
+    private readonly OrderingDineInTables _tables;
     private readonly TimeProvider _clock;
     private readonly ILogger<OrderingPublicFlow> _logger;
 
-    public OrderingPublicFlow(OrderingLookup lookup, OrderingShops shops, OrderingOrders orders, TimeProvider clock, ILogger<OrderingPublicFlow> logger)
+    public OrderingPublicFlow(
+        OrderingLookup lookup, OrderingShops shops, OrderingOrders orders, OrderingDineInTables tables, TimeProvider clock, ILogger<OrderingPublicFlow> logger)
     {
         _lookup = lookup;
         _shops = shops;
         _orders = orders;
+        _tables = tables;
         _clock = clock;
         _logger = logger;
     }
@@ -185,6 +205,24 @@ public sealed class OrderingPublicFlow
             now));
     }
 
+    public async Task<IResult> TableAsync(string slug, string? token, CancellationToken cancellationToken)
+    {
+        if (await FindAsync(slug, cancellationToken) is not { } found)
+        {
+            return ShopNotFound();
+        }
+
+        if (await _tables.TableAsync(found.Shop, token, cancellationToken) is not { } table)
+        {
+            return TableNotFound();
+        }
+
+        return Results.Ok(new OrderingTableView(
+            table.Table.Name,
+            OrderingDineIn.CanOrder(found.Shop, _clock.GetUtcNow()),
+            table.Session is { } session ? OrderingTableSessionView.Of(session) : null));
+    }
+
     public async Task<IResult> OrderAsync(string slug, string? token, CancellationToken cancellationToken)
     {
         if (await FindAsync(slug, cancellationToken) is not { } found)
@@ -220,7 +258,7 @@ public sealed class OrderingPublicFlow
         }
     }
 
-    public async Task<IResult> SubmitAsync(string slug, OrderingOrderRequest request, CancellationToken cancellationToken)
+    public async Task<IResult> SubmitAsync(string slug, OrderingOrderRequest request, string? tableToken, CancellationToken cancellationToken)
     {
         if (await FindAsync(slug, cancellationToken) is not { } found)
         {
@@ -229,7 +267,12 @@ public sealed class OrderingPublicFlow
 
         var shop = found.Shop;
         var organizationId = shop.OrganizationId;
-        if (Check(shop, request) is not { } submission)
+        if (request.ServiceType == OrderingServiceType.DineIn && (!shop.DineInOffered || !OrderingTable.IsToken(tableToken)))
+        {
+            return TableNotFound();
+        }
+
+        if (Check(shop, request, tableToken) is not { } submission)
         {
             var errors = FieldErrors(shop, request);
             _logger.LogInformation(
@@ -258,6 +301,12 @@ public sealed class OrderingPublicFlow
                 var number = OrderingOrder.FormatNumber(result.Order!.Number);
                 return Refuse(
                     StatusCodes.Status409Conflict, "duplicate-submission", $"這筆訂單已經送出過了（訂單編號 {number}）。", orderNumber: number);
+            case OrderingSubmitOutcome.TableNotFound:
+                return TableNotFound();
+            case OrderingSubmitOutcome.TooManyPendingAtTable:
+                return Refuse(
+                    StatusCodes.Status429TooManyRequests, "too-many-pending",
+                    $"這桌已經有 {shop.DineInSettings?.MaxPendingPerTable} 筆等待店家確認的訂單，請等店家確認後再加點，或洽店員。");
             case OrderingSubmitOutcome.Paused:
                 return Refuse(StatusCodes.Status409Conflict, "shop-paused", $"店家暫停接受線上點餐，請稍後再試或來電 {shop.Phone}。");
             case OrderingSubmitOutcome.ServiceUnavailable:
@@ -266,6 +315,7 @@ public sealed class OrderingPublicFlow
                     submission.ServiceType switch
                     {
                         OrderingServiceType.TakeoutAsap => "現在無法接受儘快取餐的訂單，請改選預約取餐時間。",
+                        OrderingServiceType.DineIn => "現在不是內用點餐的時間，請洽店員。",
                         OrderingServiceType.DeliveryAsap when shop.DeliveryOffered && shop.DeliveryAsap => "現在無法接受儘快外送的訂單，請改選預約外送時間。",
                         OrderingServiceType.DeliveryScheduled or OrderingServiceType.DeliveryAsap => "店家目前不提供外送。",
                         _ => "店家目前不接受預約取餐。",
@@ -306,23 +356,41 @@ public sealed class OrderingPublicFlow
 
     /// <summary>The submission when every field is fine; otherwise <see langword="null"/> (<see cref="FieldErrors"/>
     /// says why).</summary>
-    private static OrderingSubmission? Check(OrderingShop shop, OrderingOrderRequest request)
+    private static OrderingSubmission? Check(OrderingShop shop, OrderingOrderRequest request, string? tableToken)
     {
         if (FieldErrors(shop, request).Count > 0)
         {
             return null;
         }
 
-        var customer = request.Customer!;
         var delivery = request.ServiceType!.Value.IsDelivery();
+        if (request.ServiceType == OrderingServiceType.DineIn)
+        {
+            // #402: an optional 稱呼, no phone or Email, no tableware question; the table is the header's.
+            return new OrderingSubmission(
+                shop.OrganizationId,
+                OrderingServiceType.DineIn,
+                null,
+                null,
+                request.MenuVersion!.Value,
+                Lines(request),
+                request.Customer?.Name?.Trim() ?? string.Empty,
+                string.Empty,
+                null,
+                shop.ShowOrderComment ? Trimmed(request.OrderComment) : null,
+                null,
+                OrderingOrder.NormalizeSubmissionKey(request.SubmissionKey)!,
+                TableToken: tableToken);
+        }
+
+        var customer = request.Customer!;
         return new OrderingSubmission(
             shop.OrganizationId,
             request.ServiceType!.Value,
             Scheduled(request.ServiceType) ? ParseDate(request.PickupDate) : null,
             Scheduled(request.ServiceType) ? request.PickupSlot : null,
             request.MenuVersion!.Value,
-            [.. request.Lines!.Select(line => new OrderingLineInput(
-                line.ItemId, line.Quantity, line.Selections?.Select(selection => selection.ToSelection()).ToList(), Trimmed(line.Comment)))],
+            Lines(request),
             customer.Name!.Trim(),
             ReservationContact.NormalizePhone(customer.Phone)!,
             Trimmed(customer.Email),
@@ -333,6 +401,12 @@ public sealed class OrderingPublicFlow
             delivery ? Trimmed(request.DeliveryAddress) : null,
             delivery ? Trimmed(request.DeliveryNote) : null);
     }
+
+    private static List<OrderingLineInput> Lines(OrderingOrderRequest request) =>
+    [
+        .. request.Lines!.Select(line => new OrderingLineInput(
+            line.ItemId, line.Quantity, line.Selections?.Select(selection => selection.ToSelection()).ToList(), Trimmed(line.Comment))),
+    ];
 
     private static bool Scheduled(OrderingServiceType? type) =>
         type is OrderingServiceType.TakeoutScheduled or OrderingServiceType.DeliveryScheduled;
@@ -386,9 +460,17 @@ public sealed class OrderingPublicFlow
         }
 
         var customer = request.Customer;
-        Add("customer.name", OrderingContact.NameProblem(customer?.Name?.Trim()));
-        Add("customer.phone", ReservationContact.PhoneProblem(customer?.Phone));
-        Add("customer.email", ReservationContact.EmailProblem(Trimmed(customer?.Email)));
+        if (request.ServiceType == OrderingServiceType.DineIn)
+        {
+            // #402: 稱呼 is optional; phone and Email are not asked.
+            Add("customer.name", OrderingContact.OptionalNameProblem(customer?.Name?.Trim()));
+        }
+        else
+        {
+            Add("customer.name", OrderingContact.NameProblem(customer?.Name?.Trim()));
+            Add("customer.phone", ReservationContact.PhoneProblem(customer?.Phone));
+            Add("customer.email", ReservationContact.EmailProblem(Trimmed(customer?.Email)));
+        }
         if (shop.ShowOrderComment)
         {
             Add("orderComment", OrderingContact.OrderCommentProblem(Trimmed(request.OrderComment)));
@@ -419,6 +501,9 @@ public sealed class OrderingPublicFlow
 
     private static IResult ShopNotFound() =>
         Refuse(StatusCodes.Status404NotFound, "shop-not-found", "找不到這家店的線上點餐頁面，請確認網址。");
+
+    private static IResult TableNotFound() =>
+        Refuse(StatusCodes.Status404NotFound, "table-not-found", "這個桌號的 QR code 已失效，請洽店員。");
 
     private static IResult OrderNotFound() =>
         Refuse(StatusCodes.Status404NotFound, "order-not-found", "找不到這筆訂單，請確認網址。");

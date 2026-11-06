@@ -229,14 +229,25 @@ describe('ShopStore: delivery (#401)', () => {
   const delivering = (patch: Partial<ShopInfo> = {}): ShopInfo =>
     ({
       paused: false,
-      services: { takeoutScheduled: false, takeoutAsap: false, delivery: true, deliveryAsap: true },
+      services: {
+        takeoutScheduled: false,
+        takeoutAsap: false,
+        delivery: true,
+        deliveryAsap: true,
+        dineIn: false,
+      },
       asap: null,
       timeZone: 'Asia/Taipei',
       now: '2026-11-07T04:00:00Z',
       delivery: {
         zones,
         note: null,
-        open: { isOpen: true, currentPeriodOpens: null, currentPeriodCloses: null, nextOpening: null },
+        open: {
+          isOpen: true,
+          currentPeriodOpens: null,
+          currentPeriodCloses: null,
+          nextOpening: null,
+        },
         asap: { minMinutes: 35, maxMinutes: 50 },
         minLeadMinutes: 45,
         orderingHours: [],
@@ -315,7 +326,18 @@ describe('ShopStore: delivery (#401)', () => {
 
   it('ASAP delivery uses the delivery estimate; takeout has no fee nor minimum', () => {
     const s = store();
-    s.shop.set(delivering({ services: { takeoutScheduled: false, takeoutAsap: true, delivery: true, deliveryAsap: true }, asap: { minMinutes: 15, maxMinutes: 30 } }));
+    s.shop.set(
+      delivering({
+        services: {
+          takeoutScheduled: false,
+          takeoutAsap: true,
+          delivery: true,
+          deliveryAsap: true,
+          dineIn: false,
+        },
+        asap: { minMinutes: 15, maxMinutes: 30 },
+      }),
+    );
     s.slots.set(slots);
     s.chooseService({ type: 'delivery-asap', date: null, slot: null, zoneId: 'minquan' });
     expect(s.serviceLabel()).toEqual({
@@ -338,8 +360,22 @@ describe('ShopStore: delivery (#401)', () => {
 
   it('without delivery (or an old recorded response) nothing about delivery is offered', () => {
     const s = store();
-    s.shop.set({ ...delivering(), services: { takeoutScheduled: true, takeoutAsap: false, delivery: false, deliveryAsap: false }, delivery: null });
+    s.shop.set({
+      ...delivering(),
+      services: {
+        takeoutScheduled: true,
+        takeoutAsap: false,
+        delivery: false,
+        deliveryAsap: false,
+        dineIn: false,
+      },
+      delivery: null,
+    });
     s.slots.set({ ...slots, deliveryDates: undefined } as unknown as Slots);
-    expect([s.hasDeliverySlots(), s.deliveryAsapAvailable(), s.zones()]).toEqual([false, false, []]);
+    expect([s.hasDeliverySlots(), s.deliveryAsapAvailable(), s.zones()]).toEqual([
+      false,
+      false,
+      [],
+    ]);
   });
 });

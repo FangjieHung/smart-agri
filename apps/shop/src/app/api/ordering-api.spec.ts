@@ -1,6 +1,6 @@
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { API_PREFIX, OrderingApi, TOKEN_HEADER } from './ordering-api';
+import { API_PREFIX, OrderingApi, TABLE_HEADER, TOKEN_HEADER } from './ordering-api';
 
 const TOKEN = 'kq3Vd8u6m0yJxT2bA9cR4eLw7sZpN1fH5gUiOoE_-Qa';
 
@@ -38,6 +38,27 @@ describe('OrderingApi', () => {
       expect(call.init.body ?? '').not.toContain(TOKEN);
     }
     expect(calls[1].init.method).toBe('POST');
+  });
+
+  it('sends the table token (#402) only in the X-Ordering-Table header, never in the URL', async () => {
+    const TABLE = 'Tb1e_Tok3n-0123456789abcdefghijklmnopqrstuv';
+    const { api, calls } = setup(async () => json(200, { name: 'A1' }));
+    await api.table('wangji-noodles', TABLE);
+    await api.submit('wangji-noodles', { serviceType: 'dine-in' } as never, TABLE);
+    await api.submit('wangji-noodles', { serviceType: 'takeout-asap' } as never);
+    expect(calls.map((call) => call.url)).toEqual([
+      `${API_PREFIX}wangji-noodles/table`,
+      `${API_PREFIX}wangji-noodles/orders`,
+      `${API_PREFIX}wangji-noodles/orders`,
+    ]);
+    const headers = calls.map((call) => call.init.headers as Record<string, string>);
+    expect(headers[0][TABLE_HEADER]).toBe(TABLE);
+    expect(headers[1][TABLE_HEADER]).toBe(TABLE);
+    expect(headers[2][TABLE_HEADER]).toBeUndefined();
+    for (const call of calls) {
+      expect(call.url).not.toContain(TABLE);
+      expect(call.init.body ?? '').not.toContain(TABLE);
+    }
   });
 
   it('turns problem+json into a problem with its reason', async () => {

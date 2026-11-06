@@ -124,6 +124,35 @@
   white-space: pre-line;
 }
 
+.table-session {
+  border-color: var(--c-line-strong);
+  background: var(--c-paper);
+  color: var(--c-ink);
+}
+
+.table-session__list {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+  list-style: none;
+}
+
+.table-session__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.table-session__head .price {
+  margin-left: auto;
+}
+
+.table-session__items {
+  display: block;
+  font-size: var(--fs-small);
+  color: var(--c-ink-2);
+}
+
 .tabs {
   position: sticky;
   top: 0;

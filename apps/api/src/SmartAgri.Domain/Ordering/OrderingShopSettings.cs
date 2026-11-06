@@ -3,17 +3,20 @@ using SmartAgri.Domain.Coordinator;
 
 namespace SmartAgri.Domain.Ordering;
 
-/// <summary>Which ways of getting an order a shop offers (design O2). Dine-in (#402) is added beside these.</summary>
+/// <summary>Which ways of getting an order a shop offers (design O2).</summary>
 /// <param name="TakeoutScheduled">外帶預約: pick up at a chosen time slot (<see cref="OrderingSlots"/>).</param>
 /// <param name="TakeoutAsap">外帶即時: as soon as possible (<see cref="OrderingSlots.Asap"/>).</param>
 /// <param name="Delivery">外送（預約）(#401): delivered at a chosen time slot of the delivery hours, to one of the zones
 /// (<see cref="OrderingDeliverySettings"/>).</param>
 /// <param name="DeliveryAsap">外送（儘快）(#401): only with <paramref name="Delivery"/>; the ASAP band plus
 /// <see cref="OrderingDeliverySettings.AsapExtraMinutes"/>.</param>
-public sealed record OrderingServices(bool TakeoutScheduled, bool TakeoutAsap, bool Delivery = false, bool DeliveryAsap = false)
+/// <param name="DineIn">內用掃碼 (#402): ordered from a table's QR code (<see cref="OrderingDineInSettings"/>), paid at the
+/// counter after the meal.</param>
+public sealed record OrderingServices(
+    bool TakeoutScheduled, bool TakeoutAsap, bool Delivery = false, bool DeliveryAsap = false, bool DineIn = false)
 {
     /// <summary>At least one is offered.</summary>
-    public bool Any => TakeoutScheduled || TakeoutAsap || Delivery;
+    public bool Any => TakeoutScheduled || TakeoutAsap || Delivery || DineIn;
 }
 
 /// <summary>How long an ASAP takeout order takes to be ready (design D9), chosen by the staff: shown to the customer as
@@ -75,6 +78,8 @@ public static class AsapPrepBands
 /// (<see cref="OrderingOrder.ExpiryFor"/>), before it expires on its own (design D5, #400).</param>
 /// <param name="Delivery">The <c>delivery</c> section (#401): zones, hours, lead time; required when
 /// <see cref="OrderingServices.Delivery"/> is on, kept (unused) when it is off.</param>
+/// <param name="DineIn">The <c>dineIn</c> section (#402): tables, auto-accept, hours, note, pending limit; required when
+/// <see cref="OrderingServices.DineIn"/> is on, kept (its tables' QR codes not answering) when it is off.</param>
 public sealed record OrderingShopSettings(
     string Slug,
     string Name,
@@ -92,7 +97,8 @@ public sealed record OrderingShopSettings(
     bool ShowOrderComment = true,
     bool ShowTableware = true,
     int PendingTimeoutMinutes = OrderingShopSettings.DefaultPendingTimeoutMinutes,
-    OrderingDeliverySettings? Delivery = null)
+    OrderingDeliverySettings? Delivery = null,
+    OrderingDineInSettings? DineIn = null)
 {
     public const int DefaultSlotMinutes = 30;
     public const int DefaultDaysAhead = 3;
@@ -127,7 +133,7 @@ public sealed record OrderingShopSettings(
     public static readonly IReadOnlyList<string> FieldNames =
     [
         "slug", "name", "timeZone", "phone", "address", "notices", "services", "orderingHours", "slotMinutes", "daysAhead",
-        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes", "delivery",
+        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes", "delivery", "dineIn",
     ];
 
     /// <summary>The time zone of <see cref="TimeZoneId"/>.</summary>
@@ -173,6 +179,7 @@ public static class OrderingShopChange
         Compare("showTableware", before.ShowTableware == after.ShowTableware);
         Compare("pendingTimeoutMinutes", before.PendingTimeoutMinutes == after.PendingTimeoutMinutes);
         Compare("delivery", OrderingShopJson.WriteDelivery(before.Delivery) == OrderingShopJson.WriteDelivery(after.Delivery));
+        Compare("dineIn", OrderingShopJson.WriteDineIn(before.DineIn) == OrderingShopJson.WriteDineIn(after.DineIn));
         return changed;
     }
 }

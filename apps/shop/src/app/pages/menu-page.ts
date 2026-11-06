@@ -9,9 +9,9 @@ import {
   signal,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import type { MenuCategory, MenuItem } from '../api/types';
+import type { MenuCategory, MenuItem, TableOrder } from '../api/types';
 import { activeOrder } from '../domain/orders';
-import { statusWords } from '../domain/status';
+import { serviceKind, statusWords } from '../domain/status';
 import {
   availabilityText,
   dayLabel,
@@ -28,7 +28,10 @@ import { mapHref, ntd, telHref } from '../ui/format';
 import { PickupTicket } from '../ui/pickup-ticket';
 import { TimeSheet } from '../ui/time-sheet';
 
-/** 點餐首頁：店家資訊、取餐時間、分類頁籤與菜單、底部的購物車列。 */
+/**
+ * 點餐首頁：店家資訊、取餐時間、分類頁籤與菜單、底部的購物車列。掃桌號 QR code 進來（內用，#402）時不選時間，
+ * 改顯示桌號與這桌已點的訂單（每次回到菜單都重讀）。
+ */
 @Component({
   selector: 'app-menu-page',
   imports: [NgTemplateOutlet, PickupTicket, TimeSheet, ItemSheet, InfoSheet],
@@ -54,7 +57,9 @@ export default class MenuPage {
 
   protected readonly status = computed(() => {
     const shop = this.store.shop();
-    return shop ? openStatus(shop) : null;
+    // 桌號模式（內用，#402）看內用的時間。
+    const dineIn = this.store.isTable() ? shop?.dineIn : null;
+    return shop ? openStatus(dineIn ? { ...shop, open: dineIn.open } : shop) : null;
   });
 
   protected readonly reminderPreview = computed(
@@ -64,9 +69,13 @@ export default class MenuPage {
   protected readonly banner = computed(() => {
     const order = activeOrder(this.store.slug(), this.store.now());
     if (!order) return null;
-    const delivery = order.serviceType === 'delivery-scheduled' || order.serviceType === 'delivery-asap';
-    return { ...order, words: statusWords(order.status, null, delivery).title };
+    return { ...order, words: statusWords(order.status, null, serviceKind(order)).title };
   });
+
+  /** 這桌目前桌次的訂單（內用，#402）。 */
+  protected readonly session = computed(() =>
+    this.store.isTable() ? (this.store.table()?.session ?? null) : null,
+  );
 
   /** 判斷供應與售完用的時刻：選好的取餐時間，還沒選時用現在（伺服器時間）。 */
   private readonly pickup = computed(() => this.store.pickupAt() ?? new Date(this.store.now()));
@@ -86,11 +95,16 @@ export default class MenuPage {
           item,
           reason: offered
             ? this.unavailableReason(item, pickup, shop.timeZone, today)
-            : '這個取餐時間不供應',
+            : this.offText(),
         })),
       };
     });
   });
+
+  /** 分類不在供應時段時的說明（內用沒有取餐時間，說「現在」）。 */
+  protected readonly offText = computed(() =>
+    this.store.isTable() ? '現在不供應' : '這個取餐時間不供應',
+  );
 
   constructor() {
     const destroyRef = inject(DestroyRef);
@@ -110,9 +124,9 @@ export default class MenuPage {
   }
 
   private async init(): Promise<void> {
-    await Promise.all([this.store.loadMenu(), this.store.loadSlots()]);
+    await Promise.all([this.store.loadMenu(), this.store.loadService()]);
     this.activeCategory.set(this.store.menu()?.categories[0]?.id ?? null);
-    if (!this.store.canOrder() || this.store.serviceReady()) return;
+    if (this.store.isTable() || !this.store.canOrder() || this.store.serviceReady()) return;
     if (this.store.asapAvailable()) {
       this.store.chooseService({ type: 'takeout-asap', date: null, slot: null });
     } else if (
@@ -133,11 +147,22 @@ export default class MenuPage {
   ): string | null {
     if (isItemAvailable(item, pickup)) return null;
     if (item.state?.kind === 'sold-out-today') {
-      if (!item.state.resetsAt) return '今日售完';
+      if (!item.state.resetsAt || this.store.isTable()) return '今日售完';
       const back = wallClock(item.state.resetsAt, timeZone);
       return `今日售完，${dayLabel(back.date, today)} ${back.time} 起可預訂`;
     }
     return '暫停供應';
+  }
+
+  /** 這桌某筆訂單的狀態與品項（只有號碼、狀態、品名、份數與金額）。 */
+  protected tableOrderStatus(order: TableOrder): string {
+    return order.status ? statusWords(order.status, null, 'dine-in').title : '';
+  }
+
+  protected tableOrderItems(order: TableOrder): string {
+    return order.items
+      .map((item) => `${item.name}${item.quantity > 1 ? ` ×${item.quantity}` : ''}`)
+      .join('、');
   }
 
   protected orderable(reason: string | null): boolean {

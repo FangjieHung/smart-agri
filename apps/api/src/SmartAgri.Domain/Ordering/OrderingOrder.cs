@@ -8,7 +8,7 @@ using SmartAgri.Domain.Organizations;
 
 namespace SmartAgri.Domain.Ordering;
 
-/// <summary>How a customer gets an order (design O2, D10). Dine-in (#402) is added beside these.</summary>
+/// <summary>How a customer gets an order (design O2, D10, D11).</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrderingServiceType>))]
 public enum OrderingServiceType
 {
@@ -27,6 +27,11 @@ public enum OrderingServiceType
     /// <summary>外送（儘快）(#401): as soon as possible, the ASAP band plus the ride.</summary>
     [JsonStringEnumMemberName("delivery-asap")]
     DeliveryAsap,
+
+    /// <summary>內用 (#402): sent from a table's QR code, no time chosen (its pickup is when it was sent), paid at the counter
+    /// after the meal; it joins the table's open session (<see cref="OrderingTableSession"/>).</summary>
+    [JsonStringEnumMemberName("dine-in")]
+    DineIn,
 }
 
 /// <summary>Where an <see cref="OrderingOrder"/> is (design D5). The customer sends it (<see cref="Pending"/>) and may cancel it
@@ -291,6 +296,22 @@ public sealed class OrderingOrder : IOrganizationScoped
     public OrderingOrderDelivery? Delivery =>
         DeliveryZoneId is { } zoneId ? new OrderingOrderDelivery(zoneId, DeliveryZoneName ?? string.Empty, DeliveryFee, DeliveryAddress ?? string.Empty, DeliveryNote) : null;
 
+    /// <summary>A dine-in order's table id when it was sent (#402); <see langword="null"/> otherwise.</summary>
+    public string? TableId { get; private set; }
+
+    /// <summary>A dine-in order's table name when it was sent (#402); <see langword="null"/> otherwise.</summary>
+    public string? TableName { get; private set; }
+
+    /// <summary>The table session a dine-in order joined (#402); <see langword="null"/> otherwise.</summary>
+    public Guid? TableSessionId { get; private set; }
+
+    /// <summary>The table part (#402) as stored; <see langword="null"/> unless dine-in.</summary>
+    public OrderingOrderTable? Table =>
+        TableId is { } tableId && TableSessionId is { } sessionId ? new OrderingOrderTable(tableId, TableName ?? string.Empty, sessionId) : null;
+
+    /// <summary>Accepted by the system as it was sent (the shop's dine-in <c>autoAccept</c>, #402): 「自動接單」, no member.</summary>
+    public bool AutoAccepted { get; private set; }
+
     /// <summary>The menu version (<see cref="OrderingMenu.Version"/>) it was priced on.</summary>
     public int MenuVersion { get; private set; }
 
@@ -375,6 +396,8 @@ public sealed class OrderingOrder : IOrganizationScoped
     /// <param name="asap">The ASAP estimate; required exactly for the ASAP types (<see cref="OrderingServiceTypes.IsAsap"/>).</param>
     /// <param name="delivery">The zone (its fee is added to the total) and address; required exactly for the delivery types
     /// (#401).</param>
+    /// <param name="table">The table and the session it joins; required exactly for dine-in (#402), whose pickup is
+    /// <paramref name="now"/>, whose name is optional and which has no phone or Email.</param>
     /// <param name="hours">The ordering hours of the order's channel (delivery's for delivery, #401).</param>
     /// <param name="pendingTimeoutMinutes">The shop's <c>pendingTimeoutMinutes</c>: with <paramref name="hours"/>, when the
     /// order expires unanswered (<see cref="ExpiryFor"/>).</param>
@@ -397,7 +420,8 @@ public sealed class OrderingOrder : IOrganizationScoped
         BusinessHours hours,
         int pendingTimeoutMinutes,
         DateTimeOffset now,
-        OrderingOrderDelivery? delivery = null)
+        OrderingOrderDelivery? delivery = null,
+        OrderingOrderTable? table = null)
     {
         if (organizationId == Guid.Empty)
         {
@@ -409,6 +433,13 @@ public sealed class OrderingOrder : IOrganizationScoped
         if (!Enum.IsDefined(serviceType) || serviceType.IsAsap() != (asap is not null))
         {
             throw new ArgumentException("An ASAP order has an estimate and a scheduled one has none.", nameof(asap));
+        }
+
+        var dineIn = serviceType == OrderingServiceType.DineIn;
+        if (dineIn != (table is not null)
+            || (table is not null && (string.IsNullOrEmpty(table.TableId) || string.IsNullOrEmpty(table.TableName) || table.SessionId == Guid.Empty)))
+        {
+            throw new ArgumentException("A dine-in order has its table and session; another has none.", nameof(table));
         }
 
         if (serviceType.IsDelivery() != (delivery is not null))
@@ -433,8 +464,8 @@ public sealed class OrderingOrder : IOrganizationScoped
             throw new ArgumentException($"An order has 1 to {MaxLines} lines.", nameof(lines));
         }
 
-        if (OrderingContact.NameProblem(customerName) is not null
-            || ReservationContact.NormalizePhone(customerPhone) != customerPhone
+        if ((dineIn ? OrderingContact.OptionalNameProblem(customerName) : OrderingContact.NameProblem(customerName)) is not null
+            || (dineIn ? customerPhone.Length != 0 || customerEmail is not null : ReservationContact.NormalizePhone(customerPhone) != customerPhone)
             || (customerEmail is not null && ReservationContact.EmailProblem(customerEmail) is not null)
             || (orderComment is not null && OrderingContact.OrderCommentProblem(orderComment) is not null)
             || lines.Any(line => line.Comment is not null && OrderingContact.LineCommentProblem(line.Comment) is not null))
@@ -459,7 +490,8 @@ public sealed class OrderingOrder : IOrganizationScoped
             throw new ArgumentException($"An order totals at most NT${MaxTotal}.", nameof(lines));
         }
 
-        var pickup = asap is null ? pickupAt : now.AddMinutes(asap.MaxMinutes);
+        // Dine-in: no time chosen, the pickup is now (numbering, expiry and retention count from it).
+        var pickup = dineIn ? now : asap is null ? pickupAt : now.AddMinutes(asap.MaxMinutes);
         return new OrderingOrder
         {
             Id = Guid.CreateVersion7(),
@@ -486,12 +518,16 @@ public sealed class OrderingOrder : IOrganizationScoped
             DeliveryZoneName = delivery?.ZoneName,
             DeliveryAddress = delivery?.Address,
             DeliveryNote = delivery?.Note,
+            TableId = table?.TableId,
+            TableName = table?.TableName,
+            TableSessionId = table?.SessionId,
             MenuVersion = menuVersion,
             StatusTokenHash = HashStatusToken(statusToken),
             SubmissionKey = submissionKey,
             CreatedAt = now.ToUniversalTime(),
             StatusChangedAt = now.ToUniversalTime(),
-            ExpiresAt = ExpiryFor(hours, pendingTimeoutMinutes, now, pickup).ToUniversalTime(),
+            // A dine-in order's pickup is now: it expires a timeout after the dine-in hours are open, never capped by it.
+            ExpiresAt = ExpiryFor(hours, pendingTimeoutMinutes, now, dineIn ? DateTimeOffset.MaxValue : pickup).ToUniversalTime(),
         };
     }
 
@@ -553,6 +589,11 @@ public sealed class OrderingOrder : IOrganizationScoped
             return null;
         }
 
+        if (ServiceType == OrderingServiceType.DineIn)
+        {
+            return "內用訂單不需要指定時間。";
+        }
+
         var what = ServiceType.IsDelivery() ? "預計送達時間" : "預計取餐時間";
         if (!ServiceType.IsAsap() ? at < PickupAt : at < now.AddMinutes(-1))
         {
@@ -599,6 +640,23 @@ public sealed class OrderingOrder : IOrganizationScoped
         PromisedAt = promised.ToUniversalTime();
         AcceptedAt = StatusChangedAt;
         AcceptedByAccountId = StaffMember(accountId);
+    }
+
+    /// <summary>
+    /// 「自動接單」 (#402): a dine-in order of a shop with <c>dineIn.autoAccept</c> is accepted by the system in the transaction
+    /// that stores it — no member, <see cref="AutoAccepted"/>, promised for when it was sent.
+    /// </summary>
+    public void AcceptAutomatically(DateTimeOffset now)
+    {
+        if (ServiceType != OrderingServiceType.DineIn)
+        {
+            throw new InvalidOperationException("Only a dine-in order is accepted automatically.");
+        }
+
+        Move(OrderingOrderAction.Accept, OrderingOrderStatus.Accepted, now);
+        PromisedAt = PickupAt;
+        AcceptedAt = StatusChangedAt;
+        AutoAccepted = true;
     }
 
     /// <summary>〔婉拒〕 by <paramref name="accountId"/> for <paramref name="reason"/> with an optional (for
@@ -816,6 +874,10 @@ public static class OrderingContact
 
     /// <summary>給外送的備註 (#401): optional, at most <see cref="DeliveryNoteMaxLength"/>.</summary>
     public static string? DeliveryNoteProblem(string? note) => CommentProblem(note, DeliveryNoteMaxLength, "給外送的備註");
+
+    /// <summary>A dine-in customer's 稱呼 (#402): optional (empty is fine), otherwise as <see cref="NameProblem"/>.</summary>
+    public static string? OptionalNameProblem(string? name) =>
+        string.IsNullOrEmpty(name) ? null : NameProblem(name);
 
     public static string? NameProblem(string? name)
     {

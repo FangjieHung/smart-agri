@@ -58,7 +58,8 @@ public sealed record OrderingStaffSummary(
     int PendingCount,
     int ActiveCount,
     DateTimeOffset? LatestOrderAt,
-    DateTimeOffset? ChangedAt);
+    DateTimeOffset? ChangedAt,
+    int OpenTableCount = 0);
 
 /// <summary>How setting an item's state went.</summary>
 public enum OrderingItemStateOutcome
@@ -155,6 +156,14 @@ public sealed class OrderingStaffOrders
             .ToListAsync(cancellationToken);
         var latest = await dbContext.OrderingOrders.AsNoTracking().MaxAsync(order => (DateTimeOffset?)order.CreatedAt, cancellationToken);
         var changed = await dbContext.OrderingOrders.AsNoTracking().MaxAsync(order => (DateTimeOffset?)order.StatusChangedAt, cancellationToken);
+        // #402: a table session opening, getting an order or closing moves the cursor too.
+        var sessionChanged = await dbContext.OrderingTableSessions.AsNoTracking().MaxAsync(session => (DateTimeOffset?)session.UpdatedAt, cancellationToken);
+        if (sessionChanged > changed || changed is null)
+        {
+            changed = sessionChanged;
+        }
+
+        var openTables = await dbContext.OrderingTableSessions.AsNoTracking().CountAsync(session => session.ClosedAt == null, cancellationToken);
         return new OrderingStaffSummary(
             shop,
             menu.Version,
@@ -162,7 +171,8 @@ public sealed class OrderingStaffOrders
             counts.Where(entry => entry.Pending).Sum(entry => entry.Count),
             counts.Where(entry => !entry.Pending).Sum(entry => entry.Count),
             latest,
-            changed);
+            changed,
+            openTables);
     }
 
     /// <summary>The orders of <paramref name="view"/> at <paramref name="now"/> (see <see cref="OrderingOrderList"/>) and

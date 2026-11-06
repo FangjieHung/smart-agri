@@ -71,6 +71,27 @@ public static class OrderingStaffEndpoints
         MapAction<OrderingStepRequest>(ordering, "complete", "Mark an accepted or ready order picked up", CompleteAsync);
         MapAction<OrderingShopCancelRequest>(ordering, "cancel", "Cancel an accepted or ready order with a reason", CancelAsync);
 
+        ordering.MapGet("/tables", TablesAsync)
+            .WithSummary("The open table sessions (dine-in): each table's orders until 〔已結帳〕")
+            .Produces<OrderingStaffTablesView>()
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound);
+
+        ordering.MapPost("/tables/sessions/{sessionId:guid}/close", CloseSessionAsync)
+            .WithSummary("〔已結帳〕: close a table session and complete its accepted and ready orders")
+            .WithDescription(
+                "200 with the closed session. 409 session-changed (another order joined, or it was closed, since the version sent) or " +
+                "table-has-pending (an order is still pending), both with the session as it is now. 403 ordering for a session the " +
+                "organization does not have. 422 for a missing version.")
+            .Accepts<OrderingCloseSessionRequest>("application/json")
+            .Produces<OrderingStaffTableSessionView>()
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status403Forbidden)
+            .Produces(StatusCodes.Status404NotFound)
+            .Produces<OrderingStaffTableConflict>(StatusCodes.Status409Conflict, ProblemJson)
+            .Produces(StatusCodes.Status422UnprocessableEntity);
+
         ordering.MapPut("/pause", PauseAsync)
             .WithSummary("Pause or resume taking orders (暫停接單)")
             .Produces<OrderingStaffSummaryView>()
@@ -245,6 +266,77 @@ public static class OrderingStaffEndpoints
         return ActAsync(
             orderId, new OrderingStaffAction(OrderingOrderAction.Cancel, request.Version!.Value, CancelReason: request.Reason, Note: note),
             httpContext, organization, orders, clock, logger, cancellationToken);
+    }
+
+    internal static async Task<IResult> TablesAsync(
+        IOrganizationContext organization, OrderingStaffOrders orders, OrderingDineInTables tables, TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        if (organization.OrganizationId is not { } organizationId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        if (await orders.ShopAsync(organizationId, cancellationToken) is null)
+        {
+            return NotConfigured();
+        }
+
+        var now = clock.GetUtcNow();
+        var sessions = await tables.OpenSessionsAsync(organizationId, cancellationToken);
+        var members = await tables.MembersAsync(organizationId, sessions, cancellationToken);
+        return Results.Ok(new OrderingStaffTablesView(now, [.. sessions.Select(session => OrderingStaffTableSessionView.Of(session, members))]));
+    }
+
+    internal static async Task<IResult> CloseSessionAsync(
+        Guid sessionId, OrderingCloseSessionRequest request, HttpContext httpContext, IOrganizationContext organization,
+        OrderingStaffOrders orders, OrderingDineInTables tables, TimeProvider clock, ILogger<OrderingStaffOrders> logger,
+        CancellationToken cancellationToken)
+    {
+        if (organization.OrganizationId is not { } organizationId || AccountClaims.GetAccountId(httpContext.User) is not { } accountId)
+        {
+            return ApiErrors.Unauthorized();
+        }
+
+        if (request.Version is not { } version)
+        {
+            return MissingVersion();
+        }
+
+        if (await orders.ShopAsync(organizationId, cancellationToken) is null)
+        {
+            return NotConfigured();
+        }
+
+        var result = await tables.CloseAsync(organizationId, sessionId, version, accountId, clock.GetUtcNow(), cancellationToken);
+        if (result.Session is not { } entry)
+        {
+            return ApiErrors.NotFound(ForbiddenReason.Ordering);
+        }
+
+        var view = OrderingStaffTableSessionView.Of(entry, await tables.MembersAsync(organizationId, [entry], cancellationToken));
+        if (result.Outcome == OrderingCloseOutcome.Closed)
+        {
+            logger.LogInformation(
+                "Table session {SessionId} of organization {OrganizationId} closed by account {AccountId}: {Orders} orders, {Completed} completed, NT${Total}.",
+                sessionId, organizationId, accountId, entry.Orders.Count, result.Completed!.Count, view.Total);
+            return Results.Ok(view);
+        }
+
+        var pending = result.Outcome == OrderingCloseOutcome.HasPending;
+        logger.LogInformation(
+            "Table session {SessionId} of organization {OrganizationId}: close by account {AccountId} refused ({Outcome}).",
+            sessionId, organizationId, accountId, result.Outcome);
+        return Results.Json(
+            new OrderingStaffTableConflict(
+                "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+                "Conflict",
+                StatusCodes.Status409Conflict,
+                pending ? "table-has-pending" : "session-changed",
+                pending ? "這桌還有待確認的訂單，請先接單或婉拒再結帳。" : "這桌剛剛有新的變動，請確認金額後再結帳。",
+                view),
+            contentType: ProblemJson,
+            statusCode: StatusCodes.Status409Conflict);
     }
 
     internal static async Task<IResult> PauseAsync(

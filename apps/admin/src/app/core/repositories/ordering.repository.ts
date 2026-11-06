@@ -2,7 +2,9 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { inject, Injectable } from '@angular/core';
 import { catchError, defer, map, of, throwError, type Observable } from 'rxjs';
 import {
+  countsInTableTotal,
   isDelivery,
+  isDineIn,
   listOf,
   ORDERING_ASAP_MINUTES,
   shopClock,
@@ -19,11 +21,21 @@ import {
   type OrderingOrdersView,
   type OrderingOrderView,
   type OrderingSummaryView,
+  type OrderingTablesView,
+  type OrderingTableSessionView,
 } from '../domain/ordering.model';
 import { ApiSessionService } from '../session/api-session.service';
 import { DemoSessionService } from '../session/demo-session.service';
 import type { PermissionDeniedRepositoryView, RepositoryView } from './demo-repository';
-import { createMockOrderingState, MOCK_ORDERING_SHOP, MOCK_ORDERING_TIME_ZONE, mockActions, mockReopensAt, type MockOrderingState } from './ordering.mock';
+import {
+  createMockOrderingState,
+  MOCK_ORDERING_SHOP,
+  MOCK_ORDERING_TIME_ZONE,
+  mockActions,
+  mockReopensAt,
+  type MockOrderingState,
+  type MockTableSession,
+} from './ordering.mock';
 import { API_DEMO_REPOSITORY_FACTORY, DEMO_REPOSITORY } from './tokens';
 
 export const API_ORDERING_PATH = '/api/v1/ordering';
@@ -32,6 +44,11 @@ export const API_ORDERING_ORDERS_PATH = `${API_ORDERING_PATH}/orders`;
 export const API_ORDERING_PAUSE_PATH = `${API_ORDERING_PATH}/pause`;
 export const API_ORDERING_ASAP_BAND_PATH = `${API_ORDERING_PATH}/asap-band`;
 export const API_ORDERING_ITEMS_PATH = `${API_ORDERING_PATH}/items`;
+export const API_ORDERING_TABLES_PATH = `${API_ORDERING_PATH}/tables`;
+
+export function apiOrderingCloseTablePath(sessionId: string): string {
+  return `${API_ORDERING_TABLES_PATH}/sessions/${encodeURIComponent(sessionId)}/close`;
+}
 
 export function apiOrderingActionPath(orderId: string, action: OrderingOrderAction): string {
   return `${API_ORDERING_ORDERS_PATH}/${encodeURIComponent(orderId)}/${action}`;
@@ -68,13 +85,28 @@ export interface OrderingItemNotFoundResult {
   readonly message: string;
 }
 
+/**
+ * 〔已結帳〕的 `409`（#402）：`table-has-pending`（還有待確認的訂單）或 `session-changed`（有新的加點、或別人已經結帳）；
+ * 附上這桌目前的樣子（`closedAt` 有值＝已經被結帳了）。
+ */
+export interface OrderingTableConflictResult {
+  readonly status: 'table-conflict';
+  readonly reason: string;
+  readonly message: string;
+  readonly session: OrderingTableSessionView;
+}
+
 export type OrderingRead<T> = RepositoryView<T> | OrderingNotConfiguredView;
 export type OrderingActionResult = OrderingRead<OrderingOrderView> | OrderingConflictResult | OrderingInvalidResult;
 export type OrderingWriteResult<T> = OrderingRead<T> | OrderingInvalidResult | OrderingItemNotFoundResult;
+export type OrderingCloseTableResult = OrderingRead<OrderingTableSessionView> | OrderingTableConflictResult | OrderingInvalidResult;
 
-/** 訂單動作要送的內容；每個動作都帶畫面上看到的 `version`（compare-and-set）。 */
+/**
+ * 訂單動作要送的內容；每個動作都帶畫面上看到的 `version`（compare-and-set）。內用單（#402）接單時不帶 `promisedAt`
+ * （伺服器對內用單的任何時間都回 422）。
+ */
 export type OrderingActionRequest =
-  | { readonly action: 'accept'; readonly version: number; readonly promisedAt: string | null }
+  | { readonly action: 'accept'; readonly version: number; readonly promisedAt?: string | null }
   | { readonly action: 'decline'; readonly version: number; readonly reason: OrderingDeclineReason; readonly note: string | null }
   | { readonly action: 'ready' | 'complete'; readonly version: number }
   | { readonly action: 'cancel'; readonly version: number; readonly reason: OrderingCancelReason; readonly note: string | null };
@@ -144,7 +176,9 @@ export class OrderingRepository {
       switch (request.action) {
         case 'accept':
           order.status = 'accepted';
-          order.promisedAt = request.promisedAt ?? new Date(Math.max(Date.parse(order.pickupAt), now)).toISOString();
+          // 內用（#402）：時間就是送出的時候。
+          order.promisedAt = request.promisedAt
+            ?? (isDineIn(order.serviceType) ? order.pickupAt : new Date(Math.max(Date.parse(order.pickupAt), now)).toISOString());
           order.accepted = { at, by };
           break;
         case 'decline':
@@ -168,6 +202,56 @@ export class OrderingRepository {
       order.statusChangedAt = at;
       order.actions = mockActions(order.status ?? 'pending');
       return of<OrderingActionResult>({ status: 'ready', data: copyOrder(order) });
+    });
+  }
+
+  /** 開著的桌次（內用，#402）：每一桌還沒結帳的訂單，早開桌的在前。 */
+  tables(): Observable<OrderingRead<OrderingTablesView>> {
+    if (this.apiMode) return this.read<OrderingTablesView>(API_ORDERING_TABLES_PATH);
+    return this.mock((state, now) => ({
+      now: new Date(now).toISOString(),
+      sessions: state.sessions
+        .filter((session) => session.closedAt === null)
+        .sort((a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt))
+        .map((session) => mockSessionView(state, session)),
+    }));
+  }
+
+  /**
+   * 〔已結帳〕（#402）：帶畫面上看到的桌次 `version`；已接單與已出餐的訂單變成完成，桌次關閉。還有待確認的訂單、或版本不同時
+   * 是 `409`，附上這桌目前的樣子。
+   */
+  closeTable(sessionId: string, version: number): Observable<OrderingCloseTableResult> {
+    if (this.apiMode) {
+      return this.client().post<OrderingTableSessionView>(apiOrderingCloseTablePath(sessionId), { version }).pipe(
+        map((data): OrderingCloseTableResult => ({ status: 'ready', data })),
+        catchError((error: unknown) => this.failed<OrderingTableSessionView>(error) as Observable<OrderingCloseTableResult>),
+      );
+    }
+    return defer(() => {
+      const denied = this.mockDenied();
+      if (denied) return of<OrderingCloseTableResult>(denied);
+      const state = this.state();
+      const session = state.sessions.find((candidate) => candidate.id === sessionId);
+      if (!session) return of<OrderingCloseTableResult>(ORDERING_DENIED);
+      const orders = state.orders.filter((order) => order.table?.sessionId === session.id);
+      if (session.closedAt !== null || session.version !== version) {
+        return of(tableConflict('session-changed', mockSessionView(state, session)));
+      }
+      if (orders.some((order) => order.status === 'pending')) return of(tableConflict('table-has-pending', mockSessionView(state, session)));
+      const at = new Date(Date.now()).toISOString();
+      const by = this.mockMember();
+      for (const order of orders.filter((candidate) => candidate.status === 'accepted' || candidate.status === 'ready')) {
+        order.status = 'completed';
+        order.completed = { at, by };
+        order.version += 1;
+        order.statusChangedAt = at;
+        order.actions = mockActions('completed');
+      }
+      session.closedAt = at;
+      session.closedBy = by;
+      session.version += 1;
+      return of<OrderingCloseTableResult>({ status: 'ready', data: mockSessionView(state, session) });
     });
   }
 
@@ -265,13 +349,18 @@ export class OrderingRepository {
       pendingCount: state.orders.filter((order) => order.status === 'pending').length,
       activeCount: state.orders.filter((order) => listOf(order.status) === 'active').length,
       latestOrderAt: latest(state.orders.map((order) => order.createdAt)),
-      changedAt: latest(state.orders.map((order) => order.statusChangedAt)),
+      // 桌次開桌與結帳也算（#402）。
+      changedAt: latest([
+        ...state.orders.map((order) => order.statusChangedAt),
+        ...state.sessions.flatMap((session) => [session.openedAt, ...(session.closedAt ? [session.closedAt] : [])]),
+      ]),
       paused: state.paused,
       asapBand: state.asapBand,
       asap: { ...ORDERING_ASAP_MINUTES[state.asapBand] },
-      services: { takeoutScheduled: true, takeoutAsap: true, delivery: true, deliveryAsap: true },
+      services: { takeoutScheduled: true, takeoutAsap: true, delivery: true, deliveryAsap: true, dineIn: true },
       menuVersion: MOCK_ORDERING_SHOP.menuVersion,
       shopVersion: state.shopVersion,
+      openTableCount: state.sessions.filter((session) => session.closedAt === null).length,
     };
   }
 
@@ -298,7 +387,7 @@ export class OrderingRepository {
 
   /** 後台慣例的錯誤（§4.4）：403、404 兩種原因、409 附訂單、422 逐欄位；其他照常拋出。 */
   private failed<T>(error: unknown): Observable<
-    OrderingRead<T> | OrderingConflictResult | OrderingInvalidResult | OrderingItemNotFoundResult
+    OrderingRead<T> | OrderingConflictResult | OrderingTableConflictResult | OrderingInvalidResult | OrderingItemNotFoundResult
   > {
     if (!(error instanceof HttpErrorResponse)) return throwError(() => error);
     const body = error.error && typeof error.error === 'object' ? error.error as Record<string, unknown> : {};
@@ -311,6 +400,14 @@ export class OrderingRepository {
       return of({ status: 'not-configured', message: message || ORDERING_NOT_CONFIGURED_MESSAGE });
     }
     if (error.status === 404 && body['reason'] === 'item-not-found') return of({ status: 'item-not-found', message });
+    if (error.status === 409 && body['session'] && typeof body['session'] === 'object') {
+      return of({
+        status: 'table-conflict',
+        reason: typeof body['reason'] === 'string' ? body['reason'] : '',
+        message,
+        session: body['session'] as OrderingTableSessionView,
+      });
+    }
     if (error.status === 409 && body['order'] && typeof body['order'] === 'object') {
       return of({ status: 'conflict', reason: typeof body['reason'] === 'string' ? body['reason'] : '', message, order: body['order'] as OrderingOrderView });
     }
@@ -324,6 +421,34 @@ export class OrderingRepository {
 
 function copyOrder(order: OrderingOrderView): OrderingOrderView {
   return { ...order, actions: [...order.actions] };
+}
+
+/** mock 的桌次：訂單舊的在前；合計不含婉拒、取消、逾時（同後端）。 */
+function mockSessionView(state: MockOrderingState, session: MockTableSession): OrderingTableSessionView {
+  const orders = state.orders
+    .filter((order) => order.table?.sessionId === session.id)
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  return {
+    id: session.id,
+    version: session.version,
+    tableId: session.tableId,
+    tableName: session.tableName,
+    openedAt: session.openedAt,
+    total: orders.filter((order) => countsInTableTotal(order.status)).reduce((sum, order) => sum + order.total, 0),
+    pendingCount: orders.filter((order) => order.status === 'pending').length,
+    orders: orders.map(copyOrder),
+    closedAt: session.closedAt,
+    closedBy: session.closedBy,
+  };
+}
+
+function tableConflict(reason: 'session-changed' | 'table-has-pending', session: OrderingTableSessionView): OrderingTableConflictResult {
+  return {
+    status: 'table-conflict',
+    reason,
+    message: reason === 'table-has-pending' ? '這桌還有待確認的訂單，請先接單或婉拒再結帳。' : '這桌剛剛有新的變動，請確認金額後再結帳。',
+    session,
+  };
 }
 
 function conflict(reason: 'order-changed' | 'action-not-allowed', order: OrderingOrderView): OrderingConflictResult {
@@ -342,8 +467,10 @@ function mockInvalid(order: OrderingOrderView, request: OrderingActionRequest, n
     const problem = staffNoteProblem(request.note ?? '', request.reason === 'other');
     return problem ? invalid('note', problem) : null;
   }
-  if (request.action === 'accept' && request.promisedAt !== null) {
-    const promised = Date.parse(request.promisedAt);
+  const promisedAt = request.action === 'accept' ? request.promisedAt ?? null : null;
+  if (promisedAt !== null && isDineIn(order.serviceType)) return invalid('promisedAt', '內用訂單不需要指定時間。');
+  if (promisedAt !== null) {
+    const promised = Date.parse(promisedAt);
     const asap = order.serviceType === 'takeout-asap' || order.serviceType === 'delivery-asap';
     const what = isDelivery(order.serviceType) ? '預計送達時間' : '預計取餐時間';
     const earliest = asap ? now - CLOCK_SKEW_MS : Date.parse(order.pickupAt);

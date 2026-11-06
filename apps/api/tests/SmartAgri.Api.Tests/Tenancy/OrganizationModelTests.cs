@@ -92,6 +92,7 @@ public class OrganizationModelTests
                 typeof(SmartAgri.Domain.Coordinator.CoordinatorPushLog),
                 typeof(SmartAgri.Domain.Ordering.OrderingShop), typeof(SmartAgri.Domain.Ordering.OrderingMenu),
                 typeof(SmartAgri.Domain.Ordering.OrderingItemState), typeof(SmartAgri.Domain.Ordering.OrderingOrder),
+                typeof(SmartAgri.Domain.Ordering.OrderingTable), typeof(SmartAgri.Domain.Ordering.OrderingTableSession),
             ],
             ignoreOrder: true);
         dbContext.Model.FindEntityType(typeof(Organization)).ShouldNotBeNull();

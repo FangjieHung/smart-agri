@@ -1,6 +1,15 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { OrderingApi } from '../api/ordering-api';
-import type { Menu, ServiceType, ShopInfo, Slot, SlotDate, Slots, Zone } from '../api/types';
+import type {
+  Menu,
+  ServiceType,
+  ShopInfo,
+  Slot,
+  SlotDate,
+  Slots,
+  TableView,
+  Zone,
+} from '../api/types';
 import {
   EMPTY_CART,
   isAsap,
@@ -24,9 +33,13 @@ import {
   slotText,
   wallClock,
 } from '../domain/time';
+import { saveTableToken, storedTableToken, tableTokenFromHash } from '../domain/table';
 import { Announcer } from './announcer';
 
 export type LoadState = 'idle' | 'loading' | 'ready' | 'not-found' | 'error';
+
+/** 內用（#402）沒有時間可選：取餐時間就是現在。 */
+const DINE_IN: ServiceChoice = { type: 'dine-in', date: null, slot: null };
 
 /**
  * 目前這家店的點餐狀態（換店時 {@link load} 會清掉上一家店的資料）：店家資訊、菜單、可選時段、購物車與取餐方式。
@@ -48,6 +61,29 @@ export class ShopStore {
   readonly cartNotice = signal<string | null>(null);
   /** 伺服器說無法供應或選項不符的行：行的 key → 原因代碼。 */
   readonly lineProblems = signal<ReadonlyMap<string, string>>(new Map());
+
+  /**
+   * 內用（#402）：這個分頁記住的桌號 token（sessionStorage）。有 token 時是「桌號模式」：不選取餐方式與時間，
+   * 送出的是內用訂單。token 只放在 `X-Ordering-Table` 標頭。
+   */
+  readonly tableToken = signal<string | null>(null);
+  /** 桌號與這桌目前的桌次（`GET …/table`）。 */
+  readonly table = signal<TableView | null>(null);
+  /** 桌號 QR code 已失效（格式不對、店家換掉或拿掉這桌、不再提供內用）：外框顯示「請洽店員」。 */
+  readonly tableInvalid = signal(false);
+  readonly isTable = computed(() => this.tableToken() !== null);
+  /** 內用的付款說明：店家寫的（例如「用餐後請至櫃台結帳」），沒寫時是「用餐後至櫃台結帳」。 */
+  readonly dineInPayment = computed(
+    () => this.shop()?.dineIn?.note?.trim().replace(/。$/, '') || '用餐後至櫃台結帳',
+  );
+  /** 桌號模式現在不能送出時的說明；可以送出時是 `null`。 */
+  readonly tableClosed = computed(() =>
+    !this.isTable() || this.canOrder()
+      ? null
+      : this.shop()?.paused
+        ? '店家暫停接受線上點餐，請洽店員。'
+        : '現在不是內用點餐的時間，請洽店員。',
+  );
 
   /** 伺服器的現在時間（店家資訊或時段回應較新的那個）。 */
   readonly now = computed(() => {
@@ -91,10 +127,11 @@ export class ShopStore {
       !!this.shop()?.delivery?.asap,
   );
 
-  /** 店家現在能不能接任何一種訂單。 */
+  /** 店家現在能不能接任何一種訂單；桌號模式只看內用（店家資訊與這桌的回應都要說可以）。 */
   readonly canOrder = computed(() => {
     const shop = this.shop();
     if (!shop || shop.paused) return false;
+    if (this.isTable()) return !!shop.dineIn?.canOrder && (this.table()?.canOrder ?? true);
     return (
       this.asapAvailable() ||
       this.hasScheduledSlots() ||
@@ -103,7 +140,8 @@ export class ShopStore {
     );
   });
 
-  readonly service = computed(() => this.cart().service);
+  /** 選好的取餐方式；桌號模式一律是內用（存在購物車裡的外帶選擇留著不動）。 */
+  readonly service = computed(() => (this.isTable() ? DINE_IN : this.cart().service));
 
   /** 選的是外送（#401）。 */
   readonly isDelivery = computed(() => isDelivery(this.service()?.type));
@@ -137,7 +175,8 @@ export class ShopStore {
   /** 選好的預約時段（還在可選清單、而且未滿）。 */
   readonly chosenSlot = computed<{ date: string; slot: Slot } | null>(() => {
     const service = this.service();
-    if (service?.type !== 'takeout-scheduled' && service?.type !== 'delivery-scheduled') return null;
+    if (service?.type !== 'takeout-scheduled' && service?.type !== 'delivery-scheduled')
+      return null;
     for (const date of this.datesFor(service.type)) {
       if (date.date !== service.date) continue;
       const slot = date.slots.find(
@@ -153,6 +192,8 @@ export class ShopStore {
     const service = this.service();
     if (!service) return false;
     switch (service.type) {
+      case 'dine-in':
+        return this.isTable();
       case 'takeout-asap':
         return this.asapAvailable();
       case 'delivery-asap':
@@ -169,6 +210,7 @@ export class ShopStore {
     const service = this.service();
     const shop = this.shop();
     if (!service || !shop) return null;
+    if (service.type === 'dine-in') return new Date(this.now());
     if (isAsap(service.type)) {
       const asap = service.type === 'delivery-asap' ? shop.delivery?.asap : shop.asap;
       return asap ? addMinutes(this.now(), asap.maxMinutes) : null;
@@ -183,6 +225,8 @@ export class ShopStore {
       const service = this.service();
       const shop = this.shop();
       if (!service || !shop || !this.serviceReady()) return null;
+      if (service.type === 'dine-in')
+        return { kind: '內用', when: `桌號 ${this.table()?.name ?? ''}`.trim(), zone: null };
       const zone = this.zone()?.name ?? null;
       if (isAsap(service.type)) {
         const delivery = service.type === 'delivery-asap';
@@ -264,6 +308,11 @@ export class ShopStore {
       this.cartNotice.set(null);
       this.lineProblems.set(new Map());
     }
+    if (this.loadedSlug !== slug) {
+      this.tableToken.set(storedTableToken(slug));
+      this.table.set(null);
+      this.tableInvalid.set(false);
+    }
     this.loadedSlug = slug;
     this.slug.set(slug);
     this.cart.set(loadCart(slug));
@@ -297,6 +346,47 @@ export class ShopStore {
     return true;
   }
 
+  /**
+   * 掃了桌號 QR code（`/order/{slug}/table#<token>`）：記住這桌的 token（每個分頁一份），之後就是桌號模式。
+   * token 格式不對時忘掉舊的、標成失效。要在 {@link load} 之後呼叫。回傳 token 是否可用。
+   */
+  adoptTable(slug: string, hash: string): boolean {
+    const token = tableTokenFromHash(hash);
+    saveTableToken(slug, token);
+    if (this.loadedSlug === slug) {
+      this.tableToken.set(token);
+      this.table.set(null);
+    }
+    this.tableInvalid.set(token === null);
+    return token !== null;
+  }
+
+  /** 伺服器說這桌的 QR code 已失效：忘掉 token，外框顯示「請洽店員」。 */
+  forgetTable(): void {
+    saveTableToken(this.slug(), null);
+    this.tableToken.set(null);
+    this.table.set(null);
+    this.tableInvalid.set(true);
+  }
+
+  /** 讀桌號與這桌已點的訂單（菜單頁每次出現時都重讀）。 */
+  async loadTable(): Promise<void> {
+    const token = this.tableToken();
+    if (!token) return;
+    const result = await this.api.table(this.slug(), token);
+    if (token !== this.tableToken()) return;
+    if (result.ok) {
+      this.table.set(result.data);
+    } else if ('problem' in result && result.problem.reason === 'table-not-found') {
+      this.forgetTable();
+    }
+  }
+
+  /** 桌號模式讀這桌，否則讀可選時段。 */
+  loadService(): Promise<void> {
+    return this.isTable() ? this.loadTable() : this.loadSlots();
+  }
+
   async loadSlots(): Promise<void> {
     const result = await this.api.slots(this.slug());
     if (result.ok) {
@@ -307,7 +397,7 @@ export class ShopStore {
 
   /** 店家資訊、菜單、時段一起重新讀（例如送出時伺服器說時段或菜單變了）。 */
   async refreshAll(): Promise<void> {
-    await Promise.all([this.refreshShop(), this.loadMenu(), this.loadSlots()]);
+    await Promise.all([this.refreshShop(), this.loadMenu(), this.loadService()]);
   }
 
   private applyMenu(menu: Menu): void {
@@ -332,7 +422,8 @@ export class ShopStore {
   /** 選好的時段已經不在清單（過了、額滿）、或外送區域已經不在時清掉，讓顧客重選。 */
   private dropStaleService(): void {
     const service = this.service();
-    const scheduled = service?.type === 'takeout-scheduled' || service?.type === 'delivery-scheduled';
+    const scheduled =
+      service?.type === 'takeout-scheduled' || service?.type === 'delivery-scheduled';
     const zoneGone = isDelivery(service?.type) && this.shop() !== null && this.zone() === null;
     if ((scheduled && !this.chosenSlot()) || zoneGone) {
       this.updateCart({ ...this.cart(), service: null });

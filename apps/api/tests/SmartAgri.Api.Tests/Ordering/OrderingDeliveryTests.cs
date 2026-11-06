@@ -61,7 +61,7 @@ public sealed class OrderingDeliveryTests : IClassFixture<OrderingFollowUpHostFi
         var info = await JsonAsync(await _client.GetAsync($"/api/v1/public/ordering/{slug}", CancellationToken));
         var slots = await JsonAsync(await _client.GetAsync($"/api/v1/public/ordering/{slug}/slots", CancellationToken));
 
-        info["services"]!.ToJsonString().ShouldBe("""{"takeoutScheduled":true,"takeoutAsap":true,"delivery":true,"deliveryAsap":true}""");
+        info["services"]!.ToJsonString().ShouldBe("""{"takeoutScheduled":true,"takeoutAsap":true,"delivery":true,"deliveryAsap":true,"dineIn":true}""");
         var delivery = info["delivery"]!;
         ShouldBeJson(
             delivery["zones"],

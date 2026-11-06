@@ -38,6 +38,7 @@
     -->
     <PackageReference Include="AGUI.Abstractions" />
     <PackageReference Include="AGUI.Formatting" />
+    <PackageReference Include="QRCoder" />
   </ItemGroup>
 
   <ItemGroup>

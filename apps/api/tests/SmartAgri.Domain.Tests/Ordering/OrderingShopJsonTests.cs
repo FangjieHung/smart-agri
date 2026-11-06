@@ -18,7 +18,7 @@ public class OrderingShopJsonTests
 
         import.Shop.Slug.ShouldBe("wangji-noodles");
         import.Shop.TimeZoneId.ShouldBe("Asia/Taipei");
-        import.Shop.Services.ShouldBe(new OrderingServices(TakeoutScheduled: true, TakeoutAsap: true, Delivery: true, DeliveryAsap: true));
+        import.Shop.Services.ShouldBe(new OrderingServices(TakeoutScheduled: true, TakeoutAsap: true, Delivery: true, DeliveryAsap: true, DineIn: true));
         (import.Shop.SlotMinutes, import.Shop.DaysAhead, import.Shop.MinLeadMinutes, import.Shop.MaxOrdersPerSlot).ShouldBe((30, 3, 20, (int?)8));
         import.Shop.PendingTimeoutMinutes.ShouldBe(15);
         import.Shop.OrderingHours[DayOfWeek.Monday].ShouldBeEmpty();

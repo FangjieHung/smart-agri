@@ -19,7 +19,7 @@ public class OrderingDeliveryTests
     {
         var shop = Example().Shop;
 
-        shop.Services.ShouldBe(new OrderingServices(true, true, true, true));
+        shop.Services.ShouldBe(new OrderingServices(true, true, true, true, DineIn: true));
         var delivery = shop.Delivery.ShouldNotBeNull();
         delivery.Zones.Select(zone => (zone.Id, zone.Fee, zone.MinimumSubtotal)).ShouldBe(
             [("minquan", 0, 150), ("xinying", 30, 200), ("within-5km", 60, 400)]);

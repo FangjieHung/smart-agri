@@ -7071,18 +7071,76 @@
         }
       }
     },
+    "/api/v1/public/ordering/{slug}/table": {
+      "get": {
+        "tags": [
+          "Ordering (public)"
+        ],
+        "summary": "The table of the QR code token in the X-Ordering-Table header, and its open session (dine-in)",
+        "description": "404 shop-not-found, or table-not-found for a missing or malformed header, a token the shop has no active table of (a removed or regenerated table, another shop's token) or a shop that does not offer dine-in.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Ordering-Table",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingTableView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        }
+      }
+    },
     "/api/v1/public/ordering/{slug}/orders": {
       "post": {
         "tags": [
           "Ordering (public)"
         ],
         "summary": "Send an order: priced by the server, never by the client",
-        "description": "201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). 429 too-many-pending, or rate-limited with Retry-After.",
+        "description": "201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. Dine-in: the table's token in the X-Ordering-Table header. 404 shop-not-found, table-not-found (dine-in). 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). 429 too-many-pending (a phone's, or a table's for dine-in), or rate-limited with Retry-After.",
         "parameters": [
           {
             "name": "slug",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Ordering-Table",
+            "in": "header",
             "schema": {
               "type": "string"
             }
@@ -7690,6 +7748,99 @@
               "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrderingStaffConflict"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/tables": {
+      "get": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "The open table sessions (dine-in): each table's orders until 〔已結帳〕",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffTablesView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/tables/sessions/{sessionId}/close": {
+      "post": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "〔已結帳〕: close a table session and complete its accepted and ready orders",
+        "description": "200 with the closed session. 409 session-changed (another order joined, or it was closed, since the version sent) or table-has-pending (an order is still pending), both with the session as it is now. 403 ordering for a session the organization does not have. 422 for a missing version.",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingCloseSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffTableSessionView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffTableConflict"
                 }
               }
             }
@@ -14434,6 +14585,21 @@
           }
         }
       },
+      "OrderingCloseSessionRequest": {
+        "required": [
+          "version"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "OrderingCustomerRequest": {
         "required": [
           "name",
@@ -14627,6 +14793,39 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "OrderingDineInInfoView": {
+        "required": [
+          "note",
+          "autoAccept",
+          "open",
+          "canOrder",
+          "orderingHours"
+        ],
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "autoAccept": {
+            "type": "boolean"
+          },
+          "open": {
+            "$ref": "#/components/schemas/OrderingOpenView"
+          },
+          "canOrder": {
+            "type": "boolean"
+          },
+          "orderingHours": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingDayHoursView"
+            }
           }
         }
       },
@@ -15133,6 +15332,17 @@
           null
         ]
       },
+      "OrderingOrderTableView": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "OrderingOrderView": {
         "required": [
           "number",
@@ -15160,7 +15370,9 @@
           "cancelReason",
           "cancelNote",
           "deliveryFee",
-          "delivery"
+          "delivery",
+          "table",
+          "autoAccepted"
         ],
         "type": "object",
         "properties": {
@@ -15306,6 +15518,19 @@
                 "$ref": "#/components/schemas/OrderingDeliveryView"
               }
             ]
+          },
+          "table": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingOrderTableView"
+              }
+            ]
+          },
+          "autoAccepted": {
+            "type": "boolean"
           }
         }
       },
@@ -15472,7 +15697,8 @@
           "takeoutScheduled",
           "takeoutAsap",
           "delivery",
-          "deliveryAsap"
+          "deliveryAsap",
+          "dineIn"
         ],
         "type": "object",
         "properties": {
@@ -15487,6 +15713,9 @@
           },
           "deliveryAsap": {
             "type": "boolean"
+          },
+          "dineIn": {
+            "type": "boolean"
           }
         }
       },
@@ -15495,7 +15724,8 @@
           "takeout-scheduled",
           "takeout-asap",
           "delivery-scheduled",
-          "delivery-asap"
+          "delivery-asap",
+          "dine-in"
         ]
       },
       "OrderingShopCancelRequest": {
@@ -15550,7 +15780,8 @@
           "menuVersion",
           "orderingHours",
           "limits",
-          "delivery"
+          "delivery",
+          "dineIn"
         ],
         "type": "object",
         "properties": {
@@ -15627,6 +15858,16 @@
               },
               {
                 "$ref": "#/components/schemas/OrderingDeliveryInfoView"
+              }
+            ]
+          },
+          "dineIn": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingDineInInfoView"
               }
             ]
           }
@@ -15936,6 +16177,26 @@
           }
         }
       },
+      "OrderingStaffOrderTableView": {
+        "required": [
+          "id",
+          "name",
+          "sessionId"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "OrderingStaffOrderView": {
         "required": [
           "id",
@@ -15969,7 +16230,9 @@
           "expiresAt",
           "personalDataClearedAt",
           "deliveryFee",
-          "delivery"
+          "delivery",
+          "table",
+          "autoAccepted"
         ],
         "type": "object",
         "properties": {
@@ -16151,6 +16414,19 @@
                 "$ref": "#/components/schemas/OrderingDeliveryView"
               }
             ]
+          },
+          "table": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffOrderTableView"
+              }
+            ]
+          },
+          "autoAccepted": {
+            "type": "boolean"
           }
         }
       },
@@ -16193,7 +16469,8 @@
           "asap",
           "services",
           "menuVersion",
-          "shopVersion"
+          "shopVersion",
+          "openTableCount"
         ],
         "type": "object",
         "properties": {
@@ -16254,6 +16531,127 @@
           "shopVersion": {
             "type": "integer",
             "format": "int32"
+          },
+          "openTableCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingStaffTableConflict": {
+        "required": [
+          "type",
+          "title",
+          "status",
+          "reason",
+          "message",
+          "session"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/OrderingStaffTableSessionView"
+          }
+        }
+      },
+      "OrderingStaffTableSessionView": {
+        "required": [
+          "id",
+          "version",
+          "tableId",
+          "tableName",
+          "openedAt",
+          "total",
+          "pendingCount",
+          "orders",
+          "closedAt",
+          "closedBy"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "tableId": {
+            "type": "string"
+          },
+          "tableName": {
+            "type": "string"
+          },
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pendingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingStaffOrderView"
+            }
+          },
+          "closedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "closedBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffMemberView"
+              }
+            ]
+          }
+        }
+      },
+      "OrderingStaffTablesView": {
+        "required": [
+          "now",
+          "sessions"
+        ],
+        "type": "object",
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingStaffTableSessionView"
+            }
           }
         }
       },
@@ -16284,6 +16682,109 @@
           },
           "order": {
             "$ref": "#/components/schemas/OrderingOrderView"
+          }
+        }
+      },
+      "OrderingTableItemView": {
+        "required": [
+          "name",
+          "quantity"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingTableOrderView": {
+        "required": [
+          "displayNumber",
+          "status",
+          "total",
+          "createdAt",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "displayNumber": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderingOrderStatus"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingTableItemView"
+            }
+          }
+        }
+      },
+      "OrderingTableSessionView": {
+        "required": [
+          "openedAt",
+          "orderCount",
+          "total",
+          "orders"
+        ],
+        "type": "object",
+        "properties": {
+          "openedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "orderCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingTableOrderView"
+            }
+          }
+        }
+      },
+      "OrderingTableView": {
+        "required": [
+          "name",
+          "canOrder",
+          "session"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "canOrder": {
+            "type": "boolean"
+          },
+          "session": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingTableSessionView"
+              }
+            ]
           }
         }
       },

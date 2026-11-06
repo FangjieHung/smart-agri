@@ -17,6 +17,11 @@ namespace SmartAgri.Api.Coordinator;
 /// is sent once the command's tries due by now have all run.
 /// </summary>
 /// <remarks>
+/// <para>
+/// FB 貼文 or Google 特殊營業時間 answering <see cref="CoordinatorFailureCodes.TokenRevoked"/> (the service refused the
+/// owner's authorization) asks the owners to authorize again (<see cref="ICoordinatorReauthorization"/>, #377) before
+/// the result is recorded — once per revocation, however many actions fail.
+/// </para>
 /// An executor's exception is a failure (<see cref="CoordinatorFailureCodes.Error"/>), never retried by the queue:
 /// the member presses 〔重試〕. Only failing to read or write the database is retried by the queue; when it gives up,
 /// a row still scheduled becomes failed so 〔重試〕 can run it. Logs carry ids, kinds and exception types — never a
@@ -29,6 +34,7 @@ internal sealed class CoordinatorRunActionHandler : IJobHandler
     private readonly CoordinatorShops _shops;
     private readonly CoordinatorActionExecutors _executors;
     private readonly CoordinatorReports _reports;
+    private readonly ICoordinatorReauthorization _reauthorization;
     private readonly AppDbContext _dbContext;
     private readonly TimeProvider _clock;
     private readonly ILogger<CoordinatorRunActionHandler> _logger;
@@ -39,6 +45,7 @@ internal sealed class CoordinatorRunActionHandler : IJobHandler
         CoordinatorShops shops,
         CoordinatorActionExecutors executors,
         CoordinatorReports reports,
+        ICoordinatorReauthorization reauthorization,
         AppDbContext dbContext,
         TimeProvider clock,
         ILogger<CoordinatorRunActionHandler> logger)
@@ -48,6 +55,7 @@ internal sealed class CoordinatorRunActionHandler : IJobHandler
         _shops = shops;
         _executors = executors;
         _reports = reports;
+        _reauthorization = reauthorization;
         _dbContext = dbContext;
         _clock = clock;
         _logger = logger;
@@ -82,6 +90,12 @@ internal sealed class CoordinatorRunActionHandler : IJobHandler
         }
 
         var result = await ExecuteAsync(action, command, settings, cancellationToken);
+        if (result is { Outcome: CoordinatorActionOutcome.Unavailable, FailureCode: CoordinatorFailureCodes.TokenRevoked }
+            && CoordinatorAuthorizations.ServiceOf(action.Kind) is { } service)
+        {
+            await _reauthorization.RequestAsync(organizationId, service, cancellationToken);
+        }
+
         if (await _actions.RecordAsync(organizationId, action.Id, result, _clock.GetUtcNow()))
         {
             _logger.LogInformation(

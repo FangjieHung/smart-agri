@@ -103,10 +103,11 @@ public enum OrganizationActivityAction
     [JsonStringEnumMemberName("coordinator-shop-settings-updated")]
     CoordinatorShopSettingsUpdated,
 
-    /// <summary>The platform operator set or cleared the shop's credential for an external service
-    /// (<c>coordinator-shop line-token</c>, #376); a system action (no account). Detail: <c>service</c> (its wire
-    /// name, e.g. <c>line</c>) and <c>change</c> (<c>set</c> or <c>cleared</c>) — never the credential, the account's
-    /// ids or its name (<see cref="OrganizationActivity.CoordinatorConnectionUpdated"/>).</summary>
+    /// <summary>The shop's credential for an external service was set or cleared: by the platform operator
+    /// (<c>coordinator-shop line-token</c>, #376) or by the shop's owner completing an FB or Google authorization link
+    /// (#377); a system action (no account). Detail: <c>service</c> (its wire name: <c>line</c>, <c>facebook</c> or
+    /// <c>google</c>) and <c>change</c> (<c>set</c> or <c>cleared</c>) — never the credential, the account's ids or its
+    /// name (<see cref="OrganizationActivity.CoordinatorConnectionUpdated"/>).</summary>
     [JsonStringEnumMemberName("coordinator-connection-updated")]
     CoordinatorConnectionUpdated,
 }

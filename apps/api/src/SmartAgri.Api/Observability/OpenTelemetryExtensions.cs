@@ -40,7 +40,7 @@ public static class OpenTelemetryExtensions
             {
                 tracing
                     .AddSource(SmartAgriActivitySource.Name)
-                    .AddAspNetCoreInstrumentation()
+                    .AddAspNetCoreInstrumentation(options => options.EnrichWithHttpRequest = RedactSecretUrls)
                     .AddHttpClientInstrumentation()
                     .AddNpgsql();
 
@@ -75,5 +75,19 @@ public static class OpenTelemetryExtensions
         }
 
         return builder;
+    }
+
+    /// <summary>
+    /// Keeps the 統籌助理's authorization links out of traces (#377): the link's token
+    /// (<c>/api/v1/coordinator/connect?token=…</c>) and the service's code and state on the callback are in the query, so
+    /// a request under those paths records no <c>url.query</c> at all (not even the instrumentation's redacted form).
+    /// </summary>
+    internal static void RedactSecretUrls(System.Diagnostics.Activity activity, HttpRequest request)
+    {
+        if (request.Path.StartsWithSegments(Coordinator.CoordinatorAuthorizationLinks.ConnectPath, StringComparison.OrdinalIgnoreCase)
+            || request.Path.StartsWithSegments(Coordinator.CoordinatorAuthorizationLinks.OAuthPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            activity.SetTag("url.query", null);
+        }
     }
 }

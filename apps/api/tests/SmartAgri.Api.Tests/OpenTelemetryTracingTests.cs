@@ -57,6 +57,52 @@ public class OpenTelemetryTracingTests : IClassFixture<WebApplicationFactory<Pro
         endedSources.ShouldContain(name => name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Authorization_link_tokens_codes_and_states_stay_out_of_the_spans()
+    {
+        // #377: the link's token, the callback's code and state are in the query. Neither request reaches the database
+        // (a malformed token, a service with no provider).
+        const string token = "secret-link-token-never-traced";
+        const string code = "secret-code-never-traced";
+        var spans = new ConcurrentQueue<Activity>();
+        using var factory = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services =>
+                services
+                    .AddOpenTelemetry()
+                    .WithTracing(tracing => tracing.AddProcessor(new SpanProcessor(spans)))));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        // The processor sees every host's spans in this process (an ActivitySource listener is global): ours are told
+        // apart by their user agent.
+        var userAgent = "otel-redaction-test-" + Guid.NewGuid().ToString("N");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
+
+        (await client.GetAsync($"/api/v1/coordinator/connect?token={token}", TestContext.Current.CancellationToken)).StatusCode
+            .ShouldBe(HttpStatusCode.NotFound);
+        (await client.GetAsync($"/api/v1/coordinator/oauth/facebook/callback?code={code}&state={code}", TestContext.Current.CancellationToken))
+            .StatusCode.ShouldBe(HttpStatusCode.NotFound);
+
+        bool Ours(Activity span) =>
+            span.Source.Name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal)
+            && Equals(span.GetTagItem("user_agent.original"), userAgent);
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (spans.Count(Ours) < 2 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
+
+        var server = spans.Where(Ours).ToList();
+        server.Count.ShouldBe(2);
+        server.Select(span => span.GetTagItem("url.path")).ShouldBe(
+            ["/api/v1/coordinator/connect", "/api/v1/coordinator/oauth/facebook/callback"], ignoreOrder: true);
+        foreach (var span in server)
+        {
+            span.GetTagItem("url.query").ShouldBeNull();
+            span.TagObjects.ShouldAllBe(tag => !$"{tag.Value}".Contains(token) && !$"{tag.Value}".Contains(code));
+            span.DisplayName.ShouldNotContain(token);
+        }
+    }
+
     private static bool HasAspNetCoreSpan(ConcurrentQueue<string> endedSources) =>
         endedSources.Any(name => name.StartsWith("Microsoft.AspNetCore", StringComparison.Ordinal));
 
@@ -74,5 +120,10 @@ public class OpenTelemetryTracingTests : IClassFixture<WebApplicationFactory<Pro
         }
 
         public override void OnEnd(Activity data) => _sink.Enqueue(data.Source.Name);
+    }
+
+    private sealed class SpanProcessor(ConcurrentQueue<Activity> sink) : BaseProcessor<Activity>
+    {
+        public override void OnEnd(Activity data) => sink.Enqueue(data);
     }
 }

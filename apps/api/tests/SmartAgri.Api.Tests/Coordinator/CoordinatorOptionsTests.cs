@@ -104,6 +104,71 @@ public sealed class CoordinatorOptionsTests : IDisposable
             .ShouldBe(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public void FB_and_Google_settings_are_both_or_neither()
+    {
+        new CoordinatorFacebookOptions().ShouldSatisfyAllConditions(options => options.Validate().ShouldBeNull(), options => options.IsConfigured.ShouldBeFalse());
+        new CoordinatorFacebookOptions { AppId = "1234", AppSecret = SecretValue }.ShouldSatisfyAllConditions(
+            options => options.Validate().ShouldBeNull(), options => options.IsConfigured.ShouldBeTrue());
+        new CoordinatorGoogleOptions { ClientId = " ", ClientSecret = "" }.ShouldSatisfyAllConditions(
+            options => options.Validate().ShouldBeNull(), options => options.IsConfigured.ShouldBeFalse());
+        new CoordinatorGoogleOptions { ClientId = "id.apps.googleusercontent.com", ClientSecret = SecretValue }.IsConfigured.ShouldBeTrue();
+        var error = new CoordinatorGoogleOptions { ClientSecret = SecretValue }.Validate().ShouldNotBeNull();
+        error.ShouldContain("Coordinator:Google:ClientSecret is set but Coordinator:Google:ClientId is not");
+        error.ShouldContain("Coordinator__Google__ClientId");
+        error.ShouldNotContain(SecretValue);
+    }
+
+    [Theory]
+    [InlineData("Coordinator:Facebook:AppId", "Coordinator:Facebook:AppSecret is not")]
+    [InlineData("Coordinator:Facebook:AppSecret", "Coordinator:Facebook:AppId is not")]
+    [InlineData("Coordinator:Google:ClientId", "Coordinator:Google:ClientSecret is not")]
+    [InlineData("Coordinator:Google:ClientSecret", "Coordinator:Google:ClientId is not")]
+    public void A_host_with_only_one_FB_or_Google_setting_refuses_to_start_and_says_why(string key, string expected)
+    {
+        using var factory = ProductionHost(builder => builder.UseSetting(key, SecretValue));
+
+        var message = StartupFailure.Of(factory).ShouldBeOfType<OptionsValidationException>().Message;
+        message.ShouldContain(expected);
+        message.ShouldNotContain(SecretValue);
+    }
+
+    [Fact]
+    public async Task Without_a_provider_or_a_public_base_URL_the_authorization_routes_answer_without_a_database()
+    {
+        // Settings alone make no provider (#377 registers none; #378/#379 do), and Production here has no
+        // PublicChannels:PublicBaseUrl: the link page and the callback answer before anything is read.
+        using var factory = ProductionHost(builder => builder
+            .UseSetting("Coordinator:Facebook:AppId", "1234")
+            .UseSetting("Coordinator:Facebook:AppSecret", SecretValue));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var link = await client.GetAsync($"/api/v1/coordinator/connect?token={SmartAgri.Domain.Coordinator.AuthorizationLinkTokens.Generate()}", CancellationToken);
+        link.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await link.Content.ReadAsStringAsync(CancellationToken)).ShouldContain(CoordinatorAuthorizationPages.InvalidLinkMessage);
+        (await client.GetAsync("/api/v1/coordinator/oauth/facebook/callback?code=c&state=s", CancellationToken)).StatusCode
+            .ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task The_link_page_the_callback_and_the_selection_form_share_one_rate_limit_per_client()
+    {
+        // #377: two requests a minute here; none of these reaches the database (see the test above).
+        using var factory = ProductionHost(builder => builder.UseSetting("PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute", "2"));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var link = $"/api/v1/coordinator/connect?token={SmartAgri.Domain.Coordinator.AuthorizationLinkTokens.Generate()}";
+        using var form = new FormUrlEncodedContent([new("state", "s"), new("choice", "c")]);
+
+        (await client.GetAsync(link, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await client.PostAsync("/api/v1/coordinator/oauth/google/select", form, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var refused = await client.GetAsync("/api/v1/coordinator/oauth/facebook/callback?code=c&state=s", CancellationToken);
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        refused.Headers.RetryAfter.ShouldNotBeNull().Delta.ShouldBe(TimeSpan.FromSeconds(60));
+        (await client.GetAsync(link, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        (await client.GetAsync("/health/live", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK, "nothing else is limited");
+    }
+
     private static async Task<HttpResponseMessage> PostAsync(HttpClient client, string body, string? signature)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, CoordinatorWebhookEndpoints.Route)

@@ -251,7 +251,7 @@ public static class CoordinatorExecutionReport
                 break;
 
             case CoordinatorActionStatus.Failed:
-                yield return Text($"❌ {label}：{CoordinatorFailureCodes.Reason(line.FailureCode)}", "sm");
+                yield return Text($"❌ {label}：{CoordinatorFailureCodes.Reason(line.FailureCode, line.Kind)}", "sm");
                 yield return Button(RetryLabel, CoordinatorMessageRouter.RetryPostback(content.OrganizationId, line.ActionId), "secondary");
                 break;
 
@@ -259,8 +259,9 @@ public static class CoordinatorExecutionReport
                 yield return Text($"⏳ {label}", "sm");
                 if (line.FailureCode is { } why)
                 {
-                    // An automatic action that became a reminder, and why (e.g. the LINE token was refused, #376).
-                    yield return Text($"　{CoordinatorFailureCodes.Reason(why)}", "xs", color: "#B3261E");
+                    // An automatic action that became a reminder, and why (e.g. the LINE token was refused, #376, or the
+                    // FB or Google authorization, #377).
+                    yield return Text($"　{CoordinatorFailureCodes.Reason(why, line.Kind)}", "xs", color: "#B3261E");
                 }
 
                 yield return Text($"　{line.StepsText}", "xs", color: "#666666");

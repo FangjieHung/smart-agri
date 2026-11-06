@@ -240,13 +240,16 @@ internal sealed class CoordinatorCommandActionConfiguration : IEntityTypeConfigu
 /// Table <c>CoordinatorConnections</c> (#376): a shop's credential per external service, at most one per organization
 /// and service (unique <c>(OrganizationId, Service)</c>). The credential is a <see cref="SmartAgri.Domain.Secrets.ProtectedSecret"/>
 /// complex property of three columns (<c>Secret_Ciphertext</c>, <c>Secret_LastFour</c>, <c>Secret_SetAt</c>), as on
-/// <c>AssistantLineChannels</c>.
+/// <c>AssistantLineChannels</c>. <c>ReauthorizationRequestedAt</c> (#377) is set only while revoked.
 /// </summary>
 internal sealed class CoordinatorConnectionConfiguration : IEntityTypeConfiguration<CoordinatorConnection>
 {
     public void Configure(EntityTypeBuilder<CoordinatorConnection> builder)
     {
-        builder.ToTable("CoordinatorConnections");
+        builder.ToTable("CoordinatorConnections", table =>
+            table.HasCheckConstraint(
+                "CK_CoordinatorConnections_Reauthorization",
+                "\"ReauthorizationRequestedAt\" IS NULL OR \"Status\" = 'revoked'"));
         builder.HasKey(connection => connection.Id);
         builder.Property(connection => connection.Id).ValueGeneratedNever();
         builder.Property(connection => connection.Service)
@@ -267,5 +270,35 @@ internal sealed class CoordinatorConnectionConfiguration : IEntityTypeConfigurat
             .HasMaxLength(16)
             .IsRequired();
         builder.HasIndex(connection => new { connection.OrganizationId, connection.Service }).IsUnique();
+    }
+}
+
+/// <summary>
+/// Table <c>CoordinatorAuthorizationLinks</c> (#377): single-use FB and Google authorization links, stored as their
+/// token's SHA-256 (unique across all organizations, for the anonymous lookup). Check constraints keep the service to
+/// FB and Google and the expiry after the creation.
+/// </summary>
+internal sealed class CoordinatorAuthorizationLinkConfiguration : IEntityTypeConfiguration<CoordinatorAuthorizationLink>
+{
+    public void Configure(EntityTypeBuilder<CoordinatorAuthorizationLink> builder)
+    {
+        builder.ToTable("CoordinatorAuthorizationLinks", table =>
+        {
+            table.HasCheckConstraint("CK_CoordinatorAuthorizationLinks_Service", "\"Service\" IN ('facebook', 'google')");
+            table.HasCheckConstraint("CK_CoordinatorAuthorizationLinks_Expiry", "\"ExpiresAt\" > \"CreatedAt\"");
+        });
+        builder.HasKey(link => link.Id);
+        builder.Property(link => link.Id).ValueGeneratedNever();
+        builder.Property(link => link.Service)
+            .HasConversion<WireNameConverter<CoordinatorService>>()
+            .HasMaxLength(32)
+            .IsRequired();
+        builder.Property(link => link.Purpose)
+            .HasConversion<WireNameConverter<CoordinatorAuthorizationPurpose>>()
+            .HasMaxLength(16)
+            .IsRequired();
+        builder.Property(link => link.TokenHash).HasMaxLength(CoordinatorAuthorizationLink.TokenHashLength).IsRequired();
+        builder.HasIndex(link => link.TokenHash).IsUnique();
+        builder.HasIndex(link => new { link.OrganizationId, link.Service });
     }
 }

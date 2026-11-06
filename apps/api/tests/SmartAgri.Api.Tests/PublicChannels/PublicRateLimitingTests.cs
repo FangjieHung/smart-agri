@@ -80,6 +80,32 @@ public class PublicRateLimitingTests
     }
 
     [Fact]
+    public void The_coordinators_authorization_pages_share_one_budget_per_client_ip()
+    {
+        using var limiter = PublicRateLimiting.CreateLimiter(new PublicRateLimitOptions { CoordinatorAuthorizationRequestsPerIpPerMinute = 2 });
+
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorAuthorization, "198.51.100.7").ShouldBeTrue();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorAuthorization, "198.51.100.7").ShouldBeTrue();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorAuthorization, "198.51.100.7").ShouldBeFalse();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorAuthorization, "::ffff:198.51.100.7").ShouldBeFalse("the same client");
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorAuthorization, "198.51.100.8").ShouldBeTrue("each client has its own budget");
+
+        // Other endpoints are not charged for it, nor is a request without the marker.
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorLineWebhook, "198.51.100.7").ShouldBeTrue();
+        var unmarked = new DefaultHttpContext();
+        unmarked.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.7");
+        limiter.AttemptAcquire(unmarked).IsAcquired.ShouldBeTrue();
+
+        static bool Acquire(System.Threading.RateLimiting.PartitionedRateLimiter<HttpContext> limiter, PublicRateLimitedEndpoint kind, string address)
+        {
+            var context = new DefaultHttpContext();
+            context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(new PublicRateLimitMarker(kind)), kind.ToString()));
+            context.Connection.RemoteIpAddress = IPAddress.Parse(address);
+            return limiter.AttemptAcquire(context).IsAcquired;
+        }
+    }
+
+    [Fact]
     public async Task The_429_body_is_one_fixed_problem_whichever_partition_refused()
     {
         var context = new DefaultHttpContext();

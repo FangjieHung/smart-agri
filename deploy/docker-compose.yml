@@ -132,6 +132,12 @@ services:
       # official account. Both blank = off (its webhook answers 404); only one set refuses to start.
       Coordinator__Line__ChannelSecret: ${COORDINATOR_LINE_CHANNEL_SECRET:-}
       Coordinator__Line__ChannelAccessToken: ${COORDINATOR_LINE_CHANNEL_ACCESS_TOKEN:-}
+      # Authorization links (#377; deploy/README.md, section 17.9): the platform's Meta app and Google OAuth client.
+      # A blank pair = that service is not configured; only one of a pair refuses to start.
+      Coordinator__Facebook__AppId: ${COORDINATOR_FACEBOOK_APP_ID:-}
+      Coordinator__Facebook__AppSecret: ${COORDINATOR_FACEBOOK_APP_SECRET:-}
+      Coordinator__Google__ClientId: ${COORDINATOR_GOOGLE_CLIENT_ID:-}
+      Coordinator__Google__ClientSecret: ${COORDINATOR_GOOGLE_CLIENT_SECRET:-}
     volumes:
       - ./certs:/app/certs:ro
       - smartagri-dataprotection-keys:/app/keys

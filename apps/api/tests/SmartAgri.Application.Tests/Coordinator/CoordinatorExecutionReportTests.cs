@@ -151,6 +151,25 @@ public class CoordinatorExecutionReportTests
     }
 
     [Fact]
+    public void A_refused_FB_or_Google_authorization_says_the_owner_authorizes_again_and_LINEs_says_the_operator()
+    {
+        var facebook = Line(ShopActionKind.FacebookPost, null, CoordinatorActionStep.Apply, CoordinatorActionStatus.AwaitingManual, failure: CoordinatorFailureCodes.TokenRevoked);
+        var google = Line(ShopActionKind.GoogleSpecialHours, null, CoordinatorActionStep.Apply, CoordinatorActionStatus.Failed, failure: CoordinatorFailureCodes.TokenRevoked);
+
+        var body = Texts(CoordinatorExecutionReport.FollowUp(Content([facebook, google]))[0]["contents"]!["body"]!);
+
+        body.ShouldContain("　FB 粉專授權失效，已改為手動；請老闆用統籌助理傳的連結重新授權");
+        body.ShouldContain("❌ Google 特殊營業時間：11/2（一） 休息：Google 商家授權失效，已改為手動；請老闆用統籌助理傳的連結重新授權");
+        CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.TokenRevoked, ShopActionKind.LineBroadcast)
+            .ShouldBe(CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.TokenRevoked));
+        CoordinatorFailureCodes.Reason(CoordinatorFailureCodes.RateLimited, ShopActionKind.FacebookPost).ShouldBe("服務忙碌中");
+        CoordinatorAuthorizations.ServiceOf(ShopActionKind.FacebookPost).ShouldBe(CoordinatorService.Facebook);
+        CoordinatorAuthorizations.ServiceOf(ShopActionKind.GoogleSpecialHours).ShouldBe(CoordinatorService.Google);
+        CoordinatorAuthorizations.ServiceOf(ShopActionKind.LineBroadcast).ShouldBeNull();
+        CoordinatorAuthorizations.ServiceOf(ShopActionKind.Ordering).ShouldBeNull();
+    }
+
+    [Fact]
     public void Failure_codes_are_short_codes_of_ours_with_a_reason_each()
     {
         CoordinatorActionResult.Failed(CoordinatorFailureCodes.QuotaExhausted).FailureCode.ShouldBe("quota-exhausted");

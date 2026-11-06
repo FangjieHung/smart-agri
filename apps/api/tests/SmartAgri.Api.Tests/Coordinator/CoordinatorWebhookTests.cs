@@ -549,7 +549,8 @@ public sealed partial class CoordinatorWebhookTests : IClassFixture<CoordinatorH
 
 /// <summary>The Api host of <see cref="CoordinatorWebhookTests"/>: the usual one, with the 統籌助理
 /// configured for a bot of the fake LINE server, and executors for the shops a test enrolls (#375) — LINE 群發's real
-/// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server.</summary>
+/// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server — and fake FB (no
+/// PKCE) and Google (PKCE) authorization providers (#377).</summary>
 public sealed class CoordinatorHostFixture : AuthHostFixture
 {
     public const string Secret = "c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -562,6 +563,12 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
 
     /// <summary>LINE 群發, Google and FB executors, available only for enrolled shops (#375).</summary>
     public FakeCoordinatorExecutors Executors { get; } = new();
+
+    /// <summary>The FB authorization provider (#377): no PKCE.</summary>
+    public FakeOAuthProvider Facebook { get; } = new(CoordinatorService.Facebook, usesPkce: false);
+
+    /// <summary>The Google authorization provider (#377): PKCE.</summary>
+    public FakeOAuthProvider Google { get; } = new(CoordinatorService.Google, usesPkce: true);
 
     protected override void ConfigureServices(IServiceCollection services)
     {
@@ -585,6 +592,9 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
                 services.AddSingleton(Executors.For(kind));
             }
         }
+
+        services.AddSingleton<ICoordinatorOAuthProvider>(Facebook);
+        services.AddSingleton<ICoordinatorOAuthProvider>(Google);
 
         services.Configure<LoggerFilterOptions>(options =>
             options.Rules.Add(new LoggerFilterRule(typeof(CoordinatorTestLog).FullName, categoryName: null, LogLevel.Trace, filter: null)));

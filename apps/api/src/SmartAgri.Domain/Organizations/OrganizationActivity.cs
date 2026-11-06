@@ -266,8 +266,8 @@ public sealed class OrganizationActivity : IOrganizationScoped
     }
 
     /// <summary>
-    /// <see cref="OrganizationActivityAction.CoordinatorConnectionUpdated"/> (system: the operator's command-line tool
-    /// acts for no account): detail <c>{ "service", "change" }</c> — the service's wire name and <c>set</c> or
+    /// <see cref="OrganizationActivityAction.CoordinatorConnectionUpdated"/> (system: the operator's command-line tool,
+    /// or the shop's owner through an authorization link, acts for no account): detail <c>{ "service", "change" }</c> — the service's wire name and <c>set</c> or
     /// <c>cleared</c>. Never the credential, the account's ids or its name.
     /// </summary>
     public static OrganizationActivity CoordinatorConnectionUpdated(Guid organizationId, DateTimeOffset at, CoordinatorService service, bool cleared)

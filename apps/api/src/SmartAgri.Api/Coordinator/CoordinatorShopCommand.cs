@@ -1,5 +1,7 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Line;
 using SmartAgri.Application.Secrets;
 using SmartAgri.Domain;
@@ -15,7 +17,8 @@ namespace SmartAgri.Api.Coordinator;
 /// The one-shot <c>coordinator-shop</c> subcommand (store-coordinator design §5 Slice 2, decision A,
 /// #373): the platform operator imports a shop's 統籌助理 settings from a JSON file
 /// (<c>import</c>) or prints them in the same format (<c>show</c>), and sets or clears the shop's own LINE
-/// official account's channel access token (<c>line-token</c>, #376). Like <c>coordinator-binding-code</c>
+/// official account's channel access token (<c>line-token</c>, #376), and makes an FB or Google authorization link for the
+/// shop's owner (<c>auth-link</c>, #377). Like <c>coordinator-binding-code</c>
 /// it runs in any environment. The organization code is the one used at login, matched
 /// case-insensitively.
 /// </summary>
@@ -34,6 +37,12 @@ namespace SmartAgri.Api.Coordinator;
 /// (<see cref="CoordinatorConnections"/>) and prints only the account's display name and basic id; <c>--clear</c>
 /// removes it. Each writes one <see cref="OrganizationActivityAction.CoordinatorConnectionUpdated"/>. The token is
 /// never printed, logged or put in an error message.
+/// </para>
+/// <para>
+/// <c>auth-link</c> makes a single-use <see cref="CoordinatorAuthorizationPurpose.Initial"/> link
+/// (<see cref="CoordinatorAuthorizationLinks"/>, default <see cref="CoordinatorAuthorizationLink.DefaultValidity"/>, at most
+/// <see cref="CoordinatorAuthorizationLink.MaxValidity"/>) and prints it once — only its hash is stored. It refuses a
+/// service whose provider is not configured, and a deployment without <c>PublicChannels:PublicBaseUrl</c>.
 /// </para>
 /// </remarks>
 public sealed class CoordinatorShopCommand
@@ -54,12 +63,16 @@ public sealed class CoordinatorShopCommand
         "      coordinator-shop show --organization <組織代碼>\n" +
         "      coordinator-shop line-token --organization <組織代碼> < token.txt\n" +
         "      coordinator-shop line-token --organization <組織代碼> --clear\n" +
+        "      coordinator-shop auth-link --organization <組織代碼> --service facebook|google [--hours <1-168>]\n" +
         "import：先完整檢查設定檔（店名、時區、每週營業時間、四個情境的公告與動作），有錯就逐條列出「位置：說明」且不寫入；" +
         "全部正確才寫入，有變更時記一筆組織紀錄。\n" +
         "show：以匯入的格式印出目前的設定，可以存檔、修改後再匯入。\n" +
         "line-token：從標準輸入讀取該店自己 LINE 官方帳號的長期 channel access token（不要寫在參數裡），向 LINE 確認後加密保存，" +
         "只印出帳號名稱與 basic id；--clear 清除。之後設為 auto 的 LINE 群發會自動群發。每次設定或清除記一筆組織紀錄。\n" +
-        "結束代碼：0 完成；1 找不到組織、還沒有設定、LINE 不接受權杖或寫入失敗；2 參數錯誤、設定檔或權杖格式不正確。";
+        "auth-link：產生一個讓老闆授權 FB 粉專（facebook）或 Google 商家（google）的連結，只顯示這一次；預設 72 小時內有效，" +
+        "最多 168 小時，只能使用一次。老闆打開後登入並按同意即完成授權。\n" +
+        "結束代碼：0 完成；1 找不到組織、還沒有設定、LINE 不接受權杖、這個部署沒有設定該服務或對外網址、或寫入失敗；" +
+        "2 參數錯誤、設定檔或權杖格式不正確。";
 
     private readonly IServiceProvider _services;
 
@@ -123,6 +136,11 @@ public sealed class CoordinatorShopCommand
         if (arguments.Verb == Verb.LineToken)
         {
             return await LineTokenAsync(arguments, input, output, error, cancellationToken);
+        }
+
+        if (arguments.Verb == Verb.AuthLink)
+        {
+            return await AuthLinkAsync(arguments, output, error, cancellationToken);
         }
 
         ShopSettingsDocument? document = null;
@@ -264,6 +282,64 @@ public sealed class CoordinatorShopCommand
         }
     }
 
+    /// <summary><c>auth-link</c>: makes an FB or Google authorization link and prints it once (#377).</summary>
+    private async Task<int> AuthLinkAsync(Arguments arguments, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        var service = arguments.Service!.Value;
+        var label = CoordinatorAuthorizations.Label(service);
+        try
+        {
+            var organization = await FindOrganizationAsync(arguments.Organization!, cancellationToken);
+            if (organization is null)
+            {
+                await error.WriteLineAsync($"找不到組織代碼「{arguments.Organization}」，沒有產生授權連結。");
+                return ExitFailed;
+            }
+
+            var links = _services.GetRequiredService<CoordinatorAuthorizationLinks>();
+            if (links.PublicBaseUrl is null)
+            {
+                await error.WriteLineAsync(
+                    "伺服器尚未設定對外網址（PublicChannels:PublicBaseUrl，.env 的 PUBLIC_BASE_URL），老闆的瀏覽器與服務無法回到這個伺服器；沒有產生授權連結。");
+                return ExitFailed;
+            }
+
+            if (!links.IsAvailable(service))
+            {
+                var settings = service == CoordinatorService.Facebook
+                    ? $"{CoordinatorFacebookOptions.SectionName}:AppId／AppSecret"
+                    : $"{CoordinatorGoogleOptions.SectionName}:ClientId／ClientSecret";
+                await error.WriteLineAsync($"這個部署還不能授權{label}（沒有設定 {settings}，或還不支援）；沒有產生授權連結。");
+                return ExitFailed;
+            }
+
+            var issued = await links.IssueAsync(
+                organization.Id, service, CoordinatorAuthorizationPurpose.Initial, TimeSpan.FromHours(arguments.Hours), cancellationToken);
+            if (issued is null)
+            {
+                await error.WriteLineAsync($"找不到組織代碼「{arguments.Organization}」，沒有產生授權連結。");
+                return ExitFailed;
+            }
+
+            var bindings = _services.GetRequiredService<CoordinatorBindings>();
+            var storeName = await bindings.StoreNameAsync(organization.Id, cancellationToken) ?? organization.Name;
+            var zone = await bindings.TimeZoneOfAsync(organization.Id, cancellationToken);
+            var expiry = TimeZoneInfo.ConvertTime(issued.Link.ExpiresAt, zone);
+            await output.WriteLineAsync($"組織 {organization.Code}（{storeName}）的{label}授權連結：");
+            await output.WriteLineAsync(issued.Url);
+            await output.WriteLineAsync(
+                $"有效期限：{expiry.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}（{zone.Id}），只能使用一次。" +
+                $"請傳給老闆本人，打開後登入{label}的帳號並按同意。這個連結不會再顯示，遺失請重新產生。");
+            return ExitSuccess;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The type only: no message.
+            await error.WriteLineAsync($"無法產生授權連結：{exception.GetType().Name}（資料庫是否已執行 migrate？）");
+            return ExitFailed;
+        }
+    }
+
     /// <summary>Whether <paramref name="bot"/> is the 統籌助理's own account (its broadcast would reach every shop owner).</summary>
     private async Task<bool> IsCoordinatorAccountAsync(ILineMessagingClient line, LineBotInfo bot, CancellationToken cancellationToken)
     {
@@ -358,9 +434,11 @@ public sealed class CoordinatorShopCommand
         Import,
         Show,
         LineToken,
+        AuthLink,
     }
 
-    private sealed record Arguments(bool Help, Verb Verb, string? Organization, string? File, bool Clear = false);
+    private sealed record Arguments(
+        bool Help, Verb Verb, string? Organization, string? File, bool Clear = false, CoordinatorService? Service = null, int Hours = 72);
 
     private static bool TryParse(IReadOnlyList<string> args, out Arguments arguments, out string error)
     {
@@ -372,17 +450,22 @@ public sealed class CoordinatorShopCommand
             return true;
         }
 
-        if (args is not [("import" or "show" or "line-token") and var verbName, ..])
+        if (args is not [("import" or "show" or "line-token" or "auth-link") and var verbName, ..])
         {
-            error = args.Count == 0 ? "必須指定 import、show 或 line-token。" : $"不認得的動作「{args[0]}」；必須是 import、show 或 line-token。";
+            error = args.Count == 0
+                ? "必須指定 import、show、line-token 或 auth-link。"
+                : $"不認得的動作「{args[0]}」；必須是 import、show、line-token 或 auth-link。";
             return false;
         }
 
-        var verb = verbName switch { "import" => Verb.Import, "show" => Verb.Show, _ => Verb.LineToken };
+        var verb = verbName switch { "import" => Verb.Import, "show" => Verb.Show, "line-token" => Verb.LineToken, _ => Verb.AuthLink };
         var import = verb == Verb.Import;
+        var authLink = verb == Verb.AuthLink;
         string? organization = null;
         string? file = null;
         var clear = false;
+        CoordinatorService? service = null;
+        var hours = (int)CoordinatorAuthorizationLink.DefaultValidity.TotalHours;
         for (var i = 1; i < args.Count; i++)
         {
             var (name, inlineValue) = args[i].Split('=', 2) is [var key, var given] ? (key, given) : (args[i], null);
@@ -396,6 +479,7 @@ public sealed class CoordinatorShopCommand
                     break;
                 case "--organization":
                 case "--file" when import:
+                case "--service" or "--hours" when authLink:
                     var value = inlineValue ?? (i + 1 < args.Count ? args[++i] : null);
                     if (string.IsNullOrWhiteSpace(value))
                     {
@@ -406,6 +490,30 @@ public sealed class CoordinatorShopCommand
                     if (name == "--organization")
                     {
                         organization = value.Trim();
+                    }
+                    else if (name == "--service")
+                    {
+                        service = value.Trim() switch
+                        {
+                            "facebook" => CoordinatorService.Facebook,
+                            "google" => CoordinatorService.Google,
+                            _ => null,
+                        };
+                        if (service is null)
+                        {
+                            error = "--service 必須是 facebook 或 google（LINE 的權杖用 line-token 設定）。";
+                            return false;
+                        }
+                    }
+                    else if (name == "--hours")
+                    {
+                        if (!int.TryParse(value.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out hours)
+                            || hours < 1
+                            || hours > CoordinatorAuthorizationLink.MaxValidity.TotalHours)
+                        {
+                            error = $"--hours 必須是 1 到 {CoordinatorAuthorizationLink.MaxValidity.TotalHours:0} 的整數。";
+                            return false;
+                        }
                     }
                     else
                     {
@@ -436,7 +544,13 @@ public sealed class CoordinatorShopCommand
             return false;
         }
 
-        arguments = new Arguments(Help: false, verb, organization, file, clear);
+        if (authLink && service is null)
+        {
+            error = "必須用 --service 指定 facebook 或 google。";
+            return false;
+        }
+
+        arguments = new Arguments(Help: false, verb, organization, file, clear, service, hours);
         return true;
     }
 }

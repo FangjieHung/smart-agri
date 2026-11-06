@@ -292,8 +292,9 @@ public sealed class PublicRateLimitOptions
 
     /// <summary>Requests one client IP may send per minute to the shops' reservation pages — showing a page, showing a
     /// date's times without JavaScript and sending the form together, whatever the shop (#389; sliding window). A
-    /// reservation is two to four requests. Beyond it: a <c>429</c> page. Default 10.</summary>
-    public int CoordinatorReservationRequestsPerIpPerMinute { get; set; } = 10;
+    /// reservation is two to four requests, and mobile networks put many customers behind one IP. Beyond it: a <c>429</c>
+    /// page. Default 30.</summary>
+    public int CoordinatorReservationRequestsPerIpPerMinute { get; set; } = 30;
 
     internal IEnumerable<(string Name, int Value)> Values()
     {

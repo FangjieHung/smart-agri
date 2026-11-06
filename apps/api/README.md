@@ -973,7 +973,7 @@ queries and handoffs are not on this path at all (an architecture test checks th
   | `LineQuestionsPerAssistantPerMinute` | assistant, all LINE questions | sliding window, 1 minute | 120 |
   | `LineMaxConcurrentQuestionsPerAssistant` | assistant, LINE answers being generated | answers at once | 10 |
   | `CoordinatorAuthorizationRequestsPerIpPerMinute` | client IP, the 統籌助理's authorization pages together (#377) | sliding window, 1 minute | 20 |
-  | `CoordinatorReservationRequestsPerIpPerMinute` | client IP, the shops' reservation pages together, every shop (#389; refused with a page, not JSON) | sliding window, 1 minute | 10 |
+  | `CoordinatorReservationRequestsPerIpPerMinute` | client IP, the shops' reservation pages together, every shop (#389; refused with a page, not JSON) | sliding window, 1 minute | 30 |
 
   The `LineQuestions*` limits are not HTTP limits (LINE's servers send every request, so there is no
   client to partition by): the background processor applies them per question and answers a refused
@@ -1752,7 +1752,7 @@ be opened to customers before #390.** Operator guide: `deploy/README.md` §17.12
   fourth pending, still upcoming reservation of the phone at the shop. The Email field exists only when
   `IEmailSender.IsConfigured`. A failure answers a 「暫時無法訂位」 page (`503`).
 - **Rate limit**: both carry `PublicRateLimitedEndpoint.CoordinatorReservation`, one sliding window per client IP for every
-  shop, `PublicChannels:RateLimits:CoordinatorReservationRequestsPerIpPerMinute` (default 10); beyond it a `429` page
+  shop, `PublicChannels:RateLimits:CoordinatorReservationRequestsPerIpPerMinute` (default 30); beyond it a `429` page
   (`CoordinatorReservationPages.TooManyRequests`) with `Retry-After: 60`.
 - **Personal data**: the customer's name, phone, Email and note are never logged nor put in an activity; logs carry the
   organization, the reservation id, the date, the party size and why a form was refused. A reservation is deleted 90 days

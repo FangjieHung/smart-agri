@@ -203,7 +203,7 @@ public class PublicChannelsOptionsTests
             options.RateLimits.LineQuestionsPerAssistantPerMinute.ShouldBe(120);
             options.RateLimits.LineMaxConcurrentQuestionsPerAssistant.ShouldBe(10);
             options.RateLimits.CoordinatorAuthorizationRequestsPerIpPerMinute.ShouldBe(20);
-            options.RateLimits.CoordinatorReservationRequestsPerIpPerMinute.ShouldBe(10);
+            options.RateLimits.CoordinatorReservationRequestsPerIpPerMinute.ShouldBe(30);
             options.Line.ReplyDeadlineSeconds.ShouldBe(50);
             options.TrustedProxies.ShouldBeEmpty();
             Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();

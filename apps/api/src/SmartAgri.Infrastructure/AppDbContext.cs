@@ -14,6 +14,7 @@ using SmartAgri.Domain.Databases;
 using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Knowledge;
 using SmartAgri.Domain.Notifications;
+using SmartAgri.Domain.Ordering;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Domain.Reports;
 using Pgvector.EntityFrameworkCore;
@@ -28,6 +29,7 @@ using SmartAgri.Infrastructure.Databases;
 using SmartAgri.Infrastructure.Jobs;
 using SmartAgri.Infrastructure.Knowledge;
 using SmartAgri.Infrastructure.Notifications;
+using SmartAgri.Infrastructure.Ordering;
 using SmartAgri.Infrastructure.Organizations;
 using SmartAgri.Infrastructure.Persistence;
 using SmartAgri.Infrastructure.Reports;
@@ -244,6 +246,15 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>The 統籌助理's pushes LINE accepted, per shop and purpose (#390).</summary>
     public DbSet<CoordinatorPushLog> CoordinatorPushLogs => Set<CoordinatorPushLog>();
 
+    /// <summary>The shops' online-ordering settings (online-ordering Slice O1, #397): one per organization.</summary>
+    public DbSet<OrderingShop> OrderingShops => Set<OrderingShop>();
+
+    /// <summary>Every version of the shops' menus (#397).</summary>
+    public DbSet<OrderingMenu> OrderingMenus => Set<OrderingMenu>();
+
+    /// <summary>Menu items the staff took off: 今日售完 or 停售 (#397).</summary>
+    public DbSet<OrderingItemState> OrderingItemStates => Set<OrderingItemState>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -438,6 +449,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new CoordinatorAuthorizationLinkConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorReservationConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorPushLogConfiguration());
+
+        // Online ordering (online-ordering design, Slice O1, #397): the shops' ordering settings, menu versions and item
+        // states. Independent of the 統籌助理's tables.
+        modelBuilder.ApplyConfiguration(new OrderingShopConfiguration());
+        modelBuilder.ApplyConfiguration(new OrderingMenuConfiguration());
+        modelBuilder.ApplyConfiguration(new OrderingItemStateConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

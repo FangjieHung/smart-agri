@@ -282,6 +282,31 @@ public sealed class OrganizationActivity : IOrganizationScoped
             new { service = WireNames<CoordinatorService>.ToWire(service), change = cleared ? "cleared" : "set" });
     }
 
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.OrderingShopUpdated"/> (system: the operator's command-line tool acts for no
+    /// account): detail <c>{ "created", "changed", "menuVersion" }</c> — whether these are the shop's first ordering settings,
+    /// the names of the <c>shop</c> fields that changed plus <c>menu</c> when the menu did, and the new menu version (only
+    /// then). Nothing the operator or the shop wrote. Only for a change.
+    /// </summary>
+    public static OrganizationActivity OrderingShopUpdated(
+        Guid organizationId, DateTimeOffset at, bool created, IReadOnlyList<string> changed, int? menuVersion)
+    {
+        ArgumentNullException.ThrowIfNull(changed);
+        if (changed.Count == 0)
+        {
+            throw new ArgumentException("Ordering settings are recorded only when something changed.", nameof(changed));
+        }
+
+        if (changed.Contains("menu") != (menuVersion is not null))
+        {
+            throw new ArgumentException("A new menu version is recorded exactly when the menu changed.", nameof(menuVersion));
+        }
+
+        return Record(
+            organizationId, OrganizationActivityAction.OrderingShopUpdated, actorAccountId: null, at,
+            new { created, changed, menuVersion });
+    }
+
     /// <summary><see cref="OrganizationActivityAction.MemberReactivated"/>: detail <c>{ "member" }</c>.</summary>
     public static OrganizationActivity MemberReactivated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, MemberRef member)
     {

@@ -1896,6 +1896,13 @@ Slice R4 of `docs/plans/2026-11-06-store-reservations.md` (decision R6, §3.5). 
   subject 「{店名}：訂位已取消」, 「很抱歉，{店名}因{原因}，必須取消您 {日期時間} 的訂位，造成不便，敬請見諒。如有問題請來電 {店家電話}。」
   with 原因 `CoordinatorReservationClosures.Reason` (「臨時店休」, 「當天提早在 HH:mm 打烊」, 「當天延後到 HH:mm 開店」), R3's footer.
   An accepted reservation's Email still queued finds it `cancelled` and is not sent.
+- **Submit** (`CoordinatorReservations.SubmitAsync`): after the settings-row lock and the duplicate check, the shop's hours
+  and the day's confirmed commands are read again and `ReservationSlots.TakenBy` (the same rule, reopens honoured) refuses a
+  time taken away — `ReservationSubmitOutcome.SlotGone` with `TakenBy`; nothing stored, no jobs. The command is confirmed
+  before its cancellation transaction takes the same lock, so every interleaving is cancelled there or refused here. The
+  page (`CoordinatorReservationFlow`) answers `400` with the times anew and on the time field
+  `CoordinatorReservationPages.SlotGoneMessage` 「這個時段已經無法訂位（店家剛宣布{原因}），請改選其他時間。」 — also when its own
+  check finds a usual time a confirmed command took away (an old page sent after the confirmation).
 - **Members**: a later 〔接受〕／〔婉拒〕 → 「這筆訂位因{原因}已取消。」 (`CoordinatorReservationCards.CancelledBecause`).
 - **Settings**: `ShopActionKind.ReservationCalls` is refused by `coordinator-shop import` like any unknown kind
   (`ShopActionKinds.ConfigurableWireNames`). No migration (the columns are #389's; `Kind` has no check constraint).

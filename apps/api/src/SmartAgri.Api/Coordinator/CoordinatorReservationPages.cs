@@ -118,6 +118,14 @@ public static class CoordinatorReservationPages
     public static IResult Unavailable() =>
         Page("暫時無法訂位", null, $"<p>{UnavailableMessage}</p>", StatusCodes.Status503ServiceUnavailable);
 
+    /// <summary>
+    /// The chosen time was taken away by a confirmed 臨時店休、提早打烊 or 延後開店 (#392): 「這個時段已經無法訂位（店家剛宣布臨時店休），
+    /// 請改選其他時間。」 with <paramref name="reason"/> (<see cref="SmartAgri.Application.Coordinator.CoordinatorReservationClosures.Reason"/>),
+    /// without it 「這個時段已經無法訂位，請改選其他時間。」.
+    /// </summary>
+    public static string SlotGoneMessage(string? reason) =>
+        string.IsNullOrWhiteSpace(reason) ? "這個時段已經無法訂位，請改選其他時間。" : $"這個時段已經無法訂位（店家剛宣布{reason}），請改選其他時間。";
+
     /// <summary>The phone number already has the most pending reservations (§3.1 point 5).</summary>
     public static string TooManyPendingMessage(string shopPhone) =>
         $"這支電話在本店已有 {CoordinatorReservation.MaxPendingPerPhone} 筆待確認的訂位，請等店家確認後再訂，或直接來電 {shopPhone}。";

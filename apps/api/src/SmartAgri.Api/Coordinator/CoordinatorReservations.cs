@@ -23,11 +23,16 @@ public enum ReservationSubmitOutcome
 
     /// <summary>Another shop's reservation has the form's key (a forged or reused key): nothing stored.</summary>
     KeyTaken,
+
+    /// <summary>A confirmed 臨時店休、提早打烊 or 延後開店 took the time away since the form was checked
+    /// (<see cref="ReservationSubmitResult.TakenBy"/>, #392): nothing stored.</summary>
+    SlotGone,
 }
 
 /// <param name="Reservation">The stored reservation (<see cref="ReservationSubmitOutcome.Stored"/>, the one sent before
 /// for <see cref="ReservationSubmitOutcome.Duplicate"/>); <see langword="null"/> otherwise.</param>
-public sealed record ReservationSubmitResult(ReservationSubmitOutcome Outcome, CoordinatorReservation? Reservation);
+/// <param name="TakenBy">The command that took the time away (<see cref="ReservationSubmitOutcome.SlotGone"/>).</param>
+public sealed record ReservationSubmitResult(ReservationSubmitOutcome Outcome, CoordinatorReservation? Reservation, ShopCommandFact? TakenBy = null);
 
 /// <summary>
 /// A shop's reservations (store-reservations design §3.1 points 5–8 and 11, #389, #390), each operation in a context
@@ -63,13 +68,18 @@ public sealed class CoordinatorReservations
     }
 
     /// <summary>
-    /// Stores <paramref name="reservation"/> unless its form was sent before (<see cref="ReservationSubmitOutcome.Duplicate"/>)
-    /// or its phone number already has <see cref="CoordinatorReservation.MaxPendingPerPhone"/> pending reservations at the
-    /// shop whose time is still ahead at <paramref name="now"/> (<see cref="ReservationSubmitOutcome.TooManyPending"/>).
+    /// Stores <paramref name="reservation"/> unless its form was sent before (<see cref="ReservationSubmitOutcome.Duplicate"/>),
+    /// a confirmed 店休-type command of its business day takes its time away (<see cref="ReservationSubmitOutcome.SlotGone"/>,
+    /// #392), or its phone number already has <see cref="CoordinatorReservation.MaxPendingPerPhone"/> pending reservations at
+    /// the shop whose time is still ahead at <paramref name="now"/> (<see cref="ReservationSubmitOutcome.TooManyPending"/>).
     /// </summary>
     /// <remarks>
     /// One transaction that first locks the shop's settings row (an update that changes nothing), so the submissions of one
-    /// shop are checked and stored one at a time: two forms of the same phone sent at once cannot both be the third. A
+    /// shop are checked and stored one at a time: two forms of the same phone sent at once cannot both be the third. The
+    /// closure check reads the shop's hours and the day's confirmed commands after the lock
+    /// (<see cref="ReservationSlots.TakenBy"/>, reopens honoured), as <see cref="CancelTakenAwayAsync"/> reads the day's
+    /// reservations after the same lock: a command is confirmed before its cancellation starts, so whichever of the two takes
+    /// the lock first, a reservation in a time taken away is either refused here or cancelled there. A
     /// stored reservation comes with its two jobs (#390): pushing its card to the shop's members now
     /// (<see cref="CoordinatorNotifyReservationJob"/>), and expiring it <paramref name="pendingExpiryMinutes"/> before its
     /// time if nobody handled it (<see cref="CoordinatorExpireReservationJob"/>).
@@ -88,6 +98,17 @@ public sealed class CoordinatorReservations
         if (sentBefore is not null)
         {
             return new ReservationSubmitResult(ReservationSubmitOutcome.Duplicate, sentBefore);
+        }
+
+        if (await dbContext.CoordinatorShopSettings.AsNoTracking().SingleOrDefaultAsync(cancellationToken) is { } settings)
+        {
+            var commands = await dbContext.CoordinatorCommands.AsNoTracking()
+                .Where(command => command.Status == CoordinatorCommandStatus.Confirmed && command.Date == reservation.Date)
+                .ToListAsync(cancellationToken);
+            if (ReservationSlots.TakenBy(settings.Document.Hours, commands.Select(ShopCommandFact.Of), reservation.Date, reservation.ReservedAt) is { } takenBy)
+            {
+                return new ReservationSubmitResult(ReservationSubmitOutcome.SlotGone, null, takenBy);
+            }
         }
 
         var pending = await dbContext.CoordinatorReservations.CountAsync(
@@ -204,11 +225,11 @@ public sealed class CoordinatorReservations
     /// The reservations cancelled, as they are now, earliest first.
     /// </summary>
     /// <remarks>
-    /// First the shop's settings row is locked, as <see cref="SubmitAsync"/> does, so a reservation being stored at this
-    /// moment is either seen here or stored after the command is confirmed (and then refused or, from a page shown before,
-    /// left alone — the page's own check ran earlier). A reservation a member declined meanwhile is not cancelled; one a
-    /// member accepted meanwhile is. Running it again cancels nothing more and adds no second Email: the compare-and-set
-    /// only takes a pending or accepted row.
+    /// First the shop's settings row is locked, as <see cref="SubmitAsync"/> does, and the command is confirmed before this
+    /// runs: a reservation being stored at this moment is either committed before the lock is granted here (and cancelled
+    /// below) or checked after it (and refused, <see cref="ReservationSubmitOutcome.SlotGone"/>). A reservation a member
+    /// declined meanwhile is not cancelled; one a member accepted meanwhile is. Running it again cancels nothing more and
+    /// adds no second Email: the compare-and-set only takes a pending or accepted row.
     /// </remarks>
     public async Task<IReadOnlyList<CoordinatorReservation>> CancelTakenAwayAsync(
         AppDbContext dbContext, CoordinatorCommand command, BusinessHours hours, DateTimeOffset now, CancellationToken cancellationToken)

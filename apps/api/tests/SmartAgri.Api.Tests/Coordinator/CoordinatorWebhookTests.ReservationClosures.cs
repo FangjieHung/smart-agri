@@ -1,4 +1,6 @@
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
@@ -296,7 +298,140 @@ public sealed partial class CoordinatorWebhookTests
         (await ReservationOfAsync(shop, without.Id)).Status.ShouldBe(CoordinatorReservationStatus.Cancelled);
     }
 
+    // --- Forms checked before a closure was confirmed --------------------------------------------------
+
+    [Fact]
+    public async Task A_form_shown_before_a_closure_is_refused_with_the_reason_and_nothing_is_stored()
+    {
+        SetNow(ReservationNow);
+        var (shop, owner, _, slug) = await ReservationShopAsync("先看麵店");
+        var thursday = await _client.GetStringAsync($"/reserve/{slug}?date=2026-11-12", CancellationToken);
+        var friday = await _client.GetStringAsync($"/reserve/{slug}?date=2026-11-13", CancellationToken);
+        var fridayLater = await _client.GetStringAsync($"/reserve/{slug}?date=2026-11-13", CancellationToken);
+        thursday.ShouldContain("2026-11-12T18:30");
+        friday.ShouldContain("2026-11-13T20:00");
+
+        await ConfirmAsync(owner, Scripted("11/12 臨時店休", "temporary-closure", "2026-11-12"));
+        await ConfirmAsync(owner, Scripted("11/13 提早到 19:00 打烊", "close-early", "2026-11-13", "19:00"));
+
+        var closed = await PostFormAsync(slug, KeyOf(thursday), "2026-11-12", "2026-11-12T18:30", "0911000040");
+        closed.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        var closedPage = await closed.Content.ReadAsStringAsync(CancellationToken);
+        closedPage.ShouldContain("這個時段已經無法訂位（店家剛宣布臨時店休），請改選其他時間。");
+        closedPage.ShouldNotContain("value=\"2026-11-12\"", Case.Sensitive, "the times anew: that day is gone");
+        var early = await PostFormAsync(slug, KeyOf(friday), "2026-11-13", "2026-11-13T20:00", "0911000041");
+        early.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await early.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("這個時段已經無法訂位（店家剛宣布當天提早在 19:00 打烊），請改選其他時間。");
+        (await ReservationsOfAsync(shop)).ShouldBeEmpty();
+        (await ReservationJobsAsync(shop)).ShouldBeEmpty("no card job, no expiry job");
+
+        // Before the new closing, still offered: stored.
+        (await PostFormAsync(slug, KeyOf(fridayLater), "2026-11-13", "2026-11-13T17:30", "0911000042")).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ReservationsOfAsync(shop)).ShouldHaveSingleItem().ReservedAt.ShouldBe(new DateTimeOffset(2026, 11, 13, 17, 30, 0, TimeSpan.FromHours(8)));
+
+        // The store's own check, under the lock: refused while the command is in effect, stored once a reopen undid it.
+        await using (var scope = _host.Factory.Services.CreateAsyncScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<CoordinatorReservations>();
+            var settings = (await scope.ServiceProvider.GetRequiredService<CoordinatorShops>().FindAsync(shop.Id, CancellationToken))!;
+            var gone = await store.SubmitAsync(Unchecked(shop, settings, new DateOnly(2026, 11, 13), new TimeOnly(20, 0), "0911000043"), 60, _host.Clock.GetUtcNow(), CancellationToken);
+            (gone.Outcome, gone.Reservation, gone.TakenBy?.Scenario, gone.TakenBy?.Time)
+                .ShouldBe((ReservationSubmitOutcome.SlotGone, (CoordinatorReservation?)null, (ShopScenario?)ShopScenario.CloseEarly, (TimeOnly?)new TimeOnly(19, 0)));
+
+            var reopen = Card(await SendForMessageAsync(owner, Scripted("11/13 恢復營業", "reopen", "2026-11-13")));
+            (await PressConfirmAsync(owner, reopen.Button("確認"))).ShouldStartWith("已確認：");
+            (await store.SubmitAsync(Unchecked(shop, settings, new DateOnly(2026, 11, 13), new TimeOnly(20, 0), "0911000044"), 60, _host.Clock.GetUtcNow(), CancellationToken))
+                .Outcome.ShouldBe(ReservationSubmitOutcome.Stored, "a confirmed reopen gives the time back");
+        }
+    }
+
+    [Fact]
+    public async Task A_form_checked_just_before_a_closure_is_confirmed_is_refused_when_it_is_stored()
+    {
+        SetNow(ReservationNow);
+        var (shop, owner, _, slug) = await ReservationShopAsync("同時麵店");
+        var page = await _client.GetStringAsync($"/reserve/{slug}?date=2026-11-12", CancellationToken);
+        var card = Card(await SendForMessageAsync(owner, Scripted("11/12 臨時店休", "temporary-closure", "2026-11-12")));
+        var replyToken = "rt-race-" + Guid.NewGuid().ToString("N");
+        Task<HttpResponseMessage> submitting;
+
+        _host.Log.Start();
+        try
+        {
+            // Hold the shop's settings row as a slow transaction would: the form passes the page's check (nothing confirmed
+            // yet) and waits for the lock; then the closure is confirmed, and its cancellation waits for the lock too.
+            await using (var holder = _host.Postgres.CreateDbContext(shop.Id))
+            {
+                await using var transaction = await holder.Database.BeginTransactionAsync(CancellationToken);
+                await holder.CoordinatorShopSettings.ExecuteUpdateAsync(
+                    setters => setters.SetProperty(settings => settings.UpdatedAt, settings => settings.UpdatedAt), CancellationToken);
+                submitting = PostFormAsync(slug, KeyOf(page), "2026-11-12", "2026-11-12T18:30", "0911000050");
+                await LockWaitersAsync(shop, 1);
+                (await PostAsync(Body(Bot.UserId, Postback(owner, card.Button("確認"), replyToken)), sign: true)).StatusCode.ShouldBe(HttpStatusCode.OK);
+                await LockWaitersAsync(shop, 2);
+                (await CommandsAsync(shop)).ShouldHaveSingleItem().Status.ShouldBe(CoordinatorCommandStatus.Confirmed);
+                await transaction.CommitAsync(CancellationToken);
+            }
+
+            var refused = await submitting;
+            refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+            (await refused.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("這個時段已經無法訂位（店家剛宣布臨時店休），請改選其他時間。");
+            Report((await ReplyMessagesAsync(replyToken))[0]).Body.ShouldNotContain(text => text.Contains("訂位", StringComparison.Ordinal));
+        }
+        finally
+        {
+            _host.Log.Stop();
+        }
+
+        (await ReservationsOfAsync(shop)).ShouldBeEmpty();
+        (await ReservationJobsAsync(shop)).ShouldBeEmpty("no card job");
+        _host.Log.Lines.ShouldContain(line => line.Contains("was refused: a temporary-closure was confirmed while it was being stored", StringComparison.Ordinal));
+    }
+
     // --- Helpers --------------------------------------------------------------------------------------
+
+    private static string KeyOf(string page) => Regex.Match(page, "name=\"key\" value=\"([^\"]+)\"").Groups[1].Value;
+
+    private Task<HttpResponseMessage> PostFormAsync(string slug, string key, string date, string time, string phone) =>
+        _client.PostAsync(
+            $"/reserve/{slug}",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["key"] = key, ["date"] = date, ["time"] = time, ["party"] = "2", ["name"] = "陳小姐", ["phone"] = phone, ["website"] = string.Empty,
+            }),
+            CancellationToken);
+
+    /// <summary>A reservation at <paramref name="time"/> of <paramref name="date"/> as if the page had offered it.</summary>
+    private CoordinatorReservation Unchecked(Organization shop, ShopSettingsDocument settings, DateOnly date, TimeOnly time, string phone)
+    {
+        var at = settings.Hours.OnBusinessDay(date, time);
+        return CoordinatorReservation.Submit(
+            shop.Id, new ReservationSlot(date, at, TimeZoneInfo.ConvertTime(at, settings.TimeZone).DateTime), 2, "陳小姐", phone, null, null,
+            CoordinatorReservation.NewSubmissionKey(), _host.Clock.GetUtcNow());
+    }
+
+    /// <summary>Waits until <paramref name="count"/> sessions wait for a lock on the shop's settings row (each poll on its
+    /// own connection: a transaction would keep its first snapshot of <c>pg_stat_activity</c>).</summary>
+    private async Task LockWaitersAsync(Organization shop, int count)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            await using var dbContext = _host.Postgres.CreateDbContext(shop.Id);
+            var waiting = await dbContext.Database.SqlQueryRaw<int>(
+                    "SELECT count(*)::int AS \"Value\" FROM pg_stat_activity WHERE datname = current_database() "
+                    + "AND wait_event_type = 'Lock' AND query LIKE '%CoordinatorShopSettings%'")
+                .SingleAsync(CancellationToken);
+            if (waiting >= count)
+            {
+                return;
+            }
+
+            await Task.Delay(25, CancellationToken);
+        }
+
+        throw new TimeoutException($"{count} sessions never waited for the shop's settings row.");
+    }
+
 
     private static List<BackgroundJob> CancellationJobs(IEnumerable<BackgroundJob> jobs) =>
         [.. jobs.Where(job => Payload(job).Outcome == CoordinatorReservationStatus.Cancelled)];

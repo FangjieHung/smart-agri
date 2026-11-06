@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Claims;
 using Microsoft.Extensions.Primitives;
 using SmartAgri.Api.PublicChannels;
+using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Notifications;
 using SmartAgri.Application.Observability;
 using SmartAgri.Domain.Coordinator;
@@ -200,6 +201,15 @@ public sealed class CoordinatorReservationFlow
             }
 
             var checkedForm = Check(page, values);
+            if (checkedForm.Errors.Count > 0 && TakenBy(page, values) is { } closed)
+            {
+                // A time the page offered before a closure was confirmed: say why, on the time field (#392).
+                _logger.LogInformation(
+                    "A reservation for organization {OrganizationId} was refused: a confirmed {Scenario} took its time away.",
+                    shop.OrganizationId, Domain.WireNames<ShopScenario>.ToWire(closed.Scenario));
+                return CoordinatorReservationPages.Form(page with { Errors = SlotGone(checkedForm.Errors, closed) }, StatusCodes.Status400BadRequest);
+            }
+
             if (checkedForm.Errors.Count > 0)
             {
                 _logger.LogInformation(
@@ -244,6 +254,20 @@ public sealed class CoordinatorReservationFlow
                         },
                         StatusCodes.Status400BadRequest);
 
+                case ReservationSubmitOutcome.SlotGone:
+                    // Confirmed between this form's check and its storing (#392): refused under the lock, the times anew.
+                    _logger.LogInformation(
+                        "A reservation for organization {OrganizationId} was refused: a {Scenario} was confirmed while it was being stored.",
+                        shop.OrganizationId, Domain.WireNames<ShopScenario>.ToWire(result.TakenBy!.Scenario));
+                    return CoordinatorReservationPages.Form(
+                        await PageAsync(shop, cancellationToken) with
+                        {
+                            Values = values,
+                            SubmissionKey = key!,
+                            Errors = SlotGone(new Dictionary<string, string>(), result.TakenBy),
+                        },
+                        StatusCodes.Status400BadRequest);
+
                 default:
                     _logger.LogWarning("A reservation for organization {OrganizationId} was refused: its form key is another shop's.", shop.OrganizationId);
                     return CoordinatorReservationPages.Form(
@@ -283,7 +307,30 @@ public sealed class CoordinatorReservationFlow
         var slots = ReservationSlots.Dates(shop.Settings, now, commands)
             .Select(date => (Date: date, Slots: ReservationSlots.On(shop.Settings, date, now, commands)))
             .ToList();
-        return new ReservationPage(shop, today, slots, _email.IsConfigured);
+        return new ReservationPage(shop, today, slots, _email.IsConfigured) { Commands = commands, Now = now };
+    }
+
+    /// <summary>The confirmed command that took the form's time away (#392): the time is one of the day's usual times, no
+    /// longer offered because of a 臨時店休、提早打烊 or 延後開店 (<see cref="ReservationSlots.TakenBy"/>); otherwise
+    /// <see langword="null"/>.</summary>
+    private static ShopCommandFact? TakenBy(ReservationPage page, ReservationFormValues values)
+    {
+        if (!DateOnly.TryParseExact(values.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
+            || page.SlotsOn(date).Any(slot => slot.Value == values.Time)
+            || ReservationSlots.Find(page.Shop.Settings, date, values.Time, page.Now, []) is not { } usual)
+        {
+            return null;
+        }
+
+        return ReservationSlots.TakenBy(page.Shop.Settings.Hours, page.Commands, date, usual.At);
+    }
+
+    /// <summary><paramref name="errors"/> with the date's and time's replaced by why the time is gone.</summary>
+    private static Dictionary<string, string> SlotGone(IReadOnlyDictionary<string, string> errors, ShopCommandFact closed)
+    {
+        var changed = errors.Where(error => error.Key is not (ReservationFields.Date or ReservationFields.Time)).ToDictionary();
+        changed[ReservationFields.Time] = CoordinatorReservationPages.SlotGoneMessage(CoordinatorReservationClosures.Reason(closed.Scenario, closed.Time));
+        return changed;
     }
 
     private static ReservationFormValues Values(IFormCollection form, bool emailOffered)
@@ -406,6 +453,12 @@ public sealed record ReservationPage(
 
     /// <summary>A message about the whole form.</summary>
     public string? General { get; init; }
+
+    /// <summary>The shop's confirmed 店休-type commands the times were computed with (#392: why a time is gone).</summary>
+    public IReadOnlyList<ShopCommandFact> Commands { get; init; } = [];
+
+    /// <summary>When the times were computed.</summary>
+    public DateTimeOffset Now { get; init; }
 
     /// <summary>The times of <paramref name="date"/>; empty when it is not bookable.</summary>
     public IReadOnlyList<ReservationSlot> SlotsOn(DateOnly date) =>

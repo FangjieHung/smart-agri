@@ -345,6 +345,26 @@ public class ReservationSlotsTests
     }
 
     [Fact]
+    public void A_time_being_stored_is_checked_against_the_commands_in_effect_by_the_same_rule()
+    {
+        var hours = Shop().Hours;
+        DateTimeOffset At(int hour, int minute) => new(2026, 11, 3, hour, minute, 0, Taipei);
+        var closeEarly = Command(ShopScenario.CloseEarly, Tuesday, new TimeOnly(13, 0));
+        var closure = Command(ShopScenario.TemporaryClosure, Tuesday);
+
+        ReservationSlots.TakenBy(hours, [closeEarly], Tuesday, At(13, 0)).ShouldBe(closeEarly, "exactly at the new closing");
+        ReservationSlots.TakenBy(hours, [closeEarly], Tuesday, At(12, 30)).ShouldBeNull("before it: kept, as a closure would keep it");
+        ReservationSlots.TakenBy(hours, [closeEarly], new DateOnly(2026, 11, 4), At(18, 0).AddDays(1)).ShouldBeNull("another day");
+        ReservationSlots.TakenBy(hours, [closeEarly, closure], Tuesday, At(18, 0)).ShouldBe(closure, "a closure first");
+        ReservationSlots.TakenBy(hours, [Command(ShopScenario.OpenLate, Tuesday, new TimeOnly(12, 0))], Tuesday, At(12, 0)).ShouldBeNull();
+
+        // Only confirmed commands no confirmed 恢復營業 undid.
+        var reopen = new ShopCommandFact(Guid.NewGuid(), ShopScenario.Reopen, CoordinatorCommandStatus.Confirmed, Tuesday, null, closure.Id);
+        ReservationSlots.TakenBy(hours, [closure, reopen], Tuesday, At(18, 0)).ShouldBeNull();
+        ReservationSlots.TakenBy(hours, [closure with { Status = CoordinatorCommandStatus.Previewed }], Tuesday, At(18, 0)).ShouldBeNull();
+    }
+
+    [Fact]
     public void A_reopen_takes_nothing_and_a_time_goes_with_exactly_the_early_closing_and_the_late_opening()
     {
         var hours = Shop().Hours;

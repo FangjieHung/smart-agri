@@ -136,6 +136,8 @@ services:
       # A blank pair = that service is not configured; only one of a pair refuses to start.
       Coordinator__Facebook__AppId: ${COORDINATOR_FACEBOOK_APP_ID:-}
       Coordinator__Facebook__AppSecret: ${COORDINATOR_FACEBOOK_APP_SECRET:-}
+      # Optional (#379; section 17.10): a Facebook Login for Business configuration id instead of the scopes.
+      Coordinator__Facebook__ConfigId: ${COORDINATOR_FACEBOOK_CONFIG_ID:-}
       Coordinator__Google__ClientId: ${COORDINATOR_GOOGLE_CLIENT_ID:-}
       Coordinator__Google__ClientSecret: ${COORDINATOR_GOOGLE_CLIENT_SECRET:-}
     volumes:

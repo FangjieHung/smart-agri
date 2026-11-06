@@ -1,0 +1,95 @@
+:host { display: block; min-inline-size: 0; }
+p { margin: 0; }
+
+.order {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-default);
+  border-inline-start: 4px solid var(--order-tone, var(--color-border));
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-subtle);
+  line-height: var(--line-height-body);
+  overflow-wrap: anywhere;
+}
+.order[data-status='pending'] { --order-tone: var(--color-warning); }
+.order[data-status='accepted'],
+.order[data-status='ready'] { --order-tone: var(--color-accent); }
+.order[data-status='completed'] { --order-tone: var(--color-success); }
+.order:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
+.order__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-2); }
+.order__title { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.order__number { font-variant-numeric: tabular-nums; }
+.order__service { font-size: var(--font-size-body); font-weight: 700; color: var(--color-text-secondary); }
+.order__status {
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--color-background);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+}
+.order__status[data-status='pending'] { background: var(--color-warning); color: var(--color-on-accent); }
+.order__status[data-status='ready'] { background: var(--color-accent); color: var(--color-on-accent); }
+
+.order__when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
+.order__remaining { color: var(--color-accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.order__remaining--late { color: var(--color-error); }
+.order__expiry { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); font-variant-numeric: tabular-nums; }
+.order__expiry--soon { color: var(--color-error); font-weight: 700; }
+
+.order__customer { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); }
+.order__name { font-weight: 700; }
+.order__link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--target-size);
+  color: var(--color-accent);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.order__email { font-weight: 400; }
+
+.order__lines { display: grid; gap: var(--space-1); padding: var(--space-2) 0; margin: 0; border-block: var(--border-default); list-style: none; }
+.order__line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-2); align-items: baseline; }
+.order__qty,
+.order__price { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.order__qty { font-weight: 700; }
+.order__item { display: grid; font-weight: 600; }
+.order__options,
+.order__line-comment { font-size: var(--font-size-caption); font-weight: 400; color: var(--color-text-secondary); }
+.order__line-comment { color: var(--color-warning); font-weight: 700; }
+
+.order__comment { padding: var(--space-1) var(--space-2); border-radius: var(--radius-control); background: var(--color-accent-soft); }
+.order__footer { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-2); }
+.order__tableware { color: var(--color-text-secondary); }
+.order__total { margin-inline-start: auto; }
+.order__total strong { font-size: var(--font-size-heading); font-variant-numeric: tabular-nums; }
+.order__outcome,
+.order__note,
+.order__meta { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+
+.order__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.order__action {
+  flex: 1 1 6rem;
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+.order__action[data-action='decline'],
+.order__action[data-action='cancel'] { background: var(--color-surface); border-color: var(--color-error); color: var(--color-error); }
+// 已接單時主要的下一步是〔可取餐〕，〔完成〕是外框按鈕；可取餐之後〔完成〕才是主要按鈕。
+.order[data-status='accepted'] .order__action[data-action='complete'] { background: var(--color-surface); color: var(--color-accent); }
+.order__action:disabled { cursor: progress; opacity: 0.6; }
+
+// 外送（#401）：取餐方式是醒目的標籤，區域粗體、地址可點開地圖。
+.order__service--delivery { padding: 0 var(--space-2); border-radius: var(--radius-control); background: var(--color-accent-soft); color: var(--color-text); }
+.order__address { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); }
+.order__zone { font-weight: 700; }
+.order__fee { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }

@@ -25,6 +25,7 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/cases', '建立案件'],
   ['/app/cases?view=statistics', '套用'],
   ['/app/handoffs', '標記已處理'],
+  ['/app/orders', '暫停接單'],
   ['/app/settings', '團隊與權限'],
 ];
 
@@ -104,7 +105,7 @@ describe('responsive layout', () => {
       it('fits the expanded team permission editor, which only exists after a click', () => {
         cy.visit('/app/settings');
         cy.contains('button', '變更 安心商行客服同仁 的權限').click();
-        cy.get('.member__editor input[type="checkbox"]').should('have.length', 8);
+        cy.get('.member__editor input[type="checkbox"]').should('have.length', 9);
         cy.window().its('innerWidth').should('eq', PHONE[0]);
         cy.contains('button', '儲存 安心商行客服同仁 的權限')
           .should('exist')

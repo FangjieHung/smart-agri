@@ -1,0 +1,116 @@
+<section class="workspace-page orders-page">
+  <app-page-header
+    title="線上點餐"
+    [description]="summary() ? summary()!.shopName + '・營業日 ' + businessDay() + '。訂單每 10 秒自動更新；這一頁要開著才會響提示音。' : '顧客從點餐網頁送出的訂單會出現在這裡。'"
+  >
+    @if (state() === 'ready') {
+      <div page-header-actions class="orders-page__sound">
+        <button type="button" class="orders-page__sound-toggle" (click)="toggleSound()" data-sound-toggle>
+          <span class="material-symbols-rounded" aria-hidden="true">{{ soundStatus() === 'on' || soundStatus() === 'waiting' ? 'notifications_active' : 'notifications_off' }}</span>
+          {{ soundStatus() === 'on' || soundStatus() === 'waiting' ? '關閉提示音' : '開啟提示音' }}
+        </button>
+        <p class="orders-page__sound-state" role="status" data-sound-state>
+          @switch (soundStatus()) {
+            @case ('on') { 有新訂單時會響兩聲。 }
+            @case ('waiting') { 點一下這一頁的任何地方，提示音就會開始。 }
+            @case ('blocked') { 瀏覽器擋下了提示音，請再按一次〔開啟提示音〕。 }
+            @default { 提示音關閉中。 }
+          }
+        </p>
+      </div>
+    }
+  </app-page-header>
+
+  @switch (state()) {
+    @case ('loading') {
+      <app-state-panel state="loading" title="正在載入線上點餐" />
+    }
+    @case ('denied') {
+      <app-state-panel state="permission-denied" title="無法使用線上點餐" [description]="stateMessage()" />
+    }
+    @case ('not-configured') {
+      <app-state-panel
+        state="empty"
+        title="尚未設定線上點餐"
+        description="這個組織還沒有點餐設定與菜單。請平台營運人員用 ordering-shop import 匯入店家設定與菜單（範例檔：deploy/ordering-shop.example.json），匯入後顧客就能點餐，訂單會出現在這一頁。"
+      />
+    }
+    @case ('error') {
+      <app-state-panel state="error" title="目前無法載入線上點餐" recoveryLabel="重試" (recover)="start()" />
+    }
+    @case ('ready') {
+      <app-shop-controls [summary]="summary()!" [now]="now()" (summaryChange)="onSummaryChange($event)" />
+
+      @if (error()) {
+        <p class="orders-page__error" role="alert">{{ error() }}</p>
+      }
+      @if (listsFailed()) {
+        <p class="orders-page__error" role="alert">目前無法載入部分訂單，下一次自動更新時會再試。</p>
+      }
+      <p class="orders-page__notice" role="status" aria-live="polite" data-orders-notice>{{ notice() }}</p>
+
+      <div class="orders-page__switch" role="group" aria-label="顯示哪一欄訂單">
+        @for (list of lists; track list) {
+          <button
+            type="button"
+            [attr.aria-pressed]="current() === list"
+            [attr.aria-controls]="panelId(list)"
+            (click)="show(list)"
+            [attr.data-orders-tab]="list"
+          >
+            {{ listLabels[list] }}<span class="orders-page__count">{{ counts()[list] }}</span>
+          </button>
+        }
+      </div>
+
+      <div class="orders-page__board">
+        @for (list of lists; track list) {
+          <section
+            class="orders-column"
+            [class.orders-column--current]="current() === list"
+            [id]="panelId(list)"
+            [attr.aria-labelledby]="panelId(list) + '-title'"
+            [attr.data-orders-column]="list"
+          >
+            <h2 class="orders-column__title" [id]="panelId(list) + '-title'" tabindex="-1">
+              {{ listLabels[list] }}<span class="orders-page__count">{{ counts()[list] }}</span>
+            </h2>
+            @let rows = orders()[list];
+            @if (rows === null) {
+              <p class="orders-column__empty">正在載入…</p>
+            } @else if (rows.length === 0) {
+              <p class="orders-column__empty">
+                @switch (list) {
+                  @case ('pending') { 目前沒有待確認的訂單。新訂單會自動出現在這裡。 }
+                  @case ('active') { 沒有處理中的訂單。 }
+                  @default { 今天還沒有完成、婉拒或取消的訂單。 }
+                }
+              </p>
+            } @else {
+              <ul class="orders-column__list">
+                @for (order of rows; track order.id) {
+                  <li>
+                    <app-order-card [order]="order" [now]="now()" [timeZone]="timeZone()" [busy]="busyId() === order.id" (act)="onAction($event)" />
+                  </li>
+                }
+              </ul>
+            }
+          </section>
+        }
+      </div>
+    }
+  }
+
+  @if (dialog(); as open) {
+    <app-order-action-dialog
+      [kind]="open.kind"
+      [order]="open.order"
+      [now]="now()"
+      [timeZone]="timeZone()"
+      [busy]="busyId() !== null"
+      [error]="dialogError()"
+      (submitted)="submitDialog($event)"
+      (closed)="closeDialog()"
+    />
+  }
+</section>

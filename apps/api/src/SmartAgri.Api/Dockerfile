@@ -4,7 +4,8 @@
 # - the admin (apps/admin, pre-launch #306) in API mode (production-api), so one address serves the
 #   admin, the API, LINE and the website embed; the admin signs in through /connect/* on its own origin;
 # - the chat window customers embed (apps/widget, M5a #201): its frame-ancestors depend on each
-#   assistant's allowed domains, which a static host cannot do.
+#   assistant's allowed domains, which a static host cannot do;
+# - the customers' online-ordering app (apps/shop, #398) under /order/, calling /api/v1/public/ordering/*.
 # Node 24 as in .nvmrc; --ignore-scripts keeps devDependencies' postinstall downloads (Cypress) out
 # of the image build.
 FROM node:24-slim AS frontend
@@ -16,10 +17,12 @@ COPY nx.json tsconfig.base.json .postcssrc.json ./
 COPY libs libs
 COPY apps/widget apps/widget
 COPY apps/admin apps/admin
+COPY apps/shop apps/shop
 # The admin first: Tailwind scans the workspace for class names, and there is no .gitignore here to
 # keep it out of a dist/ that already holds the widget's build.
 RUN npx nx build admin --configuration=production-api --skip-nx-cache
 RUN npx nx build widget --configuration=production --skip-nx-cache
+RUN npx nx build shop --configuration=production --skip-nx-cache
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -49,6 +52,9 @@ COPY --from=frontend /repo/dist/smart-agri-widget/browser ./wwwroot/widget
 # Set Admin__RootPath to empty to serve no admin from this container.
 COPY --from=frontend /repo/dist/smart-agri-admin/browser ./wwwroot/admin
 ENV Admin__RootPath=wwwroot/admin
+# The online-ordering app: /order and /order/** (AdminSpaHosting, Shop:RootPath). Empty = no ordering app.
+COPY --from=frontend /repo/dist/smart-agri-shop/browser ./wwwroot/shop
+ENV Shop__RootPath=wwwroot/shop
 COPY apps/embed-loader/src/embed.js ./wwwroot/embed.js
 COPY apps/api/src/SmartAgri.Api/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh

@@ -26,6 +26,7 @@ public partial class AccountWireNameTests
         "submit-authorized-forms",
         "read-own-tracking",
         "handle-assistant-issues",
+        "manage-orders",
     ];
 
     [Fact]

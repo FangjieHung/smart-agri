@@ -1,0 +1,199 @@
+{
+  "shop": {
+    "slug": "wangji-noodles",
+    "name": "王記麵店",
+    "timeZone": "Asia/Taipei",
+    "phone": "06-123-4567",
+    "address": "台南市新營區民權路 100 號",
+    "notices": {
+      "reminder": "外帶餐點請於取餐時間後 15 分鐘內取餐。\n湯麵會另外裝湯，避免麵條泡軟。",
+      "checkout": "取餐時付款，可用現金或 LINE Pay。"
+    },
+    "services": {
+      "takeoutScheduled": true,
+      "takeoutAsap": true,
+      "delivery": true,
+      "deliveryAsap": true
+    },
+    "orderingHours": {
+      "mon": [],
+      "tue": [{ "open": "11:00", "close": "14:00" }, { "open": "17:00", "close": "21:00" }],
+      "wed": [{ "open": "11:00", "close": "14:00" }, { "open": "17:00", "close": "21:00" }],
+      "thu": [{ "open": "11:00", "close": "14:00" }, { "open": "17:00", "close": "21:00" }],
+      "fri": [{ "open": "11:00", "close": "14:00" }, { "open": "17:00", "close": "21:00" }],
+      "sat": [{ "open": "11:00", "close": "14:00" }, { "open": "17:00", "close": "01:00" }],
+      "sun": [{ "open": "11:00", "close": "14:00" }]
+    },
+    "slotMinutes": 30,
+    "daysAhead": 3,
+    "minLeadMinutes": 20,
+    "maxOrdersPerSlot": 8,
+    "showOrderComment": true,
+    "showTableware": true,
+    "pendingTimeoutMinutes": 15,
+    "delivery": {
+      "zones": [
+        { "id": "minquan", "name": "新營區・民權里", "fee": 0, "minimumSubtotal": 150 },
+        { "id": "xinying", "name": "新營區其他里", "fee": 30, "minimumSubtotal": 200 },
+        { "id": "within-5km", "name": "5 公里內（鹽水、柳營）", "fee": 60, "minimumSubtotal": 400 }
+      ],
+      "orderingHours": {
+        "mon": [],
+        "tue": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "wed": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "thu": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "fri": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "sat": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "22:00" }],
+        "sun": [{ "open": "11:00", "close": "13:30" }]
+      },
+      "minLeadMinutes": 45,
+      "asapExtraMinutes": 20,
+      "note": "外送由店員騎車送達，範圍以店家公告為準；不確定是否在範圍內請先來電。"
+    }
+  },
+  "menu": {
+    "categories": [
+      {
+        "id": "noodles",
+        "name": "麵食",
+        "items": [
+          {
+            "id": "beef-noodle",
+            "name": "紅燒牛肉麵",
+            "price": 150,
+            "description": "慢燉六小時的半筋半肉。",
+            "imageUrl": "https://example.com/images/beef-noodle.jpg",
+            "optionGroups": [
+              {
+                "id": "size",
+                "name": "份量",
+                "min": 1,
+                "max": 1,
+                "options": [
+                  { "id": "regular", "name": "一般", "price": 0 },
+                  { "id": "large", "name": "大碗", "price": 20 }
+                ]
+              },
+              {
+                "id": "noodle",
+                "name": "麵條",
+                "min": 1,
+                "max": 1,
+                "options": [
+                  { "id": "thin", "name": "細麵" },
+                  { "id": "wide", "name": "寬麵" },
+                  { "id": "rice-noodle", "name": "米粉" }
+                ]
+              },
+              {
+                "id": "toppings",
+                "name": "加料",
+                "min": 0,
+                "max": 5,
+                "repeatable": true,
+                "options": [
+                  { "id": "egg", "name": "滷蛋", "price": 15 },
+                  { "id": "tofu", "name": "豆干", "price": 10 },
+                  { "id": "beef", "name": "加肉", "price": 60 }
+                ]
+              },
+              {
+                "id": "combo",
+                "name": "升級套餐",
+                "min": 0,
+                "max": 1,
+                "options": [
+                  {
+                    "id": "set",
+                    "name": "小菜飲料套餐",
+                    "price": 60,
+                    "optionGroups": [
+                      {
+                        "id": "side",
+                        "name": "套餐小菜",
+                        "min": 1,
+                        "max": 1,
+                        "options": [
+                          { "id": "cucumber", "name": "涼拌小黃瓜" },
+                          { "id": "seaweed", "name": "海帶絲" }
+                        ]
+                      },
+                      {
+                        "id": "drink",
+                        "name": "套餐飲料",
+                        "min": 1,
+                        "max": 1,
+                        "options": [
+                          { "id": "black-tea", "name": "紅茶" },
+                          { "id": "soy-milk", "name": "豆漿" },
+                          { "id": "winter-melon", "name": "冬瓜檸檬", "price": 10 }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "zhajiang",
+            "name": "炸醬麵",
+            "price": 80,
+            "optionGroups": [
+              {
+                "id": "spicy",
+                "name": "辣度",
+                "min": 1,
+                "max": 1,
+                "options": [
+                  { "id": "none", "name": "不辣" },
+                  { "id": "mild", "name": "小辣" },
+                  { "id": "hot", "name": "大辣" }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "wonton-soup",
+            "name": "鮮肉餛飩湯",
+            "price": 70
+          }
+        ]
+      },
+      {
+        "id": "sides",
+        "name": "小菜",
+        "description": "冷藏保存，請當天食用。",
+        "items": [
+          { "id": "cucumber", "name": "涼拌小黃瓜", "price": 40 },
+          { "id": "braised-platter", "name": "滷味拼盤", "price": 90, "description": "豆干、海帶、滷蛋各兩份。" }
+        ]
+      },
+      {
+        "id": "lunch-special",
+        "name": "平日午間限定",
+        "availability": { "days": ["tue", "wed", "thu", "fri"], "from": "11:00", "to": "14:00" },
+        "items": [
+          {
+            "id": "lunch-set",
+            "name": "午間乾麵套餐",
+            "price": 120,
+            "description": "乾麵、小菜與飲料。",
+            "optionGroups": [
+              {
+                "id": "drink",
+                "name": "飲料",
+                "min": 1,
+                "max": 1,
+                "options": [
+                  { "id": "black-tea", "name": "紅茶" },
+                  { "id": "green-tea", "name": "綠茶" }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

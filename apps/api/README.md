@@ -974,6 +974,8 @@ queries and handoffs are not on this path at all (an architecture test checks th
   | `LineMaxConcurrentQuestionsPerAssistant` | assistant, LINE answers being generated | answers at once | 10 |
   | `CoordinatorAuthorizationRequestsPerIpPerMinute` | client IP, the 統籌助理's authorization pages together (#377) | sliding window, 1 minute | 20 |
   | `CoordinatorReservationRequestsPerIpPerMinute` | client IP, the shops' reservation pages together, every shop (#389; refused with a page, not JSON) | sliding window, 1 minute | 30 |
+  | `OrderingRequestsPerIpPerMinute` | client IP, the online-ordering API except sending an order (shop, menu, slots, an order's status, cancelling), every shop (#398) | sliding window, 1 minute | 120 |
+  | `OrderingSubmissionsPerIpPerMinute` | client IP, `POST /api/v1/public/ordering/{slug}/orders`, every shop (#398) | sliding window, 1 minute | 10 |
 
   The `LineQuestions*` limits are not HTTP limits (LINE's servers send every request, so there is no
   client to partition by): the background processor applies them per question and answers a refused
@@ -1082,10 +1084,11 @@ nothing changes: no admin is served, and a path without an endpoint is still `40
 | Setting | Meaning |
 | --- | --- |
 | `Admin:RootPath` | The admin build (`index.html`, hashed `main-*.js`, `chunk-*.js`, `styles-*.css`, `favicon.ico`), relative to the content root or absolute. Set but not a folder with an `index.html`: the Api refuses to start. Blank: no admin. |
+| `Shop:RootPath` | The customers' online-ordering app (`apps/shop`, #398; `npx nx build shop`, base href `/order/`), served under `/order` and `/order/**` with the same rules as the admin below. The image sets `Shop__RootPath=wwwroot/shop`. Set but not a folder with an `index.html`: the Api refuses to start. Blank: `/order/**` is the Api's `401`. |
 
 `AdminSpaHosting` is a middleware before authorization. It answers only a `GET`/`HEAD` that **no endpoint
 matched** (a known path with another method keeps its `405`) and whose first segment is not one of the Api's:
-`api`, `connect`, `.well-known`, `health`, `use`, `widget`, `embed.js`, `openapi`, plus the first literal
+`api`, `connect`, `.well-known`, `health`, `use`, `widget`, `embed.js`, `openapi`, `order` (the ordering app's), plus the first literal
 segment of every mapped route (read from the endpoint data sources, so a new endpoint group is excluded
 automatically). Every Api answer, including `401` for an unknown `/api/...` path, is unchanged. Then:
 

@@ -204,6 +204,8 @@ public class PublicChannelsOptionsTests
             options.RateLimits.LineMaxConcurrentQuestionsPerAssistant.ShouldBe(10);
             options.RateLimits.CoordinatorAuthorizationRequestsPerIpPerMinute.ShouldBe(20);
             options.RateLimits.CoordinatorReservationRequestsPerIpPerMinute.ShouldBe(30);
+            options.RateLimits.OrderingRequestsPerIpPerMinute.ShouldBe(120);
+            options.RateLimits.OrderingSubmissionsPerIpPerMinute.ShouldBe(10);
             options.Line.ReplyDeadlineSeconds.ShouldBe(50);
             options.TrustedProxies.ShouldBeEmpty();
             Validator("Production").Validate(null, options).Succeeded.ShouldBeTrue();
@@ -230,10 +232,12 @@ public class PublicChannelsOptionsTests
             ["PublicChannels:RateLimits:LineMaxConcurrentQuestionsPerAssistant"] = "15",
             ["PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute"] = "16",
             ["PublicChannels:RateLimits:CoordinatorReservationRequestsPerIpPerMinute"] = "17",
+            ["PublicChannels:RateLimits:OrderingRequestsPerIpPerMinute"] = "18",
+            ["PublicChannels:RateLimits:OrderingSubmissionsPerIpPerMinute"] = "19",
             ["PublicChannels:Line:ReplyDeadlineSeconds"] = "30",
         });
 
-        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+        options.RateLimits.Values().Select(value => value.Value).ShouldBe([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
         options.Line.ReplyDeadline.ShouldBe(TimeSpan.FromSeconds(30));
         Validator().Validate(null, options).Succeeded.ShouldBeTrue();
     }
@@ -254,6 +258,8 @@ public class PublicChannelsOptionsTests
     [InlineData("LineMaxConcurrentQuestionsPerAssistant", "0")]
     [InlineData("CoordinatorAuthorizationRequestsPerIpPerMinute", "0")]
     [InlineData("CoordinatorReservationRequestsPerIpPerMinute", "0")]
+    [InlineData("OrderingRequestsPerIpPerMinute", "0")]
+    [InlineData("OrderingSubmissionsPerIpPerMinute", "-1")]
     public void A_rate_limit_below_one_fails_startup_and_says_which_setting(string name, string value)
     {
         var result = Validator("Production").Validate(null, BindSettings(new Dictionary<string, string?> { [$"PublicChannels:RateLimits:{name}"] = value }));

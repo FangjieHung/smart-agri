@@ -19,7 +19,8 @@ namespace SmartAgri.Api.Coordinator;
 /// of two members pressing at the same moment exactly one wins; the other — and every later press — is told who did
 /// what when (「這筆訂位已由{誰}在 {時間} {接受／婉拒}。」: the member's LINE display name from the coordinator
 /// account's profile API, free, else 「老闆」／「店長」; 「你」 for the member's own press; 「其他成員」 for one who left).
-/// A pending reservation pressed at or after its expiry (the job not run yet) expires right then and says so. The winner
+/// A pending reservation pressed at or after its expiry (the job not run yet) expires right then and says so; one a
+/// closure cancelled says why (「這筆訂位因臨時店休已取消。」, #392). The winner
 /// is also told what happens to the customer (#391): 「會寄確認信給顧客。」／「會寄婉拒信給顧客。」, or — no address, or no
 /// SMTP — 「…請來電 {電話}。」 (<see cref="CoordinatorReservationCards.DecidedText"/>); the Email itself is a job the
 /// compare-and-set enqueued (<see cref="EmailReservationOutcomes"/>), sent after this reply.
@@ -35,6 +36,7 @@ public sealed class CoordinatorReservationButtons
 {
     private readonly CoordinatorReservations _reservations;
     private readonly CoordinatorShops _shops;
+    private readonly CoordinatorCommands _commands;
     private readonly CoordinatorReplySender _sender;
     private readonly IEmailSender _email;
     private readonly TimeProvider _clock;
@@ -43,6 +45,7 @@ public sealed class CoordinatorReservationButtons
     public CoordinatorReservationButtons(
         CoordinatorReservations reservations,
         CoordinatorShops shops,
+        CoordinatorCommands commands,
         CoordinatorReplySender sender,
         IEmailSender email,
         TimeProvider clock,
@@ -50,6 +53,7 @@ public sealed class CoordinatorReservationButtons
     {
         _reservations = reservations;
         _shops = shops;
+        _commands = commands;
         _sender = sender;
         _email = email;
         _clock = clock;
@@ -184,8 +188,23 @@ public sealed class CoordinatorReservationButtons
             case CoordinatorReservationStatus.Expired:
                 return CoordinatorReservationCards.Expired(minutes);
             default:
-                return CoordinatorReservationCards.Cancelled;
+                return await CancelledAsync(reservation, cancellationToken);
         }
+    }
+
+    /// <summary>「這筆訂位因{原因}已取消。」 for one a closure cancelled (#392: the command's scenario and time), else R2's
+    /// 「這筆訂位已取消。」.</summary>
+    private async Task<string> CancelledAsync(CoordinatorReservation reservation, CancellationToken cancellationToken)
+    {
+        if (reservation.CancelReason is not { } scenario || scenario == ShopScenario.Reopen)
+        {
+            return CoordinatorReservationCards.Cancelled;
+        }
+
+        var command = reservation.CancelledByCommandId is { } commandId
+            ? await _commands.FindAsync(reservation.OrganizationId, commandId, cancellationToken)
+            : null;
+        return CoordinatorReservationCards.CancelledBecause(CoordinatorReservationClosures.Reason(scenario, command?.Time));
     }
 
     private static IReadOnlyList<JsonObject> Say(string text) => [LineMessages.Text(text)];

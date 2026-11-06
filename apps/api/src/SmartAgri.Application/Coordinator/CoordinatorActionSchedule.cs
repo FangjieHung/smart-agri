@@ -34,7 +34,8 @@ public sealed record CoordinatorReopenPlan(IReadOnlyList<Guid> Cancel, IReadOnly
 /// retried); takes back what was applied — automatically when it succeeded automatically and its executor is
 /// available, else by a reminder with a fixed undo text (a LINE 群發 cannot be taken back); reminds now to resume each
 /// ordering system whose pause happened (done, or due already) and whose resume had not come yet; and, when chosen,
-/// broadcasts the correction announcement.
+/// broadcasts the correction announcement. The undone command's reminder to call customers (#392) stays as it is: the
+/// reservations it cancelled are not restored, so the calls are still due.
 /// </para>
 /// </remarks>
 public static class CoordinatorActionSchedule
@@ -117,6 +118,12 @@ public static class CoordinatorActionSchedule
         var actions = new List<ShopAction>();
         foreach (var group in Groups(rows))
         {
+            if (!ShopActionKinds.IsConfigurable(group.Kind))
+            {
+                // The system's own reminder to call customers (#392): not an action of the settings, nothing to undo.
+                continue;
+            }
+
             if (group.Kind == ShopActionKind.Ordering)
             {
                 actions.Add(new ShopAction(

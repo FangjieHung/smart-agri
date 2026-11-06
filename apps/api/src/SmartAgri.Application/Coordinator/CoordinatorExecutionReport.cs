@@ -42,7 +42,8 @@ public sealed record CoordinatorReportLine(
 }
 
 /// <summary>Everything a report shows: the command (<see cref="Undone"/> for a reopen), its lines in order, the
-/// announcement to copy when a line needs it, and the shop's zone and now for the times.</summary>
+/// announcement to copy when a line needs it, and the shop's zone and now for the times; the confirmation report also
+/// what happened to the day's online reservations (<see cref="Reservations"/>, #392).</summary>
 public sealed record CoordinatorReportContent(
     Guid OrganizationId,
     string StoreName,
@@ -53,7 +54,8 @@ public sealed record CoordinatorReportContent(
     IReadOnlyList<CoordinatorReportLine> Lines,
     string? Announcement,
     DateTimeOffset Now,
-    (ShopScenario Scenario, DateOnly Date, TimeOnly? Time)? Undone = null)
+    (ShopScenario Scenario, DateOnly Date, TimeOnly? Time)? Undone = null,
+    CoordinatorReportReservations? Reservations = null)
 {
     /// <summary>No announcement: it may hold a reason a person wrote.</summary>
     public override string ToString() =>
@@ -71,6 +73,11 @@ public sealed record CoordinatorReportContent(
 /// with its steps and 〔已完成〕 (and why, when an automatic action became one: 「LINE 權杖失效…」), ⌛ 「執行中…」 while an automatic action runs, 🕒 when a later reminder comes
 /// (「11/2（一）10:30 會提醒你關閉接單」), 🚫 dropped by a reopen. When a LINE 群發 or FB 貼文 is the owner's to post,
 /// the announcement follows as a plain text message they can copy (with the image's address on the line).
+/// </para>
+/// <para>
+/// The online reservations (#392): after the title 「已取消 N 筆訂位，其中 k 筆會寄信通知顧客。」 (a reopen: 「因店休取消的 N 筆
+/// 訂位不會恢復，請視需要聯絡顧客」), and the <see cref="ShopActionKind.ReservationCalls"/> reminder lists the customers to
+/// call, 「18:30 陳小姐 0912-345-678」 one per line, above its 〔已完成〕.
 /// </para>
 /// <para>
 /// LINE limits: <c>altText</c> at most 400 characters, button labels at most 20, postback data at most 300, every
@@ -137,6 +144,7 @@ public static class CoordinatorExecutionReport
             (ShopActionKind.FacebookPost, _) => "FB 粉專貼文",
             (ShopActionKind.Ordering, CoordinatorActionStep.Pause) => $"{name} 暫停接單",
             (ShopActionKind.Ordering, _) => $"{name} 重新開啟接單",
+            (ShopActionKind.ReservationCalls, _) => CoordinatorReservationClosures.CallsLabel,
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not an action kind."),
         };
     }
@@ -201,6 +209,16 @@ public static class CoordinatorExecutionReport
         if (content.Undone is { } undone)
         {
             body.Add(Text($"取消 {ShopAnnouncements.FormatDate(undone.Date)} {CoordinatorCommandReplies.Title(undone.Scenario, undone.Time)}", "sm"));
+        }
+
+        if (content.Reservations is { Cancelled: > 0 } cancelled)
+        {
+            body.Add(Text(CoordinatorReservationClosures.Cancelled(cancelled.Cancelled, cancelled.Emailed), "sm", weight: "bold"));
+        }
+
+        if (content.Reservations is { NotRestored: > 0 } kept)
+        {
+            body.Add(Text($"{CoordinatorReservationClosures.NotRestored(kept.NotRestored)}。", "sm", weight: "bold"));
         }
 
         var lines = new JsonArray();
@@ -268,6 +286,18 @@ public static class CoordinatorExecutionReport
                 if (line.ImageUrl is { Length: > 0 } image)
                 {
                     yield return Text($"　圖片：{image}", "xs", color: "#666666");
+                }
+
+                if (line.Kind == ShopActionKind.ReservationCalls && content.Reservations is { Calls.Count: > 0 } calls)
+                {
+                    // One text, at most ReportCallsMax lines: a bubble's JSON is limited (30 KB).
+                    var listed = calls.Calls.Take(CoordinatorReservationClosures.ReportCallsMax).Select(call => $"　{call}").ToList();
+                    if (calls.Calls.Count > listed.Count)
+                    {
+                        listed.Add($"　{CoordinatorReservationClosures.CallsNotListed(calls.Calls.Count - listed.Count)}");
+                    }
+
+                    yield return Text(string.Join('\n', listed), "xs");
                 }
 
                 yield return Button(DoneLabel, CoordinatorMessageRouter.CompletePostback(content.OrganizationId, line.ActionId), "secondary");

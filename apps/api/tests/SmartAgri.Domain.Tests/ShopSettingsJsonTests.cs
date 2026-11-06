@@ -127,6 +127,8 @@ public partial class ShopSettingsJsonTests
     {
         ["unknown action kind"] = (tree => Action(tree, "temporary-closure", 0)["kind"] = "instagram-post",
             $"{Closure}.actions[0].kind", "不認得的動作種類「instagram-post」"),
+        ["the system's own action kind"] = (tree => Action(tree, "temporary-closure", 0)["kind"] = "reservation-calls",
+            $"{Closure}.actions[0].kind", "不認得的動作種類「reservation-calls」；可用：line-broadcast、google-special-hours、facebook-post、ordering。"),
         ["unknown top-level field"] = (tree => tree["owner"] = "王老闆", "$.owner", "不認得的欄位"),
         ["unknown action field"] = (tree => Action(tree, "temporary-closure", 0)["url"] = "https://x", $"{Closure}.actions[0].url", "不認得的欄位"),
         ["ordering field on another kind"] = (tree => Action(tree, "temporary-closure", 0)["name"] = "LINE", $"{Closure}.actions[0].name", "只有 ordering"),

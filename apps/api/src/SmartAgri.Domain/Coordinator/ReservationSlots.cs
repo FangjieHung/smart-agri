@@ -110,6 +110,59 @@ public static class ReservationSlots
         return On(settings, reservations, hours, date, now, InEffect(commands));
     }
 
+    /// <summary>
+    /// The reservations among <paramref name="reservations"/> whose time a confirmed 臨時店休, 提早打烊 or 延後開店 on business
+    /// day <paramref name="date"/> takes away (store-reservations design decision R6, Slice R4, #392), earliest first — the
+    /// pending and accepted ones of <paramref name="date"/> still ahead at <paramref name="now"/> that the day's new hours
+    /// leave out: for 臨時店休 all of them; for 提早打烊 at <paramref name="time"/> those at or after the new closing; for
+    /// 延後開店 at <paramref name="time"/> those before the new opening. <paramref name="time"/> is read as the reservation
+    /// page reads a command's (<see cref="BusinessHours.OnBusinessDay"/>: an overnight period's small hours are the next
+    /// calendar day's, still <paramref name="date"/>'s), so a time taken away here is one the page no longer offers.
+    /// </summary>
+    /// <remarks>The preview card counts with this and the confirmation cancels with it: one rule for both.</remarks>
+    public static IReadOnlyList<CoordinatorReservation> TakenAway(
+        BusinessHours hours,
+        ShopScenario scenario,
+        DateOnly date,
+        TimeOnly? time,
+        IEnumerable<CoordinatorReservation> reservations,
+        DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(hours);
+        ArgumentNullException.ThrowIfNull(reservations);
+        if (scenario == ShopScenario.Reopen || CoordinatorCommand.NeedsTime(scenario) != (time is not null))
+        {
+            throw new ArgumentException(
+                "A closure takes the day, an early closing or a late opening its time; a reopen takes nothing.", nameof(scenario));
+        }
+
+        return
+        [
+            .. reservations
+                .Where(reservation => reservation.Date == date
+                    && reservation.Status is CoordinatorReservationStatus.Pending or CoordinatorReservationStatus.Accepted
+                    && reservation.ReservedAt > now
+                    && TakesAway(hours, scenario, date, time, reservation.ReservedAt))
+                .OrderBy(reservation => reservation.ReservedAt)
+                .ThenBy(reservation => reservation.Id),
+        ];
+    }
+
+    /// <summary>
+    /// The command among <paramref name="commands"/> in effect (<see cref="InEffect"/>: confirmed, not undone by a confirmed
+    /// 恢復營業) that takes the time <paramref name="at"/> of business day <paramref name="date"/> away by
+    /// <see cref="TakenAway"/>'s rule — a 臨時店休 before a 提早打烊 or 延後開店 — or <see langword="null"/>. What a reservation
+    /// being stored is checked against (#392), so it is either refused or later cancelled by the closure, never kept.
+    /// </summary>
+    public static ShopCommandFact? TakenBy(BusinessHours hours, IEnumerable<ShopCommandFact> commands, DateOnly date, DateTimeOffset at)
+    {
+        ArgumentNullException.ThrowIfNull(hours);
+        return InEffect(commands)
+            .Where(command => command.Date == date && TakesAway(hours, command.Scenario, date, command.Time, at))
+            .OrderBy(command => command.Scenario)
+            .FirstOrDefault();
+    }
+
     /// <summary>The time of <paramref name="date"/> whose <see cref="ReservationSlot.Value"/> is
     /// <paramref name="value"/>, if it can be booked at <paramref name="now"/>.</summary>
     public static ReservationSlot? Find(
@@ -168,6 +221,17 @@ public static class ReservationSlots
 
         return [.. slots.OrderBy(slot => slot.At)];
     }
+
+    /// <summary>Whether a <paramref name="scenario"/> on business day <paramref name="date"/> (at <paramref name="time"/>)
+    /// takes the time <paramref name="at"/> of that day away: a closure all of it, an early closing from the new closing
+    /// on, a late opening before the new opening.</summary>
+    private static bool TakesAway(BusinessHours hours, ShopScenario scenario, DateOnly date, TimeOnly? time, DateTimeOffset at) => scenario switch
+    {
+        ShopScenario.TemporaryClosure => true,
+        ShopScenario.CloseEarly => at >= hours.OnBusinessDay(date, time!.Value),
+        ShopScenario.OpenLate => at < hours.OnBusinessDay(date, time!.Value),
+        _ => false,
+    };
 
     /// <summary><paramref name="period"/> as the day's 提早打烊 and 延後開店 leave it; <see langword="null"/> when nothing is
     /// left of it.</summary>

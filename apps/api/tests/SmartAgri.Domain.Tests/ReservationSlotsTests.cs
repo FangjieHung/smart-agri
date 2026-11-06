@@ -267,6 +267,134 @@ public class ReservationSlotsTests
         Should.Throw<ArgumentException>(() => ReservationSlots.On(ShopSettingsSamples.ValidDocument(), Tuesday, MondayMorning, []));
     }
 
+    // --- What a confirmed 店休 takes away (#392) -------------------------------------------------------
+
+    [Fact]
+    public void A_closure_takes_every_pending_and_accepted_reservation_of_its_day_still_ahead()
+    {
+        var hours = Shop().Hours;
+        Booked[] day =
+        [
+            new(Tuesday, 11, 0), new(Tuesday, 12, 30, CoordinatorReservationStatus.Accepted), new(Tuesday, 18, 0),
+            new(Tuesday, 12, 0, CoordinatorReservationStatus.Declined), new(Tuesday, 13, 0, CoordinatorReservationStatus.Expired),
+            new(Tuesday, 19, 0, CoordinatorReservationStatus.Cancelled), new(new DateOnly(2026, 11, 4), 18, 0),
+        ];
+        var reservations = day.Select(booked => booked.Reservation).Reverse().ToList();
+
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.TemporaryClosure, Tuesday, null, reservations, MondayMorning))
+            .ShouldBe(["11:00", "12:30", "18:00"], "earliest first; declined, expired, cancelled and another day's untouched");
+
+        // Announced at lunch: whoever came already is not cancelled.
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.TemporaryClosure, Tuesday, null, reservations, new DateTimeOffset(2026, 11, 3, 12, 30, 0, Taipei)))
+            .ShouldBe(["18:00"]);
+    }
+
+    [Fact]
+    public void An_early_closing_takes_from_the_new_closing_on_and_a_late_opening_what_is_before_the_new_opening()
+    {
+        var hours = Shop().Hours;
+        var reservations = new[] { (11, 0), (11, 30), (12, 0), (13, 0), (13, 30), (17, 0), (20, 0) }
+            .Select(time => new Booked(Tuesday, time.Item1, time.Item2).Reservation)
+            .ToList();
+
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.CloseEarly, Tuesday, new TimeOnly(13, 0), reservations, MondayMorning))
+            .ShouldBe(["13:00", "13:30", "17:00", "20:00"], "the one exactly at the new closing too, and the dinner it no longer opens for");
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.CloseEarly, Tuesday, new TimeOnly(16, 0), reservations, MondayMorning))
+            .ShouldBe(["17:00", "20:00"], "closing between lunch and dinner drops the dinner");
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.OpenLate, Tuesday, new TimeOnly(12, 0), reservations, MondayMorning))
+            .ShouldBe(["11:00", "11:30"], "the one exactly at the new opening stays");
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.OpenLate, Tuesday, new TimeOnly(17, 30), reservations, MondayMorning))
+            .ShouldBe(["11:00", "11:30", "12:00", "13:00", "13:30", "17:00"]);
+
+        // As the page reads the command: a time taken away is never offered any more, and of the usual times only the last
+        // seating before the new closing (12:30) is neither — booked before, it is kept (from the new closing on, R6).
+        var shop = Shop();
+        var close = Command(ShopScenario.CloseEarly, Tuesday, new TimeOnly(13, 0));
+        var offered = ReservationSlots.On(shop, Tuesday, MondayMorning, [close]).Select(slot => slot.At).ToHashSet();
+        foreach (var slot in ReservationSlots.On(shop, Tuesday, MondayMorning, []))
+        {
+            var booked = new Booked(Tuesday, slot.At.Hour, slot.At.Minute).Reservation;
+            var taken = ReservationSlots.TakenAway(hours, ShopScenario.CloseEarly, Tuesday, close.Time, [booked], MondayMorning).Count == 1;
+            (taken && offered.Contains(slot.At)).ShouldBeFalse(slot.Label);
+            (!taken && !offered.Contains(slot.At)).ShouldBe(slot.Label == "12:30", slot.Label);
+        }
+    }
+
+    [Fact]
+    public void An_overnight_periods_small_hours_belong_to_the_day_it_opens()
+    {
+        // Saturday 18:00–02:00: Sunday 00:30 and 01:30 are Saturday's.
+        var hours = Shop().Hours;
+        var sunday = new DateOnly(2026, 11, 8);
+        Booked[] night =
+        [
+            new(Saturday, 18, 0), new(Saturday, 23, 0), new(Saturday, 0, 30, NextDay: true),
+            new(Saturday, 1, 0, CoordinatorReservationStatus.Accepted, NextDay: true), new(Saturday, 1, 30, NextDay: true), new(sunday, 11, 0),
+        ];
+        var reservations = night.Select(booked => booked.Reservation).ToList();
+
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.CloseEarly, Saturday, new TimeOnly(1, 0), reservations, MondayMorning))
+            .ShouldBe(["01:00（隔天）", "01:30（隔天）"], "01:00 is Sunday's 01:00, the small hours of Saturday's night");
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.CloseEarly, Saturday, new TimeOnly(23, 0), reservations, MondayMorning))
+            .ShouldBe(["23:00", "00:30（隔天）", "01:00（隔天）", "01:30（隔天）"]);
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.OpenLate, Saturday, new TimeOnly(19, 0), reservations, MondayMorning))
+            .ShouldBe(["18:00"]);
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.TemporaryClosure, Saturday, null, reservations, MondayMorning)).Count.ShouldBe(5);
+        Times(ReservationSlots.TakenAway(hours, ShopScenario.TemporaryClosure, sunday, null, reservations, MondayMorning))
+            .ShouldBe(["11:00"], "Sunday's closure leaves Saturday's night alone");
+    }
+
+    [Fact]
+    public void A_time_being_stored_is_checked_against_the_commands_in_effect_by_the_same_rule()
+    {
+        var hours = Shop().Hours;
+        DateTimeOffset At(int hour, int minute) => new(2026, 11, 3, hour, minute, 0, Taipei);
+        var closeEarly = Command(ShopScenario.CloseEarly, Tuesday, new TimeOnly(13, 0));
+        var closure = Command(ShopScenario.TemporaryClosure, Tuesday);
+
+        ReservationSlots.TakenBy(hours, [closeEarly], Tuesday, At(13, 0)).ShouldBe(closeEarly, "exactly at the new closing");
+        ReservationSlots.TakenBy(hours, [closeEarly], Tuesday, At(12, 30)).ShouldBeNull("before it: kept, as a closure would keep it");
+        ReservationSlots.TakenBy(hours, [closeEarly], new DateOnly(2026, 11, 4), At(18, 0).AddDays(1)).ShouldBeNull("another day");
+        ReservationSlots.TakenBy(hours, [closeEarly, closure], Tuesday, At(18, 0)).ShouldBe(closure, "a closure first");
+        ReservationSlots.TakenBy(hours, [Command(ShopScenario.OpenLate, Tuesday, new TimeOnly(12, 0))], Tuesday, At(12, 0)).ShouldBeNull();
+
+        // Only confirmed commands no confirmed 恢復營業 undid.
+        var reopen = new ShopCommandFact(Guid.NewGuid(), ShopScenario.Reopen, CoordinatorCommandStatus.Confirmed, Tuesday, null, closure.Id);
+        ReservationSlots.TakenBy(hours, [closure, reopen], Tuesday, At(18, 0)).ShouldBeNull();
+        ReservationSlots.TakenBy(hours, [closure with { Status = CoordinatorCommandStatus.Previewed }], Tuesday, At(18, 0)).ShouldBeNull();
+    }
+
+    [Fact]
+    public void A_reopen_takes_nothing_and_a_time_goes_with_exactly_the_early_closing_and_the_late_opening()
+    {
+        var hours = Shop().Hours;
+        Should.Throw<ArgumentException>(() => ReservationSlots.TakenAway(hours, ShopScenario.Reopen, Tuesday, null, [], MondayMorning));
+        Should.Throw<ArgumentException>(() => ReservationSlots.TakenAway(hours, ShopScenario.CloseEarly, Tuesday, null, [], MondayMorning));
+        Should.Throw<ArgumentException>(() => ReservationSlots.TakenAway(hours, ShopScenario.TemporaryClosure, Tuesday, new TimeOnly(12, 0), [], MondayMorning));
+    }
+
+    private static List<string> Times(IReadOnlyList<CoordinatorReservation> reservations) =>
+        [.. reservations.Select(reservation => reservation.TimeOfDay(TimeZoneInfo.FindSystemTimeZoneById("Asia/Taipei")))];
+
+    /// <summary>A reservation of business day <paramref name="Date"/> at <paramref name="Hour"/>:<paramref name="Minute"/> in
+    /// Taipei (the next calendar day with <paramref name="NextDay"/>), as read back with <paramref name="Status"/>.</summary>
+    private sealed record Booked(
+        DateOnly Date, int Hour, int Minute, CoordinatorReservationStatus Status = CoordinatorReservationStatus.Pending, bool NextDay = false)
+    {
+        public CoordinatorReservation Reservation { get; } = Make(Date, Hour, Minute, Status, NextDay);
+
+        private static CoordinatorReservation Make(DateOnly date, int hour, int minute, CoordinatorReservationStatus status, bool nextDay)
+        {
+            var day = nextDay ? date.AddDays(1) : date;
+            var at = new DateTimeOffset(day.Year, day.Month, day.Day, hour, minute, 0, Taipei);
+            var reservation = CoordinatorReservation.Submit(
+                Guid.CreateVersion7(), new ReservationSlot(date, at, at.DateTime), 2, "陳小姐", "0912345678", null, null,
+                CoordinatorReservation.NewSubmissionKey(), at.AddDays(-7));
+            typeof(CoordinatorReservation).GetProperty(nameof(CoordinatorReservation.Status))!.SetValue(reservation, status);
+            return reservation;
+        }
+    }
+
     private static ShopCommandFact Command(ShopScenario scenario, DateOnly date, TimeOnly? time = null) =>
         new(Guid.NewGuid(), scenario, CoordinatorCommandStatus.Confirmed, date, time, null);
 

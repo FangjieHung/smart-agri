@@ -287,9 +287,17 @@ public sealed partial class CoordinatorReservationTests : IClassFixture<Coordina
 
         var refused = await _client.PostAsync($"/reserve/{slug}", Form(Fields(closed, "18:00")), CancellationToken);
         refused.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await refused.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("這天已經不能線上訂位，請選擇其他日期。");
-        (await _client.PostAsync($"/reserve/{slug}", Form(Fields(early, "19:00")), CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        (await _client.PostAsync($"/reserve/{slug}", Form(Fields(late, "11:30")), CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        // A usual time a confirmed command took away says why (#392).
+        (await refused.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("這個時段已經無法訂位（店家剛宣布臨時店休），請改選其他時間。");
+        var closedEarly = await _client.PostAsync($"/reserve/{slug}", Form(Fields(early, "19:00")), CancellationToken);
+        closedEarly.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await closedEarly.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("（店家剛宣布當天提早在 19:00 打烊）");
+        var openedLate = await _client.PostAsync($"/reserve/{slug}", Form(Fields(late, "11:30")), CancellationToken);
+        openedLate.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await openedLate.Content.ReadAsStringAsync(CancellationToken)).ShouldContain("（店家剛宣布當天延後到 12:00 開店）");
+        var lastSeating = await _client.PostAsync($"/reserve/{slug}", Form(Fields(early, "18:30")), CancellationToken);
+        lastSeating.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await lastSeating.Content.ReadAsStringAsync(CancellationToken)).ShouldNotContain("店家剛宣布", Case.Sensitive, "within the last seating, not taken away");
 
         // 恢復營業 confirmed: the day is bookable again.
         await CommandAsync(shop, ShopScenario.Reopen, closed, null, confirm: true, reopens: closure);

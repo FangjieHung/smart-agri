@@ -48,6 +48,23 @@ public enum ShopActionKind
     /// API we may use (Q15, Q26), so it is always a reminder.</summary>
     [JsonStringEnumMemberName("ordering")]
     Ordering,
+
+    /// <summary>Calling the customers whose reservations a confirmed 臨時店休／提早打烊／延後開店 cancelled and who get no
+    /// Email (store-reservations design R6, Slice R4, #392): never in a shop's settings — the system adds it to a command
+    /// when there is someone to call, always a reminder (<see cref="ShopActionKinds.IsConfigurable"/>).</summary>
+    [JsonStringEnumMemberName("reservation-calls")]
+    ReservationCalls,
+}
+
+/// <summary>Which <see cref="ShopActionKind"/>s a shop's settings may list.</summary>
+public static class ShopActionKinds
+{
+    /// <summary>Every kind but <see cref="ShopActionKind.ReservationCalls"/>, which only the system adds (#392).</summary>
+    public static bool IsConfigurable(ShopActionKind kind) => kind != ShopActionKind.ReservationCalls;
+
+    /// <summary>The wire names of the configurable kinds, in declaration order.</summary>
+    public static IReadOnlyList<string> ConfigurableWireNames { get; } =
+        [.. Enum.GetValues<ShopActionKind>().Where(IsConfigurable).Select(WireNames<ShopActionKind>.ToWire)];
 }
 
 /// <summary>How an action is carried out (store-coordinator design §3 Q18, #373).</summary>

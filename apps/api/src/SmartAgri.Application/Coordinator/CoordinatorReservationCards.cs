@@ -55,7 +55,16 @@ public static class CoordinatorReservationCards
 
     public const string ChooseShop = "要查看哪一家店的訂位？";
 
+    /// <summary>A cancelled reservation whose reason is not known (#390); a closure's says why (<see cref="CancelledBecause"/>).</summary>
     public const string Cancelled = "這筆訂位已取消。";
+
+    /// <summary>「這筆訂位因臨時店休已取消。」: a press on a reservation a closure cancelled (#392), <paramref name="reason"/>
+    /// from <see cref="CoordinatorReservationClosures.Reason"/>.</summary>
+    public static string CancelledBecause(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return $"這筆訂位因{reason}已取消。";
+    }
 
     public const string Unknown = "找不到這筆訂位，可能已經刪除。";
 

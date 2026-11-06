@@ -1,0 +1,1 @@
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"duplicate-submission","message":"這筆訂單已經送出過了（訂單編號 #001）。","errors":null,"lineErrors":null,"menuVersion":null,"orderNumber":"#001","orderStatus":null}

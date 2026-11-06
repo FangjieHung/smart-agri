@@ -22,6 +22,12 @@ namespace SmartAgri.Api.AdminSpa;
 /// So every API answer — including <c>401</c> for an unknown <c>/api</c> path and <c>405</c> for a known one
 /// with the wrong method — is unchanged. It runs before authorization, whose fallback policy would
 /// otherwise answer <c>401</c> to anything without an endpoint.
+/// <para>
+/// The customer ordering app (<c>apps/shop</c>, online-ordering design D1, #398) is served the same way under
+/// <see cref="ShopPathPrefix"/> when <c>Shop:RootPath</c> is set (<see cref="ShopSpaOptions"/>): <c>/order</c> and
+/// <c>/order/**</c> get its files or its <c>index.html</c> (base href <c>/order/</c>). <c>order</c> is one of the Api's
+/// first segments, so the admin never answers there — without <c>Shop:RootPath</c> such a path is the Api's <c>401</c>.
+/// </para>
 /// </remarks>
 public static partial class AdminSpaHosting
 {
@@ -31,7 +37,10 @@ public static partial class AdminSpaHosting
     /// <c>/.well-known/*</c> in its own middleware, <c>/openapi</c> is mapped in Development only, and an
     /// unknown path under the others must stay the Api's <c>404</c>/<c>401</c>, never the admin.</summary>
     public static readonly IReadOnlyList<string> FixedApiFirstSegments =
-        ["api", "connect", ".well-known", "health", "use", "widget", "embed.js", "openapi"];
+        ["api", "connect", ".well-known", "health", "use", "widget", "embed.js", "openapi", "order"];
+
+    /// <summary>Where the customer ordering app lives (#398).</summary>
+    public const string ShopPathPrefix = "/order";
 
     private const string ImmutableCache = "public, max-age=31536000, immutable";
 
@@ -43,6 +52,10 @@ public static partial class AdminSpaHosting
             .Bind(configuration.GetSection(AdminSpaOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<AdminSpaOptions>, AdminSpaOptions.Validator>();
+        services.AddOptions<ShopSpaOptions>()
+            .Bind(configuration.GetSection(ShopSpaOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ShopSpaOptions>, ShopSpaOptions.Validator>();
         return services;
     }
 
@@ -58,6 +71,16 @@ public static partial class AdminSpaHosting
 
         app.Use(async (context, next) =>
         {
+            if (context.GetEndpoint() is null
+                && (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+                && context.Request.Path.StartsWithSegments(ShopPathPrefix, StringComparison.OrdinalIgnoreCase, out var rest)
+                && context.RequestServices.GetRequiredService<IOptions<ShopSpaOptions>>().Value is { IsServed: true } shop)
+            {
+                var shopRoot = shop.ResolveRoot(context.RequestServices.GetRequiredService<IHostEnvironment>())!;
+                await ServeAsync(context, shopRoot, (rest.Value ?? string.Empty).TrimStart('/'));
+                return;
+            }
+
             var options = context.RequestServices.GetRequiredService<IOptions<AdminSpaOptions>>().Value;
             if (!options.IsServed
                 || context.GetEndpoint() is not null
@@ -69,7 +92,7 @@ public static partial class AdminSpaHosting
             }
 
             var root = options.ResolveRoot(context.RequestServices.GetRequiredService<IHostEnvironment>())!;
-            await ServeAsync(context, root);
+            await ServeAsync(context, root, (context.Request.Path.Value ?? string.Empty).TrimStart('/'));
         });
 
         return app;
@@ -107,9 +130,8 @@ public static partial class AdminSpaHosting
     /// page; any other path is the SPA's own route and gets <c>index.html</c>, never cached, so a new
     /// deployment is picked up at the next navigation.
     /// </summary>
-    private static async Task ServeAsync(HttpContext context, string root)
+    private static async Task ServeAsync(HttpContext context, string root, string relative)
     {
-        var relative = (context.Request.Path.Value ?? string.Empty).TrimStart('/');
         if (relative.Length > 0 && TryResolveFile(root, relative, out var file))
         {
             if (!ContentTypes.TryGetContentType(file, out var contentType))
@@ -153,7 +175,7 @@ public static partial class AdminSpaHosting
         context.Response.Headers.XContentTypeOptions = "nosniff";
         if (contentType.StartsWith("text/html", StringComparison.Ordinal))
         {
-            // The admin (its sign-in page included) must not be framed by another site (clickjacking);
+            // The admin (its sign-in page included) and the ordering app must not be framed by another site (clickjacking);
             // customer sites embed the API's own /use/{id} page instead (WidgetEndpoints).
             context.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'self'";
         }

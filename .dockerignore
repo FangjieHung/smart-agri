@@ -1,7 +1,7 @@
 # The api image is built with the repo root as context (deploy/docker-compose.yml);
 # send only what the Dockerfile copies: the api's sources, and for the Node stage that builds the
-# widget (M5a #201) and the admin (#306) the workspace files (with .postcssrc.json, Tailwind for the
-# admin), apps/widget, apps/admin, libs and the embed loader. Specs stay out: no build reads them.
+# widget (M5a #201), the admin (#306) and the ordering app (#398) the workspace files (with .postcssrc.json,
+# Tailwind for the admin), apps/widget, apps/admin, apps/shop, libs and the embed loader. Specs stay out: no build reads them.
 *
 !global.json
 !apps/api/Directory.Build.props
@@ -15,6 +15,7 @@
 !.postcssrc.json
 !apps/widget
 !apps/admin
+!apps/shop
 !libs
 !apps/embed-loader/src/embed.js
 **/bin

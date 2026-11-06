@@ -8726,6 +8726,379 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/ordering/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A shop's ordering page: the shop, whether it takes orders now and how
+         * @description Anonymous. 404 shop-not-found for an unknown slug or a shop without a menu.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingShopInfoView"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/ordering/{slug}/menu": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The shop's current menu, with the items that cannot be ordered */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingMenuView"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/ordering/{slug}/slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The business days and times a scheduled takeout order can be picked up */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingSlotsView"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/ordering/{slug}/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send an order: priced by the server, never by the client
+         * @description 201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors). 429 too-many-pending, or rate-limited with Retry-After.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OrderingOrderRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingSubmittedView"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/ordering/{slug}/orders/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The order of the status token in the X-Ordering-Token header (the status page polls it)
+         * @description 404 shop-not-found, or order-not-found for a missing or malformed header or a token the shop has no order of.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: {
+                    "X-Ordering-Token"?: string;
+                };
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingOrderView"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/ordering/{slug}/orders/current/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel an order while the shop has not answered it
+         * @description 200 with the cancelled order. 409 not-cancellable (orderStatus) once it is anything but pending. 404 as GET.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: {
+                    "X-Ordering-Token"?: string;
+                };
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingOrderView"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -9446,6 +9819,17 @@ export interface components {
             messageCount: number;
             /** Format: date-time */
             updatedAt: string;
+        };
+        ChosenOption: {
+            groupId: string;
+            groupName: string;
+            optionId: string;
+            optionName: string;
+            /** Format: int32 */
+            price: number;
+            /** Format: int32 */
+            count: number;
+            options: components["schemas"]["ChosenOption"][];
         };
         CitedDocumentCountView: {
             /** Format: uuid */
@@ -10352,6 +10736,250 @@ export interface components {
             knowledge: components["schemas"]["KnowledgeOperationsView"];
             issues: components["schemas"]["IssuesSummaryView"];
             databaseQueries: components["schemas"]["DatabaseQueryOperationsView"];
+        };
+        OrderingAsapView: {
+            /** Format: int32 */
+            minMinutes: number;
+            /** Format: int32 */
+            maxMinutes: number;
+        };
+        OrderingAvailabilityView: {
+            days: null | string[];
+            from: null | string;
+            to: null | string;
+        };
+        OrderingCategoryView: {
+            id: string;
+            name: string;
+            description: null | string;
+            availability: null | components["schemas"]["OrderingAvailabilityView"];
+            items: components["schemas"]["OrderingItemView"][];
+        };
+        OrderingCustomerRequest: {
+            name: null | string;
+            phone: null | string;
+            email: null | string;
+        };
+        OrderingDateView: {
+            date: string;
+            slots: components["schemas"]["OrderingSlotView"][];
+        };
+        OrderingDayHoursView: {
+            day: string;
+            periods: components["schemas"]["OrderingPeriodView"][];
+        };
+        OrderingGroupView: {
+            id: string;
+            name: string;
+            /** Format: int32 */
+            min: number;
+            /** Format: int32 */
+            max: number;
+            repeatable: boolean;
+            options: components["schemas"]["OrderingOptionView"][];
+        };
+        /** @enum {unknown} */
+        OrderingItemStateKind: "sold-out-today" | "unavailable";
+        OrderingItemStateView: {
+            kind: components["schemas"]["OrderingItemStateKind"];
+            /** Format: date-time */
+            resetsAt: null | string;
+        };
+        OrderingItemView: {
+            id: string;
+            name: string;
+            /** Format: int32 */
+            price: number;
+            description: null | string;
+            imageUrl: null | string;
+            optionGroups: components["schemas"]["OrderingGroupView"][];
+            state: null | components["schemas"]["OrderingItemStateView"];
+        };
+        OrderingLimitsView: {
+            /** Format: int32 */
+            maxLines: number;
+            /** Format: int32 */
+            maxQuantity: number;
+            /** Format: int32 */
+            nameMaxLength: number;
+            /** Format: int32 */
+            lineCommentMaxLength: number;
+            /** Format: int32 */
+            orderCommentMaxLength: number;
+            /** Format: int32 */
+            maxTotal: number;
+        };
+        OrderingLineError: {
+            /** Format: int32 */
+            line: number;
+            code: string;
+            path: string;
+        };
+        OrderingLineRequest: {
+            itemId: null | string;
+            /** Format: int32 */
+            quantity: number;
+            selections: null | components["schemas"]["OrderingSelectionRequest"][];
+            comment: null | string;
+        };
+        OrderingMenuView: {
+            /** Format: int32 */
+            version: number;
+            categories: components["schemas"]["OrderingCategoryView"][];
+        };
+        OrderingNoticesView: {
+            reminder: null | string;
+            checkout: null | string;
+        };
+        OrderingOpenView: {
+            isOpen: boolean;
+            /** Format: date-time */
+            currentPeriodOpens: null | string;
+            /** Format: date-time */
+            currentPeriodCloses: null | string;
+            /** Format: date-time */
+            nextOpening: null | string;
+        };
+        OrderingOptionView: {
+            id: string;
+            name: string;
+            /** Format: int32 */
+            price: number;
+            optionGroups: components["schemas"]["OrderingGroupView"][];
+        };
+        OrderingOrderLine: {
+            itemId: string;
+            itemName: string;
+            /** Format: int32 */
+            itemPrice: number;
+            /** Format: int32 */
+            quantity: number;
+            /** Format: int32 */
+            unitPrice: number;
+            /** Format: int32 */
+            lineTotal: number;
+            options: components["schemas"]["ChosenOption"][];
+            comment: null | string;
+        };
+        OrderingOrderRequest: {
+            serviceType: null | components["schemas"]["OrderingServiceType"];
+            pickupDate: null | string;
+            pickupSlot: null | string;
+            /** Format: int32 */
+            menuVersion: null | number;
+            lines: null | components["schemas"]["OrderingLineRequest"][];
+            customer: null | components["schemas"]["OrderingCustomerRequest"];
+            orderComment: null | string;
+            tableware: null | boolean;
+            submissionKey: null | string;
+        };
+        /** @enum {unknown} */
+        OrderingOrderStatus: "pending" | "accepted" | "ready" | "completed" | "declined" | "cancelled" | "expired" | null;
+        OrderingOrderView: {
+            /** Format: int32 */
+            number: number;
+            displayNumber: string;
+            status: components["schemas"]["OrderingOrderStatus"];
+            serviceType: components["schemas"]["OrderingServiceType"];
+            businessDate: string;
+            /** Format: date-time */
+            pickupAt: string;
+            estimate: null | components["schemas"]["OrderingAsapView"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            cancelledAt: null | string;
+            lines: components["schemas"]["OrderingOrderLine"][];
+            /** Format: int32 */
+            subtotal: number;
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            menuVersion: number;
+            customerName: string;
+            phoneLastDigits: string;
+            orderComment: null | string;
+            tableware: null | boolean;
+            canCancel: boolean;
+        };
+        OrderingPeriodView: {
+            open: string;
+            close: string;
+        };
+        OrderingProblem: {
+            type: string;
+            title: string;
+            /** Format: int32 */
+            status: number;
+            reason: string;
+            message: string;
+            errors: null | {
+                [key: string]: string[];
+            };
+            lineErrors: null | components["schemas"]["OrderingLineError"][];
+            /** Format: int32 */
+            menuVersion: null | number;
+            orderNumber: null | string;
+            orderStatus: null | components["schemas"]["OrderingOrderStatus"];
+        };
+        OrderingSelectionRequest: {
+            groupId: null | string;
+            optionId: null | string;
+            /** Format: int32 */
+            count: number;
+            selections: null | components["schemas"]["OrderingSelectionRequest"][];
+        };
+        OrderingServicesView: {
+            takeoutScheduled: boolean;
+            takeoutAsap: boolean;
+        };
+        /** @enum {unknown} */
+        OrderingServiceType: "takeout-scheduled" | "takeout-asap";
+        OrderingShopInfoView: {
+            slug: string;
+            name: string;
+            phone: string;
+            address: null | string;
+            notices: components["schemas"]["OrderingNoticesView"];
+            services: components["schemas"]["OrderingServicesView"];
+            paused: boolean;
+            timeZone: string;
+            /** Format: date-time */
+            now: string;
+            open: components["schemas"]["OrderingOpenView"];
+            asap: null | components["schemas"]["OrderingAsapView"];
+            slotRules: components["schemas"]["OrderingSlotRulesView"];
+            showOrderComment: boolean;
+            showTableware: boolean;
+            /** Format: int32 */
+            menuVersion: number;
+            orderingHours: components["schemas"]["OrderingDayHoursView"][];
+            limits: components["schemas"]["OrderingLimitsView"];
+        };
+        OrderingSlotRulesView: {
+            /** Format: int32 */
+            slotMinutes: number;
+            /** Format: int32 */
+            daysAhead: number;
+            /** Format: int32 */
+            minLeadMinutes: number;
+        };
+        OrderingSlotsView: {
+            /** Format: date-time */
+            now: string;
+            dates: components["schemas"]["OrderingDateView"][];
+        };
+        OrderingSlotView: {
+            value: string;
+            /** Format: date-time */
+            at: string;
+            time: string;
+            isNextDay: boolean;
+            isFull: boolean;
+        };
+        OrderingSubmittedView: {
+            token: string;
+            order: components["schemas"]["OrderingOrderView"];
         };
         OrganizationChatModelView: {
             options: components["schemas"]["ChatModelOptionView"][];

@@ -550,9 +550,10 @@ public sealed partial class CoordinatorWebhookTests : IClassFixture<CoordinatorH
 
 /// <summary>The Api host of <see cref="CoordinatorWebhookTests"/>: the usual one, with the 統籌助理
 /// configured for a bot of the fake LINE server, and executors for the shops a test enrolls (#375) — LINE 群發's real
-/// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server, and Google
-/// 特殊營業時間's (#378) — a fake FB authorization provider (no PKCE, #377) and the real Google one (PKCE, #378), whose
-/// Google is <see cref="FakeGoogleServer"/>.</summary>
+/// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server, FB 貼文's (#379),
+/// whose pages are on the fake Graph API with the host's Meta app configured, and Google 特殊營業時間's (#378) — a fake FB
+/// authorization provider (no PKCE, #377; it may forward to the real provider, #379) and the real Google one (PKCE,
+/// #378), whose Google is <see cref="FakeGoogleServer"/>.</summary>
 public sealed class CoordinatorHostFixture : AuthHostFixture
 {
     public const string Secret = "c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -581,6 +582,9 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
 
     private CoordinatorGoogleOptions GoogleOptions => Factory.Services.GetRequiredService<IOptions<CoordinatorGoogleOptions>>().Value;
 
+    /// <summary>The Meta Graph API of FB 貼文 and the real FB provider (#379), for the host's Meta app.</summary>
+    public FakeGraphServer Graph { get; } = new("1029384756001", "fake-meta-app-secret-" + Guid.NewGuid().ToString("N"));
+
     protected override void ConfigureServices(IServiceCollection services)
     {
         Line.AddBot(Bot);
@@ -589,24 +593,40 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
             options.ChannelSecret = Secret;
             options.ChannelAccessToken = Bot.AccessToken;
         });
+        services.Configure<CoordinatorFacebookOptions>(options =>
+        {
+            options.AppId = Graph.AppId;
+            options.AppSecret = Graph.AppSecret;
+        });
+
+        // Every Graph call goes to the fake Graph API, never to graph.facebook.com (#379).
+        services.AddHttpClient(FacebookGraphClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => Graph);
         services.AddSingleton<ILoggerProvider>(Log);
         foreach (var kind in FakeCoordinatorExecutors.Kinds)
         {
-            if (kind == ShopActionKind.LineBroadcast)
+            switch (kind)
             {
-                // The real one (#376) for every shop no test enrolled.
-                services.AddScoped<ICoordinatorActionExecutor>(provider =>
-                    Executors.For(kind, provider.GetRequiredService<CoordinatorLineBroadcastExecutor>()));
-            }
-            else if (kind == ShopActionKind.GoogleSpecialHours)
-            {
-                // The real one (#378) for every shop no test enrolled.
-                services.AddScoped<ICoordinatorActionExecutor>(provider =>
-                    Executors.For(kind, provider.GetRequiredService<CoordinatorGoogleSpecialHoursExecutor>()));
-            }
-            else
-            {
-                services.AddSingleton(Executors.For(kind));
+                case ShopActionKind.LineBroadcast:
+                    // The real one (#376) for every shop no test enrolled.
+                    services.AddScoped<ICoordinatorActionExecutor>(provider =>
+                        Executors.For(kind, provider.GetRequiredService<CoordinatorLineBroadcastExecutor>()));
+                    break;
+
+                case ShopActionKind.FacebookPost:
+                    // The real one (#379) for every shop no test enrolled: available only with an FB connection.
+                    services.AddScoped<ICoordinatorActionExecutor>(provider =>
+                        Executors.For(kind, provider.GetRequiredService<CoordinatorFacebookPostExecutor>()));
+                    break;
+
+                case ShopActionKind.GoogleSpecialHours:
+                    // The real one (#378) for every shop no test enrolled.
+                    services.AddScoped<ICoordinatorActionExecutor>(provider =>
+                        Executors.For(kind, provider.GetRequiredService<CoordinatorGoogleSpecialHoursExecutor>()));
+                    break;
+
+                default:
+                    services.AddSingleton(Executors.For(kind));
+                    break;
             }
         }
 

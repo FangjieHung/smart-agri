@@ -27,9 +27,12 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="CoordinatorFacebookOptions"/> and <see cref="CoordinatorGoogleOptions"/> validated on start, the
     /// <see cref="CoordinatorOAuthProviders"/> registered by later slices,
     /// <see cref="CoordinatorAuthorizationLinks"/>, <see cref="CoordinatorOAuthStates"/>, <see cref="CoordinatorOAuthSelections"/>,
-    /// <see cref="CoordinatorAuthorizationFlow"/> and <see cref="CoordinatorReauthorization"/>), and Google 特殊營業時間 (#378:
-    /// <see cref="CoordinatorGoogleClient"/> on its own named <see cref="HttpClient"/>, <see cref="CoordinatorGoogleOAuthProvider"/>
-    /// — configured exactly when <see cref="CoordinatorGoogleOptions"/> is — and <see cref="CoordinatorGoogleSpecialHoursExecutor"/>). Requires <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
+    /// <see cref="CoordinatorAuthorizationFlow"/> and <see cref="CoordinatorReauthorization"/>), FB 粉專貼文 (#379: the
+    /// <see cref="FacebookGraphClient"/>, the <see cref="CoordinatorFacebookOAuthProvider"/> and the
+    /// <see cref="CoordinatorFacebookPostExecutor"/>), and Google 特殊營業時間 (#378: <see cref="CoordinatorGoogleClient"/>
+    /// on its own named <see cref="HttpClient"/>, <see cref="CoordinatorGoogleOAuthProvider"/> — configured exactly when
+    /// <see cref="CoordinatorGoogleOptions"/> is — and <see cref="CoordinatorGoogleSpecialHoursExecutor"/>). Requires
+    /// <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
     /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c>, the secret protector and Data Protection, and
     /// <c>PublicChannelsOptions</c>. Nothing reads the options while the pipeline is built.
     /// </summary>
@@ -82,6 +85,15 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddJobHandler<CoordinatorRunActionHandler>(CoordinatorRunActionJob.Kind);
         services.AddScoped<CoordinatorCommandHandler>();
         services.AddScoped<CoordinatorEventHandler>();
+        services.AddHttpClient<FacebookGraphClient>(FacebookGraphClient.HttpClientName, http =>
+            {
+                http.BaseAddress = FacebookGraphClient.BaseAddress;
+                http.Timeout = FacebookGraphClient.Timeout;
+            })
+            .RemoveAllLoggers();
+        services.AddScoped<ICoordinatorOAuthProvider, CoordinatorFacebookOAuthProvider>();
+        services.AddScoped<CoordinatorFacebookPostExecutor>();
+        services.AddScoped<ICoordinatorActionExecutor>(provider => provider.GetRequiredService<CoordinatorFacebookPostExecutor>());
         services.AddScoped<CoordinatorOAuthProviders>();
         services.AddScoped<CoordinatorAuthorizationLinks>();
         services.AddSingleton<CoordinatorOAuthStates>();

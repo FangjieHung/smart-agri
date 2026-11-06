@@ -136,8 +136,8 @@ public sealed class CoordinatorOptionsTests : IDisposable
     [Fact]
     public async Task Without_a_provider_or_a_public_base_URL_the_authorization_routes_answer_without_a_database()
     {
-        // Settings alone make no provider (#377 registers none; #378/#379 do), and Production here has no
-        // PublicChannels:PublicBaseUrl: the link page and the callback answer before anything is read.
+        // FB's settings make its provider configured (#379), but Production here has no PublicChannels:PublicBaseUrl:
+        // the flow is not available, so the link page and the callback answer before anything is read.
         using var factory = ProductionHost(builder => builder
             .UseSetting("Coordinator:Facebook:AppId", "1234")
             .UseSetting("Coordinator:Facebook:AppSecret", SecretValue));

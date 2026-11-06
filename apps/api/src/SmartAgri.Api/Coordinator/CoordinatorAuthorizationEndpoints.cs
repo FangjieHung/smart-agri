@@ -416,6 +416,11 @@ public static class CoordinatorAuthorizationPages
 
     public const string CancelledMessage = "你取消了授權，統籌助理不會使用這個帳號。要完成授權，請重新打開原本的授權連結。";
 
+    /// <summary>FB: the account has no page it can post on (<see cref="CoordinatorFacebookOAuthProvider.NoPagesCode"/>, #379).</summary>
+    public const string NoFacebookPagesMessage =
+        "這個 Facebook 帳號沒有可以發文的粉專。請確認你是粉專的管理者（或有建立內容的權限），並在 Facebook 的授權畫面勾選要給統籌助理使用的粉專，"
+        + "然後向平台營運者索取新的連結再授權一次。";
+
     private const string HtmlContentType = "text/html; charset=utf-8";
 
     private const string Style =
@@ -460,14 +465,16 @@ public static class CoordinatorAuthorizationPages
     /// <summary>Google: the owner unticked the permission to manage the business profile (#378).</summary>
     public const string ScopeNotGrantedMessage = "你沒有勾選「管理商家檔案」的權限，統籌助理無法設定特殊營業時間。請向平台營運者索取新的連結，授權時勾選這個權限。";
 
-    /// <summary>Anything else that went wrong, with a short code of ours when there is one; a code a provider explains
-    /// (<see cref="MessageOf"/>) gets its own sentence.</summary>
+    /// <summary>Anything else that went wrong, with a short code of ours when there is one — and what to do instead of
+    /// the general advice when the code has its own message (<see cref="MessageOf"/>).</summary>
     public static IResult Failed(string? code) =>
         Page("授權沒有完成", $"<p>{MessageOf(code)}</p>{Code(code)}", StatusCodes.Status400BadRequest);
 
-    /// <summary>The sentence of a failure page for <paramref name="code"/>.</summary>
+    /// <summary>The sentence of a failure page for <paramref name="code"/>: the FB and Google codes that have their own
+    /// message (#379, #378), the general advice for every other one.</summary>
     public static string MessageOf(string? code) => code switch
     {
+        CoordinatorFacebookOAuthProvider.NoPagesCode => NoFacebookPagesMessage,
         CoordinatorGoogleOAuthProvider.NoLocations => NoGoogleLocationsMessage,
         CoordinatorFailureCodes.GoogleAccessPending => GoogleAccessPendingMessage,
         CoordinatorGoogleOAuthProvider.ScopeNotGranted => ScopeNotGrantedMessage,

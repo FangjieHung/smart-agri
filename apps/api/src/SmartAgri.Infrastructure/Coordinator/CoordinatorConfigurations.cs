@@ -235,3 +235,37 @@ internal sealed class CoordinatorCommandActionConfiguration : IEntityTypeConfigu
         builder.HasIndex(action => new { action.CommandId, action.Position }).IsUnique();
     }
 }
+
+/// <summary>
+/// Table <c>CoordinatorConnections</c> (#376): a shop's credential per external service, at most one per organization
+/// and service (unique <c>(OrganizationId, Service)</c>). The credential is a <see cref="SmartAgri.Domain.Secrets.ProtectedSecret"/>
+/// complex property of three columns (<c>Secret_Ciphertext</c>, <c>Secret_LastFour</c>, <c>Secret_SetAt</c>), as on
+/// <c>AssistantLineChannels</c>.
+/// </summary>
+internal sealed class CoordinatorConnectionConfiguration : IEntityTypeConfiguration<CoordinatorConnection>
+{
+    public void Configure(EntityTypeBuilder<CoordinatorConnection> builder)
+    {
+        builder.ToTable("CoordinatorConnections");
+        builder.HasKey(connection => connection.Id);
+        builder.Property(connection => connection.Id).ValueGeneratedNever();
+        builder.Property(connection => connection.Service)
+            .HasConversion<WireNameConverter<CoordinatorService>>()
+            .HasMaxLength(32)
+            .IsRequired();
+        builder.ComplexProperty(connection => connection.Secret, secret =>
+        {
+            secret.IsRequired();
+            secret.Property(value => value.Ciphertext).IsRequired();
+            secret.Property(value => value.LastFour).HasMaxLength(16);
+            secret.Property(value => value.SetAt).IsRequired();
+        });
+        builder.Property(connection => connection.ExternalId).HasMaxLength(CoordinatorConnection.ExternalIdMaxLength).IsRequired();
+        builder.Property(connection => connection.DisplayName).HasMaxLength(CoordinatorConnection.DisplayNameMaxLength).IsRequired();
+        builder.Property(connection => connection.Status)
+            .HasConversion<WireNameConverter<CoordinatorConnectionStatus>>()
+            .HasMaxLength(16)
+            .IsRequired();
+        builder.HasIndex(connection => new { connection.OrganizationId, connection.Service }).IsUnique();
+    }
+}

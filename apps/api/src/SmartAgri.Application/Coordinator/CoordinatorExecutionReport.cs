@@ -68,7 +68,7 @@ public sealed record CoordinatorReportContent(
 /// <remarks>
 /// <para>
 /// One line per action: ✅ done (automatically, or by hand), ❌ failed with the reason and 〔重試〕, ⏳ a reminder now
-/// with its steps and 〔已完成〕, ⌛ 「執行中…」 while an automatic action runs, 🕒 when a later reminder comes
+/// with its steps and 〔已完成〕 (and why, when an automatic action became one: 「LINE 權杖失效…」), ⌛ 「執行中…」 while an automatic action runs, 🕒 when a later reminder comes
 /// (「11/2（一）10:30 會提醒你關閉接單」), 🚫 dropped by a reopen. When a LINE 群發 or FB 貼文 is the owner's to post,
 /// the announcement follows as a plain text message they can copy (with the image's address on the line).
 /// </para>
@@ -257,6 +257,12 @@ public static class CoordinatorExecutionReport
 
             case CoordinatorActionStatus.AwaitingManual:
                 yield return Text($"⏳ {label}", "sm");
+                if (line.FailureCode is { } why)
+                {
+                    // An automatic action that became a reminder, and why (e.g. the LINE token was refused, #376).
+                    yield return Text($"　{CoordinatorFailureCodes.Reason(why)}", "xs", color: "#B3261E");
+                }
+
                 yield return Text($"　{line.StepsText}", "xs", color: "#666666");
                 if (line.ImageUrl is { Length: > 0 } image)
                 {

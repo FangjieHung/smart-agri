@@ -265,6 +265,23 @@ public sealed class OrganizationActivity : IOrganizationScoped
             });
     }
 
+    /// <summary>
+    /// <see cref="OrganizationActivityAction.CoordinatorConnectionUpdated"/> (system: the operator's command-line tool
+    /// acts for no account): detail <c>{ "service", "change" }</c> — the service's wire name and <c>set</c> or
+    /// <c>cleared</c>. Never the credential, the account's ids or its name.
+    /// </summary>
+    public static OrganizationActivity CoordinatorConnectionUpdated(Guid organizationId, DateTimeOffset at, CoordinatorService service, bool cleared)
+    {
+        if (!Enum.IsDefined(service))
+        {
+            throw new ArgumentOutOfRangeException(nameof(service), service, "Not a coordinator service.");
+        }
+
+        return Record(
+            organizationId, OrganizationActivityAction.CoordinatorConnectionUpdated, actorAccountId: null, at,
+            new { service = WireNames<CoordinatorService>.ToWire(service), change = cleared ? "cleared" : "set" });
+    }
+
     /// <summary><see cref="OrganizationActivityAction.MemberReactivated"/>: detail <c>{ "member" }</c>.</summary>
     public static OrganizationActivity MemberReactivated(Guid organizationId, Guid actorAccountId, DateTimeOffset at, MemberRef member)
     {

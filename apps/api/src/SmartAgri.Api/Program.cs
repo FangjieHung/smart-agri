@@ -232,10 +232,11 @@ if (args is [SmartAgriCommands.CoordinatorBindingCode, .. var coordinatorBinding
 }
 
 // `coordinator-shop` is one-shot too, in any environment: import a shop's 統籌助理 settings from a JSON
-// file (validated whole first; nothing written on any error) or print them in that format, and exit (#373).
+// file (validated whole first; nothing written on any error) or print them in that format (#373), or set the
+// shop's own LINE official account's token read from standard input (never an argument) or clear it (#376), and exit.
 if (args is [SmartAgriCommands.CoordinatorShop, .. var coordinatorShopArgs])
 {
-    Environment.ExitCode = await CoordinatorShopCommand.RunAsync(app.Services, coordinatorShopArgs, Console.Out, Console.Error);
+    Environment.ExitCode = await CoordinatorShopCommand.RunAsync(app.Services, coordinatorShopArgs, Console.In, Console.Out, Console.Error);
     return;
 }
 

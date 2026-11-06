@@ -232,6 +232,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Each confirmed 統籌助理 command's actions and how they went (#375).</summary>
     public DbSet<CoordinatorCommandAction> CoordinatorCommandActions => Set<CoordinatorCommandAction>();
 
+    /// <summary>Each shop's credentials for external services: its LINE official account's token (#376).</summary>
+    public DbSet<CoordinatorConnection> CoordinatorConnections => Set<CoordinatorConnection>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -414,13 +417,14 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new AccountNotificationSettingsConfiguration());
 
         // The 統籌助理's members and binding codes (store-coordinator design, #372), shop settings
-        // (#373), commands (#374) and their actions (#375); only Coordinator/CoordinatorLookup reads them across
-        // organizations.
+        // (#373), commands (#374), their actions (#375) and the shops' service credentials (#376); only
+        // Coordinator/CoordinatorLookup reads them across organizations.
         modelBuilder.ApplyConfiguration(new CoordinatorMemberConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorBindingCodeConfiguration());
         modelBuilder.ApplyConfiguration(new ShopSettingsConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorCommandConfiguration());
         modelBuilder.ApplyConfiguration(new CoordinatorCommandActionConfiguration());
+        modelBuilder.ApplyConfiguration(new CoordinatorConnectionConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

@@ -89,6 +89,7 @@ public class OrganizationSettingsTests
                 "database-auto-case-changed",
                 "member-deactivated", "member-reactivated",
                 "coordinator-shop-settings-updated",
+                "coordinator-connection-updated",
             ]);
     }
 
@@ -120,6 +121,20 @@ public class OrganizationSettingsTests
             """{"created":true,"changed":["storeName","timeZone","weeklyHours","scenarios"],"scenarios":["temporary-closure","close-early","open-late","reopen"]}""");
         Should.Throw<ArgumentException>(() => OrganizationActivity.CoordinatorShopSettingsUpdated(
             organizationId, At, created: false, ShopSettingsChange.Between(before, before)));
+    }
+
+    [Fact]
+    public void A_coordinator_connection_change_records_the_service_and_the_change_only()
+    {
+        var organizationId = Guid.CreateVersion7();
+
+        var set = OrganizationActivity.CoordinatorConnectionUpdated(organizationId, At, CoordinatorService.Line, cleared: false);
+        var cleared = OrganizationActivity.CoordinatorConnectionUpdated(organizationId, At, CoordinatorService.Line, cleared: true);
+
+        (set.Action, set.ActorAccountId, set.At).ShouldBe((OrganizationActivityAction.CoordinatorConnectionUpdated, (Guid?)null, At));
+        set.Detail.ShouldBe("""{"service":"line","change":"set"}""");
+        cleared.Detail.ShouldBe("""{"service":"line","change":"cleared"}""");
+        Should.Throw<ArgumentOutOfRangeException>(() => OrganizationActivity.CoordinatorConnectionUpdated(organizationId, At, (CoordinatorService)99, cleared: false));
     }
 
     [Fact]

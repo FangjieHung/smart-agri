@@ -8,8 +8,8 @@ namespace SmartAgri.Application.Coordinator;
 /// informational line), when (<see cref="Detail"/>) and <see cref="Note"/>.
 /// </summary>
 /// <param name="Note">
-/// The hook for Slice 5 (#376): the LINE 群發 line's 「將用掉 N 則、本月剩 M 則」 (Q14), shown under the line when
-/// set. Nothing sets it in this slice, so nothing is shown.
+/// Shown under the line when set: the LINE 群發 line's 「約 N 則（好友 F－封鎖 B），本月剩 M 則」 (Q14,
+/// <see cref="CoordinatorLineBroadcast.Note"/>, #376), from <see cref="ICoordinatorActionNotes"/>.
 /// </param>
 public sealed record CoordinatorCardRow(string Label, ShopActionMode? Mode, string? Detail = null, string? Note = null);
 

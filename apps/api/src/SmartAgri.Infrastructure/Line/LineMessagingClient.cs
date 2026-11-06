@@ -141,6 +141,45 @@ public sealed class LineMessagingClient : ILineMessagingClient
             cancellationToken);
     }
 
+    public async Task<LineApiResult> BroadcastAsync(
+        string accessToken, IReadOnlyList<JsonObject> messages, Guid retryKey, CancellationToken cancellationToken)
+    {
+        RequireMessages(messages);
+        if (retryKey == Guid.Empty)
+        {
+            throw new ArgumentException("A broadcast always carries a retry key.", nameof(retryKey));
+        }
+
+        return await SendAsync<object>(
+            HttpMethod.Post,
+            "v2/bot/message/broadcast",
+            accessToken,
+            writer =>
+            {
+                WriteMessages(writer, messages);
+                writer.WriteBoolean("notificationDisabled", false);
+            },
+            retryKey,
+            read: null,
+            cancellationToken);
+    }
+
+    public Task<LineApiResult<LineMessageQuota>> GetMessageQuotaAsync(string accessToken, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Get, "v2/bot/message/quota", accessToken, body: null, retryKey: null, ReadQuota, cancellationToken);
+
+    public Task<LineApiResult<LineQuotaConsumption>> GetMessageQuotaConsumptionAsync(string accessToken, CancellationToken cancellationToken) =>
+        SendAsync(HttpMethod.Get, "v2/bot/message/quota/consumption", accessToken, body: null, retryKey: null, ReadConsumption, cancellationToken);
+
+    public Task<LineApiResult<LineFollowersInsight>> GetFollowersInsightAsync(string accessToken, DateOnly date, CancellationToken cancellationToken) =>
+        SendAsync(
+            HttpMethod.Get,
+            "v2/bot/insight/followers?date=" + date.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture),
+            accessToken,
+            body: null,
+            retryKey: null,
+            ReadFollowers,
+            cancellationToken);
+
     private async Task<LineApiResult<T>> SendAsync<T>(
         HttpMethod method,
         string path,
@@ -152,7 +191,8 @@ public sealed class LineMessagingClient : ILineMessagingClient
         where T : class
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
-        var logPath = "/" + path;
+        // The path without its query (the followers date is not secret, but one shape per endpoint keeps logs uniform).
+        var logPath = "/" + (path.IndexOf('?', StringComparison.Ordinal) is var query and >= 0 ? path[..query] : path);
 
         using var request = new HttpRequestMessage(method, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -280,6 +320,32 @@ public sealed class LineMessagingClient : ILineMessagingClient
         && String(root, "basicId") is { Length: > 0 } basicId
             ? new LineBotInfo(userId, basicId, String(root, "displayName") ?? string.Empty, String(root, "premiumId"))
             : null;
+
+    private static LineMessageQuota? ReadQuota(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        return String(root, "type") switch
+        {
+            "none" => new LineMessageQuota(Limited: false, null),
+            "limited" when Number(root, "value") is { } value => new LineMessageQuota(Limited: true, value),
+            _ => null,
+        };
+    }
+
+    private static LineQuotaConsumption? ReadConsumption(JsonElement root) =>
+        root.ValueKind == JsonValueKind.Object && Number(root, "totalUsage") is { } total ? new LineQuotaConsumption(total) : null;
+
+    private static LineFollowersInsight? ReadFollowers(JsonElement root) =>
+        root.ValueKind == JsonValueKind.Object && String(root, "status") is { Length: > 0 } status
+            ? new LineFollowersInsight(status, Number(root, "followers"), Number(root, "targetedReaches"), Number(root, "blocks"))
+            : null;
+
+    private static long? Number(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) ? number : null;
 
     private static LineWebhookTestResult? ReadWebhookTest(JsonElement root)
     {

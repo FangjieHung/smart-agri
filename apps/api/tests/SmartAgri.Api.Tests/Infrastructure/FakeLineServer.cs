@@ -21,6 +21,13 @@ namespace SmartAgri.Api.Tests.Infrastructure;
 /// <c>401</c>.
 /// </para>
 /// <para>
+/// Broadcasts (#376): the quota (<see cref="SetQuota"/>, default 200 a month), the month's consumption
+/// (<see cref="SetConsumption"/>, default 0) and the friend-count insight by date (<see cref="SetFollowers"/>, default
+/// ready: 160 friends, 10 blocks) answer like LINE. A broadcast is accepted once per <c>X-Line-Retry-Key</c>: it is
+/// recorded (<see cref="BroadcastsOf"/>) and adds friends minus blocks to the consumption; the same key again is LINE's
+/// <c>409</c>. A scripted failure accepts nothing, except <see cref="LineBehavior.AcceptThenTimeOut"/>.
+/// </para>
+/// <para>
 /// <see cref="Script"/> makes one endpoint of one bot fail (<c>401</c>, <c>429</c>, <c>500</c>, a
 /// timeout or a network error) or answer with a chosen status and body;
 /// <see cref="ScriptWebhookTest"/> sets what LINE reports about our webhook.
@@ -35,6 +42,10 @@ public sealed class FakeLineServer : HttpMessageHandler
     public const string Reply = "POST /v2/bot/message/reply";
     public const string Push = "POST /v2/bot/message/push";
     public const string StartLoading = "POST /v2/bot/chat/loading/start";
+    public const string Broadcast = "POST /v2/bot/message/broadcast";
+    public const string Quota = "GET /v2/bot/message/quota";
+    public const string QuotaConsumption = "GET /v2/bot/message/quota/consumption";
+    public const string FollowersInsight = "GET /v2/bot/insight/followers";
 
     private readonly ConcurrentDictionary<string, BotState> _bots = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<LineRequest> _requests = new();
@@ -87,6 +98,34 @@ public sealed class FakeLineServer : HttpMessageHandler
                 ["detail"] = detail,
             }.ToJsonString()));
 
+    /// <summary>The bot's monthly quota: <paramref name="value"/> messages, or none set (<see langword="null"/>).</summary>
+    public void SetQuota(string accessToken, long? value) => Bot(accessToken).Quota = value;
+
+    /// <summary>What the bot has sent this month.</summary>
+    public void SetConsumption(string accessToken, long totalUsage) => Bot(accessToken).TotalUsage = totalUsage;
+
+    /// <summary>The friend-count insight of <paramref name="date"/> (<c>ready</c>, <c>unready</c>,
+    /// <c>out_of_service</c>), or of every date not set otherwise when <paramref name="date"/> is
+    /// <see langword="null"/>.</summary>
+    public void SetFollowers(string accessToken, DateOnly? date, string status, long followers = 0, long blocks = 0)
+    {
+        var insight = status == "ready"
+            ? new JsonObject { ["status"] = status, ["followers"] = followers, ["targetedReaches"] = followers - blocks, ["blocks"] = blocks }
+            : new JsonObject { ["status"] = status, ["followers"] = null, ["targetedReaches"] = null, ["blocks"] = null };
+        var bot = Bot(accessToken);
+        if (date is { } day)
+        {
+            bot.Followers[day.ToString("yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture)] = insight;
+        }
+        else
+        {
+            bot.DefaultFollowers = insight;
+        }
+    }
+
+    /// <summary>The broadcasts LINE accepted for the bot (once per retry key), in order.</summary>
+    public IReadOnlyList<LineRequest> BroadcastsOf(string accessToken) => [.. Bot(accessToken).Broadcasts];
+
     /// <summary>The webhook URL last set for the bot, or <see langword="null"/>.</summary>
     public string? WebhookEndpointOf(string accessToken) => Bot(accessToken).WebhookEndpoint;
 
@@ -135,6 +174,10 @@ public sealed class FakeLineServer : HttpMessageHandler
                 case LineBehaviorKind.Hang:
                     await Task.Delay(Timeout.Infinite, cancellationToken);
                     break;
+                case LineBehaviorKind.AcceptThenTimeOut when endpoint == Broadcast:
+                    // LINE took it, but the answer never came back.
+                    AcceptBroadcast(bot, recorded);
+                    throw new TaskCanceledException("The fake LINE server accepted the broadcast and timed out.");
                 default:
                     return Respond(behavior.Status, behavior.Body);
             }
@@ -159,9 +202,55 @@ public sealed class FakeLineServer : HttpMessageHandler
             Reply => Respond(HttpStatusCode.OK, """{"sentMessages":[]}"""),
             Push => Respond(HttpStatusCode.OK, """{"sentMessages":[]}"""),
             StartLoading => Respond(HttpStatusCode.Accepted, "{}"),
+            Broadcast => BroadcastOf(bot, recorded),
+            Quota => Respond(HttpStatusCode.OK, bot.Quota is { } limit
+                ? new JsonObject { ["type"] = "limited", ["value"] = limit }.ToJsonString()
+                : """{"type":"none"}"""),
+            QuotaConsumption => Respond(HttpStatusCode.OK, new JsonObject { ["totalUsage"] = bot.TotalUsage }.ToJsonString()),
+            FollowersInsight => Respond(
+                HttpStatusCode.OK,
+                (bot.Followers.TryGetValue(QueryValue(recorded.Uri, "date") ?? string.Empty, out var insight) ? insight : bot.DefaultFollowers).ToJsonString()),
             _ => Respond(HttpStatusCode.NotFound, """{"message":"Not found"}"""),
         };
     }
+
+    private static HttpResponseMessage BroadcastOf(BotState bot, LineRequest request)
+    {
+        if (!AcceptBroadcast(bot, request))
+        {
+            var conflict = Respond(HttpStatusCode.Conflict, """{"message":"The retry key is already accepted"}""");
+            conflict.Headers.Add("x-line-accepted-request-id", Guid.NewGuid().ToString());
+            return conflict;
+        }
+
+        return Respond(HttpStatusCode.OK, "{}");
+    }
+
+    /// <summary>Accepts a broadcast unless its retry key was accepted before; it uses friends minus blocks of the
+    /// month's quota.</summary>
+    private static bool AcceptBroadcast(BotState bot, LineRequest request)
+    {
+        lock (bot)
+        {
+            if (request.Headers.GetValueOrDefault("X-Line-Retry-Key") is { } key && !bot.RetryKeys.Add(key))
+            {
+                return false;
+            }
+
+            bot.Broadcasts.Enqueue(request);
+            var followers = bot.DefaultFollowers["followers"]?.GetValue<long>() ?? 0;
+            var blocks = bot.DefaultFollowers["blocks"]?.GetValue<long>() ?? 0;
+            bot.TotalUsage += Math.Max(0, followers - blocks);
+            return true;
+        }
+    }
+
+    private static string? QueryValue(Uri uri, string name) =>
+        uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2))
+            .Where(pair => pair.Length == 2 && pair[0] == name)
+            .Select(pair => Uri.UnescapeDataString(pair[1]))
+            .FirstOrDefault();
 
     /// <summary>A handler instance is disposed by <c>IHttpClientFactory</c> when it rotates handlers;
     /// this one keeps working (its state is the whole point).</summary>
@@ -211,6 +300,19 @@ public sealed class FakeLineServer : HttpMessageHandler
         public ConcurrentDictionary<string, LineBehavior> Scripts { get; } = new(StringComparer.Ordinal);
 
         public string? WebhookEndpoint { get; set; }
+
+        public long? Quota { get; set; } = 200;
+
+        public long TotalUsage { get; set; }
+
+        public JsonObject DefaultFollowers { get; set; } =
+            new() { ["status"] = "ready", ["followers"] = 160L, ["targetedReaches"] = 150L, ["blocks"] = 10L };
+
+        public ConcurrentDictionary<string, JsonObject> Followers { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> RetryKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public ConcurrentQueue<LineRequest> Broadcasts { get; } = new();
     }
 }
 
@@ -242,6 +344,7 @@ public enum LineBehaviorKind
     TimeOut,
     NetworkError,
     Hang,
+    AcceptThenTimeOut,
 }
 
 /// <summary>How a scripted endpoint answers.</summary>
@@ -265,6 +368,12 @@ public sealed record LineBehavior(LineBehaviorKind Kind, HttpStatusCode Status, 
 
     /// <summary>Never answers (until cancelled): for a real <c>HttpClient.Timeout</c>.</summary>
     public static LineBehavior Hang { get; } = new(LineBehaviorKind.Hang, 0, string.Empty);
+
+    /// <summary>A broadcast LINE accepts (its retry key with it) whose answer never comes: a timeout.</summary>
+    public static LineBehavior AcceptThenTimeOut { get; } = new(LineBehaviorKind.AcceptThenTimeOut, 0, string.Empty);
+
+    /// <summary>The <c>429</c> of a broadcast beyond the month's limit.</summary>
+    public static LineBehavior MonthlyLimit { get; } = Answer((HttpStatusCode)429, """{"message":"You have reached your monthly limit."}""");
 
     public static LineBehavior Answer(HttpStatusCode status, string body) => new(LineBehaviorKind.Answer, status, body);
 }

@@ -1936,6 +1936,65 @@ namespace SmartAgri.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorConnection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Service")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Secret", "SmartAgri.Domain.Coordinator.CoordinatorConnection.Secret#ProtectedSecret", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<string>("Ciphertext")
+                                .IsRequired()
+                                .HasColumnType("text");
+
+                            b1.Property<string>("LastFour")
+                                .HasMaxLength(16)
+                                .HasColumnType("character varying(16)");
+
+                            b1.Property<DateTimeOffset>("SetAt")
+                                .HasColumnType("timestamp with time zone");
+                        });
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "Service")
+                        .IsUnique();
+
+                    b.ToTable("CoordinatorConnections", (string)null);
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3854,6 +3913,15 @@ namespace SmartAgri.Infrastructure.Migrations
                         .HasForeignKey("UndoesActionId", "OrganizationId")
                         .HasPrincipalKey("Id", "OrganizationId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorConnection", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>

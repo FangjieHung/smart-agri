@@ -1,0 +1,13 @@
+// 顧客點餐網頁（online-ordering D1，#398）：佔位，正式樣式由下一張票補上。
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Noto Sans TC', 'PingFang TC', sans-serif;
+  color: #1f2a24;
+  background: #fff;
+}

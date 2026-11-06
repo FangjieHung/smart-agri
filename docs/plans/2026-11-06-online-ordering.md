@@ -102,6 +102,89 @@
 8. **今日售完**：到「下一個營業日的第一個開始時間」自動恢復；營業中按的，「今天」是這段營業時間所屬的那天，所以中午按售完，晚上那段也不賣。
 9. **組織紀錄**：`ordering-shop-updated` 只記改了哪些欄位與菜單版本，不記店名、公告或菜單內容。
 
+### 4.2 O2（#398）API 與實作決定
+
+後端在 #398 的第一個 commit 完成；`apps/shop` 目前只是佔位頁（建置、部署、`/order/` 路徑都已接好），點餐流程由前端票補上。
+
+**路徑與共通規則**
+
+- 公開 API：`/api/v1/public/ordering/{slug}/…`（`OrderingPublicEndpoints`）。放在 `/api/v1/public` 底下，所以帶著別的網站 `Origin` 的請求一律 `403`（`PublicOriginGuard`，與官網訪客 API 相同），沒有 CORS。免登入，帶著後台登入 cookie 也一樣當成匿名。
+- 型別：這些端點在 `apps/api/openapi/v1.json` 裡（tag `Ordering (public)`），不另外做只含公開端點的文件。`apps/shop` 用同一份檔案以 openapi-typescript 產生型別即可（admin 的 `api-schema.ts` 也會含這些路徑，無害）。所有欄位一定會送出，沒有值時是 `null`（不會省略鍵）。
+- 每個回應都是 `Cache-Control: no-store`、`Referrer-Policy: no-referrer`。
+- slug 不分大小寫（`/WangJi` 等於 `wangji`）。未知的 slug、有點餐設定但沒有菜單的店、格式不對的 slug，回應完全相同：`404 shop-not-found`。
+- 頻率限制（每個用戶端 IP、不分店家）：`POST …/orders` 每分鐘 10 次（`OrderingSubmissionsPerIpPerMinute`），其他（店家、菜單、時段、查詢、取消）合計每分鐘 120 次（`OrderingRequestsPerIpPerMinute`）。超過時 `429`，`Retry-After`（秒），body 是共用的 `{ type, title, status, reason: "rate-limited", message }`——**只有這五個欄位**，不是 `OrderingProblem`，前端要把缺的欄位當成 `undefined`。
+- 錯誤一律是 `application/problem+json` 的 `OrderingProblem`：`{ type, title, status, reason, message, errors, lineErrors, menuVersion, orderNumber, orderStatus }`。`reason` 是給程式判斷的固定代碼，`message` 是可以直接顯示的中文；其餘欄位只在下表註明的情況有值，否則是 `null`。
+- 時間：`DateTimeOffset` 以 ISO 8601（含時差）送出；日期 `yyyy-MM-dd`、時刻 `HH:mm` 都是店家時區（`timeZone`）的牆上時間。
+
+**端點**
+
+| 方法與路徑 | 成功 | 內容 |
+| --- | --- | --- |
+| `GET {slug}` | 200 `OrderingShopInfoView` | `slug`、`name`、`phone`、`address`、`notices{reminder,checkout}`、`services{takeoutScheduled,takeoutAsap}`、`paused`、`timeZone`、`now`（伺服器時間）、`open{isOpen,currentPeriodOpens,currentPeriodCloses,nextOpening}`、`asap{minMinutes,maxMinutes}`（現在可以點「儘快」時才有，否則 `null`）、`slotRules{slotMinutes,daysAhead,minLeadMinutes}`、`showOrderComment`、`showTableware`、`menuVersion`、`orderingHours[{day:"mon"…,periods[{open,close}]}]`、`limits{maxLines:30,maxQuantity:99,nameMaxLength:40,lineCommentMaxLength:100,orderCommentMaxLength:200,maxTotal:1000000}` |
+| `GET {slug}/menu` | 200 `OrderingMenuView` | `version`、`categories[{id,name,description,availability,items}]`；`availability` 是 `{days:["tue",…]|null, from:"11:00"|null, to:"14:00"|null}` 或 `null`（隨時供應），含 `from`、不含 `to`，`to` 早於 `from` 表示跨午夜、算開始那天；品項 `{id,name,price,description,imageUrl,optionGroups,state}`；群組 `{id,name,min,max,repeatable,options}`，選項 `{id,name,price,optionGroups}`（最多四層）；`state` 是 `null` 或 `{kind:"sold-out-today"|"unavailable", resetsAt}`：今日售完的品項在取餐時間 ≥ `resetsAt` 時可以點，停售（`unavailable`，`resetsAt` 為 `null`）一律不能點 |
+| `GET {slug}/slots` | 200 `OrderingSlotsView` | `now`、`dates[{date:"2026-11-17", slots[{value:"2026-11-17T12:30", at, time:"12:30", isNextDay, isFull}]}]`。只列至少有一個未滿時段的營業日；`isFull` 的時段照樣列出但不能選。暫停接單或沒開外帶預約時 `dates` 是空陣列 |
+| `POST {slug}/orders` | 201 `OrderingSubmittedView` `{token, order}` | 見下方「送出訂單」 |
+| `GET {slug}/orders/{token}` | 200 `OrderingOrderView` | `404 order-not-found`：這家店沒有這個 token 的訂單（包括別家店的 token、格式不對的 token） |
+| `POST {slug}/orders/{token}/cancel` | 200 `OrderingOrderView`（已取消） | 只有 `pending` 可以取消；其他狀態（含已取消）`409 not-cancellable`，`orderStatus` 是目前狀態 |
+
+`OrderingOrderView`：`number`（整數）、`displayNumber`（「#001」）、`status`（`pending|accepted|ready|completed|declined|cancelled|expired`；O2 只會出現 `pending`、`cancelled`）、`serviceType`（`takeout-scheduled|takeout-asap`）、`businessDate`、`pickupAt`（預約：選的時段；儘快：送出時間＋估計上限）、`estimate`（儘快才有 `{minMinutes,maxMinutes}`）、`createdAt`、`cancelledAt`、`lines`（明細快照，見下）、`subtotal`、`total`、`menuVersion`、`customerName`、`phoneLastDigits`（電話末三碼）、`orderComment`、`tableware`、`canCancel`。**不含 Email**。
+
+**送出訂單**（`OrderingOrderRequest`，JSON）
+
+```json
+{
+  "serviceType": "takeout-scheduled",
+  "pickupDate": "2026-11-17", "pickupSlot": "2026-11-17T12:30",
+  "menuVersion": 3,
+  "lines": [
+    { "itemId": "beef-noodle", "quantity": 1, "comment": "麵硬一點",
+      "selections": [
+        { "groupId": "size", "optionId": "large", "count": 1, "selections": null },
+        { "groupId": "combo", "optionId": "set", "count": 1,
+          "selections": [ { "groupId": "side", "optionId": "cucumber", "count": 1, "selections": null } ] } ] }
+  ],
+  "customer": { "name": "陳小姐", "phone": "0912-345-678", "email": null },
+  "orderComment": null, "tableware": true,
+  "submissionKey": "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+}
+```
+
+- 不送任何價格；就算送了也會被忽略，伺服器依目前菜單重算（`MenuPricing`）。`pickupDate`、`pickupSlot` 只有外帶預約要填（取自 `GET slots` 的 `date` 與 `value`）；儘快不填。
+- `submissionKey`：前端在**每次進入結帳**時產生一個 UUID，重試同一次送出時沿用。`orderComment`／`tableware` 只有店家顯示這兩欄時才存（`tableware` 沒填當成「不需要」）。
+- 成功 `201`：`token` **只在這裡給一次**（資料庫只存它的 SHA-256），前端立刻存起來（例如 `localStorage` 以 `submissionKey` 為鍵）再導到 `/order/{slug}/o/{token}`。
+- **同一個送出鍵再送一次**（例如回應遺失後重試）：`409 duplicate-submission`，`orderNumber` 是第一次的訂單號碼（「#003」），不會再建立訂單，也拿不回 token。這是刻意的最簡單做法：前端在送出前就把 `submissionKey` 存好、收到 201 立刻存 token；萬一回應真的遺失，畫面顯示「這筆訂單已經送出過了（訂單編號 #003）」並提供店家電話。
+- 伺服器的檢查順序（先失敗的先回）：
+
+| 狀態 | `reason` | 何時 | 額外欄位 |
+| --- | --- | --- | --- |
+| 400 | （框架預設的回應，不是 `OrderingProblem`） | body 不是這個形狀的 JSON（例如未知的 `serviceType`） | |
+| 404 | `shop-not-found` | slug 找不到店或店沒有菜單 | |
+| 422 | `invalid-order` | 欄位錯誤：`submissionKey`、`serviceType`、`pickupSlot`、`menuVersion`、`lines`（空的或超過 30 項）、`lines[i].comment`（> 100 字）、`customer.name`（必填、≤ 40 字）、`customer.phone`（台灣手機或市話，規則同訂位）、`customer.email`（選填，格式）、`orderComment`（≤ 200 字）。全部一次回報 | `errors`（欄位 → 訊息陣列） |
+| 409 | `duplicate-submission` | 同一個送出鍵已經送出過（這家店） | `orderNumber` |
+| 409 | `shop-paused` | 店家暫停接單 | |
+| 409 | `service-unavailable` | 沒開外帶預約；或現在不能點儘快（打烊、太接近打烊、沒開） | |
+| 409 | `slot-unavailable` | 時段不在目前可選的清單（已過、太近、不存在） | |
+| 409 | `slot-full` | 時段已滿 | |
+| 409 | `menu-changed` | `menuVersion` 不是目前版本：重新取菜單、請顧客確認新價格後再送 | `menuVersion`（目前版本） |
+| 422 | `invalid-order` | 某一行選項不符菜單（代碼同 `MenuPricing`：`unknown-item`、`invalid-quantity`、`unknown-group`、`unknown-option`、`duplicate-option`、`invalid-count`、`not-repeatable`、`too-few`、`too-many`、`amount-too-large`）；或總額 > 1,000,000（`errors.lines`） | `lineErrors[{line, code, path}]`，`line` 從 0 起，`path` 如 `combo.set.side` |
+| 409 | `items-unavailable` | 品項在取餐時間不能供應：`sold-out-today`、`unavailable`、`category-unavailable`（分類不在供應時段） | `lineErrors` |
+| 429 | `too-many-pending` | 這支電話在這家店已有 3 筆待確認、取餐時間未到的訂單 | |
+| 429 | `rate-limited` | 頻率限制（見上） | 只有五個基本欄位 |
+
+**輪詢**：訂單狀態頁每 10 秒 `GET {slug}/orders/{token}`，頁面不在前景時可以停；狀態變成 `completed`、`declined`、`cancelled`、`expired` 之後停止。一個分頁每分鐘 6 次，在每 IP 120 次的限制內。
+
+**實作決定（可以推翻）**
+
+1. **訂單表 `OrderingOrders`**：取餐方式、狀態（七種都先定義）、`Version`（之後狀態變更的 compare-and-set）、營業日 `BusinessDate` 與當日號碼 `Number`（唯一 `(OrganizationId, BusinessDate, Number)`）、`PickupAt`（UTC；儘快＝送出時間＋估計上限，另存 `AsapMinMinutes`／`AsapMaxMinutes`）、顧客姓名／電話（只存數字）／Email、訂單備註、餐具、明細快照（jsonb：`PricedLine`＋品項備註）、小計與總額（O5 外送會加運費）、使用的菜單版本、狀態 token 的雜湊（唯一）、送出鍵（每店唯一）、`CreatedAt`、`CancelledAt`。
+2. **號碼算在取餐的營業日**：預約單算在時段所屬的營業日（跨午夜時段算前一天），儘快單算在送出時所在營業時段的那天；所以先收到的明天預約單會是明天的 #001。
+3. **防止競爭**：送出時在同一個交易裡先對這家店的 `OrderingShops` 列做一次「不改任何值」的更新來鎖住它，之後才檢查送出鍵、暫停、時段名額、菜單版本、售完、待確認數並配發號碼，所以最後一個名額與號碼不會被兩筆同時拿走（不用 raw SQL）。
+4. **時段名額**只算預約單，且不算 `cancelled`、`declined`、`expired`；取消就釋出名額。
+5. **待確認上限**只算取餐時間還沒到的 `pending` 訂單（和訂位相同），避免在 #400 的逾時處理上線前，舊的待確認單永遠擋住同一支電話。
+6. **slug 查詢**：`OrderingLookup`（Infrastructure）是點餐唯一可以跨組織查詢的地方，只回傳組織 ID；token 一律在該店的組織範圍內查詢，所以別家店的 token 是 `404`。
+7. **token 放在路徑上**（D4 的網址也是），所以會出現在主機的請求路徑紀錄（logging scope、追蹤的 `url.path`）裡；點餐程式自己的紀錄不寫 token，也不寫姓名、電話、Email、備註。
+8. **`/order/` 的提供方式**：`AdminSpaHosting` 加上 `Shop:RootPath`（映像設 `wwwroot/shop`）；`order` 加入 API 保留的第一段路徑，所以後台永遠不會回答 `/order/**`；沒設定時 `/order/**` 和其他沒有端點的路徑一樣是 `401`。檔案規則和後台相同（帶雜湊的檔名快取一年、`index.html` 不快取、缺少的帶副檔名路徑 `404`）。
+9. **個資保存期限**（D12）尚未實作，是 #400 的工作。
+
 ---
 
 ## 5. 名詞

@@ -1,0 +1,72 @@
+{
+  "name": "shop",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/shop/src",
+  "prefix": "app",
+  "tags": ["scope:shop"],
+  "generators": {
+    "@schematics/angular:component": {
+      "style": "scss"
+    }
+  },
+  "targets": {
+    "build": {
+      "executor": "@angular/build:application",
+      "defaultConfiguration": "production",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "browser": "apps/shop/src/main.ts",
+        "tsConfig": "apps/shop/tsconfig.app.json",
+        "inlineStyleLanguage": "scss",
+        "styles": ["apps/shop/src/styles.scss"],
+        "outputPath": "dist/smart-agri-shop"
+      },
+      "configurations": {
+        "production": {
+          "baseHref": "/order/",
+          "budgets": [
+            {
+              "type": "initial",
+              "maximumWarning": "300kB",
+              "maximumError": "400kB"
+            },
+            {
+              "type": "anyComponentStyle",
+              "maximumWarning": "6kB",
+              "maximumError": "10kB"
+            }
+          ],
+          "outputHashing": "all"
+        },
+        "development": {
+          "baseHref": "/order/",
+          "optimization": false,
+          "extractLicenses": false,
+          "sourceMap": true
+        }
+      }
+    },
+    "serve": {
+      "executor": "@angular/build:dev-server",
+      "defaultConfiguration": "development",
+      "options": {
+        "proxyConfig": "apps/shop/proxy.api.json"
+      },
+      "configurations": {
+        "production": {
+          "buildTarget": "shop:build:production"
+        },
+        "development": {
+          "buildTarget": "shop:build:development"
+        }
+      }
+    },
+    "test": {
+      "executor": "@angular/build:unit-test"
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

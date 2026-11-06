@@ -26,12 +26,17 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
 
     private const string AdminMarker = "fake-admin-index";
 
+    private const string ShopIndex =
+        "<!doctype html><html lang=\"zh-Hant\"><head><title>fake-shop-index</title><base href=\"/order/\"/></head>"
+        + "<body><app-root></app-root><script src=\"main-SHOP1234.js\" type=\"module\"></script></body></html>";
+
     private const string ImmutableCache = "public, max-age=31536000, immutable";
 
     private readonly WebApplicationFactory<Program> _base;
     private readonly string _directory = Directory.CreateTempSubdirectory("smartagri-admin-spa-").FullName;
     private readonly string _adminRoot;
     private readonly string _widgetRoot;
+    private readonly string _shopRoot;
     private readonly string _embedScript;
     private readonly List<IDisposable> _disposables = [];
 
@@ -58,6 +63,11 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
         Directory.CreateDirectory(_widgetRoot);
         File.WriteAllText(Path.Combine(_widgetRoot, "index.html"), "<!doctype html><title>fake-widget</title><app-root></app-root>");
         File.WriteAllText(Path.Combine(_widgetRoot, "main-ABCD1234.js"), "console.log('fake widget');");
+        _shopRoot = Path.Combine(_directory, "shop");
+        Directory.CreateDirectory(_shopRoot);
+        File.WriteAllText(Path.Combine(_shopRoot, "index.html"), ShopIndex);
+        File.WriteAllText(Path.Combine(_shopRoot, "main-SHOP1234.js"), "console.log('fake shop');");
+        File.WriteAllText(Path.Combine(_shopRoot, "favicon.ico"), "fake shop icon");
         _embedScript = Path.Combine(_directory, "embed.js");
         File.WriteAllText(_embedScript, "(function(){/* fake loader */})();");
     }
@@ -223,6 +233,11 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
     [InlineData("GET", "/reserve/unknown")]
     [InlineData("GET", "/reserve")]
     [InlineData("POST", "/reserve/x")]
+    // The ordering app's prefix (#398) is the Api's even without Shop:RootPath, and its API is under /api.
+    [InlineData("GET", "/order")]
+    [InlineData("GET", "/order/wangji")]
+    [InlineData("GET", "/order/wangji/o/abc")]
+    [InlineData("GET", "/api/v1/public/ordering/x")]
     public async Task An_api_path_answers_exactly_as_without_the_admin(string method, string path)
     {
         using var admin = AdminClient();
@@ -247,8 +262,75 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
             [Route("/reports/{id}"), Route("/Exports"), Route("/{anything}/x"), Route("/file-{name}.txt"), Route("/")]);
 
         segments.Order(StringComparer.Ordinal).ShouldBe(
-            [".well-known", "Exports", "api", "connect", "embed.js", "health", "openapi", "reports", "use", "widget"]);
+            [".well-known", "Exports", "api", "connect", "embed.js", "health", "openapi", "order", "reports", "use", "widget"]);
         segments.Contains("REPORTS").ShouldBeTrue();
+    }
+
+    // --- The ordering app under /order (#398) ---------------------------------------------------------------
+
+    [Theory]
+    [InlineData("/order")]
+    [InlineData("/order/")]
+    [InlineData("/order/wangji")]
+    [InlineData("/order/wangji/o/0123456789abcdefghijklmnopqrstuvwxyzABCDEFG")]
+    [InlineData("/ORDER/wangji")]
+    public async Task An_ordering_route_is_the_shops_index_html_never_cached(string path)
+    {
+        using var client = ShopClient();
+
+        var response = await client.GetAsync(path, CancellationToken);
+
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Content.Headers.ContentType!.ToString().ShouldBe("text/html; charset=utf-8");
+        Header(response, "Cache-Control").ShouldBe("no-cache");
+        Header(response, "Content-Security-Policy").ShouldBe("frame-ancestors 'self'");
+        (await response.Content.ReadAsStringAsync(CancellationToken)).ShouldBe(ShopIndex);
+    }
+
+    [Fact]
+    public async Task The_shops_files_are_under_order_and_a_missing_one_is_404()
+    {
+        using var client = ShopClient();
+
+        var main = await client.GetAsync("/order/main-SHOP1234.js", CancellationToken);
+        main.StatusCode.ShouldBe(HttpStatusCode.OK);
+        Header(main, "Cache-Control").ShouldBe(ImmutableCache);
+        (await main.Content.ReadAsStringAsync(CancellationToken)).ShouldBe("console.log('fake shop');");
+        (await client.GetAsync("/order/favicon.ico", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await client.GetAsync("/order/main-OLD12345.js", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var escape = await client.GetAsync("/order/%2e%2e/secret.txt", CancellationToken);
+        escape.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await escape.Content.ReadAsStringAsync(CancellationToken)).ShouldNotContain("outside the admin folder");
+        // The admin's own file is not the shop's, and the shop's is not at the root.
+        (await client.GetAsync("/order/main-WXYZ9876.js", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await client.GetAsync("/main-SHOP1234.js", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task With_the_shop_the_admin_and_the_api_are_unchanged()
+    {
+        using var client = ShopClient();
+
+        (await client.GetStringAsync("/app/home", CancellationToken)).ShouldBe(AdminIndex);
+        (await client.GetStringAsync("/orders", CancellationToken)).ShouldBe(AdminIndex, "only the segment order is the shop's");
+        var post = await client.PostAsync("/order/wangji", new StringContent("x"), CancellationToken);
+        post.StatusCode.ShouldBe(HttpStatusCode.Unauthorized, "only GET and HEAD get the app");
+    }
+
+    [Fact]
+    public void A_shop_root_path_without_index_html_refuses_to_start_and_says_why()
+    {
+        var empty = Directory.CreateDirectory(Path.Combine(_directory, "empty-shop")).FullName;
+        using var factory = _base.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ConnectionStrings:Default", PostgresFixture.UnreachableConnectionString);
+            builder.UseSetting("Shop:RootPath", empty);
+        });
+
+        var exception = StartupFailure.Of(factory);
+
+        exception.ShouldBeOfType<OptionsValidationException>().Message
+            .ShouldContain($"Shop:RootPath '{empty}' (resolved to '{empty}') is not a folder with index.html.");
     }
 
     // --- Without Admin:RootPath -----------------------------------------------------------------------
@@ -317,6 +399,12 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
     private HttpClient AdminClient() => Client(builder => builder.UseSetting("Admin:RootPath", _adminRoot));
 
     private HttpClient PlainClient() => Client(_ => { });
+
+    private HttpClient ShopClient() => Client(builder =>
+    {
+        builder.UseSetting("Admin:RootPath", _adminRoot);
+        builder.UseSetting("Shop:RootPath", _shopRoot);
+    });
 
     private WebApplicationFactory<Program> Factory(Action<IWebHostBuilder> configure) =>
         _base.WithWebHostBuilder(builder =>

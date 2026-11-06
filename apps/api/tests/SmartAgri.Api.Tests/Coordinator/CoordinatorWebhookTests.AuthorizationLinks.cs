@@ -16,9 +16,9 @@ namespace SmartAgri.Api.Tests.Coordinator;
 
 /// <summary>
 /// FB and Google authorization links (store-coordinator design §3 Q12, Q18, §5 Slice 6, #377) through
-/// <c>coordinator-shop auth-link</c>, the real anonymous endpoints, PostgreSQL and the host's fake providers
-/// (<see cref="FakeOAuthProvider"/>: FB without PKCE, Google with), the test playing both the owner's browser (cookies by
-/// hand) and the service: the flow done at once and with a choice of location, every refusal (expired, used, tampered
+/// <c>coordinator-shop auth-link</c>, the real anonymous endpoints, PostgreSQL and the host's providers (FB's
+/// <see cref="FakeOAuthProvider"/> without PKCE; the real Google one with PKCE against <see cref="FakeGoogleServer"/>, #378),
+/// the test playing both the owner's browser (cookies by hand) and the service: the flow done at once and with a choice of location, every refusal (expired, used, tampered
 /// or expired state, missing or wrong nonce cookie, the service's <c>error</c>, a choice not offered, a service not
 /// configured), re-authorization pushed once per revocation to the 老闆 members, and no token, code, state, nonce,
 /// verifier or credential in any page, redirect (but the service's), CLI output or log.
@@ -30,7 +30,7 @@ public sealed partial class CoordinatorWebhookTests
 
     private FakeOAuthProvider FacebookOAuth => _host.Facebook;
 
-    private FakeOAuthProvider GoogleOAuth => _host.Google;
+    private FakeGoogleServer GoogleApi => _host.GoogleApi;
 
     [Fact]
     public async Task An_owner_authorizes_FB_through_a_link_once_and_the_credential_is_stored_encrypted()
@@ -130,13 +130,12 @@ public sealed partial class CoordinatorWebhookTests
     public async Task A_Google_owner_with_several_locations_chooses_one_and_only_an_offered_choice_is_accepted()
     {
         var shop = await _host.CreateOrganizationAsync("選地點店");
-        var code = "g-code-" + Guid.NewGuid().ToString("N");
-        var pending = "g-user-token-" + Guid.NewGuid().ToString("N");
-        GoogleOAuth.Expect(code, _ => CoordinatorOAuthOutcome.NeedsSelection(
-            [new("locations/111", "台北店"), new("locations/222", "<b>高雄店</b>")], new CoordinatorOAuthPending(pending)));
+        var taipei = GoogleApi.AddLocation("台北店");
+        var kaohsiung = GoogleApi.AddLocation("<b>高雄店</b>", address: null);
+        var user = GoogleApi.AddUser([taipei], [kaohsiung]);
         using var browser = Browser();
         Consent consent;
-        string form, done;
+        string code, form, done;
         HttpResponseMessage selection;
         var refusals = new List<string>();
         _host.Log.Start();
@@ -145,7 +144,8 @@ public sealed partial class CoordinatorWebhookTests
             var issued = await RunShopAsync("auth-link", "--organization", shop.Code, "--service=google", "--hours=1");
             issued.Exit.ShouldBe(CoordinatorShopCommand.ExitSuccess, issued.Error);
             consent = await OpenLinkAsync(browser, TokenIn(issued.Output));
-            selection = await CallbackAsync(browser, "google", consent.Nonce, ("state", consent.State), ("code", code));
+            code = GoogleApi.Code(user, consent.Query["code_challenge"]);
+            selection = await CallbackAsync(browser, "google", consent.Nonce, ("state", consent.State), ("code", code), ("scope", CoordinatorGoogleClient.Scope));
             form = await PageAsync(selection, HttpStatusCode.OK);
             var formState = FormState(form);
 
@@ -153,9 +153,9 @@ public sealed partial class CoordinatorWebhookTests
             foreach (var (cookie, state, choice) in new (string?, string?, string?)[]
                      {
                          (consent.Nonce, formState, "locations/999"),
-                         (null, formState, "locations/222"),
-                         (CoordinatorOAuthStates.NewRandom(), formState, "locations/222"),
-                         (consent.Nonce, consent.State, "locations/222"),
+                         (null, formState, kaohsiung.Name),
+                         (CoordinatorOAuthStates.NewRandom(), formState, kaohsiung.Name),
+                         (consent.Nonce, consent.State, kaohsiung.Name),
                          (consent.Nonce, formState, null),
                      })
             {
@@ -163,10 +163,9 @@ public sealed partial class CoordinatorWebhookTests
             }
 
             (await ConnectionOfAsync(shop, CoordinatorService.Google)).ShouldBeNull("nothing stored before a valid choice");
-            GoogleOAuth.Selections.ShouldBeEmpty();
 
-            done = await PageAsync(await ChooseAsync(browser, "google", consent.Nonce, formState, "locations/222"), HttpStatusCode.OK);
-            refusals.Add(await PageAsync(await ChooseAsync(browser, "google", consent.Nonce, formState, "locations/111"), HttpStatusCode.BadRequest));
+            done = await PageAsync(await ChooseAsync(browser, "google", consent.Nonce, formState, kaohsiung.Name), HttpStatusCode.OK);
+            refusals.Add(await PageAsync(await ChooseAsync(browser, "google", consent.Nonce, formState, taipei.Name), HttpStatusCode.BadRequest));
         }
         finally
         {
@@ -177,33 +176,39 @@ public sealed partial class CoordinatorWebhookTests
             link => (link.ExpiresAt - link.CreatedAt).ShouldBe(TimeSpan.FromHours(1)),
             link => link.UsedAt.ShouldNotBeNull("the callback took it"));
 
-        // PKCE: the challenge on the consent URL is the verifier's that the exchange got.
+        // PKCE: the token request carried the verifier of the consent URL's challenge (the fake checks it), the
+        // callback and the platform's client; both accounts' locations were listed.
         consent.Query["code_challenge_method"].ShouldBe("S256");
-        var exchange = GoogleOAuth.Exchanges.Where(call => call.Code == code).ShouldHaveSingleItem();
-        var verifier = exchange.CodeVerifier.ShouldNotBeNull();
+        var exchange = GoogleApi.Requests.Where(request => request.Endpoint == FakeGoogleServer.Token && request.Form.GetValueOrDefault("code") == code)
+            .ShouldHaveSingleItem();
+        var verifier = exchange.Form["code_verifier"];
         CoordinatorOAuthStates.Challenge(verifier).ShouldBe(consent.Query["code_challenge"]);
-        exchange.RedirectUri.ShouldBe($"{PublicBase}/api/v1/coordinator/oauth/google/callback");
+        exchange.Form["redirect_uri"].ShouldBe($"{PublicBase}/api/v1/coordinator/oauth/google/callback");
+        GoogleApi.Requests.Count(request => request.Endpoint == FakeGoogleServer.Locations && user.Accounts.Any(account => account.Name == request.Subject))
+            .ShouldBe(2);
 
-        // The form: the provider's choices, encoded; it may post only to this origin.
+        // The form: every location of every account, with its address, encoded; it may post only to this origin.
         form.ShouldContain("<h1>選擇要連結的營業地點</h1>");
-        ChoicePattern().Matches(form).Select(match => match.Groups["id"].Value).ShouldBe(["locations/111", "locations/222"]);
+        ChoicePattern().Matches(form).Select(match => match.Groups["id"].Value).ShouldBe([taipei.Name, kaohsiung.Name]);
+        form.ShouldContain("台北店（台北市大安區忠孝東路四段 100 號）");
         form.ShouldContain("&lt;b&gt;高雄店&lt;/b&gt;");
         form.ShouldNotContain("<b>高雄店");
         form.ShouldContain("action=\"select\"");
         selection.Headers.GetValues("Content-Security-Policy").ShouldHaveSingleItem().ShouldContain("form-action 'self'");
         refusals.ShouldAllBe(page => page.Contains(CoordinatorAuthorizationPages.FailedMessage));
 
-        done.ShouldContain("選地點店 已連結Google 商家：地點 locations/222。");
-        GoogleOAuth.Selections.ShouldBe([(pending, "locations/222")]);
+        done.ShouldContain("選地點店 已連結Google 商家：&lt;b&gt;高雄店&lt;/b&gt;。");
         var connection = (await ConnectionOfAsync(shop, CoordinatorService.Google)).ShouldNotBeNull();
-        connection.ExternalId.ShouldBe("locations/222");
+        (connection.ExternalId, connection.DisplayName).ShouldBe((kaohsiung.Name, "<b>高雄店</b>"));
         _host.Factory.Services.GetRequiredService<ISecretProtector>()
             .Unprotect(CoordinatorConnection.PurposeOf(CoordinatorService.Google), connection.Secret)
-            .ShouldBe($"{pending}:locations/222");
+            .ShouldBe(user.RefreshToken, "the refresh token is the credential");
         JsonNode.Parse((await ConnectionActivitiesAsync(shop)).ShouldHaveSingleItem().Detail!)!.ToJsonString()
             .ShouldBe("""{"change":"set","service":"google"}""");
 
-        var forbidden = new[] { pending, code, verifier, consent.Token, consent.State, consent.Nonce };
+        var forbidden = new[] { user.RefreshToken, code, verifier, consent.Token, consent.State, consent.Nonce, GoogleApi.ClientSecret }
+            .Concat(GoogleApi.AccessTokens)
+            .ToList();
         foreach (var page in refusals.Append(form).Append(done))
         {
             forbidden.ShouldAllBe(value => !page.Contains(value, StringComparison.Ordinal));
@@ -289,7 +294,7 @@ public sealed partial class CoordinatorWebhookTests
         var shop = await _host.CreateOrganizationAsync("未設定店");
         using var browser = Browser();
         var made = TokenIn((await RunShopAsync("auth-link", "--organization", shop.Code, "--service", "google")).Output);
-        GoogleOAuth.Configured = false;
+        _host.GoogleConfigured = false;
         (int Exit, string Output, string Error) refused;
         HttpResponseMessage callback, select, opened;
         try
@@ -301,7 +306,7 @@ public sealed partial class CoordinatorWebhookTests
         }
         finally
         {
-            GoogleOAuth.Configured = true;
+            _host.GoogleConfigured = true;
         }
 
         refused.Exit.ShouldBe(CoordinatorShopCommand.ExitFailed);

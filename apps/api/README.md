@@ -1534,7 +1534,7 @@ design Slice 5, §3 Q10, Q14, Q18, Q21, decisions B and E). Operator guide: `dep
 
 A shop's owner authorizes FB 粉專 and Google 商家 themselves through a single-use link the operator makes (store-coordinator
 design Slice 6, §3 Q12, Q18). This slice is the provider-agnostic flow, proven with a fake provider; the real providers come
-with FB 貼文 (#379) and Google 特殊營業時間 (#378). Operator guide: `deploy/README.md` §17.9.
+with FB 貼文 (#379) and Google 特殊營業時間 (#378), the next two sections. Operator guide: `deploy/README.md` §17.9.
 
 - **Providers** (`SmartAgri.Application.Coordinator.ICoordinatorOAuthProvider`, by `Service`: `facebook` | `google`;
   `CoordinatorOAuthProviders` keeps the last one registered per service and only one that `IsConfigured`): `ConsentUrl`
@@ -1542,9 +1542,11 @@ with FB 貼文 (#379) and Google 特殊營業時間 (#378). Operator guide: `dep
   code, the redirect URI and the verifier) and `SelectAsync`. Each answers a `CoordinatorOAuthOutcome`: `Connected`
   (`CoordinatorOAuthCredential`: the secret to store, the external id — page or location — and a display name),
   `NeedsSelection` (1–100 `CoordinatorOAuthChoice`s with distinct valid external ids, plus opaque `CoordinatorOAuthPending`
-  data kept in memory only) or `Failed(code)` (a short code of ours, never the service's text). FB's real provider comes
-  with #379 (next section); Google stays *not configured* until #378. Platform settings: `Coordinator:Facebook:AppId` / `AppSecret` and
-  `Coordinator:Google:ClientId` / `ClientSecret` (`CoordinatorFacebookOptions`, `CoordinatorGoogleOptions`; both or
+  data kept in memory only) or `Failed(code)` (a short code of ours, never the service's text; the failure page explains
+  the codes it knows — `CoordinatorAuthorizationPages.MessageOf` — and shows the generic sentence for the others). FB's
+  real provider is registered since #379 and Google's since #378 (the next two sections). Platform settings:
+  `Coordinator:Facebook:AppId` / `AppSecret` and `Coordinator:Google:ClientId` / `ClientSecret`
+  (`CoordinatorFacebookOptions`, `CoordinatorGoogleOptions`; both or
   neither, validated on start; `COORDINATOR_FACEBOOK_*`, `COORDINATOR_GOOGLE_*` in `deploy/.env`). A service's flow is
   *available* when its provider is configured and `PublicChannels:PublicBaseUrl` is set.
 - **Storage**: `CoordinatorAuthorizationLinks` (`CoordinatorAuthorizationLink`, organization scoped): `Service`
@@ -1591,9 +1593,9 @@ with FB 貼文 (#379) and Google 特殊營業時間 (#378). Operator guide: `dep
   carry link and organization ids, the service and why something was refused. Traces drop `url.query` for both paths
   (`OpenTelemetryExtensions.RedactSecretUrls`). ASP.NET Core's own request lines (full URL) are below the shipped
   `Microsoft.AspNetCore: Warning`.
-- **Tests**: `CoordinatorHostFixture` registers `FakeOAuthProvider`s (FB without PKCE, Google with) whose consent screen
-  is never requested — the tests play the owner's browser (cookies by hand) and the service. (Since #379 the FB fake can
-  `ForwardTo` the real provider for a test.)
+- **Tests**: `CoordinatorHostFixture` registers a `FakeOAuthProvider` for FB (no PKCE) whose consent screen is never
+  requested, and the real Google provider (PKCE) over `FakeGoogleServer` (#378) — the tests play the owner's browser
+  (cookies by hand) and the service. (Since #379 the FB fake can `ForwardTo` the real provider for a test.)
 - **Rate limit**: the three endpoints carry `PublicRateLimitedEndpoint.CoordinatorAuthorization` and share one sliding
   window per client IP, `PublicChannels:RateLimits:CoordinatorAuthorizationRequestsPerIpPerMinute` (default 20; a whole
   authorization is two or three requests); beyond it the usual `429 rate-limited` with `Retry-After: 60`.
@@ -1650,6 +1652,59 @@ handling, rate limiting).
   with tokens and tasks, posts `{page-id}_{n}`, `100/33` for a post that is gone, `400` code 100 for a wrong or missing
   `appsecret_proof`, scripted errors, timeouts and accepted-then-timed-out posts. `CoordinatorHostFixture` configures the
   host's Meta app, routes `facebook-graph` to it and hands every shop no test enrolled to the real executor.
+
+## Store coordinator (統籌助理): Google 特殊營業時間 (#378)
+
+Google 商家 special hours set automatically on the shop's authorized location (store-coordinator design Slice 7, §3 Q3, Q18,
+Q20–Q22, Appendix A.2). Operator guide: `deploy/README.md` §17.11. Google's endpoints, fields and error shapes as verified
+for this slice: Google's OAuth 2.0 web-server guide, Business Profile prerequisites, basic setup and limits, Account
+Management `accounts.list`, Business Information `accounts.locations.list` / `locations.get` / `locations.patch` and the
+`Location` / `SpecialHourPeriod` reference (all on developers.google.com).
+
+- **Client** (`SmartAgri.Api.Coordinator.CoordinatorGoogleClient`, named `HttpClient` `coordinator-google`, 10 s, no
+  `IHttpClientFactory` loggers; absolute URLs, so a test's primary handler stands in for every host): the consent URL
+  `https://accounts.google.com/o/oauth2/v2/auth` (`scope=https://www.googleapis.com/auth/business.manage`,
+  `access_type=offline`, `prompt=consent` so a refresh token always comes back, `state`, PKCE `S256`); the token endpoint
+  `https://oauth2.googleapis.com/token` (form-encoded, the client id and secret in the body; `authorization_code` with the
+  verifier, `refresh_token`); `GET mybusinessaccountmanagement…/v1/accounts` (20 a page); `GET
+  mybusinessbusinessinformation…/v1/{account}/locations?readMask=name,title,storefrontAddress` (100 a page, at most 10 pages
+  each); `GET …/v1/{location}?readMask=name,regularHours,specialHours`; `PATCH …/v1/{location}?updateMask=specialHours`. API
+  calls send `X-GOOG-API-FORMAT-VERSION: 2` (detailed `ErrorInfo` reasons). Outcomes (`GoogleApiOutcome`): `invalid_grant`,
+  `invalid_client`/`unauthorized_client`, `401`, `403` (`SERVICE_DISABLED` → access pending), `404`, `429` (quota limit `"0"`
+  in `ErrorInfo.metadata.quota_limit_value` → access pending, else rate limited), other `4xx`, `5xx`, timeout, network.
+  Logged: the call, the status and Google's status/reason codes — never a token, the secret, a body or Google's message.
+- **Provider** (`CoordinatorGoogleOAuthProvider`, configured exactly when `Coordinator:Google:ClientId`/`ClientSecret` are
+  set): the code → tokens; the granted `scope` must include `business.manage` (`scope-not-granted`) and a refresh token must
+  come back (`no-refresh-token`); then every account's locations, each once: one connects (secret = the **refresh token**,
+  external id = `locations/{id}`, display name = the title), several are the selection form (「{title}（{area+locality+first
+  line}）」, at most 100; the pending data — refresh token and titles — in memory only), none is `no-locations`
+  (「這個 Google 帳號沒有可管理的商家」). Listing refused for access is `google-access-pending`. Access tokens are never stored.
+- **Executor** (`CoordinatorGoogleSpecialHoursExecutor`, kind `google-special-hours`): available — so the card and the run
+  agree — when the provider is configured and the shop has an active `google` connection. Each run refreshes an access
+  token, reads the location, turns one without `regularHours` periods into a reminder
+  (`UnavailableBecause(google-no-regular-hours)`, 「Google 商家沒有設定一般營業時間，無法自動設定特殊營業時間，先以提醒處理」; also
+  when Google answers `SPECIAL_HOURS_SET_WITHOUT_REGULAR_HOURS`), and patches `specialHours` with
+  `CoordinatorGoogleSpecialHours.Replace` (Application, pure): every period whose `startDate` is the command's date is
+  dropped, every other one written back as Google's raw JSON, the new ones appended (an empty result is the body `{}`,
+  which resets the masked field). The periods (`CoordinatorGoogleSpecialHours.PeriodsFor`) come from the shop's weekly
+  hours (Q22): 臨時店休 `{startDate, closed: true}`; 提早打烊 T the day's periods opening before T, the one running at T
+  cut at T; 延後開店 T those closing after T, the one running at T starting at T; T read as the command's checks read it
+  (small hours of an overnight period = the next day); a period past midnight has `endDate` D+1, one ending at midnight
+  `24:00`; only periods opening on D are written (a late opening in D+1's small hours leaves D closed rather than touching
+  D+1). `ExternalRef` = `{yyyy-MM-dd}|{location}` plus `|[…]` — the date's periods the apply replaced (what the owner had),
+  raw, else without white space, else left out (logged) to stay within the column's 256 characters; not kept when they
+  say what we write (a repeated run). The reopen's undo (`ReplaceRaw`) puts those back on that location, or removes the
+  date's periods when there were none; already as before is a success without a write. Results: `invalid_grant`, `401`, `403` or a refresh token that cannot be decrypted →
+  `UnavailableBecause(token-revoked)` (the run handler revokes the connection and pushes the #377 re-authorization link);
+  quota 0 / API disabled → `UnavailableBecause(google-access-pending)` (「Google 商家 API 尚未開通，先以提醒處理」); `429` →
+  `rate-limited`; `5xx`, timeout, network → `google-unavailable` (「Google 暫時無法使用」); anything else → `rejected`.
+- **Docs silent, chosen conservatively**: whether a refresh can rotate the refresh token (the documented answer has none: the
+  stored one is kept); the exact body of a quota-0 call (read as above; a quota-0 `429` without `quota_limit_value` reads as
+  rate limited); whether two periods may share a date (implied by `OVERLAPPED_SPECIAL_HOURS`) and how to clear the field
+  (field-mask rule: `{}`); PKCE for web clients (Google's discovery document lists `S256`).
+- **Tests**: `FakeGoogleServer` (token endpoint with PKCE checks, accounts, locations list/get/patch, raw hours kept byte
+  for byte, scripted failures) under the real provider and executor in `CoordinatorHostFixture`;
+  `CoordinatorGoogleSpecialHoursTests` (Application) for the periods and the merge.
 
 ## Monthly token limit: `set-token-limit`
 

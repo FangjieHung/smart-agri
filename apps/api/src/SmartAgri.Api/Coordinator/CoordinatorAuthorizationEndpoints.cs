@@ -456,14 +456,28 @@ public static class CoordinatorAuthorizationPages
     /// <summary>The link is unknown, used, expired or its service is not available: one page for all of them.</summary>
     public static IResult InvalidLink() => Page("連結已失效", $"<p>{InvalidLinkMessage}</p>", StatusCodes.Status404NotFound);
 
-    /// <summary>Anything else that went wrong, with a short code of ours when there is one — and what to do instead of
-    /// the general advice when the code has its own message (<see cref="NoFacebookPagesMessage"/>).</summary>
-    public static IResult Failed(string? code) =>
-        Page("授權沒有完成", $"<p>{FailureMessage(code)}</p>{Code(code)}", StatusCodes.Status400BadRequest);
+    /// <summary>Google: the account manages no Business Profile location (#378).</summary>
+    public const string NoGoogleLocationsMessage = "這個 Google 帳號沒有可管理的商家。請向平台營運者索取新的連結，改用管理那家店 Google 商家檔案的帳號授權。";
 
-    private static string FailureMessage(string? code) => code switch
+    /// <summary>Google: the platform's Business Profile API access is not approved yet (#378).</summary>
+    public const string GoogleAccessPendingMessage = "Google 商家 API 尚未開通（平台營運者的申請還在審核），暫時無法授權；開通後請向平台營運者索取新的連結。";
+
+    /// <summary>Google: the owner unticked the permission to manage the business profile (#378).</summary>
+    public const string ScopeNotGrantedMessage = "你沒有勾選「管理商家檔案」的權限，統籌助理無法設定特殊營業時間。請向平台營運者索取新的連結，授權時勾選這個權限。";
+
+    /// <summary>Anything else that went wrong, with a short code of ours when there is one — and what to do instead of
+    /// the general advice when the code has its own message (<see cref="MessageOf"/>).</summary>
+    public static IResult Failed(string? code) =>
+        Page("授權沒有完成", $"<p>{MessageOf(code)}</p>{Code(code)}", StatusCodes.Status400BadRequest);
+
+    /// <summary>The sentence of a failure page for <paramref name="code"/>: the FB and Google codes that have their own
+    /// message (#379, #378), the general advice for every other one.</summary>
+    public static string MessageOf(string? code) => code switch
     {
         CoordinatorFacebookOAuthProvider.NoPagesCode => NoFacebookPagesMessage,
+        CoordinatorGoogleOAuthProvider.NoLocations => NoGoogleLocationsMessage,
+        CoordinatorFailureCodes.GoogleAccessPending => GoogleAccessPendingMessage,
+        CoordinatorGoogleOAuthProvider.ScopeNotGranted => ScopeNotGrantedMessage,
         _ => FailedMessage,
     };
 

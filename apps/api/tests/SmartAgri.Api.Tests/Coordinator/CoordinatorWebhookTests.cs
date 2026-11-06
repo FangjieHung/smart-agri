@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Shouldly;
 using SmartAgri.Api.Coordinator;
 using SmartAgri.Api.Tests.Authentication;
@@ -549,9 +550,10 @@ public sealed partial class CoordinatorWebhookTests : IClassFixture<CoordinatorH
 
 /// <summary>The Api host of <see cref="CoordinatorWebhookTests"/>: the usual one, with the 統籌助理
 /// configured for a bot of the fake LINE server, and executors for the shops a test enrolls (#375) — LINE 群發's real
-/// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server, and FB 貼文's
-/// (#379), whose pages are on the fake Graph API with the host's Meta app configured — and fake FB (no PKCE) and Google
-/// (PKCE) authorization providers (#377; the FB one may forward to the real provider, #379).</summary>
+/// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server, FB 貼文's (#379),
+/// whose pages are on the fake Graph API with the host's Meta app configured, and Google 特殊營業時間's (#378) — a fake FB
+/// authorization provider (no PKCE, #377; it may forward to the real provider, #379) and the real Google one (PKCE,
+/// #378), whose Google is <see cref="FakeGoogleServer"/>.</summary>
 public sealed class CoordinatorHostFixture : AuthHostFixture
 {
     public const string Secret = "c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -568,8 +570,17 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
     /// <summary>The FB authorization provider (#377): no PKCE.</summary>
     public FakeOAuthProvider Facebook { get; } = new(CoordinatorService.Facebook, usesPkce: false);
 
-    /// <summary>The Google authorization provider (#377): PKCE.</summary>
-    public FakeOAuthProvider Google { get; } = new(CoordinatorService.Google, usesPkce: true);
+    /// <summary>Google's token endpoint and Business Profile APIs (#378), for the real Google provider and executor.</summary>
+    public FakeGoogleServer GoogleApi { get; } = new();
+
+    /// <summary>Whether the platform's Google OAuth client is set (a test may clear it, and must set it back).</summary>
+    public bool GoogleConfigured
+    {
+        get => GoogleOptions.IsConfigured;
+        set => GoogleOptions.ClientId = value ? FakeGoogleServer.ClientId : null;
+    }
+
+    private CoordinatorGoogleOptions GoogleOptions => Factory.Services.GetRequiredService<IOptions<CoordinatorGoogleOptions>>().Value;
 
     /// <summary>The Meta Graph API of FB 貼文 and the real FB provider (#379), for the host's Meta app.</summary>
     public FakeGraphServer Graph { get; } = new("1029384756001", "fake-meta-app-secret-" + Guid.NewGuid().ToString("N"));
@@ -607,6 +618,12 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
                         Executors.For(kind, provider.GetRequiredService<CoordinatorFacebookPostExecutor>()));
                     break;
 
+                case ShopActionKind.GoogleSpecialHours:
+                    // The real one (#378) for every shop no test enrolled.
+                    services.AddScoped<ICoordinatorActionExecutor>(provider =>
+                        Executors.For(kind, provider.GetRequiredService<CoordinatorGoogleSpecialHoursExecutor>()));
+                    break;
+
                 default:
                     services.AddSingleton(Executors.For(kind));
                     break;
@@ -614,7 +631,14 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
         }
 
         services.AddSingleton<ICoordinatorOAuthProvider>(Facebook);
-        services.AddSingleton<ICoordinatorOAuthProvider>(Google);
+
+        // Every Google call goes to the fake Google server (#378).
+        services.Configure<CoordinatorGoogleOptions>(options =>
+        {
+            options.ClientId = FakeGoogleServer.ClientId;
+            options.ClientSecret = GoogleApi.ClientSecret;
+        });
+        services.AddHttpClient(CoordinatorGoogleClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => GoogleApi);
 
         services.Configure<LoggerFilterOptions>(options =>
             options.Rules.Add(new LoggerFilterRule(typeof(CoordinatorTestLog).FullName, categoryName: null, LogLevel.Trace, filter: null)));

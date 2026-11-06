@@ -1,8 +1,10 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Api.Notifications;
 using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Jobs;
+using SmartAgri.Application.Notifications;
 using SmartAgri.Domain.Coordinator;
 using SmartAgri.Infrastructure;
 
@@ -10,8 +12,9 @@ namespace SmartAgri.Api.Coordinator;
 
 /// <summary>
 /// Handles <see cref="CoordinatorNotifyReservationJob.Kind"/> (store-reservations design decision R5, §3.1 point 7, Slice
-/// R2, #390): pushes the new reservation's card (<see cref="CoordinatorReservationCards.NewReservation"/>) to every
-/// current member of its shop, 老闆 and 店長 alike, each push counting against the coordinator account's monthly quota.
+/// R2, #390): pushes the new reservation's card (<see cref="CoordinatorReservationCards.NewReservation"/>, which says
+/// 「請來電確認」 when nobody else will tell the customer, #391) to every current member of its shop, 老闆 and 店長 alike,
+/// each push counting against the coordinator account's monthly quota.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,6 +36,7 @@ internal sealed class CoordinatorNotifyReservationHandler : IJobHandler
     private readonly CoordinatorReservations _reservations;
     private readonly CoordinatorShops _shops;
     private readonly CoordinatorReplySender _sender;
+    private readonly IEmailSender _email;
     private readonly AppDbContext _dbContext;
     private readonly ILogger<CoordinatorNotifyReservationHandler> _logger;
 
@@ -40,12 +44,14 @@ internal sealed class CoordinatorNotifyReservationHandler : IJobHandler
         CoordinatorReservations reservations,
         CoordinatorShops shops,
         CoordinatorReplySender sender,
+        IEmailSender email,
         AppDbContext dbContext,
         ILogger<CoordinatorNotifyReservationHandler> logger)
     {
         _reservations = reservations;
         _shops = shops;
         _sender = sender;
+        _email = email;
         _dbContext = dbContext;
         _logger = logger;
     }
@@ -94,7 +100,8 @@ internal sealed class CoordinatorNotifyReservationHandler : IJobHandler
             return;
         }
 
-        var card = CoordinatorReservationCards.NewReservation(settings.StoreName, settings.TimeZone, reservation);
+        // Whether the platform will Email the customer (#391): else the card asks the members to call.
+        var card = CoordinatorReservationCards.NewReservation(settings.StoreName, settings.TimeZone, reservation, _email.IsConfigured);
         int delivered = 0, failed = 0, refused = 0;
         var monthlyLimit = false;
         foreach (var member in members)
@@ -183,7 +190,7 @@ internal sealed class CoordinatorPushRetryException(string message) : Exception(
 /// Handles <see cref="CoordinatorExpireReservationJob.Kind"/> (store-reservations design decision R7, §3.1 point 6, Slice
 /// R2, #390): a reservation still pending <c>pendingExpiryMinutes</c> before its time becomes <c>expired</c> — a
 /// compare-and-set, so a member's press at the same moment and this job never both win; the winner calls
-/// <see cref="ICoordinatorReservationOutcomes"/> (#391's expiry Email).
+/// <see cref="ICoordinatorReservationOutcomes"/> (the customer's expiry Email, #391), so an expiry job run again adds none.
 /// </summary>
 /// <remarks>
 /// The time is read from the shop's settings when the job runs: when <c>pendingExpiryMinutes</c> was lowered since the
@@ -234,3 +241,99 @@ internal sealed class CoordinatorExpireReservationHandler : IJobHandler
             reservation.Id, organizationId, expired is null ? "was handled meanwhile: not expired" : $"expired: nobody handled it {minutes} minutes before its time");
     }
 }
+
+/// <summary>
+/// Handles <see cref="CoordinatorReservationEmailJob.Kind"/> (store-reservations design decisions R2, R3, R7, §3.1 point 9,
+/// Slice R3, #391): one plain-text Email to the customer of a reservation that was accepted, declined or expired
+/// (<see cref="CoordinatorReservationEmail.Compose"/>), from the platform's <c>Smtp:From</c> under the shop's name, with the
+/// shop's phone — the reservation and the shop's settings read when the job runs.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Enqueued only by the compare-and-set that took the reservation out of pending (<see cref="EmailReservationOutcomes"/>),
+/// so there is one job per reservation. Nothing to send completes the job without an Email: the reservation is gone
+/// (deleted with its shop, or by the retention sweep), it no longer has the job's status (a closure cancelled it since,
+/// Slice R4), it has no address, the shop has no settings, or SMTP is not configured any more. Any SMTP failure is retried
+/// by the job queue like the 轉真人 Email (exponential backoff, <c>Jobs:RetryBaseDelay</c>, up to the job's attempts); the
+/// member's press was answered long before. There is no "sent" column (#389's decision): a runner that stops between the
+/// SMTP server's acceptance and the job's success may send it once more.
+/// </para>
+/// <para>
+/// A failure is rethrown as <see cref="ReservationEmailFailedException"/>, whose message — the job's <c>LastError</c>, and
+/// logged — has the exception types and SMTP status only (<see cref="EmailFailures"/>): a server's reply can
+/// quote the recipient's address. Logs carry the reservation and organization ids, the outcome and the attempt — never the
+/// customer's address, name, phone or note.
+/// </para>
+/// </remarks>
+internal sealed class CoordinatorReservationEmailHandler : IJobHandler
+{
+    private readonly CoordinatorReservations _reservations;
+    private readonly CoordinatorShops _shops;
+    private readonly IEmailSender _sender;
+    private readonly ILogger<CoordinatorReservationEmailHandler> _logger;
+
+    public CoordinatorReservationEmailHandler(
+        CoordinatorReservations reservations, CoordinatorShops shops, IEmailSender sender, ILogger<CoordinatorReservationEmailHandler> logger)
+    {
+        _reservations = reservations;
+        _shops = shops;
+        _sender = sender;
+        _logger = logger;
+    }
+
+    public async Task HandleAsync(JobContext job, CancellationToken cancellationToken)
+    {
+        var payload = job.ReadPayload<CoordinatorReservationEmailJob>();
+        var organizationId = job.OrganizationId;
+        var outcome = Domain.WireNames<CoordinatorReservationStatus>.ToWire(payload.Outcome);
+        var reservation = await _reservations.FindAsync(organizationId, payload.ReservationId, cancellationToken);
+        var why = reservation is null ? "the reservation no longer exists"
+            : reservation.Status != payload.Outcome ? $"it is {Domain.WireNames<CoordinatorReservationStatus>.ToWire(reservation.Status)} now"
+            : reservation.CustomerEmail is null ? "the customer left no Email address"
+            : !_sender.IsConfigured ? "SMTP is not configured"
+            : null;
+        if (why is not null)
+        {
+            _logger.LogInformation(
+                "Reservation Email ({Outcome}) for reservation {ReservationId} of organization {OrganizationId} not sent: {Why}.",
+                outcome, payload.ReservationId, organizationId, why);
+            return;
+        }
+
+        var settings = await _shops.FindAsync(organizationId, cancellationToken);
+        if (settings is null)
+        {
+            _logger.LogWarning(
+                "Reservation Email ({Outcome}) for reservation {ReservationId} of organization {OrganizationId} not sent: the shop has no settings.",
+                outcome, payload.ReservationId, organizationId);
+            return;
+        }
+
+        var message = CoordinatorReservationEmail.Compose(settings.StoreName, settings.Reservations?.Phone, settings.TimeZone, reservation!);
+        try
+        {
+            await _sender.SendAsync(message, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            throw new ReservationEmailFailedException(
+                $"The reservation Email ({outcome}) could not be sent (attempt {job.Attempt} of {job.MaxAttempts}): {EmailFailures.Summary(exception)}");
+        }
+
+        _logger.LogInformation(
+            "Reservation Email ({Outcome}) for reservation {ReservationId} of organization {OrganizationId} sent (attempt {Attempt}).",
+            outcome, payload.ReservationId, organizationId, job.Attempt);
+    }
+
+    public Task OnFinalFailureAsync(JobContext job, string error, CancellationToken cancellationToken)
+    {
+        var payload = job.ReadPayload<CoordinatorReservationEmailJob>();
+        _logger.LogError(
+            "The Email job ({Outcome}) of reservation {ReservationId} of organization {OrganizationId} gave up after {Attempts} attempts: {Error}",
+            Domain.WireNames<CoordinatorReservationStatus>.ToWire(payload.Outcome), payload.ReservationId, job.OrganizationId, job.Attempt, error);
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>A reservation Email the SMTP server did not take; retried by the job queue.</summary>
+public sealed class ReservationEmailFailedException(string message) : Exception(message);

@@ -1,4 +1,3 @@
-using System.Net.Mail;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SmartAgri.Api.AdminSpa;
@@ -7,7 +6,6 @@ using SmartAgri.Api.Databases;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Application.Jobs;
 using SmartAgri.Application.Notifications;
-using SmartAgri.Application.Observability;
 using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Notifications;
@@ -108,7 +106,7 @@ internal sealed class SendHandoffEmailHandler : IJobHandler
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             throw new HandoffEmailFailedException(
-                $"The handoff Email could not be sent (attempt {job.Attempt} of {job.MaxAttempts}): {Summary(exception)}");
+                $"The handoff Email could not be sent (attempt {job.Attempt} of {job.MaxAttempts}): {EmailFailures.Summary(exception)}");
         }
 
         handoff.RecordEmailSent(_clock.GetUtcNow());
@@ -121,9 +119,6 @@ internal sealed class SendHandoffEmailHandler : IJobHandler
         _logger.LogError("Handoff Email job {JobId} gave up after {Attempts} attempts: {Error}", job.JobId, job.Attempt, error);
         return Task.CompletedTask;
     }
-
-    private static string Summary(Exception exception) =>
-        exception is SmtpException smtp ? $"{ExceptionSummary.Of(exception)} (SMTP {smtp.StatusCode})" : ExceptionSummary.Of(exception);
 }
 
 /// <summary>A 轉真人 Email the SMTP server did not take; retried by the job queue.</summary>

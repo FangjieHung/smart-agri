@@ -9,10 +9,10 @@ using SmartAgri.Domain.Coordinator;
 namespace SmartAgri.Application.Tests.Coordinator;
 
 /// <summary>
-/// The members' side of online reservations (store-reservations design Slice R2, #390): 「訂位」 and the reservation
-/// postbacks are routed before any model call, and the card, the decision replies and the 「訂位」 list stay inside LINE's
-/// limits (alt text 400, labels 20, postback data 300, 12 bubbles), show the date and time as the page does and carry
-/// nothing but what the shop needs.
+/// The members' side of online reservations (store-reservations design Slices R2 and R3, #390, #391): 「訂位」 and the
+/// reservation postbacks are routed before any model call, and the card, the decision replies and the 「訂位」 list stay
+/// inside LINE's limits (alt text 400, labels 20, postback data 300, 12 bubbles), show the date and time as the page does,
+/// carry nothing but what the shop needs, and say when the members must call because no Email will reach the customer.
 /// </summary>
 public class CoordinatorReservationCardsTests
 {
@@ -79,7 +79,7 @@ public class CoordinatorReservationCardsTests
     {
         var reservation = Reservation(new DateOnly(2026, 11, 8), new DateTimeOffset(2026, 11, 8, 18, 30, 0, TimeSpan.FromHours(8)), email: "chen@example.com", note: "需要兒童椅");
 
-        var card = CoordinatorReservationCards.NewReservation("王記麵店", Taipei, reservation);
+        var card = CoordinatorReservationCards.NewReservation("王記麵店", Taipei, reservation, emailConfigured: true);
 
         card["altText"]!.GetValue<string>().ShouldBe("新訂位：王記麵店 11/8（日） 18:30 4 位");
         Texts(card["contents"]!["header"]!).ShouldBe(["新訂位｜王記麵店"]);
@@ -99,17 +99,33 @@ public class CoordinatorReservationCardsTests
         // Saturday's 18:00–01:00: Sunday 00:30 is Saturday's.
         var reservation = Reservation(new DateOnly(2026, 11, 7), new DateTimeOffset(2026, 11, 8, 0, 30, 0, TimeSpan.FromHours(8)), email: null, note: null);
 
-        var card = CoordinatorReservationCards.NewReservation("王記麵店", Taipei, reservation);
+        var card = CoordinatorReservationCards.NewReservation("王記麵店", Taipei, reservation, emailConfigured: true);
 
-        Texts(card["contents"]!["body"]!).ShouldBe(["11/7（六） 00:30（隔天）", "4 位", "姓名", "陳小姐", "電話", "0912-345-678", "Email", "沒有留 Email"]);
+        Texts(card["contents"]!["body"]!).ShouldBe(["11/7（六） 00:30（隔天）", "4 位", "姓名", "陳小姐", "電話", "0912-345-678", "Email", "沒有留 Email，請來電確認"]);
         card["altText"]!.GetValue<string>().ShouldBe("新訂位：王記麵店 11/7（六） 00:30（隔天） 4 位");
+
+        // The 「訂位」 list keeps R2's words: by then a member may have called already.
+        var bubble = CoordinatorReservationCards.List("王記麵店", Taipei, [reservation])[0]["contents"]!["contents"]![0]!;
+        Texts(bubble["body"]!).ShouldBe(["4 位", "姓名", "陳小姐", "電話", "0912-345-678", "Email", "沒有留 Email"]);
+    }
+
+    [Fact]
+    public void Without_SMTP_every_card_asks_to_call_and_shows_an_Email_only_when_the_customer_left_one()
+    {
+        var at = new DateTimeOffset(2026, 11, 8, 18, 30, 0, TimeSpan.FromHours(8));
+        var none = CoordinatorReservationCards.NewReservation("王記麵店", Taipei, Reservation(new DateOnly(2026, 11, 8), at, note: "需要兒童椅"), emailConfigured: false);
+        var left = CoordinatorReservationCards.NewReservation("王記麵店", Taipei, Reservation(new DateOnly(2026, 11, 8), at, email: "chen@example.com"), emailConfigured: false);
+
+        Texts(none["contents"]!["body"]!).ShouldBe(["11/8（日） 18:30", "4 位", "姓名", "陳小姐", "電話", "0912-345-678", "備註", "需要兒童椅", "請來電確認"]);
+        Texts(left["contents"]!["body"]!).ShouldBe(["11/8（日） 18:30", "4 位", "姓名", "陳小姐", "電話", "0912-345-678", "Email", "chen@example.com", "請來電確認"]);
+        Actions(none).Select(action => action.Label).ShouldBe(["撥打電話", "接受", "婉拒"]);
     }
 
     [Fact]
     public void A_long_store_name_keeps_the_alt_text_and_labels_inside_LINEs_limits()
     {
         var reservation = Reservation(new DateOnly(2026, 11, 8), new DateTimeOffset(2026, 11, 8, 18, 30, 0, TimeSpan.FromHours(8)));
-        var card = CoordinatorReservationCards.NewReservation(new string('長', 450), Taipei, reservation);
+        var card = CoordinatorReservationCards.NewReservation(new string('長', 450), Taipei, reservation, emailConfigured: true);
 
         card["altText"]!.GetValue<string>().Length.ShouldBe(400);
         Actions(card).ShouldAllBe(action => action.Label.Length <= 20 && action.Value.Length <= 300);
@@ -122,13 +138,27 @@ public class CoordinatorReservationCardsTests
     [Fact]
     public void The_decision_replies_and_the_reasons_a_press_changed_nothing()
     {
-        var accepted = Decided(CoordinatorReservationStatus.Accepted);
-        CoordinatorReservationCards.DecidedText(accepted, Taipei).ShouldBe("已接受：陳小姐 11/8（日） 18:30 4 位。顧客電話 0912-345-678。");
-        var reply = CoordinatorReservationCards.Decided(accepted, Taipei);
-        reply["altText"]!.GetValue<string>().ShouldBe("已接受：陳小姐 11/8（日） 18:30 4 位。顧客電話 0912-345-678。");
-        Actions(reply).ShouldBe([("uri", "撥打電話", "tel:0912345678")]);
-        CoordinatorReservationCards.DecidedText(Decided(CoordinatorReservationStatus.Declined), Taipei).ShouldStartWith("已婉拒：陳小姐 11/8（日） 18:30 4 位。");
-        Should.Throw<ArgumentException>(() => CoordinatorReservationCards.DecidedText(Reservation(new DateOnly(2026, 11, 8), new DateTimeOffset(2026, 11, 8, 18, 30, 0, TimeSpan.FromHours(8))), Taipei));
+        var accepted = Decided(CoordinatorReservationStatus.Accepted, email: "chen@example.com");
+        CoordinatorReservationCards.DecidedText(accepted, Taipei, emailConfigured: true).ShouldBe("已接受：陳小姐 11/8（日） 18:30 4 位。會寄確認信給顧客。");
+        var reply = CoordinatorReservationCards.Decided(accepted, Taipei, emailConfigured: true);
+        reply["altText"]!.GetValue<string>().ShouldBe("已接受：陳小姐 11/8（日） 18:30 4 位。會寄確認信給顧客。");
+        Actions(reply).ShouldBe([("uri", "撥打電話", "tel:0912345678")], "R2's 〔撥打電話〕 stays");
+        CoordinatorReservationCards.DecidedText(Decided(CoordinatorReservationStatus.Declined, email: "chen@example.com"), Taipei, emailConfigured: true)
+            .ShouldBe("已婉拒：陳小姐 11/8（日） 18:30 4 位。會寄婉拒信給顧客。");
+
+        // No address: the member calls. No SMTP: the member calls, whatever the customer left.
+        CoordinatorReservationCards.DecidedText(Decided(CoordinatorReservationStatus.Accepted), Taipei, emailConfigured: true)
+            .ShouldBe("已接受：陳小姐 11/8（日） 18:30 4 位。這位顧客沒有留 Email，請來電 0912-345-678。");
+        CoordinatorReservationCards.DecidedText(Decided(CoordinatorReservationStatus.Declined), Taipei, emailConfigured: true)
+            .ShouldBe("已婉拒：陳小姐 11/8（日） 18:30 4 位。這位顧客沒有留 Email，請來電 0912-345-678。");
+        CoordinatorReservationCards.DecidedText(accepted, Taipei, emailConfigured: false)
+            .ShouldBe("已接受：陳小姐 11/8（日） 18:30 4 位。平台沒有設定寄信，請來電 0912-345-678。");
+        CoordinatorReservationCards.DecidedText(Decided(CoordinatorReservationStatus.Declined), Taipei, emailConfigured: false)
+            .ShouldBe("已婉拒：陳小姐 11/8（日） 18:30 4 位。平台沒有設定寄信，請來電 0912-345-678。");
+        Actions(CoordinatorReservationCards.Decided(Decided(CoordinatorReservationStatus.Accepted), Taipei, emailConfigured: false))
+            .ShouldBe([("uri", "撥打電話", "tel:0912345678")]);
+        Should.Throw<ArgumentException>(() => CoordinatorReservationCards.DecidedText(
+            Reservation(new DateOnly(2026, 11, 8), new DateTimeOffset(2026, 11, 8, 18, 30, 0, TimeSpan.FromHours(8))), Taipei, emailConfigured: true));
 
         var at = new DateTimeOffset(2026, 11, 6, 14, 2, 0, TimeSpan.FromHours(8));
         CoordinatorReservationCards.AlreadyHandled(CoordinatorReservationStatus.Accepted, "老闆", at, Taipei).ShouldBe("這筆訂位已由老闆在 11/6（五）14:02 接受。");
@@ -203,9 +233,9 @@ public class CoordinatorReservationCardsTests
             at.AddDays(-2));
 
     /// <summary>A reservation as it is read back after a member's decision (the persistence layer sets these columns).</summary>
-    private static CoordinatorReservation Decided(CoordinatorReservationStatus status)
+    private static CoordinatorReservation Decided(CoordinatorReservationStatus status, string? email = null)
     {
-        var reservation = Reservation(new DateOnly(2026, 11, 8), new DateTimeOffset(2026, 11, 8, 18, 30, 0, TimeSpan.FromHours(8)));
+        var reservation = Reservation(new DateOnly(2026, 11, 8), new DateTimeOffset(2026, 11, 8, 18, 30, 0, TimeSpan.FromHours(8)), email: email);
         typeof(CoordinatorReservation).GetProperty(nameof(CoordinatorReservation.Status))!.SetValue(reservation, status);
         return reservation;
     }

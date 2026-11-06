@@ -1711,9 +1711,9 @@ Management `accounts.list`, Business Information `accounts.locations.list` / `lo
 
 Customers book a table on a shop's anonymous page `{PublicChannels:PublicBaseUrl}/reserve/{slug}` (store-reservations design
 `docs/plans/2026-11-06-store-reservations.md`, Slice R1, decisions R1, R3, R4, R8 and §3.1 points 1–6, 10, 11). This slice
-stores them; the members are notified since #390 (next section), so shops can be opened to customers; the customer's
-Email (#391, optional: without SMTP the page asks for none) and closures (#392) come next, on the same table. Until #391
-no Email is sent even when the customer left one. Operator guide: `deploy/README.md` §17.12.
+stores them; the members are notified since #390 (next section), so shops can be opened to customers; the customer is
+told by Email since #391 (optional: without SMTP the page asks for none); closures (#392) come next, on the same table.
+Operator guide: `deploy/README.md` §17.12.
 
 - **Settings**: an optional `reservations` block of the shop-settings file (`ShopReservationSettings`, parsed and checked
   by `ShopSettingsJson`; stored as the `jsonb` column `CoordinatorShopSettings.Reservations`, its slug repeated in
@@ -1778,7 +1778,8 @@ Slice R2 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R5, R7,
 - **The card** (`CoordinatorNotifyReservationHandler`, `CoordinatorReservationCards.NewReservation`): one Flex push per
   current member of the shop (owner and managers, `CoordinatorMember` rows at run time), 「新訂位｜{店名}」 with date and
   time as the page shows them (`CoordinatorReservation.When`, 「（隔天）」 after midnight), party, name, phone, Email or
-  「沒有留 Email」, note, and 〔撥打電話〕 (URI action `tel:` — LINE allows `http`, `https`, `line`, `tel`), 〔接受〕, 〔婉拒〕
+  「沒有留 Email，請來電確認」 (#391; without SMTP the Email row only when there is one, and 「請來電確認」 last), note, and
+  〔撥打電話〕 (URI action `tel:` — LINE allows `http`, `https`, `line`, `tel`), 〔接受〕, 〔婉拒〕
   (postbacks `coordinator:reservation-accept|decline:{org}:{id}`). Each (reservation, member) has a deterministic
   `X-Line-Retry-Key` (`CardRetryKey`, SHA-256 based UUID): a job run again gets LINE's `409` for members who have it
   (`CoordinatorPushOutcome.AlreadySent`). A member refused (`4xx`, token) does not stop the others; a transient failure
@@ -1798,7 +1799,8 @@ Slice R2 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R5, R7,
   memberships, the reservation is read in that shop's context (another shop's id → 「找不到這筆訂位」), then
   `CoordinatorReservations.DecideAsync` is one compare-and-set on (`pending`, `Version`) that also requires the member
   still in the shop, setting `Status`, `Version + 1`, `StatusChangedAt`, `HandledByMemberId`, `HandledAt`. The winner gets
-  a Flex reply 「已接受：{姓名} {日期時間} {人數} 位。顧客電話 {電話}。」 (or 「已婉拒：…」) with 〔撥打電話〕; a loser and later
+  a Flex reply 「已接受：{姓名} {日期時間} {人數} 位。」 (or 「已婉拒：…」) and what happens to the customer (#391, next
+  section) with 〔撥打電話〕; a loser and later
   presses get 「這筆訂位已由{誰}在 {時間} {接受／婉拒}。」 — {誰} the handler's LINE display name (`GET /v2/bot/profile/{userId}`
   with the coordinator token, `ILineMessagingClient.GetProfileAsync`, free; its path is logged as `/v2/bot/profile/{userId}`),
   else 「老闆」/「店長」, 「你」 for one's own press, 「其他成員」 for a member who left — or 「這筆訂位已過期：…」 /
@@ -1808,7 +1810,7 @@ Slice R2 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R5, R7,
   ran, expires it then). `HandledByMemberId` stays null.
 - **Seam for #391**: `ICoordinatorReservationOutcomes.Decided(dbContext, reservation, now)` is called by the winning
   compare-and-set (accept, decline, expire) inside its transaction, so a job it adds (the Email) commits with the change
-  exactly once. Slice R2 registers `NoReservationOutcomes` (`TryAddScoped`; #391 replaces it).
+  exactly once. Registered with `TryAddScoped` (`EmailReservationOutcomes` since #391).
 - **「訂位」 / 「查看訂位」** (`CoordinatorMessageRouter.ReservationsCommands`, NFKC, exact, before any model call): the shop's
   `pending` and `accepted` reservations of the business days today … today + 6 in the shop's zone (also yesterday's
   overnight small hours still on today's date), earliest first, as a carousel of at most 12 bubbles (pending ones with
@@ -1825,6 +1827,39 @@ Slice R2 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R5, R7,
 - **Tests**: `CoordinatorWebhookTests.Reservations` (fake LINE: per-recipient push scripts, push retry keys with `409`,
   profiles), `CoordinatorReservationCardsTests`, `CoordinatorReservationExpiryTests` (Domain),
   `OrganizationRetentionTests.PushLogs`, `LineMessagingClientTests` (profile).
+
+## Store coordinator (統籌助理): the customer's reservation Email (#391)
+
+Slice R3 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R3, R7, §3.1 point 9, §3.4). Operator guide:
+`deploy/README.md` §17.12 「顧客收到的 Email」.
+
+- **Enqueued** by `EmailReservationOutcomes` (the `ICoordinatorReservationOutcomes` seam): when the winning compare-and-set
+  took a reservation to `accepted`, `declined` or `expired` and it has a `CustomerEmail` and `IEmailSender.IsConfigured`,
+  one `coordinator.reservation-email` job (`CoordinatorReservationEmailJob(ReservationId, Outcome)`, default 5 attempts)
+  is added to the same transaction — one per reservation; a lost race, a repeated press or an expiry job run again adds
+  none. No address, or no SMTP: nothing.
+- **The job** (`CoordinatorReservationEmailHandler`) reads the reservation and the shop's settings when it runs and sends
+  nothing (job succeeds, one information line with the reason) when the reservation is gone, no longer has the job's
+  `Outcome` (Slice R4 may cancel it), has no address, or SMTP is not configured any more (a shop without settings: a
+  warning). Otherwise one plain-text `EmailMessage` (`CoordinatorReservationEmail.Compose`, Application): subject
+  「{店名}：訂位已確認」／「{店名}：無法接受您的訂位」／「{店名}：訂位未能確認」, the sentence of §3.1 point 9 with
+  `CoordinatorReservation.When` (「（隔天）」), the party and `reservations.phone` (a shop whose settings lost it: 「請直接與店家聯絡」),
+  and the footer 「這封信由線上訂位系統代{店名}寄出；回覆這封信不會有人讀取。」 — nothing the customer typed but the address.
+  An SMTP failure throws `ReservationEmailFailedException` (types and SMTP status only, `EmailFailures.Summary`, shared
+  with the 轉真人 Email) and the queue retries with its backoff; `OnFinalFailureAsync` logs an error without the address.
+  There is no "sent" column (#389 §3.2 point 12): a runner stopping between the SMTP server's acceptance and the job's
+  success may send it twice.
+- **Sender**: `EmailMessage.FromName` (new, optional; `null` keeps `Smtp:FromName`, so the 轉真人 Email is unchanged) is the
+  shop's name; `SmtpEmailSender.DisplayName` makes it one line (control characters → spaces, white space collapsed) and
+  `MailAddress` encodes it (RFC 2047 `Q` words for non-ASCII), so it cannot add a header. The address is `Smtp:From`.
+- **Members**: `CoordinatorReservationCards.DecidedText(reservation, zone, emailConfigured)` ends 「會寄確認信給顧客。」／
+  「會寄婉拒信給顧客。」, 「這位顧客沒有留 Email，請來電 {電話}。」 or 「平台沒有設定寄信，請來電 {電話}。」 (no SMTP first);
+  `NewReservation(…, emailConfigured)` says 「沒有留 Email，請來電確認」, or without SMTP 「請來電確認」 (the 「訂位」 list keeps
+  「沒有留 Email」).
+- **Logs** carry the reservation and organization ids, the outcome and the attempt — never the address, name, phone or note.
+- **Tests**: `CoordinatorWebhookTests.ReservationEmails` and `.Reservations` (`CoordinatorHostFixture` now has its own
+  `FakeSmtpServer`, which also decodes `Q` words, and a `SmtpConfigured` switch), `CoordinatorReservationEmailTests`,
+  `CoordinatorReservationCardsTests` (Application), `SmtpEmailSenderTests`.
 
 ## Monthly token limit: `set-token-limit`
 
@@ -2140,7 +2175,9 @@ with .NET's `SmtpClient` (STARTTLS, `Smtp:Port` default 587; 465 refuses to star
 `LastError` and the log carry exception types and the SMTP status only, never the recipient or the
 password. The message has the organization, assistant, channel, time (`Statistics:TimeZone`) and
 `{admin origin}/app/handoffs` (the first of `AdminSpaClientRegistrar.EffectiveOrigins`), nothing the
-visitor wrote. Without `Smtp:Host` nothing is enqueued or sent and nothing fails.
+visitor wrote. Without `Smtp:Host` nothing is enqueued or sent and nothing fails. The same server sends the
+customers' reservation Emails (#391, section 「the customer's reservation Email」), under the shop's name
+(`EmailMessage.FromName`) instead of `Smtp:FromName`.
 
 **Retention** (#362): a handoff **handled** more than 365 days ago (`VisitorHandoff.HandledRetentionDays`)
 is deleted — strictly before 00:00 of the `Statistics:TimeZone` day 365 days before today, the
@@ -2161,7 +2198,7 @@ fill it in under 我的通知 (#362); only the account itself can set it.
 | `Smtp:Port` | 587 | 1–65535, not 465 |
 | `Smtp:Username` / `Smtp:Password` | none | both or neither |
 | `Smtp:From` | — | required, one plain address |
-| `Smtp:FromName` | 「AI 助理工作台」 | — |
+| `Smtp:FromName` | 「AI 助理工作台」 (not for reservation Emails: the shop's name) | — |
 | `Smtp:UseStartTls` | `true` | `false` with a password only in Development/Testing |
 | `Smtp:TimeoutSeconds` | 30 | 1–300 |
 

@@ -172,6 +172,7 @@ public class AuthHostFixture : IAsyncLifetime
                          "LineQuestionsPerUserPerMinute", "LineQuestionsPerUserPerHour", "LineQuestionsPerGroupPerMinute",
                          "LineQuestionsPerAssistantPerMinute", "LineMaxConcurrentQuestionsPerAssistant",
                          "CoordinatorAuthorizationRequestsPerIpPerMinute", "CoordinatorReservationRequestsPerIpPerMinute",
+                         "OrderingRequestsPerIpPerMinute", "OrderingSubmissionsPerIpPerMinute",
                      })
             {
                 builder.UseSetting($"PublicChannels:RateLimits:{name}", "1000000");

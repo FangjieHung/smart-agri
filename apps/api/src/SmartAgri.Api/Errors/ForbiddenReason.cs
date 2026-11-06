@@ -267,6 +267,14 @@ public sealed class ForbiddenReason
         "你沒有這則轉真人通知的存取權限，或它已不存在。轉真人通知只給助理的擁有者。");
 
     /// <summary>
+    /// The admin's online orders (<c>/api/v1/ordering/…</c>, online-ordering Slice O3, #399) without
+    /// <c>manage-orders</c>, or an order that does not exist in the caller's organization. Same bytes in every case.
+    /// </summary>
+    public static readonly ForbiddenReason Ordering = new(
+        "ordering",
+        "只有可處理線上點餐的帳號可以查看或處理訂單，或這筆訂單已不存在。");
+
+    /// <summary>
     /// Fallback for a permission-protected endpoint that forgot to declare its reason
     /// (see <c>PermissionPolicies.RequirePermission</c>, which always declares one). Not
     /// part of the frontend union on purpose, so it shows up in review and in the UI as a

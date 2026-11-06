@@ -1,0 +1,120 @@
+@let shop = summary();
+<section class="controls" aria-labelledby="shop-controls-title" data-shop-controls>
+  <h2 class="controls__title" id="shop-controls-title">店家控制</h2>
+
+  <div class="controls__row">
+    <div class="controls__pause">
+      <button
+        #pauseSwitch
+        type="button"
+        role="switch"
+        class="controls__switch"
+        [attr.aria-checked]="shop.paused"
+        aria-describedby="shop-pause-state"
+        [disabled]="busy() === 'pause'"
+        (click)="togglePause()"
+        data-ordering-pause
+      >
+        <span class="controls__track" aria-hidden="true"></span>
+        暫停接單
+      </button>
+      <p class="controls__state" id="shop-pause-state" [class.controls__state--paused]="shop.paused">
+        {{ shop.paused ? '已暫停：顧客暫時無法送出新訂單。' : '接單中：顧客可以送出新訂單。' }}
+      </p>
+    </div>
+
+    @if (shop.services.takeoutAsap) {
+      <fieldset class="controls__band">
+        <legend>即時單準備時間</legend>
+        <div class="controls__segments">
+          @for (band of bands; track band[0]) {
+            <label class="controls__segment">
+              <input
+                type="radio"
+                name="shop-asap-band"
+                [attr.value]="band[0]"
+                [checked]="shop.asapBand === band[0]"
+                [disabled]="busy() === 'band'"
+                (change)="setBand(band[0], $event)"
+              />
+              {{ band[1] }}
+            </label>
+          }
+        </div>
+      </fieldset>
+    }
+  </div>
+
+  <details class="controls__items" (toggle)="toggleItems($event)" data-ordering-items>
+    <summary class="controls__summary">
+      <span class="material-symbols-rounded controls__chevron" aria-hidden="true">expand_more</span>
+      品項供應
+      @if (counts().soldOut || counts().unavailable) {
+        <span class="controls__counts">（{{ counts().soldOut }} 項今日售完、{{ counts().unavailable }} 項停售）</span>
+      }
+    </summary>
+    @switch (itemsState()) {
+      @case ('loading') {
+        <p class="controls__note" role="status">正在載入品項…</p>
+      }
+      @case ('error') {
+        <p class="controls__note" role="alert">目前無法載入品項。<button type="button" class="controls__retry" (click)="loadItems()">重試</button></p>
+      }
+      @case ('ready') {
+        <p class="controls__note">「今日售完」會在下一個營業日第一段可點餐時間自動恢復；「停售」要手動改回供應中。</p>
+        <label class="controls__search">
+          <span>搜尋品項</span>
+          <input type="search" [value]="query()" (input)="query.set($any($event.target).value)" data-ordering-item-search />
+        </label>
+        @for (category of categories(); track category.id) {
+          <h3 class="controls__category">{{ category.name }}</h3>
+          <ul class="controls__list">
+            @for (item of category.items; track item.id) {
+              <li class="controls__item" [attr.data-item]="item.id" [attr.data-availability]="item.availability">
+                <div class="controls__item-copy">
+                  <span class="controls__item-name">{{ item.name }}</span>
+                  <span class="controls__item-meta">{{ priceText(item.price) }}・{{ availabilityLabels[item.availability] }}{{ item.availability === 'sold-out-today' && item.resetsAt ? '，' + reopenText(item.resetsAt) : '' }}</span>
+                </div>
+                <fieldset class="controls__segments controls__segments--item">
+                  <legend class="visually-hidden">「{{ item.name }}」的供應狀態</legend>
+                  @for (state of availabilities; track state) {
+                    <label class="controls__segment">
+                      <input
+                        type="radio"
+                        [name]="'item-state-' + item.id"
+                        [attr.value]="state"
+                        [checked]="item.availability === state"
+                        [disabled]="busy() === 'item:' + item.id"
+                        (change)="setItem(item, state, $event)"
+                      />
+                      {{ availabilityLabels[state] }}
+                    </label>
+                  }
+                </fieldset>
+              </li>
+            }
+          </ul>
+        } @empty {
+          <p class="controls__note">沒有符合「{{ query() }}」的品項。</p>
+        }
+      }
+    }
+  </details>
+
+  @if (error()) {
+    <p class="controls__error" role="alert">{{ error() }}</p>
+  }
+  <p class="controls__feedback" role="status" aria-live="polite">{{ feedback() }}</p>
+
+  @if (confirmingPause()) {
+    <app-confirm-dialog
+      name="shop-pause"
+      heading="暫停接單？"
+      detail="暫停後顧客的點餐頁會顯示「暫停接單」，無法送出新訂單；已經送出的訂單照常處理。之後隨時可以恢復。"
+      confirmLabel="暫停接單"
+      confirmTone="danger"
+      (cancelled)="closePauseConfirm()"
+      (confirmed)="setPaused(true)"
+    />
+  }
+</section>

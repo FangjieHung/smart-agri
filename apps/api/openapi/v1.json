@@ -6940,6 +6940,931 @@
           }
         }
       }
+    },
+    "/api/v1/public/ordering/{slug}": {
+      "get": {
+        "tags": [
+          "Ordering (public)"
+        ],
+        "summary": "A shop's ordering page: the shop, whether it takes orders now and how",
+        "description": "Anonymous. 404 shop-not-found for an unknown slug or a shop without a menu.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingShopInfoView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        }
+      }
+    },
+    "/api/v1/public/ordering/{slug}/menu": {
+      "get": {
+        "tags": [
+          "Ordering (public)"
+        ],
+        "summary": "The shop's current menu, with the items that cannot be ordered",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingMenuView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        }
+      }
+    },
+    "/api/v1/public/ordering/{slug}/slots": {
+      "get": {
+        "tags": [
+          "Ordering (public)"
+        ],
+        "summary": "The business days and times a scheduled takeout order can be picked up",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingSlotsView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        }
+      }
+    },
+    "/api/v1/public/ordering/{slug}/orders": {
+      "post": {
+        "tags": [
+          "Ordering (public)"
+        ],
+        "summary": "Send an order: priced by the server, never by the client",
+        "description": "201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors). 429 too-many-pending, or rate-limited with Retry-After.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingSubmittedView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public/ordering/{slug}/orders/current": {
+      "get": {
+        "tags": [
+          "Ordering (public)"
+        ],
+        "summary": "The order of the status token in the X-Ordering-Token header (the status page polls it)",
+        "description": "404 shop-not-found, or order-not-found for a missing or malformed header or a token the shop has no order of.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Ordering-Token",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingOrderView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        }
+      }
+    },
+    "/api/v1/public/ordering/{slug}/orders/current/cancel": {
+      "post": {
+        "tags": [
+          "Ordering (public)"
+        ],
+        "summary": "Cancel an order while the shop has not answered it",
+        "description": "200 with the cancelled order. 409 not-cancellable (orderStatus) once it is anything but pending. 404 as GET.",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Ordering-Token",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingOrderView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingProblem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/summary": {
+      "get": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Counts and cursors to poll: pending orders, the newest order, the last change, the shop's switches",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/orders": {
+      "get": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "The orders of one view: pending, active (accepted and ready) or done (today's closed orders)",
+        "description": "422 when view is not pending, active or done.",
+        "parameters": [
+          {
+            "name": "view",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffOrdersView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/orders/{orderId}": {
+      "get": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "One order",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffOrderView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/orders/{orderId}/accept": {
+      "post": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Accept a pending order, optionally for a later time",
+        "description": "200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.",
+        "operationId": "OrderingOrderAccept",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingAcceptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffOrderView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffConflict"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/orders/{orderId}/decline": {
+      "post": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Decline a pending order with a reason",
+        "description": "200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.",
+        "operationId": "OrderingOrderDecline",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingDeclineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffOrderView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffConflict"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/orders/{orderId}/ready": {
+      "post": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Mark an accepted order ready to pick up",
+        "description": "200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.",
+        "operationId": "OrderingOrderReady",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingStepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffOrderView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffConflict"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/orders/{orderId}/complete": {
+      "post": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Mark an accepted or ready order picked up",
+        "description": "200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.",
+        "operationId": "OrderingOrderComplete",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingStepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffOrderView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffConflict"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/orders/{orderId}/cancel": {
+      "post": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Cancel an accepted or ready order with a reason",
+        "description": "200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.",
+        "operationId": "OrderingOrderCancel",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingShopCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffOrderView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffConflict"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/pause": {
+      "put": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Pause or resume taking orders (暫停接單)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingPauseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/asap-band": {
+      "put": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Set how long an ASAP order takes now (即時單準備時間)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingAsapBandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffSummaryView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/items": {
+      "get": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "The current menu's items and whether each can be ordered",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffMenuView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/api/v1/ordering/items/{itemId}/state": {
+      "put": {
+        "tags": [
+          "Ordering (admin)"
+        ],
+        "summary": "Set an item available, sold out today (今日售完) or unavailable (停售)",
+        "description": "404 item-not-found when the current menu has no such item.",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderingItemStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderingStaffItemView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6968,7 +7893,8 @@
           "use-shared-assistants",
           "submit-authorized-forms",
           "read-own-tracking",
-          "handle-assistant-issues"
+          "handle-assistant-issues",
+          "manage-orders"
         ]
       },
       "AccountRole": {
@@ -7090,6 +8016,14 @@
             ]
           }
         }
+      },
+      "AsapPrepBand": {
+        "enum": [
+          "under-15",
+          "15-30",
+          "30-45",
+          "45-60"
+        ]
       },
       "AssistantAcceptanceStatus": {
         "enum": [
@@ -9856,6 +10790,46 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "ChosenOption": {
+        "required": [
+          "groupId",
+          "groupName",
+          "optionId",
+          "optionName",
+          "price",
+          "count",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string"
+          },
+          "groupName": {
+            "type": "string"
+          },
+          "optionId": {
+            "type": "string"
+          },
+          "optionName": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChosenOption"
+            }
           }
         }
       },
@@ -13316,6 +14290,1820 @@
           }
         }
       },
+      "OrderingAcceptRequest": {
+        "required": [
+          "version",
+          "promisedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "promisedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderingAsapBandRequest": {
+        "required": [
+          "band"
+        ],
+        "type": "object",
+        "properties": {
+          "band": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AsapPrepBand"
+              }
+            ]
+          }
+        }
+      },
+      "OrderingAsapView": {
+        "required": [
+          "minMinutes",
+          "maxMinutes"
+        ],
+        "type": "object",
+        "properties": {
+          "minMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingAvailabilityView": {
+        "required": [
+          "days",
+          "from",
+          "to"
+        ],
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "to": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingCanceller": {
+        "enum": [
+          "customer",
+          "shop",
+          null
+        ]
+      },
+      "OrderingCancelReason": {
+        "enum": [
+          "customer-no-show",
+          "customer-request",
+          "other",
+          null
+        ]
+      },
+      "OrderingCategoryView": {
+        "required": [
+          "id",
+          "name",
+          "description",
+          "availability",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "availability": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingAvailabilityView"
+              }
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingItemView"
+            }
+          }
+        }
+      },
+      "OrderingCustomerRequest": {
+        "required": [
+          "name",
+          "phone",
+          "email"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "phone": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "email": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingDateView": {
+        "required": [
+          "date",
+          "slots"
+        ],
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingSlotView"
+            }
+          }
+        }
+      },
+      "OrderingDayHoursView": {
+        "required": [
+          "day",
+          "periods"
+        ],
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingPeriodView"
+            }
+          }
+        }
+      },
+      "OrderingDeclineReason": {
+        "enum": [
+          "too-busy",
+          "sold-out",
+          "closed",
+          "cannot-meet-request",
+          "other",
+          null
+        ]
+      },
+      "OrderingDeclineRequest": {
+        "required": [
+          "version",
+          "reason",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingDeclineReason"
+              }
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingGroupView": {
+        "required": [
+          "id",
+          "name",
+          "min",
+          "max",
+          "repeatable",
+          "options"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "min": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "max": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "repeatable": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingOptionView"
+            }
+          }
+        }
+      },
+      "OrderingItemAvailability": {
+        "enum": [
+          "available",
+          "sold-out-today",
+          "unavailable"
+        ]
+      },
+      "OrderingItemStateKind": {
+        "enum": [
+          "sold-out-today",
+          "unavailable"
+        ]
+      },
+      "OrderingItemStateRequest": {
+        "required": [
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingItemAvailability"
+              }
+            ]
+          }
+        }
+      },
+      "OrderingItemStateView": {
+        "required": [
+          "kind",
+          "resetsAt"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/OrderingItemStateKind"
+          },
+          "resetsAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderingItemView": {
+        "required": [
+          "id",
+          "name",
+          "price",
+          "description",
+          "imageUrl",
+          "optionGroups",
+          "state"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "imageUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "optionGroups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingGroupView"
+            }
+          },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingItemStateView"
+              }
+            ]
+          }
+        }
+      },
+      "OrderingLimitsView": {
+        "required": [
+          "maxLines",
+          "maxQuantity",
+          "nameMaxLength",
+          "lineCommentMaxLength",
+          "orderCommentMaxLength",
+          "maxTotal"
+        ],
+        "type": "object",
+        "properties": {
+          "maxLines": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxQuantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nameMaxLength": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lineCommentMaxLength": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "orderCommentMaxLength": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxTotal": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingLineError": {
+        "required": [
+          "line",
+          "code",
+          "path"
+        ],
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "code": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "OrderingLineRequest": {
+        "required": [
+          "itemId",
+          "quantity",
+          "selections",
+          "comment"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "selections": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/OrderingSelectionRequest"
+            }
+          },
+          "comment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingMenuView": {
+        "required": [
+          "version",
+          "categories"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingCategoryView"
+            }
+          }
+        }
+      },
+      "OrderingNoticesView": {
+        "required": [
+          "reminder",
+          "checkout"
+        ],
+        "type": "object",
+        "properties": {
+          "reminder": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "checkout": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingOpenView": {
+        "required": [
+          "isOpen",
+          "currentPeriodOpens",
+          "currentPeriodCloses",
+          "nextOpening"
+        ],
+        "type": "object",
+        "properties": {
+          "isOpen": {
+            "type": "boolean"
+          },
+          "currentPeriodOpens": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "currentPeriodCloses": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "nextOpening": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderingOptionView": {
+        "required": [
+          "id",
+          "name",
+          "price",
+          "optionGroups"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "optionGroups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingGroupView"
+            }
+          }
+        }
+      },
+      "OrderingOrderAction": {
+        "enum": [
+          "accept",
+          "decline",
+          "ready",
+          "complete",
+          "cancel"
+        ]
+      },
+      "OrderingOrderLine": {
+        "required": [
+          "itemId",
+          "itemName",
+          "itemPrice",
+          "quantity",
+          "unitPrice",
+          "lineTotal",
+          "options",
+          "comment"
+        ],
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "itemName": {
+            "type": "string"
+          },
+          "itemPrice": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "quantity": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unitPrice": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lineTotal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChosenOption"
+            }
+          },
+          "comment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingOrderRequest": {
+        "required": [
+          "serviceType",
+          "pickupDate",
+          "pickupSlot",
+          "menuVersion",
+          "lines",
+          "customer",
+          "orderComment",
+          "tableware",
+          "submissionKey"
+        ],
+        "type": "object",
+        "properties": {
+          "serviceType": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingServiceType"
+              }
+            ]
+          },
+          "pickupDate": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "pickupSlot": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "menuVersion": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "lines": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/OrderingLineRequest"
+            }
+          },
+          "customer": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingCustomerRequest"
+              }
+            ]
+          },
+          "orderComment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tableware": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "submissionKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingOrderStatus": {
+        "enum": [
+          "pending",
+          "accepted",
+          "ready",
+          "completed",
+          "declined",
+          "cancelled",
+          "expired",
+          null
+        ]
+      },
+      "OrderingOrderView": {
+        "required": [
+          "number",
+          "displayNumber",
+          "status",
+          "serviceType",
+          "businessDate",
+          "pickupAt",
+          "estimate",
+          "createdAt",
+          "cancelledAt",
+          "lines",
+          "subtotal",
+          "total",
+          "menuVersion",
+          "customerName",
+          "phoneLastDigits",
+          "orderComment",
+          "tableware",
+          "canCancel",
+          "promisedAt",
+          "declineReason",
+          "declineNote",
+          "cancelledBy",
+          "cancelReason",
+          "cancelNote"
+        ],
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "displayNumber": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderingOrderStatus"
+          },
+          "serviceType": {
+            "$ref": "#/components/schemas/OrderingServiceType"
+          },
+          "businessDate": {
+            "type": "string"
+          },
+          "pickupAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estimate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingAsapView"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cancelledAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingOrderLine"
+            }
+          },
+          "subtotal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "menuVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "phoneLastDigits": {
+            "type": "string"
+          },
+          "orderComment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tableware": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "canCancel": {
+            "type": "boolean"
+          },
+          "promisedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "declineReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingDeclineReason"
+              }
+            ]
+          },
+          "declineNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cancelledBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingCanceller"
+              }
+            ]
+          },
+          "cancelReason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingCancelReason"
+              }
+            ]
+          },
+          "cancelNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingPauseRequest": {
+        "required": [
+          "paused"
+        ],
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "OrderingPeriodView": {
+        "required": [
+          "open",
+          "close"
+        ],
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "string"
+          },
+          "close": {
+            "type": "string"
+          }
+        }
+      },
+      "OrderingProblem": {
+        "required": [
+          "type",
+          "title",
+          "status",
+          "reason",
+          "message",
+          "errors",
+          "lineErrors",
+          "menuVersion",
+          "orderNumber",
+          "orderStatus"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "errors": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "lineErrors": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/OrderingLineError"
+            }
+          },
+          "menuVersion": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "orderNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "orderStatus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingOrderStatus"
+              }
+            ]
+          }
+        }
+      },
+      "OrderingSelectionRequest": {
+        "required": [
+          "groupId",
+          "optionId",
+          "count",
+          "selections"
+        ],
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "optionId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "selections": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/OrderingSelectionRequest"
+            }
+          }
+        }
+      },
+      "OrderingServicesView": {
+        "required": [
+          "takeoutScheduled",
+          "takeoutAsap"
+        ],
+        "type": "object",
+        "properties": {
+          "takeoutScheduled": {
+            "type": "boolean"
+          },
+          "takeoutAsap": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OrderingServiceType": {
+        "enum": [
+          "takeout-scheduled",
+          "takeout-asap"
+        ]
+      },
+      "OrderingShopCancelRequest": {
+        "required": [
+          "version",
+          "reason",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingCancelReason"
+              }
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingShopInfoView": {
+        "required": [
+          "slug",
+          "name",
+          "phone",
+          "address",
+          "notices",
+          "services",
+          "paused",
+          "timeZone",
+          "now",
+          "open",
+          "asap",
+          "slotRules",
+          "showOrderComment",
+          "showTableware",
+          "menuVersion",
+          "orderingHours",
+          "limits"
+        ],
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "address": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "notices": {
+            "$ref": "#/components/schemas/OrderingNoticesView"
+          },
+          "services": {
+            "$ref": "#/components/schemas/OrderingServicesView"
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "open": {
+            "$ref": "#/components/schemas/OrderingOpenView"
+          },
+          "asap": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingAsapView"
+              }
+            ]
+          },
+          "slotRules": {
+            "$ref": "#/components/schemas/OrderingSlotRulesView"
+          },
+          "showOrderComment": {
+            "type": "boolean"
+          },
+          "showTableware": {
+            "type": "boolean"
+          },
+          "menuVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "orderingHours": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingDayHoursView"
+            }
+          },
+          "limits": {
+            "$ref": "#/components/schemas/OrderingLimitsView"
+          }
+        }
+      },
+      "OrderingSlotRulesView": {
+        "required": [
+          "slotMinutes",
+          "daysAhead",
+          "minLeadMinutes"
+        ],
+        "type": "object",
+        "properties": {
+          "slotMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "daysAhead": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "minLeadMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingSlotsView": {
+        "required": [
+          "now",
+          "dates"
+        ],
+        "type": "object",
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingDateView"
+            }
+          }
+        }
+      },
+      "OrderingSlotView": {
+        "required": [
+          "value",
+          "at",
+          "time",
+          "isNextDay",
+          "isFull"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "time": {
+            "type": "string"
+          },
+          "isNextDay": {
+            "type": "boolean"
+          },
+          "isFull": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OrderingStaffCancellationView": {
+        "required": [
+          "at",
+          "by",
+          "member",
+          "reason",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "by": {
+            "$ref": "#/components/schemas/OrderingCanceller"
+          },
+          "member": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffMemberView"
+              }
+            ]
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingCancelReason"
+              }
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingStaffCategoryView": {
+        "required": [
+          "id",
+          "name",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingStaffItemView"
+            }
+          }
+        }
+      },
+      "OrderingStaffConflict": {
+        "required": [
+          "type",
+          "title",
+          "status",
+          "reason",
+          "message",
+          "order"
+        ],
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "order": {
+            "$ref": "#/components/schemas/OrderingStaffOrderView"
+          }
+        }
+      },
+      "OrderingStaffDeclineView": {
+        "required": [
+          "at",
+          "by",
+          "reason",
+          "note"
+        ],
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffMemberView"
+              }
+            ]
+          },
+          "reason": {
+            "$ref": "#/components/schemas/OrderingDeclineReason"
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "OrderingStaffItemView": {
+        "required": [
+          "id",
+          "name",
+          "price",
+          "availability",
+          "resetsAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/OrderingItemAvailability"
+          },
+          "resetsAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderingStaffMemberView": {
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "OrderingStaffMenuView": {
+        "required": [
+          "now",
+          "menuVersion",
+          "categories"
+        ],
+        "type": "object",
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "menuVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingStaffCategoryView"
+            }
+          }
+        }
+      },
+      "OrderingStaffOrdersView": {
+        "required": [
+          "now",
+          "view",
+          "orders"
+        ],
+        "type": "object",
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "view": {
+            "type": "string"
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingStaffOrderView"
+            }
+          }
+        }
+      },
+      "OrderingStaffOrderView": {
+        "required": [
+          "id",
+          "number",
+          "displayNumber",
+          "status",
+          "version",
+          "serviceType",
+          "businessDate",
+          "pickupAt",
+          "estimate",
+          "promisedAt",
+          "customerName",
+          "customerPhone",
+          "customerPhoneDisplay",
+          "customerEmail",
+          "lines",
+          "orderComment",
+          "tableware",
+          "subtotal",
+          "total",
+          "menuVersion",
+          "createdAt",
+          "statusChangedAt",
+          "accepted",
+          "ready",
+          "completed",
+          "declined",
+          "cancelled",
+          "actions",
+          "expiresAt",
+          "personalDataClearedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "displayNumber": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderingOrderStatus"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "serviceType": {
+            "$ref": "#/components/schemas/OrderingServiceType"
+          },
+          "businessDate": {
+            "type": "string"
+          },
+          "pickupAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estimate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingAsapView"
+              }
+            ]
+          },
+          "promisedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "customerPhone": {
+            "type": "string"
+          },
+          "customerPhoneDisplay": {
+            "type": "string"
+          },
+          "customerEmail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingOrderLine"
+            }
+          },
+          "orderComment": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tableware": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "subtotal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "menuVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "accepted": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffStepView"
+              }
+            ]
+          },
+          "ready": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffStepView"
+              }
+            ]
+          },
+          "completed": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffStepView"
+              }
+            ]
+          },
+          "declined": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffDeclineView"
+              }
+            ]
+          },
+          "cancelled": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffCancellationView"
+              }
+            ]
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderingOrderAction"
+            }
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "personalDataClearedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderingStaffStepView": {
+        "required": [
+          "at",
+          "by"
+        ],
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrderingStaffMemberView"
+              }
+            ]
+          }
+        }
+      },
+      "OrderingStaffSummaryView": {
+        "required": [
+          "now",
+          "businessDate",
+          "timeZone",
+          "shopName",
+          "slug",
+          "pendingCount",
+          "activeCount",
+          "latestOrderAt",
+          "changedAt",
+          "paused",
+          "asapBand",
+          "asap",
+          "services",
+          "menuVersion",
+          "shopVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "businessDate": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "shopName": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "pendingCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "activeCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "latestOrderAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "changedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "asapBand": {
+            "$ref": "#/components/schemas/AsapPrepBand"
+          },
+          "asap": {
+            "$ref": "#/components/schemas/OrderingAsapView"
+          },
+          "services": {
+            "$ref": "#/components/schemas/OrderingServicesView"
+          },
+          "menuVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "shopVersion": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingStepRequest": {
+        "required": [
+          "version"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "OrderingSubmittedView": {
+        "required": [
+          "token",
+          "order"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "order": {
+            "$ref": "#/components/schemas/OrderingOrderView"
+          }
+        }
+      },
       "OrganizationChatModelView": {
         "required": [
           "options",
@@ -15285,6 +18073,12 @@
     },
     {
       "name": "VisitorChatRunEndpoints"
+    },
+    {
+      "name": "Ordering (public)"
+    },
+    {
+      "name": "Ordering (admin)"
     }
   ]
 }

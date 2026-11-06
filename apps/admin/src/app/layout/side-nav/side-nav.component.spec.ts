@@ -125,6 +125,37 @@ describe('SideNavComponent', () => {
     expect(cases.getAttribute('aria-label')).toBe('轉真人，2 則待處理');
   });
 
+  it('shows an entry with a permission only to accounts that have it (點餐 needs manage-orders, issue #399)', async () => {
+    const render = async (permissions: readonly string[]) => {
+      TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [SideNavComponent],
+        providers: [
+          provideRouter([]),
+          { provide: DemoSessionService, useValue: { activeAccountId: signal(null) } },
+          { provide: ApiSessionService, useValue: { displayName: signal(null), permissions: signal(permissions) } },
+        ],
+      }).compileComponents();
+      const fixture = TestBed.createComponent(SideNavComponent);
+      fixture.componentRef.setInput('navItems', [
+        { route: '/app/home', label: '首頁', icon: 'home' },
+        { route: '/app/orders', label: '點餐', icon: 'receipt_long', count: signal(2), countLabel: '筆待確認', permission: 'manage-orders' },
+      ]);
+      fixture.componentRef.setInput('collapsed', false);
+      fixture.componentRef.setInput('isMobile', false);
+      fixture.componentRef.setInput('openGroupLabel', null);
+      fixture.componentRef.setInput('currentGroupLabel', null);
+      fixture.componentRef.setInput('flyoutPositions', []);
+      fixture.detectChanges();
+      return Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLAnchorElement>('a.nav-link'));
+    };
+
+    const staff = await render(['manage-orders']);
+    expect(staff.map((link) => link.getAttribute('href'))).toEqual(['/app/home', '/app/orders']);
+    expect(staff[1].getAttribute('aria-label')).toBe('點餐，2 筆待確認');
+    expect((await render(['use-shared-assistants'])).map((link) => link.getAttribute('href'))).toEqual(['/app/home']);
+  });
+
   it('shows no number for 0 (or none)', async () => {
     for (const count of [0, undefined]) {
       TestBed.resetTestingModule();

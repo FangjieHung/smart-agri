@@ -40,9 +40,13 @@ export class WorkspaceLayoutComponent implements OnInit {
   /** 側欄「轉真人」旁的待處理數字（issue #355），與逾期數字同一個做法。 */
   protected readonly handoffPendingCount = signal(0);
 
+  /** 側欄「點餐」旁的待確認數字（issue #399），同一個做法；只給有 `manage-orders` 的帳號顯示。 */
+  protected readonly orderPendingCount = signal(0);
+
   protected readonly navItems: NavEntry[] = [
     { route: '/app/home', label: '首頁', icon: 'home' },
     { route: '/app/assistants', label: '我的助理', icon: 'smart_toy' },
+    { route: '/app/orders', label: '點餐', icon: 'receipt_long', count: this.orderPendingCount, countLabel: '筆待確認', permission: 'manage-orders' },
     { route: '/app/knowledge', label: '知識庫', icon: 'library_books' },
     { route: '/app/databases', label: '數據庫', icon: 'database' },
     { route: '/app/activity', label: '對話與回報紀錄', icon: 'forum' },
@@ -135,7 +139,8 @@ export class WorkspaceLayoutComponent implements OnInit {
   }
 
   /**
-   * 換頁時更新逾期數字與轉真人的待處理數字（決定 R：不設計時器；#355 照做）。讀取的程式以動態 `import()` 載入首頁的 lazy chunk：首頁為了
+   * 換頁時更新逾期數字、轉真人的待處理數字與點餐的待確認數字（決定 R：不設計時器；#355、#399 照做——「點餐」頁
+   * 開著時自己每 10 秒輪詢，數字變了就送出 `NAV_COUNTS_CHANGED_EVENT`）。讀取的程式以動態 `import()` 載入首頁的 lazy chunk：首頁為了
    * 「案件」卡片本來就帶著 `CasesRepository`，並轉出 `refreshCaseOverdueCount`；另開一個只用到 core／HTTP
    * 的新 chunk，會讓 esbuild 把初始 bundle 的共用 chunk 再切成兩塊（實測多出約 0.9 kB）。工作區以外不載入
    * （側欄也不顯示）；外部客戶與沒有身分時是 0、不發請求，由讀取的程式判斷。外框由 Router 建立、第一次
@@ -145,6 +150,7 @@ export class WorkspaceLayoutComponent implements OnInit {
     if (url.startsWith('/app')) void import('../../features/home/home-page.component').then((m) => {
       void m.refreshCaseOverdueCount(this.injector, this.caseOverdueCount);
       void m.refreshHandoffPendingCount(this.injector, this.handoffPendingCount);
+      void m.refreshOrderPendingCount(this.injector, this.orderPendingCount);
     });
   }
 

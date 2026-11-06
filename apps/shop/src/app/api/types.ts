@@ -24,6 +24,9 @@ export type ChosenOption = Schemas['ChosenOption'];
 export type ServiceType = Schemas['OrderingServiceType'];
 export type OrderStatus = NonNullable<Schemas['OrderingOrderStatus']>;
 export type LineError = Schemas['OrderingLineError'];
+export type DeclineReason = NonNullable<Schemas['OrderingDeclineReason']>;
+export type CancelReason = NonNullable<Schemas['OrderingCancelReason']>;
+export type Canceller = NonNullable<Schemas['OrderingCanceller']>;
 
 /**
  * 公開點餐 API 的拒絕回應。`OrderingProblem` 的每個欄位都會送出，但 `429 rate-limited` 是共用的頻率限制回應，

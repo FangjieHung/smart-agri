@@ -57,6 +57,9 @@
             {{ words()?.title }}
           </h2>
           <p class="hero__detail">{{ words()?.detail }}</p>
+          @if (reason(); as text) {
+            <p class="hero__detail" data-testid="order-reason">{{ text }}</p>
+          }
         </section>
 
         @if (progress() !== null) {

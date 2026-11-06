@@ -27,6 +27,12 @@ const order = (status: Order['status']): Order =>
     orderComment: null,
     tableware: false,
     canCancel: status === 'pending',
+    promisedAt: null,
+    declineReason: null,
+    declineNote: null,
+    cancelledBy: null,
+    cancelReason: null,
+    cancelNote: null,
   }) as Order;
 
 describe('StatusPage', () => {
@@ -88,6 +94,60 @@ describe('StatusPage', () => {
     await vi.advanceTimersByTimeAsync(POLL_MS * 3);
     await settle();
     expect(api.order).toHaveBeenCalledTimes(3);
+    fixture.destroy();
+  });
+
+  it('shows the time the shop promised and the reason it declined or cancelled (#399)', async () => {
+    history.replaceState(null, '', `/order/wangji-noodles/o#${TOKEN}`);
+    const answers: Order[] = [
+      {
+        ...order('accepted'),
+        promisedAt: '2026-11-07T04:45:00+00:00',
+      } as Order,
+      {
+        ...order('declined'),
+        declineReason: 'sold-out',
+        declineNote: '牛肉麵賣完了',
+      } as Order,
+    ];
+    const api = {
+      order: vi.fn(async () => ({ ok: true as const, status: 200, data: answers.shift() ?? order('declined') })),
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), { provide: OrderingApi, useValue: api }],
+    });
+    const store = TestBed.inject(ShopStore);
+    store.slug.set('wangji-noodles');
+    store.shop.set({
+      name: '王記麵店',
+      phone: '06-123-4567',
+      timeZone: 'Asia/Taipei',
+      now: '2026-11-06T14:33:00Z',
+    } as ShopInfo);
+    const fixture = TestBed.createComponent(StatusPage);
+    const root = fixture.nativeElement as HTMLElement;
+    const settle = async () => {
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+        fixture.detectChanges();
+      }
+    };
+    fixture.detectChanges();
+    await settle();
+    expect(root.querySelector('[data-testid="order-pickup"]')?.textContent).toContain(
+      '明天 12:45（店家調整了取餐時間）',
+    );
+    expect(root.querySelector('[data-testid="order-reason"]')).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    await settle();
+    expect(root.querySelector('[data-testid="order-status"]')?.textContent?.trim()).toBe(
+      '店家無法接這筆訂單',
+    );
+    expect(root.querySelector('[data-testid="order-reason"]')?.textContent?.trim()).toBe(
+      '原因：有品項已經賣完。牛肉麵賣完了',
+    );
     fixture.destroy();
   });
 

@@ -9099,6 +9099,557 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordering/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Counts and cursors to poll: pending orders, the newest order, the last change, the shop's switches */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The orders of one view: pending, active (accepted and ready) or done (today's closed orders)
+         * @description 422 when view is not pending, active or done.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    view?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffOrdersView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/orders/{orderId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One order */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    orderId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffOrderView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/orders/{orderId}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a pending order, optionally for a later time
+         * @description 200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.
+         */
+        post: operations["OrderingOrderAccept"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/orders/{orderId}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline a pending order with a reason
+         * @description 200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.
+         */
+        post: operations["OrderingOrderDecline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/orders/{orderId}/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark an accepted order ready to pick up
+         * @description 200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.
+         */
+        post: operations["OrderingOrderReady"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/orders/{orderId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark an accepted or ready order picked up
+         * @description 200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.
+         */
+        post: operations["OrderingOrderComplete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/orders/{orderId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel an accepted or ready order with a reason
+         * @description 200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.
+         */
+        post: operations["OrderingOrderCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Pause or resume taking orders (暫停接單) */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OrderingPauseRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/asap-band": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set how long an ASAP order takes now (即時單準備時間) */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OrderingAsapBandRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffSummaryView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The current menu's items and whether each can be ordered */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffMenuView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/items/{itemId}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set an item available, sold out today (今日售完) or unavailable (停售)
+         * @description 404 item-not-found when the current menu has no such item.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    itemId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OrderingItemStateRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffItemView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -9108,7 +9659,7 @@ export interface components {
             eventCount: null | number;
         };
         /** @enum {unknown} */
-        AccountPermission: "manage-assistants" | "manage-data-sources" | "manage-publishing" | "read-consented-submissions" | "use-shared-assistants" | "submit-authorized-forms" | "read-own-tracking" | "handle-assistant-issues";
+        AccountPermission: "manage-assistants" | "manage-data-sources" | "manage-publishing" | "read-consented-submissions" | "use-shared-assistants" | "submit-authorized-forms" | "read-own-tracking" | "handle-assistant-issues" | "manage-orders";
         /** @enum {unknown} */
         AccountRole: "smb-admin" | "internal-employee" | "external-customer";
         AGUIContext: {
@@ -9135,6 +9686,8 @@ export interface components {
             versionIds: null | string[];
             effectiveFrom?: null | string;
         };
+        /** @enum {unknown} */
+        AsapPrepBand: "under-15" | "15-30" | "30-45" | "45-60";
         /** @enum {unknown} */
         AssistantAcceptanceStatus: "not-accepted" | "passed" | "failed" | "outdated";
         AssistantAnalyticsView: {
@@ -10737,6 +11290,15 @@ export interface components {
             issues: components["schemas"]["IssuesSummaryView"];
             databaseQueries: components["schemas"]["DatabaseQueryOperationsView"];
         };
+        OrderingAcceptRequest: {
+            /** Format: int32 */
+            version: null | number;
+            /** Format: date-time */
+            promisedAt: null | string;
+        };
+        OrderingAsapBandRequest: {
+            band: null | components["schemas"]["AsapPrepBand"];
+        };
         OrderingAsapView: {
             /** Format: int32 */
             minMinutes: number;
@@ -10748,6 +11310,10 @@ export interface components {
             from: null | string;
             to: null | string;
         };
+        /** @enum {unknown} */
+        OrderingCanceller: "customer" | "shop" | null;
+        /** @enum {unknown} */
+        OrderingCancelReason: "customer-no-show" | "customer-request" | "other" | null;
         OrderingCategoryView: {
             id: string;
             name: string;
@@ -10768,6 +11334,14 @@ export interface components {
             day: string;
             periods: components["schemas"]["OrderingPeriodView"][];
         };
+        /** @enum {unknown} */
+        OrderingDeclineReason: "too-busy" | "sold-out" | "closed" | "cannot-meet-request" | "other" | null;
+        OrderingDeclineRequest: {
+            /** Format: int32 */
+            version: null | number;
+            reason: null | components["schemas"]["OrderingDeclineReason"];
+            note: null | string;
+        };
         OrderingGroupView: {
             id: string;
             name: string;
@@ -10779,7 +11353,12 @@ export interface components {
             options: components["schemas"]["OrderingOptionView"][];
         };
         /** @enum {unknown} */
+        OrderingItemAvailability: "available" | "sold-out-today" | "unavailable";
+        /** @enum {unknown} */
         OrderingItemStateKind: "sold-out-today" | "unavailable";
+        OrderingItemStateRequest: {
+            state: null | components["schemas"]["OrderingItemAvailability"];
+        };
         OrderingItemStateView: {
             kind: components["schemas"]["OrderingItemStateKind"];
             /** Format: date-time */
@@ -10847,6 +11426,8 @@ export interface components {
             price: number;
             optionGroups: components["schemas"]["OrderingGroupView"][];
         };
+        /** @enum {unknown} */
+        OrderingOrderAction: "accept" | "decline" | "ready" | "complete" | "cancel";
         OrderingOrderLine: {
             itemId: string;
             itemName: string;
@@ -10901,6 +11482,16 @@ export interface components {
             orderComment: null | string;
             tableware: null | boolean;
             canCancel: boolean;
+            /** Format: date-time */
+            promisedAt: null | string;
+            declineReason: null | components["schemas"]["OrderingDeclineReason"];
+            declineNote: null | string;
+            cancelledBy: null | components["schemas"]["OrderingCanceller"];
+            cancelReason: null | components["schemas"]["OrderingCancelReason"];
+            cancelNote: null | string;
+        };
+        OrderingPauseRequest: {
+            paused: null | boolean;
         };
         OrderingPeriodView: {
             open: string;
@@ -10935,6 +11526,12 @@ export interface components {
         };
         /** @enum {unknown} */
         OrderingServiceType: "takeout-scheduled" | "takeout-asap";
+        OrderingShopCancelRequest: {
+            /** Format: int32 */
+            version: null | number;
+            reason: null | components["schemas"]["OrderingCancelReason"];
+            note: null | string;
+        };
         OrderingShopInfoView: {
             slug: string;
             name: string;
@@ -10976,6 +11573,135 @@ export interface components {
             time: string;
             isNextDay: boolean;
             isFull: boolean;
+        };
+        OrderingStaffCancellationView: {
+            /** Format: date-time */
+            at: string;
+            by: components["schemas"]["OrderingCanceller"];
+            member: null | components["schemas"]["OrderingStaffMemberView"];
+            reason: null | components["schemas"]["OrderingCancelReason"];
+            note: null | string;
+        };
+        OrderingStaffCategoryView: {
+            id: string;
+            name: string;
+            items: components["schemas"]["OrderingStaffItemView"][];
+        };
+        OrderingStaffConflict: {
+            type: string;
+            title: string;
+            /** Format: int32 */
+            status: number;
+            reason: string;
+            message: string;
+            order: components["schemas"]["OrderingStaffOrderView"];
+        };
+        OrderingStaffDeclineView: {
+            /** Format: date-time */
+            at: string;
+            by: null | components["schemas"]["OrderingStaffMemberView"];
+            reason: components["schemas"]["OrderingDeclineReason"];
+            note: null | string;
+        };
+        OrderingStaffItemView: {
+            id: string;
+            name: string;
+            /** Format: int32 */
+            price: number;
+            availability: components["schemas"]["OrderingItemAvailability"];
+            /** Format: date-time */
+            resetsAt: null | string;
+        };
+        OrderingStaffMemberView: {
+            /** Format: uuid */
+            id: string;
+            displayName: string;
+        };
+        OrderingStaffMenuView: {
+            /** Format: date-time */
+            now: string;
+            /** Format: int32 */
+            menuVersion: number;
+            categories: components["schemas"]["OrderingStaffCategoryView"][];
+        };
+        OrderingStaffOrdersView: {
+            /** Format: date-time */
+            now: string;
+            view: string;
+            orders: components["schemas"]["OrderingStaffOrderView"][];
+        };
+        OrderingStaffOrderView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            number: number;
+            displayNumber: string;
+            status: components["schemas"]["OrderingOrderStatus"];
+            /** Format: int32 */
+            version: number;
+            serviceType: components["schemas"]["OrderingServiceType"];
+            businessDate: string;
+            /** Format: date-time */
+            pickupAt: string;
+            estimate: null | components["schemas"]["OrderingAsapView"];
+            /** Format: date-time */
+            promisedAt: null | string;
+            customerName: string;
+            customerPhone: string;
+            customerPhoneDisplay: string;
+            customerEmail: null | string;
+            lines: components["schemas"]["OrderingOrderLine"][];
+            orderComment: null | string;
+            tableware: null | boolean;
+            /** Format: int32 */
+            subtotal: number;
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            menuVersion: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            statusChangedAt: string;
+            accepted: null | components["schemas"]["OrderingStaffStepView"];
+            ready: null | components["schemas"]["OrderingStaffStepView"];
+            completed: null | components["schemas"]["OrderingStaffStepView"];
+            declined: null | components["schemas"]["OrderingStaffDeclineView"];
+            cancelled: null | components["schemas"]["OrderingStaffCancellationView"];
+            actions: components["schemas"]["OrderingOrderAction"][];
+        };
+        OrderingStaffStepView: {
+            /** Format: date-time */
+            at: string;
+            by: null | components["schemas"]["OrderingStaffMemberView"];
+        };
+        OrderingStaffSummaryView: {
+            /** Format: date-time */
+            now: string;
+            businessDate: string;
+            timeZone: string;
+            shopName: string;
+            slug: string;
+            /** Format: int32 */
+            pendingCount: number;
+            /** Format: int32 */
+            activeCount: number;
+            /** Format: date-time */
+            latestOrderAt: null | string;
+            /** Format: date-time */
+            changedAt: null | string;
+            paused: boolean;
+            asapBand: components["schemas"]["AsapPrepBand"];
+            asap: components["schemas"]["OrderingAsapView"];
+            services: components["schemas"]["OrderingServicesView"];
+            /** Format: int32 */
+            menuVersion: number;
+            /** Format: int32 */
+            shopVersion: number;
+        };
+        OrderingStepRequest: {
+            /** Format: int32 */
+            version: null | number;
         };
         OrderingSubmittedView: {
             token: string;
@@ -11603,6 +12329,321 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OrderingOrderAccept: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderingAcceptRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderingStaffOrderView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["OrderingStaffConflict"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OrderingOrderDecline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderingDeclineRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderingStaffOrderView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["OrderingStaffConflict"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OrderingOrderReady: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderingStepRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderingStaffOrderView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["OrderingStaffConflict"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OrderingOrderComplete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderingStepRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderingStaffOrderView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["OrderingStaffConflict"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    OrderingOrderCancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderingShopCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderingStaffOrderView"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["OrderingStaffConflict"];
+                };
             };
             /** @description Unprocessable Entity */
             422: {

@@ -15,6 +15,7 @@ public sealed record OrderingServices(bool TakeoutScheduled, bool TakeoutAsap)
 
 /// <summary>How long an ASAP takeout order takes to be ready (design D9), chosen by the staff: shown to the customer as
 /// 「約 N–M 分鐘」.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AsapPrepBand>))]
 public enum AsapPrepBand
 {
     /// <summary>Under 15 minutes.</summary>

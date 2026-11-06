@@ -23,7 +23,8 @@ namespace SmartAgri.Api.Tests.Coordinator;
 /// failure does not stop the others, the monthly limit leaves it 「未通知成員」 without retrying), 〔接受〕／〔婉拒〕 are a
 /// compare-and-set only a member of that shop can win once, a reservation nobody handled expires
 /// <c>pendingExpiryMinutes</c> before its time, 「訂位」 lists the next 7 days, every accepted push is in the push log,
-/// and <c>coordinator-quota</c> reports the account's use — never the customer's details in a log.
+/// and <c>coordinator-quota</c> reports the account's use — never the customer's details in a log, also not from the
+/// customer's Email job (#391) nor its final failure.
 /// </summary>
 public sealed partial class CoordinatorWebhookTests
 {
@@ -71,7 +72,7 @@ public sealed partial class CoordinatorWebhookTests
             var card = ReservationCard(CardsTo(member).ShouldHaveSingleItem());
             card.AltText.ShouldBe("新訂位：卡片麵店 11/12（四） 18:30 4 位");
             card.Header.ShouldBe(["新訂位｜卡片麵店"]);
-            card.Body.ShouldBe(["11/12（四） 18:30", "4 位", "姓名", "陳小姐", "電話", "0912-345-678", "Email", "沒有留 Email", "備註", "需要兒童椅"]);
+            card.Body.ShouldBe(["11/12（四） 18:30", "4 位", "姓名", "陳小姐", "電話", "0912-345-678", "Email", "沒有留 Email，請來電確認", "備註", "需要兒童椅"]);
             card.Buttons.ShouldBe(
             [
                 ("撥打電話", "uri", "tel:0912345678"),
@@ -251,8 +252,8 @@ public sealed partial class CoordinatorWebhookTests
         var card = ReservationCard(CardsTo(manager).ShouldHaveSingleItem());
 
         var decided = (await PostbackForMessagesAsync(owner, card.Data("接受"))).ShouldHaveSingleItem();
-        Said(decided).ShouldBe("已接受：陳小姐 11/12（四） 18:30 4 位。顧客電話 0912-345-678。");
-        Texts(decided.GetProperty("contents").GetProperty("body")).ShouldBe(["已接受：陳小姐 11/12（四） 18:30 4 位。顧客電話 0912-345-678。"]);
+        Said(decided).ShouldBe("已接受：陳小姐 11/12（四） 18:30 4 位。會寄確認信給顧客。");
+        Texts(decided.GetProperty("contents").GetProperty("body")).ShouldBe(["已接受：陳小姐 11/12（四） 18:30 4 位。會寄確認信給顧客。"]);
         Elements(decided.GetProperty("contents").GetProperty("footer"))
             .Where(element => element.TryGetProperty("uri", out _))
             .Select(element => element.GetProperty("uri").GetString())
@@ -272,7 +273,7 @@ public sealed partial class CoordinatorWebhookTests
         // Declined by the manager, whose LINE name the account cannot get: 「店長」.
         var second = await SeedReservationAsync(shop, ReservationDay, new TimeOnly(19, 0), phone: "0911222333");
         Said((await PostbackForMessagesAsync(manager, CoordinatorMessageRouter.DeclineReservationPostback(shop.Id, second.Id))).ShouldHaveSingleItem())
-            .ShouldBe("已婉拒：陳小姐 11/12（四） 19:00 4 位。顧客電話 0911-222-333。");
+            .ShouldBe("已婉拒：陳小姐 11/12（四） 19:00 4 位。會寄婉拒信給顧客。");
         var declined = await ReservationOfAsync(shop, second.Id);
         declined.Status.ShouldBe(CoordinatorReservationStatus.Declined);
         (await PostbackTextAsync(owner, CoordinatorMessageRouter.AcceptReservationPostback(shop.Id, second.Id)))
@@ -634,14 +635,42 @@ public sealed partial class CoordinatorWebhookTests
     {
         SetNow(ReservationNow);
         var (shop, owner, manager, _) = await ReservationShopAsync("隱私麵店");
+        var address = $"wu-{Guid.NewGuid():N}@example.com";
+        var refusedAddress = $"lin-{Guid.NewGuid():N}@example.com";
         _host.Log.Start();
         try
         {
-            var reservation = await SeedReservationAsync(shop, ReservationDay, new TimeOnly(18, 30), name: "吳先生", phone: "0977888999", email: "wu@example.com", note: "素食兩位");
+            var reservation = await SeedReservationAsync(shop, ReservationDay, new TimeOnly(18, 30), name: "吳先生", phone: "0977888999", email: address, note: "素食兩位");
             await RunJobsAsync();
             Said((await PostbackForMessagesAsync(owner, CoordinatorMessageRouter.AcceptReservationPostback(shop.Id, reservation.Id)))[0]).ShouldStartWith("已接受：吳先生");
             (await PostbackTextAsync(manager, CoordinatorMessageRouter.DeclineReservationPostback(shop.Id, reservation.Id))).ShouldStartWith("這筆訂位已由");
             Said((await SendForMessagesAsync(manager, "訂位"))[0]).ShouldContain("已接受 1 筆");
+            await RunJobsAsync();
+            Smtp.To(address).ShouldHaveSingleItem("the confirmation Email (#391)");
+
+            // An Email the SMTP server refuses every time: retried until the job gives up (#391).
+            var refused = await SeedReservationAsync(shop, ReservationDay, new TimeOnly(19, 0), name: "林小姐", phone: "0966777888", email: refusedAddress, note: "靠窗");
+            await RunJobsAsync();
+            Smtp.FailNext(1000);
+            try
+            {
+                Said((await PostbackForMessagesAsync(manager, CoordinatorMessageRouter.DeclineReservationPostback(shop.Id, refused.Id)))[0]).ShouldStartWith("已婉拒：林小姐");
+                await RunJobsAsync();
+                foreach (var wait in new[] { 31, 61, 121, 241 })
+                {
+                    _host.Clock.Advance(TimeSpan.FromSeconds(wait));
+                    await RunJobsAsync();
+                }
+            }
+            finally
+            {
+                Smtp.FailNext(0);
+            }
+
+            var gaveUp = (await EmailJobsAsync(shop)).Single(job => Payload(job).ReservationId == refused.Id);
+            (gaveUp.Status, gaveUp.Attempts).ShouldBe((BackgroundJobStatus.Failed, 5));
+            gaveUp.LastError.ShouldNotBeNull().ShouldNotContain(refusedAddress);
+            Smtp.To(refusedAddress).ShouldBeEmpty();
         }
         finally
         {
@@ -651,7 +680,13 @@ public sealed partial class CoordinatorWebhookTests
         var lines = _host.Log.Lines;
         lines.ShouldContain(line => line.Contains("card pushed to 2 of 2 members", StringComparison.Ordinal));
         lines.ShouldContain(line => line.Contains("accepted by member", StringComparison.Ordinal));
-        foreach (var secret in new[] { "吳先生", "0977888999", "0977-888-999", "wu@example.com", "素食兩位", owner, manager })
+        lines.ShouldContain(line => line.Contains("Reservation Email (accepted) for reservation", StringComparison.Ordinal) && line.Contains("sent (attempt 1)", StringComparison.Ordinal));
+        lines.ShouldContain(line => line.Contains("The reservation Email (declined) could not be sent (attempt 1 of 5)", StringComparison.Ordinal));
+        lines.ShouldContain(line => line.Contains("The Email job (declined) of reservation", StringComparison.Ordinal) && line.Contains("gave up after 5 attempts", StringComparison.Ordinal));
+        foreach (var secret in new[]
+        {
+            "吳先生", "0977888999", "0977-888-999", address, "素食兩位", "林小姐", "0966777888", "0966-777-888", refusedAddress, "靠窗", owner, manager,
+        })
         {
             lines.ShouldNotContain(line => line.Contains(secret, StringComparison.Ordinal), secret);
         }

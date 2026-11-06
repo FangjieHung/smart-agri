@@ -34,7 +34,7 @@ public sealed class SmtpEmailSender : IEmailSender
 
         using var mail = new MailMessage
         {
-            From = new MailAddress(options.From!.Trim(), options.EffectiveFromName, Encoding.UTF8),
+            From = new MailAddress(options.From!.Trim(), DisplayName(message.FromName) ?? options.EffectiveFromName, Encoding.UTF8),
             Subject = message.Subject,
             SubjectEncoding = Encoding.UTF8,
             Body = message.Body,
@@ -64,5 +64,23 @@ public sealed class SmtpEmailSender : IEmailSender
         {
             throw new TimeoutException($"The SMTP server did not accept the message within {options.EffectiveTimeout.TotalSeconds:0} seconds.");
         }
+    }
+
+    /// <summary>
+    /// <paramref name="name"/> as one line for the <c>From</c> header (#391): every control character — CR, LF, tab — is a
+    /// space, runs of white space are one, and the ends are trimmed; <see langword="null"/> when nothing is left. A name
+    /// with non-ASCII characters is written as RFC 2047 encoded words by <see cref="MailAddress"/>, an ASCII one quoted
+    /// when it needs to be, so no part of it can start a header of its own.
+    /// </summary>
+    public static string? DisplayName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var oneLine = string.Join(' ', new string([.. name.Select(character => char.IsControl(character) ? ' ' : character)])
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return oneLine.Length == 0 ? null : oneLine;
     }
 }

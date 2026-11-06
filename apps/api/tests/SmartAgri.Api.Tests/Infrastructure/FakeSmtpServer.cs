@@ -193,8 +193,8 @@ public sealed partial record SmtpMessage(string From, IReadOnlyList<string> Reci
             .FirstOrDefault();
     }
 
-    /// <summary>Decodes RFC 2047 <c>B</c> words (what .NET writes for UTF-8 headers); white space between
-    /// two encoded words is not part of the text (§6.2).</summary>
+    /// <summary>Decodes RFC 2047 <c>B</c> words (what .NET writes for a UTF-8 subject) and <c>Q</c> words (what it
+    /// writes for a UTF-8 display name, #391); white space between two encoded words is not part of the text (§6.2).</summary>
     private static string DecodeWords(string value)
     {
         var joined = AdjacentWords().Replace(value, "?==?");
@@ -211,7 +211,7 @@ public sealed partial record SmtpMessage(string From, IReadOnlyList<string> Reci
             }
 
             encoding = Encoding.GetEncoding(match.Groups[1].Value);
-            bytes.AddRange(Convert.FromBase64String(match.Groups[2].Value));
+            bytes.AddRange(match.Groups[2].Value is "B" or "b" ? Convert.FromBase64String(match.Groups[3].Value) : QuotedBytes(match.Groups[3].Value));
             position = match.Index + match.Length;
         }
 
@@ -231,7 +231,27 @@ public sealed partial record SmtpMessage(string From, IReadOnlyList<string> Reci
         }
     }
 
-    [GeneratedRegex(@"=\?([^?]+)\?[Bb]\?([^?]*)\?=")]
+    /// <summary>A <c>Q</c> word's bytes: <c>_</c> is a space, <c>=XX</c> a byte in hex, anything else itself.</summary>
+    private static List<byte> QuotedBytes(string text)
+    {
+        var bytes = new List<byte>(text.Length);
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (text[index] == '=' && index + 2 < text.Length)
+            {
+                bytes.Add(Convert.ToByte(text.Substring(index + 1, 2), 16));
+                index += 2;
+            }
+            else
+            {
+                bytes.Add(text[index] == '_' ? (byte)' ' : (byte)text[index]);
+            }
+        }
+
+        return bytes;
+    }
+
+    [GeneratedRegex(@"=\?([^?]+)\?([BbQq])\?([^?]*)\?=")]
     private static partial Regex EncodedWord();
 
     [GeneratedRegex(@"\?=\s+=\?")]

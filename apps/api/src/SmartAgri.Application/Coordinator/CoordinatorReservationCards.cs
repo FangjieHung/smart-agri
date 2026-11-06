@@ -6,14 +6,16 @@ using SmartAgri.Domain.Coordinator;
 namespace SmartAgri.Application.Coordinator;
 
 /// <summary>
-/// What the 統籌助理 says about a shop's online reservations (store-reservations design decisions R2, R5, §3.1 points 6–8,
-/// Slice R2, #390): the new-reservation card pushed to each member, the answer to 〔接受〕／〔婉拒〕, and the 「訂位」 list —
-/// LINE messages built purely from the reservations.
+/// What the 統籌助理 says about a shop's online reservations (store-reservations design decisions R2, R3, R5, §3.1 points
+/// 6–9, Slices R2 and R3, #390, #391): the new-reservation card pushed to each member, the answer to 〔接受〕／〔婉拒〕 (which
+/// says whether the customer is told by Email or must be called), and the 「訂位」 list — LINE messages built purely from
+/// the reservations and whether the platform can send Email.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The cards show what the shop needs to seat and call the customer — date and time (as the reservation page shows
-/// them, 「（隔天）」 after midnight), party size, name, phone, Email or 「沒有留 Email」, note — and nothing else: no LINE
+/// them, 「（隔天）」 after midnight), party size, name, phone, Email or 「沒有留 Email」 (on the new-reservation card
+/// 「沒有留 Email，請來電確認」, and 「請來電確認」 on every one when the platform sends no Email), note — and nothing else: no LINE
 /// id, no reservation id but in the buttons' postback data. 〔撥打電話〕 is a URI action <c>tel:</c> (LINE allows the
 /// schemes <c>http</c>, <c>https</c>, <c>line</c> and <c>tel</c>); 〔接受〕 and 〔婉拒〕 are postbacks of
 /// <see cref="CoordinatorMessageRouter.AcceptReservationPostback"/> and
@@ -33,8 +35,15 @@ public static class CoordinatorReservationCards
 
     public const string DeclineLabel = "婉拒";
 
-    /// <summary>What the card says when the customer left no Email address.</summary>
+    /// <summary>What the 「訂位」 list says when the customer left no Email address.</summary>
     public const string NoEmail = "沒有留 Email";
+
+    /// <summary>What the new-reservation card says when the customer left no Email address (#391): nobody but the shop
+    /// will tell them.</summary>
+    public const string NoEmailCallToConfirm = "沒有留 Email，請來電確認";
+
+    /// <summary>What the new-reservation card adds when the platform sends no Email at all (no SMTP, #391).</summary>
+    public const string CallToConfirm = "請來電確認";
 
     /// <summary>How many business days 「訂位」 lists, today included.</summary>
     public const int ListDays = 7;
@@ -68,9 +77,11 @@ public static class CoordinatorReservationCards
 
     /// <summary>
     /// The card pushed to each member when <paramref name="reservation"/> arrives (alt text 「新訂位：{店名} {日期時間}
-    /// {人數} 位」): header 「新訂位｜{店名}」, the details, 〔撥打電話〕〔接受〕〔婉拒〕.
+    /// {人數} 位」): header 「新訂位｜{店名}」, the details, 〔撥打電話〕〔接受〕〔婉拒〕. When the platform sends Email
+    /// (<paramref name="emailConfigured"/>), a customer without an address is 「沒有留 Email，請來電確認」; when it does not,
+    /// no Email row unless the customer left one, and 「請來電確認」 below the details.
     /// </summary>
-    public static JsonObject NewReservation(string storeName, TimeZoneInfo zone, CoordinatorReservation reservation)
+    public static JsonObject NewReservation(string storeName, TimeZoneInfo zone, CoordinatorReservation reservation, bool emailConfigured)
     {
         ArgumentNullException.ThrowIfNull(storeName);
         ArgumentNullException.ThrowIfNull(zone);
@@ -81,9 +92,14 @@ public static class CoordinatorReservationCards
             Text(when, "lg", weight: "bold"),
             Text(Party(reservation.PartySize), "md"),
         };
-        foreach (var row in Details(reservation))
+        foreach (var row in Details(reservation, emailConfigured ? NoEmailCallToConfirm : null))
         {
             body.Add(row);
+        }
+
+        if (!emailConfigured)
+        {
+            body.Add(Text(CallToConfirm, "sm", weight: "bold"));
         }
 
         var bubble = new JsonObject
@@ -96,26 +112,33 @@ public static class CoordinatorReservationCards
         return Flex($"新訂位：{storeName} {when} {Party(reservation.PartySize)}", bubble);
     }
 
-    /// <summary>「已接受：{姓名} {日期時間} {人數} 位。顧客電話 {電話}。」 or 「已婉拒：…」: what the member who pressed is told.</summary>
-    public static string DecidedText(CoordinatorReservation reservation, TimeZoneInfo zone)
+    /// <summary>
+    /// 「已接受：{姓名} {日期時間} {人數} 位。」 or 「已婉拒：…」 and what happens to the customer (#391): 「會寄確認信給顧客。」／
+    /// 「會寄婉拒信給顧客。」 (the customer left an address and <paramref name="emailConfigured"/>), 「這位顧客沒有留 Email，
+    /// 請來電 {電話}。」, or 「平台沒有設定寄信，請來電 {電話}。」 (no SMTP) — what the member who pressed is told.
+    /// </summary>
+    public static string DecidedText(CoordinatorReservation reservation, TimeZoneInfo zone, bool emailConfigured)
     {
         ArgumentNullException.ThrowIfNull(reservation);
         ArgumentNullException.ThrowIfNull(zone);
-        var verb = reservation.Status switch
+        var (verb, letter) = reservation.Status switch
         {
-            CoordinatorReservationStatus.Accepted => "已接受",
-            CoordinatorReservationStatus.Declined => "已婉拒",
+            CoordinatorReservationStatus.Accepted => ("已接受", "確認信"),
+            CoordinatorReservationStatus.Declined => ("已婉拒", "婉拒信"),
             _ => throw new ArgumentException("Only an accepted or declined reservation is decided.", nameof(reservation)),
         };
-        return $"{verb}：{reservation.CustomerName} {reservation.When(zone)} {Party(reservation.PartySize)}。"
-            + $"顧客電話 {ReservationContact.FormatPhone(reservation.CustomerPhone)}。";
+        var phone = ReservationContact.FormatPhone(reservation.CustomerPhone);
+        var customer = !emailConfigured ? $"平台沒有設定寄信，請來電 {phone}。"
+            : reservation.CustomerEmail is null ? $"這位顧客沒有留 Email，請來電 {phone}。"
+            : $"會寄{letter}給顧客。";
+        return $"{verb}：{reservation.CustomerName} {reservation.When(zone)} {Party(reservation.PartySize)}。{customer}";
     }
 
     /// <summary>The reply to the press that accepted or declined <paramref name="reservation"/>: <see cref="DecidedText"/>
     /// (also the alt text) with 〔撥打電話〕.</summary>
-    public static JsonObject Decided(CoordinatorReservation reservation, TimeZoneInfo zone)
+    public static JsonObject Decided(CoordinatorReservation reservation, TimeZoneInfo zone, bool emailConfigured)
     {
-        var text = DecidedText(reservation, zone);
+        var text = DecidedText(reservation, zone, emailConfigured);
         var bubble = new JsonObject
         {
             ["type"] = "bubble",
@@ -230,7 +253,7 @@ public static class CoordinatorReservationCards
             },
         };
         var body = new JsonArray { Text(Party(reservation.PartySize), "md") };
-        foreach (var row in Details(reservation))
+        foreach (var row in Details(reservation, NoEmail))
         {
             body.Add(row);
         }
@@ -244,12 +267,17 @@ public static class CoordinatorReservationCards
         };
     }
 
-    /// <summary>姓名, 電話, Email (or <see cref="NoEmail"/>) and, when there is one, 備註.</summary>
-    private static IEnumerable<JsonObject> Details(CoordinatorReservation reservation)
+    /// <summary>姓名, 電話, Email (or <paramref name="noEmail"/>; no row when both are <see langword="null"/>) and, when there
+    /// is one, 備註.</summary>
+    private static IEnumerable<JsonObject> Details(CoordinatorReservation reservation, string? noEmail)
     {
         yield return Row("姓名", reservation.CustomerName);
         yield return Row("電話", ReservationContact.FormatPhone(reservation.CustomerPhone));
-        yield return Row("Email", reservation.CustomerEmail ?? NoEmail);
+        if ((reservation.CustomerEmail ?? noEmail) is { } email)
+        {
+            yield return Row("Email", email);
+        }
+
         if (reservation.Note is { Length: > 0 } note)
         {
             yield return Row("備註", note);

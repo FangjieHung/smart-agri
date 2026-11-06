@@ -17,6 +17,7 @@ using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Line;
 using SmartAgri.Domain.Coordinator;
 using SmartAgri.Domain.Organizations;
+using SmartAgri.Infrastructure.Notifications;
 
 namespace SmartAgri.Api.Tests.Coordinator;
 
@@ -553,7 +554,8 @@ public sealed partial class CoordinatorWebhookTests : IClassFixture<CoordinatorH
 /// executor for the others (#376), whose shops' own accounts are bots of the same fake LINE server, FB 貼文's (#379),
 /// whose pages are on the fake Graph API with the host's Meta app configured, and Google 特殊營業時間's (#378) — a fake FB
 /// authorization provider (no PKCE, #377; it may forward to the real provider, #379) and the real Google one (PKCE,
-/// #378), whose Google is <see cref="FakeGoogleServer"/>.</summary>
+/// #378), whose Google is <see cref="FakeGoogleServer"/>; and <c>Smtp</c> pointed at its own <see cref="FakeSmtpServer"/>
+/// for the customers' reservation Emails (#391; no sign-in, no TLS — allowed in Development only).</summary>
 public sealed class CoordinatorHostFixture : AuthHostFixture
 {
     public const string Secret = "c0ffee00c0ffee00c0ffee00c0ffee00";
@@ -584,6 +586,21 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
 
     /// <summary>The Meta Graph API of FB 貼文 and the real FB provider (#379), for the host's Meta app.</summary>
     public FakeGraphServer Graph { get; } = new("1029384756001", "fake-meta-app-secret-" + Guid.NewGuid().ToString("N"));
+
+    /// <summary>The platform's sender address of the reservation Emails (#391).</summary>
+    public const string SmtpFrom = "reserve@example.org";
+
+    /// <summary>The SMTP server every Email of the host goes to (#391).</summary>
+    public FakeSmtpServer Smtp { get; } = new();
+
+    /// <summary>Whether the platform's SMTP server is set (a test may clear it, and must set it back).</summary>
+    public bool SmtpConfigured
+    {
+        get => SmtpOptions.IsConfigured;
+        set => SmtpOptions.Host = value ? "127.0.0.1" : null;
+    }
+
+    private SmtpOptions SmtpOptions => Factory.Services.GetRequiredService<IOptions<SmtpOptions>>().Value;
 
     protected override void ConfigureServices(IServiceCollection services)
     {
@@ -640,8 +657,23 @@ public sealed class CoordinatorHostFixture : AuthHostFixture
         });
         services.AddHttpClient(CoordinatorGoogleClient.HttpClientName).ConfigurePrimaryHttpMessageHandler(() => GoogleApi);
 
+        // Every Email goes to the fake SMTP server (#391).
+        services.Configure<SmtpOptions>(options =>
+        {
+            options.Host = "127.0.0.1";
+            options.Port = Smtp.Port;
+            options.From = SmtpFrom;
+            options.UseStartTls = false;
+        });
+
         services.Configure<LoggerFilterOptions>(options =>
             options.Rules.Add(new LoggerFilterRule(typeof(CoordinatorTestLog).FullName, categoryName: null, LogLevel.Trace, filter: null)));
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        await Smtp.DisposeAsync();
     }
 }
 

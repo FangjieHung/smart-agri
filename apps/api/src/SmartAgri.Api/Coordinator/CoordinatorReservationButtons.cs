@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Line;
+using SmartAgri.Application.Notifications;
 using SmartAgri.Domain.Coordinator;
 using SmartAgri.Infrastructure.Coordinator;
 
@@ -18,7 +19,10 @@ namespace SmartAgri.Api.Coordinator;
 /// of two members pressing at the same moment exactly one wins; the other — and every later press — is told who did
 /// what when (「這筆訂位已由{誰}在 {時間} {接受／婉拒}。」: the member's LINE display name from the coordinator
 /// account's profile API, free, else 「老闆」／「店長」; 「你」 for the member's own press; 「其他成員」 for one who left).
-/// A pending reservation pressed at or after its expiry (the job not run yet) expires right then and says so.
+/// A pending reservation pressed at or after its expiry (the job not run yet) expires right then and says so. The winner
+/// is also told what happens to the customer (#391): 「會寄確認信給顧客。」／「會寄婉拒信給顧客。」, or — no address, or no
+/// SMTP — 「…請來電 {電話}。」 (<see cref="CoordinatorReservationCards.DecidedText"/>); the Email itself is a job the
+/// compare-and-set enqueued (<see cref="EmailReservationOutcomes"/>), sent after this reply.
 /// </para>
 /// <para>
 /// 「訂位」: the shop's pending and accepted reservations of the business days from today (the shop's zone) for
@@ -32,6 +36,7 @@ public sealed class CoordinatorReservationButtons
     private readonly CoordinatorReservations _reservations;
     private readonly CoordinatorShops _shops;
     private readonly CoordinatorReplySender _sender;
+    private readonly IEmailSender _email;
     private readonly TimeProvider _clock;
     private readonly ILogger<CoordinatorReservationButtons> _logger;
 
@@ -39,12 +44,14 @@ public sealed class CoordinatorReservationButtons
         CoordinatorReservations reservations,
         CoordinatorShops shops,
         CoordinatorReplySender sender,
+        IEmailSender email,
         TimeProvider clock,
         ILogger<CoordinatorReservationButtons> logger)
     {
         _reservations = reservations;
         _shops = shops;
         _sender = sender;
+        _email = email;
         _clock = clock;
         _logger = logger;
     }
@@ -132,7 +139,9 @@ public sealed class CoordinatorReservationButtons
                 _logger.LogInformation(
                     "Reservation {ReservationId} of organization {OrganizationId} {Decision} by member {MemberId}.",
                     decided.Id, organizationId, Domain.WireNames<CoordinatorReservationStatus>.ToWire(decision), presser.Id);
-                return [CoordinatorReservationCards.Decided(decided, zone)];
+                // The same check as the Email's (EmailReservationOutcomes): the reply says whether the customer will
+                // get it or must be called (#391).
+                return [CoordinatorReservationCards.Decided(decided, zone, _email.IsConfigured)];
             }
         }
 

@@ -35,7 +35,8 @@ public static class CoordinatorServiceCollectionExtensions
     /// reservation pages (#389: <see cref="CoordinatorReservations"/> and <see cref="CoordinatorReservationFlow"/>), and the
     /// members' side of reservations (#390: <see cref="CoordinatorReservationButtons"/>, the
     /// <see cref="CoordinatorNotifyReservationJob.Kind"/> and <see cref="CoordinatorExpireReservationJob.Kind"/> job handlers and
-    /// the <see cref="ICoordinatorReservationOutcomes"/> seam, which #391 replaces). Requires
+    /// the <see cref="ICoordinatorReservationOutcomes"/> seam), and the customer's Email (#391: <see cref="EmailReservationOutcomes"/>
+    /// and the <see cref="CoordinatorReservationEmailJob.Kind"/> job handler). Requires
     /// <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>, <c>AddVisitorHandoffNotifications</c> (the Email sender),
     /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c>, the secret protector and Data Protection, and
     /// <c>PublicChannelsOptions</c>. Nothing reads the options while the pipeline is built.
@@ -104,12 +105,13 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddSingleton<CoordinatorOAuthSelections>();
         services.AddScoped<CoordinatorAuthorizationFlow>();
         services.TryAddScoped<ICoordinatorReauthorization, CoordinatorReauthorization>();
-        services.TryAddScoped<ICoordinatorReservationOutcomes, NoReservationOutcomes>();
+        services.TryAddScoped<ICoordinatorReservationOutcomes, EmailReservationOutcomes>();
         services.AddScoped<CoordinatorReservations>();
         services.AddScoped<CoordinatorReservationFlow>();
         services.AddScoped<CoordinatorReservationButtons>();
         services.AddJobHandler<CoordinatorNotifyReservationHandler>(CoordinatorNotifyReservationJob.Kind);
         services.AddJobHandler<CoordinatorExpireReservationHandler>(CoordinatorExpireReservationJob.Kind);
+        services.AddJobHandler<CoordinatorReservationEmailHandler>(CoordinatorReservationEmailJob.Kind);
         services.AddHostedService<CoordinatorWebhookProcessor>();
         return services;
     }

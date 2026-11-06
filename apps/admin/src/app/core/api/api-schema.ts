@@ -11669,6 +11669,10 @@ export interface components {
             declined: null | components["schemas"]["OrderingStaffDeclineView"];
             cancelled: null | components["schemas"]["OrderingStaffCancellationView"];
             actions: components["schemas"]["OrderingOrderAction"][];
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            personalDataClearedAt: null | string;
         };
         OrderingStaffStepView: {
             /** Format: date-time */

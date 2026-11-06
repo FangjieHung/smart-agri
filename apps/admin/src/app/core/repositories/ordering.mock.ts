@@ -77,9 +77,10 @@ export function createMockOrderingState(now: number): MockOrderingState {
   const base = {
     businessDate, estimate: null, promisedAt: null, customerEmail: null, orderComment: null, tableware: null,
     menuVersion: MOCK_ORDERING_SHOP.menuVersion, accepted: null, ready: null, completed: null, declined: null, cancelled: null,
+    personalDataClearedAt: null,
   } satisfies Partial<OrderingOrderView>;
   const order = (
-    fields: Omit<OrderingOrderView, keyof typeof base | 'displayNumber' | 'subtotal' | 'total' | 'actions' | 'version' | 'customerPhoneDisplay' | 'status'>
+    fields: Omit<OrderingOrderView, keyof typeof base | 'displayNumber' | 'subtotal' | 'total' | 'actions' | 'version' | 'customerPhoneDisplay' | 'status' | 'expiresAt'>
       & Partial<OrderingOrderView> & { status: OrderingOrderStatus },
   ): OrderingOrderView => {
     const subtotal = fields.lines.reduce((sum, item) => sum + item.lineTotal, 0);
@@ -93,6 +94,8 @@ export function createMockOrderingState(now: number): MockOrderingState {
       subtotal,
       total: subtotal,
       actions: mockActions(fields.status),
+      // 待確認的訂單營業中 15 分鐘沒人處理就自動取消（#400），最晚是取餐時間。
+      expiresAt: fields.expiresAt ?? iso(Math.min(Date.parse(fields.createdAt) + 15 * MINUTE, Date.parse(fields.pickupAt))),
     };
   };
 

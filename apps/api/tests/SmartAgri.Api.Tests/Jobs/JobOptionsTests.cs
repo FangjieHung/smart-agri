@@ -48,7 +48,7 @@ public class JobOptionsTests
         // there is a handler, the worker would poll the configured database: every test
         // host has it turned off (TestHostDefaults), which is also what this host sees.
         factory.Services.GetRequiredService<JobRunner>().Kinds.ShouldBe(
-            ["assistants.request-test-runs", "assistants.run-test-set", "coordinator.expire-reservation", "coordinator.notify-reservation", "coordinator.reservation-email", "coordinator.run-action", "knowledge.process-version", "notifications.handoff-email", "reports.generate-period", "reports.summarize", "retention-cleanup"]);
+            ["assistants.request-test-runs", "assistants.run-test-set", "coordinator.expire-reservation", "coordinator.notify-reservation", "coordinator.reservation-email", "coordinator.run-action", "knowledge.process-version", "notifications.handoff-email", "ordering.expire-order", "ordering.order-email", "reports.generate-period", "reports.summarize", "retention-cleanup"]);
         options.WorkerEnabled.ShouldBeFalse();
     }
 

@@ -155,11 +155,11 @@ public class OrderingOrderTransitionTests
 
     private static OrderingOrder Scheduled() => OrderingOrder.Submit(
         Organization, OrderingServiceType.TakeoutScheduled, new DateOnly(2026, 11, 10), 1, Slot, null, "陳小姐", "0912345678", null, null, null,
-        Lines(), 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), Sent);
+        Lines(), 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), OrderingSamples.Shop(OrderingSamples.Week()).Hours, 15, Sent);
 
     private static OrderingOrder Asap() => OrderingOrder.Submit(
         Organization, OrderingServiceType.TakeoutAsap, new DateOnly(2026, 11, 10), 2, default, new AsapEstimate(15, 30), "陳小姐", "0912345678",
-        null, null, null, Lines(), 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), Sent);
+        null, null, null, Lines(), 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), OrderingSamples.Shop(OrderingSamples.Week()).Hours, 15, Sent);
 
     private static IReadOnlyList<OrderingOrderLine> Lines() =>
         OrderingCart.Price(OrderingSamples.Example().Menu, [new OrderingLineInput("wonton-soup", 1, null, null)]).Lines;

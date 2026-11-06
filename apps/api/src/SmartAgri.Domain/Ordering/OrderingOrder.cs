@@ -22,7 +22,8 @@ public enum OrderingServiceType
 }
 
 /// <summary>Where an <see cref="OrderingOrder"/> is (design D5). The customer sends it (<see cref="Pending"/>) and may cancel it
-/// while pending; the staff's steps (#399) are <see cref="OrderingOrder.Allows"/>; the expiry comes with #400.</summary>
+/// while pending; the staff's steps (#399) are <see cref="OrderingOrder.Allows"/>; nobody answering it by
+/// <see cref="OrderingOrder.ExpiresAt"/> makes it <see cref="Expired"/> (#400).</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrderingOrderStatus>))]
 public enum OrderingOrderStatus
 {
@@ -51,7 +52,7 @@ public enum OrderingOrderStatus
     [JsonStringEnumMemberName("cancelled")]
     Cancelled,
 
-    /// <summary>逾時未處理 (#400).</summary>
+    /// <summary>逾時未處理: still pending at <see cref="OrderingOrder.ExpiresAt"/> (#400, <see cref="OrderingOrder.Expire"/>).</summary>
     [JsonStringEnumMemberName("expired")]
     Expired,
 }
@@ -163,7 +164,8 @@ public sealed record OrderingOrderLine(
 /// <remarks>
 /// <para>
 /// The customer's name, phone, Email and comments are personal data the platform processes for the shop: never logged,
-/// never in an activity. (Deleting them after the pickup time is #400, design D12.)
+/// never in an activity, and cleared <see cref="RetentionDays"/> days after the pickup (<see cref="ClearPersonalData"/>,
+/// design D12, #400) while the row — number, status, times, items and totals — stays for the shop's sales figures.
 /// </para>
 /// <para>
 /// <see cref="Number"/> counts the orders of a shop's business day <see cref="BusinessDate"/> from 1 (shown as
@@ -196,6 +198,10 @@ public sealed class OrderingOrder : IOrganizationScoped
 
     /// <summary>Characters of a <see cref="SubmissionKey"/> (a UUID, <c>D</c> format, lower case).</summary>
     public const int SubmissionKeyLength = 36;
+
+    /// <summary>Days after the pickup (<see cref="PickupInstant"/>) the customer's personal data is kept (design D12, as the
+    /// reservations' <c>CoordinatorReservation.RetentionDays</c>).</summary>
+    public const int RetentionDays = 90;
 
     /// <summary>For EF Core materialization.</summary>
     private OrderingOrder()
@@ -276,6 +282,14 @@ public sealed class OrderingOrder : IOrganizationScoped
     /// <summary>When <see cref="Status"/> last changed (<see cref="CreatedAt"/> until then).</summary>
     public DateTimeOffset StatusChangedAt { get; private set; }
 
+    /// <summary>When a still pending order expires on its own (#400, <see cref="ExpiryFor"/>), in UTC: the shop's
+    /// <c>pendingTimeoutMinutes</c> counted from when ordering hours are open, at the latest the pickup time.</summary>
+    public DateTimeOffset ExpiresAt { get; private set; }
+
+    /// <summary>When the customer's name, phone, Email and comments were cleared (<see cref="ClearPersonalData"/>, design
+    /// D12, #400); <see langword="null"/> while they are kept.</summary>
+    public DateTimeOffset? PersonalDataClearedAt { get; private set; }
+
     /// <summary>預計可取餐時間 the shop gave when accepting it, in UTC: a scheduled order's time or later, an ASAP order's
     /// ready-by time; <see langword="null"/> until accepted.</summary>
     public DateTimeOffset? PromisedAt { get; private set; }
@@ -315,6 +329,10 @@ public sealed class OrderingOrder : IOrganizationScoped
     /// <summary>The staff's words to the customer with <see cref="CancelReason"/>.</summary>
     public string? CancelNote { get; private set; }
 
+    /// <summary>The instant the order was (to be) picked up: the time the shop promised when accepting, else the
+    /// customer's. The retention counts from it (design D12).</summary>
+    public DateTimeOffset PickupInstant => PromisedAt ?? PickupAt;
+
     /// <summary>The customer may still cancel it (design D5: only before the shop answers).</summary>
     public bool CanCancel => Status == OrderingOrderStatus.Pending;
 
@@ -328,6 +346,8 @@ public sealed class OrderingOrder : IOrganizationScoped
     /// <param name="pickupAt">The scheduled time; ignored for ASAP, whose pickup is <paramref name="now"/> + the estimate's
     /// upper bound.</param>
     /// <param name="asap">The ASAP estimate; required exactly for <see cref="OrderingServiceType.TakeoutAsap"/>.</param>
+    /// <param name="pendingTimeoutMinutes">The shop's <c>pendingTimeoutMinutes</c>: with <paramref name="hours"/>, when the
+    /// order expires unanswered (<see cref="ExpiryFor"/>).</param>
     public static OrderingOrder Submit(
         Guid organizationId,
         OrderingServiceType serviceType,
@@ -344,12 +364,16 @@ public sealed class OrderingOrder : IOrganizationScoped
         int menuVersion,
         string statusToken,
         string submissionKey,
+        BusinessHours hours,
+        int pendingTimeoutMinutes,
         DateTimeOffset now)
     {
         if (organizationId == Guid.Empty)
         {
             throw new ArgumentException("An order always belongs to an organization.", nameof(organizationId));
         }
+
+        ArgumentNullException.ThrowIfNull(hours);
 
         if (!Enum.IsDefined(serviceType) || (serviceType == OrderingServiceType.TakeoutAsap) != (asap is not null))
         {
@@ -389,6 +413,7 @@ public sealed class OrderingOrder : IOrganizationScoped
             throw new ArgumentException($"An order totals at most NT${MaxTotal}.", nameof(lines));
         }
 
+        var pickup = asap is null ? pickupAt : now.AddMinutes(asap.MaxMinutes);
         return new OrderingOrder
         {
             Id = Guid.CreateVersion7(),
@@ -399,7 +424,7 @@ public sealed class OrderingOrder : IOrganizationScoped
             BusinessDate = businessDate,
             Number = number,
             // Npgsql writes timestamptz only from UTC.
-            PickupAt = (asap is null ? pickupAt : now.AddMinutes(asap.MaxMinutes)).ToUniversalTime(),
+            PickupAt = pickup.ToUniversalTime(),
             AsapMinMinutes = asap?.MinMinutes,
             AsapMaxMinutes = asap?.MaxMinutes,
             CustomerName = customerName,
@@ -415,7 +440,43 @@ public sealed class OrderingOrder : IOrganizationScoped
             SubmissionKey = submissionKey,
             CreatedAt = now.ToUniversalTime(),
             StatusChangedAt = now.ToUniversalTime(),
+            ExpiresAt = ExpiryFor(hours, pendingTimeoutMinutes, now, pickup).ToUniversalTime(),
         };
+    }
+
+    /// <summary>
+    /// When an order sent at <paramref name="createdAt"/> for <paramref name="pickupAt"/> expires if nobody answers it
+    /// (design D5, #400): <paramref name="timeoutMinutes"/> after the ordering hours are open — at once when it is sent
+    /// within them, else from the next opening, so an order sent at night for tomorrow is not declined overnight — and at
+    /// the latest at <paramref name="pickupAt"/> (never before <paramref name="createdAt"/>).
+    /// </summary>
+    public static DateTimeOffset ExpiryFor(BusinessHours hours, int timeoutMinutes, DateTimeOffset createdAt, DateTimeOffset pickupAt)
+    {
+        ArgumentNullException.ThrowIfNull(hours);
+        ArgumentOutOfRangeException.ThrowIfLessThan(timeoutMinutes, 1);
+        var expiresAt = OpenFrom(hours, createdAt).AddMinutes(timeoutMinutes);
+        if (expiresAt > pickupAt)
+        {
+            expiresAt = pickupAt;
+        }
+
+        return expiresAt < createdAt ? createdAt : expiresAt;
+    }
+
+    /// <summary><paramref name="instant"/> when the ordering hours are open then, else their next opening (the instant
+    /// itself when the week has none).</summary>
+    private static DateTimeOffset OpenFrom(BusinessHours hours, DateTimeOffset instant)
+    {
+        var today = hours.DateAt(instant);
+        foreach (var date in new[] { today.AddDays(-1), today })
+        {
+            if (hours.PeriodsOn(date).Any(period => period.Opens <= instant && instant < period.Closes))
+            {
+                return instant;
+            }
+        }
+
+        return hours.NextOpeningAfter(instant) ?? instant;
     }
 
     /// <summary>Whether <paramref name="action"/> may be taken on an order in <paramref name="status"/> (design D5, #399):
@@ -535,6 +596,50 @@ public sealed class OrderingOrder : IOrganizationScoped
         CancelledByAccountId = StaffMember(accountId);
         CancelReason = reason;
         CancelNote = string.IsNullOrEmpty(note) ? null : note;
+    }
+
+    /// <summary>
+    /// Nobody answered it by <see cref="ExpiresAt"/> (#400): pending → expired, by the system. The persistence layer stores
+    /// it as the same compare-and-set as the staff's steps, so a member's press at the same moment and the expiry never
+    /// both win.
+    /// </summary>
+    public void Expire(DateTimeOffset now)
+    {
+        if (Status != OrderingOrderStatus.Pending)
+        {
+            throw new InvalidOperationException($"Only a pending order expires, not one {Status}.");
+        }
+
+        Changed(OrderingOrderStatus.Expired, now);
+    }
+
+    /// <summary>Whether its personal data is due to be cleared as of <paramref name="asOf"/>: still kept and its pickup
+    /// (<see cref="PickupInstant"/>) <see cref="RetentionDays"/> days or more before.</summary>
+    public bool PersonalDataExpired(DateTimeOffset asOf) =>
+        PersonalDataClearedAt is null && PickupInstant <= RetentionCutoff(asOf);
+
+    /// <summary>Orders picked up at or before this have their personal data cleared as of <paramref name="asOf"/>: exactly
+    /// <see cref="RetentionDays"/> days earlier.</summary>
+    public static DateTimeOffset RetentionCutoff(DateTimeOffset asOf) => asOf.ToUniversalTime().AddDays(-RetentionDays);
+
+    /// <summary>
+    /// Clears the customer's personal data (design D12, #400): name and phone become empty, Email and the order comment
+    /// <see langword="null"/>, and each line's comment is dropped from the snapshot; the number, status, times, items,
+    /// options and totals stay. Not a status change: <see cref="Version"/> stays. Idempotent.
+    /// </summary>
+    public void ClearPersonalData(DateTimeOffset now)
+    {
+        if (PersonalDataClearedAt is not null)
+        {
+            return;
+        }
+
+        CustomerName = string.Empty;
+        CustomerPhone = string.Empty;
+        CustomerEmail = null;
+        OrderComment = null;
+        Lines = [.. Lines.Select(line => line with { Comment = null })];
+        PersonalDataClearedAt = now.ToUniversalTime();
     }
 
     /// <summary>The customer cancels it from the status page while it is pending (<see cref="CanCancel"/>).</summary>

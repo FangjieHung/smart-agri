@@ -36,6 +36,8 @@ p { margin: 0; }
 .order__when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--space-2); }
 .order__remaining { color: var(--color-accent); font-weight: 700; font-variant-numeric: tabular-nums; }
 .order__remaining--late { color: var(--color-error); }
+.order__expiry { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-caption); font-variant-numeric: tabular-nums; }
+.order__expiry--soon { color: var(--color-error); font-weight: 700; }
 
 .order__customer { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); }
 .order__name { font-weight: 700; }

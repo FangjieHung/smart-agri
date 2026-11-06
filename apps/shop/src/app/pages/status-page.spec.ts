@@ -151,6 +151,41 @@ describe('StatusPage', () => {
     fixture.destroy();
   });
 
+  it('shows an expired order and one whose details were cleared after 90 days (#400)', async () => {
+    history.replaceState(null, '', `/order/wangji-noodles/o#${TOKEN}`);
+    const api = {
+      order: vi.fn(async () => ({
+        ok: true as const,
+        status: 200,
+        data: { ...order('expired'), customerName: '（已刪除）', phoneLastDigits: '' } as Order,
+      })),
+    };
+    TestBed.configureTestingModule({
+      providers: [provideZonelessChangeDetection(), { provide: OrderingApi, useValue: api }],
+    });
+    const store = TestBed.inject(ShopStore);
+    store.slug.set('wangji-noodles');
+    store.shop.set({
+      name: '王記麵店',
+      phone: '06-123-4567',
+      timeZone: 'Asia/Taipei',
+      now: '2026-11-06T14:33:00Z',
+    } as ShopInfo);
+    const fixture = TestBed.createComponent(StatusPage);
+    const root = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve();
+      fixture.detectChanges();
+    }
+    expect(root.querySelector('[data-testid="order-status"]')?.textContent?.trim()).toBe(
+      '店家未能及時確認，訂單已自動取消',
+    );
+    expect(root.textContent).toContain('（已刪除）');
+    expect(root.textContent).not.toContain('電話末三碼');
+    fixture.destroy();
+  });
+
   it('without a token it explains what to do and never calls the API', async () => {
     history.replaceState(null, '', '/order/wangji-noodles/o');
     const api = { order: vi.fn() };

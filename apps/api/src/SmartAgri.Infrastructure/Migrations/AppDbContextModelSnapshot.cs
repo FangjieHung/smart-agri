@@ -3223,6 +3223,9 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<Guid?>("DeclinedByAccountId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Lines")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -3240,6 +3243,9 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<Guid>("OrganizationId")
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("PersonalDataClearedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("PickupAt")
                         .HasColumnType("timestamp with time zone");
@@ -3307,6 +3313,8 @@ namespace SmartAgri.Infrastructure.Migrations
 
                     b.HasIndex("OrganizationId", "CustomerPhone", "Status");
 
+                    b.HasIndex("OrganizationId", "PersonalDataClearedAt", "PickupAt");
+
                     b.HasIndex("OrganizationId", "Status", "StatusChangedAt");
 
                     b.ToTable("OrderingOrders", null, t =>
@@ -3326,6 +3334,8 @@ namespace SmartAgri.Infrastructure.Migrations
                             t.HasCheckConstraint("CK_OrderingOrders_Lines", "jsonb_typeof(\"Lines\") = 'array'");
 
                             t.HasCheckConstraint("CK_OrderingOrders_Number", "\"Number\" >= 1");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_PersonalData", "\"PersonalDataClearedAt\" IS NULL OR (\"CustomerName\" = '' AND \"CustomerPhone\" = '' AND \"CustomerEmail\" IS NULL AND \"OrderComment\" IS NULL)");
 
                             t.HasCheckConstraint("CK_OrderingOrders_Total", "\"Subtotal\" >= 0 AND \"Total\" >= \"Subtotal\"");
 
@@ -3378,6 +3388,9 @@ namespace SmartAgri.Infrastructure.Migrations
 
                     b.Property<bool>("Paused")
                         .HasColumnType("boolean");
+
+                    b.Property<int>("PendingTimeoutMinutes")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Phone")
                         .IsRequired()
@@ -3438,6 +3451,8 @@ namespace SmartAgri.Infrastructure.Migrations
                             t.HasCheckConstraint("CK_OrderingShops_MinLeadMinutes", "\"MinLeadMinutes\" BETWEEN 0 AND 1440");
 
                             t.HasCheckConstraint("CK_OrderingShops_OrderingHours", "jsonb_typeof(\"OrderingHours\") = 'object'");
+
+                            t.HasCheckConstraint("CK_OrderingShops_PendingTimeoutMinutes", "\"PendingTimeoutMinutes\" BETWEEN 5 AND 120");
 
                             t.HasCheckConstraint("CK_OrderingShops_SlotMinutes", "\"SlotMinutes\" IN (10, 15, 20, 30, 60)");
 

@@ -99,6 +99,7 @@ public sealed class RetentionCleanupCommand
             var handoffs = await cleanup.DeleteHandledHandoffsAsync(at, cancellationToken);
             var reservations = await cleanup.DeleteExpiredReservationsAsync(at, cancellationToken);
             var pushes = await cleanup.DeleteOldPushLogsAsync(at, cancellationToken);
+            var orders = await cleanup.ClearOrderPersonalDataAsync(at, cancellationToken);
 
             if (result.TookEffect is { } change)
             {
@@ -115,6 +116,8 @@ public sealed class RetentionCleanupCommand
                 $"線上訂位：刪除 {reservations.Count} 筆訂位時間在 {reservations.Cutoff.ToString("o", CultureInfo.InvariantCulture)} 之前的訂位（已過 90 天）。");
             await output.WriteLineAsync(
                 $"統籌助理推播紀錄：刪除 {pushes.Count} 筆在 {pushes.Cutoff.ToString("o", CultureInfo.InvariantCulture)} 之前送出的紀錄（超過 400 天）。");
+            await output.WriteLineAsync(
+                $"線上點餐：清除 {orders.Count} 筆取餐時間在 {orders.Cutoff.ToString("o", CultureInfo.InvariantCulture)} 以前的訂單個資（已滿 90 天；訂單編號、品項與金額保留）。");
             return ExitSuccess;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

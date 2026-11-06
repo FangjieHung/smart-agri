@@ -113,10 +113,10 @@ public class OrderingOrderTests
 
         var scheduled = OrderingOrder.Submit(
             Organization, OrderingServiceType.TakeoutScheduled, new DateOnly(2026, 11, 10), 7, OrderingSamples.AtTaipei(11, 10, 12, 30), null,
-            "陳小姐", "0912345678", null, null, null, lines, 1, OrderingOrder.NewStatusToken(), key, now);
+            "陳小姐", "0912345678", null, null, null, lines, 1, OrderingOrder.NewStatusToken(), key, OrderingSamples.Shop(OrderingSamples.Week()).Hours, 15, now);
         var asap = OrderingOrder.Submit(
             Organization, OrderingServiceType.TakeoutAsap, new DateOnly(2026, 11, 10), 8, default, new AsapEstimate(15, 30),
-            "陳小姐", "0912345678", "chen@example.com", "不要辣", true, lines, 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), now);
+            "陳小姐", "0912345678", "chen@example.com", "不要辣", true, lines, 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), OrderingSamples.Shop(OrderingSamples.Week()).Hours, 15, now);
 
         (scheduled.Status, scheduled.Version, scheduled.Number, scheduled.Total, scheduled.CanCancel).ShouldBe((OrderingOrderStatus.Pending, 1, 7, 210, true));
         scheduled.PickupAt.ShouldBe(OrderingSamples.AtTaipei(11, 10, 12, 30));
@@ -126,10 +126,10 @@ public class OrderingOrderTests
         (asap.AsapMinMinutes, asap.AsapMaxMinutes).ShouldBe((15, 30));
         Should.Throw<ArgumentException>(() => OrderingOrder.Submit(
             Organization, OrderingServiceType.TakeoutAsap, new DateOnly(2026, 11, 10), 9, now, null,
-            "陳小姐", "0912345678", null, null, null, lines, 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), now));
+            "陳小姐", "0912345678", null, null, null, lines, 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), OrderingSamples.Shop(OrderingSamples.Week()).Hours, 15, now));
         Should.Throw<ArgumentException>(() => OrderingOrder.Submit(
             Organization, OrderingServiceType.TakeoutScheduled, new DateOnly(2026, 11, 10), 9, now, null,
-            "陳小姐", "0912-345-678", null, null, null, lines, 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), now));
+            "陳小姐", "0912-345-678", null, null, null, lines, 1, OrderingOrder.NewStatusToken(), Guid.NewGuid().ToString("D"), OrderingSamples.Shop(OrderingSamples.Week()).Hours, 15, now));
     }
 
     [Fact]

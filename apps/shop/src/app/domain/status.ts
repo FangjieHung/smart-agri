@@ -25,7 +25,7 @@ export function statusWords(
         : { title: '訂單已取消', detail: '這筆訂單不會製作，也不需要付款。' };
     case 'expired':
       return {
-        title: '店家沒有及時確認，訂單已取消',
+        title: '店家未能及時確認，訂單已自動取消',
         detail: '這筆訂單不會製作。需要的話請重新點餐或來電店家。',
       };
   }

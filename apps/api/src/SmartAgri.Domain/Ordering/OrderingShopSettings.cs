@@ -68,6 +68,8 @@ public static class AsapPrepBands
 /// <param name="MaxOrdersPerSlot">The most orders one pickup time takes; <see langword="null"/> = no limit.</param>
 /// <param name="ShowOrderComment">Whether checkout asks for an order comment.</param>
 /// <param name="ShowTableware">Whether checkout asks whether tableware is needed.</param>
+/// <param name="PendingTimeoutMinutes">How long an order may wait for the staff's answer, counted in ordering hours only
+/// (<see cref="OrderingOrder.ExpiryFor"/>), before it expires on its own (design D5, #400).</param>
 public sealed record OrderingShopSettings(
     string Slug,
     string Name,
@@ -83,12 +85,22 @@ public sealed record OrderingShopSettings(
     int MinLeadMinutes = OrderingShopSettings.DefaultMinLeadMinutes,
     int? MaxOrdersPerSlot = null,
     bool ShowOrderComment = true,
-    bool ShowTableware = true)
+    bool ShowTableware = true,
+    int PendingTimeoutMinutes = OrderingShopSettings.DefaultPendingTimeoutMinutes)
 {
     public const int DefaultSlotMinutes = 30;
     public const int DefaultDaysAhead = 3;
     public const int MaxDaysAhead = 14;
     public const int DefaultMinLeadMinutes = 15;
+
+    /// <summary>Default <see cref="PendingTimeoutMinutes"/> (#400).</summary>
+    public const int DefaultPendingTimeoutMinutes = 15;
+
+    /// <summary>Shortest <see cref="PendingTimeoutMinutes"/>.</summary>
+    public const int MinPendingTimeoutMinutes = 5;
+
+    /// <summary>Longest <see cref="PendingTimeoutMinutes"/>: two hours.</summary>
+    public const int MaxPendingTimeoutMinutes = 120;
 
     /// <summary>Longest <see cref="MinLeadMinutes"/>: a day.</summary>
     public const int MaxMinLeadMinutes = 24 * 60;
@@ -109,7 +121,7 @@ public sealed record OrderingShopSettings(
     public static readonly IReadOnlyList<string> FieldNames =
     [
         "slug", "name", "timeZone", "phone", "address", "notices", "services", "orderingHours", "slotMinutes", "daysAhead",
-        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware",
+        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes",
     ];
 
     /// <summary>The time zone of <see cref="TimeZoneId"/>.</summary>
@@ -153,6 +165,7 @@ public static class OrderingShopChange
         Compare("maxOrdersPerSlot", before.MaxOrdersPerSlot == after.MaxOrdersPerSlot);
         Compare("showOrderComment", before.ShowOrderComment == after.ShowOrderComment);
         Compare("showTableware", before.ShowTableware == after.ShowTableware);
+        Compare("pendingTimeoutMinutes", before.PendingTimeoutMinutes == after.PendingTimeoutMinutes);
         return changed;
     }
 }

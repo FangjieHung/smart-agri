@@ -7,6 +7,7 @@ using SmartAgri.Domain.Chat;
 using SmartAgri.Domain.Coordinator;
 using SmartAgri.Domain.Notifications;
 using SmartAgri.Domain.Observability;
+using SmartAgri.Domain.Ordering;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
 
@@ -19,6 +20,10 @@ public sealed record ReservationCleanupResult(DateTimeOffset Cutoff, int Count, 
 /// <summary>What one sweep of the 統籌助理's push log did (#390).</summary>
 /// <param name="Cutoff">Rows of pushes sent strictly before it were deleted.</param>
 public sealed record PushLogCleanupResult(DateTimeOffset Cutoff, int Count, int Batches);
+
+/// <summary>What one sweep of past online orders did (#400).</summary>
+/// <param name="Cutoff">Orders picked up at or before it had their personal data cleared.</param>
+public sealed record OrderPersonalDataCleanupResult(DateTimeOffset Cutoff, int Count, int Batches);
 
 /// <summary>What one sweep of handled 轉真人 notifications did (#362).</summary>
 /// <param name="Cutoff">Handoffs handled strictly before it were deleted.</param>
@@ -51,8 +56,8 @@ public sealed record RetentionCleanupResult(
 /// Nothing else is touched: model invocations, handoff copies in issues, reports, database records and
 /// test runs keep their own lifecycle. 轉真人 notifications have a fixed one of their own
 /// (<see cref="DeleteHandledHandoffsAsync"/>, every organization whatever its retention, #362), and so do the shops' online
-/// reservations (<see cref="DeleteExpiredReservationsAsync"/>, #389) and the 統籌助理's push log (<see cref="DeleteOldPushLogsAsync"/>,
-/// #390). A cleanup that deleted something writes one summary
+/// reservations (<see cref="DeleteExpiredReservationsAsync"/>, #389), the 統籌助理's push log (<see cref="DeleteOldPushLogsAsync"/>,
+/// #390) and the personal data of online orders (<see cref="ClearOrderPersonalDataAsync"/>, #400). A cleanup that deleted something writes one summary
 /// <c>retention-cleanup</c> activity; one that deleted nothing writes none (log and metrics only).
 /// </remarks>
 public sealed class RetentionCleanupService
@@ -210,6 +215,73 @@ public sealed class RetentionCleanupService
         return new PushLogCleanupResult(cutoff, deleted.Count, deleted.Batches);
     }
 
+    /// <summary>
+    /// Clears the personal data of the organization's online orders picked up <see cref="OrderingOrder.RetentionDays"/> days
+    /// or more before <paramref name="asOf"/> (design D12, #400; <see cref="OrderingOrder.PickupInstant"/>, the promised time
+    /// when accepted): the customer's name, phone, Email, order comment and item comments go, the row — number, status,
+    /// times, items, options and totals — stays for the shop's sales figures (<see cref="OrderingOrder.ClearPersonalData"/>).
+    /// Whatever the order's status and the organization's conversation retention. In batches of <see cref="BatchSize"/>, each
+    /// its own transaction; idempotent (a cleared order is not read again). No activity (the rows are the customers'): a log
+    /// line and the counter (<c>record</c> = <c>ordering-order</c>).
+    /// </summary>
+    public async Task<OrderPersonalDataCleanupResult> ClearOrderPersonalDataAsync(DateTimeOffset asOf, CancellationToken cancellationToken)
+    {
+        var cutoff = OrderingOrder.RetentionCutoff(asOf);
+        var now = _clock.GetUtcNow();
+        var total = 0;
+        var batches = 0;
+        while (true)
+        {
+            int cleared;
+            await using (var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken))
+            {
+                var due = await _dbContext.OrderingOrders
+                    .Where(order => order.PersonalDataClearedAt == null && (order.PromisedAt ?? order.PickupAt) <= cutoff)
+                    .OrderBy(order => order.PickupAt)
+                    .ThenBy(order => order.Id)
+                    .Take(BatchSize)
+                    .ToListAsync(cancellationToken);
+                foreach (var order in due)
+                {
+                    order.ClearPersonalData(now);
+                }
+
+                try
+                {
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                    await transaction.CommitAsync(cancellationToken);
+                    cleared = due.Count;
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    // A status change at the same moment (it cannot happen 90 days on): tomorrow's sweep clears them.
+                    cleared = 0;
+                    due.Clear();
+                }
+                finally
+                {
+                    _dbContext.ChangeTracker.Clear();
+                }
+
+                batches++;
+                total += cleared;
+                if (due.Count < BatchSize)
+                {
+                    break;
+                }
+            }
+        }
+
+        _metrics.ClearedOrders(total);
+        if (total > 0)
+        {
+            _logger.LogInformation(
+                "Online orders' personal data cleanup (cutoff {Cutoff:o}): cleared {Count} in {Batches} batches.", cutoff, total, batches);
+        }
+
+        return new OrderPersonalDataCleanupResult(cutoff, total, batches);
+    }
+
     /// <summary>Step 1, in its own save with its activity. Idempotent: a second call finds nothing
     /// pending. A settings <c>PUT</c> saved in between wins: the row is read again and checked once
     /// more.</summary>
@@ -337,6 +409,14 @@ public sealed class RetentionCleanupMetrics
         if (count > 0)
         {
             _deleted.Add(count, new KeyValuePair<string, object?>(RecordTag, "coordinator-reservation"));
+        }
+    }
+
+    internal void ClearedOrders(int count)
+    {
+        if (count > 0)
+        {
+            _deleted.Add(count, new KeyValuePair<string, object?>(RecordTag, "ordering-order"));
         }
     }
 

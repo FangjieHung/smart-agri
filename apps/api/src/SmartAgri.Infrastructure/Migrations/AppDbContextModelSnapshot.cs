@@ -2081,6 +2081,38 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.ToTable("CoordinatorMembers", (string)null);
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorPushLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("Recipients")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrganizationId", "SentAt");
+
+                    b.ToTable("CoordinatorPushLogs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CoordinatorPushLogs_Purpose", "\"Purpose\" IN ('reservation', 'reminder', 'follow-up', 're-authorization')");
+
+                            t.HasCheckConstraint("CK_CoordinatorPushLogs_Recipients", "\"Recipients\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorReservation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4107,6 +4139,15 @@ namespace SmartAgri.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorMember", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Coordinator.CoordinatorPushLog", b =>
                 {
                     b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
                         .WithMany()

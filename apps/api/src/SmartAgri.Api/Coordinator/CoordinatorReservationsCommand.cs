@@ -33,7 +33,8 @@ public sealed class CoordinatorReservationsCommand
         "用法：coordinator-reservations list --organization <組織代碼> [--days <1-90>]\n" +
         "列出這家店的線上訂位：即將到來的（時間早的在前，最多 200 筆），以及最近幾天內已經過了時間的（預設 7 天，最新的在前，最多 200 筆）。" +
         "每筆印出訂位時間、人數、姓名、電話（只顯示最後 3 碼）、狀態（pending 待處理／accepted 已接受／declined 已婉拒／cancelled 已取消／expired 已過期）、" +
-        "是否已通知成員，以及有沒有 Email、備註（不印內容）。時間為店家設定的時區。\n" +
+        "是否已通知成員（已通知成員／未通知成員／尚未通知成員），以及有沒有 Email、備註（不印內容）。時間為店家設定的時區。" +
+        "有「未通知成員」的訂位時，最前面多印一行提醒（統籌助理推播失敗或本月額度用完，用 coordinator-quota 查看）。\n" +
         "結束代碼：0 完成；1 找不到組織或讀取失敗；2 參數錯誤。";
 
     private readonly IServiceProvider _services;
@@ -105,6 +106,14 @@ public sealed class CoordinatorReservationsCommand
                 _ => "線上訂位未開放",
             };
             await output.WriteLineAsync($"{shop}：{state}。時間為 {zone.Id}。");
+            var notNotified = upcoming.Concat(recent).Count(reservation => reservation.MembersNotified == CoordinatorReservationNotice.NotSent);
+            if (notNotified > 0)
+            {
+                await output.WriteLineAsync(
+                    $"注意：其中 {notNotified} 筆「未通知成員」——老闆與店長沒有收到 LINE 卡片（推播都失敗，或統籌助理本月額度用完；用 coordinator-quota 查看）。"
+                    + "請另外通知店家，成員仍可傳「訂位」查看與處理。");
+            }
+
             await output.WriteLineAsync();
             await output.WriteLineAsync($"即將到來（{upcoming.Count} 筆）：");
             await WriteAsync(output, upcoming, zone);

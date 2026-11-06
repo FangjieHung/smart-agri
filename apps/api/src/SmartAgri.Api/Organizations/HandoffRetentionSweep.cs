@@ -10,14 +10,16 @@ using SmartAgri.Infrastructure.Tenancy;
 namespace SmartAgri.Api.Organizations;
 
 /// <summary>
-/// The daily sweep of handled 轉真人 notifications (#362) and past reservations (#389): at the same local 03:00 as the
+/// The daily sweep of handled 轉真人 notifications (#362), past reservations (#389) and old pushes of the 統籌助理 (#390): at
+/// the same local 03:00 as the
 /// conversation cleanup (<see cref="RetentionCleanupRules.NextRunAfter"/>), every organization — whatever its
 /// conversation retention, forever included, so not part of the per-organization
 /// <see cref="RetentionCleanupJob"/> chain, which only organizations with a retention in days have —
 /// deletes the handoffs handled more than <see cref="VisitorHandoff.HandledRetentionDays"/> days ago
 /// (<see cref="RetentionCleanupService.DeleteHandledHandoffsAsync"/>; pending ones are never deleted) and the
 /// reservations whose time is more than <see cref="SmartAgri.Domain.Coordinator.CoordinatorReservation.RetentionDays"/>
-/// days ago (<see cref="RetentionCleanupService.DeleteExpiredReservationsAsync"/>).
+/// days ago (<see cref="RetentionCleanupService.DeleteExpiredReservationsAsync"/>), and the push log's rows older than
+/// <see cref="SmartAgri.Domain.Coordinator.CoordinatorPushLog.RetentionDays"/> days (<see cref="RetentionCleanupService.DeleteOldPushLogsAsync"/>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -108,10 +110,11 @@ public sealed class HandoffRetentionSweep : BackgroundService
                 var cleanup = ActivatorUtilities.CreateInstance<RetentionCleanupService>(scope.ServiceProvider, context);
                 total += (await cleanup.DeleteHandledHandoffsAsync(asOf, cancellationToken)).Count;
                 total += (await cleanup.DeleteExpiredReservationsAsync(asOf, cancellationToken)).Count;
+                total += (await cleanup.DeleteOldPushLogsAsync(asOf, cancellationToken)).Count;
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                _logger.LogError(exception, "Could not sweep the handled visitor handoffs or past reservations of organization {OrganizationId}.", organizationId);
+                _logger.LogError(exception, "Could not sweep the handled visitor handoffs, past reservations or old pushes of organization {OrganizationId}.", organizationId);
             }
         }
 

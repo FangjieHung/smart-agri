@@ -218,7 +218,7 @@ public sealed class CoordinatorReservationFlow
                 return CoordinatorReservationPages.Done(page, Summary.Of(reservation, shop.Settings.TimeZone));
             }
 
-            var result = await _reservations.SubmitAsync(reservation, now, cancellationToken);
+            var result = await _reservations.SubmitAsync(reservation, shop.Reservations.PendingExpiryMinutes, now, cancellationToken);
             switch (result.Outcome)
             {
                 case ReservationSubmitOutcome.Stored:

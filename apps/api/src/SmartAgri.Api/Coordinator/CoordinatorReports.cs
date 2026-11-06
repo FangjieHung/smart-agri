@@ -79,7 +79,8 @@ public sealed class CoordinatorReports
 
         var messages = CoordinatorExecutionReport.Reminder(
             action.OrganizationId, settings.StoreName, CoordinatorReportLine.Of(action, command), command.AnnouncementText);
-        var pushed = await _sender.PushAsync(action.RecipientLineUserId, messages, action.Id, "reminder", cancellationToken);
+        var pushed = (await _sender.PushAsync(
+            action.OrganizationId, action.RecipientLineUserId, messages, action.Id, CoordinatorPushPurpose.Reminder, cancellationToken)).Delivered;
         _logger.LogInformation(
             "Reminder of 統籌助理 action {ActionId} ({Kind} {Step}) {Outcome}.",
             action.Id, Domain.WireNames<ShopActionKind>.ToWire(action.Kind), Domain.WireNames<CoordinatorActionStep>.ToWire(action.Step),
@@ -119,7 +120,8 @@ public sealed class CoordinatorReports
             return;
         }
 
-        var pushed = await _sender.PushAsync(recipient, messages, Guid.CreateVersion7(), "follow-up", cancellationToken);
+        var pushed = (await _sender.PushAsync(
+            organizationId, recipient, messages, Guid.CreateVersion7(), CoordinatorPushPurpose.FollowUp, cancellationToken)).Delivered;
         _logger.LogInformation(
             "Follow-up of 統籌助理 command {CommandId} ({Actions} actions) {Outcome}.", commandId, rows.Count, pushed ? "pushed" : "not pushed");
     }

@@ -315,6 +315,27 @@ public sealed class LineMessagingClientTests : IDisposable
     // --- Logging ----------------------------------------------------------------------------------
 
     [Fact]
+    public async Task A_profile_is_a_get_of_the_user_and_neither_its_id_nor_its_name_is_logged()
+    {
+        _line.SetProfile(_bot.AccessToken, "Uprofile0000", "王老闆");
+
+        var result = await _client.GetProfileAsync(_bot.AccessToken, "Uprofile0000", CancellationToken);
+        var unknown = await _client.GetProfileAsync(_bot.AccessToken, "Ustranger0000", CancellationToken);
+
+        (result.Outcome, result.Value).ShouldBe((LineApiOutcome.Succeeded, new LineProfile("Uprofile0000", "王老闆")));
+        result.Value!.ToString().ShouldNotContain("王老闆");
+        (unknown.Outcome, unknown.StatusCode, unknown.Value).ShouldBe((LineApiOutcome.HttpError, 404, (LineProfile?)null));
+        var request = _line.Requests[0];
+        request.Uri.ShouldBe(new Uri("https://api.line.me/v2/bot/profile/Uprofile0000"));
+        request.Method.ShouldBe("GET");
+        request.Authorization.ShouldBe("Bearer " + _bot.AccessToken);
+        _log.Lines.Count.ShouldBe(2);
+        _log.Lines[0].ShouldStartWith("Information: LINE GET /v2/bot/profile/{userId} answered 200");
+        _log.Lines[1].ShouldStartWith("Warning: LINE GET /v2/bot/profile/{userId} answered 404");
+        _log.Lines.ShouldAllBe(line => !line.Contains("Uprofile0000") && !line.Contains("Ustranger0000") && !line.Contains("王老闆"));
+    }
+
+    [Fact]
     public async Task Each_call_logs_method_path_status_and_request_id_but_no_token_or_body()
     {
         await _client.GetBotInfoAsync(_bot.AccessToken, CancellationToken);

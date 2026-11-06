@@ -16,6 +16,10 @@ namespace SmartAgri.Api.Organizations;
 /// <param name="Cutoff">Reservations whose time is strictly before it were deleted.</param>
 public sealed record ReservationCleanupResult(DateTimeOffset Cutoff, int Count, int Batches);
 
+/// <summary>What one sweep of the 統籌助理's push log did (#390).</summary>
+/// <param name="Cutoff">Rows of pushes sent strictly before it were deleted.</param>
+public sealed record PushLogCleanupResult(DateTimeOffset Cutoff, int Count, int Batches);
+
 /// <summary>What one sweep of handled 轉真人 notifications did (#362).</summary>
 /// <param name="Cutoff">Handoffs handled strictly before it were deleted.</param>
 public sealed record HandoffCleanupResult(DateTimeOffset Cutoff, int Count, int Batches);
@@ -47,7 +51,8 @@ public sealed record RetentionCleanupResult(
 /// Nothing else is touched: model invocations, handoff copies in issues, reports, database records and
 /// test runs keep their own lifecycle. 轉真人 notifications have a fixed one of their own
 /// (<see cref="DeleteHandledHandoffsAsync"/>, every organization whatever its retention, #362), and so do the shops' online
-/// reservations (<see cref="DeleteExpiredReservationsAsync"/>, #389). A cleanup that deleted something writes one summary
+/// reservations (<see cref="DeleteExpiredReservationsAsync"/>, #389) and the 統籌助理's push log (<see cref="DeleteOldPushLogsAsync"/>,
+/// #390). A cleanup that deleted something writes one summary
 /// <c>retention-cleanup</c> activity; one that deleted nothing writes none (log and metrics only).
 /// </remarks>
 public sealed class RetentionCleanupService
@@ -182,6 +187,29 @@ public sealed class RetentionCleanupService
         return new ReservationCleanupResult(cutoff, deleted.Count, deleted.Batches);
     }
 
+    /// <summary>
+    /// Deletes the organization's rows of the 統籌助理's push log sent more than <see cref="CoordinatorPushLog.RetentionDays"/>
+    /// days before <paramref name="asOf"/> (#390): the cutoff is <see cref="RetentionCleanupRules.Cutoff"/> for that many
+    /// days, whatever the organization's conversation retention. Counts only, so no activity: a log line and the deleted
+    /// counter (<c>record</c> = <c>coordinator-push-log</c>). In batches of <see cref="BatchSize"/> like the rest.
+    /// </summary>
+    public async Task<PushLogCleanupResult> DeleteOldPushLogsAsync(DateTimeOffset asOf, CancellationToken cancellationToken)
+    {
+        var cutoff = RetentionCleanupRules.Cutoff(asOf, CoordinatorPushLog.RetentionDays, _timeZone);
+        var deleted = await DeleteInBatchesAsync(
+            _dbContext.CoordinatorPushLogs.Where(log => log.SentAt < cutoff).OrderBy(log => log.SentAt),
+            cancellationToken);
+        _metrics.DeletedPushLogs(deleted.Count);
+        if (deleted.Count > 0)
+        {
+            _logger.LogInformation(
+                "統籌助理 push log cleanup (cutoff {Cutoff:o}): deleted {Count} in {Batches} batches.",
+                cutoff, deleted.Count, deleted.Batches);
+        }
+
+        return new PushLogCleanupResult(cutoff, deleted.Count, deleted.Batches);
+    }
+
     /// <summary>Step 1, in its own save with its activity. Idempotent: a second call finds nothing
     /// pending. A settings <c>PUT</c> saved in between wins: the row is read again and checked once
     /// more.</summary>
@@ -258,7 +286,8 @@ public sealed record BatchedDeletion(int Count, int Batches);
 /// <summary>
 /// The cleanup's counters on the application's meter (<see cref="SmartAgriMeter"/>): runs, and
 /// deleted rows by kind (<c>record</c> = <c>chat-thread</c>, <c>answer-outcome</c> or, from the daily
-/// sweep of handled 轉真人 notifications and past reservations, <c>visitor-handoff</c> and <c>coordinator-reservation</c>). A chain that
+/// sweep of handled 轉真人 notifications, past reservations and old pushes, <c>visitor-handoff</c>, <c>coordinator-reservation</c>
+/// and <c>coordinator-push-log</c>). A chain that
 /// stopped running shows as no runs (M6 plan §7 technical risk 3).
 /// </summary>
 public sealed class RetentionCleanupMetrics
@@ -308,6 +337,14 @@ public sealed class RetentionCleanupMetrics
         if (count > 0)
         {
             _deleted.Add(count, new KeyValuePair<string, object?>(RecordTag, "coordinator-reservation"));
+        }
+    }
+
+    internal void DeletedPushLogs(int count)
+    {
+        if (count > 0)
+        {
+            _deleted.Add(count, new KeyValuePair<string, object?>(RecordTag, "coordinator-push-log"));
         }
     }
 }

@@ -112,7 +112,8 @@ public sealed class CoordinatorReauthorization : ICoordinatorReauthorization
         var pushed = 0;
         foreach (var owner in owners)
         {
-            if (await _sender.PushAsync(owner, [message], Guid.CreateVersion7(), "re-authorization link", cancellationToken))
+            if ((await _sender.PushAsync(
+                    organizationId, owner, [message], Guid.CreateVersion7(), CoordinatorPushPurpose.Reauthorization, cancellationToken)).Delivered)
             {
                 pushed++;
             }

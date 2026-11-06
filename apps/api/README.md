@@ -1711,8 +1711,9 @@ Management `accounts.list`, Business Information `accounts.locations.list` / `lo
 
 Customers book a table on a shop's anonymous page `{PublicChannels:PublicBaseUrl}/reserve/{slug}` (store-reservations design
 `docs/plans/2026-11-06-store-reservations.md`, Slice R1, decisions R1, R3, R4, R8 and §3.1 points 1–6, 10, 11). This slice
-stores them; notifying the members (#390), Email (#391) and closures (#392) come next, on the same table. **No shop may
-be opened to customers before #390.** Operator guide: `deploy/README.md` §17.12.
+stores them; the members are notified since #390 (next section), so shops can be opened to customers; the customer's
+Email (#391, optional: without SMTP the page asks for none) and closures (#392) come next, on the same table. Until #391
+no Email is sent even when the customer left one. Operator guide: `deploy/README.md` §17.12.
 
 - **Settings**: an optional `reservations` block of the shop-settings file (`ShopReservationSettings`, parsed and checked
   by `ShopSettingsJson`; stored as the `jsonb` column `CoordinatorShopSettings.Reservations`, its slug repeated in
@@ -1765,6 +1766,65 @@ be opened to customers before #390.** Operator guide: `deploy/README.md` §17.12
 - **Tests**: `CoordinatorReservationTests` (own `CoordinatorReservationHostFixture`: a switchable `IEmailSender`, every log
   line captured), `ReservationSlotsTests`, `CoordinatorReservationTests` (Domain), `ShopSettingsJsonTests.Reservations`,
   `OrganizationRetentionTests.Reservations`.
+
+## Store coordinator (統籌助理): reservation cards, 〔接受〕／〔婉拒〕, 「訂位」 and the push log (#390)
+
+Slice R2 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R5, R7, §3.1 points 6–8, §7). Operator guide:
+`deploy/README.md` §17.12.
+
+- **Jobs**: `CoordinatorReservations.SubmitAsync` stores a reservation with two jobs in the same transaction:
+  `coordinator.notify-reservation` (now) and `coordinator.expire-reservation` (`RunAfter` = `ReservedAt` −
+  `pendingExpiryMinutes`, `CoordinatorReservation.ExpiresAt`).
+- **The card** (`CoordinatorNotifyReservationHandler`, `CoordinatorReservationCards.NewReservation`): one Flex push per
+  current member of the shop (owner and managers, `CoordinatorMember` rows at run time), 「新訂位｜{店名}」 with date and
+  time as the page shows them (`CoordinatorReservation.When`, 「（隔天）」 after midnight), party, name, phone, Email or
+  「沒有留 Email」, note, and 〔撥打電話〕 (URI action `tel:` — LINE allows `http`, `https`, `line`, `tel`), 〔接受〕, 〔婉拒〕
+  (postbacks `coordinator:reservation-accept|decline:{org}:{id}`). Each (reservation, member) has a deterministic
+  `X-Line-Retry-Key` (`CardRetryKey`, SHA-256 based UUID): a job run again gets LINE's `409` for members who have it
+  (`CoordinatorPushOutcome.AlreadySent`). A member refused (`4xx`, token) does not stop the others; a transient failure
+  (rate limit, timeout, network, `5xx`) of any member throws `CoordinatorPushRetryException` so the queue retries with
+  its backoff, until the last attempt. `MembersNotified` = `sent` once one member has it, `not-sent` when nobody does
+  (no members, no settings, every push refused, not configured, the job's final failure). **Monthly limit**: LINE's `429`
+  「You have reached your monthly limit.」 (`LineApiResult.IsMonthlyLimit`, as #376) stops the loop (LINE refuses every
+  push), logs a warning and ends the job — not retried; the reservation stays, `not-sent`.
+- **Pushes** go through `CoordinatorReplySender.PushAsync(organizationId, to, messages, retryKey, purpose)`, which returns a
+  `CoordinatorPushResult` (`Sent`, `AlreadySent`, `MonthlyLimit`, `Failed`, `Refused`, `NotConfigured`) and writes one
+  `CoordinatorPushLogs` row (`CoordinatorPushLog`: organization, `SentAt` UTC, `Purpose` `reservation` | `reminder` |
+  `follow-up` | `re-authorization`, `Recipients`) for every push LINE accepted with `2xx` — the reminders, follow-ups and
+  re-authorization links of #375/#377 too. Failing to write the row is logged, the push stands. Rows are deleted 400 days
+  after they were sent (`RetentionCleanupService.DeleteOldPushLogsAsync`, daily sweep and `retention-cleanup`; counter
+  `record` = `coordinator-push-log`). Migration `20261106074318_AddCoordinatorPushLog`.
+- **〔接受〕／〔婉拒〕** (`CoordinatorReservationButtons.DecideAsync`): the postback's organization must be one of the sender's
+  memberships, the reservation is read in that shop's context (another shop's id → 「找不到這筆訂位」), then
+  `CoordinatorReservations.DecideAsync` is one compare-and-set on (`pending`, `Version`) that also requires the member
+  still in the shop, setting `Status`, `Version + 1`, `StatusChangedAt`, `HandledByMemberId`, `HandledAt`. The winner gets
+  a Flex reply 「已接受：{姓名} {日期時間} {人數} 位。顧客電話 {電話}。」 (or 「已婉拒：…」) with 〔撥打電話〕; a loser and later
+  presses get 「這筆訂位已由{誰}在 {時間} {接受／婉拒}。」 — {誰} the handler's LINE display name (`GET /v2/bot/profile/{userId}`
+  with the coordinator token, `ILineMessagingClient.GetProfileAsync`, free; its path is logged as `/v2/bot/profile/{userId}`),
+  else 「老闆」/「店長」, 「你」 for one's own press, 「其他成員」 for a member who left — or 「這筆訂位已過期：…」 /
+  「這筆訂位已取消。」. All replies use the reply token.
+- **Expiry** (`CoordinatorExpireReservationHandler`): pending → `expired` by compare-and-set at `ReservedAt` − the shop's
+  **current** `pendingExpiryMinutes` (a lowered value reschedules the job; a press after the expiry instant, before the job
+  ran, expires it then). `HandledByMemberId` stays null.
+- **Seam for #391**: `ICoordinatorReservationOutcomes.Decided(dbContext, reservation, now)` is called by the winning
+  compare-and-set (accept, decline, expire) inside its transaction, so a job it adds (the Email) commits with the change
+  exactly once. Slice R2 registers `NoReservationOutcomes` (`TryAddScoped`; #391 replaces it).
+- **「訂位」 / 「查看訂位」** (`CoordinatorMessageRouter.ReservationsCommands`, NFKC, exact, before any model call): the shop's
+  `pending` and `accepted` reservations of the business days today … today + 6 in the shop's zone (also yesterday's
+  overnight small hours still on today's date), earliest first, as a carousel of at most 12 bubbles (pending ones with
+  〔接受〕〔婉拒〕) plus 「另外還有 N 筆…」; empty: 「{店名}：接下來 7 天沒有訂位。」. A member of several shops gets a quick reply
+  (`coordinator:reservations:{org}`) first. The capability menu (`CoordinatorReplies.Menu`) lists 「查看訂位」.
+- **CLI** `coordinator-quota` (`CoordinatorQuotaCommand`): the coordinator account's monthly quota (`limited` value or
+  `none`) and consumption from LINE, the rest, then per shop (one context per organization, no filter switched off) this
+  month's pushes by purpose from the push log, reservations, members, confirmed commands and the §7 estimate
+  (reservations × members + commands × 5). Counts and store names only. Exit 0; 1 when the coordinator is not configured,
+  LINE or the database fails (the rest is still printed); 2 bad arguments. `coordinator-reservations list` prints a
+  notice line when some reservations are 「未通知成員」.
+- **Logs** carry reservation, organization and member ids, counts and outcomes — never the customer's name, phone, Email or
+  note, nor a LINE id or display name.
+- **Tests**: `CoordinatorWebhookTests.Reservations` (fake LINE: per-recipient push scripts, push retry keys with `409`,
+  profiles), `CoordinatorReservationCardsTests`, `CoordinatorReservationExpiryTests` (Domain),
+  `OrganizationRetentionTests.PushLogs`, `LineMessagingClientTests` (profile).
 
 ## Monthly token limit: `set-token-limit`
 

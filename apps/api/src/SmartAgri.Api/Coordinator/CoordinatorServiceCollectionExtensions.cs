@@ -32,7 +32,10 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="CoordinatorFacebookPostExecutor"/>), and Google 特殊營業時間 (#378: <see cref="CoordinatorGoogleClient"/>
     /// on its own named <see cref="HttpClient"/>, <see cref="CoordinatorGoogleOAuthProvider"/> — configured exactly when
     /// <see cref="CoordinatorGoogleOptions"/> is — and <see cref="CoordinatorGoogleSpecialHoursExecutor"/>), and the
-    /// reservation pages (#389: <see cref="CoordinatorReservations"/> and <see cref="CoordinatorReservationFlow"/>). Requires
+    /// reservation pages (#389: <see cref="CoordinatorReservations"/> and <see cref="CoordinatorReservationFlow"/>), and the
+    /// members' side of reservations (#390: <see cref="CoordinatorReservationButtons"/>, the
+    /// <see cref="CoordinatorNotifyReservationJob.Kind"/> and <see cref="CoordinatorExpireReservationJob.Kind"/> job handlers and
+    /// the <see cref="ICoordinatorReservationOutcomes"/> seam, which #391 replaces). Requires
     /// <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>, <c>AddVisitorHandoffNotifications</c> (the Email sender),
     /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c>, the secret protector and Data Protection, and
     /// <c>PublicChannelsOptions</c>. Nothing reads the options while the pipeline is built.
@@ -101,8 +104,12 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddSingleton<CoordinatorOAuthSelections>();
         services.AddScoped<CoordinatorAuthorizationFlow>();
         services.TryAddScoped<ICoordinatorReauthorization, CoordinatorReauthorization>();
+        services.TryAddScoped<ICoordinatorReservationOutcomes, NoReservationOutcomes>();
         services.AddScoped<CoordinatorReservations>();
         services.AddScoped<CoordinatorReservationFlow>();
+        services.AddScoped<CoordinatorReservationButtons>();
+        services.AddJobHandler<CoordinatorNotifyReservationHandler>(CoordinatorNotifyReservationJob.Kind);
+        services.AddJobHandler<CoordinatorExpireReservationHandler>(CoordinatorExpireReservationJob.Kind);
         services.AddHostedService<CoordinatorWebhookProcessor>();
         return services;
     }

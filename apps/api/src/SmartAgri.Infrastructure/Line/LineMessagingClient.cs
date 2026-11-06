@@ -170,6 +170,21 @@ public sealed class LineMessagingClient : ILineMessagingClient
     public Task<LineApiResult<LineQuotaConsumption>> GetMessageQuotaConsumptionAsync(string accessToken, CancellationToken cancellationToken) =>
         SendAsync(HttpMethod.Get, "v2/bot/message/quota/consumption", accessToken, body: null, retryKey: null, ReadConsumption, cancellationToken);
 
+    public Task<LineApiResult<LineProfile>> GetProfileAsync(string accessToken, string userId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+        return SendAsync(
+            HttpMethod.Get,
+            "v2/bot/profile/" + Uri.EscapeDataString(userId),
+            accessToken,
+            body: null,
+            retryKey: null,
+            ReadProfile,
+            cancellationToken,
+            // The user id is a person's: the log shows the path's shape only.
+            logPath: "/v2/bot/profile/{userId}");
+    }
+
     public Task<LineApiResult<LineFollowersInsight>> GetFollowersInsightAsync(string accessToken, DateOnly date, CancellationToken cancellationToken) =>
         SendAsync(
             HttpMethod.Get,
@@ -187,12 +202,13 @@ public sealed class LineMessagingClient : ILineMessagingClient
         Action<Utf8JsonWriter>? body,
         Guid? retryKey,
         Func<JsonElement, T?>? read,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? logPath = null)
         where T : class
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
         // The path without its query (the followers date is not secret, but one shape per endpoint keeps logs uniform).
-        var logPath = "/" + (path.IndexOf('?', StringComparison.Ordinal) is var query and >= 0 ? path[..query] : path);
+        logPath ??= "/" + (path.IndexOf('?', StringComparison.Ordinal) is var query and >= 0 ? path[..query] : path);
 
         using var request = new HttpRequestMessage(method, path);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -319,6 +335,13 @@ public sealed class LineMessagingClient : ILineMessagingClient
         && String(root, "userId") is { Length: > 0 } userId
         && String(root, "basicId") is { Length: > 0 } basicId
             ? new LineBotInfo(userId, basicId, String(root, "displayName") ?? string.Empty, String(root, "premiumId"))
+            : null;
+
+    private static LineProfile? ReadProfile(JsonElement root) =>
+        root.ValueKind == JsonValueKind.Object
+        && String(root, "userId") is { Length: > 0 } userId
+        && String(root, "displayName") is { } displayName
+            ? new LineProfile(userId, displayName)
             : null;
 
     private static LineMessageQuota? ReadQuota(JsonElement root)

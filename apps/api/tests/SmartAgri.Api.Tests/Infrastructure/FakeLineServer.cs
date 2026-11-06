@@ -32,6 +32,12 @@ namespace SmartAgri.Api.Tests.Infrastructure;
 /// timeout or a network error) or answer with a chosen status and body;
 /// <see cref="ScriptWebhookTest"/> sets what LINE reports about our webhook.
 /// </para>
+/// <para>
+/// Pushes (#390): accepted once per <c>X-Line-Retry-Key</c> (<see cref="PushesOf"/>), the same key again is LINE's
+/// <c>409</c>; <see cref="ScriptPushTo"/> makes the pushes of one bot to one user fail. Profiles
+/// (<c>GET /v2/bot/profile/{userId}</c>): the display names set with <see cref="SetProfile"/>, any other user LINE's
+/// <c>404</c>.
+/// </para>
 /// </remarks>
 public sealed class FakeLineServer : HttpMessageHandler
 {
@@ -46,6 +52,9 @@ public sealed class FakeLineServer : HttpMessageHandler
     public const string Quota = "GET /v2/bot/message/quota";
     public const string QuotaConsumption = "GET /v2/bot/message/quota/consumption";
     public const string FollowersInsight = "GET /v2/bot/insight/followers";
+
+    /// <summary>The path of <c>GET /v2/bot/profile/{userId}</c> before the user id.</summary>
+    public const string ProfilePath = "/v2/bot/profile/";
 
     private readonly ConcurrentDictionary<string, BotState> _bots = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<LineRequest> _requests = new();
@@ -123,6 +132,27 @@ public sealed class FakeLineServer : HttpMessageHandler
         }
     }
 
+    /// <summary>From now on the bot's pushes to <paramref name="userId"/> answer <paramref name="behavior"/> (a scripted
+    /// failure accepts nothing); <see langword="null"/> clears it.</summary>
+    public void ScriptPushTo(string accessToken, string userId, LineBehavior? behavior)
+    {
+        var bot = Bot(accessToken);
+        if (behavior is null)
+        {
+            bot.PushScripts.TryRemove(userId, out _);
+        }
+        else
+        {
+            bot.PushScripts[userId] = behavior;
+        }
+    }
+
+    /// <summary>The display name LINE gives for <paramref name="userId"/> as the bot sees them.</summary>
+    public void SetProfile(string accessToken, string userId, string displayName) => Bot(accessToken).Profiles[userId] = displayName;
+
+    /// <summary>The pushes LINE accepted for the bot (once per retry key), in order.</summary>
+    public IReadOnlyList<LineRequest> PushesOf(string accessToken) => [.. Bot(accessToken).Pushes];
+
     /// <summary>The broadcasts LINE accepted for the bot (once per retry key), in order.</summary>
     public IReadOnlyList<LineRequest> BroadcastsOf(string accessToken) => [.. Bot(accessToken).Broadcasts];
 
@@ -162,25 +192,25 @@ public sealed class FakeLineServer : HttpMessageHandler
         }
 
         var endpoint = recorded.Endpoint;
+        if (endpoint == Push
+            && recorded.Json.TryGetProperty("to", out var to)
+            && to.GetString() is { } recipient
+            && bot.PushScripts.TryGetValue(recipient, out var pushBehavior))
+        {
+            return await ScriptedAsync(bot, recorded, pushBehavior, cancellationToken);
+        }
+
         if (bot.Scripts.TryGetValue(endpoint, out var behavior))
         {
-            switch (behavior.Kind)
-            {
-                case LineBehaviorKind.TimeOut:
-                    // What HttpClient sees when its Timeout elapses: a cancellation the caller did not ask for.
-                    throw new TaskCanceledException("The fake LINE server timed out.");
-                case LineBehaviorKind.NetworkError:
-                    throw new HttpRequestException(HttpRequestError.ConnectionError, "The fake LINE server refused the connection.");
-                case LineBehaviorKind.Hang:
-                    await Task.Delay(Timeout.Infinite, cancellationToken);
-                    break;
-                case LineBehaviorKind.AcceptThenTimeOut when endpoint == Broadcast:
-                    // LINE took it, but the answer never came back.
-                    AcceptBroadcast(bot, recorded);
-                    throw new TaskCanceledException("The fake LINE server accepted the broadcast and timed out.");
-                default:
-                    return Respond(behavior.Status, behavior.Body);
-            }
+            return await ScriptedAsync(bot, recorded, behavior, cancellationToken);
+        }
+
+        if (recorded.Method == "GET" && recorded.Path.StartsWith(ProfilePath, StringComparison.Ordinal))
+        {
+            var userId = Uri.UnescapeDataString(recorded.Path[ProfilePath.Length..]);
+            return bot.Profiles.TryGetValue(userId, out var displayName)
+                ? Respond(HttpStatusCode.OK, new JsonObject { ["userId"] = userId, ["displayName"] = displayName, ["language"] = "zh-TW" }.ToJsonString())
+                : Respond(HttpStatusCode.NotFound, """{"message":"Not found"}""");
         }
 
         return endpoint switch
@@ -200,7 +230,7 @@ public sealed class FakeLineServer : HttpMessageHandler
                 : Respond(HttpStatusCode.NotFound, """{"message":"Not found"}"""),
             TestWebhookEndpoint => Respond(HttpStatusCode.OK, """{"success":true,"timestamp":"2026-10-06T08:00:00.000Z","statusCode":200,"reason":"OK","detail":"200"}"""),
             Reply => Respond(HttpStatusCode.OK, """{"sentMessages":[]}"""),
-            Push => Respond(HttpStatusCode.OK, """{"sentMessages":[]}"""),
+            Push => PushOf(bot, recorded),
             StartLoading => Respond(HttpStatusCode.Accepted, "{}"),
             Broadcast => BroadcastOf(bot, recorded),
             Quota => Respond(HttpStatusCode.OK, bot.Quota is { } limit
@@ -212,6 +242,57 @@ public sealed class FakeLineServer : HttpMessageHandler
                 (bot.Followers.TryGetValue(QueryValue(recorded.Uri, "date") ?? string.Empty, out var insight) ? insight : bot.DefaultFollowers).ToJsonString()),
             _ => Respond(HttpStatusCode.NotFound, """{"message":"Not found"}"""),
         };
+    }
+
+    private static async Task<HttpResponseMessage> ScriptedAsync(BotState bot, LineRequest recorded, LineBehavior behavior, CancellationToken cancellationToken)
+    {
+        switch (behavior.Kind)
+        {
+            case LineBehaviorKind.TimeOut:
+                // What HttpClient sees when its Timeout elapses: a cancellation the caller did not ask for.
+                throw new TaskCanceledException("The fake LINE server timed out.");
+            case LineBehaviorKind.NetworkError:
+                throw new HttpRequestException(HttpRequestError.ConnectionError, "The fake LINE server refused the connection.");
+            case LineBehaviorKind.Hang:
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                return Respond(HttpStatusCode.OK, "{}");
+            case LineBehaviorKind.AcceptThenTimeOut when recorded.Endpoint == Broadcast:
+                // LINE took it, but the answer never came back.
+                AcceptBroadcast(bot, recorded);
+                throw new TaskCanceledException("The fake LINE server accepted the broadcast and timed out.");
+            case LineBehaviorKind.AcceptThenTimeOut when recorded.Endpoint == Push:
+                AcceptPush(bot, recorded);
+                throw new TaskCanceledException("The fake LINE server accepted the push and timed out.");
+            default:
+                return Respond(behavior.Status, behavior.Body);
+        }
+    }
+
+    private static HttpResponseMessage PushOf(BotState bot, LineRequest request)
+    {
+        if (!AcceptPush(bot, request))
+        {
+            var conflict = Respond(HttpStatusCode.Conflict, """{"message":"The retry key is already accepted"}""");
+            conflict.Headers.Add("x-line-accepted-request-id", Guid.NewGuid().ToString());
+            return conflict;
+        }
+
+        return Respond(HttpStatusCode.OK, """{"sentMessages":[]}""");
+    }
+
+    /// <summary>Accepts a push unless its retry key was accepted before (a push without one is always accepted).</summary>
+    private static bool AcceptPush(BotState bot, LineRequest request)
+    {
+        lock (bot)
+        {
+            if (request.Headers.GetValueOrDefault("X-Line-Retry-Key") is { } key && !bot.PushRetryKeys.Add(key))
+            {
+                return false;
+            }
+
+            bot.Pushes.Enqueue(request);
+            return true;
+        }
     }
 
     private static HttpResponseMessage BroadcastOf(BotState bot, LineRequest request)
@@ -311,6 +392,14 @@ public sealed class FakeLineServer : HttpMessageHandler
         public ConcurrentDictionary<string, JsonObject> Followers { get; } = new(StringComparer.Ordinal);
 
         public HashSet<string> RetryKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> PushRetryKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public ConcurrentQueue<LineRequest> Pushes { get; } = new();
+
+        public ConcurrentDictionary<string, LineBehavior> PushScripts { get; } = new(StringComparer.Ordinal);
+
+        public ConcurrentDictionary<string, string> Profiles { get; } = new(StringComparer.Ordinal);
 
         public ConcurrentQueue<LineRequest> Broadcasts { get; } = new();
     }

@@ -192,6 +192,29 @@ public sealed class CoordinatorReservation : IOrganizationScoped
         };
     }
 
+    /// <summary>When it expires if nobody handled it (§3.1 point 6, Slice R2): <paramref name="pendingExpiryMinutes"/>
+    /// (<see cref="ShopReservationSettings.PendingExpiryMinutes"/>) before <see cref="ReservedAt"/>.</summary>
+    public DateTimeOffset ExpiresAt(int pendingExpiryMinutes)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(pendingExpiryMinutes);
+        return ReservedAt.AddMinutes(-pendingExpiryMinutes);
+    }
+
+    /// <summary>Whether it is one a member can still accept or decline at <paramref name="now"/>: pending and not past
+    /// <see cref="ExpiresAt"/>.</summary>
+    public bool IsOpenAt(DateTimeOffset now, int pendingExpiryMinutes) =>
+        Status == CoordinatorReservationStatus.Pending && now < ExpiresAt(pendingExpiryMinutes);
+
+    /// <summary>The date and time as the reservation page shows them, in <paramref name="zone"/>: 「11/8（日）18:30」, and
+    /// 「11/7（六）00:30（隔天）」 for the small hours of an overnight business day (<see cref="Date"/> is the day before).</summary>
+    public string When(TimeZoneInfo zone)
+    {
+        ArgumentNullException.ThrowIfNull(zone);
+        var local = TimeZoneInfo.ConvertTime(ReservedAt, zone).DateTime;
+        return $"{ShopAnnouncements.FormatDate(Date)} {ShopAnnouncements.FormatTime(TimeOnly.FromDateTime(local))}"
+            + (DateOnly.FromDateTime(local) != Date ? "（隔天）" : string.Empty);
+    }
+
     /// <summary>A new form's one-time key.</summary>
     public static string NewSubmissionKey() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 

@@ -257,6 +257,14 @@ if (args is [SmartAgriCommands.CoordinatorReservations, .. var coordinatorReserv
     return;
 }
 
+// `coordinator-quota` is one-shot too, in any environment: the 統籌助理 account's monthly message quota and use from LINE,
+// and this month's pushes per shop from the push log (counts and shop names only), and exit (#390).
+if (args is [SmartAgriCommands.CoordinatorQuota, .. var coordinatorQuotaArgs])
+{
+    Environment.ExitCode = await CoordinatorQuotaCommand.RunAsync(app.Services, coordinatorQuotaArgs, Console.Out, Console.Error);
+    return;
+}
+
 // `case-set-due` is one-shot too, Development/Testing only: move one open case's due time (also into
 // the past, which the API refuses) with an actor-less due-changed event, and exit (M7-11 #256). The
 // API-mode E2E runs it to make a case overdue.
@@ -368,6 +376,7 @@ internal static class SmartAgriCommands
     public const string CoordinatorShop = "coordinator-shop";
     public const string CoordinatorCommands = "coordinator-commands";
     public const string CoordinatorReservations = "coordinator-reservations";
+    public const string CoordinatorQuota = "coordinator-quota";
 }
 
 namespace SmartAgri.Api

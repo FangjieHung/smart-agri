@@ -15,7 +15,7 @@ public class CoordinatorRepliesTests
         CoordinatorReplies.InvalidCode.ShouldBe("綁定碼無效或已過期，請向老闆或平台營運者索取新的綁定碼。");
         CoordinatorReplies.TooManyAttempts.ShouldBe("嘗試太多次，請 15 分鐘後再試。");
         CoordinatorReplies.OwnersOnly.ShouldBe("只有老闆可以產生店長綁定碼。");
-        CoordinatorReplies.Menu.ShouldBe("我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店");
+        CoordinatorReplies.Menu.ShouldBe("我目前可以幫你：臨時店休／恢復營業／提早打烊／延後開店／查看訂位（傳「訂位」）");
         CoordinatorReplies.Bound("王記麵店", CoordinatorRole.Owner).ShouldBe("已綁定 王記麵店（老闆）。");
         CoordinatorReplies.Bound("王記麵店", CoordinatorRole.Manager).ShouldBe("已綁定 王記麵店（店長）。");
         CoordinatorReplies.AlreadyBound("王記麵店", CoordinatorRole.Manager).ShouldBe("你已經綁定 王記麵店（店長）。");

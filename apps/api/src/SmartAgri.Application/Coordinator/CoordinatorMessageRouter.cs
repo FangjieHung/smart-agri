@@ -72,11 +72,25 @@ public enum CoordinatorIntentKind
 
     /// <summary>〔重試〕 on a failed action (<see cref="CoordinatorIntent.ActionId"/>) (#375).</summary>
     RetryAction,
+
+    /// <summary>「訂位」 or 「查看訂位」 (<see cref="CoordinatorMessageRouter.ReservationsCommands"/>): the shop's pending and
+    /// accepted reservations of the next 7 days — of several shops, the handler asks which one (#390).</summary>
+    Reservations,
+
+    /// <summary>The shop whose reservations to list (<see cref="CoordinatorIntent.OrganizationId"/>), chosen by postback
+    /// (#390).</summary>
+    ReservationsFor,
+
+    /// <summary>〔接受〕 on a reservation (<see cref="CoordinatorIntent.ReservationId"/>) (#390).</summary>
+    AcceptReservation,
+
+    /// <summary>〔婉拒〕 on a reservation (<see cref="CoordinatorIntent.ReservationId"/>) (#390).</summary>
+    DeclineReservation,
 }
 
 /// <summary>One routing decision: the kind and what it carries — for <see cref="CoordinatorIntentKind.Bind"/>
 /// the normalized code; for the postbacks the organization (untrusted: the handler checks the sender is a
-/// member), command, card version, date, time or action; for <see cref="CoordinatorIntentKind.Command"/> and
+/// member), command, card version, date, time, action or reservation; for <see cref="CoordinatorIntentKind.Command"/> and
 /// <see cref="CoordinatorIntentKind.EditAnnouncement"/> what the member wrote.</summary>
 public sealed record CoordinatorIntent(
     CoordinatorIntentKind Kind,
@@ -87,7 +101,8 @@ public sealed record CoordinatorIntent(
     DateOnly? Date = null,
     TimeOnly? Time = null,
     string? Text = null,
-    Guid? ActionId = null)
+    Guid? ActionId = null,
+    Guid? ReservationId = null)
 {
     public static CoordinatorIntent Of(CoordinatorIntentKind kind) => new(kind);
 
@@ -110,13 +125,16 @@ public sealed record CoordinatorIntent(
 /// → <see cref="CoordinatorIntentKind.Bind"/>, bound or not.</item>
 /// <item>Unbound, any other message (also stickers and images) → <see cref="CoordinatorIntentKind.AskForCode"/>.</item>
 /// <item>Bound, 「<see cref="IssueManagerCodeCommand"/>」 → <see cref="CoordinatorIntentKind.IssueManagerCode"/>;
+/// 「訂位」 or 「查看訂位」 (<see cref="ReservationsCommands"/>, compared as NFKC, before any model call) →
+/// <see cref="CoordinatorIntentKind.Reservations"/> (#390);
 /// text starting with 「改成：」 or 「改成:」 → <see cref="CoordinatorIntentKind.EditAnnouncement"/>; any other
 /// text → <see cref="CoordinatorIntentKind.Command"/> (Slice 3, #374: the handler decides whether it answers
 /// a question or goes to the model). Other messages (stickers, images, …) → the menu.</item>
 /// <item>A postback this server made (<see cref="ManagerCodePostback"/>, <see cref="ShopPostback"/>,
 /// <see cref="DatePostback"/>, <see cref="TimePostback"/>, <see cref="ConfirmPostback"/>,
 /// <see cref="CancelPostback"/>, <see cref="CorrectionPostback"/>, <see cref="ReopenPostback"/>,
-/// <see cref="CompletePostback"/>, <see cref="RetryPostback"/>) → its intent
+/// <see cref="CompletePostback"/>, <see cref="RetryPostback"/>, <see cref="ReservationsPostback"/>,
+/// <see cref="AcceptReservationPostback"/>, <see cref="DeclineReservationPostback"/>) → its intent
 /// when bound, <see cref="CoordinatorIntentKind.AskForCode"/> when not; any other postback is ignored.</item>
 /// </list>
 /// The command and edit text are kept as written (not NFKC'd): they may end up in an announcement.
@@ -129,6 +147,9 @@ public static class CoordinatorMessageRouter
     /// <summary>What starts an edit of the announcement on the latest preview card, full- or half-width colon.</summary>
     public static readonly IReadOnlyList<string> EditPrefixes = ["改成：", "改成:"];
 
+    /// <summary>What a member sends to see the shop's reservations (#390), exactly (as NFKC, trimmed).</summary>
+    public static readonly IReadOnlyList<string> ReservationsCommands = ["訂位", "查看訂位"];
+
     private const string ManagerCodePostbackPrefix = "coordinator:manager-code:";
     private const string ShopPostbackPrefix = "coordinator:shop:";
     private const string AllShops = "all";
@@ -140,6 +161,9 @@ public static class CoordinatorMessageRouter
     private const string ReopenPostbackPrefix = "coordinator:reopen:";
     private const string CompletePostbackPrefix = "coordinator:done:";
     private const string RetryPostbackPrefix = "coordinator:retry:";
+    private const string ReservationsPostbackPrefix = "coordinator:reservations:";
+    private const string AcceptReservationPostbackPrefix = "coordinator:reservation-accept:";
+    private const string DeclineReservationPostbackPrefix = "coordinator:reservation-decline:";
 
     public static CoordinatorIntent Route(LineWebhookEvent lineEvent, bool isBound)
     {
@@ -210,6 +234,17 @@ public static class CoordinatorMessageRouter
     /// <summary>The <c>postback.data</c> of 〔重試〕 on failed action <paramref name="actionId"/> (#375).</summary>
     public static string RetryPostback(Guid organizationId, Guid actionId) => $"{RetryPostbackPrefix}{organizationId:N}:{actionId:N}";
 
+    /// <summary>The <c>postback.data</c> of choosing to list <paramref name="organizationId"/>'s reservations (#390).</summary>
+    public static string ReservationsPostback(Guid organizationId) => ReservationsPostbackPrefix + organizationId.ToString("N");
+
+    /// <summary>The <c>postback.data</c> of 〔接受〕 on reservation <paramref name="reservationId"/> (#390).</summary>
+    public static string AcceptReservationPostback(Guid organizationId, Guid reservationId) =>
+        $"{AcceptReservationPostbackPrefix}{organizationId:N}:{reservationId:N}";
+
+    /// <summary>The <c>postback.data</c> of 〔婉拒〕 on reservation <paramref name="reservationId"/> (#390).</summary>
+    public static string DeclineReservationPostback(Guid organizationId, Guid reservationId) =>
+        $"{DeclineReservationPostbackPrefix}{organizationId:N}:{reservationId:N}";
+
     /// <summary>The <c>postback.data</c> of the store choice for issuing a 店長 code for
     /// <paramref name="organizationId"/>.</summary>
     public static string ManagerCodePostback(Guid organizationId) => ManagerCodePostbackPrefix + organizationId.ToString("N");
@@ -246,9 +281,15 @@ public static class CoordinatorMessageRouter
     /// </summary>
     private static CoordinatorIntent BoundMessage(string text)
     {
-        if (NormalizeText(text) == IssueManagerCodeCommand)
+        var normalized = NormalizeText(text);
+        if (normalized == IssueManagerCodeCommand)
         {
             return CoordinatorIntent.Of(CoordinatorIntentKind.IssueManagerCode);
+        }
+
+        if (ReservationsCommands.Contains(normalized, StringComparer.Ordinal))
+        {
+            return CoordinatorIntent.Of(CoordinatorIntentKind.Reservations);
         }
 
         var written = text.Trim();
@@ -338,6 +379,24 @@ public static class CoordinatorMessageRouter
                 && TryId(organization, out var organizationId) && TryId(action, out var actionId))
             {
                 return new CoordinatorIntent(kind, OrganizationId: organizationId, ActionId: actionId);
+            }
+        }
+
+        if (Parts(data, ReservationsPostbackPrefix) is [var listed] && TryId(listed, out var listedId))
+        {
+            return new CoordinatorIntent(CoordinatorIntentKind.ReservationsFor, OrganizationId: listedId);
+        }
+
+        foreach (var (prefix, kind) in new[]
+                 {
+                     (AcceptReservationPostbackPrefix, CoordinatorIntentKind.AcceptReservation),
+                     (DeclineReservationPostbackPrefix, CoordinatorIntentKind.DeclineReservation),
+                 })
+        {
+            if (Parts(data, prefix) is [var organization, var reservation]
+                && TryId(organization, out var organizationId) && TryId(reservation, out var reservationId))
+            {
+                return new CoordinatorIntent(kind, OrganizationId: organizationId, ReservationId: reservationId);
             }
         }
 

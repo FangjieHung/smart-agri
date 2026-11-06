@@ -45,6 +45,7 @@ public static class DevelopmentSeedData
         AccountPermission.ManageDataSources,
         AccountPermission.ManagePublishing,
         AccountPermission.ReadConsentedSubmissions,
+        AccountPermission.ManageOrders,
     ];
 
     public static readonly IReadOnlyList<DevelopmentSeedOrganization> Organizations =
@@ -62,7 +63,7 @@ public static class DevelopmentSeedData
                     "internal",
                     "安心商行客服同仁",
                     AccountRole.InternalEmployee,
-                    [AccountPermission.UseSharedAssistants, AccountPermission.ReadConsentedSubmissions]),
+                    [AccountPermission.UseSharedAssistants, AccountPermission.ReadConsentedSubmissions, AccountPermission.ManageOrders]),
 
                 // demo-seed.ts: DEMO_SEED.accounts[2] ('account-external-customer'). use-shared-assistants
                 // lets the customer use an assistant shared with them (AssistantUseAccess; owner decision

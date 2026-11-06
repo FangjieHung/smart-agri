@@ -1,0 +1,209 @@
+<app-page-header title="購物車" backLabel="繼續點餐" />
+
+@if (store.shop(); as shop) {
+  <div class="body page-pad">
+    @if (store.cartNotice(); as notice) {
+      <div class="callout" role="status" data-testid="cart-notice">
+        <p>{{ notice }}</p>
+        <div class="callout__actions">
+          <button type="button" class="btn" (click)="store.dismissNotice()">知道了</button>
+        </div>
+      </div>
+    }
+
+    @if (store.cart().lines.length === 0) {
+      <div class="empty">
+        <p>購物車是空的。</p>
+        <a
+          class="btn btn--primary"
+          [href]="'/order/' + store.slug()"
+          (click)="nav.follow($event, store.slug(), 'menu')"
+          >去點餐</a
+        >
+      </div>
+    } @else {
+      @if (store.canOrder() || store.isTable()) {
+        <app-pickup-ticket (edit)="timeOpen.set(true)" />
+      }
+      @if (store.shortfall() > 0) {
+        <p class="callout callout--danger" role="status" data-testid="delivery-shortfall">
+          還差 {{ ntd(store.shortfall()) }} 達外送門檻（{{ store.zone()?.name }}滿
+          {{ ntd(store.zone()?.minimumSubtotal ?? 0) }} 外送）。
+        </p>
+      }
+
+      <ul class="lines" aria-label="購物車的品項">
+        @for (entry of store.pricedLines(); track entry.line.key) {
+          @let warning = store.lineWarnings().get(entry.line.key);
+          <li class="line" [class.line--warn]="!!warning" [attr.data-line]="entry.line.itemId">
+            <div class="line__main">
+              <h2 class="line__name">{{ entry.priced?.item?.name ?? entry.line.name }}</h2>
+              @if (entry.priced?.summary) {
+                <p class="line__summary">{{ entry.priced?.summary }}</p>
+              }
+              @if (entry.line.comment) {
+                <p class="line__comment">備註：{{ entry.line.comment }}</p>
+              }
+              @if (warning) {
+                <p class="line__warning" role="note">
+                  {{ lineProblemText(warning, store.isTable()) }}
+                </p>
+              }
+            </div>
+            <div class="line__controls">
+              <span
+                class="stepper"
+                role="group"
+                [attr.aria-label]="(entry.line.name ?? '') + '的份數'"
+              >
+                <button
+                  type="button"
+                  class="stepper__btn"
+                  [attr.aria-label]="'減少' + (entry.line.name ?? '')"
+                  [disabled]="entry.line.quantity <= 1"
+                  (click)="store.setQuantity(entry.line.key, entry.line.quantity - 1)"
+                >
+                  −
+                </button>
+                <span class="stepper__value">{{ entry.line.quantity }}</span>
+                <button
+                  type="button"
+                  class="stepper__btn"
+                  [attr.aria-label]="'增加' + (entry.line.name ?? '')"
+                  [disabled]="entry.line.quantity >= shop.limits.maxQuantity"
+                  (click)="store.setQuantity(entry.line.key, entry.line.quantity + 1)"
+                >
+                  +
+                </button>
+              </span>
+              <span class="price line__total">{{
+                entry.priced ? ntd(entry.priced.lineTotal) : ''
+              }}</span>
+            </div>
+            <div class="line__actions">
+              @if (
+                entry.priced &&
+                entry.priced.item.optionGroups.length + (shop.showOrderComment ? 1 : 0) > 0
+              ) {
+                <button type="button" class="btn btn--quiet" (click)="editing.set(entry.line)">
+                  修改<span class="visually-hidden">{{ entry.line.name }}</span>
+                </button>
+              }
+              <button
+                type="button"
+                class="btn btn--quiet remove"
+                (click)="store.removeLine(entry.line.key)"
+              >
+                刪除<span class="visually-hidden">{{ entry.line.name }}</span>
+              </button>
+            </div>
+          </li>
+        }
+      </ul>
+
+      <a
+        class="btn add-more"
+        [href]="'/order/' + store.slug()"
+        (click)="nav.follow($event, store.slug(), 'menu')"
+        >＋ 新增餐點</a
+      >
+
+      @if (shop.showOrderComment) {
+        <div class="field">
+          <label class="field__label" for="order-comment"
+            >訂單備註 <span class="field__optional">（選填）</span></label
+          >
+          <textarea
+            id="order-comment"
+            class="input"
+            rows="2"
+            [maxLength]="shop.limits.orderCommentMaxLength"
+            [value]="store.cart().orderComment"
+            (input)="store.setOrderComment($any($event.target).value)"
+            [placeholder]="store.isTable() ? '例如：小孩的餐先上' : '例如：會晚 10 分鐘到'"
+          ></textarea>
+          <p class="field__hint num">最多 {{ shop.limits.orderCommentMaxLength }} 字</p>
+        </div>
+      }
+
+      @if (shop.showTableware && !store.isTable()) {
+        <fieldset class="tableware">
+          <legend class="field__label">餐具</legend>
+          <label class="choice">
+            <input
+              type="radio"
+              name="tableware"
+              [checked]="store.cart().tableware === false || store.cart().tableware === null"
+              (change)="store.setTableware(false)"
+            />
+            不需要餐具
+          </label>
+          <label class="choice">
+            <input
+              type="radio"
+              name="tableware"
+              [checked]="store.cart().tableware === true"
+              (change)="store.setTableware(true)"
+            />
+            需要餐具
+          </label>
+        </fieldset>
+      }
+
+      <dl class="sum">
+        <dt>小計</dt>
+        <dd class="price">{{ ntd(store.subtotal()) }}</dd>
+        @if (store.isDelivery()) {
+          <dt>外送費</dt>
+          <dd class="price" data-testid="delivery-fee">{{ ntd(store.deliveryFee()) }}</dd>
+          <dt>合計</dt>
+          <dd class="price">{{ ntd(store.total()) }}</dd>
+        }
+      </dl>
+      <p class="sum__note">
+        金額以店家確認的為準；{{
+          store.isTable() ? store.dineInPayment() : store.isDelivery() ? '貨到付款' : '取餐時付款'
+        }}。
+      </p>
+    }
+  </div>
+
+  @if (store.cart().lines.length > 0) {
+    <div class="bar">
+      @if (store.tableClosed(); as closed) {
+        <p class="bar__warn" role="status" data-testid="table-closed">{{ closed }}</p>
+      } @else if (store.lineWarnings().size > 0) {
+        <p class="bar__warn" role="status">請先處理標示的品項，再前往結帳。</p>
+      } @else if (store.shortfall() > 0) {
+        <p class="bar__warn" role="status">
+          還差 {{ ntd(store.shortfall()) }} 達外送門檻，請再加點餐點。
+        </p>
+      }
+      <a
+        class="btn btn--primary btn--block btn--split"
+        data-testid="go-checkout"
+        [attr.aria-disabled]="blocked() || !store.canOrder()"
+        [href]="'/order/' + store.slug() + '/checkout'"
+        (click)="blocked() || !store.canOrder() ? $event.preventDefault() : checkout($event)"
+      >
+        <span>前往結帳</span>
+        <span class="num">{{ ntd(store.total()) }}</span>
+      </a>
+    </div>
+  }
+
+  @if (timeOpen()) {
+    <app-time-sheet (done)="timeOpen.set(false)" (dismissed)="timeOpen.set(false)" />
+  }
+  @if (editingItem(); as item) {
+    <app-item-sheet
+      [item]="item"
+      [editing]="editing()"
+      [showComment]="shop.showOrderComment"
+      [commentMax]="shop.limits.lineCommentMaxLength"
+      [maxQuantity]="shop.limits.maxQuantity"
+      (saved)="saveEdit($event)"
+      (dismissed)="editing.set(null)"
+    />
+  }
+}

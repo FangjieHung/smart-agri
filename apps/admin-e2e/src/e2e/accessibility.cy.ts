@@ -19,6 +19,7 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/cases', '案件清單'],
   ['/app/cases?view=statistics', '平均處理時間'],
   ['/app/handoffs', '標記已處理'],
+  ['/app/orders', '暫停接單'],
   ['/app/settings', '團隊與權限'],
 ];
 
@@ -73,6 +74,12 @@ describe('accessibility', () => {
         auditA11y();
       });
     }
+
+    it('has no critical or serious violations on /app/orders with the dine-in tables shown (#402)', () => {
+      cy.visit('/app/orders');
+      cy.get('#main-content [data-table-session="A1"] [data-table-checkout]').scrollIntoView().should('be.visible');
+      auditA11y();
+    });
 
     it('has no critical or serious violations on a case\'s actions and its open form (issue #249)', () => {
       cy.visit('/app/cases?case=case-compressor-purchase');
@@ -264,7 +271,7 @@ describe('accessibility', () => {
       loginAs('SMB 管理者');
       cy.visit('/app/settings');
       cy.contains('button', '變更 安心商行客服同仁 的權限').click();
-      cy.get('.member__editor input[type="checkbox"]').should('have.length', 8);
+      cy.get('.member__editor input[type="checkbox"]').should('have.length', 9);
       auditA11y();
     });
   });

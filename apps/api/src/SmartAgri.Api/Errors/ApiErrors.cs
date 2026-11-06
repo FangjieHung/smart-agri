@@ -19,10 +19,11 @@ namespace SmartAgri.Api.Errors;
 /// <item><term><c>422</c></term><description>ProblemDetails + <c>message</c> +
 /// <c>errors</c>; plus a <c>reason</c> when the frontend has to tell refusals of the same
 /// field apart (<see cref="WithReason"/>).</description></item>
-/// <item><term><c>409</c>, <c>413</c>, <c>415</c>, <c>429</c>, <c>503</c></term><description>ProblemDetails +
+/// <item><term><c>404</c>, <c>409</c>, <c>413</c>, <c>415</c>, <c>429</c>, <c>503</c></term><description>ProblemDetails +
 /// <c>reason</c> + <c>message</c> (<see cref="WithReason"/>). <c>503</c> is a dependency the
 /// request needs being unavailable (the embedding model): try again later; <c>429</c> is the visitor
-/// API's rate limit (<see cref="RateLimited"/>, with <c>Retry-After</c>).</description></item>
+/// API's rate limit (<see cref="RateLimited"/>, with <c>Retry-After</c>); <c>404</c> is only a feature the caller's own
+/// organization has not set up (<c>ordering-not-configured</c>), never another organization's resource.</description></item>
 /// </list>
 /// </summary>
 /// <remarks>
@@ -46,6 +47,9 @@ public static class ApiErrors
     /// <see cref="WithReason"/> writes (RFC 9110's names).</summary>
     private static readonly Dictionary<int, (string Type, string Title)> ReasonStatuses = new()
     {
+        // Only for something of the caller's own organization that is not set up (e.g. ordering-not-configured,
+        // #399): never for a resource whose existence could be another organization's (that is NotFound's 403).
+        [StatusCodes.Status404NotFound] = ("https://tools.ietf.org/html/rfc9110#section-15.5.5", "Not Found"),
         [StatusCodes.Status409Conflict] = ("https://tools.ietf.org/html/rfc9110#section-15.5.10", "Conflict"),
         [StatusCodes.Status413PayloadTooLarge] = ("https://tools.ietf.org/html/rfc9110#section-15.5.14", "Content Too Large"),
         [StatusCodes.Status415UnsupportedMediaType] = ("https://tools.ietf.org/html/rfc9110#section-15.5.16", "Unsupported Media Type"),
@@ -112,7 +116,7 @@ public static class ApiErrors
     }
 
     /// <summary>
-    /// A refusal the caller can understand and act on: <paramref name="statusCode"/> (409,
+    /// A refusal the caller can understand and act on: <paramref name="statusCode"/> (404, 409,
     /// 413, 415, 422, 429 or 503) with a machine-readable <paramref name="reason"/> (kebab-case, for
     /// the frontend to switch on) and a <paramref name="message"/> to show as is. A
     /// <c>422</c> also names <paramref name="field"/> in <c>errors</c>, like

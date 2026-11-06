@@ -1,0 +1,327 @@
+<app-page-header title="結帳" back="cart" backLabel="回購物車" />
+
+@if (store.shop(); as shop) {
+  @if (existing() || failure()?.recovery === 'show-existing') {
+    <div class="body page-pad">
+      <div class="callout callout--info" id="checkout-failure" tabindex="-1" role="status">
+        <p>
+          <strong>{{ failure()?.message }}</strong>
+        </p>
+        @if (existing(); as order) {
+          <div class="callout__actions">
+            <a
+              class="btn btn--primary"
+              [href]="'/order/' + store.slug() + '/o#' + order.token"
+              (click)="nav.follow($event, store.slug(), 'status', order.token)"
+              >查看訂單 {{ order.displayNumber }}</a
+            >
+          </div>
+        } @else {
+          <p>
+            要確認訂單內容，請來電
+            <a [href]="telHref(shop.phone)">{{ shop.phone }}</a> 並告訴店家訂單編號。
+          </p>
+        }
+      </div>
+    </div>
+  } @else if (store.cart().lines.length === 0) {
+    <div class="body page-pad">
+      <p>購物車是空的。</p>
+      <a
+        class="btn btn--primary start"
+        [href]="'/order/' + store.slug()"
+        (click)="nav.follow($event, store.slug(), 'menu')"
+        >去點餐</a
+      >
+    </div>
+  } @else {
+    <form class="body page-pad" novalidate (submit)="$event.preventDefault(); submit()">
+      @if (failure(); as f) {
+        <div
+          class="callout"
+          [class.callout--danger]="f.recovery !== 'refresh-menu'"
+          id="checkout-failure"
+          tabindex="-1"
+          role="alert"
+          data-testid="submit-failure"
+        >
+          <p>{{ f.message }}</p>
+          @if (f.recovery === 'mark-lines' || f.recovery === 'add-more') {
+            <div class="callout__actions">
+              <a
+                class="btn"
+                [href]="'/order/' + store.slug() + '/cart'"
+                (click)="nav.follow($event, store.slug(), 'cart')"
+                >回購物車修改</a
+              >
+            </div>
+          }
+        </div>
+      }
+      @if (store.cartNotice(); as notice) {
+        <p class="callout" role="status">{{ notice }}</p>
+      }
+
+      <section class="block" aria-labelledby="pickup-heading">
+        <h2 class="block__title" id="pickup-heading">
+          {{ store.isTable() ? '內用' : store.isDelivery() ? '外送' : '取餐' }}
+        </h2>
+        <app-pickup-ticket (edit)="timeOpen.set(true)" />
+      </section>
+
+      <section class="block" aria-labelledby="summary-heading">
+        <h2 class="block__title" id="summary-heading">明細</h2>
+        <ul class="summary">
+          @for (entry of store.pricedLines(); track entry.line.key) {
+            @let warning = store.lineWarnings().get(entry.line.key);
+            <li class="summary__line" [class.summary__line--warn]="!!warning">
+              <span class="summary__qty num">{{ entry.line.quantity }}×</span>
+              <span class="summary__text">
+                <span class="summary__name">{{ entry.priced?.item?.name ?? entry.line.name }}</span>
+                @if (entry.priced?.summary) {
+                  <span class="summary__opts">{{ entry.priced?.summary }}</span>
+                }
+                @if (entry.line.comment) {
+                  <span class="summary__opts">備註：{{ entry.line.comment }}</span>
+                }
+                @if (warning) {
+                  <span class="summary__warn">{{
+                    store.isTable() ? '現在無法供應' : '這個取餐時間無法供應'
+                  }}</span>
+                }
+              </span>
+              <span class="price">{{ entry.priced ? ntd(entry.priced.lineTotal) : '' }}</span>
+            </li>
+          }
+        </ul>
+        @if (shop.showOrderComment && store.cart().orderComment.trim()) {
+          <p class="meta">訂單備註：{{ store.cart().orderComment.trim() }}</p>
+        }
+        @if (shop.showTableware && !store.isTable()) {
+          <p class="meta">餐具：{{ store.cart().tableware ? '需要' : '不需要' }}</p>
+        }
+        @if (store.isDelivery()) {
+          <dl class="fees">
+            <dt>小計</dt>
+            <dd class="price">{{ ntd(store.subtotal()) }}</dd>
+            <dt>外送費（{{ store.zone()?.name }}）</dt>
+            <dd class="price" data-testid="checkout-fee">{{ ntd(store.deliveryFee()) }}</dd>
+          </dl>
+        }
+        <dl class="total">
+          <dt>合計</dt>
+          <dd class="price" data-testid="checkout-total">{{ ntd(store.total()) }}</dd>
+        </dl>
+      </section>
+
+      @if (store.isTable()) {
+        <section class="block contact" aria-labelledby="name-heading">
+          <h2 class="block__title" id="name-heading">稱呼</h2>
+          <div class="field">
+            <label class="field__label" for="checkout-name"
+              >稱呼 <span class="field__optional">（選填）</span></label
+            >
+            <input
+              id="checkout-name"
+              class="input"
+              name="name"
+              autocomplete="nickname"
+              [maxLength]="shop.limits.nameMaxLength"
+              [value]="name()"
+              [attr.aria-invalid]="!!errors().name"
+              [attr.aria-describedby]="
+                'checkout-name-hint' + (errors().name ? ' checkout-name-error' : '')
+              "
+              (input)="set('name', $any($event.target).value)"
+            />
+            <p class="field__hint" id="checkout-name-hint">
+              例如：王先生。店員送餐或叫號時方便稱呼。
+            </p>
+            @if (errors().name) {
+              <p class="field__error" id="checkout-name-error">{{ errors().name }}</p>
+            }
+          </div>
+        </section>
+      } @else {
+        <fieldset class="block contact">
+          <legend class="block__title">聯絡資料</legend>
+          <div class="field">
+            <label class="field__label" for="checkout-name">姓名</label>
+            <input
+              id="checkout-name"
+              class="input"
+              name="name"
+              autocomplete="name"
+              required
+              [maxLength]="shop.limits.nameMaxLength"
+              [value]="name()"
+              [attr.aria-invalid]="!!errors().name"
+              [attr.aria-describedby]="errors().name ? 'checkout-name-error' : null"
+              (input)="set('name', $any($event.target).value)"
+            />
+            @if (errors().name) {
+              <p class="field__error" id="checkout-name-error">{{ errors().name }}</p>
+            }
+          </div>
+          <div class="field">
+            <label class="field__label" for="checkout-phone">電話</label>
+            <input
+              id="checkout-phone"
+              class="input"
+              name="phone"
+              type="tel"
+              inputmode="tel"
+              autocomplete="tel"
+              required
+              maxlength="30"
+              [value]="phone()"
+              [attr.aria-invalid]="!!errors().phone"
+              [attr.aria-describedby]="
+                'checkout-phone-hint' + (errors().phone ? ' checkout-phone-error' : '')
+              "
+              (input)="set('phone', $any($event.target).value)"
+            />
+            <p class="field__hint" id="checkout-phone-hint">
+              手機或市話，例如 0912-345-678。店家會用這支電話與您聯絡。
+            </p>
+            @if (errors().phone) {
+              <p class="field__error" id="checkout-phone-error">{{ errors().phone }}</p>
+            }
+          </div>
+          <div class="field">
+            <label class="field__label" for="checkout-email"
+              >Email <span class="field__optional">（選填）</span></label
+            >
+            <input
+              id="checkout-email"
+              class="input"
+              name="email"
+              type="email"
+              inputmode="email"
+              autocomplete="email"
+              maxlength="254"
+              [value]="email()"
+              [attr.aria-invalid]="!!errors().email"
+              [attr.aria-describedby]="
+                'checkout-email-hint' + (errors().email ? ' checkout-email-error' : '')
+              "
+              (input)="set('email', $any($event.target).value)"
+            />
+            <p class="field__hint" id="checkout-email-hint">
+              留下 Email，店家接單或婉拒時會寄信通知您。
+            </p>
+            @if (errors().email) {
+              <p class="field__error" id="checkout-email-error">{{ errors().email }}</p>
+            }
+          </div>
+        </fieldset>
+      }
+
+      @if (store.isDelivery()) {
+        <fieldset class="block contact">
+          <legend class="block__title">外送地址</legend>
+          <div class="field">
+            <label class="field__label" for="checkout-address">地址</label>
+            <input
+              id="checkout-address"
+              class="input"
+              name="address"
+              autocomplete="street-address"
+              required
+              [maxLength]="shop.delivery?.addressMaxLength ?? 120"
+              [value]="address()"
+              [attr.aria-invalid]="!!errors().address"
+              [attr.aria-describedby]="
+                'checkout-address-hint' + (errors().address ? ' checkout-address-error' : '')
+              "
+              (input)="set('address', $any($event.target).value)"
+            />
+            <p class="field__hint" id="checkout-address-hint">
+              請寫完整地址（含樓層），需在「{{ store.zone()?.name }}」範圍內。
+            </p>
+            @if (errors().address) {
+              <p class="field__error" id="checkout-address-error">{{ errors().address }}</p>
+            }
+          </div>
+          <div class="field">
+            <label class="field__label" for="checkout-deliveryNote"
+              >給外送的備註 <span class="field__optional">（選填）</span></label
+            >
+            <input
+              id="checkout-deliveryNote"
+              class="input"
+              name="deliveryNote"
+              [maxLength]="shop.delivery?.noteMaxLength ?? 100"
+              [value]="deliveryNote()"
+              [attr.aria-invalid]="!!errors().deliveryNote"
+              [attr.aria-describedby]="errors().deliveryNote ? 'checkout-deliveryNote-error' : null"
+              placeholder="例如：請按電鈴、放管理室"
+              (input)="set('deliveryNote', $any($event.target).value)"
+            />
+            @if (errors().deliveryNote) {
+              <p class="field__error" id="checkout-deliveryNote-error">
+                {{ errors().deliveryNote }}
+              </p>
+            }
+          </div>
+        </fieldset>
+      }
+
+      <section class="block" aria-labelledby="payment-heading">
+        <h2 class="block__title" id="payment-heading">付款方式</h2>
+        <p class="payment">
+          <span class="payment__dot" aria-hidden="true"></span
+          >{{
+            store.isTable()
+              ? store.dineInPayment()
+              : store.isDelivery()
+                ? '貨到付款（餐點送達時付款）'
+                : '取餐時付款'
+          }}
+        </p>
+        <!-- 內用（#402）的付款說明是 dineIn.note，結帳頁的提醒（通常是外帶的取餐付款）不顯示。 -->
+        @if (shop.notices.checkout && !store.isTable()) {
+          <p class="meta notice">{{ shop.notices.checkout }}</p>
+        }
+      </section>
+
+      @if (store.isTable()) {
+        <p class="privacy">
+          個人資料告知：{{
+            shop.name
+          }}透過本點餐系統蒐集您填的稱呼與備註，只用於處理這次訂單，由本系統的平台營運者代為處理。資料保存到用餐後
+          90 天，之後刪除。您可以來電 <a [href]="telHref(shop.phone)">{{ shop.phone }}</a> 向{{
+            shop.name
+          }}查詢、閱覽、更正或刪除您的資料；不填稱呼也可以下單。
+        </p>
+      } @else {
+        <p class="privacy">
+          個人資料告知：{{ shop.name }}透過本點餐系統蒐集您的姓名、電話、Email{{
+            store.isDelivery() ? '、外送地址與' : ' 與'
+          }}備註，只用於處理這次訂單（確認、通知與聯絡），由本系統的平台營運者代為處理。資料保存到取餐時間後
+          90 天，之後刪除。您可以來電 <a [href]="telHref(shop.phone)">{{ shop.phone }}</a> 向{{
+            shop.name
+          }}查詢、閱覽、更正或刪除您的資料；沒有姓名與電話將無法下單。
+        </p>
+      }
+
+      <div class="bar">
+        <button
+          type="submit"
+          class="btn btn--primary btn--block btn--split"
+          data-testid="submit-order"
+          [attr.aria-disabled]="sending()"
+        >
+          <span>{{
+            sending() ? '送出中…' : failure()?.recovery === 'retry' ? '再試一次' : '送出訂單'
+          }}</span>
+          <span class="num">{{ ntd(store.total()) }}</span>
+        </button>
+      </div>
+    </form>
+  }
+
+  @if (timeOpen()) {
+    <app-time-sheet [message]="timeMessage()" (done)="closeTime()" (dismissed)="closeTime()" />
+  }
+}

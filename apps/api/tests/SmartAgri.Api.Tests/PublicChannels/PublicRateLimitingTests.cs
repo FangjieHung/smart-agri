@@ -126,6 +126,32 @@ public class PublicRateLimitingTests
     }
 
     [Fact]
+    public void The_ordering_api_has_one_budget_per_client_ip_and_sending_orders_a_smaller_one_of_its_own()
+    {
+        using var limiter = PublicRateLimiting.CreateLimiter(
+            new PublicRateLimitOptions { OrderingRequestsPerIpPerMinute = 3, OrderingSubmissionsPerIpPerMinute = 1 });
+
+        Acquire(limiter, PublicRateLimitedEndpoint.OrderingSubmission, "198.51.100.20").ShouldBeTrue();
+        Acquire(limiter, PublicRateLimitedEndpoint.OrderingSubmission, "198.51.100.20").ShouldBeFalse();
+        Acquire(limiter, PublicRateLimitedEndpoint.OrderingSubmission, "198.51.100.21").ShouldBeTrue("each client has its own budget");
+        for (var i = 0; i < 3; i++)
+        {
+            Acquire(limiter, PublicRateLimitedEndpoint.Ordering, "198.51.100.20").ShouldBeTrue("reading and polling have their own budget");
+        }
+
+        Acquire(limiter, PublicRateLimitedEndpoint.Ordering, "198.51.100.20").ShouldBeFalse();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorReservation, "198.51.100.20").ShouldBeTrue("the reservation pages have their own");
+
+        static bool Acquire(System.Threading.RateLimiting.PartitionedRateLimiter<HttpContext> limiter, PublicRateLimitedEndpoint kind, string address)
+        {
+            var context = new DefaultHttpContext();
+            context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(new PublicRateLimitMarker(kind)), kind.ToString()));
+            context.Connection.RemoteIpAddress = IPAddress.Parse(address);
+            return limiter.AttemptAcquire(context).IsAcquired;
+        }
+    }
+
+    [Fact]
     public async Task The_429_body_is_one_fixed_problem_whichever_partition_refused()
     {
         var context = new DefaultHttpContext();
@@ -144,7 +170,7 @@ public class PublicRateLimitingTests
 
     /// <summary>Acceptance: the 429 contract is in <c>openapi/v1.json</c> for both rate-limited endpoints, and only for them.</summary>
     [Fact]
-    public void The_429_is_in_the_openapi_document_for_the_session_and_chat_run_endpoints_only()
+    public void The_429_is_in_the_openapi_document_for_the_session_chat_run_and_ordering_endpoints_only()
     {
         using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepositoryRoot(), "apps", "api", "openapi", "v1.json")));
         var paths = document.RootElement.GetProperty("paths");
@@ -163,8 +189,15 @@ public class PublicRateLimitingTests
 
         documented.Order().ShouldBe(
         [
+            "GET /api/v1/public/ordering/{slug}",
+            "GET /api/v1/public/ordering/{slug}/menu",
+            "GET /api/v1/public/ordering/{slug}/orders/current",
+            "GET /api/v1/public/ordering/{slug}/slots",
+            "GET /api/v1/public/ordering/{slug}/table",
             "POST /api/v1/public/assistants/{id}/chat/runs",
             "POST /api/v1/public/assistants/{id}/visitor-sessions",
+            "POST /api/v1/public/ordering/{slug}/orders",
+            "POST /api/v1/public/ordering/{slug}/orders/current/cancel",
         ]);
     }
 

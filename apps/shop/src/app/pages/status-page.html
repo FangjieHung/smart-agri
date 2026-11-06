@@ -1,0 +1,231 @@
+<app-page-header title="訂單狀態" />
+
+<div class="body page-pad">
+  @switch (state()) {
+    @case ('loading') {
+      <p class="muted" role="status">正在讀取訂單…</p>
+    }
+    @case ('error') {
+      <div class="callout callout--danger" role="alert">
+        <p>訂單讀取失敗，請確認網路連線。</p>
+        <div class="callout__actions">
+          <button type="button" class="btn" (click)="retry()">重新讀取</button>
+        </div>
+      </div>
+    }
+    @case ('not-found') {
+      <div class="callout" data-testid="order-not-found">
+        <p><strong>找不到這筆訂單。</strong></p>
+        <p>
+          訂單頁的網址只在送出訂單的這支手機（瀏覽器）上有效。請確認網址完整，或來電店家
+          @if (store.shop(); as shop) {
+            <a [href]="telHref(shop.phone)">{{ shop.phone }}</a>
+          }
+          查詢。
+        </p>
+      </div>
+      @if (recent().length > 0) {
+        <h2 class="sub">這支手機最近送出的訂單</h2>
+        <ul class="recent">
+          @for (entry of recent(); track entry.token) {
+            <li>
+              <a
+                class="btn recent__link"
+                [href]="'/order/' + store.slug() + '/o#' + entry.token"
+                (click)="nav.follow($event, store.slug(), 'status', entry.token)"
+              >
+                <span class="num">{{ entry.displayNumber }}</span>
+                <span>{{ statusOf(entry) }}</span>
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    }
+    @case ('ready') {
+      @if (order(); as o) {
+        <section
+          class="hero"
+          [class.hero--stopped]="progress() === null"
+          aria-labelledby="order-number"
+        >
+          <p class="hero__label">訂單編號</p>
+          <p class="hero__number num" id="order-number" data-testid="order-number">
+            {{ o.displayNumber }}
+          </p>
+          <h2 class="hero__status" data-testid="order-status" aria-live="polite">
+            {{ words()?.title }}
+          </h2>
+          <p class="hero__detail">{{ words()?.detail }}</p>
+          @if (reason(); as text) {
+            <p class="hero__detail" data-testid="order-reason">{{ text }}</p>
+          }
+        </section>
+
+        @if (progress() !== null) {
+          <ol class="progress" aria-label="訂單進度">
+            @for (step of steps(); track step; let i = $index) {
+              <li
+                class="progress__step"
+                [class.progress__step--done]="i < progress()!"
+                [class.progress__step--now]="i === progress()"
+                [attr.aria-current]="i === progress() ? 'step' : null"
+              >
+                <span class="progress__dot" aria-hidden="true"></span>
+                <span class="progress__text"
+                  >{{ step
+                  }}<span class="visually-hidden">{{
+                    i < progress()! ? '（已完成）' : i === progress() ? '（目前）' : ''
+                  }}</span></span
+                >
+              </li>
+            }
+          </ol>
+        }
+
+        <dl class="facts">
+          @if (dineIn()) {
+            <dt>內用</dt>
+            <dd data-testid="order-table">{{ tableLabel() }}</dd>
+          } @else if (delivery()) {
+            <dt>外送</dt>
+            <dd data-testid="order-pickup">{{ pickup() }}</dd>
+            @if (o.delivery; as d) {
+              <dt>外送區域</dt>
+              <dd data-testid="order-zone">{{ d.zoneName }}</dd>
+              <dt>外送地址</dt>
+              <dd data-testid="order-address">{{ d.address || '（已刪除）' }}</dd>
+              @if (d.note) {
+                <dt>外送備註</dt>
+                <dd>{{ d.note }}</dd>
+              }
+            }
+          } @else {
+            <dt>取餐</dt>
+            <dd data-testid="order-pickup">外帶，{{ pickup() }}</dd>
+          }
+          @if (o.customerName || !dineIn()) {
+            <dt>{{ dineIn() ? '稱呼' : '訂購人' }}</dt>
+            <dd>
+              {{ o.customerName }}
+              @if (o.phoneLastDigits) {
+                （電話末三碼 <span class="num">{{ o.phoneLastDigits }}</span
+                >）
+              }
+            </dd>
+          }
+          <dt>付款</dt>
+          <dd data-testid="order-payment">
+            {{ dineIn() ? store.dineInPayment() : delivery() ? '貨到付款' : '取餐時付款' }}
+          </dd>
+        </dl>
+
+        <section aria-labelledby="lines-heading">
+          <h2 class="sub" id="lines-heading">明細</h2>
+          <ul class="lines">
+            @for (line of o.lines; track $index) {
+              <li class="line">
+                <span class="num">{{ line.quantity }}×</span>
+                <span class="line__text">
+                  <span class="line__name">{{ line.itemName }}</span>
+                  @if (line.options.length > 0) {
+                    <span class="muted small">{{ optionsText(line.options) }}</span>
+                  }
+                  @if (line.comment) {
+                    <span class="muted small">備註：{{ line.comment }}</span>
+                  }
+                </span>
+                <span class="price">{{ ntd(line.lineTotal) }}</span>
+              </li>
+            }
+          </ul>
+          @if (o.orderComment) {
+            <p class="muted small">訂單備註：{{ o.orderComment }}</p>
+          }
+          @if (o.tableware !== null && !dineIn()) {
+            <p class="muted small">餐具：{{ o.tableware ? '需要' : '不需要' }}</p>
+          }
+          @if (delivery()) {
+            <dl class="fees">
+              <dt>小計</dt>
+              <dd class="price">{{ ntd(o.subtotal) }}</dd>
+              <dt>外送費</dt>
+              <dd class="price" data-testid="order-fee">{{ ntd(o.deliveryFee ?? 0) }}</dd>
+            </dl>
+          }
+          <dl class="total">
+            <dt>合計</dt>
+            <dd class="price">{{ ntd(o.total) }}</dd>
+          </dl>
+        </section>
+
+        @if (cancelError(); as message) {
+          <p class="callout callout--danger" role="alert">{{ message }}</p>
+        }
+
+        <div class="actions">
+          @if (o.canCancel) {
+            <button
+              type="button"
+              class="btn btn--danger"
+              data-testid="cancel-order"
+              (click)="confirmCancel.set(true)"
+            >
+              取消訂單
+            </button>
+          }
+          @if (store.shop(); as shop) {
+            <a class="btn" [href]="telHref(shop.phone)">打電話給店家</a>
+          }
+          @if (store.isTable()) {
+            <a
+              class="btn btn--primary"
+              data-testid="order-more"
+              [href]="'/order/' + store.slug()"
+              (click)="nav.follow($event, store.slug(), 'menu')"
+              >繼續加點</a
+            >
+          } @else {
+            <a
+              class="btn btn--quiet"
+              [href]="'/order/' + store.slug()"
+              (click)="nav.follow($event, store.slug(), 'menu')"
+              >回到菜單</a
+            >
+          }
+        </div>
+
+        @if (confirmCancel()) {
+          <app-sheet
+            labelledBy="cancel-title"
+            [compact]="true"
+            (dismissed)="confirmCancel.set(false)"
+          >
+            <div class="sheet__head">
+              <h2 class="sheet__title" id="cancel-title" tabindex="-1">
+                要取消訂單 {{ o.displayNumber }} 嗎？
+              </h2>
+            </div>
+            <div class="sheet__scroll confirm">
+              <p>取消後店家不會製作，這筆訂單也無法恢復。</p>
+            </div>
+            <div class="sheet__foot confirm__foot">
+              <button type="button" class="btn" data-autofocus (click)="confirmCancel.set(false)">
+                保留訂單
+              </button>
+              <button
+                type="button"
+                class="btn btn--danger"
+                data-testid="confirm-cancel"
+                [attr.aria-disabled]="cancelling()"
+                (click)="cancel()"
+              >
+                {{ cancelling() ? '取消中…' : '取消訂單' }}
+              </button>
+            </div>
+          </app-sheet>
+        }
+      }
+    }
+  }
+</div>

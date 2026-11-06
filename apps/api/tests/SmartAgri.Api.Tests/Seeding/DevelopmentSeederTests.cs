@@ -108,6 +108,7 @@ public class DevelopmentSeederTests : IClassFixture<AuthHostFixture>
                     AccountPermission.ManageDataSources,
                     AccountPermission.ManagePublishing,
                     AccountPermission.ReadConsentedSubmissions,
+                    AccountPermission.ManageOrders,
                 ],
                 ignoreOrder: true);
         }
@@ -132,7 +133,7 @@ public class DevelopmentSeederTests : IClassFixture<AuthHostFixture>
         me.GetProperty("displayName").GetString().ShouldBe("安心商行管理者");
         me.GetProperty("role").GetString().ShouldBe("smb-admin");
         me.GetProperty("permissions").EnumerateArray().Select(permission => permission.GetString())
-            .ShouldBe(["manage-assistants", "manage-data-sources", "manage-publishing", "read-consented-submissions"]);
+            .ShouldBe(["manage-assistants", "manage-data-sources", "manage-publishing", "read-consented-submissions", "manage-orders"]);
         me.GetProperty("organization").GetProperty("name").GetString().ShouldBe("安心商行");
     }
 

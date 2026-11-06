@@ -2035,3 +2035,172 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 備註一起），由每天凌晨 3 點的保存期限清理對每個組織執行，`retention-cleanup` 也會刪（第 12 節）。api 的紀錄與組織紀錄**不寫**顧客的姓名、電話、Email
 或備註，只寫訂位 ID、組織、日期、人數與被拒絕的原因；LINE 卡片與回覆只送給這家店的成員。統籌助理每次推播 LINE 接受後，
 會在 `CoordinatorPushLogs` 記一筆（店家、時間、用途、則數，沒有收件人或內容），保存 400 天。平台代店家處理這些資料：請在隱私權政策加上 `deploy/privacy-policy-template.md` 的「線上訂位」一節。
+
+## 18. 線上點餐（#397 起）
+
+線上點餐是獨立的模組，**不需要**統籌助理：每家店（組織）一份**點餐設定**與**菜單**，用 `ordering-shop` 匯入。
+設計與後續的工作單見 `docs/plans/2026-11-06-online-ordering.md`。#398 起顧客可以在 `/order/<slug>` 點餐（第 18.2 節），
+店員在後台「點餐」頁接單（#399）；#400 起有留 Email 的顧客會收到通知信，沒人處理的訂單會自動取消，個資在取餐 90 天後清除（第 18.3 節）；
+#401 起可以開放外送（第 18.4 節）。
+
+### 18.1 點餐設定與菜單：`ordering-shop`
+
+1. 複製範例檔，一家店一個檔案（`deploy/shops/` 不會進 git）：
+
+   ```sh
+   mkdir -p deploy/shops
+   cp deploy/ordering-shop.example.json deploy/shops/harvest-ordering.json
+   ```
+
+2. 修改檔案。`shop` 是店家資訊與點餐規則，`menu` 是菜單，兩段都必填：
+   - `slug`：點餐網址的代號（之後的網址是 `/order/<slug>`），和訂位頁的代號分開設定，不能和別家店重複。
+   - `services`：`takeoutScheduled`（外帶預約）、`takeoutAsap`（外帶即時，「儘快」）、`delivery`（外送預約，選填，預設關）、
+     `deliveryAsap`（外送儘快，選填，要先開 `delivery`），至少開一種。開了外送就要有 `delivery` 段（第 18.4 節）。
+   - `orderingHours`：可點餐時間，格式和第 17.5 節的 `weeklyHours` 相同（可跨午夜，例如 `17:00`–`01:00`）。
+   - `slotMinutes`（10、15、20、30、60，預設 30）、`daysAhead`（可預約幾天，含今天，1–14，預設 3）、
+     `minLeadMinutes`（最短準備時間，預設 15）、`maxOrdersPerSlot`（每個取餐時段最多幾筆，不填＝不限）。
+   - `pendingTimeoutMinutes`（#400）：待確認的訂單在**可點餐時間內**幾分鐘沒有人接單或婉拒，就自動取消並通知顧客，5–120，預設 15。
+     只在可點餐時間內計算：晚上送出的明天預約單，從明天第一段可點餐時間開始算；最晚到顧客選的取餐時間就取消。
+     改這個設定只影響之後送出的訂單。
+   - 菜單：分類 → 品項 → 選項群組 → 選項，選項底下可以再有選項群組，最多四層。`id` 由你自己取（小寫英數與 `-`），
+     **之後不要改**：售完狀態與訂單都用它對應品項。價格是新台幣整數元；選項的 `price` 是加價。
+     群組的 `min`／`max` 是至少、最多選幾個（`min: 1, max: 1` 就是必選單選），`repeatable: true` 可以同一選項選多份。
+   - 暫停接單、即時單準備時間不在檔案裡：由店員在後台切換（#399），匯入不會改動它們。
+3. 匯入：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm -T \
+     -v "$PWD/deploy/shops:/shops:ro" api \
+     ordering-shop import --organization harvest --file /shops/harvest-ordering.json
+   ```
+
+   檔案會**先整份檢查**，有任何錯誤就逐條列出「位置：說明」，**一筆都不寫入**。菜單和上一次不同時會存成新的一版
+   （「菜單第 N 版」）；內容完全相同時輸出「沒有變更」，不寫任何東西。
+4. 看目前的設定摘要（取餐方式、可點餐時間、時段規則、待確認逾時、外送區域與時間、暫停接單、菜單版本與品項數）：
+
+   ```sh
+   docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
+     ordering-shop show --organization harvest
+   ```
+
+結束代碼：`0` 完成；`1` 找不到組織、這家店還沒有點餐設定（`show`）或寫入失敗；`2` 參數錯誤、設定檔不正確或網址代號已被別家店使用。
+每次匯入**有變更**時，組織紀錄會記一筆 `ordering-shop-updated`，只記哪些欄位改了與菜單版本，不記店名、公告或菜單內容。
+
+### 18.2 顧客點餐網頁 `/order/<slug>`（#398）
+
+- **網址**：`<PUBLIC_BASE_URL>/order/<slug>`；訂單狀態頁是 `/order/<slug>/o#<token>`（送出訂單時產生的隨機長字串，只顯示一次；放在 `#` 後面，瀏覽器不會送到伺服器，所以不會出現在 api 的紀錄裡）。
+  映像內含點餐網頁（`apps/shop`，設定 `Shop__RootPath=wwwroot/shop`，設為空字串就不提供）。反向代理只轉特定路徑時，`/order/` 也要轉給 api。
+- 網頁呼叫的公開 API 在 `/api/v1/public/ordering/<slug>/…`，只接受同一個網址來源的瀏覽器請求（別的網站的頁面送出會被拒絕）。
+- **頻率限制**（每個用戶端 IP、不分店家）：讀取店家、菜單、時段、訂單狀態（狀態頁每 10 秒更新一次）與取消合計每分鐘 120 次
+  （`PublicChannels__RateLimits__OrderingRequestsPerIpPerMinute`）；送出訂單每分鐘 10 次（`…__OrderingSubmissionsPerIpPerMinute`）。
+  代理後面一定要設 `TRUSTED_PROXIES`（第 5 節）。
+- **防亂下單**：同一支電話在同一家店最多 3 筆「等待店家確認」且取餐時間還沒到的訂單；每次結帳帶一個送出代碼，重送只算一筆；
+  價格一律由伺服器依目前菜單計算，送出時再檢查時段、菜單版本、售完與分類供應時間。
+- **保存的資料與紀錄**：訂單存在 `OrderingOrders`（姓名、電話、Email、備註、明細快照、金額）。api 的紀錄**不寫**顧客的姓名、電話、
+  Email、備註或狀態頁的 token，只寫訂單 ID、組織、訂單號碼、品項數與金額。個資在取餐 90 天後清除（第 18.3 節）。
+
+### 18.3 通知信、逾時自動取消與個資保存期限（#400）
+
+- **通知信**：顧客有留 Email、而且設定了 SMTP（第 16 節）時，店員**接單**（含預計取餐時間）、**婉拒**（含理由與說明）、
+  **店家取消**（含理由與說明）、**顧客自己取消**，以及**逾時自動取消**時，各寄一封純文字信。寄件人地址是 `SMTP_FROM`，
+  顯示名稱是**店名**（不是 `SMTP_FROM_NAME`）。信裡有訂單編號、店名、取餐方式與時間、明細與金額、「取餐時付款」、店家電話；
+  設了 `PUBLIC_BASE_URL` 時另附店家的點餐網頁 `<PUBLIC_BASE_URL>/order/<slug>`。**不附訂單狀態頁的連結**（系統只存 token 的雜湊，
+  而且 token 不能放進網址路徑或查詢字串），也不含顧客填的姓名、電話與備註。
+  信由背景工作在按下按鈕之後寄出（`ordering.order-email`），寄失敗會依背景工作的規則重試，**不會改變訂單狀態**；
+  沒設 SMTP 時只是不寄，其他功能照常。
+- **逾時自動取消**：每筆待確認的訂單送出時就決定「最晚確認時間」（店家的 `pendingTimeoutMinutes`，只算可點餐時間，
+  最晚是取餐時間），由延後執行的背景工作（`ordering.expire-order`）在那時把仍待確認的訂單改成「逾時未處理」並寄信。
+  店員同時按〔接單〕或〔婉拒〕、或顧客同時取消時，只有一個會生效。後台「點餐」頁的待確認卡片會顯示「HH:mm 前未確認將自動取消」，
+  剩不到 5 分鐘時以紅字顯示。背景工作由 api 的工作佇列執行（`Jobs__WorkerEnabled`，預設開啟）。
+- **個資保存期限**：取餐時間（接單時店員另訂的時間，否則是顧客選的時間）**滿 90 天**後，每天 03:00 的清理（與第 12 節相同時間，
+  每個組織都會執行，不論對話保存期限）會清除該訂單的顧客姓名、電話、Email、訂單備註與品項備註；訂單編號、狀態、時間、品項、
+  選項與金額**保留**作為營業額統計。後台與訂單狀態頁仍看得到這筆訂單，姓名顯示「（已刪除）」、沒有電話。
+  也可以手動執行 `retention-cleanup --organization <代碼>`（第 12 節），輸出會多一行「線上點餐：清除 N 筆…」。
+  隱私權政策範本的第 5.6 節照這個寫（`deploy/privacy-policy-template.md`）。
+
+### 18.4 外送（#401）
+
+外送**不用地圖、不算距離**：店家自己列出外送區域（例如「新營區・民權里」或「3 公里內」這種文字），每區有運費與最低消費；
+顧客選區域、填地址，伺服器依區域計算運費、檢查最低消費。範例檔 `deploy/ordering-shop.example.json` 有三個區域。
+
+- **設定**（`shop` 段）：`services.delivery: true`（外送預約），要開「外送儘快」再加 `services.deliveryAsap: true`；
+  然後加上 `delivery`：
+
+  ```json
+  "delivery": {
+    "zones": [
+      { "id": "minquan", "name": "新營區・民權里", "fee": 0, "minimumSubtotal": 150 },
+      { "id": "xinying", "name": "新營區其他里", "fee": 30, "minimumSubtotal": 200 }
+    ],
+    "orderingHours": { "mon": [], "tue": [{ "open": "11:00", "close": "13:30" }], "…": [] },
+    "minLeadMinutes": 45,
+    "asapExtraMinutes": 20,
+    "note": "外送由店員騎車送達，不確定是否在範圍內請先來電。"
+  }
+  ```
+
+  - `zones`：1–50 個區域。`id` 小寫英數與 `-`、不能重複，**之後不要改**（訂單記著它）；`name` 一行、最多 40 字，顧客與店員都看得到；
+    `fee` 運費 0–10,000 元；`minimumSubtotal` 最低消費 0–100,000 元（以餐點小計計算，不含運費；不填＝ 0）。
+  - `orderingHours`（選填）：外送的時間，格式同可點餐時間；不填就和外帶一樣。外送時段的長度、可預約天數、每時段上限沿用外帶的
+    `slotMinutes`、`daysAhead`、`maxOrdersPerSlot`，但**名額和外帶分開算**（同一個時間外帶滿了，外送仍可訂）。
+  - `minLeadMinutes`（選填，0–1440，預設 45）：外送最早可選的時間（外送比外帶久）。
+  - `asapExtraMinutes`（選填，0–120，預設 20）：外送儘快的估計＝後台的即時單準備時間再加上這幾分鐘（例如 15–30 分鐘＋20＝「約 35–50 分鐘」）。
+  - `note`（選填，最多 300 字）：外送範圍說明，顯示在顧客選區域的地方。
+  - 關掉外送（`services.delivery: false`）時 `delivery` 段可以留著，不會用到。`ordering-shop show` 會列出區域、運費、最低消費、外送時間與說明。
+- **顧客端**：取餐方式多了「外送（預約）」「外送（儘快）」；選外送要先選區域（看得到運費與最低消費）再選時間。購物車顯示
+  「還差 NT$X 達外送門檻」，未達門檻不能結帳；結帳要填地址（必填，最多 120 字）與「給外送的備註」（選填，最多 100 字），
+  合計含外送費，付款方式是貨到付款。伺服器也會再檢查：未達門檻回 `422 below-minimum`、區域不存在回 `422 unknown-zone`、
+  店家沒開外送回 `409 service-unavailable`；顧客送來的運費一律忽略。
+- **後台**：外送訂單的卡片有「外送」標記、區域、完整地址（附 Google 地圖搜尋連結）、給外送的備註與運費；
+  〔可取餐〕按鈕在外送訂單是〔已出發〕（訂單狀態沿用「可取餐」，顧客的訂單頁顯示「外送已出發」）。
+- **通知信**：外送訂單的信寫「外送」「預計送達」與「貨到付款」，只寫**區域名稱**，**不寫地址**與給外送的備註。
+- **個資**：地址與給外送的備註和姓名、電話一樣，在送達時間滿 90 天後清除（第 18.3 節）；區域名稱與運費保留作為統計。
+  api 的紀錄不寫地址。
+
+### 18.5 內用掃碼（#402）
+
+每張桌子一個 QR code；顧客掃碼直接點餐（不選時間），可以多次加點，用餐後在櫃台結帳。同一桌還沒結帳的訂單是一個「桌次」，
+後台「點餐」頁的「內用」依桌號合併顯示並加總，店員收完錢按〔已結帳〕結束桌次，之後同一個 QR code 開始新的桌次。
+
+- **設定**（`shop` 段）：`services.dineIn: true`，再加上 `dineIn`：
+
+  ```json
+  "dineIn": {
+    "tables": [{ "id": "a1", "name": "A1" }, { "id": "window-1", "name": "窗邊 1" }],
+    "autoAccept": false,
+    "orderingHours": { "mon": [], "tue": [{ "open": "11:00", "close": "14:00" }], "…": [] },
+    "note": "用餐後請至櫃台結帳，可用現金或 LINE Pay。",
+    "maxPendingPerTable": 5
+  }
+  ```
+
+  - `tables`：1–200 張桌子。`id` 小寫英數與 `-`、不能重複，**之後不要改**（QR code 跟著它）；`name` 一行、最多 20 字（「A1」「窗邊 2」）。
+  - `autoAccept`（選填，預設 `false`）：`true` 時內用訂單一送出就是「已接單」（後台顯示「自動接單」），不會逾時取消。
+  - `orderingHours`（選填）：內用點餐的時間，格式同可點餐時間；不填就和外帶一樣。暫停接單、售完、分類供應時間都照常適用。
+  - `note`（選填，最多 300 字）：顧客結帳與訂單頁的付款說明（內用時取代 `notices.checkout`，那段通常寫的是外帶的取餐付款）；不填顯示「用餐後至櫃台結帳」。
+  - `maxPendingPerTable`（選填，1–20，預設 5）：同一桌最多幾筆等待確認的訂單（內用不問電話，所以用桌號限制）。
+  - 關掉內用（`services.dineIn: false`）時 `dineIn` 段可以留著：桌號與 QR code 都保留，但掃了會顯示「已失效」，重新開放後恢復。
+- **QR code 與網址**：伺服器在桌號第一次出現在匯入檔時產生一個隨機代碼（token），之後重新匯入都不變；從檔案拿掉的桌號立刻失效，
+  同一個 `id` 再加回來會拿到**新的**代碼（要重新列印）。網址是 `https://<平台網址>/order/<slug>/table#<代碼>`：代碼在 `#` 後面，
+  瀏覽器不會把它送到伺服器的網址裡（API 從 `X-Ordering-Table` 標頭讀），所以不會出現在紀錄或追蹤裡。代碼原樣存在資料庫
+  （它本來就印在桌上給大家看），只能用來向那一桌點餐、看那一桌這次的品項與金額，看不到任何人的稱呼或備註。
+
+  ```sh
+  # 列出每一桌的網址（有設定 PublicChannels:PublicBaseUrl 才是完整網址，否則只有路徑）
+  docker compose --env-file .env -f deploy/docker-compose.yml run --rm api ordering-shop tables --organization <組織代碼>
+  # 某一桌的 QR code 被拍走或貼紙壞了：換一個新代碼（舊的立刻失效，要重新列印那一桌）
+  docker compose --env-file .env -f deploy/docker-compose.yml run --rm api ordering-shop tables --organization <組織代碼> --regenerate a1
+  # 印 QR code：寫成可列印的 HTML（A4，每頁 6 張：店名、桌號、QR code、「掃描點餐，用餐後至櫃台結帳」）
+  docker compose --env-file .env -f deploy/docker-compose.yml run --rm -v "$PWD:/out" api \
+    ordering-shop tables --organization <組織代碼> --html /out/tables.html
+  ```
+
+  `--html` 需要先設定 `PublicChannels:PublicBaseUrl`（QR code 要指向完整網址）。用瀏覽器開啟 HTML 後列印（紙張 A4、邊界「無」或「預設」皆可），
+  沿虛線剪下護貝。印好後用手機掃一張確認會打開那一桌的點餐頁。輸出含每一桌的代碼，不要貼到公開的地方。
+- **顧客端**：掃碼後頁首顯示「內用・桌號 A1」，不選取餐方式與時間；結帳只問「稱呼（選填）」與訂單備註，付款寫「用餐後至櫃台結帳」
+  （或 `note`）。送出後的訂單頁有〔繼續加點〕回菜單（桌號保留在這個瀏覽器分頁），菜單上方顯示這桌已點幾筆、共多少錢。
+  QR code 失效或桌號被拿掉時顯示「這個桌號的 QR code 已失效，請洽店員」。內用不寄通知信（沒有 Email）。
+- **後台**：內用訂單和其他訂單一樣出現在「待確認」（自動接單的直接到「處理中」），卡片寫「內用・A1」，〔可取餐〕叫〔已出餐〕。三欄下面的「內用桌次」列出還沒結帳的桌次：
+  桌號、開始時間、每一筆訂單與狀態、合計；按〔已結帳〕確認金額後結束桌次，已接單與已出餐的訂單一併變成「完成」。
+  還有待確認的訂單時不能結帳（先接單或婉拒）；確認對話框開著時同一桌又送來新訂單，會提示重新確認金額。
+- **個資**：內用的稱呼與備註和其他訂單一樣，在送出時間滿 90 天後清除（第 18.3 節）；桌號與桌次不含個資。

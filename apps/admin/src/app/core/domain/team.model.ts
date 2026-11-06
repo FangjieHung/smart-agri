@@ -99,6 +99,13 @@ export const ACCOUNT_PERMISSIONS: readonly AccountPermissionDescriptor[] = [
     enforced: true,
     enforcedNote: '已接到行為：指派處理事項時會檢查，被指派的人也要有這個權限才看得到指派給自己的事項。',
   },
+  {
+    id: 'manage-orders',
+    label: '處理線上點餐',
+    description: '查看顧客的線上訂單並接單、婉拒、標示可取餐與完成；切換品項售完、暫停接單與即時單準備時間。',
+    enforced: true,
+    enforcedNote: '已接到行為：點餐頁的訂單清單、接單等動作與店家設定都會檢查。',
+  },
 ];
 
 export function permissionDescriptor(

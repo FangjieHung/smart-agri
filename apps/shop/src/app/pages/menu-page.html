@@ -1,0 +1,261 @@
+@if (store.shop(); as shop) {
+  <header class="shop page-pad">
+    <h1 class="shop__name" id="page-title" tabindex="-1">{{ shop.name }}</h1>
+    @if (status(); as s) {
+      <p class="shop__status" data-testid="open-status">
+        <span class="badge" [class.badge--open]="s.open">{{
+          shop.paused ? '暫停接單' : s.label
+        }}</span>
+        <span>{{ s.detail }}</span>
+      </p>
+    }
+    <div class="shop__links">
+      <a class="btn btn--quiet" [href]="telHref(shop.phone)"
+        >打電話 <span class="num">{{ shop.phone }}</span></a
+      >
+      @if (shop.address) {
+        <a
+          class="btn btn--quiet"
+          [href]="mapHref(shop.address)"
+          target="_blank"
+          rel="noopener noreferrer"
+          >地圖<span class="visually-hidden">：{{ shop.address }}（另開視窗）</span></a
+        >
+      }
+      <button type="button" class="btn btn--quiet" (click)="infoOpen.set(true)">店家資訊</button>
+    </div>
+    @if (shop.address) {
+      <p class="shop__address">{{ shop.address }}</p>
+    }
+  </header>
+
+  <div class="stack page-pad">
+    @if (banner(); as order) {
+      <a
+        class="callout callout--info order-banner"
+        data-testid="active-order"
+        [href]="'/order/' + store.slug() + '/o#' + order.token"
+        (click)="nav.follow($event, store.slug(), 'status', order.token)"
+      >
+        <span
+          >您的訂單 <strong class="num">{{ order.displayNumber }}</strong
+          >：{{ order.words }}</span
+        >
+        <span class="order-banner__go">查看訂單</span>
+      </a>
+    }
+
+    @if (store.isTable()) {
+      <app-pickup-ticket />
+      @if (shop.paused) {
+        <div class="callout callout--danger" role="status" data-testid="table-closed">
+          <p><strong>店家暫停接受線上點餐。</strong></p>
+          <p>菜單可以先看看；要點餐請洽店員。</p>
+        </div>
+      } @else if (!store.canOrder()) {
+        <div class="callout" role="status" data-testid="table-closed">
+          <p><strong>現在不是內用點餐的時間，請洽店員。</strong></p>
+        </div>
+      }
+      @if (session(); as s) {
+        <details class="reminder table-session" data-testid="table-session">
+          <summary>
+            <span class="reminder__label"
+              >這桌已點 {{ s.orderCount }} 筆，共 {{ ntd(s.total) }}</span
+            >
+          </summary>
+          <ul class="table-session__list">
+            @for (order of s.orders; track order.displayNumber) {
+              <li>
+                <span class="table-session__head"
+                  ><span class="num">{{ order.displayNumber }}</span>
+                  {{ tableOrderStatus(order) }}
+                  <span class="price">{{ ntd(order.total) }}</span></span
+                >
+                <span class="table-session__items">{{ tableOrderItems(order) }}</span>
+              </li>
+            }
+          </ul>
+        </details>
+      }
+    } @else if (shop.paused) {
+      <div class="callout callout--danger" role="status">
+        <p><strong>店家暫停接受線上點餐。</strong></p>
+        <p>
+          菜單可以先看看；要訂餐請稍後再來，或來電
+          <a [href]="telHref(shop.phone)">{{ shop.phone }}</a
+          >。
+        </p>
+      </div>
+    } @else if (store.menu() && store.slots() && !store.canOrder()) {
+      <div class="callout" role="status">
+        <p><strong>現在沒有可以線上點餐的時間。</strong></p>
+        <p>
+          {{ status()?.detail }}；也可以來電 <a [href]="telHref(shop.phone)">{{ shop.phone }}</a
+          >。
+        </p>
+      </div>
+    }
+
+    @if (shop.notices.reminder) {
+      <details class="reminder">
+        <summary>
+          <span class="reminder__label">提醒事項</span>
+          <span class="reminder__preview">{{ reminderPreview() }}</span>
+        </summary>
+        <p class="reminder__text">{{ shop.notices.reminder }}</p>
+      </details>
+    }
+
+    @if (store.cartNotice(); as notice) {
+      <div class="callout" role="status">
+        <p>{{ notice }}</p>
+        <div class="callout__actions">
+          <button type="button" class="btn" (click)="store.dismissNotice()">知道了</button>
+        </div>
+      </div>
+    }
+
+    @if (store.canOrder() && !store.isTable()) {
+      <app-pickup-ticket (edit)="openTime()" />
+    }
+  </div>
+
+  @switch (store.menuState()) {
+    @case ('error') {
+      <div class="page-pad">
+        <div class="callout callout--danger" role="alert">
+          <p>菜單讀取失敗，請確認網路連線。</p>
+          <div class="callout__actions">
+            <button type="button" class="btn" (click)="store.loadMenu()">重新讀取</button>
+          </div>
+        </div>
+      </div>
+    }
+    @case ('ready') {
+      <nav class="tabs" aria-label="菜單分類">
+        @for (entry of categories(); track entry.category.id) {
+          <button
+            type="button"
+            class="tab"
+            [attr.data-tab]="entry.category.id"
+            [attr.aria-current]="activeCategory() === entry.category.id ? 'true' : null"
+            (click)="scrollToCategory(entry.category)"
+          >
+            {{ entry.category.name }}
+          </button>
+        }
+      </nav>
+
+      @for (entry of categories(); track entry.category.id) {
+        <section
+          class="category"
+          [id]="'cat-' + entry.category.id"
+          [attr.data-category]="entry.category.id"
+          [attr.aria-labelledby]="'cat-title-' + entry.category.id"
+        >
+          <div class="category__head page-pad">
+            <h2 class="category__name" [id]="'cat-title-' + entry.category.id" tabindex="-1">
+              {{ entry.category.name }}
+            </h2>
+            @if (entry.category.description) {
+              <p class="category__desc">{{ entry.category.description }}</p>
+            }
+            @if (entry.category.availability; as availability) {
+              <p class="category__window" [class.category__window--off]="!entry.offered">
+                {{ entry.offered ? '' : offText() + '。' }}{{ availabilityText(availability) }}
+              </p>
+            }
+          </div>
+          <ul class="items">
+            @for (row of entry.items; track row.item.id) {
+              @let count = store.countByItem().get(row.item.id) ?? 0;
+              <li>
+                @if (orderable(row.reason)) {
+                  <button
+                    type="button"
+                    class="item"
+                    [attr.data-item]="row.item.id"
+                    (click)="openItem.set(row.item)"
+                  >
+                    <ng-container *ngTemplateOutlet="content; context: { $implicit: row, count }" />
+                  </button>
+                } @else {
+                  <div class="item item--off" [attr.data-item]="row.item.id">
+                    <ng-container *ngTemplateOutlet="content; context: { $implicit: row, count }" />
+                  </div>
+                }
+              </li>
+            }
+          </ul>
+        </section>
+      }
+    }
+    @default {
+      <p class="page-pad loading" role="status">正在讀取菜單…</p>
+    }
+  }
+
+  <ng-template #content let-row let-count="count">
+    <span class="item__text">
+      <span class="item__name">{{ row.item.name }}</span>
+      @if (row.item.description) {
+        <span class="item__desc">{{ row.item.description }}</span>
+      }
+      <span class="item__foot">
+        <span class="price">{{ ntd(row.item.price) }}</span>
+        @if (count > 0) {
+          <span class="added">已加 {{ count }} 份</span>
+        }
+        @if (row.reason && row.reason !== offText()) {
+          <span class="off">{{ row.reason }}</span>
+        }
+      </span>
+    </span>
+    @if (row.item.imageUrl) {
+      <img
+        class="item__img"
+        [src]="row.item.imageUrl"
+        alt=""
+        width="88"
+        height="88"
+        loading="lazy"
+        decoding="async"
+        (error)="$any($event.target).hidden = true"
+      />
+    }
+  </ng-template>
+
+  @if (store.itemCount() > 0) {
+    <div class="cart-bar">
+      <a
+        class="btn btn--primary btn--block btn--split"
+        data-testid="cart-bar"
+        [href]="'/order/' + store.slug() + '/cart'"
+        (click)="nav.follow($event, store.slug(), 'cart')"
+      >
+        <span
+          >看購物車 <span class="cart-count num">{{ store.itemCount() }} 份</span></span
+        >
+        <span class="num">{{ ntd(store.subtotal()) }}</span>
+      </a>
+    </div>
+  }
+
+  @if (timeOpen()) {
+    <app-time-sheet [prompt]="timePrompt()" (done)="closeTime()" (dismissed)="closeTime()" />
+  }
+  @if (infoOpen()) {
+    <app-info-sheet (dismissed)="infoOpen.set(false)" />
+  }
+  @if (openItem(); as item) {
+    <app-item-sheet
+      [item]="item"
+      [showComment]="shop.showOrderComment"
+      [commentMax]="shop.limits.lineCommentMaxLength"
+      [maxQuantity]="shop.limits.maxQuantity"
+      (saved)="addToCart($event)"
+      (dismissed)="openItem.set(null)"
+    />
+  }
+}

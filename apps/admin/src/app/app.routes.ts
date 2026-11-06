@@ -144,6 +144,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/cases/cases-page.component').then((m) => m.CasesPageComponent),
       },
+      // 線上點餐（issue #399）：店員處理顧客從點餐網頁送出的訂單；沒有 `manage-orders` 時頁面顯示沒有權限。
+      {
+        path: 'orders',
+        canActivate: [demoSessionGuard],
+        loadComponent: () =>
+          import('./features/orders/orders-page.component').then((m) => m.OrdersPageComponent),
+      },
       // 轉真人通知（issue #355）：官網或 LINE 的訪客收到「找不到資料時的回覆」時通知助理的擁有者。
       {
         path: 'handoffs',

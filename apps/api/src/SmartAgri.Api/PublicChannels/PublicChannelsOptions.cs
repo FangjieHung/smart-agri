@@ -229,8 +229,9 @@ public sealed class PublicChannelsOptions
 /// <c>PublicChannels:RateLimits</c> (M5a plan §3 E and decision C): how often the visitor API
 /// (<c>/api/v1/public/*</c>) answers before it refuses with <c>429</c> and <c>Retry-After</c>; from
 /// M5b (plan §3 F) also the LINE webhook's limits, named <c>Line*</c>, from #377 the 統籌助理's authorization
-/// links (<see cref="CoordinatorAuthorizationRequestsPerIpPerMinute"/>) and from #389 the shops' reservation pages
-/// (<see cref="CoordinatorReservationRequestsPerIpPerMinute"/>). The
+/// links (<see cref="CoordinatorAuthorizationRequestsPerIpPerMinute"/>), from #389 the shops' reservation pages
+/// (<see cref="CoordinatorReservationRequestsPerIpPerMinute"/>) and from #398 their online-ordering API
+/// (<see cref="OrderingRequestsPerIpPerMinute"/>, <see cref="OrderingSubmissionsPerIpPerMinute"/>). The
 /// counters live in this process's memory (one API container per deployment; several instances would
 /// each count on their own). Every value is a count of at least 1; the window is part of the name.
 /// </summary>
@@ -296,6 +297,16 @@ public sealed class PublicRateLimitOptions
     /// page. Default 30.</summary>
     public int CoordinatorReservationRequestsPerIpPerMinute { get; set; } = 30;
 
+    /// <summary>Requests one client IP may send per minute to the shops' online-ordering API, except sending an order —
+    /// the shop, its menu and times, an order's status and cancelling, whatever the shop (#398; sliding window). A status
+    /// page polls every 10 seconds, and mobile networks put many customers behind one IP. Beyond it: <c>429</c>.
+    /// Default 120.</summary>
+    public int OrderingRequestsPerIpPerMinute { get; set; } = 120;
+
+    /// <summary>Orders one client IP may send per minute, whatever the shop (#398; sliding window). Beyond it:
+    /// <c>429</c>. Default 10.</summary>
+    public int OrderingSubmissionsPerIpPerMinute { get; set; } = 10;
+
     internal IEnumerable<(string Name, int Value)> Values()
     {
         yield return (nameof(SessionsPerIpPerMinute), SessionsPerIpPerMinute);
@@ -313,6 +324,8 @@ public sealed class PublicRateLimitOptions
         yield return (nameof(LineMaxConcurrentQuestionsPerAssistant), LineMaxConcurrentQuestionsPerAssistant);
         yield return (nameof(CoordinatorAuthorizationRequestsPerIpPerMinute), CoordinatorAuthorizationRequestsPerIpPerMinute);
         yield return (nameof(CoordinatorReservationRequestsPerIpPerMinute), CoordinatorReservationRequestsPerIpPerMinute);
+        yield return (nameof(OrderingRequestsPerIpPerMinute), OrderingRequestsPerIpPerMinute);
+        yield return (nameof(OrderingSubmissionsPerIpPerMinute), OrderingSubmissionsPerIpPerMinute);
     }
 }
 

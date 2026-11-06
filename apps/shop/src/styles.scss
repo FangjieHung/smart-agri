@@ -1,0 +1,506 @@
+// 顧客點餐網頁（apps/shop，online-ordering D1，#398）的全域樣式：設計 token、中文排版、共用的按鈕、表單與底部面板。
+// 元件只寫自己的版面；顏色、間距、圓角一律用這裡的變數。
+// 不用 Angular Material（保持 bundle 小）。中西文之間的空格由文案手打，所以不開 text-autospace。
+
+:root {
+  // 顏色：青瓷綠是動作色，醬色是價格；整體是清爽的白與淡青灰，不用奶油色底。
+  --c-page: #edf1ee;
+  --c-surface: #ffffff;
+  --c-paper: #f6f8f6;
+  --c-ink: #1d2521;
+  --c-ink-2: #4b5852;
+  --c-ink-3: #5f6b65;
+  --c-line: #d5ddd8;
+  --c-line-strong: #a9b6af;
+  --c-accent: #22604f;
+  --c-accent-hover: #194d3f;
+  --c-accent-wash: #e2eee9;
+  --c-accent-ink: #1b5243;
+  --c-price: #7a3b16;
+  --c-danger: #a1302a;
+  --c-danger-wash: #fcedeb;
+  --c-notice: #fff5dc;
+  --c-notice-ink: #5a4100;
+  --c-notice-line: #e8cf92;
+  --c-focus: #0b5cad;
+
+  // 字：系統字體；西文在前、台灣地區的漢字字體在後。
+  --font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang TC',
+    'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  --fs-small: 0.875rem;
+  --fs-body: 1rem;
+  --fs-lead: 1.125rem;
+  --fs-title: 1.375rem;
+  --fs-display: 1.75rem;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-s: 0.5rem;
+  --radius-m: 0.875rem;
+  --radius-l: 1.25rem;
+  --column: 38rem;
+  --tap: 2.75rem;
+  --shadow-bar: 0 -0.25rem 1.25rem rgb(29 37 33 / 0.1);
+  --shadow-sheet: 0 -0.5rem 2rem rgb(29 37 33 / 0.18);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--c-page);
+}
+
+// 開著底部面板時，後面的頁面不捲動。
+html:has(dialog[open]) {
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  color: var(--c-ink);
+  background: var(--c-page);
+  // 台灣的標點不擠壓（全形標點各佔一字寬）。
+  text-spacing-trim: space-all;
+  line-break: strict;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+h1,
+h2,
+h3,
+p,
+ol,
+ul,
+dl,
+dd,
+figure {
+  margin: 0;
+}
+
+ol,
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+// 店家給的圖片網址失效時（onerror 設 hidden）整個拿掉，不顯示破圖。
+img[hidden] {
+  display: none !important;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--c-accent-ink);
+  text-underline-offset: 0.2em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--c-focus);
+  outline-offset: 2px;
+}
+
+[tabindex='-1']:focus {
+  outline: none;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.price {
+  color: var(--c-price);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+// 頁面欄：手機滿版，桌機置中一欄。
+.column {
+  width: 100%;
+  max-width: var(--column);
+  margin-inline: auto;
+  min-height: 100vh;
+  background: var(--c-surface);
+  position: relative;
+}
+
+@media (min-width: 40rem) {
+  .column {
+    box-shadow: 0 0 0 1px var(--c-line);
+  }
+}
+
+.page-pad {
+  padding-inline: var(--space-4);
+}
+
+// ---------- 按鈕 ----------
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-s);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.btn:hover {
+  border-color: var(--c-ink-3);
+}
+
+.btn--primary {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: #fff;
+}
+
+.btn--primary:hover {
+  border-color: var(--c-accent-hover);
+  background: var(--c-accent-hover);
+}
+
+.btn--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--c-accent-ink);
+}
+
+.btn--quiet:hover {
+  border-color: transparent;
+  background: var(--c-accent-wash);
+}
+
+.btn--danger {
+  border-color: var(--c-danger);
+  background: var(--c-surface);
+  color: var(--c-danger);
+}
+
+.btn--block {
+  display: flex;
+  width: 100%;
+}
+
+// 主要動作的長按鈕：左邊動作、右邊金額。
+.btn--split {
+  justify-content: space-between;
+  min-height: 3.25rem;
+  font-size: var(--fs-lead);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  border-color: var(--c-line);
+  background: var(--c-paper);
+  color: var(--c-ink-3);
+  cursor: not-allowed;
+}
+
+// ---------- 表單 ----------
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.field__label {
+  font-weight: 600;
+}
+
+.field__optional {
+  font-weight: 400;
+  color: var(--c-ink-3);
+}
+
+.field__hint {
+  font-size: var(--fs-small);
+  color: var(--c-ink-2);
+}
+
+.field__error {
+  font-size: var(--fs-small);
+  color: var(--c-danger);
+  font-weight: 600;
+}
+
+// iOS 對小於 16px 的輸入框會自動放大整頁，字級保持 1rem 以上。
+.input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-s);
+  background: var(--c-surface);
+  font-size: max(1rem, 16px);
+  line-height: 1.5;
+}
+
+textarea.input {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--c-danger);
+  box-shadow: 0 0 0 1px var(--c-danger);
+}
+
+.input:focus-visible {
+  outline-offset: 0;
+}
+
+// ---------- 提示框 ----------
+.callout {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-m);
+  border: 1px solid var(--c-notice-line);
+  background: var(--c-notice);
+  color: var(--c-notice-ink);
+}
+
+.callout--danger {
+  border-color: #e7b4ae;
+  background: var(--c-danger-wash);
+  color: #7d221d;
+}
+
+.callout--info {
+  border-color: #b9d6cb;
+  background: var(--c-accent-wash);
+  color: var(--c-accent-ink);
+}
+
+.callout p + p,
+.callout p + .callout__actions {
+  margin-top: var(--space-2);
+}
+
+.callout__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+// ---------- 份數加減 ----------
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 999px;
+  background: var(--c-surface);
+}
+
+.stepper__btn {
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--c-accent-ink);
+  font-size: 1.375rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stepper__btn:disabled {
+  color: var(--c-line-strong);
+  cursor: not-allowed;
+}
+
+.stepper__value {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+// ---------- 底部面板（原生 dialog） ----------
+dialog.sheet {
+  width: 100%;
+  max-width: var(--column);
+  max-height: 100dvh;
+  height: 100dvh;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  background: var(--c-surface);
+  color: var(--c-ink);
+  overscroll-behavior: contain;
+}
+
+dialog.sheet::backdrop {
+  background: rgb(20 28 24 / 0.5);
+}
+
+dialog.sheet--compact {
+  inset-block: auto 0;
+  height: auto;
+  max-height: 90dvh;
+  border-radius: var(--radius-l) var(--radius-l) 0 0;
+  box-shadow: var(--shadow-sheet);
+}
+
+dialog.sheet[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--c-line);
+}
+
+.sheet__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-lead);
+}
+
+.sheet__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--c-ink-2);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sheet__close:hover {
+  background: var(--c-paper);
+}
+
+.sheet__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet__foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--c-line);
+  background: var(--c-surface);
+}
+
+@media (min-width: 40rem) {
+  dialog.sheet {
+    // 上下 inset 都是 0 時 auto 會撐滿；fit-content 讓短的面板只有內容高、置中。
+    height: fit-content;
+    max-height: min(52rem, calc(100dvh - 4rem));
+    margin-block: auto;
+    border-radius: var(--radius-l);
+    box-shadow: var(--shadow-sheet);
+  }
+
+  dialog.sheet--compact {
+    inset-block: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.sheet[open] {
+    animation: sheet-in 220ms var(--ease);
+  }
+
+  dialog.sheet[open]::backdrop {
+    animation: fade-in 220ms ease-out;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(1.5rem);
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

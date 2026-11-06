@@ -19,7 +19,8 @@ namespace SmartAgri.Api.Organizations;
 /// (<see cref="RetentionCleanupService.DeleteHandledHandoffsAsync"/>; pending ones are never deleted) and the
 /// reservations whose time is more than <see cref="SmartAgri.Domain.Coordinator.CoordinatorReservation.RetentionDays"/>
 /// days ago (<see cref="RetentionCleanupService.DeleteExpiredReservationsAsync"/>), and the push log's rows older than
-/// <see cref="SmartAgri.Domain.Coordinator.CoordinatorPushLog.RetentionDays"/> days (<see cref="RetentionCleanupService.DeleteOldPushLogsAsync"/>).
+/// <see cref="SmartAgri.Domain.Coordinator.CoordinatorPushLog.RetentionDays"/> days (<see cref="RetentionCleanupService.DeleteOldPushLogsAsync"/>), and
+/// clears the customers' personal data of online orders picked up 90 days ago or more (<see cref="RetentionCleanupService.ClearOrderPersonalDataAsync"/>, #400).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -83,8 +84,8 @@ public sealed class HandoffRetentionSweep : BackgroundService
         }
     }
 
-    /// <summary>Sweeps every organization as of <paramref name="asOf"/>; returns how many handoffs and reservations it
-    /// deleted in all.</summary>
+    /// <summary>Sweeps every organization as of <paramref name="asOf"/>; returns how many handoffs, reservations and pushes
+    /// it deleted and orders it cleared, in all.</summary>
     public async Task<int> SweepAsync(DateTimeOffset asOf, CancellationToken cancellationToken)
     {
         await using var scope = _services.CreateAsyncScope();
@@ -111,10 +112,11 @@ public sealed class HandoffRetentionSweep : BackgroundService
                 total += (await cleanup.DeleteHandledHandoffsAsync(asOf, cancellationToken)).Count;
                 total += (await cleanup.DeleteExpiredReservationsAsync(asOf, cancellationToken)).Count;
                 total += (await cleanup.DeleteOldPushLogsAsync(asOf, cancellationToken)).Count;
+                total += (await cleanup.ClearOrderPersonalDataAsync(asOf, cancellationToken)).Count;
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                _logger.LogError(exception, "Could not sweep the handled visitor handoffs, past reservations or old pushes of organization {OrganizationId}.", organizationId);
+                _logger.LogError(exception, "Could not sweep the handled visitor handoffs, past reservations, old pushes or past orders of organization {OrganizationId}.", organizationId);
             }
         }
 

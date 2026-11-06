@@ -173,5 +173,16 @@
         "template": "【{店名}】{日期} 照常營業，先前的店休公告取消，歡迎光臨！"
       }
     }
+  },
+  "reservations": {
+    "enabled": false,
+    "slug": "wangji",
+    "phone": "02-2345-6789",
+    "slotMinutes": 30,
+    "minLeadMinutes": 120,
+    "maxDaysAhead": 30,
+    "lastSeatingMinutes": 60,
+    "maxPartySize": 20,
+    "pendingExpiryMinutes": 60
   }
 }

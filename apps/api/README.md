@@ -973,6 +973,7 @@ queries and handoffs are not on this path at all (an architecture test checks th
   | `LineQuestionsPerAssistantPerMinute` | assistant, all LINE questions | sliding window, 1 minute | 120 |
   | `LineMaxConcurrentQuestionsPerAssistant` | assistant, LINE answers being generated | answers at once | 10 |
   | `CoordinatorAuthorizationRequestsPerIpPerMinute` | client IP, the 統籌助理's authorization pages together (#377) | sliding window, 1 minute | 20 |
+  | `CoordinatorReservationRequestsPerIpPerMinute` | client IP, the shops' reservation pages together, every shop (#389; refused with a page, not JSON) | sliding window, 1 minute | 30 |
 
   The `LineQuestions*` limits are not HTTP limits (LINE's servers send every request, so there is no
   client to partition by): the background processor applies them per question and answers a refused
@@ -1705,6 +1706,65 @@ Management `accounts.list`, Business Information `accounts.locations.list` / `lo
 - **Tests**: `FakeGoogleServer` (token endpoint with PKCE checks, accounts, locations list/get/patch, raw hours kept byte
   for byte, scripted failures) under the real provider and executor in `CoordinatorHostFixture`;
   `CoordinatorGoogleSpecialHoursTests` (Application) for the periods and the merge.
+
+## Store coordinator (統籌助理): online reservation page (#389)
+
+Customers book a table on a shop's anonymous page `{PublicChannels:PublicBaseUrl}/reserve/{slug}` (store-reservations design
+`docs/plans/2026-11-06-store-reservations.md`, Slice R1, decisions R1, R3, R4, R8 and §3.1 points 1–6, 10, 11). This slice
+stores them; notifying the members (#390), Email (#391) and closures (#392) come next, on the same table. **No shop may
+be opened to customers before #390.** Operator guide: `deploy/README.md` §17.12.
+
+- **Settings**: an optional `reservations` block of the shop-settings file (`ShopReservationSettings`, parsed and checked
+  by `ShopSettingsJson`; stored as the `jsonb` column `CoordinatorShopSettings.Reservations`, its slug repeated in
+  `ReservationSlug` — unique across organizations, filtered index `IX_CoordinatorShopSettings_ReservationSlug`):
+  `enabled`; `slug` (3–40 of `[a-z0-9-]`, no leading or trailing `-`) and `phone` (8–15 digits with spaces, `-`, `+`,
+  parentheses) required when enabled; `slotMinutes` 10 | 15 | 20 | 30 | 60 (30), `minLeadMinutes` 1–10080 (120),
+  `maxDaysAhead` 1–90 (30), `lastSeatingMinutes` 0–720 (60), `maxPartySize` 1–100 (20), `pendingExpiryMinutes` 0–1440
+  (60, less than `minLeadMinutes`). `coordinator-shop import` refuses a slug another shop has (checked through
+  `CoordinatorLookup.FindReservationShopAsync`, the unique index settling a race; exit 2, like an error of the file) and
+  prints the page's address; `show` prints it on standard error. The activity names the section `reservations`.
+- **Times** (`ReservationSlots`, Domain, pure): each regular period of a business day (`BusinessHours.PeriodsOn`, the day it
+  opens on) is cut every `slotMinutes` by the wall clock from its regular opening (a skipped DST time is the instant after
+  the gap; one instant once); a time must lie inside the period as the day's confirmed 臨時店休 (whole day gone),
+  提早打烊 (closes at T) and 延後開店 (opens at T) leave it — T read by `BusinessHours.OnBusinessDay`, which the command
+  planner uses too — at least `lastSeatingMinutes` before the (new) closing and `minLeadMinutes` after now, on a business
+  day from yesterday to today + `maxDaysAhead` in the shop's zone. The commands are `CoordinatorCommands.ReopenCandidatesAsync`
+  (confirmed, not undone by a confirmed reopen); `ReservationSlots.InEffect` applies the same rule to any list. A slot's form
+  value is its wall clock (`2026-11-08T00:30`), labelled 「00:30（隔天）」 after midnight.
+- **Storage**: `CoordinatorReservations` (`CoordinatorReservation`, organization scoped): `Date` (business day),
+  `ReservedAt` (UTC), `PartySize`, `CustomerName` (≤ 50), `CustomerPhone` (digits, `ReservationContact.NormalizePhone`:
+  Taiwanese mobile `09…` or landline `0[2-8]…`, `+886` read as `0`), `CustomerEmail` (≤ 254), `Note` (≤ 200), `Status`
+  (`pending` | `accepted` | `declined` | `cancelled` | `expired`), `Version`, `SubmissionKey` (the form's one-time
+  32-byte base64url key, unique across organizations), `CreatedAt`, `StatusChangedAt` (exactly when not pending),
+  `HandledByMemberId` + `HandledAt` (a member's accept or decline; no foreign key, members may leave), `CancelReason`
+  (a 店休 scenario, exactly when cancelled) + `CancelledByCommandId` (foreign key within the organization),
+  `MembersNotified` (`pending` | `sent` | `not-sent`, for #390's 「未通知成員」). Check constraints keep these together.
+- **Endpoints** (`CoordinatorReservationEndpoints`, anonymous, outside the OpenAPI document; every answer `no-store`,
+  `Referrer-Policy: no-referrer`, `X-Robots-Tag: noindex`, CSP `default-src 'none'` with the page's style — and on the
+  form page its script — by hash, `frame-ancestors 'none'`, `form-action 'self'` on the form page, `'none'` elsewhere):
+  `GET /reserve/{slug}[?date=yyyy-MM-dd]` and `POST /reserve/{slug}` (`application/x-www-form-urlencoded`, a
+  `Content-Length` of at most 16 KB, read with `ReadFormAsync`). An unknown slug and a shop that is not open are one
+  `404` page. The form works without JavaScript (〔查看這天的時段〕 posts it back, `step=times`, with the values kept); the
+  inline script only swaps the time menu when the date changes. On `POST`: the form's key sent before → that
+  reservation's 「已送出」 page; every field checked again (`400` with each message next to its field and the values
+  kept; the time must be one of the server's own); the hidden field `website` filled → the same 「已送出」 page and nothing
+  stored; then `CoordinatorReservations.SubmitAsync` locks the shop's settings row (a no-op `UPDATE`), and refuses a
+  fourth pending, still upcoming reservation of the phone at the shop. The Email field exists only when
+  `IEmailSender.IsConfigured`. A failure answers a 「暫時無法訂位」 page (`503`).
+- **Rate limit**: both carry `PublicRateLimitedEndpoint.CoordinatorReservation`, one sliding window per client IP for every
+  shop, `PublicChannels:RateLimits:CoordinatorReservationRequestsPerIpPerMinute` (default 30); beyond it a `429` page
+  (`CoordinatorReservationPages.TooManyRequests`) with `Retry-After: 60`.
+- **Personal data**: the customer's name, phone, Email and note are never logged nor put in an activity; logs carry the
+  organization, the reservation id, the date, the party size and why a form was refused. A reservation is deleted 90 days
+  after its time (`RetentionCleanupService.DeleteExpiredReservationsAsync`, cutoff `RetentionCleanupRules.Cutoff` for 90
+  days) by the daily `HandoffRetentionSweep` for every organization and by `retention-cleanup`; counter
+  `smartagri.retention.cleanup.deleted` with `record` = `coordinator-reservation`.
+- **CLI** `coordinator-reservations list --organization <code> [--days 1-90]` lists the upcoming reservations and those of
+  the last days (default 7): time, party size, name, the phone's last three digits, status, whether the members were told,
+  and only whether there is an Email address or a note. Exit codes 0 / 1 / 2.
+- **Tests**: `CoordinatorReservationTests` (own `CoordinatorReservationHostFixture`: a switchable `IEmailSender`, every log
+  line captured), `ReservationSlotsTests`, `CoordinatorReservationTests` (Domain), `ShopSettingsJsonTests.Reservations`,
+  `OrganizationRetentionTests.Reservations`.
 
 ## Monthly token limit: `set-token-limit`
 

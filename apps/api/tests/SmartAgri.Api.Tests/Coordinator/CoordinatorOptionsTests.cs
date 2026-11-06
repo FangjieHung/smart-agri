@@ -169,6 +169,30 @@ public sealed class CoordinatorOptionsTests : IDisposable
         (await client.GetAsync("/health/live", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.OK, "nothing else is limited");
     }
 
+    [Fact]
+    public async Task Beyond_the_reservation_pages_rate_limit_a_customer_gets_a_page_in_chinese()
+    {
+        // #389: two requests a minute here; a slug that cannot be one is the 404 page without the database.
+        using var factory = ProductionHost(builder => builder.UseSetting("PublicChannels:RateLimits:CoordinatorReservationRequestsPerIpPerMinute", "2"));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        using var form = new FormUrlEncodedContent([new("name", "陳小姐")]);
+
+        (await client.GetAsync("/reserve/x", CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await client.PostAsync("/reserve/x", form, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        var refused = await client.GetAsync("/reserve/x", CancellationToken);
+
+        refused.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        refused.Headers.RetryAfter.ShouldNotBeNull().Delta.ShouldBe(TimeSpan.FromSeconds(60));
+        refused.Content.Headers.ContentType!.ToString().ShouldBe("text/html; charset=utf-8");
+        refused.Headers.CacheControl!.NoStore.ShouldBeTrue();
+        refused.Headers.GetValues("Content-Security-Policy").ShouldBe([CoordinatorReservationPages.ContentSecurityPolicy]);
+        refused.Headers.GetValues("Referrer-Policy").ShouldBe(["no-referrer"]);
+        (await refused.Content.ReadAsStringAsync(CancellationToken)).ShouldContain(CoordinatorReservationPages.TooManyRequestsMessage);
+        (await client.PostAsync("/reserve/x", form, CancellationToken)).StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        (await client.GetAsync($"/api/v1/coordinator/connect?token={SmartAgri.Domain.Coordinator.AuthorizationLinkTokens.Generate()}", CancellationToken))
+            .StatusCode.ShouldBe(HttpStatusCode.NotFound, "the authorization pages have their own budget");
+    }
+
     private static async Task<HttpResponseMessage> PostAsync(HttpClient client, string body, string? signature)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, CoordinatorWebhookEndpoints.Route)

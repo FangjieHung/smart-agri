@@ -115,7 +115,7 @@ public static class CoordinatorCommandPlanner
 
             var firstOpening = periods[0].Opens;
             var lastClosing = periods.Max(period => period.Closes);
-            var instant = InstantOn(hours, day, clock, firstOpening, lastClosing);
+            var instant = hours.OnBusinessDay(day, clock);
             if (instant <= firstOpening || instant >= lastClosing)
             {
                 return new CoordinatorPlan(
@@ -163,24 +163,7 @@ public static class CoordinatorCommandPlanner
     public static DateTimeOffset InstantOf(ShopSettingsDocument settings, DateOnly date, TimeOnly time)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        var hours = settings.Hours;
-        var periods = hours.PeriodsOn(date);
-        return periods.Count == 0
-            ? hours.At(date, time)
-            : InstantOn(hours, date, time, periods[0].Opens, periods.Max(period => period.Closes));
-    }
-
-    /// <summary><paramref name="clock"/> on <paramref name="day"/>, or on the next day when that is the small
-    /// hours of the day's overnight period.</summary>
-    private static DateTimeOffset InstantOn(BusinessHours hours, DateOnly day, TimeOnly clock, DateTimeOffset firstOpening, DateTimeOffset lastClosing)
-    {
-        var instant = hours.At(day, clock);
-        if (instant <= firstOpening && hours.At(day.AddDays(1), clock) is var nextDay && nextDay < lastClosing)
-        {
-            return nextDay;
-        }
-
-        return instant;
+        return settings.Hours.OnBusinessDay(date, time);
     }
 
     /// <summary>A rendered announcement cut to <see cref="CoordinatorCommand.AnnouncementMaxLength"/> (only a

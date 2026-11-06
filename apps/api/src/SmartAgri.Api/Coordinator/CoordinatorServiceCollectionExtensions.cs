@@ -31,8 +31,9 @@ public static class CoordinatorServiceCollectionExtensions
     /// <see cref="FacebookGraphClient"/>, the <see cref="CoordinatorFacebookOAuthProvider"/> and the
     /// <see cref="CoordinatorFacebookPostExecutor"/>), and Google 特殊營業時間 (#378: <see cref="CoordinatorGoogleClient"/>
     /// on its own named <see cref="HttpClient"/>, <see cref="CoordinatorGoogleOAuthProvider"/> — configured exactly when
-    /// <see cref="CoordinatorGoogleOptions"/> is — and <see cref="CoordinatorGoogleSpecialHoursExecutor"/>). Requires
-    /// <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>,
+    /// <see cref="CoordinatorGoogleOptions"/> is — and <see cref="CoordinatorGoogleSpecialHoursExecutor"/>), and the
+    /// reservation pages (#389: <see cref="CoordinatorReservations"/> and <see cref="CoordinatorReservationFlow"/>). Requires
+    /// <c>AddLineMessaging</c> (the LINE client), <c>AddChat</c>, <c>AddVisitorHandoffNotifications</c> (the Email sender),
     /// <c>AddOrganizationTokenUsage</c>, <c>AddBackgroundJobs</c>, the secret protector and Data Protection, and
     /// <c>PublicChannelsOptions</c>. Nothing reads the options while the pipeline is built.
     /// </summary>
@@ -100,6 +101,8 @@ public static class CoordinatorServiceCollectionExtensions
         services.AddSingleton<CoordinatorOAuthSelections>();
         services.AddScoped<CoordinatorAuthorizationFlow>();
         services.TryAddScoped<ICoordinatorReauthorization, CoordinatorReauthorization>();
+        services.AddScoped<CoordinatorReservations>();
+        services.AddScoped<CoordinatorReservationFlow>();
         services.AddHostedService<CoordinatorWebhookProcessor>();
         return services;
     }

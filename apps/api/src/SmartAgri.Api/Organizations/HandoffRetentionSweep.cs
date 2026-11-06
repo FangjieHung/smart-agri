@@ -10,12 +10,14 @@ using SmartAgri.Infrastructure.Tenancy;
 namespace SmartAgri.Api.Organizations;
 
 /// <summary>
-/// The daily sweep of handled 轉真人 notifications (#362): at the same local 03:00 as the conversation
-/// cleanup (<see cref="RetentionCleanupRules.NextRunAfter"/>), every organization — whatever its
+/// The daily sweep of handled 轉真人 notifications (#362) and past reservations (#389): at the same local 03:00 as the
+/// conversation cleanup (<see cref="RetentionCleanupRules.NextRunAfter"/>), every organization — whatever its
 /// conversation retention, forever included, so not part of the per-organization
 /// <see cref="RetentionCleanupJob"/> chain, which only organizations with a retention in days have —
-/// deletes the ones handled more than <see cref="VisitorHandoff.HandledRetentionDays"/> days ago
-/// (<see cref="RetentionCleanupService.DeleteHandledHandoffsAsync"/>). Pending ones are never deleted.
+/// deletes the handoffs handled more than <see cref="VisitorHandoff.HandledRetentionDays"/> days ago
+/// (<see cref="RetentionCleanupService.DeleteHandledHandoffsAsync"/>; pending ones are never deleted) and the
+/// reservations whose time is more than <see cref="SmartAgri.Domain.Coordinator.CoordinatorReservation.RetentionDays"/>
+/// days ago (<see cref="RetentionCleanupService.DeleteExpiredReservationsAsync"/>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -79,7 +81,7 @@ public sealed class HandoffRetentionSweep : BackgroundService
         }
     }
 
-    /// <summary>Sweeps every organization as of <paramref name="asOf"/>; returns how many handoffs it
+    /// <summary>Sweeps every organization as of <paramref name="asOf"/>; returns how many handoffs and reservations it
     /// deleted in all.</summary>
     public async Task<int> SweepAsync(DateTimeOffset asOf, CancellationToken cancellationToken)
     {
@@ -105,10 +107,11 @@ public sealed class HandoffRetentionSweep : BackgroundService
                 await using var context = new AppDbContext(options, new FixedOrganizationContext(organizationId));
                 var cleanup = ActivatorUtilities.CreateInstance<RetentionCleanupService>(scope.ServiceProvider, context);
                 total += (await cleanup.DeleteHandledHandoffsAsync(asOf, cancellationToken)).Count;
+                total += (await cleanup.DeleteExpiredReservationsAsync(asOf, cancellationToken)).Count;
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                _logger.LogError(exception, "Could not sweep the handled visitor handoffs of organization {OrganizationId}.", organizationId);
+                _logger.LogError(exception, "Could not sweep the handled visitor handoffs or past reservations of organization {OrganizationId}.", organizationId);
             }
         }
 

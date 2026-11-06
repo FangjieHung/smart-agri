@@ -219,6 +219,10 @@ public sealed class AdminSpaHostingTests : IClassFixture<WebApplicationFactory<P
     [InlineData("GET", "/widget/missing")]
     [InlineData("GET", "/embed.js")]
     [InlineData("GET", "/openapi/v1.json")]
+    [InlineData("GET", "/reserve/x")]
+    [InlineData("GET", "/reserve/unknown")]
+    [InlineData("GET", "/reserve")]
+    [InlineData("POST", "/reserve/x")]
     public async Task An_api_path_answers_exactly_as_without_the_admin(string method, string path)
     {
         using var admin = AdminClient();

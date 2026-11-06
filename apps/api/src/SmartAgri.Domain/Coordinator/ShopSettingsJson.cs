@@ -47,6 +47,14 @@ public sealed record ShopSettingsParseResult(ShopSettingsDocument? Document, IRe
 /// (any number, distinct names of at most 20 characters); steps at most 500 characters. Unknown fields
 /// are errors everywhere.
 /// </para>
+/// <para>
+/// Optional <c>reservations</c> (store-reservations design §3.1 point 2, #389): <c>enabled</c>; <c>slug</c> and
+/// <c>phone</c> (required when enabled, <see cref="ShopReservationSettings.IsValidSlug"/> and
+/// <see cref="ShopReservationSettings.IsValidPhone"/>); integers <c>slotMinutes</c>, <c>minLeadMinutes</c>,
+/// <c>maxDaysAhead</c>, <c>lastSeatingMinutes</c>, <c>maxPartySize</c> and <c>pendingExpiryMinutes</c>, each optional with
+/// its default and range, <c>pendingExpiryMinutes</c> less than <c>minLeadMinutes</c>. Without the block the shop takes
+/// no reservations. That a slug is not another shop's is checked by the import, which can see every shop.
+/// </para>
 /// </remarks>
 public static partial class ShopSettingsJson
 {
@@ -64,7 +72,7 @@ public static partial class ShopSettingsJson
 
     private const string RootPath = "$";
 
-    private static readonly string[] DocumentFields = ["storeName", "timeZone", "weeklyHours", "scenarios"];
+    private static readonly string[] DocumentFields = ["storeName", "timeZone", "weeklyHours", "scenarios", "reservations"];
 
     private static readonly string[] PeriodFields = ["open", "close"];
 
@@ -77,6 +85,12 @@ public static partial class ShopSettingsJson
     private static readonly string[] StepsActionFields = ["kind", "mode", "steps"];
 
     private static readonly string[] OrderingActionFields = ["kind", "name", "mode", "pauseSteps", "resumeSteps"];
+
+    private static readonly string[] ReservationFields =
+    [
+        "enabled", "slug", "phone", "slotMinutes", "minLeadMinutes", "maxDaysAhead", "lastSeatingMinutes", "maxPartySize",
+        "pendingExpiryMinutes",
+    ];
 
     private static readonly JsonWriterOptions Indented = new()
     {
@@ -131,6 +145,12 @@ public static partial class ShopSettingsJson
             Write(writer, settings.WeeklyHours);
             writer.WritePropertyName("scenarios");
             Write(writer, settings.Scenarios);
+            if (settings.Reservations is { } reservations)
+            {
+                writer.WritePropertyName("reservations");
+                Write(writer, reservations);
+            }
+
             writer.WriteEndObject();
         });
     }
@@ -147,6 +167,13 @@ public static partial class ShopSettingsJson
     {
         ArgumentNullException.ThrowIfNull(scenarios);
         return Written(Compact, writer => Write(writer, scenarios));
+    }
+
+    /// <summary>The <c>reservations</c> block, compact (the stored <c>jsonb</c>, #389).</summary>
+    public static string WriteReservations(ShopReservationSettings reservations)
+    {
+        ArgumentNullException.ThrowIfNull(reservations);
+        return Written(Compact, writer => Write(writer, reservations));
     }
 
     /// <summary>One scenario's settings, compact (to tell which scenarios an import changed).</summary>
@@ -167,6 +194,10 @@ public static partial class ShopSettingsJson
     /// <summary>Reads a stored <c>scenarios</c> section, like <see cref="ReadWeeklyHours"/>.</summary>
     public static IReadOnlyDictionary<ShopScenario, ShopScenarioSettings> ReadScenarios(string json) =>
         ReadStored(json, "scenarios", (reader, element) => reader.Scenarios(element, Child(RootPath, "scenarios")));
+
+    /// <summary>Reads a stored <c>reservations</c> block, like <see cref="ReadWeeklyHours"/> (#389).</summary>
+    public static ShopReservationSettings ReadReservations(string json) =>
+        ReadStored(json, "reservations", (reader, element) => reader.Reservations(element, Child(RootPath, "reservations")));
 
     private static T ReadStored<T>(string json, string section, Func<Reader, JsonElement, T?> read)
         where T : class
@@ -209,6 +240,29 @@ public static partial class ShopSettingsJson
             writer.WriteEndArray();
         }
 
+        writer.WriteEndObject();
+    }
+
+    private static void Write(Utf8JsonWriter writer, ShopReservationSettings reservations)
+    {
+        writer.WriteStartObject();
+        writer.WriteBoolean("enabled", reservations.Enabled);
+        if (reservations.Slug is { } slug)
+        {
+            writer.WriteString("slug", slug);
+        }
+
+        if (reservations.Phone is { } phone)
+        {
+            writer.WriteString("phone", phone);
+        }
+
+        writer.WriteNumber("slotMinutes", reservations.SlotMinutes);
+        writer.WriteNumber("minLeadMinutes", reservations.MinLeadMinutes);
+        writer.WriteNumber("maxDaysAhead", reservations.MaxDaysAhead);
+        writer.WriteNumber("lastSeatingMinutes", reservations.LastSeatingMinutes);
+        writer.WriteNumber("maxPartySize", reservations.MaxPartySize);
+        writer.WriteNumber("pendingExpiryMinutes", reservations.PendingExpiryMinutes);
         writer.WriteEndObject();
     }
 
@@ -332,8 +386,91 @@ public static partial class ShopSettingsJson
                 ? Scenarios(scenarioElement, Child(RootPath, "scenarios"))
                 : Missing<IReadOnlyDictionary<ShopScenario, ShopScenarioSettings>>(Child(RootPath, "scenarios"));
 
-            return storeName is not null && timeZoneRead && weeklyHours is not null && scenarios is not null
-                ? new ShopSettingsDocument(storeName, timeZoneId, weeklyHours, scenarios)
+            ShopReservationSettings? reservations = null;
+            var reservationsRead = true;
+            if (properties.TryGetValue("reservations", out var reservationsElement))
+            {
+                reservations = Reservations(reservationsElement, Child(RootPath, "reservations"));
+                reservationsRead = reservations is not null;
+            }
+
+            return storeName is not null && timeZoneRead && weeklyHours is not null && scenarios is not null && reservationsRead
+                ? new ShopSettingsDocument(storeName, timeZoneId, weeklyHours, scenarios, reservations)
+                : null;
+        }
+
+        /// <summary>The <c>reservations</c> block (#389).</summary>
+        public ShopReservationSettings? Reservations(JsonElement element, string path)
+        {
+            var properties = Properties(element, path, ReservationFields);
+            if (properties is null)
+            {
+                return null;
+            }
+
+            var enabled = RequiredBoolean(properties, path, "enabled");
+            var complete = enabled is not null;
+
+            string? slug = null;
+            var slugPath = Child(path, "slug");
+            if (properties.TryGetValue("slug", out var slugElement) && slugElement.ValueKind != JsonValueKind.Null)
+            {
+                slug = TextOf(slugElement, slugPath);
+                complete &= slug is not null;
+                if (slug is not null && !ShopReservationSettings.IsValidSlug(slug))
+                {
+                    Rule(
+                        slugPath,
+                        $"必須是 {ShopReservationSettings.SlugMinLength}–{ShopReservationSettings.SlugMaxLength} 個小寫英文字母、數字或 -，"
+                        + "不能以 - 開頭或結尾，例如 wangji；它會出現在訂位網址 /reserve/{代號} 裡。");
+                }
+            }
+            else if (enabled == true)
+            {
+                Rule(slugPath, "開放訂位時必須設定訂位網址的代號（slug），例如 \"wangji\"。");
+            }
+
+            string? phone = null;
+            var phonePath = Child(path, "phone");
+            if (properties.TryGetValue("phone", out var phoneElement) && phoneElement.ValueKind != JsonValueKind.Null)
+            {
+                phone = TextOf(phoneElement, phonePath);
+                complete &= phone is not null;
+                if (phone is not null && SingleLine(phone, phonePath, ShopReservationSettings.PhoneMaxLength)
+                    && phone.Length <= ShopReservationSettings.PhoneMaxLength && !ShopReservationSettings.IsValidPhone(phone))
+                {
+                    Rule(phonePath, "必須是店家的電話號碼（8 到 15 個數字，可以有空白、-、( )，開頭可以是 +），例如 02-2345-6789。");
+                }
+            }
+            else if (enabled == true)
+            {
+                Rule(phonePath, "開放訂位時必須設定店家電話（phone）：會顯示在訂位頁與通知信，讓顧客來電更改或取消。");
+            }
+
+            var slotMinutes = Integer(properties, path, "slotMinutes", ShopReservationSettings.DefaultSlotMinutes, 1, 60);
+            if (slotMinutes is { } slot && slot is >= 1 and <= 60 && !ShopReservationSettings.SlotMinuteChoices.Contains(slot))
+            {
+                Rule(Child(path, "slotMinutes"), $"必須是 {string.Join('、', ShopReservationSettings.SlotMinuteChoices)} 其中之一（分鐘）。");
+            }
+
+            var minLead = Integer(properties, path, "minLeadMinutes", ShopReservationSettings.DefaultMinLeadMinutes, 1, ShopReservationSettings.MaxMinLeadMinutes);
+            var maxDays = Integer(properties, path, "maxDaysAhead", ShopReservationSettings.DefaultMaxDaysAhead, 1, ShopReservationSettings.MaxMaxDaysAhead);
+            var lastSeating = Integer(properties, path, "lastSeatingMinutes", ShopReservationSettings.DefaultLastSeatingMinutes, 0, ShopReservationSettings.MaxLastSeatingMinutes);
+            var maxParty = Integer(properties, path, "maxPartySize", ShopReservationSettings.DefaultMaxPartySize, 1, ShopReservationSettings.MaxMaxPartySize);
+            var expiry = Integer(properties, path, "pendingExpiryMinutes", ShopReservationSettings.DefaultPendingExpiryMinutes, 0, ShopReservationSettings.MaxPendingExpiryMinutes);
+            if (expiry is { } pendingExpiry && minLead is { } lead && pendingExpiry >= lead)
+            {
+                Rule(
+                    Child(path, "pendingExpiryMinutes"),
+                    $"必須小於 minLeadMinutes（目前 {pendingExpiry} ≥ {lead}）：沒人處理的訂位在訂位時間前 pendingExpiryMinutes 分鐘過期，"
+                    + "最晚送出的訂位也要留時間給店家接受或婉拒。");
+            }
+
+            complete &= slotMinutes is not null && minLead is not null && maxDays is not null && lastSeating is not null
+                && maxParty is not null && expiry is not null;
+            return complete
+                ? new ShopReservationSettings(
+                    enabled!.Value, slug, phone, slotMinutes!.Value, minLead!.Value, maxDays!.Value, lastSeating!.Value, maxParty!.Value, expiry!.Value)
                 : null;
         }
 
@@ -851,6 +988,30 @@ public static partial class ShopSettingsJson
 
             Error(propertyPath, "必須是 true 或 false。");
             return null;
+        }
+
+        /// <summary>An optional whole number (<paramref name="fallback"/> when absent) from <paramref name="min"/> to
+        /// <paramref name="max"/> (the range is a rule); <see langword="null"/> when it is not a whole number.</summary>
+        private int? Integer(Dictionary<string, JsonElement> properties, string path, string name, int fallback, int min, int max)
+        {
+            if (!properties.TryGetValue(name, out var value))
+            {
+                return fallback;
+            }
+
+            var propertyPath = Child(path, name);
+            if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var number))
+            {
+                Error(propertyPath, "必須是整數。");
+                return null;
+            }
+
+            if (number < min || number > max)
+            {
+                Rule(propertyPath, $"必須是 {min} 到 {max} 的整數（目前 {number}）。");
+            }
+
+            return number;
         }
 
         private TimeOnly? RequiredTime(Dictionary<string, JsonElement> properties, string path, string name)

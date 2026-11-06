@@ -106,6 +106,26 @@ public class PublicRateLimitingTests
     }
 
     [Fact]
+    public void The_reservation_pages_share_one_budget_per_client_ip_whatever_the_shop()
+    {
+        using var limiter = PublicRateLimiting.CreateLimiter(new PublicRateLimitOptions { CoordinatorReservationRequestsPerIpPerMinute = 2 });
+
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorReservation, "198.51.100.9").ShouldBeTrue();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorReservation, "198.51.100.9").ShouldBeTrue();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorReservation, "198.51.100.9").ShouldBeFalse();
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorReservation, "198.51.100.10").ShouldBeTrue("each client has its own budget");
+        Acquire(limiter, PublicRateLimitedEndpoint.CoordinatorAuthorization, "198.51.100.9").ShouldBeTrue("the authorization pages have their own");
+
+        static bool Acquire(System.Threading.RateLimiting.PartitionedRateLimiter<HttpContext> limiter, PublicRateLimitedEndpoint kind, string address)
+        {
+            var context = new DefaultHttpContext();
+            context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(new PublicRateLimitMarker(kind)), kind.ToString()));
+            context.Connection.RemoteIpAddress = IPAddress.Parse(address);
+            return limiter.AttemptAcquire(context).IsAcquired;
+        }
+    }
+
+    [Fact]
     public async Task The_429_body_is_one_fixed_problem_whichever_partition_refused()
     {
         var context = new DefaultHttpContext();

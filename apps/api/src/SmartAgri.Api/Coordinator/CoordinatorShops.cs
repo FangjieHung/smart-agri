@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using SmartAgri.Domain.Coordinator;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
+using SmartAgri.Infrastructure.Coordinator;
+using SmartAgri.Infrastructure.Persistence;
 using SmartAgri.Infrastructure.Tenancy;
 
 namespace SmartAgri.Api.Coordinator;
@@ -17,6 +19,9 @@ public enum ShopImportOutcome
 
     /// <summary>The same as the stored settings: nothing was written.</summary>
     Unchanged,
+
+    /// <summary>The reservation page's slug is another shop's (#389): nothing was written.</summary>
+    SlugTaken,
 }
 
 public sealed record ShopImportResult(ShopImportOutcome Outcome, ShopSettingsChange Change);
@@ -28,12 +33,17 @@ public sealed record ShopImportResult(ShopImportOutcome Outcome, ShopSettingsCha
 /// </summary>
 public sealed class CoordinatorShops
 {
+    /// <summary>EF Core's name for the unique index on <c>CoordinatorShopSettings.ReservationSlug</c> (#389).</summary>
+    internal const string ReservationSlugIndex = "IX_CoordinatorShopSettings_ReservationSlug";
+
     private readonly DbContextOptions<AppDbContext> _options;
+    private readonly CoordinatorLookup _lookup;
     private readonly TimeProvider _clock;
 
-    public CoordinatorShops(DbContextOptions<AppDbContext> options, TimeProvider clock)
+    public CoordinatorShops(DbContextOptions<AppDbContext> options, CoordinatorLookup lookup, TimeProvider clock)
     {
         _options = options;
+        _lookup = lookup;
         _clock = clock;
     }
 
@@ -49,11 +59,19 @@ public sealed class CoordinatorShops
     /// Makes <paramref name="document"/> (already validated by <see cref="ShopSettingsJson.Parse"/>) the
     /// settings of <paramref name="organizationId"/>. When anything changed, one
     /// <see cref="OrganizationActivityAction.CoordinatorShopSettingsUpdated"/> is written in the same save;
-    /// an identical import writes nothing.
+    /// an identical import writes nothing. A reservation slug another shop has is
+    /// <see cref="ShopImportOutcome.SlugTaken"/> (the unique index settles a race), and nothing is written (#389).
     /// </summary>
     public async Task<ShopImportResult> ImportAsync(Guid organizationId, ShopSettingsDocument document, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
+        if (document.Reservations?.Slug is { } slug
+            && await _lookup.FindReservationShopAsync(slug, cancellationToken) is { } owner
+            && owner != organizationId)
+        {
+            return new ShopImportResult(ShopImportOutcome.SlugTaken, new ShopSettingsChange([], []));
+        }
+
         await using var dbContext = ForOrganization(organizationId);
         var now = _clock.GetUtcNow();
         var settings = await dbContext.CoordinatorShopSettings.SingleOrDefaultAsync(cancellationToken);
@@ -61,7 +79,7 @@ public sealed class CoordinatorShops
         if (settings is null)
         {
             dbContext.CoordinatorShopSettings.Add(ShopSettings.Create(organizationId, document, now));
-            result = new ShopImportResult(ShopImportOutcome.Created, ShopSettingsChange.All);
+            result = new ShopImportResult(ShopImportOutcome.Created, ShopSettingsChange.Created(document));
         }
         else
         {
@@ -76,7 +94,15 @@ public sealed class CoordinatorShops
 
         dbContext.OrganizationActivities.Add(OrganizationActivity.CoordinatorShopSettingsUpdated(
             organizationId, now, created: result.Outcome == ShopImportOutcome.Created, result.Change));
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (DatabaseErrors.IsUniqueViolation(exception, ReservationSlugIndex))
+        {
+            return new ShopImportResult(ShopImportOutcome.SlugTaken, new ShopSettingsChange([], []));
+        }
+
         return result;
     }
 

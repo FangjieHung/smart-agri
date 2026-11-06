@@ -202,6 +202,18 @@ public class BusinessHoursTests
         hours.NextOpeningAfter(new DateTimeOffset(2026, 10, 31, 21, 0, 0, Edt)).ShouldBe(new DateTimeOffset(2026, 11, 2, 11, 0, 0, Est));
     }
 
+    [Fact]
+    public void A_time_of_a_business_day_is_on_the_next_day_only_in_the_small_hours_of_its_overnight_period()
+    {
+        var saturday = new DateOnly(2026, 11, 7); // 18:00–02:00
+
+        Shop.OnBusinessDay(saturday, new TimeOnly(20, 0)).ShouldBe(new DateTimeOffset(2026, 11, 7, 20, 0, 0, Taipei));
+        Shop.OnBusinessDay(saturday, new TimeOnly(1, 0)).ShouldBe(new DateTimeOffset(2026, 11, 8, 1, 0, 0, Taipei));
+        Shop.OnBusinessDay(saturday, new TimeOnly(3, 0)).ShouldBe(new DateTimeOffset(2026, 11, 7, 3, 0, 0, Taipei), "after the night is over");
+        Shop.OnBusinessDay(new DateOnly(2026, 11, 3), new TimeOnly(1, 0)).ShouldBe(new DateTimeOffset(2026, 11, 3, 1, 0, 0, Taipei), "no overnight period");
+        Shop.OnBusinessDay(new DateOnly(2026, 11, 2), new TimeOnly(1, 0)).ShouldBe(new DateTimeOffset(2026, 11, 2, 1, 0, 0, Taipei), "a day off");
+    }
+
     private static BusinessHours Hours(string zone, params (DayOfWeek Day, string Open, string Close)[] periods) =>
         new(
             new WeeklyHours(periods

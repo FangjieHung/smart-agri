@@ -11,11 +11,14 @@ namespace SmartAgri.Domain.Coordinator;
 /// </summary>
 /// <param name="TimeZoneId">An IANA time zone id (<see cref="ShopSettings.DefaultTimeZoneId"/> unless set).</param>
 /// <param name="Scenarios">Exactly the four scenarios.</param>
+/// <param name="Reservations">Online reservations (#389); <see langword="null"/> when the file has no
+/// <c>reservations</c> block, which takes none.</param>
 public sealed record ShopSettingsDocument(
     string StoreName,
     string TimeZoneId,
     WeeklyHours WeeklyHours,
-    IReadOnlyDictionary<ShopScenario, ShopScenarioSettings> Scenarios)
+    IReadOnlyDictionary<ShopScenario, ShopScenarioSettings> Scenarios,
+    ShopReservationSettings? Reservations = null)
 {
     /// <summary>The time zone of <see cref="TimeZoneId"/>.</summary>
     public TimeZoneInfo TimeZone => TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId);

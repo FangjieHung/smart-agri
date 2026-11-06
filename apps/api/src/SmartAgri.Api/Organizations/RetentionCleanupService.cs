@@ -4,12 +4,17 @@ using Microsoft.Extensions.Options;
 using SmartAgri.Api.Databases;
 using SmartAgri.Application.Organizations;
 using SmartAgri.Domain.Chat;
+using SmartAgri.Domain.Coordinator;
 using SmartAgri.Domain.Notifications;
 using SmartAgri.Domain.Observability;
 using SmartAgri.Domain.Organizations;
 using SmartAgri.Infrastructure;
 
 namespace SmartAgri.Api.Organizations;
+
+/// <summary>What one sweep of past reservations did (#389).</summary>
+/// <param name="Cutoff">Reservations whose time is strictly before it were deleted.</param>
+public sealed record ReservationCleanupResult(DateTimeOffset Cutoff, int Count, int Batches);
 
 /// <summary>What one sweep of handled 轉真人 notifications did (#362).</summary>
 /// <param name="Cutoff">Handoffs handled strictly before it were deleted.</param>
@@ -41,7 +46,8 @@ public sealed record RetentionCleanupResult(
 /// </list>
 /// Nothing else is touched: model invocations, handoff copies in issues, reports, database records and
 /// test runs keep their own lifecycle. 轉真人 notifications have a fixed one of their own
-/// (<see cref="DeleteHandledHandoffsAsync"/>, every organization whatever its retention, #362). A cleanup that deleted something writes one summary
+/// (<see cref="DeleteHandledHandoffsAsync"/>, every organization whatever its retention, #362), and so do the shops' online
+/// reservations (<see cref="DeleteExpiredReservationsAsync"/>, #389). A cleanup that deleted something writes one summary
 /// <c>retention-cleanup</c> activity; one that deleted nothing writes none (log and metrics only).
 /// </remarks>
 public sealed class RetentionCleanupService
@@ -149,6 +155,33 @@ public sealed class RetentionCleanupService
         return new HandoffCleanupResult(cutoff, deleted.Count, deleted.Batches);
     }
 
+    /// <summary>
+    /// Deletes the organization's reservations whose time is more than <see cref="CoordinatorReservation.RetentionDays"/>
+    /// days before <paramref name="asOf"/> (store-reservations design R8, §3.1 point 10, #389) — the customer's name,
+    /// phone, Email and note go with the row: the cutoff is <see cref="RetentionCleanupRules.Cutoff"/> for that many
+    /// days, whatever the organization's conversation retention and the reservation's status. No activity is written
+    /// (the rows are the customer's, and the count says nothing about the shop): a log line and the deleted counter
+    /// (<c>record</c> = <c>coordinator-reservation</c>). In batches of <see cref="BatchSize"/> like the rest.
+    /// </summary>
+    public async Task<ReservationCleanupResult> DeleteExpiredReservationsAsync(DateTimeOffset asOf, CancellationToken cancellationToken)
+    {
+        var cutoff = RetentionCleanupRules.Cutoff(asOf, CoordinatorReservation.RetentionDays, _timeZone);
+        var deleted = await DeleteInBatchesAsync(
+            _dbContext.CoordinatorReservations
+                .Where(reservation => reservation.ReservedAt < cutoff)
+                .OrderBy(reservation => reservation.ReservedAt),
+            cancellationToken);
+        _metrics.DeletedReservations(deleted.Count);
+        if (deleted.Count > 0)
+        {
+            _logger.LogInformation(
+                "Past reservations cleanup (cutoff {Cutoff:o}): deleted {Count} in {Batches} batches.",
+                cutoff, deleted.Count, deleted.Batches);
+        }
+
+        return new ReservationCleanupResult(cutoff, deleted.Count, deleted.Batches);
+    }
+
     /// <summary>Step 1, in its own save with its activity. Idempotent: a second call finds nothing
     /// pending. A settings <c>PUT</c> saved in between wins: the row is read again and checked once
     /// more.</summary>
@@ -225,7 +258,7 @@ public sealed record BatchedDeletion(int Count, int Batches);
 /// <summary>
 /// The cleanup's counters on the application's meter (<see cref="SmartAgriMeter"/>): runs, and
 /// deleted rows by kind (<c>record</c> = <c>chat-thread</c>, <c>answer-outcome</c> or, from the daily
-/// sweep of handled 轉真人 notifications, <c>visitor-handoff</c>). A chain that
+/// sweep of handled 轉真人 notifications and past reservations, <c>visitor-handoff</c> and <c>coordinator-reservation</c>). A chain that
 /// stopped running shows as no runs (M6 plan §7 technical risk 3).
 /// </summary>
 public sealed class RetentionCleanupMetrics
@@ -267,6 +300,14 @@ public sealed class RetentionCleanupMetrics
         if (count > 0)
         {
             _deleted.Add(count, new KeyValuePair<string, object?>(RecordTag, "visitor-handoff"));
+        }
+    }
+
+    internal void DeletedReservations(int count)
+    {
+        if (count > 0)
+        {
+            _deleted.Add(count, new KeyValuePair<string, object?>(RecordTag, "coordinator-reservation"));
         }
     }
 }

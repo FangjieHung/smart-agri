@@ -134,7 +134,9 @@ describe('WorkspaceLayoutComponent', () => {
     it('hands the 案件 entry one count signal and refreshes it on every navigation', async () => {
       const fakeRouter = createFakeRouter('/app/home');
       const fixture = await render(fakeRouter);
-      const app = fixture.componentInstance as unknown as { caseOverdueCount: WritableSignal<number>; handoffPendingCount: WritableSignal<number> };
+      const app = fixture.componentInstance as unknown as {
+        caseOverdueCount: WritableSignal<number>; handoffPendingCount: WritableSignal<number>; orderPendingCount: WritableSignal<number>;
+      };
       const navItems = fixture.debugElement.query(By.directive(StubSideNav)).componentInstance.navItems as NavEntry[];
       const cases = navItems.find((entry): entry is NavLeaf => 'route' in entry && entry.route === '/app/cases') as NavLeaf;
       expect(cases.count).toBe(app.caseOverdueCount);
@@ -143,7 +145,11 @@ describe('WorkspaceLayoutComponent', () => {
       const handoffs = navItems.find((entry): entry is NavLeaf => 'route' in entry && entry.route === '/app/handoffs') as NavLeaf;
       expect(handoffs.count).toBe(app.handoffPendingCount);
       expect(handoffs.countLabel).toBe('則待處理');
-      expect(navItems.filter((entry) => 'count' in entry)).toEqual([cases, handoffs]);
+      // #399: 「點餐」 has its pending number too, and only accounts with manage-orders see it (the side nav filters).
+      const orders = navItems.find((entry): entry is NavLeaf => 'route' in entry && entry.route === '/app/orders') as NavLeaf;
+      expect(orders.count).toBe(app.orderPendingCount);
+      expect([orders.label, orders.countLabel, orders.permission]).toEqual(['點餐', '筆待確認', 'manage-orders']);
+      expect(navItems.filter((entry) => 'count' in entry)).toEqual([orders, cases, handoffs]);
 
       for (const url of ['/app/chat', '/app/forms/a']) {
         fakeRouter.url = url;

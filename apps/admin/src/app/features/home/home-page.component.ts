@@ -13,6 +13,8 @@ import { DEMO_ACCOUNT_BY_ROLE } from '../../core/session/api-mode/demo-identity-
 export { refreshCaseOverdueCount } from '../cases/case-attention.loader';
 /** 側欄「轉真人」旁的待處理數字（issue #355），同一個做法。 */
 export { refreshHandoffPendingCount } from '../handoffs/handoff-attention.loader';
+/** 側欄「點餐」旁的待確認數字（issue #399），同一個做法。 */
+export { refreshOrderPendingCount } from '../orders/order-attention.loader';
 import { DEMO_REPOSITORY } from '../../core/repositories/tokens';
 import { AssistantPermissionsService } from '../../core/session/assistant-permissions.service';
 import { DemoSessionService } from '../../core/session/demo-session.service';

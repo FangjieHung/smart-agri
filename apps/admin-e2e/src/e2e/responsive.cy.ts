@@ -25,6 +25,7 @@ const ADMIN_ROUTES: readonly (readonly [string, string])[] = [
   ['/app/cases', '建立案件'],
   ['/app/cases?view=statistics', '套用'],
   ['/app/handoffs', '標記已處理'],
+  ['/app/orders', '暫停接單'],
   ['/app/settings', '團隊與權限'],
 ];
 

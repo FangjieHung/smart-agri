@@ -162,6 +162,8 @@ export const REPOSITORY_PERMISSION_DENIED_REASONS = [
   'case-action',
   /** 轉真人通知（issue #355）：只有助理的擁有者看得到、能標記已處理。 */
   'handoff',
+  /** 線上點餐（issue #399）：沒有「處理線上點餐」權限，或這筆訂單不是這個組織的。 */
+  'ordering',
   /** API 模式：帳號仍是 `setup` 的一次性密碼，設定新密碼前其他端點一律拒絕。 */
   'password-change-required',
 ] as const;

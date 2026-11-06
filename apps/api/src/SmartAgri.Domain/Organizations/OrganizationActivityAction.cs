@@ -110,4 +110,12 @@ public enum OrganizationActivityAction
     /// name (<see cref="OrganizationActivity.CoordinatorConnectionUpdated"/>).</summary>
     [JsonStringEnumMemberName("coordinator-connection-updated")]
     CoordinatorConnectionUpdated,
+
+    /// <summary>The platform operator imported the shop's online-ordering settings and menu and something changed
+    /// (<c>ordering-shop import</c>, online-ordering Slice O1, #397); a system action (no account). Detail: <c>created</c>,
+    /// <c>changed</c> (the <c>shop</c> fields that changed, and <c>menu</c>) and <c>menuVersion</c> (the new menu version, or
+    /// <see langword="null"/> when the menu stayed) — names only, never the shop's or the menu's text
+    /// (<see cref="OrganizationActivity.OrderingShopUpdated"/>).</summary>
+    [JsonStringEnumMemberName("ordering-shop-updated")]
+    OrderingShopUpdated,
 }

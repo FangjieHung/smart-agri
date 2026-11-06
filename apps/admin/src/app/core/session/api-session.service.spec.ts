@@ -475,7 +475,7 @@ describe('ApiSessionService (mock mode)', () => {
     expect(service.displayName()).toBeNull();
 
     demoSession.switchAccount('account-internal-employee');
-    expect(service.permissions()).toEqual(['use-shared-assistants', 'read-consented-submissions']);
+    expect(service.permissions()).toEqual(['use-shared-assistants', 'read-consented-submissions', 'manage-orders']);
 
     demoSession.switchAccount('account-smb-admin');
     expect(service.permissions()).toContain('manage-assistants');

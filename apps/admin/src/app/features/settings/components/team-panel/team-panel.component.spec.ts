@@ -147,7 +147,7 @@ describe('TeamPanelComponent', () => {
     fixture.detectChanges();
 
     const boxes = Array.from(host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
-    expect(boxes).toHaveLength(8);
+    expect(boxes).toHaveLength(9);
     const editor = host.querySelector('.member__editor');
     expect(editor?.textContent).toContain('尚未接到行為');
     expect(editor?.textContent).toContain('canOpenInPlatform()');
@@ -176,7 +176,7 @@ describe('TeamPanelComponent', () => {
     if (accounts.status !== 'ready') throw new Error('expected ready');
     expect(
       accounts.data.find((account) => account.id === 'account-internal-employee')?.permissions,
-    ).toEqual(['use-shared-assistants']);
+    ).toEqual(['use-shared-assistants', 'manage-orders']);
   });
 
   it('re-reads the signed-in identity after saving the viewer’s own permissions', async () => {

@@ -118,6 +118,7 @@ export const DEMO_SEED: DemoSeed = {
         'manage-data-sources',
         'manage-publishing',
         'read-consented-submissions',
+        'manage-orders',
       ],
     },
     {
@@ -126,7 +127,8 @@ export const DEMO_SEED: DemoSeed = {
       role: 'internal-employee',
       // 同仁是「同仁排班回報」資料庫的擁有者，也是它指定的資料管理者，
       // 所以也需要帳號層級的「查看同意提交的紀錄」才看得到自己收到的資料。
-      permissions: ['use-shared-assistants', 'read-consented-submissions'],
+      // 線上點餐（issue #399）：老闆與內部同仁預設都能接單。
+      permissions: ['use-shared-assistants', 'read-consented-submissions', 'manage-orders'],
     },
     {
       id: 'account-external-customer',

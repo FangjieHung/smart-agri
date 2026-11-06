@@ -90,6 +90,7 @@ public class OrganizationSettingsTests
                 "member-deactivated", "member-reactivated",
                 "coordinator-shop-settings-updated",
                 "coordinator-connection-updated",
+                "ordering-shop-updated",
             ]);
     }
 

@@ -199,6 +199,46 @@ public static partial class ShopSettingsJson
     public static ShopReservationSettings ReadReservations(string json) =>
         ReadStored(json, "reservations", (reader, element) => reader.Reservations(element, Child(RootPath, "reservations")));
 
+    /// <summary>
+    /// Reads and validates a <c>weeklyHours</c>-format object found at <paramref name="path"/> of another file — the
+    /// online-ordering settings' <c>orderingHours</c> (#397) — with the same rules as a settings file's, adding every
+    /// error to <paramref name="errors"/>; <see langword="null"/> when there is any.
+    /// </summary>
+    public static WeeklyHours? ParseWeeklyHours(JsonElement element, string path, ICollection<ShopSettingsError> errors)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(errors);
+        var reader = new Reader(strict: true);
+        var hours = reader.WeeklyHours(element, path);
+        foreach (var error in reader.Errors)
+        {
+            errors.Add(error);
+        }
+
+        return reader.Errors.Count == 0 ? hours : null;
+    }
+
+    /// <summary>Whether <paramref name="id"/> is a time zone a settings file may name: an IANA id this system knows,
+    /// at most <see cref="ShopSettings.TimeZoneIdMaxLength"/> characters.</summary>
+    public static bool IsValidTimeZoneId(string id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return id.Length <= ShopSettings.TimeZoneIdMaxLength
+            && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone)
+            && zone.HasIanaId;
+    }
+
+    /// <summary>Whether <paramref name="value"/> is a public image's address a settings file may give: an absolute
+    /// <c>https</c> URL without white space (its length is checked apart, against <see cref="ImageUrlMaxLength"/>).</summary>
+    public static bool IsHttpsUrl(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttps
+            && !string.IsNullOrEmpty(uri.Host)
+            && !value.Any(char.IsWhiteSpace);
+    }
+
     private static T ReadStored<T>(string json, string section, Func<Reader, JsonElement, T?> read)
         where T : class
     {
@@ -861,9 +901,7 @@ public static partial class ShopSettingsJson
 
         private void TimeZoneRule(string id, string path)
         {
-            if (id.Length > ShopSettings.TimeZoneIdMaxLength
-                || !TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone)
-                || !zone.HasIanaId)
+            if (!IsValidTimeZoneId(id))
             {
                 Rule(path, $"不認得的時區「{id}」；請用 IANA 時區名稱，例如 {ShopSettings.DefaultTimeZoneId}。");
             }
@@ -875,10 +913,7 @@ public static partial class ShopSettingsJson
             {
                 Rule(path, $"最多 {ImageUrlMaxLength} 個字元（目前 {value.Length} 個）。");
             }
-            else if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
-                     || uri.Scheme != Uri.UriSchemeHttps
-                     || string.IsNullOrEmpty(uri.Host)
-                     || value.Any(char.IsWhiteSpace))
+            else if (!IsHttpsUrl(value))
             {
                 Rule(path, "必須是完整的 https:// 網址（公開的圖片位址）。");
             }

@@ -32,6 +32,14 @@ public enum PublicRateLimitedEndpoint
     /// <summary>The shops' reservation pages (#389): <c>GET</c> and <c>POST /reserve/{slug}</c>, one budget per client IP
     /// whatever the shop; refused with a page, not JSON.</summary>
     CoordinatorReservation,
+
+    /// <summary>The shops' online-ordering API (#398) except sending an order: <c>GET /api/v1/public/ordering/{slug}</c>,
+    /// its menu, slots, an order's status (polled) and cancelling, one budget per client IP whatever the shop.</summary>
+    Ordering,
+
+    /// <summary>Sending an order (#398): <c>POST /api/v1/public/ordering/{slug}/orders</c>, a budget of its own per
+    /// client IP whatever the shop.</summary>
+    OrderingSubmission,
 }
 
 /// <summary>Endpoint metadata that puts an endpoint under the visitor API's rate limits.</summary>
@@ -68,7 +76,11 @@ public sealed record PublicRateLimitMarker(PublicRateLimitedEndpoint Kind);
 /// (<see cref="PublicRateLimitOptions.CoordinatorAuthorizationRequestsPerIpPerMinute"/>), so a script cannot make them
 /// look links up or call the services' token endpoints at will. The shops' reservation pages (#389) share one sliding
 /// window per client IP (<see cref="PublicRateLimitOptions.CoordinatorReservationRequestsPerIpPerMinute"/>), whatever
-/// the shop, and their refusal is a page (<see cref="CoordinatorReservationPages.TooManyRequests"/>), not JSON.
+/// the shop, and their refusal is a page (<see cref="CoordinatorReservationPages.TooManyRequests"/>), not JSON. The shops'
+/// online-ordering API (#398) has one sliding window per client IP for reading and polling
+/// (<see cref="PublicRateLimitOptions.OrderingRequestsPerIpPerMinute"/>) and a smaller one for sending orders
+/// (<see cref="PublicRateLimitOptions.OrderingSubmissionsPerIpPerMinute"/>), whatever the shop; refused with the JSON
+/// <c>429 rate-limited</c>.
 /// </para>
 /// <para>
 /// <b>Where it runs</b>: after authorization, so the visitor claims are known (a request with no or
@@ -148,7 +160,12 @@ public static class PublicRateLimiting
                 Sliding(key, limits.CoordinatorAuthorizationRequestsPerIpPerMinute, Minute, segments: 6)),
             // The shops' reservation pages: per client IP, every shop together (#389).
             Layer(PublicRateLimitedEndpoint.CoordinatorReservation, ClientKey, Minute, key =>
-                Sliding(key, limits.CoordinatorReservationRequestsPerIpPerMinute, Minute, segments: 6)));
+                Sliding(key, limits.CoordinatorReservationRequestsPerIpPerMinute, Minute, segments: 6)),
+            // The shops' ordering API: per client IP, every shop together; sending an order on its own (#398).
+            Layer(PublicRateLimitedEndpoint.Ordering, ClientKey, Minute, key =>
+                Sliding(key, limits.OrderingRequestsPerIpPerMinute, Minute, segments: 6)),
+            Layer(PublicRateLimitedEndpoint.OrderingSubmission, ClientKey, Minute, key =>
+                Sliding(key, limits.OrderingSubmissionsPerIpPerMinute, Minute, segments: 6)));
 
     private static RateLimitPartition<string> Sliding(string key, int permits, TimeSpan window, int segments) =>
         RateLimitPartition.GetSlidingWindowLimiter(key, _ => new SlidingWindowRateLimiterOptions

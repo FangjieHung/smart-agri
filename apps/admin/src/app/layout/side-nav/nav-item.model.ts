@@ -1,4 +1,5 @@
 import type { Signal } from '@angular/core';
+import type { AccountPermission } from '../../core/domain/account.model';
 
 export interface NavLeaf {
   route: string;
@@ -8,6 +9,8 @@ export interface NavLeaf {
   count?: Signal<number>;
   /** 報讀數字時接在後面的字（預設「件逾期」；「轉真人」是「則待處理」，issue #355）。 */
   countLabel?: string;
+  /** 只給有這個權限的帳號顯示（「點餐」要 `manage-orders`，issue #399）。 */
+  permission?: AccountPermission;
 }
 
 export interface NavGroup {

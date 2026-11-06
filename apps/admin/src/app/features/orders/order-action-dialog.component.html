@@ -1,0 +1,80 @@
+<div class="dialog-backdrop"></div>
+<div
+  class="dialog"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="order-dialog-title"
+  aria-describedby="order-dialog-detail"
+  cdkTrapFocus
+  #dialog
+  [attr.data-order-dialog]="kind()"
+  (keydown.escape)="close()"
+>
+  <h2 class="dialog__title" id="order-dialog-title">{{ title() }}</h2>
+  <div class="dialog__body">
+    <p class="dialog__detail" id="order-dialog-detail">{{ detail() }}</p>
+
+    @if (kind() === 'accept') {
+      <fieldset class="dialog__choices">
+        <legend>預計可取餐時間</legend>
+        @for (option of acceptChoices(); track option.key) {
+          <label class="dialog__choice">
+            <input type="radio" name="order-accept-time" [checked]="choice() === option.key" (change)="pick(option.key)" />
+            {{ option.text }}
+          </label>
+        }
+        <label class="dialog__choice">
+          <input type="radio" name="order-accept-time" [checked]="choice() === 'custom'" (change)="pick('custom')" data-accept-custom />
+          指定時間
+        </label>
+        @if (choice() === 'custom') {
+          <label class="dialog__field">
+            <span>時間</span>
+            <input type="time" step="60" [value]="customTime()" (input)="customTime.set($any($event.target).value); localError.set('')" data-accept-time />
+          </label>
+        }
+      </fieldset>
+      @if (promisedText()) {
+        <p class="dialog__result" data-accept-result>{{ promisedText() }}</p>
+      }
+    } @else {
+      <fieldset class="dialog__choices">
+        <legend>{{ kind() === 'decline' ? '婉拒原因' : '取消原因' }}</legend>
+        @for (option of reasons(); track option[0]) {
+          <label class="dialog__choice">
+            <input type="radio" name="order-reason" [attr.value]="option[0]" [checked]="reason() === option[0]" (change)="pickReason(option[0])" />
+            {{ option[1] }}
+          </label>
+        }
+      </fieldset>
+      <label class="dialog__field">
+        <span>給顧客的說明{{ noteRequired() ? '（必填）' : '（選填）' }}</span>
+        <input
+          type="text"
+          [attr.maxlength]="noteMax"
+          [value]="note()"
+          [attr.aria-required]="noteRequired()"
+          aria-describedby="order-dialog-note-hint"
+          (input)="note.set($any($event.target).value); localError.set('')"
+          data-order-note
+        />
+      </label>
+      <p class="dialog__hint" id="order-dialog-note-hint">顧客會在訂單頁看到這段說明，最多 {{ noteMax }} 字。</p>
+    }
+
+    @if (localError() || error()) {
+      <p class="dialog__error" role="alert">{{ localError() || error() }}</p>
+    }
+  </div>
+  <div class="dialog__actions">
+    <button type="button" class="dialog__cancel" [disabled]="busy()" (click)="close()">返回</button>
+    <button
+      type="button"
+      class="dialog__confirm"
+      [attr.data-tone]="kind() === 'accept' ? 'accent' : 'danger'"
+      [disabled]="busy()"
+      (click)="submit()"
+      data-order-dialog-confirm
+    >{{ busy() ? '處理中…' : confirmLabel() }}</button>
+  </div>
+</div>

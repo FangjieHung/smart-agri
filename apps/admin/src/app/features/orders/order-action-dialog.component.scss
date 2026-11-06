@@ -1,0 +1,75 @@
+@use '../../../styles/dialog-scroll';
+
+// 宿主不產生方塊：遮罩與對話框都是 fixed（同共用的確認對話框）。
+:host { display: contents; }
+p { margin: 0; }
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(28 39 51 / 45%);
+}
+.dialog {
+  @include dialog-scroll.scrolling-panel('.dialog__body');
+  position: fixed;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  z-index: 41;
+  gap: var(--space-3);
+  inline-size: min(30rem, calc(100vw - var(--space-8)));
+  padding: var(--space-4);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(28 39 51 / 24%);
+  translate: -50% -50%;
+}
+.dialog__title { margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.dialog__body { display: grid; gap: var(--space-3); }
+.dialog__detail,
+.dialog__hint { color: var(--color-text-secondary); line-height: var(--line-height-body); }
+.dialog__hint { margin-block-start: calc(-1 * var(--space-2)); font-size: var(--font-size-caption); }
+
+.dialog__choices { display: grid; gap: var(--space-1); min-inline-size: 0; padding: 0; margin: 0; border: 0; }
+.dialog__choices legend { padding: 0; margin-block-end: var(--space-1); font-weight: 700; }
+.dialog__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-block-size: var(--target-size);
+  padding: 0 var(--space-3);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.dialog__choice:has(:checked) { border-color: var(--color-accent); background: var(--color-accent-soft); font-weight: 700; }
+.dialog__choice input { inline-size: 20px; block-size: 20px; margin: 0; accent-color: var(--color-accent); }
+
+.dialog__field { display: grid; gap: var(--space-1); font-weight: 700; }
+.dialog__field input {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-text-secondary);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 400;
+}
+.dialog__result { font-weight: 700; color: var(--color-accent); }
+.dialog__error { color: var(--color-error); font-weight: 700; }
+
+.dialog__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+.dialog__actions button {
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+.dialog__actions [data-tone] { border-color: var(--tone); background: var(--tone); color: var(--color-on-accent); }
+[data-tone='danger'] { --tone: var(--color-error); }
+[data-tone='accent'] { --tone: var(--color-accent); }
+.dialog__actions button:disabled { opacity: 0.6; cursor: not-allowed; }

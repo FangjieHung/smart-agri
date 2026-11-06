@@ -36,4 +36,10 @@ public enum AccountPermission
     /// it (M3.5 plan §7 decision C, issue #126).</summary>
     [JsonStringEnumMemberName("handle-assistant-issues")]
     HandleAssistantIssues,
+
+    /// <summary>處理線上點餐: sees the shop's online orders and accepts, declines, readies, completes and cancels
+    /// them; switches items sold out or off, pauses taking orders and sets the ASAP preparation time (online-ordering
+    /// design O1, D3, D7, D9, issue #399).</summary>
+    [JsonStringEnumMemberName("manage-orders")]
+    ManageOrders,
 }

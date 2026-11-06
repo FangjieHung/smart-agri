@@ -32,7 +32,8 @@ jobs:
       - name: Check generated frontend types match apps/api/openapi/v1.json
         run: |
           npx nx run admin:api-types
-          git diff --exit-code -- apps/api/openapi apps/admin/src/app/core/api
+          npx nx run shop:api-types
+          git diff --exit-code -- apps/api/openapi apps/admin/src/app/core/api apps/shop/src/app/api
 
   e2e:
     runs-on: ubuntu-latest
@@ -60,12 +61,20 @@ jobs:
       # "should only be run with Nx Cloud"；改用未拆分的 e2e 目標，一次跑完全部
       # spec（production 設定＝mock 模式，4301 埠，不需要後端）。
       - run: npx nx run admin-e2e:e2e --configuration=production
+      # 顧客點餐網頁（apps/shop，#398）：production 建置在 4311 埠，公開點餐 API 用 cy.intercept 回放錄下的回應，不需要後端。
+      # `if: !cancelled()`：admin 的 E2E 失敗時照樣跑，兩邊的結果都看得到。
+      - run: npx tsc -p apps/shop-e2e/tsconfig.json --noEmit
+        if: ${{ !cancelled() }}
+      - run: npx nx run shop-e2e:e2e --configuration=production
+        if: ${{ !cancelled() }}
       - name: Upload Cypress screenshots/videos on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: admin-e2e-cypress-artifacts
-          path: dist/cypress/apps/admin-e2e/**
+          path: |
+            dist/cypress/apps/admin-e2e/**
+            dist/cypress/apps/shop-e2e/**
           retention-days: 7
 
   # API 模式的 E2E（M2 Slice 17，issue #51）：真實 API＋PostgreSQL（pgvector）＋背景工作 worker，

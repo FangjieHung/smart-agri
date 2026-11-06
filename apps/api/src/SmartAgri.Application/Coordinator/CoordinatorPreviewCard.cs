@@ -24,6 +24,8 @@ public sealed record CoordinatorReopenDetails(
 /// <param name="Announcement">The announcement as it will be sent; for a reopen, the correction (shown only with
 /// the toggle on).</param>
 /// <param name="Reopen">Set exactly for a <see cref="ShopScenario.Reopen"/> card.</param>
+/// <param name="Reservations">The day's reservations the command would cancel, or — a reopen — that stay cancelled
+/// (#392); no line when there are none.</param>
 public sealed record CoordinatorCardContent(
     Guid OrganizationId,
     Guid CommandId,
@@ -34,7 +36,8 @@ public sealed record CoordinatorCardContent(
     TimeOnly? Time,
     IReadOnlyList<CoordinatorCardRow> Rows,
     string? Announcement,
-    CoordinatorReopenDetails? Reopen = null)
+    CoordinatorReopenDetails? Reopen = null,
+    CoordinatorCardReservations? Reservations = null)
 {
     /// <summary>No announcement: it may hold a reason a person wrote.</summary>
     public override string ToString() =>
@@ -47,7 +50,9 @@ public sealed record CoordinatorCardContent(
 /// for 提早打烊／延後開店); one line per action with its mode (自動／提醒) and, for ordering systems, when the
 /// reminders come; the announcement and how to edit it; 「已接的訂單仍需處理」; 〔確認〕〔取消〕 whose postbacks carry
 /// the command id and card version. A reopen card says what it undoes and has the 「加發更正公告」 toggle when
-/// offered.
+/// offered. Under the actions, the online reservations of the day (#392): 「會取消 N 筆訂位（已接受 a 筆、待處理 b 筆）」
+/// with the first <see cref="CoordinatorReservationClosures.CardListMax"/> as 「18:30 陳小姐」 and 「還有 M 筆」; on a
+/// reopen card 「因店休取消的 N 筆訂位不會恢復，請視需要聯絡顧客」. No line when there are none.
 /// </summary>
 /// <remarks>
 /// LINE limits: <c>altText</c> at most 400 characters, button labels at most 20 (the brief's limit), postback
@@ -197,6 +202,10 @@ public static class CoordinatorPreviewCard
         }
 
         body.Add(new JsonObject { ["type"] = "box", ["layout"] = "vertical", ["spacing"] = "xs", ["contents"] = rows });
+        if (Reservations(content) is { Count: > 0 } reservations)
+        {
+            body.Add(new JsonObject { ["type"] = "box", ["layout"] = "vertical", ["spacing"] = "xs", ["contents"] = reservations });
+        }
 
         var showAnnouncement = content.Announcement is { Length: > 0 }
             && (content.Reopen is null || content.Reopen.CorrectionBroadcast);
@@ -260,6 +269,35 @@ public static class CoordinatorPreviewCard
                 ["footer"] = new JsonObject { ["type"] = "box", ["layout"] = "vertical", ["spacing"] = "sm", ["contents"] = footer },
             },
         };
+    }
+
+    /// <summary>The reservation lines of <paramref name="content"/> (#392); empty when it has none to tell.</summary>
+    private static JsonArray Reservations(CoordinatorCardContent content)
+    {
+        var lines = new JsonArray();
+        switch (content.Reservations)
+        {
+            case { NotRestored: > 0 } kept when content.Reopen is not null:
+                lines.Add(Text($"・{CoordinatorReservationClosures.NotRestored(kept.NotRestored)}", size: "sm"));
+                break;
+
+            case { Count: > 0 } taken when content.Reopen is null:
+                lines.Add(Text($"・{CoordinatorReservationClosures.CardLine(taken.Accepted, taken.Pending)}", size: "sm", weight: "bold"));
+                foreach (var listed in taken.Listed.Take(CoordinatorReservationClosures.CardListMax))
+                {
+                    lines.Add(Text($"　{listed}", size: "xs", color: "#666666"));
+                }
+
+                var more = taken.Count - Math.Min(taken.Listed.Count, CoordinatorReservationClosures.CardListMax);
+                if (more > 0)
+                {
+                    lines.Add(Text($"　{CoordinatorReservationClosures.More(more)}", size: "xs", color: "#666666"));
+                }
+
+                break;
+        }
+
+        return lines;
     }
 
     private static void CheckModes(IReadOnlyList<ShopAction> actions, IReadOnlyList<ShopActionMode> modes)

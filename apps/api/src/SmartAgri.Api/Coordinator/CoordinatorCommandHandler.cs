@@ -34,6 +34,7 @@ public sealed class CoordinatorCommandHandler
     private readonly CoordinatorCommands _commands;
     private readonly CoordinatorCommandActions _actions;
     private readonly CoordinatorShops _shops;
+    private readonly CoordinatorReservations _reservations;
     private readonly CoordinatorCommandInterpreter _interpreter;
     private readonly CoordinatorConversationMemory _memory;
     private readonly ICoordinatorActionModes _modes;
@@ -45,6 +46,7 @@ public sealed class CoordinatorCommandHandler
         CoordinatorCommands commands,
         CoordinatorCommandActions actions,
         CoordinatorShops shops,
+        CoordinatorReservations reservations,
         CoordinatorCommandInterpreter interpreter,
         CoordinatorConversationMemory memory,
         ICoordinatorActionModes modes,
@@ -55,6 +57,7 @@ public sealed class CoordinatorCommandHandler
         _commands = commands;
         _actions = actions;
         _shops = shops;
+        _reservations = reservations;
         _interpreter = interpreter;
         _memory = memory;
         _modes = modes;
@@ -550,7 +553,9 @@ public sealed class CoordinatorCommandHandler
     }
 
     /// <summary>The current card of command <paramref name="commandId"/> (its current version), with the shop's
-    /// current settings, modes and notes (LINE 群發's quota line, #376).</summary>
+    /// current settings, modes and notes (LINE 群發's quota line, #376), and the day's online reservations as they are
+    /// now (#392): those the command would cancel (<see cref="ReservationSlots.TakenAway"/>, the rule the confirmation
+    /// cancels with), or — a reopen — how many the command it undoes cancelled.</summary>
     private async Task<JsonObject> CardAsync(Guid organizationId, Guid commandId, CancellationToken cancellationToken)
     {
         var command = await _commands.FindAsync(organizationId, commandId, cancellationToken)
@@ -563,10 +568,14 @@ public sealed class CoordinatorCommandHandler
             var actions = settings[command.Scenario].Actions;
             var notes = await NotesAsync(organizationId, actions, cancellationToken);
             var modes = await ModesAsync(organizationId, actions, cancellationToken);
+            var affected = ReservationSlots.TakenAway(
+                settings.Hours, command.Scenario, date, command.Time,
+                await _reservations.OpenOnAsync(organizationId, date, cancellationToken), _clock.GetUtcNow());
             return CoordinatorPreviewCard.Build(new CoordinatorCardContent(
                 organizationId, command.Id, command.Version, settings.StoreName, command.Scenario, date, command.Time,
                 WithNotes(CoordinatorPreviewCard.Rows(settings, command.Scenario, date, command.Time, modes), notes),
-                command.AnnouncementText));
+                command.AnnouncementText,
+                Reservations: CoordinatorReservationClosures.Card(affected, settings.TimeZone)));
         }
 
         var original = await _commands.FindAsync(organizationId, command.ReopensCommandId!.Value, cancellationToken)
@@ -583,7 +592,8 @@ public sealed class CoordinatorCommandHandler
             organizationId, command.Id, command.Version, settings.StoreName, ShopScenario.Reopen, date, null,
             WithNotes(CoordinatorPreviewCard.ReopenRows(undoneActions, date, undoneModes, correction), undoneNotes),
             command.AnnouncementText,
-            new CoordinatorReopenDetails(original.Scenario, original.Date!.Value, original.Time, correctionOffered, correction)));
+            new CoordinatorReopenDetails(original.Scenario, original.Date!.Value, original.Time, correctionOffered, correction),
+            new CoordinatorCardReservations(0, 0, [], await _reservations.CountCancelledByAsync(organizationId, original.Id, cancellationToken))));
     }
 
     /// <summary>The note of each of <paramref name="actions"/> the settings want automatic (asked once per kind), before

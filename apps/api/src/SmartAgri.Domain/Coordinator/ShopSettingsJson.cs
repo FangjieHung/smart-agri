@@ -727,9 +727,10 @@ public static partial class ShopSettingsJson
                 return null;
             }
 
-            if (!WireNames<ShopActionKind>.All.Contains(kindName))
+            // reservation-calls is the system's own (#392), never the settings'.
+            if (!ShopActionKinds.ConfigurableWireNames.Contains(kindName))
             {
-                Error(kindPath, $"不認得的動作種類「{kindName}」；可用：{string.Join('、', WireNames<ShopActionKind>.All)}。");
+                Error(kindPath, $"不認得的動作種類「{kindName}」；可用：{string.Join('、', ShopActionKinds.ConfigurableWireNames)}。");
                 return null;
             }
 

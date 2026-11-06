@@ -59,7 +59,10 @@ public enum CoordinatorActionStatus
 /// command is confirmed, from the shop's settings at that moment — kind, name, step, the manual steps
 /// (<see cref="StepsText"/>) and the announcement's image — so later changes of the settings do not change a
 /// command already running. Its mode is the effective one (<see cref="ShopActionMode.Auto"/> only when an
-/// integration can run it); <see cref="DueAt"/> is when its background job runs.
+/// integration can run it); <see cref="DueAt"/> is when its background job runs. One row may be the system's own
+/// rather than the settings': <see cref="ShopActionKind.ReservationCalls"/> (#392), the reminder to call the customers
+/// whose reservations the command cancelled — its <see cref="StepsText"/> is a fixed text; whom to call is read from the
+/// reservations, never stored here.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -198,6 +201,11 @@ public sealed class CoordinatorCommandAction : IOrganizationScoped
         if (ordering && mode == ShopActionMode.Auto)
         {
             throw new ArgumentException("An ordering system is always a reminder (Q15).", nameof(mode));
+        }
+
+        if (kind == ShopActionKind.ReservationCalls && (step != CoordinatorActionStep.Apply || mode != ShopActionMode.Reminder || undoesActionId is not null))
+        {
+            throw new ArgumentException("Calling the customers of cancelled reservations is a reminder of its own command (#392).", nameof(kind));
         }
 
         if ((step == CoordinatorActionStep.Undo && undoesActionId is null) || ((step is CoordinatorActionStep.Apply or CoordinatorActionStep.Pause) && undoesActionId is not null))

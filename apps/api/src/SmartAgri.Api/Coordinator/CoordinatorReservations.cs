@@ -36,7 +36,9 @@ public sealed record ReservationSubmitResult(ReservationSubmitOutcome Outcome, C
 /// <remarks>
 /// Every change of status is a compare-and-set on (<c>Status</c> pending, <c>Version</c>), so of any number of presses
 /// and the expiry job exactly one moves a reservation out of pending; that one also calls
-/// <see cref="ICoordinatorReservationOutcomes"/> in the same transaction (the seam of #391's Email).
+/// <see cref="ICoordinatorReservationOutcomes"/> in the same transaction (the seam of #391's Email). A confirmed closure
+/// (#392) cancels a pending or accepted one the same way (<see cref="CancelTakenAwayAsync"/>), in the transaction that
+/// starts the command.
 /// </remarks>
 public sealed class CoordinatorReservations
 {
@@ -174,6 +176,90 @@ public sealed class CoordinatorReservations
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>The shop's pending and accepted reservations of business day <paramref name="date"/> (what a 臨時店休、
+    /// 提早打烊 or 延後開店 of that day may take away, #392), earliest first.</summary>
+    public async Task<IReadOnlyList<CoordinatorReservation>> OpenOnAsync(Guid organizationId, DateOnly date, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        return await OpenOn(dbContext, date).ToListAsync(cancellationToken);
+    }
+
+    /// <summary>How many of the shop's reservations command <paramref name="commandId"/> cancelled (#392; the retention sweep
+    /// may have deleted some since).</summary>
+    public async Task<int> CountCancelledByAsync(Guid organizationId, Guid commandId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        return await dbContext.CoordinatorReservations.CountAsync(
+            reservation => reservation.CancelledByCommandId == commandId && reservation.Status == CoordinatorReservationStatus.Cancelled,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Cancels, in <paramref name="dbContext"/>'s transaction (acting for the command's shop), the reservations whose time
+    /// the just-confirmed <paramref name="command"/> takes away (<see cref="ReservationSlots.TakenAway"/> over the shop's
+    /// <paramref name="hours"/>, store-reservations design R6, Slice R4, #392): each one <c>pending</c> or <c>accepted</c>
+    /// → <c>cancelled</c> in its own compare-and-set, with the scenario as <c>CancelReason</c>, the command as
+    /// <c>CancelledByCommandId</c>, a new version and <paramref name="now"/>; each that changed gets
+    /// <see cref="ICoordinatorReservationOutcomes.Decided"/> (the customer's cancellation Email) in the same transaction.
+    /// The reservations cancelled, as they are now, earliest first.
+    /// </summary>
+    /// <remarks>
+    /// First the shop's settings row is locked, as <see cref="SubmitAsync"/> does, so a reservation being stored at this
+    /// moment is either seen here or stored after the command is confirmed (and then refused or, from a page shown before,
+    /// left alone — the page's own check ran earlier). A reservation a member declined meanwhile is not cancelled; one a
+    /// member accepted meanwhile is. Running it again cancels nothing more and adds no second Email: the compare-and-set
+    /// only takes a pending or accepted row.
+    /// </remarks>
+    public async Task<IReadOnlyList<CoordinatorReservation>> CancelTakenAwayAsync(
+        AppDbContext dbContext, CoordinatorCommand command, BusinessHours hours, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(dbContext);
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(hours);
+        if (command.Status != CoordinatorCommandStatus.Confirmed || command.Date is not { } date)
+        {
+            throw new ArgumentException("Only a confirmed command with its date cancels reservations.", nameof(command));
+        }
+
+        await dbContext.CoordinatorShopSettings.ExecuteUpdateAsync(
+            setters => setters.SetProperty(settings => settings.UpdatedAt, settings => settings.UpdatedAt), cancellationToken);
+        var takenAway = ReservationSlots.TakenAway(
+            hours, command.Scenario, date, command.Time, await OpenOn(dbContext, date).ToListAsync(cancellationToken), now);
+        // Npgsql writes timestamptz only from UTC.
+        var at = now.ToUniversalTime();
+        var cancelledIds = new List<Guid>();
+        foreach (var reservation in takenAway)
+        {
+            var changed = await dbContext.CoordinatorReservations
+                .Where(row => row.Id == reservation.Id
+                    && (row.Status == CoordinatorReservationStatus.Pending || row.Status == CoordinatorReservationStatus.Accepted))
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(row => row.Status, CoordinatorReservationStatus.Cancelled)
+                        .SetProperty(row => row.Version, row => row.Version + 1)
+                        .SetProperty(row => row.StatusChangedAt, at)
+                        .SetProperty(row => row.CancelReason, (ShopScenario?)command.Scenario)
+                        .SetProperty(row => row.CancelledByCommandId, (Guid?)command.Id),
+                    cancellationToken);
+            if (changed == 1)
+            {
+                cancelledIds.Add(reservation.Id);
+            }
+        }
+
+        var cancelled = await dbContext.CoordinatorReservations.AsNoTracking()
+            .Where(row => cancelledIds.Contains(row.Id))
+            .OrderBy(row => row.ReservedAt)
+            .ThenBy(row => row.Id)
+            .ToListAsync(cancellationToken);
+        foreach (var reservation in cancelled)
+        {
+            _outcomes.Decided(dbContext, reservation, now);
+        }
+
+        return cancelled;
+    }
+
     /// <summary>
     /// 〔接受〕 or 〔婉拒〕 by member <paramref name="memberId"/>: <c>pending → </c><paramref name="decision"/> in one
     /// compare-and-set on version <paramref name="version"/> (the member still in the shop), recording who and when;
@@ -262,6 +348,13 @@ public sealed class CoordinatorReservations
             .ThenBy(member => member.Id)
             .ToListAsync(cancellationToken);
     }
+
+    private static IQueryable<CoordinatorReservation> OpenOn(AppDbContext dbContext, DateOnly date) =>
+        dbContext.CoordinatorReservations.AsNoTracking()
+            .Where(reservation => reservation.Date == date
+                && (reservation.Status == CoordinatorReservationStatus.Pending || reservation.Status == CoordinatorReservationStatus.Accepted))
+            .OrderBy(reservation => reservation.ReservedAt)
+            .ThenBy(reservation => reservation.Id);
 
     /// <summary>The expiry job of <paramref name="reservationId"/>, not before <paramref name="now"/>.</summary>
     private static BackgroundJob ExpiryJob(Guid organizationId, Guid reservationId, DateTimeOffset expiresAt, DateTimeOffset now) =>

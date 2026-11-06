@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SmartAgri.Application.Coordinator;
 using SmartAgri.Application.Line;
+using SmartAgri.Application.Notifications;
 using SmartAgri.Application.Observability;
 using SmartAgri.Domain;
 using SmartAgri.Domain.Coordinator;
@@ -34,6 +35,15 @@ public interface ICoordinatorCommandRunner
 /// reminders with their time, automatic actions 「執行中…」 — whose results follow once their jobs have run
 /// (<see cref="CoordinatorReports.SendFollowUpAsync"/>).
 /// </summary>
+/// <remarks>
+/// A 臨時店休、提早打烊 or 延後開店 also cancels, in the same transaction, the day's online reservations whose time it takes
+/// away (store-reservations design R6, Slice R4, #392, <see cref="CoordinatorReservations.CancelTakenAwayAsync"/>): the
+/// customers with an Email address get the cancellation Email (a job each, when the platform sends Email); for the
+/// others the command gets one more row, a <see cref="ShopActionKind.ReservationCalls"/> reminder due now whose report
+/// line lists them to call (「18:30 陳小姐 0912-345-678」) with 〔已完成〕. The report says how many were cancelled and
+/// Emailed. A reopen restores none of them and says how many stay cancelled. The log has counts, never a customer's
+/// details.
+/// </remarks>
 public sealed class ExecutingCommandRunner : ICoordinatorCommandRunner
 {
     private static readonly ShopActionKind[] AutomaticKinds =
@@ -42,8 +52,10 @@ public sealed class ExecutingCommandRunner : ICoordinatorCommandRunner
     private readonly CoordinatorCommands _commands;
     private readonly CoordinatorCommandActions _actions;
     private readonly CoordinatorShops _shops;
+    private readonly CoordinatorReservations _reservations;
     private readonly ICoordinatorActionModes _modes;
     private readonly CoordinatorReplySender _replies;
+    private readonly IEmailSender _email;
     private readonly TimeProvider _clock;
     private readonly ILogger<ExecutingCommandRunner> _logger;
 
@@ -51,16 +63,20 @@ public sealed class ExecutingCommandRunner : ICoordinatorCommandRunner
         CoordinatorCommands commands,
         CoordinatorCommandActions actions,
         CoordinatorShops shops,
+        CoordinatorReservations reservations,
         ICoordinatorActionModes modes,
         CoordinatorReplySender replies,
+        IEmailSender email,
         TimeProvider clock,
         ILogger<ExecutingCommandRunner> logger)
     {
         _commands = commands;
         _actions = actions;
         _shops = shops;
+        _reservations = reservations;
         _modes = modes;
         _replies = replies;
+        _email = email;
         _clock = clock;
         _logger = logger;
     }
@@ -111,16 +127,40 @@ public sealed class ExecutingCommandRunner : ICoordinatorCommandRunner
         }
 
         var recipient = command.ConfirmedByLineUserId ?? throw new InvalidOperationException("A confirmed command has who confirmed it.");
-        var rows = plans
+        var planned = plans
             .Select((plan, position) => CoordinatorCommandAction.Create(
                 organizationId, command.Id, position, plan.Kind, plan.Name, plan.Step, plan.Mode, plan.DueAt, plan.StepsText, plan.ImageUrl,
                 recipient, plan.UndoesActionId, now))
             .ToList();
-        await _actions.StartAsync(organizationId, rows, cancel, now);
+
+        // The same check as the Email jobs' (EmailReservationOutcomes): who is told by Email, who must be called.
+        var emailConfigured = _email.IsConfigured;
+        IReadOnlyList<CoordinatorReservation> cancelledReservations = [];
+        Func<AppDbContext, Task<IReadOnlyList<CoordinatorCommandAction>>>? cancelReservations = undone is not null ? null : async dbContext =>
+        {
+            cancelledReservations = await _reservations.CancelTakenAwayAsync(dbContext, command, settings.Hours, now, CancellationToken.None);
+            if (cancelledReservations.All(reservation => CoordinatorReservationEmail.Sends(reservation, emailConfigured)))
+            {
+                return [];
+            }
+
+            return
+            [
+                CoordinatorCommandAction.Create(
+                    organizationId, command.Id, planned.Count, ShopActionKind.ReservationCalls, null, CoordinatorActionStep.Apply,
+                    ShopActionMode.Reminder, now, CoordinatorReservationClosures.StepsOf(emailConfigured), null, recipient, null, now),
+            ];
+        };
+        var rows = await _actions.StartAsync(organizationId, planned, cancel, now, cancelReservations);
+        var reservations = undone is null
+            ? CoordinatorReservationClosures.Report(cancelledReservations, emailConfigured, settings.TimeZone)
+            : new CoordinatorReportReservations(0, 0, [], await _reservations.CountCancelledByAsync(organizationId, undone.Id, cancellationToken));
         _logger.LogInformation(
-            "統籌助理 command {CommandId} ({Scenario}) started: {Actions} actions ({Scheduled} scheduled), {Cancelled} of the undone command's dropped.",
+            "統籌助理 command {CommandId} ({Scenario}) started: {Actions} actions ({Scheduled} scheduled), {Cancelled} of the undone command's dropped; "
+            + "{Reservations} reservations cancelled ({Emailed} to be told by Email), {NotRestored} cancelled ones not restored.",
             command.Id, Domain.WireNames<ShopScenario>.ToWire(command.Scenario), rows.Count,
-            rows.Count(row => row.Status == CoordinatorActionStatus.Scheduled), cancel.Count);
+            rows.Count(row => row.Status == CoordinatorActionStatus.Scheduled), cancel.Count,
+            reservations.Cancelled, reservations.Emailed, reservations.NotRestored);
 
         var lines = new List<CoordinatorReportLine>();
         if (undone is not null && cancel.Count > 0)
@@ -131,7 +171,7 @@ public sealed class ExecutingCommandRunner : ICoordinatorCommandRunner
         }
 
         lines.AddRange(rows.Select(row => CoordinatorReportLine.Of(row, command)));
-        var content = CoordinatorReports.Content(settings, command, lines, now, undone);
+        var content = CoordinatorReports.Content(settings, command, lines, now, undone) with { Reservations = reservations };
         await _replies.ReplyAsync(replyToken, LineWebhookEvent.Types.Postback, CoordinatorExecutionReport.Confirmation(content), cancellationToken);
     }
 }

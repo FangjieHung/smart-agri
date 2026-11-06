@@ -243,15 +243,17 @@ internal sealed class CoordinatorExpireReservationHandler : IJobHandler
 }
 
 /// <summary>
-/// Handles <see cref="CoordinatorReservationEmailJob.Kind"/> (store-reservations design decisions R2, R3, R7, §3.1 point 9,
-/// Slice R3, #391): one plain-text Email to the customer of a reservation that was accepted, declined or expired
-/// (<see cref="CoordinatorReservationEmail.Compose"/>), from the platform's <c>Smtp:From</c> under the shop's name, with the
-/// shop's phone — the reservation and the shop's settings read when the job runs.
+/// Handles <see cref="CoordinatorReservationEmailJob.Kind"/> (store-reservations design decisions R2, R3, R6, R7, §3.1 point
+/// 9, Slices R3 and R4, #391, #392): one plain-text Email to the customer of a reservation that was accepted, declined,
+/// expired or cancelled by a closure (<see cref="CoordinatorReservationEmail.Compose"/>; a cancellation says why, from the
+/// cancelling command's scenario and time), from the platform's <c>Smtp:From</c> under the shop's name, with the shop's
+/// phone — the reservation, the command and the shop's settings read when the job runs.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Enqueued only by the compare-and-set that took the reservation out of pending (<see cref="EmailReservationOutcomes"/>),
-/// so there is one job per reservation. Nothing to send completes the job without an Email: the reservation is gone
+/// Enqueued only by the compare-and-set that took the reservation out of pending, or that cancelled it
+/// (<see cref="EmailReservationOutcomes"/>), so there is one job per change. Nothing to send completes the job without an
+/// Email: the reservation is gone
 /// (deleted with its shop, or by the retention sweep), it no longer has the job's status (a closure cancelled it since,
 /// Slice R4), it has no address, the shop has no settings, or SMTP is not configured any more. Any SMTP failure is retried
 /// by the job queue like the 轉真人 Email (exponential backoff, <c>Jobs:RetryBaseDelay</c>, up to the job's attempts); the
@@ -269,14 +271,20 @@ internal sealed class CoordinatorReservationEmailHandler : IJobHandler
 {
     private readonly CoordinatorReservations _reservations;
     private readonly CoordinatorShops _shops;
+    private readonly CoordinatorCommands _commands;
     private readonly IEmailSender _sender;
     private readonly ILogger<CoordinatorReservationEmailHandler> _logger;
 
     public CoordinatorReservationEmailHandler(
-        CoordinatorReservations reservations, CoordinatorShops shops, IEmailSender sender, ILogger<CoordinatorReservationEmailHandler> logger)
+        CoordinatorReservations reservations,
+        CoordinatorShops shops,
+        CoordinatorCommands commands,
+        IEmailSender sender,
+        ILogger<CoordinatorReservationEmailHandler> logger)
     {
         _reservations = reservations;
         _shops = shops;
+        _commands = commands;
         _sender = sender;
         _logger = logger;
     }
@@ -309,7 +317,8 @@ internal sealed class CoordinatorReservationEmailHandler : IJobHandler
             return;
         }
 
-        var message = CoordinatorReservationEmail.Compose(settings.StoreName, settings.Reservations?.Phone, settings.TimeZone, reservation!);
+        var message = CoordinatorReservationEmail.Compose(
+            settings.StoreName, settings.Reservations?.Phone, settings.TimeZone, reservation!, await CancelReasonAsync(reservation!, cancellationToken));
         try
         {
             await _sender.SendAsync(message, cancellationToken);
@@ -323,6 +332,21 @@ internal sealed class CoordinatorReservationEmailHandler : IJobHandler
         _logger.LogInformation(
             "Reservation Email ({Outcome}) for reservation {ReservationId} of organization {OrganizationId} sent (attempt {Attempt}).",
             outcome, payload.ReservationId, organizationId, job.Attempt);
+    }
+
+    /// <summary>Why a cancelled reservation was cancelled (「臨時店休」, 「當天提早在 20:00 打烊」, …, #392); <see langword="null"/>
+    /// for the other outcomes.</summary>
+    private async Task<string?> CancelReasonAsync(CoordinatorReservation reservation, CancellationToken cancellationToken)
+    {
+        if (reservation.Status != CoordinatorReservationStatus.Cancelled)
+        {
+            return null;
+        }
+
+        var command = reservation.CancelledByCommandId is { } commandId
+            ? await _commands.FindAsync(reservation.OrganizationId, commandId, cancellationToken)
+            : null;
+        return CoordinatorReservationClosures.Reason(reservation.CancelReason ?? ShopScenario.TemporaryClosure, command?.Time);
     }
 
     public Task OnFinalFailureAsync(JobContext job, string error, CancellationToken cancellationToken)

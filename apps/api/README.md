@@ -1439,7 +1439,8 @@ Operator guide: `deploy/README.md` §17.7.
 
 - **Storage**: `CoordinatorCommandActions` (`SmartAgri.Domain.Coordinator.CoordinatorCommandAction`, organization scoped;
   with `CoordinatorCommands` the execution record of decision F): `CommandId` (same organization), `Position` (unique per
-  command), `Kind` (`line-broadcast` | `google-special-hours` | `facebook-post` | `ordering`), `Name` (ordering only),
+  command), `Kind` (`line-broadcast` | `google-special-hours` | `facebook-post` | `ordering`, and the system's own
+  `reservation-calls` of #392, never in settings), `Name` (ordering only),
   `Step` (`apply` | `undo` | `pause` | `resume`), `Mode` (the effective `auto` | `reminder`), `Status` (`scheduled` |
   `succeeded` | `failed` | `awaiting-manual` | `done-manually` | `cancelled`), `DueAt` (UTC), `StepsText` and `ImageUrl`
   (snapshots of the settings at confirmation, or a fixed undo text), `RecipientLineUserId` (who confirmed), `UndoesActionId`
@@ -1712,7 +1713,8 @@ Management `accounts.list`, Business Information `accounts.locations.list` / `lo
 Customers book a table on a shop's anonymous page `{PublicChannels:PublicBaseUrl}/reserve/{slug}` (store-reservations design
 `docs/plans/2026-11-06-store-reservations.md`, Slice R1, decisions R1, R3, R4, R8 and §3.1 points 1–6, 10, 11). This slice
 stores them; the members are notified since #390 (next section), so shops can be opened to customers; the customer is
-told by Email since #391 (optional: without SMTP the page asks for none); closures (#392) come next, on the same table.
+told by Email since #391 (optional: without SMTP the page asks for none); closures cancel them since #392 (section
+「closures and reservations」).
 Operator guide: `deploy/README.md` §17.12.
 
 - **Settings**: an optional `reservations` block of the shop-settings file (`ShopReservationSettings`, parsed and checked
@@ -1804,13 +1806,13 @@ Slice R2 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R5, R7,
   presses get 「這筆訂位已由{誰}在 {時間} {接受／婉拒}。」 — {誰} the handler's LINE display name (`GET /v2/bot/profile/{userId}`
   with the coordinator token, `ILineMessagingClient.GetProfileAsync`, free; its path is logged as `/v2/bot/profile/{userId}`),
   else 「老闆」/「店長」, 「你」 for one's own press, 「其他成員」 for a member who left — or 「這筆訂位已過期：…」 /
-  「這筆訂位已取消。」. All replies use the reply token.
+  「這筆訂位因{原因}已取消。」 (#392; 「這筆訂位已取消。」 without a closure's reason). All replies use the reply token.
 - **Expiry** (`CoordinatorExpireReservationHandler`): pending → `expired` by compare-and-set at `ReservedAt` − the shop's
   **current** `pendingExpiryMinutes` (a lowered value reschedules the job; a press after the expiry instant, before the job
   ran, expires it then). `HandledByMemberId` stays null.
 - **Seam for #391**: `ICoordinatorReservationOutcomes.Decided(dbContext, reservation, now)` is called by the winning
-  compare-and-set (accept, decline, expire) inside its transaction, so a job it adds (the Email) commits with the change
-  exactly once. Registered with `TryAddScoped` (`EmailReservationOutcomes` since #391).
+  compare-and-set (accept, decline, expire, and since #392 a closure's cancel) inside its transaction, so a job it adds (the
+  Email) commits with the change exactly once. Registered with `TryAddScoped` (`EmailReservationOutcomes` since #391).
 - **「訂位」 / 「查看訂位」** (`CoordinatorMessageRouter.ReservationsCommands`, NFKC, exact, before any model call): the shop's
   `pending` and `accepted` reservations of the business days today … today + 6 in the shop's zone (also yesterday's
   overnight small hours still on today's date), earliest first, as a carousel of at most 12 bubbles (pending ones with
@@ -1834,7 +1836,8 @@ Slice R3 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R3, R7,
 `deploy/README.md` §17.12 「顧客收到的 Email」.
 
 - **Enqueued** by `EmailReservationOutcomes` (the `ICoordinatorReservationOutcomes` seam): when the winning compare-and-set
-  took a reservation to `accepted`, `declined` or `expired` and it has a `CustomerEmail` and `IEmailSender.IsConfigured`,
+  took a reservation to `accepted`, `declined` or `expired` (or `cancelled`, #392) and it has a `CustomerEmail` and
+  `IEmailSender.IsConfigured` (`CoordinatorReservationEmail.Sends`),
   one `coordinator.reservation-email` job (`CoordinatorReservationEmailJob(ReservationId, Outcome)`, default 5 attempts)
   is added to the same transaction — one per reservation; a lost race, a repeated press or an expiry job run again adds
   none. No address, or no SMTP: nothing.
@@ -1860,6 +1863,46 @@ Slice R3 of `docs/plans/2026-11-06-store-reservations.md` (decisions R2, R3, R7,
 - **Tests**: `CoordinatorWebhookTests.ReservationEmails` and `.Reservations` (`CoordinatorHostFixture` now has its own
   `FakeSmtpServer`, which also decodes `Q` words, and a `SmtpConfigured` switch), `CoordinatorReservationEmailTests`,
   `CoordinatorReservationCardsTests` (Application), `SmtpEmailSenderTests`.
+
+## Store coordinator (統籌助理): closures and reservations (#392)
+
+Slice R4 of `docs/plans/2026-11-06-store-reservations.md` (decision R6, §3.5). Operator guide: `deploy/README.md` §17.12
+「店休與訂位」 (and §17.6, §17.7 for the card and the report).
+
+- **Which** (`ReservationSlots.TakenAway`, Domain, pure — the one rule of the card and the confirmation): the reservations
+  of the command's business day (`Date`) that are `pending` or `accepted` and still ahead (`ReservedAt > now`) — all for
+  臨時店休, `ReservedAt >= ` the new closing for 提早打烊, `ReservedAt <` the new opening for 延後開店, the time read with
+  `BusinessHours.OnBusinessDay` as the reservation page reads a command (an overnight period's small hours are the day's).
+  No `lastSeatingMinutes`: what was booked before the new closing stays.
+- **Card** (`CoordinatorCommandHandler.CardAsync`, every rebuild): `CoordinatorCardContent.Reservations`
+  (`CoordinatorReservationClosures.Card`) → under the actions 「・會取消 N 筆訂位（已接受 a 筆、待處理 b 筆）」, the first 5 as
+  「18:30 陳小姐」 (`CoordinatorReservation.TimeOfDay`, 「00:30（隔天）」), 「還有 M 筆」; nothing for none. A reopen card:
+  「・因店休取消的 N 筆訂位不會恢復，請視需要聯絡顧客」 (`CoordinatorReservations.CountCancelledByAsync` of the undone command). The
+  alt text is unchanged (no names).
+- **Confirm** (`ExecutingCommandRunner` → `CoordinatorCommandActions.StartAsync(…, alongside)`): in the transaction that
+  writes the rows, `CoordinatorReservations.CancelTakenAwayAsync` locks the shop's settings row (as `SubmitAsync`), reads the
+  day's open reservations, and per reservation compare-and-sets `pending`/`accepted` → `cancelled` (`CancelReason` = the
+  scenario, `CancelledByCommandId`, `Version + 1`, `StatusChangedAt`); each winner gets `ICoordinatorReservationOutcomes.Decided`
+  → one `coordinator.reservation-email` job with `Outcome = cancelled` when `CoordinatorReservationEmail.Sends` (address,
+  SMTP). A second 〔確認〕 is refused by the command's compare-and-set; running the cancellation again cancels nothing.
+  Customers not Emailed make one more row, `reservation-calls` / `apply` / `reminder`, due now (`awaiting-manual`, reported),
+  position last, `StepsText` a fixed text (`CoordinatorReservationClosures.StepsOf`) — whom to call is never stored on it.
+- **Report** (`CoordinatorReportContent.Reservations`, confirmation only): 「已取消 N 筆訂位，其中 k 筆會寄信通知顧客。」 (k = 0:
+  「已取消 N 筆訂位。」) under the title; the `reservation-calls` line 「⏳ 打電話通知顧客訂位已取消」 with its steps, one text of
+  「{時間} {姓名} {電話}」 lines (at most 50, then 「還有 N 筆沒有列出，請聯絡平台營運者」) and 〔已完成〕. A reopen's report:
+  「因店休取消的 N 筆訂位不會恢復，請視需要聯絡顧客。」. `CoordinatorActionSchedule.ActionsOf` skips `reservation-calls` (not a
+  settings action), so a reopen neither describes nor undoes it, and it is not cancelled (`awaiting-manual`/`done-manually`).
+- **Email** (`CoordinatorReservationEmailHandler`): the cancelled outcome reads the cancelling command for its time —
+  subject 「{店名}：訂位已取消」, 「很抱歉，{店名}因{原因}，必須取消您 {日期時間} 的訂位，造成不便，敬請見諒。如有問題請來電 {店家電話}。」
+  with 原因 `CoordinatorReservationClosures.Reason` (「臨時店休」, 「當天提早在 HH:mm 打烊」, 「當天延後到 HH:mm 開店」), R3's footer.
+  An accepted reservation's Email still queued finds it `cancelled` and is not sent.
+- **Members**: a later 〔接受〕／〔婉拒〕 → 「這筆訂位因{原因}已取消。」 (`CoordinatorReservationCards.CancelledBecause`).
+- **Settings**: `ShopActionKind.ReservationCalls` is refused by `coordinator-shop import` like any unknown kind
+  (`ShopActionKinds.ConfigurableWireNames`). No migration (the columns are #389's; `Kind` has no check constraint).
+- **Logs**: the runner's line adds 「N reservations cancelled (k to be told by Email), M cancelled ones not restored」; no
+  name, phone or address anywhere.
+- **Tests**: `CoordinatorWebhookTests.ReservationClosures` (Api), `CoordinatorReservationClosuresTests` (Application),
+  `ReservationSlotsTests`, `CoordinatorCommandActionTests`, `ShopSettingsJsonTests` (Domain).
 
 ## Monthly token limit: `set-token-limit`
 

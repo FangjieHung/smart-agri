@@ -6,7 +6,7 @@ namespace SmartAgri.Application.Tests.Coordinator;
 
 /// <summary>
 /// The customer's reservation Emails (store-reservations design decisions R2, R3, R7, §3.1 point 9, Slice R3, #391): the
-/// accepted, declined and expired messages word for word, with the date and time as the page writes them (「（隔天）」 after
+/// accepted, declined and expired messages word for word (the cancelled one is in <see cref="CoordinatorReservationClosuresTests"/>), with the date and time as the page writes them (「（隔天）」 after
 /// midnight), the shop's phone, the shop's name as the sender's name, a footer saying who sent it, and nothing the customer
 /// typed.
 /// </summary>
@@ -88,16 +88,18 @@ public class CoordinatorReservationEmailTests
     }
 
     [Fact]
-    public void Only_accepted_declined_and_expired_reservations_with_an_address_have_an_Email()
+    public void Only_accepted_declined_expired_and_cancelled_reservations_with_an_address_have_an_Email()
     {
         CoordinatorReservationEmail.Covers(CoordinatorReservationStatus.Accepted).ShouldBeTrue();
         CoordinatorReservationEmail.Covers(CoordinatorReservationStatus.Declined).ShouldBeTrue();
         CoordinatorReservationEmail.Covers(CoordinatorReservationStatus.Expired).ShouldBeTrue();
+        CoordinatorReservationEmail.Covers(CoordinatorReservationStatus.Cancelled).ShouldBeTrue("a closure's (#392)");
         CoordinatorReservationEmail.Covers(CoordinatorReservationStatus.Pending).ShouldBeFalse();
-        CoordinatorReservationEmail.Covers(CoordinatorReservationStatus.Cancelled).ShouldBeFalse("closures are Slice R4's");
 
         Should.Throw<ArgumentException>(() => CoordinatorReservationEmail.Compose("王記麵店", "02-2345-6789", Taipei, Reservation(CoordinatorReservationStatus.Pending)));
-        Should.Throw<ArgumentException>(() => CoordinatorReservationEmail.Compose("王記麵店", "02-2345-6789", Taipei, Reservation(CoordinatorReservationStatus.Cancelled)));
+        Should.Throw<ArgumentException>(
+            () => CoordinatorReservationEmail.Compose("王記麵店", "02-2345-6789", Taipei, Reservation(CoordinatorReservationStatus.Cancelled)),
+            "a cancellation says why");
         Should.Throw<ArgumentException>(() => CoordinatorReservationEmail.Compose("王記麵店", "02-2345-6789", Taipei, Reservation(CoordinatorReservationStatus.Accepted, email: null)));
         Should.Throw<ArgumentOutOfRangeException>(() => CoordinatorReservationEmail.Subject("王記麵店", CoordinatorReservationStatus.Pending));
     }

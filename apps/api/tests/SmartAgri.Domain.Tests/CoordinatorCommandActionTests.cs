@@ -59,6 +59,21 @@ public class CoordinatorCommandActionTests
     }
 
     [Fact]
+    public void Calling_the_customers_of_cancelled_reservations_is_always_a_reminder_of_its_own_command()
+    {
+        var calls = Create(ShopActionKind.ReservationCalls, null, CoordinatorActionStep.Apply, ShopActionMode.Reminder, Now, steps: "請來電告知訂位已取消：");
+        (calls.Status, calls.ReportedAt, calls.IsOrdering).ShouldBe((CoordinatorActionStatus.AwaitingManual, (DateTimeOffset?)Now, false));
+        WireNames<ShopActionKind>.ToWire(ShopActionKind.ReservationCalls).ShouldBe("reservation-calls");
+        ShopActionKinds.IsConfigurable(ShopActionKind.ReservationCalls).ShouldBeFalse("only the system adds it (#392)");
+        ShopActionKinds.ConfigurableWireNames.ShouldBe(["line-broadcast", "google-special-hours", "facebook-post", "ordering"]);
+
+        Should.Throw<ArgumentException>(() => Create(ShopActionKind.ReservationCalls, null, CoordinatorActionStep.Apply, ShopActionMode.Auto, Now));
+        Should.Throw<ArgumentException>(() => Create(ShopActionKind.ReservationCalls, null, CoordinatorActionStep.Undo, ShopActionMode.Reminder, Now, undoes: Guid.CreateVersion7()));
+        Should.Throw<ArgumentException>(() => Create(ShopActionKind.ReservationCalls, null, CoordinatorActionStep.Pause, ShopActionMode.Reminder, Now));
+        Should.Throw<ArgumentException>(() => Create(ShopActionKind.ReservationCalls, "Xurf", CoordinatorActionStep.Apply, ShopActionMode.Reminder, Now));
+    }
+
+    [Fact]
     public void A_failure_code_is_a_short_code_never_free_text()
     {
         CoordinatorCommandAction.IsValidFailureCode("rate-limited").ShouldBeTrue();

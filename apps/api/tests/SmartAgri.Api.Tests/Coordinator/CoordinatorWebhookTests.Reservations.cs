@@ -348,7 +348,7 @@ public sealed partial class CoordinatorWebhookTests
                 CancellationToken);
         }
 
-        (await PostbackTextAsync(owner, accept)).ShouldBe(CoordinatorReservationCards.Cancelled);
+        (await PostbackTextAsync(owner, accept)).ShouldBe("這筆訂位因臨時店休已取消。", "the reason, also without its command (#392)");
         (await PostbackTextAsync(owner, CoordinatorMessageRouter.DeclineReservationPostback(shop.Id, Guid.CreateVersion7())))
             .ShouldBe(CoordinatorReservationCards.Unknown);
     }

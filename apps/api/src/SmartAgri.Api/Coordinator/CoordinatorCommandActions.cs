@@ -72,12 +72,19 @@ public sealed class CoordinatorCommandActions
 
     /// <summary>
     /// Starts a confirmed command, in one transaction: drops the rows <paramref name="cancel"/> (a reopen's — those
-    /// still scheduled or failed become cancelled, reported now), writes <paramref name="actions"/>, and queues one
-    /// <see cref="CoordinatorRunActionJob"/> per scheduled row at its due time. Not cancellable: the command is
-    /// confirmed already.
+    /// still scheduled or failed become cancelled, reported now), runs <paramref name="alongside"/> (a closure cancelling
+    /// the reservations it takes away, #392) and writes <paramref name="actions"/> with the rows it returns, then queues
+    /// one <see cref="CoordinatorRunActionJob"/> per scheduled row at its due time. Not cancellable: the command is
+    /// confirmed already. Every row written, in position order.
     /// </summary>
-    public async Task StartAsync(
-        Guid organizationId, IReadOnlyList<CoordinatorCommandAction> actions, IReadOnlyList<Guid> cancel, DateTimeOffset now)
+    /// <param name="alongside">Work of the same transaction, given its context (acting for the shop): what it changes
+    /// commits with the rows or not at all; the rows it returns are written too.</param>
+    public async Task<IReadOnlyList<CoordinatorCommandAction>> StartAsync(
+        Guid organizationId,
+        IReadOnlyList<CoordinatorCommandAction> actions,
+        IReadOnlyList<Guid> cancel,
+        DateTimeOffset now,
+        Func<AppDbContext, Task<IReadOnlyList<CoordinatorCommandAction>>>? alongside = null)
     {
         ArgumentNullException.ThrowIfNull(actions);
         ArgumentNullException.ThrowIfNull(cancel);
@@ -95,14 +102,16 @@ public sealed class CoordinatorCommandActions
                     CancellationToken.None);
         }
 
-        dbContext.CoordinatorCommandActions.AddRange(actions);
-        foreach (var action in actions.Where(action => action.Status == CoordinatorActionStatus.Scheduled))
+        var rows = alongside is null ? actions : [.. actions, .. await alongside(dbContext)];
+        dbContext.CoordinatorCommandActions.AddRange(rows);
+        foreach (var action in rows.Where(action => action.Status == CoordinatorActionStatus.Scheduled))
         {
             dbContext.BackgroundJobs.Add(Job(organizationId, action.Id, now, action.DueAt));
         }
 
         await dbContext.SaveChangesAsync(CancellationToken.None);
         await transaction.CommitAsync(CancellationToken.None);
+        return [.. rows.OrderBy(action => action.Position)];
     }
 
     /// <summary>A reminder that is due: <c>scheduled → awaiting-manual</c>; <see langword="false"/> when it is no longer

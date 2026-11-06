@@ -215,6 +215,15 @@ public sealed class CoordinatorReservation : IOrganizationScoped
             + (DateOnly.FromDateTime(local) != Date ? "（隔天）" : string.Empty);
     }
 
+    /// <summary>Only the time, in <paramref name="zone"/>: 「18:30」, and 「00:30（隔天）」 for the small hours of an overnight
+    /// business day (a card whose header has the date, #392).</summary>
+    public string TimeOfDay(TimeZoneInfo zone)
+    {
+        ArgumentNullException.ThrowIfNull(zone);
+        var local = TimeZoneInfo.ConvertTime(ReservedAt, zone).DateTime;
+        return ShopAnnouncements.FormatTime(TimeOnly.FromDateTime(local)) + (DateOnly.FromDateTime(local) != Date ? "（隔天）" : string.Empty);
+    }
+
     /// <summary>A new form's one-time key.</summary>
     public static string NewSubmissionKey() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
 

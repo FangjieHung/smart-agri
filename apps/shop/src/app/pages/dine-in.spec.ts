@@ -160,9 +160,18 @@ const notFound =
     body: { status: 404, reason, message },
   });
 
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+/**
+ * 讓假 API 與延遲載入的頁面跑完。給了 `until` 時，跑完固定的 12 輪之後繼續等到它成立（最多 5 秒）：
+ * CI 機器慢的時候，`import('./pages/menu-page')` 可能 12 輪還沒回來。
+ */
+async function settle(fixture: ComponentFixture<unknown>, until?: () => boolean): Promise<void> {
   for (let i = 0; i < 12; i++) {
     await new Promise((resolve) => setTimeout(resolve));
+    fixture.detectChanges();
+  }
+  const deadline = Date.now() + 5000;
+  while (until && !until() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
     fixture.detectChanges();
   }
 }
@@ -243,7 +252,7 @@ describe('Dine-in: the table QR code URL (#402)', () => {
     });
     const { fixture, root, text } = render(App);
     fixture.detectChanges();
-    await settle(fixture);
+    await settle(fixture, () => !!text('table-name') && !!text('table-session'));
 
     expect(location.pathname).toBe(`/order/${SLUG}`);
     expect(location.hash).toBe('');
@@ -271,7 +280,7 @@ describe('Dine-in: the table QR code URL (#402)', () => {
     const { calls, store } = setup({ 'GET ': ok(shopInfo()) });
     const { fixture, text } = render(App);
     fixture.detectChanges();
-    await settle(fixture);
+    await settle(fixture, () => !!text('table-invalid'));
     expect(text('table-invalid')).toContain('這個桌號的 QR code 已失效，請洽店員');
     expect(storedTableToken(SLUG)).toBeNull();
     expect(store.isTable()).toBe(false);
@@ -289,7 +298,7 @@ describe('Dine-in: the table QR code URL (#402)', () => {
     });
     const { fixture, root, text } = render(App);
     fixture.detectChanges();
-    await settle(fixture);
+    await settle(fixture, () => !!text('table-invalid'));
     expect(text('table-invalid')).toContain('這個桌號的 QR code 已失效，請洽店員');
     expect(storedTableToken(SLUG)).toBeNull();
     expect(store.isTable()).toBe(false);

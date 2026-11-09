@@ -88,8 +88,8 @@
           <dd data-testid="order-pickup">外帶，{{ pickup() }}</dd>
           <dt>訂購人</dt>
           <dd>
-            {{ o.customerName }}（電話末三碼 <span class="num">{{ o.phoneLastDigits }}</span
-            >）
+            {{ o.customerName
+            }}@if (o.phoneLastDigits) {（電話末三碼 <span class="num">{{ o.phoneLastDigits }}</span>）}
           </dd>
           <dt>付款</dt>
           <dd>取餐時付款</dd>

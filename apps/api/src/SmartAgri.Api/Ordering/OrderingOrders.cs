@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using SmartAgri.Application.Ordering;
+using SmartAgri.Domain.Jobs;
 using SmartAgri.Domain.Ordering;
 using SmartAgri.Infrastructure;
 using SmartAgri.Infrastructure.Persistence;
@@ -82,6 +84,24 @@ public enum OrderingCancelOutcome
 
 public sealed record OrderingCancelResult(OrderingCancelOutcome Outcome, OrderingOrder? Order);
 
+/// <summary>How an expiry went (<see cref="OrderingOrders.ExpireAsync"/>).</summary>
+public enum OrderingExpireOutcome
+{
+    /// <summary>Pending → expired; the customer's Email follows (<see cref="IOrderingOrderOutcomes"/>).</summary>
+    Expired,
+
+    /// <summary>The order is gone (its shop deleted).</summary>
+    NotFound,
+
+    /// <summary>Answered first — accepted, declined, cancelled — or a compare-and-set at the same moment won: nothing changed.</summary>
+    Answered,
+
+    /// <summary>Still pending but its <see cref="OrderingOrder.ExpiresAt"/> is later: nothing changed.</summary>
+    NotDue,
+}
+
+public sealed record OrderingExpireResult(OrderingExpireOutcome Outcome, OrderingOrder? Order);
+
 /// <summary>
 /// A shop's orders (online-ordering Slice O2, #398), each operation in a context acting for that organization
 /// (<see cref="FixedOrganizationContext"/>), under the usual filter and write guard.
@@ -118,6 +138,80 @@ public sealed class OrderingOrders
         await using var dbContext = ForOrganization(organizationId);
         return await SlotCountsAsync(dbContext, from, cancellationToken);
     }
+
+    /// <summary>The order <paramref name="orderId"/> of the shop with the shop's settings (both <see langword="null"/> when
+    /// gone): what a job reads when it runs.</summary>
+    public async Task<(OrderingOrder? Order, OrderingShop? Shop)> FindWithShopAsync(Guid organizationId, Guid orderId, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        var order = await dbContext.OrderingOrders.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.Id == orderId, cancellationToken);
+        var shop = order is null ? null : await dbContext.OrderingShops.AsNoTracking().SingleOrDefaultAsync(cancellationToken);
+        return (order, shop);
+    }
+
+    /// <summary>
+    /// Expires <paramref name="orderId"/> when it is still pending at its <see cref="OrderingOrder.ExpiresAt"/> (#400): the
+    /// same compare-and-set on <c>Version</c> as the staff's steps and the customer's cancellation, so of an expiry and a
+    /// press at the same moment exactly one wins. The winner calls <see cref="IOrderingOrderOutcomes.Decided"/> in its
+    /// transaction (the customer's Email).
+    /// </summary>
+    public async Task<OrderingExpireResult> ExpireAsync(Guid organizationId, Guid orderId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var dbContext = ForOrganization(organizationId);
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var order = await dbContext.OrderingOrders.SingleOrDefaultAsync(candidate => candidate.Id == orderId, cancellationToken);
+        if (order is null)
+        {
+            return new OrderingExpireResult(OrderingExpireOutcome.NotFound, null);
+        }
+
+        if (order.Status != OrderingOrderStatus.Pending)
+        {
+            return new OrderingExpireResult(OrderingExpireOutcome.Answered, order);
+        }
+
+        if (now < order.ExpiresAt)
+        {
+            return new OrderingExpireResult(OrderingExpireOutcome.NotDue, order);
+        }
+
+        order.Expire(now);
+        try
+        {
+            // The compare-and-set: UPDATE … WHERE Version = the version read.
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // A member or the customer answered after it was read.
+            return new OrderingExpireResult(OrderingExpireOutcome.Answered, null);
+        }
+
+        _outcomes.Decided(dbContext, order, now);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return new OrderingExpireResult(OrderingExpireOutcome.Expired, order);
+    }
+
+    /// <summary>A new expiry job of <paramref name="order"/>, to run at its <see cref="OrderingOrder.ExpiresAt"/> (not
+    /// before <paramref name="now"/>).</summary>
+    public async Task ScheduleExpiryAsync(OrderingOrder order, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+        await using var dbContext = ForOrganization(order.OrganizationId);
+        dbContext.BackgroundJobs.Add(ExpiryJob(order, now));
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>The expiry job of <paramref name="order"/> at its <see cref="OrderingOrder.ExpiresAt"/>, not before
+    /// <paramref name="now"/>.</summary>
+    private static BackgroundJob ExpiryJob(OrderingOrder order, DateTimeOffset now) =>
+        BackgroundJob.Create(
+            order.OrganizationId,
+            OrderingExpireOrderJob.Kind,
+            new OrderingExpireOrderJob(order.Id),
+            now.ToUniversalTime(),
+            runAfter: (order.ExpiresAt > now ? order.ExpiresAt : now).ToUniversalTime());
 
     /// <summary>The order whose status token is <paramref name="token"/>; <see langword="null"/> when the shop has none (or
     /// the token is not one).</summary>
@@ -230,8 +324,11 @@ public sealed class OrderingOrders
         var token = OrderingOrder.NewStatusToken();
         var stored = OrderingOrder.Submit(
             submission.OrganizationId, submission.ServiceType, businessDate, number, pickupAt, asap, submission.Name, submission.Phone,
-            submission.Email, submission.OrderComment, submission.Tableware, cart.Lines, menu.Version, token, submission.SubmissionKey, now);
+            submission.Email, submission.OrderComment, submission.Tableware, cart.Lines, menu.Version, token, submission.SubmissionKey,
+            shop.Hours, shop.PendingTimeoutMinutes, now);
         dbContext.OrderingOrders.Add(stored);
+        // #400: nobody answering it by ExpiresAt expires it (OrderingExpireOrderJob), stored with the order.
+        dbContext.BackgroundJobs.Add(ExpiryJob(stored, now));
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);

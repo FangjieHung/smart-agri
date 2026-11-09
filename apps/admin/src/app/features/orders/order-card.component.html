@@ -21,10 +21,15 @@
       <span class="order__remaining" [class.order__remaining--late]="left.late">{{ left.text }}</span>
     }
   </p>
+  @if (expiry(); as limit) {
+    <p class="order__expiry" [class.order__expiry--soon]="limit.soon">{{ limit.text }}</p>
+  }
 
   <p class="order__customer">
     <span class="order__name">{{ item.customerName }}</span>
-    <a class="order__link" [href]="'tel:' + item.customerPhone" [attr.aria-label]="'撥打給' + item.customerName + '：' + item.customerPhoneDisplay">{{ item.customerPhoneDisplay }}</a>
+    @if (item.customerPhone) {
+      <a class="order__link" [href]="'tel:' + item.customerPhone" [attr.aria-label]="'撥打給' + item.customerName + '：' + item.customerPhoneDisplay">{{ item.customerPhoneDisplay }}</a>
+    }
     @if (item.customerEmail) {
       <a class="order__link order__email" [href]="'mailto:' + item.customerEmail">{{ item.customerEmail }}</a>
     }

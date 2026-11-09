@@ -15798,7 +15798,9 @@
           "completed",
           "declined",
           "cancelled",
-          "actions"
+          "actions",
+          "expiresAt",
+          "personalDataClearedAt"
         ],
         "type": "object",
         "properties": {
@@ -15955,6 +15957,17 @@
             "items": {
               "$ref": "#/components/schemas/OrderingOrderAction"
             }
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "personalDataClearedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },

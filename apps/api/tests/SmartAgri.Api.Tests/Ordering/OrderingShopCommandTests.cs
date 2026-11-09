@@ -64,6 +64,7 @@ public sealed class OrderingShopCommandTests : IClassFixture<AuthHostFixture>
         shown.Output.ShouldContain("  週一：不開放\n");
         shown.Output.ShouldContain("  週六：11:00–14:00、17:00–01:00（跨午夜）\n");
         shown.Output.ShouldContain("時段：每 30 分鐘，可預約 3 天（含今天），最短準備 20 分鐘，每時段上限 8 筆\n");
+        shown.Output.ShouldContain("待確認逾時：營業中 15 分鐘沒有處理就自動取消\n");
         shown.Output.ShouldContain("即時單準備時間：15–30 分鐘\n");
         shown.Output.ShouldContain("暫停接單：否\n");
         shown.Output.ShouldEndWith("菜單：第 1 版，3 個分類、6 個品項\n");

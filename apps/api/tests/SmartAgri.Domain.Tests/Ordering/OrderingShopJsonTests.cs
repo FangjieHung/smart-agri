@@ -20,6 +20,7 @@ public class OrderingShopJsonTests
         import.Shop.TimeZoneId.ShouldBe("Asia/Taipei");
         import.Shop.Services.ShouldBe(new OrderingServices(TakeoutScheduled: true, TakeoutAsap: true));
         (import.Shop.SlotMinutes, import.Shop.DaysAhead, import.Shop.MinLeadMinutes, import.Shop.MaxOrdersPerSlot).ShouldBe((30, 3, 20, (int?)8));
+        import.Shop.PendingTimeoutMinutes.ShouldBe(15);
         import.Shop.OrderingHours[DayOfWeek.Monday].ShouldBeEmpty();
         import.Shop.OrderingHours[DayOfWeek.Saturday][1].IsOvernight.ShouldBeTrue();
         import.Shop.ReminderNotice.ShouldNotBeNull().ShouldContain("\n");
@@ -37,7 +38,7 @@ public class OrderingShopJsonTests
     {
         var tree = OrderingSamples.ExampleTree();
         var shop = tree["shop"]!.AsObject();
-        foreach (var field in new[] { "timeZone", "address", "notices", "slotMinutes", "daysAhead", "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware" })
+        foreach (var field in new[] { "timeZone", "address", "notices", "slotMinutes", "daysAhead", "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes" })
         {
             shop.Remove(field);
         }
@@ -47,6 +48,31 @@ public class OrderingShopJsonTests
         (settings.TimeZoneId, settings.Address, settings.ReminderNotice, settings.CheckoutNotice).ShouldBe(("Asia/Taipei", (string?)null, (string?)null, (string?)null));
         (settings.SlotMinutes, settings.DaysAhead, settings.MinLeadMinutes, settings.MaxOrdersPerSlot).ShouldBe((30, 3, 15, (int?)null));
         (settings.ShowOrderComment, settings.ShowTableware).ShouldBe((true, true));
+        settings.PendingTimeoutMinutes.ShouldBe(OrderingShopSettings.DefaultPendingTimeoutMinutes);
+    }
+
+    [Theory]
+    [InlineData(4, false)]
+    [InlineData(5, true)]
+    [InlineData(120, true)]
+    [InlineData(121, false)]
+    public void The_pending_timeout_is_5_to_120_minutes(int minutes, bool valid)
+    {
+        var tree = OrderingSamples.ExampleTree();
+        tree["shop"]!["pendingTimeoutMinutes"] = minutes;
+
+        var result = OrderingShopJson.Parse(tree.ToJsonString());
+
+        result.IsValid.ShouldBe(valid);
+        if (valid)
+        {
+            result.Import!.Shop.PendingTimeoutMinutes.ShouldBe(minutes);
+        }
+        else
+        {
+            result.Errors.Select(error => error.ToString()).ShouldHaveSingleItem()
+                .ShouldStartWith($"$.shop.pendingTimeoutMinutes：必須是 5 到 120 的整數（目前 {minutes}）");
+        }
     }
 
     [Fact]

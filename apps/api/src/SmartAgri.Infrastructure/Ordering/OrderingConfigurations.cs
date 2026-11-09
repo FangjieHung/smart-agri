@@ -38,6 +38,9 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
                 "CK_OrderingShops_MaxOrdersPerSlot",
                 $"\"MaxOrdersPerSlot\" IS NULL OR \"MaxOrdersPerSlot\" BETWEEN 1 AND {OrderingShopSettings.MaxMaxOrdersPerSlot}");
             table.HasCheckConstraint("CK_OrderingShops_Version", "\"Version\" >= 1");
+            table.HasCheckConstraint(
+                "CK_OrderingShops_PendingTimeoutMinutes",
+                $"\"PendingTimeoutMinutes\" BETWEEN {OrderingShopSettings.MinPendingTimeoutMinutes} AND {OrderingShopSettings.MaxPendingTimeoutMinutes}");
         });
         builder.HasKey(shop => shop.Id);
         builder.Property(shop => shop.Id).ValueGeneratedNever();
@@ -133,7 +136,8 @@ internal sealed class OrderingItemStateConfiguration : IEntityTypeConfiguration<
 /// Table <c>OrderingOrders</c> (#398): unique <c>(OrganizationId, BusinessDate, Number)</c> (the day's order numbers),
 /// <c>(OrganizationId, SubmissionKey)</c> (a form sent twice) and <c>StatusTokenHash</c> (the status page's token, looked
 /// up within the shop of the page's slug). <c>Lines</c> is the priced snapshot as a <c>jsonb</c> array; <c>Version</c> is
-/// the concurrency token of the status changes, whose who, when and why (#399) the check constraints keep consistent.
+/// the concurrency token of the status changes, whose who, when and why (#399) the check constraints keep consistent, as
+/// they keep a cleared order (#400) without contact details.
 /// </summary>
 internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<OrderingOrder>
 {
@@ -174,6 +178,10 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
                 "(\"Status\" = 'declined') = (\"DeclineReason\" IS NOT NULL AND \"DeclinedAt\" IS NOT NULL)");
             table.HasCheckConstraint(
                 "CK_OrderingOrders_Accepted", "(\"AcceptedAt\" IS NOT NULL) = (\"PromisedAt\" IS NOT NULL)");
+            // #400: a cleared order keeps no contact details (design D12).
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_PersonalData",
+                "\"PersonalDataClearedAt\" IS NULL OR (\"CustomerName\" = '' AND \"CustomerPhone\" = '' AND \"CustomerEmail\" IS NULL AND \"OrderComment\" IS NULL)");
         });
         builder.HasKey(order => order.Id);
         builder.Property(order => order.Id).ValueGeneratedNever();
@@ -224,6 +232,8 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
         builder.HasIndex(order => new { order.OrganizationId, order.CustomerPhone, order.Status });
         // The admin's lists by status (#399).
         builder.HasIndex(order => new { order.OrganizationId, order.Status, order.StatusChangedAt });
+        // The retention's sweep of orders whose personal data is still kept (#400).
+        builder.HasIndex(order => new { order.OrganizationId, order.PersonalDataClearedAt, order.PickupAt });
     }
 
     private static string WriteLines(IReadOnlyList<OrderingOrderLine> lines) => JsonSerializer.Serialize(lines, LineJson);

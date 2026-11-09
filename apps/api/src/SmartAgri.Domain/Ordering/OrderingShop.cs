@@ -60,6 +60,9 @@ public sealed class OrderingShop : IOrganizationScoped
 
     public bool ShowTableware { get; private set; }
 
+    /// <summary>How long an order may wait for an answer, in ordering hours (#400).</summary>
+    public int PendingTimeoutMinutes { get; private set; }
+
     /// <summary>暫停接單: no order is taken, scheduled or ASAP (switched by the staff, Slice O3).</summary>
     public bool Paused { get; private set; }
 
@@ -76,7 +79,7 @@ public sealed class OrderingShop : IOrganizationScoped
     /// <summary>The imported settings.</summary>
     public OrderingShopSettings Settings => new(
         Slug, Name, TimeZoneId, Phone, Address, ReminderNotice, CheckoutNotice, Services, OrderingHours, SlotMinutes, DaysAhead,
-        MinLeadMinutes, MaxOrdersPerSlot, ShowOrderComment, ShowTableware);
+        MinLeadMinutes, MaxOrdersPerSlot, ShowOrderComment, ShowTableware, PendingTimeoutMinutes);
 
     public OrderingServices Services => new(TakeoutScheduled, TakeoutAsap);
 
@@ -175,6 +178,7 @@ public sealed class OrderingShop : IOrganizationScoped
         MaxOrdersPerSlot = settings.MaxOrdersPerSlot;
         ShowOrderComment = settings.ShowOrderComment;
         ShowTableware = settings.ShowTableware;
+        PendingTimeoutMinutes = settings.PendingTimeoutMinutes;
         UpdatedAt = now;
     }
 }

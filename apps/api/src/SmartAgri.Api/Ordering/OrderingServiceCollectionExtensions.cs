@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SmartAgri.Api.Jobs;
+using SmartAgri.Application.Ordering;
 
 namespace SmartAgri.Api.Ordering;
 
@@ -8,7 +10,9 @@ public static class OrderingServiceCollectionExtensions
     /// Registers online ordering (online-ordering design, Slice O1, #397): <see cref="OrderingShops"/>, which the
     /// <c>ordering-shop</c> command imports and shows a shop's ordering settings and menu with, and the anonymous ordering
     /// API (#398, <see cref="OrderingPublicEndpoints"/>), and the admin's order handling (#399, <see cref="OrderingStaffEndpoints"/>)
-    /// with its <see cref="IOrderingOrderOutcomes"/> seam (nothing yet; #400 replaces it).
+    /// with its <see cref="IOrderingOrderOutcomes"/> seam, which Emails the customer (#400,
+    /// <see cref="EmailOrderingOrderOutcomes"/>), and the <see cref="OrderingExpireOrderJob.Kind"/> and
+    /// <see cref="OrderingOrderEmailJob.Kind"/> job handlers. Requires <c>AddBackgroundJobs</c> and the Email sender.
     /// </summary>
     public static IServiceCollection AddOnlineOrdering(this IServiceCollection services)
     {
@@ -17,7 +21,9 @@ public static class OrderingServiceCollectionExtensions
         services.AddScoped<OrderingOrders>();
         services.AddScoped<OrderingPublicFlow>();
         services.AddScoped<OrderingStaffOrders>();
-        services.TryAddScoped<IOrderingOrderOutcomes, NoOrderingOrderOutcomes>();
+        services.TryAddScoped<IOrderingOrderOutcomes, EmailOrderingOrderOutcomes>();
+        services.AddJobHandler<OrderingExpireOrderHandler>(OrderingExpireOrderJob.Kind);
+        services.AddJobHandler<OrderingOrderEmailHandler>(OrderingOrderEmailJob.Kind);
         return services;
     }
 }

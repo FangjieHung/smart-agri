@@ -38,7 +38,7 @@ public sealed record OrderingImportParseResult(OrderingImport? Import, IReadOnly
 /// <c>{ reminder?, checkout? }</c>, <c>services</c> <c>{ takeoutScheduled, takeoutAsap }</c> (at least one on),
 /// <c>orderingHours</c> (the 統籌助理 settings' <c>weeklyHours</c> format and rules), and optional <c>slotMinutes</c>,
 /// <c>daysAhead</c>, <c>minLeadMinutes</c>, <c>maxOrdersPerSlot</c> (or <c>null</c>), <c>showOrderComment</c>,
-/// <c>showTableware</c>.
+/// <c>showTableware</c>, <c>pendingTimeoutMinutes</c> (#400).
 /// </para>
 /// <para>
 /// <c>menu</c>: <c>categories</c> <c>[{ id, name, description?, availability? { days?, from?, to? }, items }]</c>; an item
@@ -59,7 +59,7 @@ public static partial class OrderingShopJson
     private static readonly string[] ShopFields =
     [
         "slug", "name", "timeZone", "phone", "address", "notices", "services", "orderingHours", "slotMinutes", "daysAhead",
-        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware",
+        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes",
     ];
 
     private static readonly string[] NoticeFields = ["reminder", "checkout"];
@@ -412,12 +412,15 @@ public static partial class OrderingShopJson
 
             var showComment = OptionalBoolean(properties, path, "showOrderComment", fallback: true);
             var showTableware = OptionalBoolean(properties, path, "showTableware", fallback: true);
+            var timeout = Integer(
+                properties, path, "pendingTimeoutMinutes", OrderingShopSettings.DefaultPendingTimeoutMinutes,
+                OrderingShopSettings.MinPendingTimeoutMinutes, OrderingShopSettings.MaxPendingTimeoutMinutes);
             complete &= slotMinutes is not null && daysAhead is not null && minLead is not null && maxOrdersRead
-                && showComment is not null && showTableware is not null;
+                && showComment is not null && showTableware is not null && timeout is not null;
             return complete
                 ? new OrderingShopSettings(
                     slug!, name!, timeZoneId, phone!, address, reminder, checkout, services!, hours!, slotMinutes!.Value,
-                    daysAhead!.Value, minLead!.Value, maxOrders, showComment!.Value, showTableware!.Value)
+                    daysAhead!.Value, minLead!.Value, maxOrders, showComment!.Value, showTableware!.Value, timeout!.Value)
                 : null;
         }
 

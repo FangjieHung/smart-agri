@@ -156,7 +156,9 @@ public sealed record OrderingCustomerRequest(string? Name, string? Phone, string
 /// (in the fragment, never sent), and the API takes it in the <c>X-Ordering-Token</c> header.</param>
 public sealed record OrderingSubmittedView(string Token, OrderingOrderView Order);
 
-/// <summary>An order as its customer sees it: never the Email, and only the last three digits of the phone.</summary>
+/// <summary>An order as its customer sees it: never the Email, and only the last three digits of the phone. Once its
+/// personal data was cleared (90 days after the pickup, #400) the name is 「（已刪除）」, the phone digits empty, and the
+/// comments <see langword="null"/>.</summary>
 /// <param name="DisplayNumber">「#001」.</param>
 /// <param name="BusinessDate"><c>yyyy-MM-dd</c>, the business day the number counts in.</param>
 /// <param name="PickupAt">Scheduled: the chosen time. ASAP: the end of the estimate (sent + <see cref="OrderingAsapView.MaxMinutes"/>).</param>
@@ -209,7 +211,7 @@ public sealed record OrderingOrderView(
         order.Subtotal,
         order.Total,
         order.MenuVersion,
-        order.CustomerName,
+        OrderingPublicViews.CustomerName(order),
         order.CustomerPhone.Length <= 3 ? order.CustomerPhone : order.CustomerPhone[^3..],
         order.OrderComment,
         order.Tableware,
@@ -247,6 +249,12 @@ internal static class OrderingPublicViews
     public static string Date(DateOnly date) => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     public static string Time(TimeOnly time) => time.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>What the views show as the customer's name once it was cleared (design D12, #400).</summary>
+    public const string ClearedName = "（已刪除）";
+
+    /// <summary>The customer's name, or <see cref="ClearedName"/> once the personal data was cleared.</summary>
+    public static string CustomerName(OrderingOrder order) => order.PersonalDataClearedAt is null ? order.CustomerName : ClearedName;
 
     public static OrderingShopInfoView Shop(OrderingShop shop, int menuVersion, DateTimeOffset now)
     {

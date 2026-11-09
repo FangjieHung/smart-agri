@@ -195,6 +195,7 @@ public sealed class OrderingShopCommand
             $"每時段上限 {(shop.MaxOrdersPerSlot is { } max ? $"{max} 筆" : "不限")}\n");
         var (lower, upper) = AsapPrepBands.Minutes(shop.AsapPrepBand);
         text.Append(CultureInfo.InvariantCulture, $"即時單準備時間：{(lower == 0 ? $"{upper} 分鐘內" : $"{lower}–{upper} 分鐘")}\n");
+        text.Append(CultureInfo.InvariantCulture, $"待確認逾時：營業中 {shop.PendingTimeoutMinutes} 分鐘沒有處理就自動取消\n");
         text.Append(CultureInfo.InvariantCulture, $"暫停接單：{(shop.Paused ? "是" : "否")}\n");
         if (menu is null)
         {

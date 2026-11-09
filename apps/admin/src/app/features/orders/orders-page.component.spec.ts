@@ -30,6 +30,7 @@ function order(fields: Partial<OrderingOrderView> & Pick<OrderingOrderView, 'id'
     ] }],
     orderComment: null, tableware: true, subtotal: 160, total: 160, menuVersion: 1, createdAt: '2026-11-07T03:35:00Z',
     statusChangedAt: '2026-11-07T03:35:00Z', accepted: null, ready: null, completed: null, declined: null, cancelled: null,
+    expiresAt: '2026-11-07T03:50:00Z', personalDataClearedAt: null,
     actions: fields.status === 'pending' ? ['accept', 'decline'] : fields.status === 'accepted' ? ['ready', 'complete', 'cancel'] : [],
     ...fields,
   };

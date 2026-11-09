@@ -27,7 +27,8 @@
     "minLeadMinutes": 20,
     "maxOrdersPerSlot": 8,
     "showOrderComment": true,
-    "showTableware": true
+    "showTableware": true,
+    "pendingTimeoutMinutes": 15
   },
   "menu": {
     "categories": [

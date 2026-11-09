@@ -14,6 +14,9 @@ import {
   type OrderingOrderView,
 } from '../../core/domain/ordering.model';
 
+/** 待確認的訂單離自動取消不到這麼久時醒目顯示（#400）。 */
+export const EXPIRY_WARNING_MS = 5 * 60_000;
+
 export interface OrderActionEvent {
   readonly order: OrderingOrderView;
   readonly action: OrderingOrderAction;
@@ -23,7 +26,8 @@ export interface OrderActionEvent {
 
 /**
  * 一筆訂單（issue #399）：號碼、取餐方式與時間（以伺服器的現在時間算「剩 N 分鐘」）、顧客（電話可撥打）、明細與備註、
- * 總額、狀態、送出多久了；按鈕只依訂單的 `actions[]` 顯示。
+ * 總額、狀態、送出多久了；按鈕只依訂單的 `actions[]` 顯示。待確認的訂單另外顯示「HH:mm 前未確認將自動取消」（#400），
+ * 個資已清除的舊訂單（取餐 90 天後）姓名是「（已刪除）」，沒有電話可撥。
  */
 @Component({
   selector: 'app-order-card',
@@ -71,6 +75,16 @@ export class OrderCardComponent {
   });
 
   protected readonly submitted = computed(() => elapsedText(this.order().createdAt, this.now()));
+
+  /** 待確認的訂單什麼時候會自動取消（#400）；剩不到 5 分鐘時醒目顯示。 */
+  protected readonly expiry = computed(() => {
+    const order = this.order();
+    if (order.status !== 'pending' || !order.expiresAt) return null;
+    return {
+      text: `${clockText(order.expiresAt, this.timeZone(), this.now())} 前未確認將自動取消`,
+      soon: Date.parse(order.expiresAt) - this.now() < EXPIRY_WARNING_MS,
+    };
+  });
 
   /** 結束的訂單：什麼時候、誰、為什麼。 */
   protected readonly outcome = computed(() => {

@@ -82,8 +82,12 @@ public sealed record OrderingStaffCancellationView(
 /// <param name="PickupAt">What the customer asked for. Scheduled: the chosen time. ASAP: the end of the estimate when it was
 /// sent.</param>
 /// <param name="PromisedAt">The time the shop gave when accepting (<see langword="null"/> before).</param>
-/// <param name="CustomerPhone">Digits only, for <c>tel:</c>.</param>
-/// <param name="CustomerPhoneDisplay">For people: <c>0912-345-678</c>.</param>
+/// <param name="CustomerName">「（已刪除）」 once the personal data was cleared (<see cref="PersonalDataClearedAt"/>).</param>
+/// <param name="CustomerPhone">Digits only, for <c>tel:</c>; empty once cleared.</param>
+/// <param name="CustomerPhoneDisplay">For people: <c>0912-345-678</c>; empty once cleared.</param>
+/// <param name="ExpiresAt">When a pending order expires unanswered (#400): 「HH:mm 前未確認將自動取消」.</param>
+/// <param name="PersonalDataClearedAt">When the customer's name, phone, Email and comments were cleared, 90 days after the
+/// pickup (design D12, #400); <see langword="null"/> while kept.</param>
 /// <param name="Actions">What the staff can do now: <c>accept</c>, <c>decline</c>, <c>ready</c>, <c>complete</c>,
 /// <c>cancel</c>.</param>
 public sealed record OrderingStaffOrderView(
@@ -114,7 +118,9 @@ public sealed record OrderingStaffOrderView(
     OrderingStaffStepView? Completed,
     OrderingStaffDeclineView? Declined,
     OrderingStaffCancellationView? Cancelled,
-    IReadOnlyList<OrderingOrderAction> Actions)
+    IReadOnlyList<OrderingOrderAction> Actions,
+    DateTimeOffset ExpiresAt,
+    DateTimeOffset? PersonalDataClearedAt)
 {
     public static OrderingStaffOrderView Of(OrderingOrder order, IReadOnlyDictionary<Guid, string> members)
     {
@@ -135,9 +141,9 @@ public sealed record OrderingStaffOrderView(
             order.PickupAt,
             order.AsapMinMinutes is { } min && order.AsapMaxMinutes is { } max ? new OrderingAsapView(min, max) : null,
             order.PromisedAt,
-            order.CustomerName,
+            OrderingPublicViews.CustomerName(order),
             order.CustomerPhone,
-            ReservationContact.FormatPhone(order.CustomerPhone),
+            order.CustomerPhone.Length == 0 ? string.Empty : ReservationContact.FormatPhone(order.CustomerPhone),
             order.CustomerEmail,
             order.Lines,
             order.OrderComment,
@@ -156,7 +162,9 @@ public sealed record OrderingStaffOrderView(
             order is { CancelledAt: { } cancelledAt, CancelledBy: { } by }
                 ? new OrderingStaffCancellationView(cancelledAt, by, Member(order.CancelledByAccountId), order.CancelReason, order.CancelNote)
                 : null,
-            order.AllowedActions);
+            order.AllowedActions,
+            order.ExpiresAt,
+            order.PersonalDataClearedAt);
     }
 }
 

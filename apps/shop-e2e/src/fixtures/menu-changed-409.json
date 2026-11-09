@@ -1,1 +1,1 @@
-{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"menu-changed","message":"菜單剛剛更新了，請確認購物車裡的品項與價格後再送出。","errors":null,"lineErrors":null,"menuVersion":2,"orderNumber":null,"orderStatus":null}
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"Conflict","status":409,"reason":"menu-changed","message":"菜單剛剛更新了，請確認購物車裡的品項與價格後再送出。","errors":null,"lineErrors":null,"menuVersion":2,"orderNumber":null,"orderStatus":null,"minimumSubtotal":null,"shortfall":null}

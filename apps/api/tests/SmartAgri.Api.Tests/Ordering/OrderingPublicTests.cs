@@ -67,7 +67,7 @@ public sealed class OrderingPublicTests : IClassFixture<OrderingHostFixture>
         response.Headers.CacheControl!.NoStore.ShouldBeTrue();
         response.Headers.GetValues("Referrer-Policy").ShouldBe(["no-referrer"]);
         (info["slug"]!.GetValue<string>(), info["name"]!.GetValue<string>(), info["paused"]!.GetValue<bool>()).ShouldBe((slug, "王記麵店", false));
-        info["services"]!.ToJsonString().ShouldBe("""{"takeoutScheduled":true,"takeoutAsap":true}""");
+        info["services"]!.ToJsonString().ShouldBe("""{"takeoutScheduled":true,"takeoutAsap":true,"delivery":true,"deliveryAsap":true}""");
         info["open"]!["isOpen"]!.GetValue<bool>().ShouldBeTrue();
         Instant(info["open"]!["currentPeriodCloses"]).ShouldBe(new DateTimeOffset(2026, 11, 17, 14, 0, 0, TimeSpan.FromHours(8)));
         Instant(info["open"]!["nextOpening"]).ShouldBe(new DateTimeOffset(2026, 11, 17, 17, 0, 0, TimeSpan.FromHours(8)));

@@ -46,7 +46,7 @@
           data-testid="submit-failure"
         >
           <p>{{ f.message }}</p>
-          @if (f.recovery === 'mark-lines') {
+          @if (f.recovery === 'mark-lines' || f.recovery === 'add-more') {
             <div class="callout__actions">
               <a
                 class="btn"
@@ -63,7 +63,7 @@
       }
 
       <section class="block" aria-labelledby="pickup-heading">
-        <h2 class="block__title" id="pickup-heading">取餐</h2>
+        <h2 class="block__title" id="pickup-heading">{{ store.isDelivery() ? '外送' : '取餐' }}</h2>
         <app-pickup-ticket (edit)="timeOpen.set(true)" />
       </section>
 
@@ -96,9 +96,17 @@
         @if (shop.showTableware) {
           <p class="meta">餐具：{{ store.cart().tableware ? '需要' : '不需要' }}</p>
         }
+        @if (store.isDelivery()) {
+          <dl class="fees">
+            <dt>小計</dt>
+            <dd class="price">{{ ntd(store.subtotal()) }}</dd>
+            <dt>外送費（{{ store.zone()?.name }}）</dt>
+            <dd class="price" data-testid="checkout-fee">{{ ntd(store.deliveryFee()) }}</dd>
+          </dl>
+        }
         <dl class="total">
           <dt>合計</dt>
-          <dd class="price" data-testid="checkout-total">{{ ntd(store.subtotal()) }}</dd>
+          <dd class="price" data-testid="checkout-total">{{ ntd(store.total()) }}</dd>
         </dl>
       </section>
 
@@ -175,17 +183,71 @@
         </div>
       </fieldset>
 
+      @if (store.isDelivery()) {
+        <fieldset class="block contact">
+          <legend class="block__title">外送地址</legend>
+          <div class="field">
+            <label class="field__label" for="checkout-address">地址</label>
+            <input
+              id="checkout-address"
+              class="input"
+              name="address"
+              autocomplete="street-address"
+              required
+              [maxLength]="shop.delivery?.addressMaxLength ?? 120"
+              [value]="address()"
+              [attr.aria-invalid]="!!errors().address"
+              [attr.aria-describedby]="
+                'checkout-address-hint' + (errors().address ? ' checkout-address-error' : '')
+              "
+              (input)="set('address', $any($event.target).value)"
+            />
+            <p class="field__hint" id="checkout-address-hint">
+              請寫完整地址（含樓層），需在「{{ store.zone()?.name }}」範圍內。
+            </p>
+            @if (errors().address) {
+              <p class="field__error" id="checkout-address-error">{{ errors().address }}</p>
+            }
+          </div>
+          <div class="field">
+            <label class="field__label" for="checkout-deliveryNote"
+              >給外送的備註 <span class="field__optional">（選填）</span></label
+            >
+            <input
+              id="checkout-deliveryNote"
+              class="input"
+              name="deliveryNote"
+              [maxLength]="shop.delivery?.noteMaxLength ?? 100"
+              [value]="deliveryNote()"
+              [attr.aria-invalid]="!!errors().deliveryNote"
+              [attr.aria-describedby]="errors().deliveryNote ? 'checkout-deliveryNote-error' : null"
+              placeholder="例如：請按電鈴、放管理室"
+              (input)="set('deliveryNote', $any($event.target).value)"
+            />
+            @if (errors().deliveryNote) {
+              <p class="field__error" id="checkout-deliveryNote-error">
+                {{ errors().deliveryNote }}
+              </p>
+            }
+          </div>
+        </fieldset>
+      }
+
       <section class="block" aria-labelledby="payment-heading">
         <h2 class="block__title" id="payment-heading">付款方式</h2>
-        <p class="payment"><span class="payment__dot" aria-hidden="true"></span>取餐時付款</p>
+        <p class="payment">
+          <span class="payment__dot" aria-hidden="true"></span
+          >{{ store.isDelivery() ? '貨到付款（餐點送達時付款）' : '取餐時付款' }}
+        </p>
         @if (shop.notices.checkout) {
           <p class="meta notice">{{ shop.notices.checkout }}</p>
         }
       </section>
 
       <p class="privacy">
-        個人資料告知：{{ shop.name }}透過本點餐系統蒐集您的姓名、電話、Email
-        與備註，只用於處理這次訂單（確認、通知與聯絡），由本系統的平台營運者代為處理。資料保存到取餐時間後
+        個人資料告知：{{ shop.name }}透過本點餐系統蒐集您的姓名、電話、Email{{
+          store.isDelivery() ? '、外送地址與' : ' 與'
+        }}備註，只用於處理這次訂單（確認、通知與聯絡），由本系統的平台營運者代為處理。資料保存到取餐時間後
         90 天，之後刪除。您可以來電 <a [href]="telHref(shop.phone)">{{ shop.phone }}</a> 向{{
           shop.name
         }}查詢、閱覽、更正或刪除您的資料；沒有姓名與電話將無法下單。
@@ -201,7 +263,7 @@
           <span>{{
             sending() ? '送出中…' : failure()?.recovery === 'retry' ? '再試一次' : '送出訂單'
           }}</span>
-          <span class="num">{{ ntd(store.subtotal()) }}</span>
+          <span class="num">{{ ntd(store.total()) }}</span>
         </button>
       </div>
     </form>

@@ -1,5 +1,5 @@
 import type { Order } from '../api/types';
-import { reasonText, statusWords } from './status';
+import { DELIVERY_STEPS, isDeliveryOrder, reasonText, statusWords } from './status';
 
 const order = (fields: Partial<Order>): Order =>
   ({
@@ -34,5 +34,25 @@ describe('status words (#399)', () => {
   it('treats fields missing from an older response as absent', () => {
     expect(reasonText({ status: 'declined' } as Order)).toBeNull();
     expect(reasonText({ status: 'cancelled' } as Order)).toBeNull();
+  });
+});
+
+describe('status words for delivery (#401)', () => {
+  it('a delivery order that is ready has set out and is paid on delivery', () => {
+    expect(statusWords('ready', null, true)).toEqual({
+      title: '外送已出發',
+      detail: '餐點正在送過去，送達時付款（貨到付款）。',
+    });
+    expect(statusWords('completed', null, true).title).toBe('已送達');
+    expect(statusWords('accepted', null, true).detail).toContain('送達時付款');
+    expect(statusWords('pending', null, true).title).toBe('等待店家確認');
+    expect(statusWords('ready').title).toBe('餐點好了，可以取餐');
+    expect(DELIVERY_STEPS.at(-1)).toBe('已出發');
+  });
+
+  it('tells a delivery order by its service type', () => {
+    expect(isDeliveryOrder({ serviceType: 'delivery-asap' })).toBe(true);
+    expect(isDeliveryOrder({ serviceType: 'delivery-scheduled' })).toBe(true);
+    expect(isDeliveryOrder({ serviceType: 'takeout-asap' })).toBe(false);
   });
 });

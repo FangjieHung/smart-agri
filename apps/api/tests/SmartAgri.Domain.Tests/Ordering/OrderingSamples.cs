@@ -48,16 +48,14 @@ internal static class OrderingSamples
         int minLeadMinutes = 0,
         int? maxOrdersPerSlot = null,
         bool scheduled = true,
-        bool asap = true)
+        bool asap = true,
+        OrderingDeliverySettings? delivery = null,
+        bool deliveryAsap = false)
     {
-        var hours = new WeeklyHours(periods
-            .GroupBy(period => period.Day)
-            .ToDictionary(
-                day => day.Key,
-                day => (IReadOnlyList<BusinessPeriod>)day.Select(period => new BusinessPeriod(Time(period.Open), Time(period.Close))).ToList()));
         var settings = new OrderingShopSettings(
-            "test-shop", "測試麵店", timeZone, "02-2345-6789", null, null, null, new OrderingServices(scheduled, asap), hours,
-            slotMinutes, daysAhead, minLeadMinutes, maxOrdersPerSlot);
+            "test-shop", "測試麵店", timeZone, "02-2345-6789", null, null, null,
+            new OrderingServices(scheduled, asap, delivery is not null, deliveryAsap), Hours(periods),
+            slotMinutes, daysAhead, minLeadMinutes, maxOrdersPerSlot, Delivery: delivery);
         return OrderingShop.Create(Guid.CreateVersion7(), settings, new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero));
     }
 
@@ -74,6 +72,22 @@ internal static class OrderingSamples
         yield return (DayOfWeek.Saturday, "17:00", "01:00");
         yield return (DayOfWeek.Sunday, "11:00", "14:00");
     }
+
+    /// <summary>Weekly hours of the given periods.</summary>
+    public static WeeklyHours Hours(IEnumerable<(DayOfWeek Day, string Open, string Close)> periods) =>
+        new(periods
+            .GroupBy(period => period.Day)
+            .ToDictionary(
+                day => day.Key,
+                day => (IReadOnlyList<BusinessPeriod>)day.Select(period => new BusinessPeriod(Time(period.Open), Time(period.Close))).ToList()));
+
+    /// <summary>Three zones: 民權里 free from NT$150, 新營 NT$30 from NT$200, 5 公里內 NT$60 from NT$400 (#401).</summary>
+    public static IReadOnlyList<DeliveryZone> Zones() =>
+    [
+        new DeliveryZone("minquan", "新營區・民權里", 0, 150),
+        new DeliveryZone("xinying", "新營區其他里", 30, 200),
+        new DeliveryZone("within-5km", "5 公里內", 60, 400),
+    ];
 
     private static TimeOnly Time(string text) => TimeOnly.ParseExact(text, "HH:mm", CultureInfo.InvariantCulture);
 

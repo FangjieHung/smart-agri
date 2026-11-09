@@ -19,7 +19,17 @@ export interface ServiceChoice {
   readonly date: string | null;
   /** 預約才有：`GET slots` 的 `value`。 */
   readonly slot: string | null;
+  /** 外送才有（#401）：選的外送區域 id。 */
+  readonly zoneId?: string | null;
 }
+
+/** 外送（預約或儘快，#401）。 */
+export const isDelivery = (type: ServiceType | null | undefined): boolean =>
+  type === 'delivery-scheduled' || type === 'delivery-asap';
+
+/** 儘快（外帶或外送）：沒有時段，只有估計。 */
+export const isAsap = (type: ServiceType | null | undefined): boolean =>
+  type === 'takeout-asap' || type === 'delivery-asap';
 
 /** 存在瀏覽器裡的購物車（每家店一份）。 */
 export interface StoredCart {

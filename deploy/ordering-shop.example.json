@@ -11,7 +11,9 @@
     },
     "services": {
       "takeoutScheduled": true,
-      "takeoutAsap": true
+      "takeoutAsap": true,
+      "delivery": true,
+      "deliveryAsap": true
     },
     "orderingHours": {
       "mon": [],
@@ -28,7 +30,26 @@
     "maxOrdersPerSlot": 8,
     "showOrderComment": true,
     "showTableware": true,
-    "pendingTimeoutMinutes": 15
+    "pendingTimeoutMinutes": 15,
+    "delivery": {
+      "zones": [
+        { "id": "minquan", "name": "新營區・民權里", "fee": 0, "minimumSubtotal": 150 },
+        { "id": "xinying", "name": "新營區其他里", "fee": 30, "minimumSubtotal": 200 },
+        { "id": "within-5km", "name": "5 公里內（鹽水、柳營）", "fee": 60, "minimumSubtotal": 400 }
+      ],
+      "orderingHours": {
+        "mon": [],
+        "tue": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "wed": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "thu": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "fri": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "20:30" }],
+        "sat": [{ "open": "11:00", "close": "13:30" }, { "open": "17:00", "close": "22:00" }],
+        "sun": [{ "open": "11:00", "close": "13:30" }]
+      },
+      "minLeadMinutes": 45,
+      "asapExtraMinutes": 20,
+      "note": "外送由店員騎車送達，範圍以店家公告為準；不確定是否在範圍內請先來電。"
+    }
   },
   "menu": {
     "categories": [

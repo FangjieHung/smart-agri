@@ -294,6 +294,65 @@
 12. **清除後的畫面**：後台與公開 API 的姓名都顯示「（已刪除）」，電話是空字串（後台不顯示撥號連結，狀態頁不顯示「電話末三碼」），後台的 `personalDataClearedAt` 有值。
 13. **隱私權政策範本**新增第 5.6 節「線上點餐」，照實際保存的欄位與期限寫；`deploy/README.md` 第 18.3 節說明通知信、逾時與保存期限。
 
+
+### 4.7 O5（#401）外送實作決定（可以推翻）
+
+**設定（匯入檔 `shop` 段）**
+
+1. **開關**：`services.delivery`（外送預約）與 `services.deliveryAsap`（外送儘快），兩個都選填、預設 `false`，所以舊的匯入檔不必改。
+   `deliveryAsap` 只能和 `delivery` 一起開（否則匯入錯誤）；外送預約一定有，因為外送儘快也要先選區域。`services` 仍然至少要開一種。
+2. **`delivery` 段**：`{ zones, orderingHours?, minLeadMinutes?, asapExtraMinutes?, note? }`。`services.delivery` 開著時必填；關著時可以留著（照樣檢查、
+   存下來但不用），方便店家暫時關外送。區域 `{ id, name, fee, minimumSubtotal? }`：1–50 個、`id` 同菜單 id 規則且不重複、名稱一行最多 40 字、
+   運費 0–10,000、最低消費 0–100,000（不填＝ 0，以餐點小計計算、不含運費）。`orderingHours` 不填＝外帶的可點餐時間；`minLeadMinutes`
+   預設 45（0–1440）；`asapExtraMinutes` 預設 20（0–120）；`note` 最多 300 字（外送範圍說明）。錯誤和其他欄位一樣逐條列出路徑。
+3. **儲存**：`OrderingShops` 新增 `Delivery`、`DeliveryAsap` 兩個布林與 `DeliverySettings`（jsonb，匯入檔格式，`OrderingShopJson.WriteDelivery`）；
+   check constraint 保證開了外送就有設定、外送儘快必須同時開外送。組織紀錄的變更欄位多一個 `delivery`（只記有改，不記內容）。
+4. **時段**：外送和外帶共用 `slotMinutes`、`daysAhead`、`maxOrdersPerSlot` 的規則，但用外送自己的時間與最短準備時間；**名額分開算**
+   （`OrderingSlots` 多一個 `OrderingChannel` 參數，`SlotCountsAsync` 依取餐方式只算同一種的預約單）。當日號碼仍然整家店一起編。
+5. **外送儘快**：外送儘快開著、店家沒暫停、現在在外送時間內，而且「現在＋（後台即時單檔位上限＋`asapExtraMinutes`）」不超過這段外送時間的結束，
+   才開放；估計是檔位的兩端各加 `asapExtraMinutes`（15–30 → 約 35–50 分鐘）。不另外設檔位。
+
+**訂單**
+
+6. **取餐方式**：`delivery-scheduled`、`delivery-asap`。訂單新增 `DeliveryZoneId`、`DeliveryZoneName`、`DeliveryFee`（送出時區域的快照；外帶是
+   `null`／`null`／0）、`DeliveryAddress`（必填，一行，最多 120 字）、`DeliveryNote`（給外送的備註，選填，最多 100 字）。`Total = Subtotal + DeliveryFee`
+   （check constraint），總額上限仍是 1,000,000（含運費）。`PickupAt` 對外送是「預計送達」；逾時、號碼、接單改時間的規則都照舊，
+   逾時只算外送時間內（`ExpiryFor` 收外送的時間）。
+7. **伺服器的檢查順序**（接在 §4.2 的表後面）：欄位錯誤（`deliveryZoneId` 沒選、`deliveryAddress` 必填與長度、`deliveryNote` 長度，同
+   `invalid-order` 的 `errors`）→ 暫停 → **沒開外送（或外送儘快）`409 service-unavailable`** → **區域不在目前的設定 `422 unknown-zone`** → 時段 →
+   菜單版本 → 選項 → 總額 → 售完 → **未達最低消費 `422 below-minimum`**（`OrderingProblem` 新增 `minimumSubtotal` 與 `shortfall`，其他回應是 `null`）
+   → 待確認上限。運費一律用伺服器當下的區域設定，請求裡的任何金額欄位都忽略。
+8. **狀態**：**不新增狀態**。外送的「已出發」就是 `ready`（〔可取餐〕→ 外送卡片上叫〔已出發〕），顧客頁與信件依取餐方式換說法；
+   這樣狀態機、compare-and-set、後台的三個清單、逾時與保存期限都不必改，`ready` 之後一樣是〔完成〕（送達）。
+9. **API 形狀**：`GET {slug}` 的 `services` 多 `delivery`、`deliveryAsap`（店家開了外送且有區域時才是 `true`），並新增 `delivery`
+   （沒開外送時 `null`）：`zones[{id,name,fee,minimumSubtotal}]`、`note`、`open`（依外送時間）、`asap`（現在能點外送儘快時才有）、`minLeadMinutes`、
+   `orderingHours`（外送時間）、`addressMaxLength: 120`、`noteMaxLength: 100`。`GET {slug}/slots` 新增 `deliveryDates`（形狀同 `dates`）。
+   送出訂單新增 `deliveryZoneId`、`deliveryAddress`、`deliveryNote`（外帶不填）。顧客與後台的訂單都新增 `deliveryFee` 與
+   `delivery: {zoneId, zoneName, fee, address, note} | null`；顧客頁本來就要 token，所以給完整地址。後台 `summary.services` 同上。
+10. **個資**：地址與給外送的備註是個資：90 天清除時地址改成空字串、備註 `null`（check constraint 也檢查），區域名稱與運費保留。
+    紀錄不寫地址；**通知信只寫區域名稱，不寫地址與備註**，信裡寫「外送」「預計送達」與「付款：貨到付款」，並列出小計、運費、合計。
+
+**顧客網頁（`apps/shop`）**
+
+11. **選方式**：時間面板列出店家開放的方式（外帶儘快、外帶預約、外送（儘快）、外送（預約）），現在不能用的照列但不能選；選外送時先選區域
+    （運費與「滿 NT$X 外送」），再選時間（外送自己的日期與時段）。選好的區域記在購物車的取餐方式裡（`zoneId`）；區域被店家拿掉時當成沒選。
+12. **門檻**：購物車與結帳都顯示「還差 NT$X 達外送門檻」並擋住結帳（前端算的只是提示，伺服器會再檢查；收到 `below-minimum` 時請顧客回購物車加點，
+    收到 `unknown-zone` 時重新打開面板選區域）。小計、外送費、合計分開顯示，付款寫「貨到付款」。
+13. **地址**：結帳頁的「外送地址」（必填）與「給外送的備註」只在記憶體裡，不存在裝置上（同姓名與電話；只有送出結果不明、要重送時才和送出內容一起暫存）。
+14. **狀態頁**：外送訂單顯示「外送：預計 HH:mm 送達」、區域、地址、外送備註、外送費與「貨到付款」；進度條最後一步是「已出發」，`ready` 的標題是「外送已出發」，
+    `completed` 是「已送達」。舊的錄製回應沒有 `delivery` 欄位時依 `serviceType` 判斷。
+15. **錄製**：`apps/shop-e2e/src/fixtures/` 與後台 Hybrid spec 的回應在 2026-11-07 用 #401 的 API 重新錄（5291 埠、暫存資料庫
+    `ordering401pub`、`ordering401adm`，腳本在 scratchpad `ordering/401rec/`），因為所有回應都多了新欄位。錄製時間是週六凌晨（休息中），
+    所以既有的 E2E 從「明天 12:30」改成「今天 12:30」，菜單第 2 版的訂單號碼從 #002 變成 #003（中間多了一筆外送訂單 #002）。
+
+**後台「點餐」頁**
+
+16. 外送卡片的取餐方式寫成「外送預約」／「外送即時」小標籤；顧客那一行下面是區域（粗體）與完整地址（Google 地圖搜尋連結
+    `https://www.google.com/maps/search/?api=1&query=…`，另開分頁）；地址清除後顯示「（已刪除）」、沒有連結。給外送的備註放在明細上方的備註框，
+    運費在合計前面。時間一律說「送達」（「12:30 送達」「預計 HH:mm 送達」、接單對話框的「預計送達時間」）；`ready` 的按鈕、狀態與完成行都叫「已出發」。
+    即時單準備時間檔位在外帶即時或外送即時任一開著時顯示（外送儘快用同一個檔位）。示範資料多一筆已接單的外送訂單 #010（王太太，新營區其他里）。
+    清單與篩選不變。顧客網頁的選項寫「外送（預約）」「外送（儘快）」，後台沿用外帶的「預約／即時」說法。
+
 ---
 
 ## 5. 名詞

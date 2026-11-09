@@ -64,7 +64,7 @@
 
         @if (progress() !== null) {
           <ol class="progress" aria-label="訂單進度">
-            @for (step of steps; track step; let i = $index) {
+            @for (step of steps(); track step; let i = $index) {
               <li
                 class="progress__step"
                 [class.progress__step--done]="i < progress()!"
@@ -84,15 +84,30 @@
         }
 
         <dl class="facts">
-          <dt>取餐</dt>
-          <dd data-testid="order-pickup">外帶，{{ pickup() }}</dd>
+          @if (delivery()) {
+            <dt>外送</dt>
+            <dd data-testid="order-pickup">{{ pickup() }}</dd>
+            @if (o.delivery; as d) {
+              <dt>外送區域</dt>
+              <dd data-testid="order-zone">{{ d.zoneName }}</dd>
+              <dt>外送地址</dt>
+              <dd data-testid="order-address">{{ d.address || '（已刪除）' }}</dd>
+              @if (d.note) {
+                <dt>外送備註</dt>
+                <dd>{{ d.note }}</dd>
+              }
+            }
+          } @else {
+            <dt>取餐</dt>
+            <dd data-testid="order-pickup">外帶，{{ pickup() }}</dd>
+          }
           <dt>訂購人</dt>
           <dd>
             {{ o.customerName
             }}@if (o.phoneLastDigits) {（電話末三碼 <span class="num">{{ o.phoneLastDigits }}</span>）}
           </dd>
           <dt>付款</dt>
-          <dd>取餐時付款</dd>
+          <dd>{{ delivery() ? '貨到付款' : '取餐時付款' }}</dd>
         </dl>
 
         <section aria-labelledby="lines-heading">
@@ -119,6 +134,14 @@
           }
           @if (o.tableware !== null) {
             <p class="muted small">餐具：{{ o.tableware ? '需要' : '不需要' }}</p>
+          }
+          @if (delivery()) {
+            <dl class="fees">
+              <dt>小計</dt>
+              <dd class="price">{{ ntd(o.subtotal) }}</dd>
+              <dt>外送費</dt>
+              <dd class="price" data-testid="order-fee">{{ ntd(o.deliveryFee ?? 0) }}</dd>
+            </dl>
           }
           <dl class="total">
             <dt>合計</dt>

@@ -51,6 +51,6 @@ describe('送出時菜單已經改版', () => {
       });
     });
     cy.location('pathname').should('eq', `/order/${SLUG}/o`);
-    cy.get('[data-testid="order-number"]').should('contain.text', '#002');
+    cy.get('[data-testid="order-number"]').should('contain.text', '#003');
   });
 });

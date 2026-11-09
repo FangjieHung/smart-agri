@@ -2040,7 +2040,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 
 線上點餐是獨立的模組，**不需要**統籌助理：每家店（組織）一份**點餐設定**與**菜單**，用 `ordering-shop` 匯入。
 設計與後續的工作單見 `docs/plans/2026-11-06-online-ordering.md`。#398 起顧客可以在 `/order/<slug>` 點餐（第 18.2 節），
-店員在後台「點餐」頁接單（#399）；#400 起有留 Email 的顧客會收到通知信，沒人處理的訂單會自動取消，個資在取餐 90 天後清除（第 18.3 節）。
+店員在後台「點餐」頁接單（#399）；#400 起有留 Email 的顧客會收到通知信，沒人處理的訂單會自動取消，個資在取餐 90 天後清除（第 18.3 節）；
+#401 起可以開放外送（第 18.4 節）。
 
 ### 18.1 點餐設定與菜單：`ordering-shop`
 
@@ -2053,7 +2054,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 
 2. 修改檔案。`shop` 是店家資訊與點餐規則，`menu` 是菜單，兩段都必填：
    - `slug`：點餐網址的代號（之後的網址是 `/order/<slug>`），和訂位頁的代號分開設定，不能和別家店重複。
-   - `services`：`takeoutScheduled`（外帶預約）、`takeoutAsap`（外帶即時，「儘快」），至少開一種。
+   - `services`：`takeoutScheduled`（外帶預約）、`takeoutAsap`（外帶即時，「儘快」）、`delivery`（外送預約，選填，預設關）、
+     `deliveryAsap`（外送儘快，選填，要先開 `delivery`），至少開一種。開了外送就要有 `delivery` 段（第 18.4 節）。
    - `orderingHours`：可點餐時間，格式和第 17.5 節的 `weeklyHours` 相同（可跨午夜，例如 `17:00`–`01:00`）。
    - `slotMinutes`（10、15、20、30、60，預設 30）、`daysAhead`（可預約幾天，含今天，1–14，預設 3）、
      `minLeadMinutes`（最短準備時間，預設 15）、`maxOrdersPerSlot`（每個取餐時段最多幾筆，不填＝不限）。
@@ -2074,7 +2076,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 
    檔案會**先整份檢查**，有任何錯誤就逐條列出「位置：說明」，**一筆都不寫入**。菜單和上一次不同時會存成新的一版
    （「菜單第 N 版」）；內容完全相同時輸出「沒有變更」，不寫任何東西。
-4. 看目前的設定摘要（取餐方式、可點餐時間、時段規則、待確認逾時、暫停接單、菜單版本與品項數）：
+4. 看目前的設定摘要（取餐方式、可點餐時間、時段規則、待確認逾時、外送區域與時間、暫停接單、菜單版本與品項數）：
 
    ```sh
    docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api \
@@ -2115,3 +2117,42 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
   選項與金額**保留**作為營業額統計。後台與訂單狀態頁仍看得到這筆訂單，姓名顯示「（已刪除）」、沒有電話。
   也可以手動執行 `retention-cleanup --organization <代碼>`（第 12 節），輸出會多一行「線上點餐：清除 N 筆…」。
   隱私權政策範本的第 5.6 節照這個寫（`deploy/privacy-policy-template.md`）。
+
+### 18.4 外送（#401）
+
+外送**不用地圖、不算距離**：店家自己列出外送區域（例如「新營區・民權里」或「3 公里內」這種文字），每區有運費與最低消費；
+顧客選區域、填地址，伺服器依區域計算運費、檢查最低消費。範例檔 `deploy/ordering-shop.example.json` 有三個區域。
+
+- **設定**（`shop` 段）：`services.delivery: true`（外送預約），要開「外送儘快」再加 `services.deliveryAsap: true`；
+  然後加上 `delivery`：
+
+  ```json
+  "delivery": {
+    "zones": [
+      { "id": "minquan", "name": "新營區・民權里", "fee": 0, "minimumSubtotal": 150 },
+      { "id": "xinying", "name": "新營區其他里", "fee": 30, "minimumSubtotal": 200 }
+    ],
+    "orderingHours": { "mon": [], "tue": [{ "open": "11:00", "close": "13:30" }], "…": [] },
+    "minLeadMinutes": 45,
+    "asapExtraMinutes": 20,
+    "note": "外送由店員騎車送達，不確定是否在範圍內請先來電。"
+  }
+  ```
+
+  - `zones`：1–50 個區域。`id` 小寫英數與 `-`、不能重複，**之後不要改**（訂單記著它）；`name` 一行、最多 40 字，顧客與店員都看得到；
+    `fee` 運費 0–10,000 元；`minimumSubtotal` 最低消費 0–100,000 元（以餐點小計計算，不含運費；不填＝ 0）。
+  - `orderingHours`（選填）：外送的時間，格式同可點餐時間；不填就和外帶一樣。外送時段的長度、可預約天數、每時段上限沿用外帶的
+    `slotMinutes`、`daysAhead`、`maxOrdersPerSlot`，但**名額和外帶分開算**（同一個時間外帶滿了，外送仍可訂）。
+  - `minLeadMinutes`（選填，0–1440，預設 45）：外送最早可選的時間（外送比外帶久）。
+  - `asapExtraMinutes`（選填，0–120，預設 20）：外送儘快的估計＝後台的即時單準備時間再加上這幾分鐘（例如 15–30 分鐘＋20＝「約 35–50 分鐘」）。
+  - `note`（選填，最多 300 字）：外送範圍說明，顯示在顧客選區域的地方。
+  - 關掉外送（`services.delivery: false`）時 `delivery` 段可以留著，不會用到。`ordering-shop show` 會列出區域、運費、最低消費、外送時間與說明。
+- **顧客端**：取餐方式多了「外送（預約）」「外送（儘快）」；選外送要先選區域（看得到運費與最低消費）再選時間。購物車顯示
+  「還差 NT$X 達外送門檻」，未達門檻不能結帳；結帳要填地址（必填，最多 120 字）與「給外送的備註」（選填，最多 100 字），
+  合計含外送費，付款方式是貨到付款。伺服器也會再檢查：未達門檻回 `422 below-minimum`、區域不存在回 `422 unknown-zone`、
+  店家沒開外送回 `409 service-unavailable`；顧客送來的運費一律忽略。
+- **後台**：外送訂單的卡片有「外送」標記、區域、完整地址（附 Google 地圖搜尋連結）、給外送的備註與運費；
+  〔可取餐〕按鈕在外送訂單是〔已出發〕（訂單狀態沿用「可取餐」，顧客的訂單頁顯示「外送已出發」）。
+- **通知信**：外送訂單的信寫「外送」「預計送達」與「貨到付款」，只寫**區域名稱**，**不寫地址**與給外送的備註。
+- **個資**：地址與給外送的備註和姓名、電話一樣，在送達時間滿 90 天後清除（第 18.3 節）；區域名稱與運費保留作為統計。
+  api 的紀錄不寫地址。

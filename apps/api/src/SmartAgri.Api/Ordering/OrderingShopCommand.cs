@@ -179,14 +179,15 @@ public sealed class OrderingShopCommand
         text.Append(CultureInfo.InvariantCulture, $"電話：{shop.Phone}\n");
         text.Append(
             CultureInfo.InvariantCulture,
-            $"取餐方式：外帶預約（{OnOff(shop.TakeoutScheduled)}）、外帶即時（{OnOff(shop.TakeoutAsap)}）\n");
+            $"取餐方式：外帶預約（{OnOff(shop.TakeoutScheduled)}）、外帶即時（{OnOff(shop.TakeoutAsap)}）、"
+            + $"外送預約（{OnOff(shop.Delivery)}）、外送儘快（{OnOff(shop.DeliveryAsap)}）\n");
         text.Append("可點餐時間：\n");
         foreach (var day in WeeklyHours.Days)
         {
             var periods = shop.OrderingHours[day];
             text.Append(
                 CultureInfo.InvariantCulture,
-                $"  {DayName(day)}：{(periods.Count == 0 ? "不開放" : string.Join('、', periods.Select(period => period.IsOvernight ? $"{period}（跨午夜）" : period.ToString())))}\n");
+                $"  {DayName(day)}：{Periods(periods)}\n");
         }
 
         text.Append(
@@ -196,6 +197,7 @@ public sealed class OrderingShopCommand
         var (lower, upper) = AsapPrepBands.Minutes(shop.AsapPrepBand);
         text.Append(CultureInfo.InvariantCulture, $"即時單準備時間：{(lower == 0 ? $"{upper} 分鐘內" : $"{lower}–{upper} 分鐘")}\n");
         text.Append(CultureInfo.InvariantCulture, $"待確認逾時：營業中 {shop.PendingTimeoutMinutes} 分鐘沒有處理就自動取消\n");
+        Delivery(text, shop);
         text.Append(CultureInfo.InvariantCulture, $"暫停接單：{(shop.Paused ? "是" : "否")}\n");
         if (menu is null)
         {
@@ -209,6 +211,50 @@ public sealed class OrderingShopCommand
         }
         return text.ToString();
     }
+
+    /// <summary>The delivery section (#401): zones with fee and minimum, hours, lead time, ASAP extra, note.</summary>
+    private static void Delivery(StringBuilder text, OrderingShop shop)
+    {
+        if (shop.DeliverySettings is not { } delivery)
+        {
+            text.Append("外送：沒有設定\n");
+            return;
+        }
+
+        text.Append(CultureInfo.InvariantCulture, $"外送區域（{delivery.Zones.Count} 個）：\n");
+        foreach (var zone in delivery.Zones)
+        {
+            text.Append(
+                CultureInfo.InvariantCulture,
+                $"  {zone.Name}（{zone.Id}）：運費 NT${zone.Fee}，最低消費 NT${zone.MinimumSubtotal}\n");
+        }
+
+        if (delivery.OrderingHours is { } hours)
+        {
+            text.Append("外送時間：\n");
+            foreach (var day in WeeklyHours.Days)
+            {
+                text.Append(CultureInfo.InvariantCulture, $"  {DayName(day)}：{Periods(hours[day])}\n");
+            }
+        }
+        else
+        {
+            text.Append("外送時間：同可點餐時間\n");
+        }
+
+        text.Append(
+            CultureInfo.InvariantCulture,
+            $"外送準備：最短 {delivery.MinLeadMinutes} 分鐘，儘快外送另加 {delivery.AsapExtraMinutes} 分鐘\n");
+        if (delivery.Note is { } note)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"外送說明：{note.ReplaceLineEndings(" ")}\n");
+        }
+    }
+
+    private static string Periods(IReadOnlyList<BusinessPeriod> periods) =>
+        periods.Count == 0
+            ? "不開放"
+            : string.Join('、', periods.Select(period => period.IsOvernight ? $"{period}（跨午夜）" : period.ToString()));
 
     private static string OnOff(bool on) => on ? "開放" : "關閉";
 

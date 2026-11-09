@@ -1,10 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import {
   actionLabel,
+  arrivalWord,
   cancelReasonLabel,
   clockText,
   declineReasonLabel,
   elapsedText,
+  isDelivery,
+  mapsSearchUrl,
   optionsText,
   ORDERING_SERVICE_LABELS,
   priceText,
@@ -27,7 +30,8 @@ export interface OrderActionEvent {
 /**
  * 一筆訂單（issue #399）：號碼、取餐方式與時間（以伺服器的現在時間算「剩 N 分鐘」）、顧客（電話可撥打）、明細與備註、
  * 總額、狀態、送出多久了；按鈕只依訂單的 `actions[]` 顯示。待確認的訂單另外顯示「HH:mm 前未確認將自動取消」（#400），
- * 個資已清除的舊訂單（取餐 90 天後）姓名是「（已刪除）」，沒有電話可撥。
+ * 個資已清除的舊訂單（取餐 90 天後）姓名是「（已刪除）」，沒有電話可撥。外送單（#401）另外顯示區域、地址（連到 Google
+ * 地圖搜尋；清除後是「（已刪除）」）、給外送的備註與運費，時間說「送達」，〔可取餐〕是〔已出發〕。
  */
 @Component({
   selector: 'app-order-card',
@@ -45,25 +49,29 @@ export class OrderCardComponent {
 
   protected readonly optionsText = optionsText;
   protected readonly priceText = priceText;
+  protected readonly mapsSearchUrl = mapsSearchUrl;
+
+  protected readonly delivery = computed(() => (isDelivery(this.order().serviceType) ? this.order().delivery : null));
 
   protected readonly service = computed(() => ORDERING_SERVICE_LABELS[this.order().serviceType] ?? this.order().serviceType);
   protected readonly status = computed(() => statusLabel(this.order()));
 
-  /** 取餐時間的說明。 */
+  /** 取餐（外送是送達）時間的說明。 */
   protected readonly when = computed(() => {
     const order = this.order();
     const clock = (at: string) => clockText(at, this.timeZone(), this.now());
+    const word = arrivalWord(order.serviceType);
     if (order.status === 'pending') {
       return order.estimate
         ? `儘快，約 ${order.estimate.minMinutes}–${order.estimate.maxMinutes} 分鐘（最晚 ${clock(order.pickupAt)}）`
-        : `${clock(order.pickupAt)} 取餐`;
+        : `${clock(order.pickupAt)} ${word}`;
     }
     if (order.status === 'accepted' || order.status === 'ready') {
       const promised = order.promisedAt ?? order.pickupAt;
       const changed = !order.estimate && order.promisedAt !== null && Date.parse(order.promisedAt) !== Date.parse(order.pickupAt);
-      return `預計 ${clock(promised)} 可取餐${changed ? `（顧客選 ${clock(order.pickupAt)}）` : ''}`;
+      return `預計 ${clock(promised)} ${word === '取餐' ? '可取餐' : word}${changed ? `（顧客選 ${clock(order.pickupAt)}）` : ''}`;
     }
-    return `${order.estimate ? '儘快取餐' : `${clock(order.pickupAt)} 取餐`}`;
+    return `${order.estimate ? `儘快${word}` : `${clock(order.pickupAt)} ${word}`}`;
   });
 
   /** 還在處理的訂單才顯示「剩 N 分鐘」。 */
@@ -102,7 +110,7 @@ export class OrderCardComponent {
     }
     if (order.status === 'expired') return `${at(order.statusChangedAt)} 逾時沒有接單，系統已自動婉拒`;
     if (order.accepted) {
-      const ready = order.ready ? `；${at(order.ready.at)} 可取餐${who(order.ready.by)}` : '';
+      const ready = order.ready ? `；${at(order.ready.at)} ${isDelivery(order.serviceType) ? '已出發' : '可取餐'}${who(order.ready.by)}` : '';
       return `${at(order.accepted.at)} 接單${who(order.accepted.by)}${ready}`;
     }
     return null;

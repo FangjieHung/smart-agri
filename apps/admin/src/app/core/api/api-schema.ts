@@ -8844,7 +8844,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The business days and times a scheduled takeout order can be picked up */
+        /** The business days and times a scheduled takeout order can be picked up, and a scheduled delivery delivered */
         get: {
             parameters: {
                 query?: never;
@@ -8902,7 +8902,7 @@ export interface paths {
         put?: never;
         /**
          * Send an order: priced by the server, never by the client
-         * @description 201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors). 429 too-many-pending, or rate-limited with Retry-After.
+         * @description 201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). 429 too-many-pending, or rate-limited with Retry-After.
          */
         post: {
             parameters: {
@@ -11342,6 +11342,27 @@ export interface components {
             reason: null | components["schemas"]["OrderingDeclineReason"];
             note: null | string;
         };
+        OrderingDeliveryInfoView: {
+            zones: components["schemas"]["OrderingZoneView"][];
+            note: null | string;
+            open: components["schemas"]["OrderingOpenView"];
+            asap: null | components["schemas"]["OrderingAsapView"];
+            /** Format: int32 */
+            minLeadMinutes: number;
+            orderingHours: components["schemas"]["OrderingDayHoursView"][];
+            /** Format: int32 */
+            addressMaxLength: number;
+            /** Format: int32 */
+            noteMaxLength: number;
+        };
+        OrderingDeliveryView: {
+            zoneId: string;
+            zoneName: string;
+            /** Format: int32 */
+            fee: number;
+            address: string;
+            note: null | string;
+        };
         OrderingGroupView: {
             id: string;
             name: string;
@@ -11453,6 +11474,9 @@ export interface components {
             orderComment: null | string;
             tableware: null | boolean;
             submissionKey: null | string;
+            deliveryZoneId?: null | string;
+            deliveryAddress?: null | string;
+            deliveryNote?: null | string;
         };
         /** @enum {unknown} */
         OrderingOrderStatus: "pending" | "accepted" | "ready" | "completed" | "declined" | "cancelled" | "expired" | null;
@@ -11489,6 +11513,9 @@ export interface components {
             cancelledBy: null | components["schemas"]["OrderingCanceller"];
             cancelReason: null | components["schemas"]["OrderingCancelReason"];
             cancelNote: null | string;
+            /** Format: int32 */
+            deliveryFee: number;
+            delivery: null | components["schemas"]["OrderingDeliveryView"];
         };
         OrderingPauseRequest: {
             paused: null | boolean;
@@ -11512,6 +11539,10 @@ export interface components {
             menuVersion: null | number;
             orderNumber: null | string;
             orderStatus: null | components["schemas"]["OrderingOrderStatus"];
+            /** Format: int32 */
+            minimumSubtotal: null | number;
+            /** Format: int32 */
+            shortfall: null | number;
         };
         OrderingSelectionRequest: {
             groupId: null | string;
@@ -11523,9 +11554,11 @@ export interface components {
         OrderingServicesView: {
             takeoutScheduled: boolean;
             takeoutAsap: boolean;
+            delivery: boolean;
+            deliveryAsap: boolean;
         };
         /** @enum {unknown} */
-        OrderingServiceType: "takeout-scheduled" | "takeout-asap";
+        OrderingServiceType: "takeout-scheduled" | "takeout-asap" | "delivery-scheduled" | "delivery-asap";
         OrderingShopCancelRequest: {
             /** Format: int32 */
             version: null | number;
@@ -11552,6 +11585,7 @@ export interface components {
             menuVersion: number;
             orderingHours: components["schemas"]["OrderingDayHoursView"][];
             limits: components["schemas"]["OrderingLimitsView"];
+            delivery: null | components["schemas"]["OrderingDeliveryInfoView"];
         };
         OrderingSlotRulesView: {
             /** Format: int32 */
@@ -11565,6 +11599,7 @@ export interface components {
             /** Format: date-time */
             now: string;
             dates: components["schemas"]["OrderingDateView"][];
+            deliveryDates: components["schemas"]["OrderingDateView"][];
         };
         OrderingSlotView: {
             value: string;
@@ -11673,6 +11708,9 @@ export interface components {
             expiresAt: string;
             /** Format: date-time */
             personalDataClearedAt: null | string;
+            /** Format: int32 */
+            deliveryFee: number;
+            delivery: null | components["schemas"]["OrderingDeliveryView"];
         };
         OrderingStaffStepView: {
             /** Format: date-time */
@@ -11710,6 +11748,14 @@ export interface components {
         OrderingSubmittedView: {
             token: string;
             order: components["schemas"]["OrderingOrderView"];
+        };
+        OrderingZoneView: {
+            id: string;
+            name: string;
+            /** Format: int32 */
+            fee: number;
+            /** Format: int32 */
+            minimumSubtotal: number;
         };
         OrganizationChatModelView: {
             options: components["schemas"]["ChatModelOptionView"][];

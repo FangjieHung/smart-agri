@@ -9,7 +9,7 @@ import { PickupTicket } from '../ui/pickup-ticket';
 import { TimeSheet } from '../ui/time-sheet';
 import { PageHeader } from '../ui/page-header';
 
-/** 購物車：改選項、份數、刪除、訂單備註、餐具，前往結帳。 */
+/** 購物車：改選項、份數、刪除、訂單備註、餐具，前往結帳。外送未達門檻時不能結帳（#401）。 */
 @Component({
   selector: 'app-cart-page',
   imports: [PickupTicket, TimeSheet, ItemSheet, PageHeader],
@@ -33,7 +33,9 @@ export default class CartPage {
     return entry?.priced?.item ?? null;
   });
 
-  protected readonly blocked = computed(() => this.store.lineWarnings().size > 0);
+  protected readonly blocked = computed(
+    () => this.store.lineWarnings().size > 0 || this.store.shortfall() > 0,
+  );
 
   constructor() {
     void this.store.loadMenu();

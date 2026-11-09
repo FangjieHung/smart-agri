@@ -53,7 +53,7 @@ public sealed record OrderingStaffSummaryView(
             shop.Paused,
             shop.AsapPrepBand,
             new OrderingAsapView(lower, upper),
-            new OrderingServicesView(shop.TakeoutScheduled, shop.TakeoutAsap),
+            OrderingServicesView.Of(shop),
             summary.MenuVersion,
             shop.Version);
     }
@@ -89,7 +89,10 @@ public sealed record OrderingStaffCancellationView(
 /// <param name="PersonalDataClearedAt">When the customer's name, phone, Email and comments were cleared, 90 days after the
 /// pickup (design D12, #400); <see langword="null"/> while kept.</param>
 /// <param name="Actions">What the staff can do now: <c>accept</c>, <c>decline</c>, <c>ready</c>, <c>complete</c>,
-/// <c>cancel</c>.</param>
+/// <c>cancel</c>. For a delivery order <c>ready</c> is 〔已出發〕 (#401).</param>
+/// <param name="DeliveryFee">運費 in <see cref="Total"/> (#401); 0 for takeout.</param>
+/// <param name="Delivery">A delivery order's zone, fee, full address (empty once cleared) and note (#401);
+/// <see langword="null"/> for takeout.</param>
 public sealed record OrderingStaffOrderView(
     Guid Id,
     int Number,
@@ -120,7 +123,9 @@ public sealed record OrderingStaffOrderView(
     OrderingStaffCancellationView? Cancelled,
     IReadOnlyList<OrderingOrderAction> Actions,
     DateTimeOffset ExpiresAt,
-    DateTimeOffset? PersonalDataClearedAt)
+    DateTimeOffset? PersonalDataClearedAt,
+    int DeliveryFee,
+    OrderingDeliveryView? Delivery)
 {
     public static OrderingStaffOrderView Of(OrderingOrder order, IReadOnlyDictionary<Guid, string> members)
     {
@@ -164,7 +169,9 @@ public sealed record OrderingStaffOrderView(
                 : null,
             order.AllowedActions,
             order.ExpiresAt,
-            order.PersonalDataClearedAt);
+            order.PersonalDataClearedAt,
+            order.DeliveryFee,
+            OrderingDeliveryView.Of(order));
     }
 }
 

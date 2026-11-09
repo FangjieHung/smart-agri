@@ -79,6 +79,13 @@ fieldset.block > .block__title {
   white-space: pre-line;
 }
 
+.fees {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  color: var(--c-ink-2);
+}
+
 .total {
   display: flex;
   justify-content: space-between;

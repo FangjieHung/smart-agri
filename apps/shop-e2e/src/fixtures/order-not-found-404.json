@@ -1,1 +1,1 @@
-{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.5","title":"Not Found","status":404,"reason":"order-not-found","message":"找不到這筆訂單，請確認網址。","errors":null,"lineErrors":null,"menuVersion":null,"orderNumber":null,"orderStatus":null}
+{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.5","title":"Not Found","status":404,"reason":"order-not-found","message":"找不到這筆訂單，請確認網址。","errors":null,"lineErrors":null,"menuVersion":null,"orderNumber":null,"orderStatus":null,"minimumSubtotal":null,"shortfall":null}

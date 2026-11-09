@@ -98,7 +98,7 @@ describe('外帶預約：點餐、送出、訂單頁、取消', () => {
       });
       cy.get('[data-testid="order-number"]').should('contain.text', '#001');
       cy.get('[data-testid="order-status"]').should('contain.text', '等待店家確認');
-      cy.get('[data-testid="order-pickup"]').should('contain', '明天 12:30');
+      cy.get('[data-testid="order-pickup"]').should('contain', '今天 12:30');
 
       cy.get('[data-testid="cancel-order"]').click();
       cy.get('dialog[open]').should('contain', '要取消訂單 #001 嗎？');

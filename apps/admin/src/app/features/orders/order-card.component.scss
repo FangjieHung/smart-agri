@@ -87,3 +87,9 @@ p { margin: 0; }
 // 已接單時主要的下一步是〔可取餐〕，〔完成〕是外框按鈕；可取餐之後〔完成〕才是主要按鈕。
 .order[data-status='accepted'] .order__action[data-action='complete'] { background: var(--color-surface); color: var(--color-accent); }
 .order__action:disabled { cursor: progress; opacity: 0.6; }
+
+// 外送（#401）：取餐方式是醒目的標籤，區域粗體、地址可點開地圖。
+.order__service--delivery { padding: 0 var(--space-2); border-radius: var(--radius-control); background: var(--color-accent-soft); color: var(--color-text); }
+.order__address { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--space-3); }
+.order__zone { font-weight: 700; }
+.order__fee { color: var(--color-text-secondary); font-variant-numeric: tabular-nums; }

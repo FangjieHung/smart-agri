@@ -18,6 +18,7 @@ export type OrderingServiceType = components['schemas']['OrderingServiceType'];
 export type OrderingAsapBand = components['schemas']['AsapPrepBand'];
 export type OrderingOrderStatus = NonNullable<components['schemas']['OrderingOrderStatus']>;
 export type OrderingDeclineReason = NonNullable<components['schemas']['OrderingDeclineReason']>;
+export type OrderingDeliveryView = components['schemas']['OrderingDeliveryView'];
 export type OrderingCancelReason = NonNullable<components['schemas']['OrderingCancelReason']>;
 
 /** 清單的三種檢視（`GET orders?view=`）。 */
@@ -41,7 +42,19 @@ export function listOf(status: OrderingOrderStatus | null): OrderingListView {
 export const ORDERING_SERVICE_LABELS: Readonly<Record<OrderingServiceType, string>> = {
   'takeout-scheduled': '外帶預約',
   'takeout-asap': '外帶即時',
+  'delivery-scheduled': '外送預約',
+  'delivery-asap': '外送即時',
 };
+
+/** 外送（預約或儘快，#401）：〔可取餐〕叫〔已出發〕，時間是預計送達。 */
+export function isDelivery(serviceType: string): boolean {
+  return serviceType === 'delivery-scheduled' || serviceType === 'delivery-asap';
+}
+
+/** 「取餐」或「送達」（#401）：卡片、接單對話框與通知裡的時間說法。 */
+export function arrivalWord(serviceType: string): '取餐' | '送達' {
+  return isDelivery(serviceType) ? '送達' : '取餐';
+}
 
 export const ORDERING_STATUS_LABELS: Readonly<Record<OrderingOrderStatus, string>> = {
   pending: '待確認',
@@ -53,14 +66,15 @@ export const ORDERING_STATUS_LABELS: Readonly<Record<OrderingOrderStatus, string
   expired: '逾時未處理',
 };
 
-/** 卡片上的狀態文字：取消分成顧客與店家。 */
-export function statusLabel(order: Pick<OrderingOrderView, 'status' | 'cancelled'>): string {
+/** 卡片上的狀態文字：取消分成顧客與店家；外送單的「可取餐」是「已出發」（#401）。 */
+export function statusLabel(order: Pick<OrderingOrderView, 'status' | 'cancelled' | 'serviceType'>): string {
   if (order.status === null) return '';
   if (order.status === 'cancelled') return order.cancelled?.by === 'shop' ? '店家已取消' : '顧客已取消';
+  if (order.status === 'ready' && isDelivery(order.serviceType)) return '已出發';
   return ORDERING_STATUS_LABELS[order.status];
 }
 
-/** 按鈕文字；〔可取餐〕在外送單是〔已出發〕（#401 加入外送後才會出現）。 */
+/** 按鈕文字；〔可取餐〕在外送單是〔已出發〕（#401）。 */
 export function actionLabel(action: OrderingOrderAction, serviceType: string): string {
   switch (action) {
     case 'accept':
@@ -68,7 +82,7 @@ export function actionLabel(action: OrderingOrderAction, serviceType: string): s
     case 'decline':
       return '婉拒';
     case 'ready':
-      return serviceType === 'delivery' ? '已出發' : '可取餐';
+      return isDelivery(serviceType) ? '已出發' : '可取餐';
     case 'complete':
       return '完成';
     case 'cancel':
@@ -142,6 +156,11 @@ export function optionsText(options: readonly OrderingChosenOption[]): string {
       return `${option.optionName}${option.count > 1 ? ` ×${option.count}` : ''}${inner ? `（${inner}）` : ''}`;
     })
     .join('、');
+}
+
+/** 外送地址在 Google 地圖搜尋的網址（#401；不需要 API 金鑰）。 */
+export function mapsSearchUrl(address: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 }
 
 /** 新台幣整數元：「NT$1,245」。 */

@@ -39,14 +39,20 @@ describe('OrderingRepository (mock mode, issue #399)', () => {
     const repository = mockRepository();
     const summary = await ready(firstValueFrom(repository.summary()));
     expect([summary.shopName, summary.timeZone, summary.pendingCount, summary.activeCount, summary.paused, summary.asapBand])
-      .toEqual(['王記麵店', 'Asia/Taipei', 2, 2, false, '15-30']);
+      .toEqual(['王記麵店', 'Asia/Taipei', 2, 3, false, '15-30']);
     expect(summary.latestOrderAt).not.toBeNull();
 
     const pending = await ready(firstValueFrom(repository.orders('pending')));
     expect(pending.orders.map((order) => order.displayNumber)).toEqual(['#016', '#015']);
     expect(pending.orders.every((order) => order.actions.join() === 'accept,decline')).toBe(true);
     const active = await ready(firstValueFrom(repository.orders('active')));
-    expect(active.orders.map((order) => [order.displayNumber, order.status])).toEqual([['#013', 'ready'], ['#014', 'accepted']]);
+    expect(active.orders.map((order) => [order.displayNumber, order.status])).toEqual([['#013', 'ready'], ['#014', 'accepted'], ['#010', 'accepted']]);
+    // 外送單（#401）：總額含運費，外帶單是 0 與 null。
+    const delivery = active.orders.find((order) => order.serviceType === 'delivery-scheduled');
+    expect(delivery && [delivery.customerName, delivery.subtotal, delivery.deliveryFee, delivery.total, delivery.delivery?.zoneName, delivery.delivery?.address, delivery.delivery?.note])
+      .toEqual(['王太太', 370, 30, 400, '新營區其他里', '台南市新營區中山路 1 號 3 樓', '請按電鈴']);
+    expect([...pending.orders, ...active.orders].filter((order) => order !== delivery).every((order) => order.deliveryFee === 0 && order.delivery === null)).toBe(true);
+    expect(summary.services).toEqual({ takeoutScheduled: true, takeoutAsap: true, delivery: true, deliveryAsap: true });
     const done = await ready(firstValueFrom(repository.orders('done')));
     expect(done.orders.map((order) => order.status)).toEqual(['completed', 'declined']);
   });

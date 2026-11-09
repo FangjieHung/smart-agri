@@ -13,6 +13,9 @@ namespace SmartAgri.Api.Ordering;
 /// <param name="PickupSlot">Scheduled: the slot's value.</param>
 /// <param name="Phone">Normalized (digits only).</param>
 /// <param name="SubmissionKey">Normalized (<see cref="OrderingOrder.NormalizeSubmissionKey"/>).</param>
+/// <param name="DeliveryZoneId">Delivery (#401): the zone chosen; its fee and minimum are the shop's under the lock.</param>
+/// <param name="DeliveryAddress">Delivery: trimmed, checked.</param>
+/// <param name="DeliveryNote">Delivery: trimmed, checked; <see langword="null"/> when empty.</param>
 public sealed record OrderingSubmission(
     Guid OrganizationId,
     OrderingServiceType ServiceType,
@@ -25,7 +28,10 @@ public sealed record OrderingSubmission(
     string? Email,
     string? OrderComment,
     bool? Tableware,
-    string SubmissionKey);
+    string SubmissionKey,
+    string? DeliveryZoneId = null,
+    string? DeliveryAddress = null,
+    string? DeliveryNote = null);
 
 /// <summary>How a submission went.</summary>
 public enum OrderingSubmitOutcome
@@ -42,6 +48,9 @@ public enum OrderingSubmitOutcome
 
     /// <summary>The service is off, or ASAP is not possible now.</summary>
     ServiceUnavailable,
+
+    /// <summary>Delivery (#401): the shop has no zone of that id (any more).</summary>
+    UnknownZone,
 
     /// <summary>The scheduled time is not offered (gone, never was).</summary>
     SlotUnavailable,
@@ -61,6 +70,10 @@ public enum OrderingSubmitOutcome
     /// <summary>An item cannot be had at the pickup time: <see cref="OrderingSubmitResult.LineErrors"/>.</summary>
     ItemsUnavailable,
 
+    /// <summary>Delivery (#401): the subtotal is below the zone's minimum; <see cref="OrderingSubmitResult.Zone"/> and
+    /// <see cref="OrderingSubmitResult.Shortfall"/>.</summary>
+    BelowMinimum,
+
     /// <summary>The phone already has <see cref="OrderingOrder.MaxPendingPerPhone"/> pending orders at the shop.</summary>
     TooManyPending,
 }
@@ -70,7 +83,9 @@ public sealed record OrderingSubmitResult(
     OrderingOrder? Order = null,
     string? Token = null,
     int? MenuVersion = null,
-    IReadOnlyList<OrderingLineError>? LineErrors = null);
+    IReadOnlyList<OrderingLineError>? LineErrors = null,
+    DeliveryZone? Zone = null,
+    int? Shortfall = null);
 
 /// <summary>How a cancellation went.</summary>
 public enum OrderingCancelOutcome
@@ -132,11 +147,13 @@ public sealed class OrderingOrders
         return await dbContext.OrderingItemStates.AsNoTracking().ToListAsync(cancellationToken);
     }
 
-    /// <summary>How many orders take a place at each scheduled pickup instant from <paramref name="from"/> on.</summary>
-    public async Task<Func<DateTimeOffset, int>> SlotCountsAsync(Guid organizationId, DateTimeOffset from, CancellationToken cancellationToken)
+    /// <summary>How many orders of <paramref name="channel"/> take a place at each scheduled instant from
+    /// <paramref name="from"/> on (takeout and delivery are counted apart, #401).</summary>
+    public async Task<Func<DateTimeOffset, int>> SlotCountsAsync(
+        Guid organizationId, DateTimeOffset from, OrderingChannel channel, CancellationToken cancellationToken)
     {
         await using var dbContext = ForOrganization(organizationId);
-        return await SlotCountsAsync(dbContext, from, cancellationToken);
+        return await SlotCountsAsync(dbContext, from, channel, cancellationToken);
     }
 
     /// <summary>The order <paramref name="orderId"/> of the shop with the shop's settings (both <see langword="null"/> when
@@ -249,28 +266,45 @@ public sealed class OrderingOrders
             return new OrderingSubmitResult(OrderingSubmitOutcome.Paused);
         }
 
-        DateOnly businessDate;
-        DateTimeOffset pickupAt;
-        AsapEstimate? asap = null;
-        if (submission.ServiceType == OrderingServiceType.TakeoutAsap)
+        var channel = submission.ServiceType.Channel();
+        var hours = shop.HoursFor(channel);
+        DeliveryZone? zone = null;
+        if (channel == OrderingChannel.Delivery)
         {
-            if ((asap = OrderingSlots.Asap(shop, now)) is null)
+            if (!shop.DeliveryOffered || (submission.ServiceType == OrderingServiceType.DeliveryAsap && !shop.DeliveryAsap))
             {
                 return new OrderingSubmitResult(OrderingSubmitOutcome.ServiceUnavailable);
             }
 
-            businessDate = OrderingOrder.AsapBusinessDate(shop.Hours, now);
+            // The zone as the shop has it now: its fee and minimum, never the client's.
+            if ((zone = shop.DeliverySettings!.Zone(submission.DeliveryZoneId)) is null)
+            {
+                return new OrderingSubmitResult(OrderingSubmitOutcome.UnknownZone);
+            }
+        }
+
+        DateOnly businessDate;
+        DateTimeOffset pickupAt;
+        AsapEstimate? asap = null;
+        if (submission.ServiceType.IsAsap())
+        {
+            if ((asap = OrderingSlots.Asap(shop, now, channel)) is null)
+            {
+                return new OrderingSubmitResult(OrderingSubmitOutcome.ServiceUnavailable);
+            }
+
+            businessDate = OrderingOrder.AsapBusinessDate(hours, now);
             pickupAt = now.AddMinutes(asap.MaxMinutes);
         }
         else
         {
-            if (!shop.TakeoutScheduled)
+            if (channel == OrderingChannel.Takeout && !shop.TakeoutScheduled)
             {
                 return new OrderingSubmitResult(OrderingSubmitOutcome.ServiceUnavailable);
             }
 
-            var counts = await SlotCountsAsync(dbContext, now, cancellationToken);
-            var slot = OrderingSlots.On(shop, submission.PickupDate!.Value, now, counts)
+            var counts = await SlotCountsAsync(dbContext, now, channel, cancellationToken);
+            var slot = OrderingSlots.On(shop, submission.PickupDate!.Value, now, counts, channel)
                 .FirstOrDefault(candidate => candidate.Value == submission.PickupSlot);
             if (slot is null)
             {
@@ -298,7 +332,7 @@ public sealed class OrderingOrders
             return new OrderingSubmitResult(OrderingSubmitOutcome.InvalidLines, LineErrors: cart.Errors);
         }
 
-        if (cart.Subtotal > OrderingOrder.MaxTotal)
+        if (cart.Subtotal + (zone?.Fee ?? 0) > OrderingOrder.MaxTotal)
         {
             return new OrderingSubmitResult(OrderingSubmitOutcome.TotalTooLarge);
         }
@@ -308,6 +342,11 @@ public sealed class OrderingOrders
         if (unobtainable.Count > 0)
         {
             return new OrderingSubmitResult(OrderingSubmitOutcome.ItemsUnavailable, LineErrors: unobtainable);
+        }
+
+        if (zone is not null && cart.Subtotal < zone.MinimumSubtotal)
+        {
+            return new OrderingSubmitResult(OrderingSubmitOutcome.BelowMinimum, Zone: zone, Shortfall: (int)(zone.MinimumSubtotal - cart.Subtotal));
         }
 
         var pending = await dbContext.OrderingOrders.CountAsync(
@@ -325,7 +364,8 @@ public sealed class OrderingOrders
         var stored = OrderingOrder.Submit(
             submission.OrganizationId, submission.ServiceType, businessDate, number, pickupAt, asap, submission.Name, submission.Phone,
             submission.Email, submission.OrderComment, submission.Tableware, cart.Lines, menu.Version, token, submission.SubmissionKey,
-            shop.Hours, shop.PendingTimeoutMinutes, now);
+            hours, shop.PendingTimeoutMinutes, now,
+            zone is null ? null : new OrderingOrderDelivery(zone.Id, zone.Name, zone.Fee, submission.DeliveryAddress!, submission.DeliveryNote));
         dbContext.OrderingOrders.Add(stored);
         // #400: nobody answering it by ExpiresAt expires it (OrderingExpireOrderJob), stored with the order.
         dbContext.BackgroundJobs.Add(ExpiryJob(stored, now));
@@ -399,11 +439,13 @@ public sealed class OrderingOrders
         return new OrderingCancelResult(OrderingCancelOutcome.NotCancellable, await FindByTokenAsync(organizationId, token, cancellationToken));
     }
 
-    private static async Task<Func<DateTimeOffset, int>> SlotCountsAsync(AppDbContext dbContext, DateTimeOffset from, CancellationToken cancellationToken)
+    private static async Task<Func<DateTimeOffset, int>> SlotCountsAsync(
+        AppDbContext dbContext, DateTimeOffset from, OrderingChannel channel, CancellationToken cancellationToken)
     {
         var start = from.ToUniversalTime().AddDays(-1);
+        var type = channel == OrderingChannel.Delivery ? OrderingServiceType.DeliveryScheduled : OrderingServiceType.TakeoutScheduled;
         var counts = await dbContext.OrderingOrders.AsNoTracking()
-            .Where(order => order.ServiceType == OrderingServiceType.TakeoutScheduled && order.PickupAt >= start
+            .Where(order => order.ServiceType == type && order.PickupAt >= start
                 // Every status but the three that free the place (pending, accepted, ready, completed take one).
                 && order.Status != OrderingOrderStatus.Cancelled
                 && order.Status != OrderingOrderStatus.Declined

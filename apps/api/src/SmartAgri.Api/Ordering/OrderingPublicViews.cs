@@ -13,6 +13,8 @@ namespace SmartAgri.Api.Ordering;
 /// <param name="Asap">「儘快（約 N–M 分鐘）」 when an ASAP order can be sent now; otherwise <see langword="null"/> (ASAP off,
 /// paused, outside the ordering hours, or too close to closing).</param>
 /// <param name="MenuVersion">The current menu version: send it with an order.</param>
+/// <param name="Delivery">外送 (#401) when the shop offers it: zones, hours, whether 外送（儘快） can be sent now; otherwise
+/// <see langword="null"/>.</param>
 public sealed record OrderingShopInfoView(
     string Slug,
     string Name,
@@ -30,7 +32,32 @@ public sealed record OrderingShopInfoView(
     bool ShowTableware,
     int MenuVersion,
     IReadOnlyList<OrderingDayHoursView> OrderingHours,
-    OrderingLimitsView Limits);
+    OrderingLimitsView Limits,
+    OrderingDeliveryInfoView? Delivery);
+
+/// <summary>The shop's delivery (#401): no map, no distance — the customer picks a zone the shop named and types the address.</summary>
+/// <param name="Note">外送範圍說明, shown with the zones.</param>
+/// <param name="Open">By the delivery hours.</param>
+/// <param name="Asap">「外送儘快（約 N–M 分鐘）」 when an ASAP delivery can be sent now; otherwise <see langword="null"/>.</param>
+/// <param name="MinLeadMinutes">The earliest delivery slot is at least this long from now.</param>
+/// <param name="OrderingHours">When orders are delivered (the takeout hours unless the shop set its own).</param>
+/// <param name="AddressMaxLength">Longest address.</param>
+/// <param name="NoteMaxLength">Longest 給外送的備註.</param>
+public sealed record OrderingDeliveryInfoView(
+    IReadOnlyList<OrderingZoneView> Zones,
+    string? Note,
+    OrderingOpenView Open,
+    OrderingAsapView? Asap,
+    int MinLeadMinutes,
+    IReadOnlyList<OrderingDayHoursView> OrderingHours,
+    int AddressMaxLength,
+    int NoteMaxLength);
+
+/// <summary>A delivery zone: its fee (added to the total) and the least subtotal (before the fee) it delivers.</summary>
+public sealed record OrderingZoneView(string Id, string Name, int Fee, int MinimumSubtotal)
+{
+    public static OrderingZoneView Of(DeliveryZone zone) => new(zone.Id, zone.Name, zone.Fee, zone.MinimumSubtotal);
+}
 
 /// <param name="Reminder">提醒事項, shown above the menu.</param>
 /// <param name="Checkout">結帳說明, shown at checkout.</param>
@@ -38,7 +65,13 @@ public sealed record OrderingNoticesView(string? Reminder, string? Checkout);
 
 /// <summary>Which ways of getting an order the shop offers (whether they can be used now: <see cref="OrderingShopInfoView.Paused"/>,
 /// <see cref="OrderingShopInfoView.Asap"/>, the slots).</summary>
-public sealed record OrderingServicesView(bool TakeoutScheduled, bool TakeoutAsap);
+/// <param name="Delivery">外送（預約）(#401).</param>
+/// <param name="DeliveryAsap">外送（儘快）(#401).</param>
+public sealed record OrderingServicesView(bool TakeoutScheduled, bool TakeoutAsap, bool Delivery, bool DeliveryAsap)
+{
+    public static OrderingServicesView Of(OrderingShop shop) =>
+        new(shop.TakeoutScheduled, shop.TakeoutAsap, shop.DeliveryOffered, shop.DeliveryOffered && shop.DeliveryAsap);
+}
 
 /// <summary>「營業中」 or 「打烊中．明天 11:00 開始營業」 by the ordering hours.</summary>
 /// <param name="IsOpen">Inside an ordering period now.</param>
@@ -105,8 +138,9 @@ public sealed record OrderingGroupView(string Id, string Name, int Min, int Max,
 public sealed record OrderingOptionView(string Id, string Name, int Price, IReadOnlyList<OrderingGroupView> OptionGroups);
 
 /// <summary><c>GET …/slots</c>: the business days with scheduled pickup times (empty when scheduled takeout is off or the
-/// shop is paused).</summary>
-public sealed record OrderingSlotsView(DateTimeOffset Now, IReadOnlyList<OrderingDateView> Dates);
+/// shop is paused), and with delivery times (#401: the delivery hours and lead time, places counted apart; empty when the
+/// shop does not deliver or is paused).</summary>
+public sealed record OrderingSlotsView(DateTimeOffset Now, IReadOnlyList<OrderingDateView> Dates, IReadOnlyList<OrderingDateView> DeliveryDates);
 
 /// <param name="Date">The business day, <c>yyyy-MM-dd</c>: send it as <c>pickupDate</c>.</param>
 public sealed record OrderingDateView(string Date, IReadOnlyList<OrderingSlotView> Slots);
@@ -124,6 +158,9 @@ public sealed record OrderingSlotView(string Value, DateTimeOffset At, string Ti
 /// <param name="OrderComment">Kept only when the shop shows it (<see cref="OrderingShopInfoView.ShowOrderComment"/>).</param>
 /// <param name="Tableware">Kept only when the shop shows it (<see cref="OrderingShopInfoView.ShowTableware"/>).</param>
 /// <param name="SubmissionKey">A UUID the client makes once per checkout and sends again with every retry of it.</param>
+/// <param name="DeliveryZoneId">Delivery only (#401): <see cref="OrderingZoneView.Id"/>. The fee is the server's.</param>
+/// <param name="DeliveryAddress">Delivery only: required, one line, at most 120 characters.</param>
+/// <param name="DeliveryNote">Delivery only: 給外送的備註, at most 100 characters.</param>
 public sealed record OrderingOrderRequest(
     OrderingServiceType? ServiceType,
     string? PickupDate,
@@ -133,7 +170,10 @@ public sealed record OrderingOrderRequest(
     OrderingCustomerRequest? Customer,
     string? OrderComment,
     bool? Tableware,
-    string? SubmissionKey);
+    string? SubmissionKey,
+    string? DeliveryZoneId = null,
+    string? DeliveryAddress = null,
+    string? DeliveryNote = null);
 
 /// <param name="Quantity">1–99.</param>
 /// <param name="Selections">The chosen options, nested under the option they belong to.</param>
@@ -171,6 +211,9 @@ public sealed record OrderingSubmittedView(string Token, OrderingOrderView Order
 /// <param name="CancelledBy"><c>customer</c> or <c>shop</c> (<c>cancelled</c> only).</param>
 /// <param name="CancelReason">Why the shop cancelled it (cancelled by the shop only).</param>
 /// <param name="CancelNote">The shop's words with <see cref="CancelReason"/>, if any.</param>
+/// <param name="DeliveryFee">運費 in <see cref="Total"/> (#401); 0 for takeout.</param>
+/// <param name="Delivery">A delivery order's zone and address (#401); <see langword="null"/> for takeout. Its <c>ready</c>
+/// status means 已出發.</param>
 public sealed record OrderingOrderView(
     int Number,
     string DisplayNumber,
@@ -195,7 +238,9 @@ public sealed record OrderingOrderView(
     string? DeclineNote,
     OrderingCanceller? CancelledBy,
     OrderingCancelReason? CancelReason,
-    string? CancelNote)
+    string? CancelNote,
+    int DeliveryFee,
+    OrderingDeliveryView? Delivery)
 {
     public static OrderingOrderView Of(OrderingOrder order) => new(
         order.Number,
@@ -221,7 +266,17 @@ public sealed record OrderingOrderView(
         order.DeclineNote,
         order.CancelledBy,
         order.CancelReason,
-        order.CancelNote);
+        order.CancelNote,
+        order.DeliveryFee,
+        OrderingDeliveryView.Of(order));
+}
+
+/// <summary>A delivery order's zone (as it was when sent), fee, address and note (#401). The address is empty and the note
+/// <see langword="null"/> once the personal data was cleared.</summary>
+public sealed record OrderingDeliveryView(string ZoneId, string ZoneName, int Fee, string Address, string? Note)
+{
+    public static OrderingDeliveryView? Of(OrderingOrder order) =>
+        order.Delivery is { } delivery ? new(delivery.ZoneId, delivery.ZoneName, delivery.Fee, delivery.Address, delivery.Note) : null;
 }
 
 /// <summary>Every refusal of the ordering API: RFC 9457 problem details with a stable <see cref="Reason"/> to switch on and
@@ -232,6 +287,8 @@ public sealed record OrderingOrderView(
 /// <param name="MenuVersion">The current menu version, for <c>menu-changed</c>.</param>
 /// <param name="OrderNumber">The order sent before with the same key, for <c>duplicate-submission</c> (「#003」).</param>
 /// <param name="OrderStatus">The order's status now, for <c>not-cancellable</c>.</param>
+/// <param name="MinimumSubtotal">The zone's minimum, for <c>below-minimum</c> (#401).</param>
+/// <param name="Shortfall">How much more the subtotal needs, for <c>below-minimum</c> (#401).</param>
 public sealed record OrderingProblem(
     string Type,
     string Title,
@@ -242,7 +299,9 @@ public sealed record OrderingProblem(
     IReadOnlyList<OrderingLineError>? LineErrors,
     int? MenuVersion,
     string? OrderNumber,
-    OrderingOrderStatus? OrderStatus);
+    OrderingOrderStatus? OrderStatus,
+    int? MinimumSubtotal,
+    int? Shortfall);
 
 internal static class OrderingPublicViews
 {
@@ -258,11 +317,6 @@ internal static class OrderingPublicViews
 
     public static OrderingShopInfoView Shop(OrderingShop shop, int menuVersion, DateTimeOffset now)
     {
-        var hours = shop.Hours;
-        var today = hours.DateAt(now);
-        var current = new[] { today.AddDays(-1), today }
-            .SelectMany(hours.PeriodsOn)
-            .FirstOrDefault(period => period.Opens <= now && now < period.Closes);
         var asap = OrderingSlots.Asap(shop, now);
         return new OrderingShopInfoView(
             shop.Slug,
@@ -270,34 +324,68 @@ internal static class OrderingPublicViews
             shop.Phone,
             shop.Address,
             new OrderingNoticesView(shop.ReminderNotice, shop.CheckoutNotice),
-            new OrderingServicesView(shop.TakeoutScheduled, shop.TakeoutAsap),
+            OrderingServicesView.Of(shop),
             shop.Paused,
             shop.TimeZoneId,
             now,
-            new OrderingOpenView(current is not null, current?.Opens, current?.Closes, hours.NextOpeningAfter(now)),
+            Open(shop.Hours, now),
             asap is null ? null : OrderingAsapView.Of(asap),
             new OrderingSlotRulesView(shop.SlotMinutes, shop.DaysAhead, shop.MinLeadMinutes),
             shop.ShowOrderComment,
             shop.ShowTableware,
             menuVersion,
-            [
-                .. WeeklyHours.Days.Select(day => new OrderingDayHoursView(
-                    WeeklyHours.WireName(day),
-                    [.. shop.OrderingHours[day].Select(period => new OrderingPeriodView(Time(period.Open), Time(period.Close)))])),
-            ],
+            Week(shop.OrderingHours),
             new OrderingLimitsView(
                 OrderingOrder.MaxLines, MenuLimits.MaxQuantity, OrderingContact.NameMaxLength, OrderingContact.LineCommentMaxLength,
-                OrderingContact.OrderCommentMaxLength, OrderingOrder.MaxTotal));
+                OrderingContact.OrderCommentMaxLength, OrderingOrder.MaxTotal),
+            shop.DeliveryOffered ? Delivery(shop, now) : null);
     }
+
+    private static OrderingDeliveryInfoView Delivery(OrderingShop shop, DateTimeOffset now)
+    {
+        var settings = shop.DeliverySettings!;
+        var asap = OrderingSlots.Asap(shop, now, OrderingChannel.Delivery);
+        return new OrderingDeliveryInfoView(
+            [.. settings.Zones.Select(OrderingZoneView.Of)],
+            settings.Note,
+            Open(shop.HoursFor(OrderingChannel.Delivery), now),
+            asap is null ? null : OrderingAsapView.Of(asap),
+            settings.MinLeadMinutes,
+            Week(shop.DeliveryHours),
+            OrderingContact.AddressMaxLength,
+            OrderingContact.DeliveryNoteMaxLength);
+    }
+
+    /// <summary>Open now by <paramref name="hours"/>, and the next opening.</summary>
+    private static OrderingOpenView Open(BusinessHours hours, DateTimeOffset now)
+    {
+        var today = hours.DateAt(now);
+        var current = new[] { today.AddDays(-1), today }
+            .SelectMany(hours.PeriodsOn)
+            .FirstOrDefault(period => period.Opens <= now && now < period.Closes);
+        return new OrderingOpenView(current is not null, current?.Opens, current?.Closes, hours.NextOpeningAfter(now));
+    }
+
+    private static List<OrderingDayHoursView> Week(WeeklyHours hours) =>
+    [
+        .. WeeklyHours.Days.Select(day => new OrderingDayHoursView(
+            WeeklyHours.WireName(day),
+            [.. hours[day].Select(period => new OrderingPeriodView(Time(period.Open), Time(period.Close)))])),
+    ];
 
     /// <summary>The menu, with the state of every item that cannot be ordered now or is sold out until later.</summary>
     public static OrderingMenuView Menu(OrderingMenu menu, IReadOnlyList<OrderingItemState> states, DateTimeOffset now) =>
         new(menu.Version, [.. menu.Document.Categories.Select(category => Category(category, states, now))]);
 
-    public static OrderingSlotsView Slots(IReadOnlyList<OrderingDate> dates, DateTimeOffset now) =>
-        new(now, [.. dates.Select(date => new OrderingDateView(
+    public static OrderingSlotsView Slots(IReadOnlyList<OrderingDate> dates, IReadOnlyList<OrderingDate> deliveryDates, DateTimeOffset now) =>
+        new(now, Dates(dates), Dates(deliveryDates));
+
+    private static List<OrderingDateView> Dates(IReadOnlyList<OrderingDate> dates) =>
+    [
+        .. dates.Select(date => new OrderingDateView(
             Date(date.Date),
-            [.. date.Slots.Select(slot => new OrderingSlotView(slot.Value, slot.At, Time(TimeOnly.FromDateTime(slot.Local)), slot.IsNextDay, slot.IsFull))]))]);
+            [.. date.Slots.Select(slot => new OrderingSlotView(slot.Value, slot.At, Time(TimeOnly.FromDateTime(slot.Local)), slot.IsNextDay, slot.IsFull))])),
+    ];
 
     private static OrderingCategoryView Category(MenuCategory category, IReadOnlyList<OrderingItemState> states, DateTimeOffset now) => new(
         category.Id,

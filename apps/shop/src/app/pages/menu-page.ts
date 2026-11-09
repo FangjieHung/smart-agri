@@ -63,7 +63,9 @@ export default class MenuPage {
 
   protected readonly banner = computed(() => {
     const order = activeOrder(this.store.slug(), this.store.now());
-    return order ? { ...order, words: statusWords(order.status).title } : null;
+    if (!order) return null;
+    const delivery = order.serviceType === 'delivery-scheduled' || order.serviceType === 'delivery-asap';
+    return { ...order, words: statusWords(order.status, null, delivery).title };
   });
 
   /** 判斷供應與售完用的時刻：選好的取餐時間，還沒選時用現在（伺服器時間）。 */
@@ -113,7 +115,11 @@ export default class MenuPage {
     if (!this.store.canOrder() || this.store.serviceReady()) return;
     if (this.store.asapAvailable()) {
       this.store.chooseService({ type: 'takeout-asap', date: null, slot: null });
-    } else if (this.store.hasScheduledSlots()) {
+    } else if (
+      this.store.hasScheduledSlots() ||
+      this.store.hasDeliverySlots() ||
+      this.store.deliveryAsapAvailable()
+    ) {
       this.timePrompt.set(true);
       this.timeOpen.set(true);
     }

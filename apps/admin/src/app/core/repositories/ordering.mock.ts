@@ -11,7 +11,7 @@ import { shopClock, shopInstant } from '../domain/ordering.model';
 
 /**
  * 「點餐」頁的示範資料（issue #399，只給 mock 模式）：`deploy/ordering-shop.example.json` 的王記麵店。每個分頁至少
- * 一筆：待確認兩筆（預約、儘快）、處理中兩筆（已接單、可取餐）、今日完成兩筆（完成、婉拒）。時間都相對於建立
+ * 一筆：待確認兩筆（預約、儘快）、處理中三筆（已接單、可取餐、已接單的外送 #010，#401）、今日完成兩筆（完成、婉拒）。時間都相對於建立
  * 這份資料的當下，所以任何時候打開都像「剛剛」發生。不放進 `demo-seed.ts`（後端有測試會讀它）。
  */
 export const MOCK_ORDERING_TIME_ZONE = 'Asia/Taipei';
@@ -77,13 +77,15 @@ export function createMockOrderingState(now: number): MockOrderingState {
   const base = {
     businessDate, estimate: null, promisedAt: null, customerEmail: null, orderComment: null, tableware: null,
     menuVersion: MOCK_ORDERING_SHOP.menuVersion, accepted: null, ready: null, completed: null, declined: null, cancelled: null,
-    personalDataClearedAt: null,
+    personalDataClearedAt: null, delivery: null,
   } satisfies Partial<OrderingOrderView>;
   const order = (
-    fields: Omit<OrderingOrderView, keyof typeof base | 'displayNumber' | 'subtotal' | 'total' | 'actions' | 'version' | 'customerPhoneDisplay' | 'status' | 'expiresAt'>
+    fields: Omit<OrderingOrderView, keyof typeof base | 'displayNumber' | 'subtotal' | 'total' | 'actions' | 'version' | 'customerPhoneDisplay' | 'status' | 'expiresAt' | 'deliveryFee'>
       & Partial<OrderingOrderView> & { status: OrderingOrderStatus },
   ): OrderingOrderView => {
     const subtotal = fields.lines.reduce((sum, item) => sum + item.lineTotal, 0);
+    // 外送單的總額加上區域的運費（#401）；外帶是 0。
+    const deliveryFee = fields.delivery?.fee ?? 0;
     const phone = fields.customerPhone;
     return {
       ...base,
@@ -92,7 +94,8 @@ export function createMockOrderingState(now: number): MockOrderingState {
       displayNumber: `#${String(fields.number).padStart(3, '0')}`,
       customerPhoneDisplay: `${phone.slice(0, 4)}-${phone.slice(4, 7)}-${phone.slice(7)}`,
       subtotal,
-      total: subtotal,
+      deliveryFee,
+      total: subtotal + deliveryFee,
       actions: mockActions(fields.status),
       // 待確認的訂單營業中 15 分鐘沒人處理就自動取消（#400），最晚是取餐時間。
       expiresAt: fields.expiresAt ?? iso(Math.min(Date.parse(fields.createdAt) + 15 * MINUTE, Date.parse(fields.pickupAt))),
@@ -149,6 +152,14 @@ export function createMockOrderingState(now: number): MockOrderingState {
       lines: [line('braised-platter', '滷味拼盤', 90, 3)],
       createdAt: iso(now - 100 * MINUTE), statusChangedAt: iso(now - 98 * MINUTE),
       declined: { at: iso(now - 98 * MINUTE), by: ADMIN, reason: 'sold-out', note: '滷味今天只剩一份，抱歉！' },
+    }),
+    // 外送（#401）：早上就預約、已接單，按〔已出發〕。
+    order({
+      id: 'order-010', number: 10, status: 'accepted', version: 2, serviceType: 'delivery-scheduled', pickupAt: iso(slotAfter(now, 1)),
+      promisedAt: iso(slotAfter(now, 1)), customerName: '王太太', customerPhone: '0955123456',
+      lines: [line('beef-noodle', '紅燒牛肉麵', 150, 2, [option('size', '份量', 'regular', '一般'), option('noodle', '麵條', 'wide', '寬麵')]), line('wonton-soup', '鮮肉餛飩湯', 70, 1)],
+      tableware: false, createdAt: iso(now - 110 * MINUTE), statusChangedAt: iso(now - 105 * MINUTE), accepted: { at: iso(now - 105 * MINUTE), by: ADMIN },
+      delivery: { zoneId: 'xinying', zoneName: '新營區其他里', fee: 30, address: '台南市新營區中山路 1 號 3 樓', note: '請按電鈴' },
     }),
   ];
 

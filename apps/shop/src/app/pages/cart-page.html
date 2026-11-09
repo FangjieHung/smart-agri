@@ -25,6 +25,12 @@
       @if (store.canOrder()) {
         <app-pickup-ticket (edit)="timeOpen.set(true)" />
       }
+      @if (store.shortfall() > 0) {
+        <p class="callout callout--danger" role="status" data-testid="delivery-shortfall">
+          還差 {{ ntd(store.shortfall()) }} 達外送門檻（{{ store.zone()?.name }}滿
+          {{ ntd(store.zone()?.minimumSubtotal ?? 0) }} 外送）。
+        </p>
+      }
 
       <ul class="lines" aria-label="購物車的品項">
         @for (entry of store.pricedLines(); track entry.line.key) {
@@ -145,15 +151,27 @@
       <dl class="sum">
         <dt>小計</dt>
         <dd class="price">{{ ntd(store.subtotal()) }}</dd>
+        @if (store.isDelivery()) {
+          <dt>外送費</dt>
+          <dd class="price" data-testid="delivery-fee">{{ ntd(store.deliveryFee()) }}</dd>
+          <dt>合計</dt>
+          <dd class="price">{{ ntd(store.total()) }}</dd>
+        }
       </dl>
-      <p class="sum__note">金額以店家確認的為準；取餐時付款。</p>
+      <p class="sum__note">
+        金額以店家確認的為準；{{ store.isDelivery() ? '貨到付款' : '取餐時付款' }}。
+      </p>
     }
   </div>
 
   @if (store.cart().lines.length > 0) {
     <div class="bar">
-      @if (blocked()) {
+      @if (store.lineWarnings().size > 0) {
         <p class="bar__warn" role="status">請先處理標示的品項，再前往結帳。</p>
+      } @else if (store.shortfall() > 0) {
+        <p class="bar__warn" role="status">
+          還差 {{ ntd(store.shortfall()) }} 達外送門檻，請再加點餐點。
+        </p>
       }
       <a
         class="btn btn--primary btn--block btn--split"
@@ -163,7 +181,7 @@
         (click)="blocked() || !store.canOrder() ? $event.preventDefault() : checkout($event)"
       >
         <span>前往結帳</span>
-        <span class="num">{{ ntd(store.subtotal()) }}</span>
+        <span class="num">{{ ntd(store.total()) }}</span>
       </a>
     </div>
   }

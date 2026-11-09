@@ -1,0 +1,65 @@
+.workspace-page { display: grid; gap: var(--space-4); min-inline-size: 0; container-type: inline-size; }
+p { margin: 0; }
+
+.orders-page__sound { display: grid; justify-items: start; gap: var(--space-1); }
+.orders-page__sound-toggle,
+.orders-page__switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-block-size: var(--target-size);
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+.orders-page__sound-state { color: var(--color-text-secondary); font-size: var(--font-size-caption); }
+
+.orders-page__notice { padding: var(--space-2) var(--space-3); border-radius: var(--radius-control); background: var(--color-accent-soft); color: var(--color-accent); font-weight: 700; }
+.orders-page__notice:empty { display: none; }
+.orders-page__error { color: var(--color-error); font-weight: 700; }
+
+.orders-page__switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-1); }
+.orders-page__switch button { padding-inline: var(--space-1); border-color: var(--color-border); color: var(--color-text); white-space: nowrap; }
+.orders-page__switch button[aria-pressed='true'] { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.orders-page__count {
+  display: inline-block;
+  min-inline-size: 1.5em;
+  margin-inline-start: var(--space-1);
+  padding: 0 var(--space-1);
+  border-radius: 999px;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-size: var(--font-size-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.orders-page__board { display: grid; gap: var(--space-4); align-items: start; }
+.orders-column { position: relative; display: none; gap: var(--space-2); min-inline-size: 0; }
+.orders-column--current { display: grid; }
+.orders-column__title { display: flex; align-items: center; margin: 0; font-size: var(--font-size-heading); line-height: var(--line-height-heading); }
+.orders-column__empty { padding: var(--space-4); border: 1px dashed var(--color-border); border-radius: var(--radius-container); color: var(--color-text-secondary); }
+.orders-column__list { display: grid; gap: var(--space-3); padding: 0; margin: 0; list-style: none; }
+
+// 窄的畫面一次看一欄（切換鈕上已有名稱與數字，欄標題只留給報讀軟體）；夠寬時三欄並排、顯示欄標題，切換鈕隱藏。
+.orders-column__title { position: absolute; clip-path: inset(50%); inline-size: 1px; block-size: 1px; overflow: hidden; white-space: nowrap; }
+// 頁首的提示音開關：頁首（page-header）在 768px 以上把動作放在右邊，說明也跟著靠右。
+@media (min-width: 768px) {
+  .orders-page__sound { justify-items: end; }
+  .orders-page__sound-state { text-align: end; }
+}
+@container (min-width: 960px) {
+  .orders-page__switch { display: none; }
+  .orders-page__board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .orders-column { display: grid; }
+  .orders-column__title { position: static; clip-path: none; inline-size: auto; block-size: auto; overflow: visible; white-space: normal; }
+}
+
+.orders-page__sound-toggle:focus-visible,
+.orders-page__switch button:focus-visible,
+.orders-column__title:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

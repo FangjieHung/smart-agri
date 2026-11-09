@@ -21,8 +21,8 @@ public enum OrderingServiceType
     TakeoutAsap,
 }
 
-/// <summary>Where an <see cref="OrderingOrder"/> is (design D5). Slice O2 (#398) reaches only
-/// <see cref="Pending"/> and <see cref="Cancelled"/>; the staff's steps come with #399, the expiry with #400.</summary>
+/// <summary>Where an <see cref="OrderingOrder"/> is (design D5). The customer sends it (<see cref="Pending"/>) and may cancel it
+/// while pending; the staff's steps (#399) are <see cref="OrderingOrder.Allows"/>; the expiry comes with #400.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<OrderingOrderStatus>))]
 public enum OrderingOrderStatus
 {
@@ -46,13 +46,94 @@ public enum OrderingOrderStatus
     [JsonStringEnumMemberName("declined")]
     Declined,
 
-    /// <summary>顧客已取消: only while <see cref="Pending"/>.</summary>
+    /// <summary>已取消: by the customer while <see cref="Pending"/>, or by the shop once <see cref="Accepted"/> or
+    /// <see cref="Ready"/> (<see cref="OrderingOrder.CancelledBy"/>).</summary>
     [JsonStringEnumMemberName("cancelled")]
     Cancelled,
 
     /// <summary>逾時未處理 (#400).</summary>
     [JsonStringEnumMemberName("expired")]
     Expired,
+}
+
+/// <summary>Why the shop declined an order (#399): a fixed reason the customer is shown, with an optional note.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OrderingDeclineReason>))]
+public enum OrderingDeclineReason
+{
+    /// <summary>太忙.</summary>
+    [JsonStringEnumMemberName("too-busy")]
+    TooBusy,
+
+    /// <summary>售完.</summary>
+    [JsonStringEnumMemberName("sold-out")]
+    SoldOut,
+
+    /// <summary>已打烊或廚房已休息.</summary>
+    [JsonStringEnumMemberName("closed")]
+    Closed,
+
+    /// <summary>無法配合備註或取餐時間.</summary>
+    [JsonStringEnumMemberName("cannot-meet-request")]
+    CannotMeetRequest,
+
+    /// <summary>其他: the note says why (required).</summary>
+    [JsonStringEnumMemberName("other")]
+    Other,
+}
+
+/// <summary>Why the shop cancelled an order it had accepted (#399).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OrderingCancelReason>))]
+public enum OrderingCancelReason
+{
+    /// <summary>顧客沒有來取餐.</summary>
+    [JsonStringEnumMemberName("customer-no-show")]
+    CustomerNoShow,
+
+    /// <summary>顧客來電要求取消.</summary>
+    [JsonStringEnumMemberName("customer-request")]
+    CustomerRequest,
+
+    /// <summary>其他: the note says why (required).</summary>
+    [JsonStringEnumMemberName("other")]
+    Other,
+}
+
+/// <summary>Who cancelled an order.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OrderingCanceller>))]
+public enum OrderingCanceller
+{
+    /// <summary>The customer, from the status page, while it was pending.</summary>
+    [JsonStringEnumMemberName("customer")]
+    Customer,
+
+    /// <summary>The staff, after accepting it.</summary>
+    [JsonStringEnumMemberName("shop")]
+    Shop,
+}
+
+/// <summary>What the staff can do with an order (#399); <see cref="OrderingOrder.Allows"/> says when.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OrderingOrderAction>))]
+public enum OrderingOrderAction
+{
+    /// <summary>〔接單〕 pending → accepted, optionally with a later time.</summary>
+    [JsonStringEnumMemberName("accept")]
+    Accept,
+
+    /// <summary>〔婉拒〕 pending → declined, with a reason.</summary>
+    [JsonStringEnumMemberName("decline")]
+    Decline,
+
+    /// <summary>〔可取餐〕 accepted → ready.</summary>
+    [JsonStringEnumMemberName("ready")]
+    MarkReady,
+
+    /// <summary>〔完成〕 accepted or ready → completed.</summary>
+    [JsonStringEnumMemberName("complete")]
+    Complete,
+
+    /// <summary>〔取消訂單〕 accepted or ready → cancelled by the shop, with a reason.</summary>
+    [JsonStringEnumMemberName("cancel")]
+    Cancel,
 }
 
 /// <summary>One line of an order as stored (design D6): the server's <see cref="PricedLine"/> — names and prices as the
@@ -77,7 +158,7 @@ public sealed record OrderingOrderLine(
 /// <summary>
 /// 訂單 (table <c>OrderingOrders</c>, online-ordering design D2, D4–D6, D9, Slice O2, #398): one order a customer sent from
 /// the shop's ordering page — how and when it is picked up, what was ordered (a priced snapshot), who to call, and where it
-/// is. The columns the later slices need (who handled it, why it was declined) come with them.
+/// is: who of the staff accepted, declined, readied, completed or cancelled it, when and why (#399).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -90,7 +171,10 @@ public sealed record OrderingOrderLine(
 /// <c>(OrganizationId, BusinessDate, Number)</c> is unique. The status page's address carries a random token
 /// (<see cref="NewStatusToken"/>) given to the customer once; only its hash is stored (<see cref="StatusTokenHash"/>).
 /// <see cref="SubmissionKey"/> is the client's one-time key (a UUID), unique per shop, so a form sent twice is one order.
-/// Every change of <see cref="Status"/> is a compare-and-set on (<see cref="Status"/>, <see cref="Version"/>).
+/// Every change of <see cref="Status"/> goes through a method here, which checks <see cref="Allows"/> and raises
+/// <see cref="Version"/>; the persistence layer stores it as a compare-and-set on <see cref="Version"/> (the row's
+/// concurrency token), so of two changes from the same version (two staff members, a member and the customer) exactly
+/// one is stored.
 /// </para>
 /// </remarks>
 public sealed class OrderingOrder : IOrganizationScoped
@@ -185,12 +269,57 @@ public sealed class OrderingOrder : IOrganizationScoped
 
     public DateTimeOffset CreatedAt { get; private set; }
 
-    /// <summary>When the customer cancelled it; set exactly when <see cref="Status"/> is
+    /// <summary>When it was cancelled (by the customer or the shop); set exactly when <see cref="Status"/> is
     /// <see cref="OrderingOrderStatus.Cancelled"/>.</summary>
     public DateTimeOffset? CancelledAt { get; private set; }
 
+    /// <summary>When <see cref="Status"/> last changed (<see cref="CreatedAt"/> until then).</summary>
+    public DateTimeOffset StatusChangedAt { get; private set; }
+
+    /// <summary>預計可取餐時間 the shop gave when accepting it, in UTC: a scheduled order's time or later, an ASAP order's
+    /// ready-by time; <see langword="null"/> until accepted.</summary>
+    public DateTimeOffset? PromisedAt { get; private set; }
+
+    public DateTimeOffset? AcceptedAt { get; private set; }
+
+    /// <summary>The member who accepted it.</summary>
+    public Guid? AcceptedByAccountId { get; private set; }
+
+    public DateTimeOffset? ReadyAt { get; private set; }
+
+    public Guid? ReadyByAccountId { get; private set; }
+
+    public DateTimeOffset? CompletedAt { get; private set; }
+
+    public Guid? CompletedByAccountId { get; private set; }
+
+    public DateTimeOffset? DeclinedAt { get; private set; }
+
+    public Guid? DeclinedByAccountId { get; private set; }
+
+    /// <summary>Set exactly when <see cref="Status"/> is <see cref="OrderingOrderStatus.Declined"/>.</summary>
+    public OrderingDeclineReason? DeclineReason { get; private set; }
+
+    /// <summary>The staff's words to the customer with <see cref="DeclineReason"/> (shown on the status page).</summary>
+    public string? DeclineNote { get; private set; }
+
+    /// <summary>Who cancelled it; set exactly when <see cref="Status"/> is <see cref="OrderingOrderStatus.Cancelled"/>.</summary>
+    public OrderingCanceller? CancelledBy { get; private set; }
+
+    /// <summary>The member who cancelled it (<see cref="OrderingCanceller.Shop"/> only).</summary>
+    public Guid? CancelledByAccountId { get; private set; }
+
+    /// <summary>Why the shop cancelled it; set exactly when <see cref="CancelledBy"/> is the shop.</summary>
+    public OrderingCancelReason? CancelReason { get; private set; }
+
+    /// <summary>The staff's words to the customer with <see cref="CancelReason"/>.</summary>
+    public string? CancelNote { get; private set; }
+
     /// <summary>The customer may still cancel it (design D5: only before the shop answers).</summary>
     public bool CanCancel => Status == OrderingOrderStatus.Pending;
+
+    /// <summary>The staff's actions <see cref="Status"/> allows, in <see cref="OrderingOrderAction"/> order.</summary>
+    public IReadOnlyList<OrderingOrderAction> AllowedActions => [.. Enum.GetValues<OrderingOrderAction>().Where(action => Allows(Status, action))];
 
     /// <summary>
     /// A new pending order sent at <paramref name="now"/>. Everything is already checked (the slot, the menu, the
@@ -285,8 +414,161 @@ public sealed class OrderingOrder : IOrganizationScoped
             StatusTokenHash = HashStatusToken(statusToken),
             SubmissionKey = submissionKey,
             CreatedAt = now.ToUniversalTime(),
+            StatusChangedAt = now.ToUniversalTime(),
         };
     }
+
+    /// <summary>Whether <paramref name="action"/> may be taken on an order in <paramref name="status"/> (design D5, #399):
+    /// accept and decline a pending one; mark an accepted one ready; complete or cancel an accepted or ready one.</summary>
+    public static bool Allows(OrderingOrderStatus status, OrderingOrderAction action) => action switch
+    {
+        OrderingOrderAction.Accept or OrderingOrderAction.Decline => status == OrderingOrderStatus.Pending,
+        OrderingOrderAction.MarkReady => status == OrderingOrderStatus.Accepted,
+        OrderingOrderAction.Complete or OrderingOrderAction.Cancel => status is OrderingOrderStatus.Accepted or OrderingOrderStatus.Ready,
+        _ => false,
+    };
+
+    /// <summary>
+    /// What is wrong with <paramref name="promisedAt"/> as the time given when accepting at <paramref name="now"/>, or
+    /// <see langword="null"/> when it is fine (or not given): a scheduled order's is not before its <see cref="PickupAt"/>,
+    /// an ASAP order's not before now (a minute's grace for the clocks); either at most
+    /// <see cref="MaxPromiseDelay"/> after the later of the two.
+    /// </summary>
+    public string? PromisedAtProblem(DateTimeOffset? promisedAt, DateTimeOffset now)
+    {
+        if (promisedAt is not { } at)
+        {
+            return null;
+        }
+
+        if (ServiceType == OrderingServiceType.TakeoutScheduled ? at < PickupAt : at < now.AddMinutes(-1))
+        {
+            return ServiceType == OrderingServiceType.TakeoutScheduled ? "預計取餐時間不能早於顧客選的時間。" : "預計取餐時間不能早於現在。";
+        }
+
+        return at > (PickupAt > now ? PickupAt : now) + MaxPromiseDelay ? "預計取餐時間最多延後 24 小時。" : null;
+    }
+
+    /// <summary>The longest the shop can push a pickup back when accepting.</summary>
+    public static readonly TimeSpan MaxPromiseDelay = TimeSpan.FromHours(24);
+
+    /// <summary>What is wrong with a staff member's note to the customer (婉拒或取消的說明), or <see langword="null"/>:
+    /// required with the reason <c>other</c>, at most <see cref="StaffNoteMaxLength"/> characters, one line.</summary>
+    public static string? StaffNoteProblem(string? note, bool required)
+    {
+        if (string.IsNullOrEmpty(note))
+        {
+            return required ? "選「其他」時請寫明原因。" : null;
+        }
+
+        if (note.Length > StaffNoteMaxLength)
+        {
+            return $"說明最多 {StaffNoteMaxLength} 個字（目前 {note.Length} 個）。";
+        }
+
+        return note.Any(char.IsControl) ? "說明不能有換行或特殊字元。" : null;
+    }
+
+    /// <summary>Longest note to the customer with a decline or cancellation.</summary>
+    public const int StaffNoteMaxLength = 100;
+
+    /// <summary>〔接單〕 by <paramref name="accountId"/>: ready at <paramref name="promisedAt"/> (already checked by
+    /// <see cref="PromisedAtProblem"/>), or by default at <see cref="PickupAt"/> (an ASAP order's not before now).</summary>
+    public void Accept(Guid accountId, DateTimeOffset? promisedAt, DateTimeOffset now)
+    {
+        if (PromisedAtProblem(promisedAt, now) is not null)
+        {
+            throw new ArgumentException("The promised time is checked before accepting.", nameof(promisedAt));
+        }
+
+        Move(OrderingOrderAction.Accept, OrderingOrderStatus.Accepted, now);
+        var promised = promisedAt ?? (ServiceType == OrderingServiceType.TakeoutAsap && PickupAt < now ? now : PickupAt);
+        PromisedAt = promised.ToUniversalTime();
+        AcceptedAt = StatusChangedAt;
+        AcceptedByAccountId = StaffMember(accountId);
+    }
+
+    /// <summary>〔婉拒〕 by <paramref name="accountId"/> for <paramref name="reason"/> with an optional (for
+    /// <see cref="OrderingDeclineReason.Other"/> required) <paramref name="note"/>.</summary>
+    public void Decline(Guid accountId, OrderingDeclineReason reason, string? note, DateTimeOffset now)
+    {
+        if (!Enum.IsDefined(reason) || StaffNoteProblem(note, reason == OrderingDeclineReason.Other) is not null)
+        {
+            throw new ArgumentException("The reason and note are checked before declining.", nameof(note));
+        }
+
+        Move(OrderingOrderAction.Decline, OrderingOrderStatus.Declined, now);
+        DeclinedAt = StatusChangedAt;
+        DeclinedByAccountId = StaffMember(accountId);
+        DeclineReason = reason;
+        DeclineNote = string.IsNullOrEmpty(note) ? null : note;
+    }
+
+    /// <summary>〔可取餐〕 by <paramref name="accountId"/>.</summary>
+    public void MarkReady(Guid accountId, DateTimeOffset now)
+    {
+        Move(OrderingOrderAction.MarkReady, OrderingOrderStatus.Ready, now);
+        ReadyAt = StatusChangedAt;
+        ReadyByAccountId = StaffMember(accountId);
+    }
+
+    /// <summary>〔完成〕 by <paramref name="accountId"/>: picked up (and paid).</summary>
+    public void Complete(Guid accountId, DateTimeOffset now)
+    {
+        Move(OrderingOrderAction.Complete, OrderingOrderStatus.Completed, now);
+        CompletedAt = StatusChangedAt;
+        CompletedByAccountId = StaffMember(accountId);
+    }
+
+    /// <summary>The shop cancels an accepted or ready order, by <paramref name="accountId"/> for
+    /// <paramref name="reason"/>.</summary>
+    public void CancelByShop(Guid accountId, OrderingCancelReason reason, string? note, DateTimeOffset now)
+    {
+        if (!Enum.IsDefined(reason) || StaffNoteProblem(note, reason == OrderingCancelReason.Other) is not null)
+        {
+            throw new ArgumentException("The reason and note are checked before cancelling.", nameof(note));
+        }
+
+        Move(OrderingOrderAction.Cancel, OrderingOrderStatus.Cancelled, now);
+        CancelledAt = StatusChangedAt;
+        CancelledBy = OrderingCanceller.Shop;
+        CancelledByAccountId = StaffMember(accountId);
+        CancelReason = reason;
+        CancelNote = string.IsNullOrEmpty(note) ? null : note;
+    }
+
+    /// <summary>The customer cancels it from the status page while it is pending (<see cref="CanCancel"/>).</summary>
+    public void CancelByCustomer(DateTimeOffset now)
+    {
+        if (!CanCancel)
+        {
+            throw new InvalidOperationException($"An order {Status} cannot be cancelled by its customer.");
+        }
+
+        Changed(OrderingOrderStatus.Cancelled, now);
+        CancelledAt = StatusChangedAt;
+        CancelledBy = OrderingCanceller.Customer;
+    }
+
+    private void Move(OrderingOrderAction action, OrderingOrderStatus to, DateTimeOffset now)
+    {
+        if (!Allows(Status, action))
+        {
+            throw new InvalidOperationException($"An order {Status} does not allow {action}.");
+        }
+
+        Changed(to, now);
+    }
+
+    private void Changed(OrderingOrderStatus to, DateTimeOffset now)
+    {
+        Status = to;
+        Version++;
+        StatusChangedAt = now.ToUniversalTime();
+    }
+
+    private static Guid StaffMember(Guid accountId) =>
+        accountId == Guid.Empty ? throw new ArgumentException("A staff action names its member.", nameof(accountId)) : accountId;
 
     /// <summary>「#001」: at least three digits.</summary>
     public static string FormatNumber(int number) => "#" + number.ToString("000", CultureInfo.InvariantCulture);

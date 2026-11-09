@@ -97,10 +97,12 @@ public sealed class OrderingOrders
     private const string SubmissionKeyIndex = "IX_OrderingOrders_OrganizationId_SubmissionKey";
 
     private readonly DbContextOptions<AppDbContext> _options;
+    private readonly IOrderingOrderOutcomes _outcomes;
 
-    public OrderingOrders(DbContextOptions<AppDbContext> options)
+    public OrderingOrders(DbContextOptions<AppDbContext> options, IOrderingOrderOutcomes outcomes)
     {
         _options = options;
+        _outcomes = outcomes;
     }
 
     /// <summary>The shop's item states (今日售完, 停售).</summary>
@@ -249,34 +251,55 @@ public sealed class OrderingOrders
     }
 
     /// <summary>
-    /// Cancels the order of <paramref name="token"/> while it is pending: a compare-and-set on (<c>Status</c> pending,
-    /// <c>Version</c>), so of a cancellation and the shop's answer (#399) at the same moment exactly one wins.
+    /// Cancels the order of <paramref name="token"/> while it is pending: a compare-and-set on its <c>Version</c> (the
+    /// concurrency token), so of a cancellation and the shop's answer (#399) at the same moment exactly one wins. The winner
+    /// calls <see cref="IOrderingOrderOutcomes.Decided"/> in its transaction.
     /// </summary>
     public async Task<OrderingCancelResult> CancelAsync(Guid organizationId, string? token, DateTimeOffset now, CancellationToken cancellationToken)
     {
-        var order = await FindByTokenAsync(organizationId, token, cancellationToken);
-        if (order is null)
+        if (!OrderingOrder.IsStatusToken(token))
         {
             return new OrderingCancelResult(OrderingCancelOutcome.NotFound, null);
         }
 
-        if (!order.CanCancel)
+        var hash = OrderingOrder.HashStatusToken(token!);
+        await using (var dbContext = ForOrganization(organizationId))
         {
-            return new OrderingCancelResult(OrderingCancelOutcome.NotCancellable, order);
+            await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+            var order = await dbContext.OrderingOrders.SingleOrDefaultAsync(candidate => candidate.StatusTokenHash == hash, cancellationToken);
+            if (order is null)
+            {
+                return new OrderingCancelResult(OrderingCancelOutcome.NotFound, null);
+            }
+
+            if (!order.CanCancel)
+            {
+                return new OrderingCancelResult(OrderingCancelOutcome.NotCancellable, order);
+            }
+
+            order.CancelByCustomer(now);
+            var won = true;
+            try
+            {
+                // The compare-and-set: UPDATE … WHERE Version = the version read.
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // The shop answered (or another cancel won) after it was read: below, as it is now.
+                won = false;
+            }
+
+            if (won)
+            {
+                _outcomes.Decided(dbContext, order, now);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                return new OrderingCancelResult(OrderingCancelOutcome.Cancelled, order);
+            }
         }
 
-        await using var dbContext = ForOrganization(organizationId);
-        var cancelledAt = Microseconds(now.ToUniversalTime());
-        var changed = await dbContext.OrderingOrders
-            .Where(candidate => candidate.Id == order.Id && candidate.Status == OrderingOrderStatus.Pending && candidate.Version == order.Version)
-            .ExecuteUpdateAsync(
-                setters => setters
-                    .SetProperty(candidate => candidate.Status, OrderingOrderStatus.Cancelled)
-                    .SetProperty(candidate => candidate.Version, candidate => candidate.Version + 1)
-                    .SetProperty(candidate => candidate.CancelledAt, cancelledAt),
-                cancellationToken);
-        var current = await dbContext.OrderingOrders.AsNoTracking().SingleAsync(candidate => candidate.Id == order.Id, cancellationToken);
-        return new OrderingCancelResult(changed == 1 ? OrderingCancelOutcome.Cancelled : OrderingCancelOutcome.NotCancellable, current);
+        return new OrderingCancelResult(OrderingCancelOutcome.NotCancellable, await FindByTokenAsync(organizationId, token, cancellationToken));
     }
 
     private static async Task<Func<DateTimeOffset, int>> SlotCountsAsync(AppDbContext dbContext, DateTimeOffset from, CancellationToken cancellationToken)
@@ -294,9 +317,6 @@ public sealed class OrderingOrders
         var byInstant = counts.ToDictionary(entry => entry.At.UtcDateTime, entry => entry.Count);
         return at => byInstant.GetValueOrDefault(at.UtcDateTime);
     }
-
-    /// <summary>PostgreSQL keeps microseconds; a bulk update bypasses the interceptor that truncates.</summary>
-    private static DateTimeOffset Microseconds(DateTimeOffset value) => value.AddTicks(-(value.Ticks % TimeSpan.TicksPerMicrosecond));
 
     private AppDbContext ForOrganization(Guid organizationId) => new(_options, new FixedOrganizationContext(organizationId));
 }

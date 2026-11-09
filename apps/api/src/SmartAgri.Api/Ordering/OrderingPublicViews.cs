@@ -162,6 +162,13 @@ public sealed record OrderingSubmittedView(string Token, OrderingOrderView Order
 /// <param name="PickupAt">Scheduled: the chosen time. ASAP: the end of the estimate (sent + <see cref="OrderingAsapView.MaxMinutes"/>).</param>
 /// <param name="Estimate">ASAP only: the estimate when it was sent.</param>
 /// <param name="CanCancel">Only before the shop answers.</param>
+/// <param name="PromisedAt">預計可取餐時間 the shop gave when accepting (#399): for a scheduled order its time or later,
+/// for an ASAP order the time it will be ready; <see langword="null"/> until accepted (show <see cref="PickupAt"/> then).</param>
+/// <param name="DeclineReason">Why the shop declined it (<c>declined</c> only).</param>
+/// <param name="DeclineNote">The shop's words with <see cref="DeclineReason"/>, if any.</param>
+/// <param name="CancelledBy"><c>customer</c> or <c>shop</c> (<c>cancelled</c> only).</param>
+/// <param name="CancelReason">Why the shop cancelled it (cancelled by the shop only).</param>
+/// <param name="CancelNote">The shop's words with <see cref="CancelReason"/>, if any.</param>
 public sealed record OrderingOrderView(
     int Number,
     string DisplayNumber,
@@ -180,7 +187,13 @@ public sealed record OrderingOrderView(
     string PhoneLastDigits,
     string? OrderComment,
     bool? Tableware,
-    bool CanCancel)
+    bool CanCancel,
+    DateTimeOffset? PromisedAt,
+    OrderingDeclineReason? DeclineReason,
+    string? DeclineNote,
+    OrderingCanceller? CancelledBy,
+    OrderingCancelReason? CancelReason,
+    string? CancelNote)
 {
     public static OrderingOrderView Of(OrderingOrder order) => new(
         order.Number,
@@ -200,7 +213,13 @@ public sealed record OrderingOrderView(
         order.CustomerPhone.Length <= 3 ? order.CustomerPhone : order.CustomerPhone[^3..],
         order.OrderComment,
         order.Tableware,
-        order.CanCancel);
+        order.CanCancel,
+        order.PromisedAt,
+        order.DeclineReason,
+        order.DeclineNote,
+        order.CancelledBy,
+        order.CancelReason,
+        order.CancelNote);
 }
 
 /// <summary>Every refusal of the ordering API: RFC 9457 problem details with a stable <see cref="Reason"/> to switch on and

@@ -81,6 +81,14 @@ export class SideNavComponent {
   readonly navClick = output<void>();
   readonly groupDetach = output<void>();
 
+  /** 帶 `permission` 的項目只給有那個權限的帳號（「點餐」，issue #399）。 */
+  protected readonly visibleNavItems = computed(() => {
+    const items = this.navItems();
+    if (!items.some((entry) => !isNavGroup(entry) && entry.permission)) return items;
+    const permissions = this.apiSession.permissions();
+    return items.filter((entry) => isNavGroup(entry) || !entry.permission || permissions.includes(entry.permission));
+  });
+
   /**
    * 連結的 `aria-label`：收合時是名稱（看不到文字）；有逾期數字時接上「，N 件逾期」（issue #250，
    * 數字本身 `aria-hidden`）；其他時候不需要。

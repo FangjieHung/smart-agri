@@ -1,0 +1,83 @@
+@let item = order();
+<article
+  class="order"
+  [id]="'order-' + item.id"
+  tabindex="-1"
+  [attr.data-order]="item.id"
+  [attr.data-status]="item.status"
+  [attr.aria-labelledby]="'order-title-' + item.id"
+>
+  <div class="order__head">
+    <h3 class="order__title" [id]="'order-title-' + item.id">
+      <span class="order__number">{{ item.displayNumber }}</span>
+      <span class="order__service">{{ service() }}</span>
+    </h3>
+    <span class="order__status" [attr.data-status]="item.status">{{ status() }}</span>
+  </div>
+
+  <p class="order__when">
+    <strong>{{ when() }}</strong>
+    @if (remaining(); as left) {
+      <span class="order__remaining" [class.order__remaining--late]="left.late">{{ left.text }}</span>
+    }
+  </p>
+
+  <p class="order__customer">
+    <span class="order__name">{{ item.customerName }}</span>
+    <a class="order__link" [href]="'tel:' + item.customerPhone" [attr.aria-label]="'撥打給' + item.customerName + '：' + item.customerPhoneDisplay">{{ item.customerPhoneDisplay }}</a>
+    @if (item.customerEmail) {
+      <a class="order__link order__email" [href]="'mailto:' + item.customerEmail">{{ item.customerEmail }}</a>
+    }
+  </p>
+
+  <ul class="order__lines" aria-label="明細">
+    @for (row of item.lines; track $index) {
+      <li class="order__line">
+        <span class="order__qty">{{ row.quantity }} ×</span>
+        <span class="order__item">
+          {{ row.itemName }}
+          @if (row.options.length) {
+            <span class="order__options">{{ optionsText(row.options) }}</span>
+          }
+          @if (row.comment) {
+            <span class="order__line-comment">備註：{{ row.comment }}</span>
+          }
+        </span>
+        <span class="order__price">{{ priceText(row.lineTotal) }}</span>
+      </li>
+    }
+  </ul>
+
+  @if (item.orderComment) {
+    <p class="order__comment"><strong>訂單備註：</strong>{{ item.orderComment }}</p>
+  }
+  <p class="order__footer">
+    @if (item.tableware !== null) {
+      <span class="order__tableware">{{ item.tableware ? '需要餐具' : '不需要餐具' }}</span>
+    }
+    <span class="order__total">合計 <strong>{{ priceText(item.total) }}</strong></span>
+  </p>
+
+  @if (outcome(); as text) {
+    <p class="order__outcome">{{ text }}</p>
+  }
+  @if (note(); as text) {
+    <p class="order__note">給顧客的說明：{{ text }}</p>
+  }
+  <p class="order__meta"><time [attr.datetime]="item.createdAt">{{ submitted() }}</time>送出</p>
+
+  @if (item.actions.length) {
+    <div class="order__actions">
+      @for (action of item.actions; track action) {
+        <button
+          type="button"
+          class="order__action"
+          [attr.data-action]="action"
+          [attr.aria-label]="label(action) + ' ' + item.displayNumber"
+          [disabled]="busy()"
+          (click)="emit(action, $event)"
+        >{{ label(action) }}</button>
+      }
+    </div>
+  }
+</article>

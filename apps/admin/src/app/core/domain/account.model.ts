@@ -30,7 +30,8 @@ export type AccountPermission =
   | 'use-shared-assistants'
   | 'submit-authorized-forms'
   | 'read-own-tracking'
-  | 'handle-assistant-issues';
+  | 'handle-assistant-issues'
+  | 'manage-orders';
 
 export interface AccountView {
   readonly id: AccountId;

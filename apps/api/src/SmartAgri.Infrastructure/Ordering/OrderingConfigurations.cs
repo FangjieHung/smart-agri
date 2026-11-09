@@ -133,7 +133,7 @@ internal sealed class OrderingItemStateConfiguration : IEntityTypeConfiguration<
 /// Table <c>OrderingOrders</c> (#398): unique <c>(OrganizationId, BusinessDate, Number)</c> (the day's order numbers),
 /// <c>(OrganizationId, SubmissionKey)</c> (a form sent twice) and <c>StatusTokenHash</c> (the status page's token, looked
 /// up within the shop of the page's slug). <c>Lines</c> is the priced snapshot as a <c>jsonb</c> array; <c>Version</c> is
-/// the concurrency token of the status changes.
+/// the concurrency token of the status changes, whose who, when and why (#399) the check constraints keep consistent.
 /// </summary>
 internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<OrderingOrder>
 {
@@ -163,6 +163,17 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
                 "(\"ServiceType\" = 'takeout-asap') = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
             table.HasCheckConstraint(
                 "CK_OrderingOrders_CancelledAt", "(\"Status\" = 'cancelled') = (\"CancelledAt\" IS NOT NULL)");
+            // #399: who and why. A NULL comparison would pass a CHECK, so every side is a definite boolean.
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_CancelledBy", "(\"Status\" = 'cancelled') = (\"CancelledBy\" IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_CancelReason",
+                "COALESCE(\"CancelledBy\" = 'shop', false) = (\"CancelReason\" IS NOT NULL AND \"CancelledByAccountId\" IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_Declined",
+                "(\"Status\" = 'declined') = (\"DeclineReason\" IS NOT NULL AND \"DeclinedAt\" IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_Accepted", "(\"AcceptedAt\" IS NOT NULL) = (\"PromisedAt\" IS NOT NULL)");
         });
         builder.HasKey(order => order.Id);
         builder.Property(order => order.Id).ValueGeneratedNever();
@@ -192,13 +203,27 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
             .IsFixedLength()
             .IsRequired();
         builder.Property(order => order.SubmissionKey).HasMaxLength(OrderingOrder.SubmissionKeyLength).IsRequired();
+        builder.Property(order => order.DeclineReason)
+            .HasConversion<WireNameConverter<OrderingDeclineReason>>()
+            .HasMaxLength(24);
+        builder.Property(order => order.DeclineNote).HasMaxLength(OrderingOrder.StaffNoteMaxLength);
+        builder.Property(order => order.CancelledBy)
+            .HasConversion<WireNameConverter<OrderingCanceller>>()
+            .HasMaxLength(16);
+        builder.Property(order => order.CancelReason)
+            .HasConversion<WireNameConverter<OrderingCancelReason>>()
+            .HasMaxLength(24);
+        builder.Property(order => order.CancelNote).HasMaxLength(OrderingOrder.StaffNoteMaxLength);
         builder.Ignore(order => order.CanCancel);
+        builder.Ignore(order => order.AllowedActions);
         builder.HasIndex(order => new { order.OrganizationId, order.BusinessDate, order.Number }).IsUnique().HasDatabaseName(NumberIndex);
         builder.HasIndex(order => new { order.OrganizationId, order.SubmissionKey }).IsUnique().HasDatabaseName(SubmissionKeyIndex);
         builder.HasIndex(order => order.StatusTokenHash).IsUnique();
         // The slot counts and the pending-per-phone limit.
         builder.HasIndex(order => new { order.OrganizationId, order.PickupAt });
         builder.HasIndex(order => new { order.OrganizationId, order.CustomerPhone, order.Status });
+        // The admin's lists by status (#399).
+        builder.HasIndex(order => new { order.OrganizationId, order.Status, order.StatusChangedAt });
     }
 
     private static string WriteLines(IReadOnlyList<OrderingOrderLine> lines) => JsonSerializer.Serialize(lines, LineJson);

@@ -3153,6 +3153,12 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AcceptedByAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<int?>("AsapMaxMinutes")
                         .HasColumnType("integer");
 
@@ -3162,8 +3168,29 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<DateOnly>("BusinessDate")
                         .HasColumnType("date");
 
+                    b.Property<string>("CancelNote")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
                     b.Property<DateTimeOffset?>("CancelledAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CancelledBy")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid?>("CancelledByAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("CompletedByAccountId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -3181,6 +3208,20 @@ namespace SmartAgri.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
+
+                    b.Property<string>("DeclineNote")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("DeclineReason")
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<DateTimeOffset?>("DeclinedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeclinedByAccountId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Lines")
                         .IsRequired()
@@ -3203,6 +3244,15 @@ namespace SmartAgri.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("PickupAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTimeOffset?>("PromisedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("ReadyAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ReadyByAccountId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ServiceType")
                         .IsRequired()
                         .HasMaxLength(24)
@@ -3212,6 +3262,9 @@ namespace SmartAgri.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(16)
                         .HasColumnType("character varying(16)");
+
+                    b.Property<DateTimeOffset>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("StatusTokenHash")
                         .IsRequired()
@@ -3254,11 +3307,21 @@ namespace SmartAgri.Infrastructure.Migrations
 
                     b.HasIndex("OrganizationId", "CustomerPhone", "Status");
 
+                    b.HasIndex("OrganizationId", "Status", "StatusChangedAt");
+
                     b.ToTable("OrderingOrders", null, t =>
                         {
+                            t.HasCheckConstraint("CK_OrderingOrders_Accepted", "(\"AcceptedAt\" IS NOT NULL) = (\"PromisedAt\" IS NOT NULL)");
+
                             t.HasCheckConstraint("CK_OrderingOrders_Asap", "(\"ServiceType\" = 'takeout-asap') = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
 
+                            t.HasCheckConstraint("CK_OrderingOrders_CancelReason", "COALESCE(\"CancelledBy\" = 'shop', false) = (\"CancelReason\" IS NOT NULL AND \"CancelledByAccountId\" IS NOT NULL)");
+
                             t.HasCheckConstraint("CK_OrderingOrders_CancelledAt", "(\"Status\" = 'cancelled') = (\"CancelledAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_CancelledBy", "(\"Status\" = 'cancelled') = (\"CancelledBy\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_Declined", "(\"Status\" = 'declined') = (\"DeclineReason\" IS NOT NULL AND \"DeclinedAt\" IS NOT NULL)");
 
                             t.HasCheckConstraint("CK_OrderingOrders_Lines", "jsonb_typeof(\"Lines\") = 'array'");
 

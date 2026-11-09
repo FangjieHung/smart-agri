@@ -12,7 +12,7 @@ import {
 import { OrderingApi } from '../api/ordering-api';
 import type { ChosenOption, Order } from '../api/types';
 import { isFinal, recentOrders, tokenFromHash, updateRecentStatus } from '../domain/orders';
-import { progressIndex, PROGRESS_STEPS, statusWords } from '../domain/status';
+import { progressIndex, PROGRESS_STEPS, reasonText, statusWords } from '../domain/status';
 import { addMinutes, pickupText, wallClock } from '../domain/time';
 import { Announcer } from '../state/announcer';
 import { Nav } from '../state/nav';
@@ -55,8 +55,14 @@ export default class StatusPage {
   protected readonly recent = computed(() => recentOrders(this.store.slug()));
 
   protected readonly words = computed(() => {
-    const status = this.order()?.status;
-    return status ? statusWords(status) : null;
+    const order = this.order();
+    return order?.status ? statusWords(order.status, order.cancelledBy ?? null) : null;
+  });
+
+  /** 店家婉拒或取消的原因（#399）。 */
+  protected readonly reason = computed(() => {
+    const order = this.order();
+    return order ? reasonText(order) : null;
   });
 
   protected readonly progress = computed(() => {
@@ -68,6 +74,15 @@ export default class StatusPage {
     const order = this.order();
     const shop = this.store.shop();
     if (!order || !shop) return '';
+    // 接單時店家給的時間（#399）：儘快取餐是預計好的時間，預約取餐可能比顧客選的晚。
+    const promisedAt = order.promisedAt ?? null;
+    if (promisedAt) {
+      const promised = pickupText(promisedAt, shop.timeZone, this.store.now());
+      if (order.estimate) return `預計 ${promised} 可取餐（儘快取餐）`;
+      return Date.parse(promisedAt) === Date.parse(order.pickupAt)
+        ? promised
+        : `${promised}（店家調整了取餐時間）`;
+    }
     if (order.estimate) {
       const from = wallClock(
         addMinutes(order.createdAt, order.estimate.minMinutes),
@@ -148,7 +163,9 @@ export default class StatusPage {
     this.state.set('ready');
     updateRecentStatus(this.store.slug(), token, order);
     if (previous && previous !== order.status && order.status) {
-      this.announcer.announce(`訂單 ${order.displayNumber}：${statusWords(order.status).title}`);
+      this.announcer.announce(
+        `訂單 ${order.displayNumber}：${statusWords(order.status, order.cancelledBy ?? null).title}`,
+      );
     }
   }
 

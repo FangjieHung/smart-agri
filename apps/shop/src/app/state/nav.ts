@@ -1,7 +1,13 @@
 import { DOCUMENT, Injectable, inject, signal } from '@angular/core';
 
-/** 點餐網頁的頁面：`/order/{slug}`、`/cart`、`/checkout`、`/o`（訂單狀態，token 在 `#` 後面）。 */
-export type PageName = 'menu' | 'cart' | 'checkout' | 'status' | 'not-found';
+/**
+ * 點餐網頁的頁面：`/order/{slug}`、`/cart`、`/checkout`、`/o`（訂單狀態，token 在 `#` 後面）。`/table` 是內用桌號
+ * QR code 的入口（#402，桌號 token 在 `#` 後面）：讀完 token 就換成菜單頁，所以不是可以前往的頁面。
+ */
+export type PageName = 'menu' | 'cart' | 'checkout' | 'status' | 'table' | 'not-found';
+
+/** 可以前往的頁面。 */
+export type PageTarget = Exclude<PageName, 'not-found' | 'table'>;
 
 export interface Route {
   /** 店家代號（小寫）；網址沒有代號時是 `null`。 */
@@ -14,6 +20,7 @@ const PAGES: Record<string, PageName> = {
   cart: 'cart',
   checkout: 'checkout',
   o: 'status',
+  table: 'table',
 };
 
 /** 從網址路徑（含 `/order/` 前綴）讀出店家代號與頁面。 */
@@ -28,7 +35,7 @@ export function parseRoute(pathname: string): Route {
 }
 
 /** 某家店某一頁的網址路徑。 */
-export function pagePath(slug: string, page: Exclude<PageName, 'not-found'>): string {
+export function pagePath(slug: string, page: PageTarget): string {
   const suffix = { menu: '', cart: '/cart', checkout: '/checkout', status: '/o' }[page];
   return `/order/${slug}${suffix}`;
 }
@@ -53,11 +60,7 @@ export class Nav {
   }
 
   /** 換到某一頁；`hash` 不含 `#`。 */
-  go(
-    slug: string,
-    page: Exclude<PageName, 'not-found'>,
-    options: { hash?: string; replace?: boolean } = {},
-  ): void {
+  go(slug: string, page: PageTarget, options: { hash?: string; replace?: boolean } = {}): void {
     const url = `${pagePath(slug, page)}${options.hash ? `#${options.hash}` : ''}`;
     const history = this.window?.history;
     if (history) {
@@ -72,12 +75,7 @@ export class Nav {
   }
 
   /** 連結的點擊：一般左鍵在本頁換頁；按住修飾鍵（開新分頁）時交給瀏覽器。 */
-  follow(
-    event: MouseEvent,
-    slug: string,
-    page: Exclude<PageName, 'not-found'>,
-    hash?: string,
-  ): void {
+  follow(event: MouseEvent, slug: string, page: PageTarget, hash?: string): void {
     if (
       event.defaultPrevented ||
       event.button !== 0 ||

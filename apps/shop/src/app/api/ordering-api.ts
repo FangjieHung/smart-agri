@@ -1,11 +1,23 @@
 import { Injectable } from '@angular/core';
-import type { Menu, Order, OrderRequest, Problem, ShopInfo, Slots, Submitted } from './types';
+import type {
+  Menu,
+  Order,
+  OrderRequest,
+  Problem,
+  ShopInfo,
+  Slots,
+  Submitted,
+  TableView,
+} from './types';
 
 /** 公開點餐 API 的路徑前綴（`OrderingPublicEndpoints.Prefix`），永遠從網站根目錄算起，不受 `<base href="/order/">` 影響。 */
 export const API_PREFIX = '/api/v1/public/ordering/';
 
 /** 查詢與取消訂單時帶狀態 token 的請求標頭（`OrderingPublicEndpoints.TokenHeader`）。 */
 export const TOKEN_HEADER = 'X-Ordering-Token';
+
+/** 內用（#402）：桌號 QR code 的 token 放在這個請求標頭（`OrderingPublicEndpoints.TableHeader`），同樣絕不放進網址。 */
+export const TABLE_HEADER = 'X-Ordering-Table';
 
 /**
  * 一次 API 呼叫的結果。`network` 是連不上伺服器（離線、逾時、伺服器沒有回應）；`problem` 是伺服器的拒絕
@@ -47,11 +59,27 @@ export class OrderingApi {
     return this.send<Slots>(slug, '/slots', { method: 'GET' });
   }
 
-  submit(slug: string, request: OrderRequest): Promise<ApiResult<Submitted>> {
+  /** 送出訂單；內用（#402）帶這桌的 token（只放在 `X-Ordering-Table` 標頭）。 */
+  submit(
+    slug: string,
+    request: OrderRequest,
+    tableToken: string | null = null,
+  ): Promise<ApiResult<Submitted>> {
     return this.send<Submitted>(slug, '/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(tableToken ? { [TABLE_HEADER]: tableToken } : {}),
+      },
       body: JSON.stringify(request),
+    });
+  }
+
+  /** 內用（#402）：桌號與這桌目前的桌次（已點的訂單）。 */
+  table(slug: string, tableToken: string): Promise<ApiResult<TableView>> {
+    return this.send<TableView>(slug, '/table', {
+      method: 'GET',
+      headers: { [TABLE_HEADER]: tableToken },
     });
   }
 

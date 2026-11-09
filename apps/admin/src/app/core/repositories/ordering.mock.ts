@@ -11,8 +11,9 @@ import { shopClock, shopInstant } from '../domain/ordering.model';
 
 /**
  * 「點餐」頁的示範資料（issue #399，只給 mock 模式）：`deploy/ordering-shop.example.json` 的王記麵店。每個分頁至少
- * 一筆：待確認兩筆（預約、儘快）、處理中三筆（已接單、可取餐、已接單的外送 #010，#401）、今日完成兩筆（完成、婉拒）。時間都相對於建立
- * 這份資料的當下，所以任何時候打開都像「剛剛」發生。不放進 `demo-seed.ts`（後端有測試會讀它）。
+ * 一筆：待確認兩筆（預約、儘快）、處理中五筆（已接單、可取餐、已接單的外送 #010，#401，以及 A1 桌自動接單的內用 #008（已出餐）
+ * 與 #009（已接單），#402）、今日完成兩筆（完成、婉拒）。A1 是唯一開著的桌次，可以按〔已結帳〕。時間都相對於建立這份資料的當下，
+ * 所以任何時候打開都像「剛剛」發生。不放進 `demo-seed.ts`（後端有測試會讀它）。
  */
 export const MOCK_ORDERING_TIME_ZONE = 'Asia/Taipei';
 export const MOCK_ORDERING_SHOP = { shopName: '王記麵店', slug: 'wangji-noodles', menuVersion: 3 } as const;
@@ -31,8 +32,20 @@ export interface MockOrderingCategory {
   readonly items: MockOrderingItem[];
 }
 
+/** 一個桌次（#402）：同一桌、還沒結帳的訂單；訂單本身在 `orders` 裡（依 `table.sessionId` 對應）。 */
+export interface MockTableSession {
+  readonly id: string;
+  version: number;
+  readonly tableId: string;
+  readonly tableName: string;
+  readonly openedAt: string;
+  closedAt: string | null;
+  closedBy: { id: string; displayName: string } | null;
+}
+
 export interface MockOrderingState {
   orders: OrderingOrderView[];
+  sessions: MockTableSession[];
   paused: boolean;
   asapBand: OrderingAsapBand;
   shopVersion: number;
@@ -69,6 +82,7 @@ function iso(at: number): string {
   return new Date(at).toISOString();
 }
 
+const A1_SESSION = '01a1b300-0000-7000-8000-0000000000a1';
 const ADMIN = { id: 'account-smb-admin', displayName: '安心商行管理者' };
 const STAFF = { id: 'account-internal-employee', displayName: '安心商行客服同仁' };
 
@@ -77,7 +91,7 @@ export function createMockOrderingState(now: number): MockOrderingState {
   const base = {
     businessDate, estimate: null, promisedAt: null, customerEmail: null, orderComment: null, tableware: null,
     menuVersion: MOCK_ORDERING_SHOP.menuVersion, accepted: null, ready: null, completed: null, declined: null, cancelled: null,
-    personalDataClearedAt: null, delivery: null,
+    personalDataClearedAt: null, delivery: null, table: null, autoAccepted: false,
   } satisfies Partial<OrderingOrderView>;
   const order = (
     fields: Omit<OrderingOrderView, keyof typeof base | 'displayNumber' | 'subtotal' | 'total' | 'actions' | 'version' | 'customerPhoneDisplay' | 'status' | 'expiresAt' | 'deliveryFee'>
@@ -92,7 +106,8 @@ export function createMockOrderingState(now: number): MockOrderingState {
       version: 1,
       ...fields,
       displayNumber: `#${String(fields.number).padStart(3, '0')}`,
-      customerPhoneDisplay: `${phone.slice(0, 4)}-${phone.slice(4, 7)}-${phone.slice(7)}`,
+      // 內用（#402）沒有電話。
+      customerPhoneDisplay: phone ? `${phone.slice(0, 4)}-${phone.slice(4, 7)}-${phone.slice(7)}` : '',
       subtotal,
       deliveryFee,
       total: subtotal + deliveryFee,
@@ -112,6 +127,8 @@ export function createMockOrderingState(now: number): MockOrderingState {
     ]),
   ], '不要香菜，湯另外裝');
   const asapEstimate = { minMinutes: 15, maxMinutes: 30 };
+  const beefNoodle = (quantity: number) =>
+    line('beef-noodle', '紅燒牛肉麵', 150, quantity, [option('size', '份量', 'regular', '一般'), option('noodle', '麵條', 'thin', '細麵')]);
 
   const orders: OrderingOrderView[] = [
     order({
@@ -161,6 +178,23 @@ export function createMockOrderingState(now: number): MockOrderingState {
       tableware: false, createdAt: iso(now - 110 * MINUTE), statusChangedAt: iso(now - 105 * MINUTE), accepted: { at: iso(now - 105 * MINUTE), by: ADMIN },
       delivery: { zoneId: 'xinying', zoneName: '新營區其他里', fee: 30, address: '台南市新營區中山路 1 號 3 樓', note: '請按電鈴' },
     }),
+    // 內用（#402）：A1 桌 25 分鐘前開桌，店家設定自動接單；#008 已出餐、#009 是加點（已接單）。內用沒有電話與 Email，稱呼選填。
+    order({
+      id: 'order-008', number: 8, status: 'ready', version: 2, serviceType: 'dine-in', pickupAt: iso(now - 25 * MINUTE),
+      promisedAt: iso(now - 25 * MINUTE), customerName: '', customerPhone: '',
+      lines: [beefNoodle(2), line('cucumber', '涼拌小黃瓜', 40, 1)], tableware: null,
+      createdAt: iso(now - 25 * MINUTE), statusChangedAt: iso(now - 12 * MINUTE),
+      accepted: { at: iso(now - 25 * MINUTE), by: null }, ready: { at: iso(now - 12 * MINUTE), by: STAFF },
+      table: { id: 'a1', name: 'A1', sessionId: A1_SESSION }, autoAccepted: true,
+    }),
+    order({
+      id: 'order-009', number: 9, status: 'accepted', serviceType: 'dine-in', pickupAt: iso(now - 4 * MINUTE),
+      promisedAt: iso(now - 4 * MINUTE), customerName: '小明', customerPhone: '',
+      lines: [line('wonton-soup', '鮮肉餛飩湯', 70, 1)], tableware: null, orderComment: '湯不要太燙',
+      createdAt: iso(now - 4 * MINUTE), statusChangedAt: iso(now - 4 * MINUTE),
+      accepted: { at: iso(now - 4 * MINUTE), by: null },
+      table: { id: 'a1', name: 'A1', sessionId: A1_SESSION }, autoAccepted: true,
+    }),
   ];
 
   const reopens = mockReopensAt(now);
@@ -169,6 +203,7 @@ export function createMockOrderingState(now: number): MockOrderingState {
 
   return {
     orders,
+    sessions: [{ id: A1_SESSION, version: 2, tableId: 'a1', tableName: 'A1', openedAt: iso(now - 25 * MINUTE), closedAt: null, closedBy: null }],
     paused: false,
     asapBand: '15-30',
     shopVersion: 1,

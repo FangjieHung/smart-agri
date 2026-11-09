@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SmartAgri.Api.Coordinator;
+using SmartAgri.Api.PublicChannels;
 using SmartAgri.Domain.Coordinator;
 using SmartAgri.Domain.Ordering;
 using SmartAgri.Domain.Organizations;
@@ -21,6 +23,9 @@ namespace SmartAgri.Api.Ordering;
 /// another shop has is refused like an error of the file. A change writes one
 /// <see cref="OrganizationActivityAction.OrderingShopUpdated"/>, and a menu that differs from the current one becomes the next
 /// version; an identical import writes nothing. Example file: <c>deploy/ordering-shop.example.json</c>.
+/// <c>tables</c> (#402) prints each dine-in table's QR code URL (<c>/order/{slug}/table#&lt;token&gt;</c>, under
+/// <c>PublicChannels:PublicBaseUrl</c> when it is set), gives one table a new token (<c>--regenerate</c>), and writes the
+/// printable QR page (<c>--html</c>, <see cref="OrderingTablePrint"/>).
 /// </remarks>
 public sealed class OrderingShopCommand
 {
@@ -34,10 +39,14 @@ public sealed class OrderingShopCommand
     public const string Usage =
         "用法：ordering-shop import --organization <組織代碼> [--file <點餐設定.json>]\n" +
         "      ordering-shop show --organization <組織代碼>\n" +
+        "      ordering-shop tables --organization <組織代碼> [--regenerate <桌號 id>] [--html <輸出檔.html>]\n" +
         "import：從 --file 指定的檔案（沒有 --file 時從標準輸入）讀取線上點餐的店家設定與菜單，先完整檢查（網址代號、店名、時區、電話、" +
         "取餐方式、可點餐時間、時段、菜單的分類、品項、選項群組與價格），有錯就逐條列出「位置：說明」且不寫入；全部正確才寫入，" +
         "菜單有變更時成為新的版本，有變更時記一筆組織紀錄。暫停接單與即時單準備時間由店員在後台切換，匯入不會改動。\n" +
         "show：印出目前的設定摘要（網址代號、取餐方式、可點餐時間、時段、菜單版本與分類、品項數）。\n" +
+        "tables：印出內用每一桌的點餐網址（含桌號 QR code 的 token，有設定 PublicChannels:PublicBaseUrl 時是完整網址）；" +
+        "--regenerate 讓指定桌號換一個新的 token（舊的 QR code 立刻失效，要重新列印）；--html 把每桌的 QR code 寫成可列印的 HTML（A4，每頁 6 張），" +
+        "需要先設定 PublicChannels:PublicBaseUrl。\n" +
         "結束代碼：0 完成；1 找不到組織、還沒有設定或寫入失敗；2 參數錯誤或設定檔不正確（含網址代號已被其他店使用）。";
 
     private readonly IServiceProvider _services;
@@ -121,6 +130,11 @@ public sealed class OrderingShopCommand
             }
 
             var shops = _services.GetRequiredService<OrderingShops>();
+            if (arguments.Tables)
+            {
+                return await TablesAsync(organization, shops, arguments, output, error, cancellationToken);
+            }
+
             if (import is null)
             {
                 if (await shops.FindAsync(organization.Id, cancellationToken) is not { } view)
@@ -168,6 +182,80 @@ public sealed class OrderingShopCommand
         }
     }
 
+    /// <summary><c>tables</c> (#402): the URLs, <c>--regenerate</c>, <c>--html</c>.</summary>
+    private async Task<int> TablesAsync(
+        Organization organization, OrderingShops shops, Arguments arguments, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        if (await shops.FindAsync(organization.Id, cancellationToken) is not { } view)
+        {
+            await error.WriteLineAsync($"組織 {organization.Code}（{organization.Name}）還沒有線上點餐設定；請用 ordering-shop import 匯入。");
+            return ExitFailed;
+        }
+
+        var shop = view.Shop;
+        var baseUrl = _services.GetRequiredService<IOptions<PublicChannelsOptions>>().Value.ResolvedPublicBaseUrl;
+        if (arguments.Html is not null && baseUrl is null)
+        {
+            await error.WriteLineAsync("沒有設定 PublicChannels:PublicBaseUrl（對外網址），QR code 不知道要指向哪裡；請先設定再輸出 --html。");
+            return ExitFailed;
+        }
+
+        if (arguments.Regenerate is { } tableId)
+        {
+            if (await shops.RegenerateAsync(organization.Id, tableId, cancellationToken) is not { } regenerated)
+            {
+                await error.WriteLineAsync($"組織 {organization.Code}（{shop.Name}）沒有桌號 id「{tableId}」；請用 ordering-shop tables 查看桌號。");
+                return ExitFailed;
+            }
+
+            await output.WriteLineAsync($"已重新產生桌號 {regenerated.Name}（{regenerated.TableId}）的 QR code，舊的 QR code 已失效，請重新列印。");
+        }
+
+        var tables = await shops.TablesAsync(organization.Id, cancellationToken);
+        if (tables.Count == 0)
+        {
+            await error.WriteLineAsync($"組織 {organization.Code}（{shop.Name}）沒有內用桌號；請在設定檔的 dineIn.tables 加上桌號後再匯入。");
+            return ExitFailed;
+        }
+
+        string Url(OrderingTable table) => $"{baseUrl}/order/{shop.Slug}/table#{table.Token}";
+        var text = new StringBuilder();
+        text.Append(CultureInfo.InvariantCulture, $"組織 {organization.Code}（{shop.Name}）的內用桌號（{tables.Count} 桌）：\n");
+        foreach (var table in tables)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"  {table.Name}（{table.TableId}）：{Url(table)}\n");
+        }
+
+        if (!shop.DineInOffered)
+        {
+            text.Append("內用目前沒有開放（services.dineIn 是 false），這些 QR code 會顯示「已失效」，開放後恢復。\n");
+        }
+
+        if (baseUrl is null)
+        {
+            text.Append("沒有設定 PublicChannels:PublicBaseUrl，上面只有路徑；請在前面加上平台的對外網址。\n");
+        }
+
+        await output.WriteAsync(text.ToString());
+        if (arguments.Html is { } path)
+        {
+            var html = OrderingTablePrint.Html(shop.Name, [.. tables.Select(table => new OrderingTableCard(table.Name, Url(table)))]);
+            try
+            {
+                await File.WriteAllTextAsync(path, html, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                await error.WriteLineAsync($"無法寫入「{path}」：{exception.GetType().Name}。");
+                return ExitFailed;
+            }
+
+            await output.WriteLineAsync($"已把 {tables.Count} 桌的 QR code 寫到 {path}（A4，每頁 {OrderingTablePrint.CardsPerSheet} 張），用瀏覽器開啟後列印。");
+        }
+
+        return ExitSuccess;
+    }
+
     /// <summary>The summary <c>show</c> prints.</summary>
     internal static string Summary(Organization organization, OrderingShopView view)
     {
@@ -180,7 +268,7 @@ public sealed class OrderingShopCommand
         text.Append(
             CultureInfo.InvariantCulture,
             $"取餐方式：外帶預約（{OnOff(shop.TakeoutScheduled)}）、外帶即時（{OnOff(shop.TakeoutAsap)}）、"
-            + $"外送預約（{OnOff(shop.Delivery)}）、外送儘快（{OnOff(shop.DeliveryAsap)}）\n");
+            + $"外送預約（{OnOff(shop.Delivery)}）、外送儘快（{OnOff(shop.DeliveryAsap)}）、內用（{OnOff(shop.DineIn)}）\n");
         text.Append("可點餐時間：\n");
         foreach (var day in WeeklyHours.Days)
         {
@@ -198,6 +286,7 @@ public sealed class OrderingShopCommand
         text.Append(CultureInfo.InvariantCulture, $"即時單準備時間：{(lower == 0 ? $"{upper} 分鐘內" : $"{lower}–{upper} 分鐘")}\n");
         text.Append(CultureInfo.InvariantCulture, $"待確認逾時：營業中 {shop.PendingTimeoutMinutes} 分鐘沒有處理就自動取消\n");
         Delivery(text, shop);
+        DineIn(text, shop);
         text.Append(CultureInfo.InvariantCulture, $"暫停接單：{(shop.Paused ? "是" : "否")}\n");
         if (menu is null)
         {
@@ -248,6 +337,40 @@ public sealed class OrderingShopCommand
         if (delivery.Note is { } note)
         {
             text.Append(CultureInfo.InvariantCulture, $"外送說明：{note.ReplaceLineEndings(" ")}\n");
+        }
+    }
+
+    /// <summary>The dine-in section (#402): tables, auto-accept, hours, pending limit, note.</summary>
+    private static void DineIn(StringBuilder text, OrderingShop shop)
+    {
+        if (shop.DineInSettings is not { } dineIn)
+        {
+            text.Append("內用：沒有設定\n");
+            return;
+        }
+
+        text.Append(
+            CultureInfo.InvariantCulture,
+            $"內用桌號（{dineIn.Tables.Count} 桌）：{string.Join('、', dineIn.Tables.Select(table => table.Name))}（網址與 QR code：ordering-shop tables）\n");
+        text.Append(
+            CultureInfo.InvariantCulture,
+            $"內用接單：{(dineIn.AutoAccept ? "自動接單" : "店員接單")}，每桌最多 {dineIn.MaxPendingPerTable} 筆待確認\n");
+        if (dineIn.OrderingHours is { } hours)
+        {
+            text.Append("內用時間：\n");
+            foreach (var day in WeeklyHours.Days)
+            {
+                text.Append(CultureInfo.InvariantCulture, $"  {DayName(day)}：{Periods(hours[day])}\n");
+            }
+        }
+        else
+        {
+            text.Append("內用時間：同可點餐時間\n");
+        }
+
+        if (dineIn.Note is { } note)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"內用說明：{note.ReplaceLineEndings(" ")}\n");
         }
     }
 
@@ -338,7 +461,8 @@ public sealed class OrderingShopCommand
         return new string(buffer, 0, length);
     }
 
-    private sealed record Arguments(bool Help, bool Import, string? Organization, string? File);
+    private sealed record Arguments(
+        bool Help, bool Import, string? Organization, string? File, bool Tables = false, string? Regenerate = null, string? Html = null);
 
     private static bool TryParse(IReadOnlyList<string> args, out Arguments arguments, out string error)
     {
@@ -350,15 +474,18 @@ public sealed class OrderingShopCommand
             return true;
         }
 
-        if (args is not [("import" or "show") and var verb, ..])
+        if (args is not [("import" or "show" or "tables") and var verb, ..])
         {
-            error = args.Count == 0 ? "必須指定 import 或 show。" : $"不認得的動作「{args[0]}」；必須是 import 或 show。";
+            error = args.Count == 0 ? "必須指定 import、show 或 tables。" : $"不認得的動作「{args[0]}」；必須是 import、show 或 tables。";
             return false;
         }
 
         var import = verb == "import";
+        var tables = verb == "tables";
         string? organization = null;
         string? file = null;
+        string? regenerate = null;
+        string? html = null;
         for (var i = 1; i < args.Count; i++)
         {
             var (name, inlineValue) = args[i].Split('=', 2) is [var key, var given] ? (key, given) : (args[i], null);
@@ -369,6 +496,8 @@ public sealed class OrderingShopCommand
                     return true;
                 case "--organization":
                 case "--file" when import:
+                case "--regenerate" when tables:
+                case "--html" when tables:
                     var value = inlineValue ?? (i + 1 < args.Count ? args[++i] : null);
                     if (string.IsNullOrWhiteSpace(value))
                     {
@@ -376,13 +505,20 @@ public sealed class OrderingShopCommand
                         return false;
                     }
 
-                    if (name == "--organization")
+                    switch (name)
                     {
-                        organization = value.Trim();
-                    }
-                    else
-                    {
-                        file = value;
+                        case "--organization":
+                            organization = value.Trim();
+                            break;
+                        case "--regenerate":
+                            regenerate = value.Trim();
+                            break;
+                        case "--html":
+                            html = value;
+                            break;
+                        default:
+                            file = value;
+                            break;
                     }
 
                     break;
@@ -398,7 +534,7 @@ public sealed class OrderingShopCommand
             return false;
         }
 
-        arguments = new Arguments(Help: false, import, organization, file);
+        arguments = new Arguments(Help: false, import, organization, file, tables, regenerate, html);
         return true;
     }
 }

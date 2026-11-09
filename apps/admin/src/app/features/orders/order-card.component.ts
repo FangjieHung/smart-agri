@@ -7,11 +7,13 @@ import {
   declineReasonLabel,
   elapsedText,
   isDelivery,
+  isDineIn,
   mapsSearchUrl,
   optionsText,
-  ORDERING_SERVICE_LABELS,
   priceText,
+  readyWord,
   remainingText,
+  serviceLabel,
   statusLabel,
   type OrderingOrderAction,
   type OrderingOrderView,
@@ -31,7 +33,9 @@ export interface OrderActionEvent {
  * 一筆訂單（issue #399）：號碼、取餐方式與時間（以伺服器的現在時間算「剩 N 分鐘」）、顧客（電話可撥打）、明細與備註、
  * 總額、狀態、送出多久了；按鈕只依訂單的 `actions[]` 顯示。待確認的訂單另外顯示「HH:mm 前未確認將自動取消」（#400），
  * 個資已清除的舊訂單（取餐 90 天後）姓名是「（已刪除）」，沒有電話可撥。外送單（#401）另外顯示區域、地址（連到 Google
- * 地圖搜尋；清除後是「（已刪除）」）、給外送的備註與運費，時間說「送達」，〔可取餐〕是〔已出發〕。
+ * 地圖搜尋；清除後是「（已刪除）」）、給外送的備註與運費，時間說「送達」，〔可取餐〕是〔已出發〕。內用單（#402）的取餐方式是
+ * 「內用・A1」，時間是點餐的時候（沒有「剩 N 分鐘」），沒有電話，稱呼選填（沒留就不顯示），〔可取餐〕是〔已出餐〕；店家設定
+ * 自動接單時，接單那一行寫「自動接單」而不是店員的名字。
  */
 @Component({
   selector: 'app-order-card',
@@ -53,7 +57,8 @@ export class OrderCardComponent {
 
   protected readonly delivery = computed(() => (isDelivery(this.order().serviceType) ? this.order().delivery : null));
 
-  protected readonly service = computed(() => ORDERING_SERVICE_LABELS[this.order().serviceType] ?? this.order().serviceType);
+  protected readonly dineIn = computed(() => isDineIn(this.order().serviceType));
+  protected readonly service = computed(() => serviceLabel(this.order()));
   protected readonly status = computed(() => statusLabel(this.order()));
 
   /** 取餐（外送是送達）時間的說明。 */
@@ -61,6 +66,8 @@ export class OrderCardComponent {
     const order = this.order();
     const clock = (at: string) => clockText(at, this.timeZone(), this.now());
     const word = arrivalWord(order.serviceType);
+    // 內用（#402）不選時間：取餐時間就是點餐的時候。
+    if (isDineIn(order.serviceType)) return `${clock(order.createdAt)} 點餐`;
     if (order.status === 'pending') {
       return order.estimate
         ? `儘快，約 ${order.estimate.minMinutes}–${order.estimate.maxMinutes} 分鐘（最晚 ${clock(order.pickupAt)}）`
@@ -78,6 +85,7 @@ export class OrderCardComponent {
   protected readonly remaining = computed(() => {
     const order = this.order();
     if (order.status !== 'pending' && order.status !== 'accepted' && order.status !== 'ready') return null;
+    if (isDineIn(order.serviceType)) return null;
     const target = order.status === 'pending' ? order.pickupAt : order.promisedAt ?? order.pickupAt;
     return { text: remainingText(target, this.now()), late: Date.parse(target) < this.now() };
   });
@@ -110,8 +118,8 @@ export class OrderCardComponent {
     }
     if (order.status === 'expired') return `${at(order.statusChangedAt)} 逾時沒有接單，系統已自動婉拒`;
     if (order.accepted) {
-      const ready = order.ready ? `；${at(order.ready.at)} ${isDelivery(order.serviceType) ? '已出發' : '可取餐'}${who(order.ready.by)}` : '';
-      return `${at(order.accepted.at)} 接單${who(order.accepted.by)}${ready}`;
+      const ready = order.ready ? `；${at(order.ready.at)} ${readyWord(order.serviceType)}${who(order.ready.by)}` : '';
+      return `${at(order.accepted.at)} ${order.autoAccepted ? '自動接單' : `接單${who(order.accepted.by)}`}${ready}`;
     }
     return null;
   });

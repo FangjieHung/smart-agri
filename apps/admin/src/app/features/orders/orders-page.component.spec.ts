@@ -4,8 +4,13 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { of, throwError, type Observable } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountPermission } from '../../core/domain/account.model';
-import type { OrderingListView, OrderingOrderView, OrderingSummaryView } from '../../core/domain/ordering.model';
-import { OrderingRepository, type OrderingActionResult, type OrderingRead } from '../../core/repositories/ordering.repository';
+import type { OrderingListView, OrderingOrderView, OrderingSummaryView, OrderingTableSessionView } from '../../core/domain/ordering.model';
+import {
+  OrderingRepository,
+  type OrderingActionResult,
+  type OrderingCloseTableResult,
+  type OrderingRead,
+} from '../../core/repositories/ordering.repository';
 import { ApiSessionService } from '../../core/session/api-session.service';
 import { NAV_COUNTS_CHANGED_EVENT } from '../../layout/workspace-layout/nav-counts';
 import { ORDER_ALERT_SOUND, ORDER_SOUND_STORAGE_KEY, type OrderAlertSound } from './order-alert-sound';
@@ -30,7 +35,7 @@ function order(fields: Partial<OrderingOrderView> & Pick<OrderingOrderView, 'id'
     ] }],
     orderComment: null, tableware: true, subtotal: 160, total: 160, menuVersion: 1, createdAt: '2026-11-07T03:35:00Z',
     statusChangedAt: '2026-11-07T03:35:00Z', accepted: null, ready: null, completed: null, declined: null, cancelled: null,
-    expiresAt: '2026-11-07T03:50:00Z', personalDataClearedAt: null, deliveryFee: 0, delivery: null,
+    expiresAt: '2026-11-07T03:50:00Z', personalDataClearedAt: null, deliveryFee: 0, delivery: null, table: null, autoAccepted: false,
     actions: fields.status === 'pending' ? ['accept', 'decline'] : fields.status === 'accepted' ? ['ready', 'complete', 'cancel'] : [],
     ...fields,
   };
@@ -40,8 +45,8 @@ function summaryOf(fields: Partial<OrderingSummaryView> = {}): OrderingSummaryVi
   return {
     now: new Date(NOW).toISOString(), businessDate: '2026-11-07', timeZone: 'Asia/Taipei', shopName: '王記麵店', slug: 'wangji-noodles',
     pendingCount: 1, activeCount: 1, latestOrderAt: '2026-11-07T03:35:00Z', changedAt: '2026-11-07T03:35:00Z', paused: false,
-    asapBand: '15-30', asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true, delivery: false, deliveryAsap: false },
-    menuVersion: 1, shopVersion: 1, ...fields,
+    asapBand: '15-30', asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true, delivery: false, deliveryAsap: false, dineIn: false },
+    menuVersion: 1, shopVersion: 1, openTableCount: 0, ...fields,
   };
 }
 
@@ -56,6 +61,10 @@ interface Setup {
   readonly summary?: () => Observable<OrderingRead<OrderingSummaryView>>;
   readonly lists?: Partial<Record<OrderingListView, OrderingOrderView[]>>;
   readonly act?: (id: string, request: unknown) => Observable<OrderingActionResult>;
+  /** 第一次讀到的 summary 的欄位。 */
+  readonly initial?: Partial<OrderingSummaryView>;
+  readonly tables?: OrderingTableSessionView[];
+  readonly closeTable?: (sessionId: string, version: number) => Observable<OrderingCloseTableResult>;
 }
 
 function setup(options: Setup = {}) {
@@ -66,12 +75,15 @@ function setup(options: Setup = {}) {
     done: [],
     ...options.lists,
   };
-  let current = summaryOf();
+  let current = summaryOf(options.initial);
+  const tables = { sessions: options.tables ?? [] };
   const repository = {
     summary: vi.fn(options.summary ?? (() => of<OrderingRead<OrderingSummaryView>>({ status: 'ready', data: current }))),
     orders: vi.fn((view: OrderingListView) => of<OrderingRead<unknown>>({ status: 'ready', data: { now: current.now, view, orders: lists[view] } })),
     act: vi.fn(options.act ?? (() => of<OrderingActionResult>({ status: 'ready', data: lists.pending[0] }))),
     items: vi.fn(() => of({ status: 'ready', data: { now: current.now, menuVersion: 1, categories: [] } })),
+    tables: vi.fn(() => of<OrderingRead<unknown>>({ status: 'ready', data: { now: current.now, sessions: tables.sessions } })),
+    closeTable: vi.fn(options.closeTable ?? (() => throwError(() => new Error('not expected')))),
     setPaused: vi.fn(),
     setAsapBand: vi.fn(),
     setItemState: vi.fn(),
@@ -92,6 +104,7 @@ function setup(options: Setup = {}) {
     repository,
     sound,
     lists,
+    tables,
     page: fixture.nativeElement as HTMLElement,
     setSummary: (fields: Partial<OrderingSummaryView>) => (current = summaryOf({ ...current, ...fields })),
   };
@@ -421,5 +434,129 @@ describe('OrdersPageComponent (issue #399)', () => {
     await vi.advanceTimersByTimeAsync(0);
     fixture.detectChanges();
     expect(page.querySelector('[data-sound-state]')?.textContent).toContain('瀏覽器擋下了提示音');
+  });
+
+  describe('dine-in (#402)', () => {
+    const SESSION = '01a1b300-0000-7000-8000-0000000000a1';
+    const table = { id: 'a1', name: 'A1', sessionId: SESSION };
+    const ready = order({
+      id: 'o-8', number: 8, status: 'ready', serviceType: 'dine-in', customerName: '', customerPhone: '', customerPhoneDisplay: '',
+      createdAt: '2026-11-07T03:15:00Z', pickupAt: '2026-11-07T03:15:00Z', promisedAt: '2026-11-07T03:15:00Z', total: 340, table, autoAccepted: true,
+      accepted: { at: '2026-11-07T03:15:00Z', by: null }, ready: { at: '2026-11-07T03:28:00Z', by: null }, actions: ['complete', 'cancel'],
+    });
+    const added = order({
+      id: 'o-9', number: 9, status: 'accepted', serviceType: 'dine-in', customerName: '小明', customerPhone: '', customerPhoneDisplay: '',
+      createdAt: '2026-11-07T03:36:00Z', pickupAt: '2026-11-07T03:36:00Z', promisedAt: '2026-11-07T03:36:00Z', total: 70, table, autoAccepted: true,
+      lines: [{ itemId: 'wonton-soup', itemName: '鮮肉餛飩湯', itemPrice: 70, quantity: 1, unitPrice: 70, lineTotal: 70, comment: null, options: [] }],
+      accepted: { at: '2026-11-07T03:36:00Z', by: null },
+    });
+    const a1 = (fields: Partial<OrderingTableSessionView> = {}): OrderingTableSessionView => ({
+      id: SESSION, version: 2, tableId: 'a1', tableName: 'A1', openedAt: '2026-11-07T03:15:00Z', total: 410, pendingCount: 0,
+      orders: [ready, added], closedAt: null, closedBy: null, ...fields,
+    });
+    const dineIn = { services: { takeoutScheduled: true, takeoutAsap: true, delivery: false, deliveryAsap: false, dineIn: true }, openTableCount: 1 };
+
+    it('does not ask for tables when the shop has no dine-in and no open table', () => {
+      const { page, repository } = setup();
+      expect(repository.tables).not.toHaveBeenCalled();
+      expect(page.querySelector('[data-table-sessions]')).toBeNull();
+    });
+
+    it('lists each open table with its orders, opening time and total, reloading with the lists', async () => {
+      const { fixture, page, repository, setSummary } = setup({ initial: dineIn, tables: [a1()] });
+      const session = el(page, '[data-table-session="A1"]');
+      expect(session.querySelector('h3')?.textContent).toBe('A1');
+      expect(session.textContent).toContain('11:15 開桌・25 分鐘前');
+      expect(Array.from(session.querySelectorAll('.table__order')).map((row) => Array.from(row.children).map((cell) => cell.textContent?.trim()).join(' ')))
+        .toEqual(['#008 已出餐 NT$340 炸醬麵 ×2', '#009 已接單 NT$70 鮮肉餛飩湯']);
+      expect(session.querySelector('[data-table-total]')?.textContent).toBe('NT$410');
+      expect(el<HTMLButtonElement>(session, '[data-table-checkout]').disabled).toBe(false);
+      expect(el(page, '#orders-tables-title').textContent?.replace(/\s+/g, '')).toBe('內用桌次1');
+      expect(repository.tables).toHaveBeenCalledTimes(1);
+
+      setSummary({ changedAt: '2026-11-07T03:40:05Z' });
+      await tick(fixture);
+      expect(repository.tables).toHaveBeenCalledTimes(2);
+    });
+
+    it('shows a dine-in card as 內用・A1 and accepts a dine-in order without a dialog or a time', () => {
+      const pending = { ...added, status: 'pending' as const, version: 1, accepted: null, autoAccepted: false, actions: ['accept', 'decline'] as OrderingOrderView['actions'] };
+      const { fixture, page, repository } = setup({
+        initial: dineIn, tables: [a1({ pendingCount: 1, orders: [ready, pending] })], lists: { pending: [pending] },
+        act: () => of<OrderingActionResult>({ status: 'ready', data: { ...pending, status: 'accepted', version: 2, actions: ['ready', 'complete', 'cancel'] } }),
+      });
+      expect(el(page, '[data-order="o-9"] [data-service]').textContent).toBe('內用・A1');
+      // 還有待確認：〔已結帳〕停用並說明。
+      const checkout = el<HTMLButtonElement>(page, '[data-table-checkout]');
+      expect(checkout.disabled).toBe(true);
+      expect(page.querySelector(`#${checkout.getAttribute('aria-describedby')}`)?.textContent).toContain('還有 1 筆待確認');
+
+      click(fixture, '[data-order="o-9"] [data-action="accept"]');
+      expect(page.querySelector('[data-order-dialog]')).toBeNull();
+      expect(repository.act).toHaveBeenCalledWith('o-9', { action: 'accept', version: 1 });
+      expect(page.querySelector('[data-orders-notice]')?.textContent).toContain('已接單 #009（內用・A1）。');
+    });
+
+    it('confirms the table and total, closes with the version it shows, and the table goes away', () => {
+      const { fixture, page, repository, tables } = setup({
+        initial: dineIn, tables: [a1()],
+        closeTable: () => of<OrderingCloseTableResult>({ status: 'ready', data: a1({ version: 3, closedAt: '2026-11-07T03:40:00Z' }) }),
+      });
+      click(fixture, '[data-table-checkout]');
+      const dialog = el(page, '[role="dialog"]');
+      expect(dialog.querySelector('#table-checkout-confirm-title')?.textContent).toBe('A1 共 NT$410，確定已結帳？');
+      expect(dialog.textContent).toContain('已接單與已出餐的 2 筆會標示為完成');
+      expect(document.activeElement?.textContent).toBe('返回');
+
+      tables.sessions = [];
+      click(fixture, '.table-checkout-confirm');
+      expect(repository.closeTable).toHaveBeenCalledWith(SESSION, 2);
+      expect(page.querySelector('[role="dialog"]')).toBeNull();
+      expect(page.querySelector('[data-table-session]')).toBeNull();
+      expect(page.querySelector('[data-orders-notice]')?.textContent).toContain('A1 已結帳（NT$410），這桌的訂單已完成。');
+      expect(repository.orders).toHaveBeenCalledTimes(6);
+    });
+
+    it('keeps the dialog open with the new total on session-changed, and refuses again while an order is pending', () => {
+      const pending = { ...added, id: 'o-10', number: 10, displayNumber: '#010', status: 'pending' as const, total: 150 };
+      const changed = a1({ version: 3, total: 410, pendingCount: 1, orders: [ready, added, pending] });
+      const { fixture, page, repository, tables } = setup({
+        initial: dineIn, tables: [a1()],
+        closeTable: () => of<OrderingCloseTableResult>({ status: 'table-conflict', reason: 'session-changed', message: '這桌剛剛有新的變動，請確認金額後再結帳。', session: changed }),
+      });
+      click(fixture, '[data-table-checkout]');
+      tables.sessions = [changed];
+      click(fixture, '.table-checkout-confirm');
+      expect(repository.closeTable).toHaveBeenCalledWith(SESSION, 2);
+      const dialog = el(page, '[role="dialog"]');
+      expect(dialog.querySelector('[data-table-checkout-error]')?.textContent).toBe('這桌剛剛有新的變動，請確認金額後再結帳。');
+      expect(el<HTMLButtonElement>(dialog, '.table-checkout-confirm').disabled).toBe(true);
+      expect(page.querySelectorAll('[data-table-session="A1"] .table__order')).toHaveLength(3);
+    });
+
+    it('drops the table when someone else already closed it', () => {
+      const { fixture, page } = setup({
+        initial: dineIn, tables: [a1()],
+        closeTable: () => of<OrderingCloseTableResult>({
+          status: 'table-conflict', reason: 'session-changed', message: '這桌剛剛有新的變動，請確認金額後再結帳。',
+          session: a1({ version: 3, closedAt: '2026-11-07T03:39:00Z', closedBy: { id: 'b', displayName: '阿明' } }),
+        }),
+      });
+      click(fixture, '[data-table-checkout]');
+      click(fixture, '.table-checkout-confirm');
+      expect(page.querySelector('[role="dialog"]')).toBeNull();
+      expect(page.querySelector('[data-orders-notice]')?.textContent).toContain('A1 剛剛已經由其他人結帳了。');
+    });
+
+    it('returns to 〔已結帳〕 when the dialog is cancelled', () => {
+      const { fixture, page, repository } = setup({ initial: dineIn, tables: [a1()] });
+      const trigger = el<HTMLButtonElement>(page, '[data-table-checkout]');
+      click(fixture, '[data-table-checkout]');
+      el(page, '[role="dialog"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      fixture.detectChanges();
+      expect(page.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+      expect(repository.closeTable).not.toHaveBeenCalled();
+    });
   });
 });

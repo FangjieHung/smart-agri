@@ -138,3 +138,43 @@ describe('delivery submit errors (#401)', () => {
     expect(failure.fields).toEqual({ deliveryAddress: '請填寫外送地址。' });
   });
 });
+
+describe('dine-in submit errors (#402)', () => {
+  const phone = '06-123-4567';
+
+  it('a QR code that is no longer valid forgets the table', () => {
+    const failure = describeSubmitFailure(
+      refused(full(404, 'table-not-found', { message: '這個桌號的 QR code 已失效，請洽店員。' })),
+      phone,
+      true,
+    );
+    expect(failure.recovery).toBe('table-gone');
+    expect(failure.message).toBe('這個桌號的 QR code 已失效，請洽店員。');
+  });
+
+  it('outside the dine-in hours there is no time to pick: ask the staff', () => {
+    const failure = describeSubmitFailure(
+      refused(full(409, 'service-unavailable', { message: '現在不是內用點餐的時間，請洽店員。' })),
+      phone,
+      true,
+    );
+    expect(failure).toMatchObject({
+      recovery: 'stop',
+      message: '現在不是內用點餐的時間，請洽店員。',
+    });
+  });
+
+  it('paused, the table limit and unavailable items speak of the table, not a phone or a time', () => {
+    expect(describeSubmitFailure(refused(full(409, 'shop-paused')), phone, true).message).toBe(
+      '店家暫停接受線上點餐，請洽店員。',
+    );
+    expect(
+      describeSubmitFailure(refused(full(429, 'too-many-pending', { message: '' })), phone, true)
+        .message,
+    ).toContain('這桌');
+    expect(
+      describeSubmitFailure(refused(full(409, 'items-unavailable')), phone, true).message,
+    ).not.toContain('時間');
+    expect(lineProblemText('category-unavailable', true)).toBe('現在不供應，請移除');
+  });
+});

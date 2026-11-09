@@ -35,6 +35,8 @@ const order = (status: Order['status']): Order =>
     cancelNote: null,
     deliveryFee: 0,
     delivery: null,
+    table: null,
+    autoAccepted: false,
   }) as Order;
 
 describe('StatusPage', () => {

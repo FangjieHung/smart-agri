@@ -193,6 +193,7 @@ public class PublicRateLimitingTests
             "GET /api/v1/public/ordering/{slug}/menu",
             "GET /api/v1/public/ordering/{slug}/orders/current",
             "GET /api/v1/public/ordering/{slug}/slots",
+            "GET /api/v1/public/ordering/{slug}/table",
             "POST /api/v1/public/assistants/{id}/chat/runs",
             "POST /api/v1/public/assistants/{id}/visitor-sessions",
             "POST /api/v1/public/ordering/{slug}/orders",

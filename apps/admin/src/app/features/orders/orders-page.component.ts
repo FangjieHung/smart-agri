@@ -3,16 +3,20 @@ import { afterNextRender, ChangeDetectionStrategy, Component, computed, DestroyR
 import { catchError, forkJoin, of, type Subscription } from 'rxjs';
 import {
   isDelivery,
+  isDineIn,
   listOf,
   ORDERING_LIST_LABELS,
   ORDERING_LIST_VIEWS,
-  ORDERING_SERVICE_LABELS,
+  priceText,
+  readyWord,
+  serviceLabel,
   shopClock,
   clockText,
   sortOrders,
   type OrderingListView,
   type OrderingOrderView,
   type OrderingSummaryView,
+  type OrderingTableSessionView,
 } from '../../core/domain/ordering.model';
 import { pollWhile } from '../../core/repositories/repository-resource';
 import {
@@ -20,15 +24,18 @@ import {
   OrderingRepository,
   type OrderingActionRequest,
   type OrderingActionResult,
+  type OrderingCloseTableResult,
 } from '../../core/repositories/ordering.repository';
 import { ApiSessionService } from '../../core/session/api-session.service';
 import { NAV_COUNTS_CHANGED_EVENT } from '../../layout/workspace-layout/nav-counts';
 import { PageHeaderComponent } from '../../shared/ui/page-header/page-header.component';
+import { ConfirmDialogComponent } from '../../shared/ui/confirm-dialog/confirm-dialog.component';
 import { StatePanelComponent } from '../../shared/ui/state-panel/state-panel.component';
 import { OrderActionDialogComponent, type OrderDialogKind } from './order-action-dialog.component';
 import { ORDER_ALERT_SOUND, rememberedSound, rememberSound } from './order-alert-sound';
 import { OrderCardComponent, type OrderActionEvent } from './order-card.component';
 import { ShopControlsComponent } from './shop-controls.component';
+import { TableSessionsComponent, type TableCheckoutEvent } from './table-sessions.component';
 
 /** 每 10 秒讀一次 summary（§4.4：每個分頁每分鐘 6 次）。 */
 export const ORDERING_POLL_MS = 10_000;
@@ -48,6 +55,12 @@ interface OpenDialog {
   readonly trigger: HTMLElement;
 }
 
+/** 〔已結帳〕的確認對話框（#402）：409 時換成伺服器回傳的桌次（金額可能變了），對話框留著讓店員再確認一次。 */
+interface OpenCheckout {
+  readonly session: OrderingTableSessionView;
+  readonly trigger: HTMLElement;
+}
+
 /**
  * 「點餐」頁（issue #399，`docs/plans/2026-11-06-online-ordering.md` §4.4）：店員處理線上訂單。
  *
@@ -56,10 +69,21 @@ interface OpenDialog {
  * - 分頁標題在有待確認時加上「(N) 」；側欄徽章沿用 `NAV_COUNTS_CHANGED_EVENT`（數字變了才送出）。
  * - 按鈕只依訂單的 `actions[]` 顯示；`409` 時直接用回應裡目前的訂單取代畫面上的那一筆。
  * - 寬的畫面三欄並排，窄的畫面用三個切換鈕一次看一欄（容器查詢，側欄收合也跟著變）。
+ * - 內用（#402）：店家開了內用（`services.dineIn`）或還有開著的桌次時，三欄下方列出「內用桌次」，跟著三個清單一起重新讀；
+ *   〔已結帳〕先確認桌號與金額，帶桌次的 `version` 送出；`409` 時換成伺服器回傳的桌次並顯示原因。內用單的〔接單〕不必選時間，
+ *   直接送出（不帶 `promisedAt`）。
  */
 @Component({
   selector: 'app-orders-page',
-  imports: [PageHeaderComponent, StatePanelComponent, OrderCardComponent, OrderActionDialogComponent, ShopControlsComponent],
+  imports: [
+    PageHeaderComponent,
+    StatePanelComponent,
+    OrderCardComponent,
+    OrderActionDialogComponent,
+    ShopControlsComponent,
+    TableSessionsComponent,
+    ConfirmDialogComponent,
+  ],
   templateUrl: './orders-page.component.html',
   styleUrl: './orders-page.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -88,6 +112,27 @@ export class OrdersPageComponent {
   protected readonly notice = signal('');
   protected readonly error = signal('');
   protected readonly soundStatus = signal<SoundStatus>('off');
+
+  /** 開著的桌次（#402）；`null`：還沒讀到。 */
+  protected readonly tables = signal<readonly OrderingTableSessionView[] | null>(null);
+  protected readonly checkout = signal<OpenCheckout | null>(null);
+  protected readonly checkoutBusy = signal(false);
+  protected readonly checkoutError = signal('');
+  /** 店家開了內用，或還有沒結帳的桌子（內用關掉之前開的桌次仍要能結帳）。 */
+  protected readonly dineInShown = computed(() => {
+    const summary = this.summary();
+    return summary !== null && (summary.services.dineIn || summary.openTableCount > 0 || (this.tables()?.length ?? 0) > 0);
+  });
+  protected readonly checkoutHeading = computed(() => {
+    const open = this.checkout();
+    return open ? `${open.session.tableName} 共 ${priceText(open.session.total)}，確定已結帳？` : '';
+  });
+  protected readonly checkoutDetail = computed(() => {
+    const open = this.checkout();
+    if (!open) return '';
+    const served = open.session.orders.filter((order) => order.status === 'accepted' || order.status === 'ready').length;
+    return `這桌有 ${open.session.orders.length} 筆訂單。結帳後，已接單與已出餐的 ${served} 筆會標示為完成；客人再掃同一張 QR code 會開始新的桌次。`;
+  });
 
   /** 伺服器時間減裝置時間；「剩 N 分鐘」一律用伺服器時間。 */
   private clockOffset = 0;
@@ -195,6 +240,11 @@ export class OrdersPageComponent {
     this.notice.set('');
     this.error.set('');
     const { order, action, trigger } = event;
+    // 內用單（#402）不選時間：〔接單〕直接送出，不帶 promisedAt。
+    if (action === 'accept' && isDineIn(order.serviceType)) {
+      this.run(order, { action, version: order.version }, trigger);
+      return;
+    }
     if (action === 'accept' || action === 'decline' || action === 'cancel') {
       this.dialogError.set('');
       this.dialog.set({ kind: action, order, trigger });
@@ -214,6 +264,35 @@ export class OrdersPageComponent {
     if (open) this.restoreFocus(open.order.id, open.trigger);
   }
 
+  /** 〔已結帳〕：先確認桌號與金額。 */
+  protected onCheckout(event: TableCheckoutEvent): void {
+    this.notice.set('');
+    this.error.set('');
+    this.checkoutError.set('');
+    this.checkout.set({ session: event.session, trigger: event.trigger });
+  }
+
+  protected cancelCheckout(): void {
+    if (this.checkoutBusy()) return;
+    const open = this.checkout();
+    this.checkout.set(null);
+    if (open) this.restoreTableFocus(open.trigger);
+  }
+
+  protected confirmCheckout(): void {
+    const open = this.checkout();
+    if (!open || this.checkoutBusy()) return;
+    this.checkoutBusy.set(true);
+    this.checkoutError.set('');
+    this.repository.closeTable(open.session.id, open.session.version).subscribe({
+      next: (result) => this.afterCheckout(open, result),
+      error: () => {
+        this.checkoutBusy.set(false);
+        this.checkoutError.set('目前無法結帳，請稍後再試。');
+      },
+    });
+  }
+
   /** 店家控制改了暫停或檔位：直接用回傳的 summary（游標也一起更新，下一次輪詢不會誤以為有變化）。 */
   protected onSummaryChange(summary: OrderingSummaryView): void {
     this.summary.set(summary);
@@ -221,6 +300,59 @@ export class OrdersPageComponent {
 
   protected panelId(list: OrderingListView): string {
     return `orders-${list}`;
+  }
+
+  private afterCheckout(open: OpenCheckout, result: OrderingCloseTableResult): void {
+    this.checkoutBusy.set(false);
+    const name = open.session.tableName;
+    switch (result.status) {
+      case 'ready':
+        this.removeTable(open.session.id);
+        this.notice.set(`${name} 已結帳（${priceText(result.data.total)}），這桌的訂單已完成。`);
+        break;
+      case 'table-conflict':
+        if (result.session.closedAt !== null) {
+          this.removeTable(open.session.id);
+          this.notice.set(`${name} 剛剛已經由其他人結帳了。`);
+          break;
+        }
+        // 還開著：換成目前的樣子（金額、待確認可能變了），對話框留著讓店員確認後再按一次。
+        this.tables.update((rows) => (rows ?? []).map((row) => (row.id === result.session.id ? result.session : row)));
+        this.checkout.set({ session: result.session, trigger: open.trigger });
+        this.checkoutError.set(result.message);
+        this.loadLists(false);
+        return;
+      case 'validation-failed':
+        this.checkoutError.set(result.message);
+        return;
+      case 'permission-denied':
+        this.error.set(result.message);
+        break;
+      case 'not-configured':
+        this.checkout.set(null);
+        this.stop('not-configured', result.message);
+        return;
+      default:
+        return;
+    }
+    this.checkout.set(null);
+    this.restoreTableFocus(open.trigger);
+    this.loadLists(false);
+  }
+
+  private removeTable(sessionId: string): void {
+    this.tables.update((rows) => (rows ?? []).filter((row) => row.id !== sessionId));
+  }
+
+  /** 結帳後按鈕跟著桌次消失：焦點移到「內用桌次」標題；取消時回到〔已結帳〕。 */
+  private restoreTableFocus(trigger: HTMLElement): void {
+    afterNextRender(() => {
+      if (trigger.isConnected && !(trigger as HTMLButtonElement).disabled) {
+        trigger.focus();
+        return;
+      }
+      this.document.getElementById('orders-tables-title')?.focus();
+    }, { injector: this.injector });
   }
 
   private onSummary(next: OrderingSummaryView): void {
@@ -249,9 +381,21 @@ export class OrdersPageComponent {
   private loadLists(announce: boolean): void {
     this.listsLoad?.unsubscribe();
     const read = (view: OrderingListView) => this.repository.orders(view).pipe(catchError(() => of(null)));
-    this.listsLoad = forkJoin({ pending: read('pending'), active: read('active'), done: read('done') }).subscribe((results) => {
+    // 內用桌次（#402）跟著三個清單一起讀：summary 的 changedAt 也包括開桌、加點與結帳。
+    const tables = this.dineInShown() ? this.repository.tables().pipe(catchError(() => of(null))) : of(undefined);
+    this.listsLoad = forkJoin({ pending: read('pending'), active: read('active'), done: read('done'), tables }).subscribe((results) => {
       const next = { ...this.orders() };
       let failed = false;
+      if (results.tables === null) {
+        failed = true;
+      } else if (results.tables !== undefined) {
+        if (results.tables.status === 'ready') {
+          this.tables.set(results.tables.data.sessions);
+        } else if (results.tables.status === 'permission-denied' || results.tables.status === 'not-configured') {
+          this.stop(results.tables.status, results.tables.message);
+          return;
+        }
+      }
       for (const list of ORDERING_LIST_VIEWS) {
         const result = results[list];
         if (result === null) {
@@ -263,7 +407,7 @@ export class OrdersPageComponent {
           return;
         }
       }
-      this.listsFailed.set(failed && Object.values(next).some((value) => value === null));
+      this.listsFailed.set(failed && (Object.values(next).some((value) => value === null) || (this.dineInShown() && this.tables() === null)));
       this.orders.set(next);
       const pending = next.pending ?? [];
       const fresh = pending.filter((order) => !this.seenPending.has(order.id));
@@ -342,11 +486,12 @@ export class OrdersPageComponent {
     const number = order.displayNumber;
     switch (request.action) {
       case 'accept':
+        if (isDineIn(order.serviceType)) return `已接單 ${number}（${serviceLabel(order)}）。`;
         return `已接單 ${number}，預計 ${clockText(order.promisedAt ?? order.pickupAt, this.timeZone(), this.now())} ${isDelivery(order.serviceType) ? '送達' : '可取餐'}。`;
       case 'decline':
         return `已婉拒 ${number}。`;
       case 'ready':
-        return `${number} 已標示為${isDelivery(order.serviceType) ? '已出發' : '可取餐'}。`;
+        return `${number} 已標示為${readyWord(order.serviceType)}。`;
       case 'complete':
         return `${number} 已完成。`;
       case 'cancel':
@@ -355,8 +500,8 @@ export class OrdersPageComponent {
   }
 
   private pickupBrief(order: OrderingOrderView): string {
-    const service = ORDERING_SERVICE_LABELS[order.serviceType] ?? order.serviceType;
-    return order.estimate ? service : `${service} ${shopClock(order.pickupAt, this.timeZone()).time}`;
+    const service = serviceLabel(order);
+    return order.estimate || isDineIn(order.serviceType) ? service : `${service} ${shopClock(order.pickupAt, this.timeZone()).time}`;
   }
 
   /**

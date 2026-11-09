@@ -50,12 +50,13 @@ internal static class OrderingSamples
         bool scheduled = true,
         bool asap = true,
         OrderingDeliverySettings? delivery = null,
-        bool deliveryAsap = false)
+        bool deliveryAsap = false,
+        OrderingDineInSettings? dineIn = null)
     {
         var settings = new OrderingShopSettings(
             "test-shop", "測試麵店", timeZone, "02-2345-6789", null, null, null,
-            new OrderingServices(scheduled, asap, delivery is not null, deliveryAsap), Hours(periods),
-            slotMinutes, daysAhead, minLeadMinutes, maxOrdersPerSlot, Delivery: delivery);
+            new OrderingServices(scheduled, asap, delivery is not null, deliveryAsap, dineIn is not null), Hours(periods),
+            slotMinutes, daysAhead, minLeadMinutes, maxOrdersPerSlot, Delivery: delivery, DineIn: dineIn);
         return OrderingShop.Create(Guid.CreateVersion7(), settings, new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero));
     }
 

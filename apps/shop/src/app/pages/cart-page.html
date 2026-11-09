@@ -22,7 +22,7 @@
         >
       </div>
     } @else {
-      @if (store.canOrder()) {
+      @if (store.canOrder() || store.isTable()) {
         <app-pickup-ticket (edit)="timeOpen.set(true)" />
       }
       @if (store.shortfall() > 0) {
@@ -45,7 +45,9 @@
                 <p class="line__comment">備註：{{ entry.line.comment }}</p>
               }
               @if (warning) {
-                <p class="line__warning" role="note">{{ lineProblemText(warning) }}</p>
+                <p class="line__warning" role="note">
+                  {{ lineProblemText(warning, store.isTable()) }}
+                </p>
               }
             </div>
             <div class="line__controls">
@@ -118,13 +120,13 @@
             [maxLength]="shop.limits.orderCommentMaxLength"
             [value]="store.cart().orderComment"
             (input)="store.setOrderComment($any($event.target).value)"
-            placeholder="例如：會晚 10 分鐘到"
+            [placeholder]="store.isTable() ? '例如：小孩的餐先上' : '例如：會晚 10 分鐘到'"
           ></textarea>
           <p class="field__hint num">最多 {{ shop.limits.orderCommentMaxLength }} 字</p>
         </div>
       }
 
-      @if (shop.showTableware) {
+      @if (shop.showTableware && !store.isTable()) {
         <fieldset class="tableware">
           <legend class="field__label">餐具</legend>
           <label class="choice">
@@ -159,14 +161,18 @@
         }
       </dl>
       <p class="sum__note">
-        金額以店家確認的為準；{{ store.isDelivery() ? '貨到付款' : '取餐時付款' }}。
+        金額以店家確認的為準；{{
+          store.isTable() ? store.dineInPayment() : store.isDelivery() ? '貨到付款' : '取餐時付款'
+        }}。
       </p>
     }
   </div>
 
   @if (store.cart().lines.length > 0) {
     <div class="bar">
-      @if (store.lineWarnings().size > 0) {
+      @if (store.tableClosed(); as closed) {
+        <p class="bar__warn" role="status" data-testid="table-closed">{{ closed }}</p>
+      } @else if (store.lineWarnings().size > 0) {
         <p class="bar__warn" role="status">請先處理標示的品項，再前往結帳。</p>
       } @else if (store.shortfall() > 0) {
         <p class="bar__warn" role="status">

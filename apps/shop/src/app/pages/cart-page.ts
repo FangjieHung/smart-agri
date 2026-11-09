@@ -9,7 +9,10 @@ import { PickupTicket } from '../ui/pickup-ticket';
 import { TimeSheet } from '../ui/time-sheet';
 import { PageHeader } from '../ui/page-header';
 
-/** 購物車：改選項、份數、刪除、訂單備註、餐具，前往結帳。外送未達門檻時不能結帳（#401）。 */
+/**
+ * 購物車：改選項、份數、刪除、訂單備註、餐具，前往結帳。外送未達門檻時不能結帳（#401）。內用（#402）不選時間、
+ * 不問餐具，付款寫用餐後至櫃台結帳。
+ */
 @Component({
   selector: 'app-cart-page',
   imports: [PickupTicket, TimeSheet, ItemSheet, PageHeader],
@@ -39,7 +42,7 @@ export default class CartPage {
 
   constructor() {
     void this.store.loadMenu();
-    void this.store.loadSlots();
+    void this.store.loadService();
   }
 
   protected saveEdit(line: Omit<CartLine, 'key'>): void {

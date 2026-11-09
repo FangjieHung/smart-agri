@@ -56,6 +56,13 @@ public sealed class OrderingShop : IOrganizationScoped
     /// <c>delivery</c> section.</summary>
     public OrderingDeliverySettings? DeliverySettings { get; private set; }
 
+    /// <summary>內用掃碼 (#402).</summary>
+    public bool DineIn { get; private set; }
+
+    /// <summary>The tables, auto-accept, hours, note and pending limit of dine-in (#402); <see langword="null"/> when the file
+    /// has no <c>dineIn</c> section.</summary>
+    public OrderingDineInSettings? DineInSettings { get; private set; }
+
     public WeeklyHours OrderingHours { get; private set; }
 
     public int SlotMinutes { get; private set; }
@@ -89,15 +96,24 @@ public sealed class OrderingShop : IOrganizationScoped
     /// <summary>The imported settings.</summary>
     public OrderingShopSettings Settings => new(
         Slug, Name, TimeZoneId, Phone, Address, ReminderNotice, CheckoutNotice, Services, OrderingHours, SlotMinutes, DaysAhead,
-        MinLeadMinutes, MaxOrdersPerSlot, ShowOrderComment, ShowTableware, PendingTimeoutMinutes, DeliverySettings);
+        MinLeadMinutes, MaxOrdersPerSlot, ShowOrderComment, ShowTableware, PendingTimeoutMinutes, DeliverySettings, DineInSettings);
 
-    public OrderingServices Services => new(TakeoutScheduled, TakeoutAsap, Delivery, DeliveryAsap);
+    public OrderingServices Services => new(TakeoutScheduled, TakeoutAsap, Delivery, DeliveryAsap, DineIn);
 
     /// <summary>The calculations over <see cref="OrderingHours"/> in the shop's time zone.</summary>
     public BusinessHours Hours => new(OrderingHours, TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId));
 
     /// <summary>Delivery is offered (scheduled; ASAP only with <see cref="DeliveryAsap"/>) and has zones.</summary>
     public bool DeliveryOffered => Delivery && DeliverySettings is { Zones.Count: > 0 };
+
+    /// <summary>Dine-in is offered and has tables (#402).</summary>
+    public bool DineInOffered => DineIn && DineInSettings is { Tables.Count: > 0 };
+
+    /// <summary>When dine-in orders are taken: the dine-in section's own hours, else the takeout ordering hours (#402).</summary>
+    public WeeklyHours DineInHours => DineInSettings?.OrderingHours ?? OrderingHours;
+
+    /// <summary>The calculations over <see cref="DineInHours"/> in the shop's time zone.</summary>
+    public BusinessHours DineInBusinessHours => new(DineInHours, TimeZoneInfo.FindSystemTimeZoneById(TimeZoneId));
 
     /// <summary>When delivery orders are delivered: the delivery section's own hours, else the takeout ordering hours.</summary>
     public WeeklyHours DeliveryHours => DeliverySettings?.OrderingHours ?? OrderingHours;
@@ -200,6 +216,8 @@ public sealed class OrderingShop : IOrganizationScoped
         Delivery = settings.Services.Delivery;
         DeliveryAsap = settings.Services.DeliveryAsap;
         DeliverySettings = settings.Delivery;
+        DineIn = settings.Services.DineIn;
+        DineInSettings = settings.DineIn;
         OrderingHours = settings.OrderingHours;
         SlotMinutes = settings.SlotMinutes;
         DaysAhead = settings.DaysAhead;

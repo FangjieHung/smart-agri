@@ -258,6 +258,12 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>The orders customers sent from the shops' ordering pages (#398).</summary>
     public DbSet<OrderingOrder> OrderingOrders => Set<OrderingOrder>();
 
+    /// <summary>Each table's QR code token (#402).</summary>
+    public DbSet<OrderingTable> OrderingTables => Set<OrderingTable>();
+
+    /// <summary>桌次: a table's orders until 〔已結帳〕 (#402).</summary>
+    public DbSet<OrderingTableSession> OrderingTableSessions => Set<OrderingTableSession>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -459,6 +465,8 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new OrderingMenuConfiguration());
         modelBuilder.ApplyConfiguration(new OrderingItemStateConfiguration());
         modelBuilder.ApplyConfiguration(new OrderingOrderConfiguration());
+        modelBuilder.ApplyConfiguration(new OrderingTableConfiguration());
+        modelBuilder.ApplyConfiguration(new OrderingTableSessionConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

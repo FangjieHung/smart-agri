@@ -13,7 +13,8 @@
       "takeoutScheduled": true,
       "takeoutAsap": true,
       "delivery": true,
-      "deliveryAsap": true
+      "deliveryAsap": true,
+      "dineIn": true
     },
     "orderingHours": {
       "mon": [],
@@ -49,6 +50,18 @@
       "minLeadMinutes": 45,
       "asapExtraMinutes": 20,
       "note": "外送由店員騎車送達，範圍以店家公告為準；不確定是否在範圍內請先來電。"
+    },
+    "dineIn": {
+      "tables": [
+        { "id": "a1", "name": "A1" },
+        { "id": "a2", "name": "A2" },
+        { "id": "a3", "name": "A3" },
+        { "id": "window-1", "name": "窗邊 1" },
+        { "id": "window-2", "name": "窗邊 2" }
+      ],
+      "autoAccept": false,
+      "note": "用餐後請至櫃台結帳，可用現金或 LINE Pay。",
+      "maxPendingPerTable": 5
     }
   },
   "menu": {

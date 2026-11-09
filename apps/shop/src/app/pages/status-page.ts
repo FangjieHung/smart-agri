@@ -14,10 +14,11 @@ import type { ChosenOption, Order } from '../api/types';
 import { isFinal, recentOrders, tokenFromHash, updateRecentStatus } from '../domain/orders';
 import {
   DELIVERY_STEPS,
-  isDeliveryOrder,
+  DINE_IN_STEPS,
   progressIndex,
   PROGRESS_STEPS,
   reasonText,
+  serviceKind,
   statusWords,
 } from '../domain/status';
 import { addMinutes, pickupText, wallClock } from '../domain/time';
@@ -34,6 +35,7 @@ export const POLL_MS = 10_000;
 /**
  * 訂單狀態頁 `/order/{slug}/o#<token>`：token 只從網址 `#` 後面讀，查詢時只放在 `X-Ordering-Token` 標頭。
  * 每 10 秒更新一次（頁面在背景時暫停），進入最終狀態後停止；店家還沒確認前可以取消（先確認）。
+ * 內用（#402）顯示桌號而不是取餐時間；這個分頁還記得這桌時提供〔繼續加點〕。
  */
 @Component({
   selector: 'app-status-page',
@@ -60,18 +62,33 @@ export default class StatusPage {
   protected readonly cancelError = signal<string | null>(null);
   protected readonly recent = computed(() => recentOrders(this.store.slug()));
 
-  /** 外送訂單（#401）：顯示外送、地址、「已出發」與貨到付款。 */
-  protected readonly delivery = computed(() => {
+  /** 取餐方式：外送（#401）顯示外送、地址、「已出發」與貨到付款；內用（#402）顯示桌號、用餐後結帳。 */
+  protected readonly kind = computed(() => {
     const order = this.order();
-    return !!order && isDeliveryOrder(order);
+    return order ? serviceKind(order) : 'takeout';
+  });
+  protected readonly delivery = computed(() => this.kind() === 'delivery');
+  protected readonly dineIn = computed(() => this.kind() === 'dine-in');
+
+  /** 內用訂單的桌號：「內用・桌號 A1」。 */
+  protected readonly tableLabel = computed(() => {
+    const name = this.order()?.table?.name;
+    return name ? `內用・桌號 ${name}` : '內用';
   });
 
-  protected readonly steps = computed(() => (this.delivery() ? DELIVERY_STEPS : PROGRESS_STEPS));
+  protected readonly steps = computed(() =>
+    this.dineIn() ? DINE_IN_STEPS : this.delivery() ? DELIVERY_STEPS : PROGRESS_STEPS,
+  );
 
   protected readonly words = computed(() => {
     const order = this.order();
     return order?.status
-      ? statusWords(order.status, order.cancelledBy ?? null, this.delivery())
+      ? statusWords(
+          order.status,
+          order.cancelledBy ?? null,
+          this.kind(),
+          order.autoAccepted ?? false,
+        )
       : null;
   });
 
@@ -186,7 +203,7 @@ export default class StatusPage {
     updateRecentStatus(this.store.slug(), token, order);
     if (previous && previous !== order.status && order.status) {
       this.announcer.announce(
-        `訂單 ${order.displayNumber}：${statusWords(order.status, order.cancelledBy ?? null).title}`,
+        `訂單 ${order.displayNumber}：${statusWords(order.status, order.cancelledBy ?? null, serviceKind(order), order.autoAccepted ?? false).title}`,
       );
     }
   }
@@ -231,10 +248,16 @@ export default class StatusPage {
       .join('、');
   }
 
-  protected statusOf(entry: { status: Order['status']; serviceType?: Order['serviceType'] }): string {
+  protected statusOf(entry: {
+    status: Order['status'];
+    serviceType?: Order['serviceType'];
+  }): string {
     return entry.status
-      ? statusWords(entry.status, null, !!entry.serviceType && isDeliveryOrder({ serviceType: entry.serviceType }))
-          .title
+      ? statusWords(
+          entry.status,
+          null,
+          serviceKind(entry),
+        ).title
       : '';
   }
 }

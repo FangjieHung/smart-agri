@@ -39,7 +39,7 @@ const SERVER_FIELDS: Record<string, Field> = {
 };
 
 /**
- * 結帳：確認明細與取餐時間、填聯絡資料（外送另填地址與給外送的備註，#401）、送出。送出前先把送出鍵（UUID）與內容存進 localStorage，
+ * 結帳：確認明細與取餐時間、填聯絡資料（外送另填地址與給外送的備註，#401；內用只問選填的稱呼，#402）、送出。送出前先把送出鍵（UUID）與內容存進 localStorage，
  * 回應遺失時重試沿用同一個鍵，伺服器只會建立一筆訂單；成功就存下 token、清空購物車、前往訂單頁。
  */
 @Component({
@@ -89,7 +89,7 @@ export default class CheckoutPage {
       this.deliveryNote.set(pending?.request.deliveryNote ?? '');
     }
     void this.store.loadMenu();
-    void this.store.loadSlots();
+    void this.store.loadService();
   }
 
   protected set(field: Field, value: string): void {
@@ -108,6 +108,12 @@ export default class CheckoutPage {
     const limits = this.store.shop()?.limits;
     const errors: Partial<Record<Field, string>> = {};
     const name = this.name().trim();
+    if (this.store.isTable()) {
+      // 內用（#402）：稱呼選填，不問電話與 Email。
+      if (limits && name.length > limits.nameMaxLength)
+        errors.name = `稱呼最多 ${limits.nameMaxLength} 個字。`;
+      return errors;
+    }
     if (!name) errors.name = '請填寫姓名。';
     else if (limits && name.length > limits.nameMaxLength)
       errors.name = `姓名最多 ${limits.nameMaxLength} 個字。`;
@@ -141,6 +147,18 @@ export default class CheckoutPage {
       this.document.getElementById(`checkout-${firstInvalid}`)?.focus();
       return;
     }
+    const closed = this.store.tableClosed();
+    if (closed) {
+      this.failure.set({
+        recovery: 'stop',
+        message: closed,
+        fields: {},
+        lines: [],
+        orderNumber: null,
+      });
+      this.announcer.announce(closed);
+      return;
+    }
     if (!this.store.serviceReady()) {
       this.timeMessage.set(
         this.store.isDelivery() ? '請先選擇外送區域與時間。' : '請先選擇取餐時間。',
@@ -161,7 +179,9 @@ export default class CheckoutPage {
     if (this.blockedLines()) {
       this.failure.set({
         recovery: 'mark-lines',
-        message: '購物車裡有品項在這個取餐時間無法供應，請回購物車移除或改選時間。',
+        message: this.store.isTable()
+          ? '購物車裡有品項現在無法供應，請回購物車移除。'
+          : '購物車裡有品項在這個取餐時間無法供應，請回購物車移除或改選時間。',
         fields: {},
         lines: [],
         orderNumber: null,
@@ -175,7 +195,7 @@ export default class CheckoutPage {
     savePendingSubmission(slug, { submissionKey: this.submissionKey, request });
 
     this.sending.set(true);
-    const result = await this.api.submit(slug, request);
+    const result = await this.api.submit(slug, request, this.store.tableToken());
     this.sending.set(false);
 
     if (result.ok) {
@@ -189,7 +209,11 @@ export default class CheckoutPage {
 
     // 伺服器明確拒絕（4xx）時訂單沒有建立，不必留著送出內容；只有連不上或 5xx 時結果不明，留著讓下次沿用同一個鍵。
     if (result.status >= 400 && result.status < 500) savePendingSubmission(slug, null);
-    const failure = describeSubmitFailure(result, this.store.shop()?.phone ?? '');
+    const failure = describeSubmitFailure(
+      result,
+      this.store.shop()?.phone ?? '',
+      this.store.isTable(),
+    );
     await this.recover(failure);
     this.failure.set(failure);
     this.announcer.announce(failure.message);
@@ -231,7 +255,10 @@ export default class CheckoutPage {
       }
       case 'stop':
       case 'add-more':
-        await this.store.refreshShop();
+        await Promise.all([this.store.refreshShop(), this.store.loadTable()]);
+        break;
+      case 'table-gone':
+        this.store.forgetTable();
         break;
       case 'retry':
         break;
@@ -249,19 +276,39 @@ export default class CheckoutPage {
     const scheduled = service.type === 'takeout-scheduled' || service.type === 'delivery-scheduled';
     const delivery = this.store.isDelivery();
     const note = this.deliveryNote().trim();
+    const lines = cart.lines.map((line) => ({
+      itemId: line.itemId,
+      quantity: line.quantity,
+      selections: line.selections,
+      comment: line.comment,
+    }));
+    const comment = shop.showOrderComment && orderComment ? orderComment : null;
+    if (service.type === 'dine-in') {
+      // 內用（#402）：沒有時間、電話、Email、餐具；桌號在 X-Ordering-Table 標頭。
+      const name = this.name().trim();
+      return {
+        serviceType: 'dine-in',
+        pickupDate: null,
+        pickupSlot: null,
+        menuVersion: menu.version,
+        lines,
+        customer: { name: name || null, phone: null, email: null },
+        orderComment: comment,
+        tableware: null,
+        submissionKey: this.submissionKey,
+        deliveryZoneId: null,
+        deliveryAddress: null,
+        deliveryNote: null,
+      };
+    }
     return {
       serviceType: service.type,
       pickupDate: scheduled ? service.date : null,
       pickupSlot: scheduled ? service.slot : null,
       menuVersion: menu.version,
-      lines: cart.lines.map((line) => ({
-        itemId: line.itemId,
-        quantity: line.quantity,
-        selections: line.selections,
-        comment: line.comment,
-      })),
+      lines,
       customer: { name: this.name().trim(), phone: this.phone().trim(), email: email || null },
-      orderComment: shop.showOrderComment && orderComment ? orderComment : null,
+      orderComment: comment,
       tableware: shop.showTableware ? (cart.tableware ?? false) : null,
       submissionKey: this.submissionKey,
       deliveryZoneId: delivery ? (service.zoneId ?? null) : null,

@@ -17,6 +17,8 @@ export type Recovery =
   | 'stop'
   /** 未達外送門檻（#401）：回購物車再加點。 */
   | 'add-more'
+  /** 桌號 QR code 已失效（#402）：忘掉這桌，請顧客洽店員。 */
+  | 'table-gone'
   /** 可以用同一個送出鍵再試一次。 */
   | 'retry';
 
@@ -30,15 +32,15 @@ export interface SubmitFailure {
   readonly orderNumber: string | null;
 }
 
-/** 購物車行的錯誤代碼 → 顯示在那一行旁邊的說明。 */
-export function lineProblemText(code: string): string {
+/** 購物車行的錯誤代碼 → 顯示在那一行旁邊的說明。內用（#402）沒有時間可改，只請顧客移除。 */
+export function lineProblemText(code: string, dineIn = false): string {
   switch (code) {
     case 'sold-out-today':
-      return '今天已售完，請移除或改選其他時間';
+      return dineIn ? '今天已售完，請移除' : '今天已售完，請移除或改選其他時間';
     case 'unavailable':
       return '目前停售，請移除';
     case 'category-unavailable':
-      return '這個取餐時間不供應，請移除或改選時間';
+      return dineIn ? '現在不供應，請移除' : '這個取餐時間不供應，請移除或改選時間';
     case 'unknown-item':
       return '已經下架，請移除';
     case 'invalid-quantity':
@@ -50,11 +52,13 @@ export function lineProblemText(code: string): string {
 
 /**
  * 送出訂單失敗時要顯示的訊息與接下來的處理（設計文件 §4.2 的每個 `reason`）。伺服器的 `message` 已經是
- * 可以直接顯示的中文，這裡只在需要更具體的下一步時換掉它；不認得的回應給通用說明。
+ * 可以直接顯示的中文，這裡只在需要更具體的下一步時換掉它；不認得的回應給通用說明。內用（#402，`dineIn`）
+ * 沒有時間可改，請顧客洽店員。
  */
 export function describeSubmitFailure(
   result: Exclude<ApiResult<unknown>, { ok: true }>,
   shopPhone: string,
+  dineIn = false,
 ): SubmitFailure {
   const base = { fields: {}, lines: [], orderNumber: null };
   if (!('problem' in result)) {
@@ -83,6 +87,12 @@ export function describeSubmitFailure(
     case 'slot-unavailable':
       return { ...base, recovery: 'pick-time', message: '這個取餐時間已經不能選了，請重新選擇。' };
     case 'service-unavailable':
+      if (dineIn)
+        return {
+          ...base,
+          recovery: 'stop',
+          message: serverMessage || '現在不是內用點餐的時間，請洽店員。',
+        };
       return {
         ...base,
         recovery: 'pick-time',
@@ -107,7 +117,9 @@ export function describeSubmitFailure(
       return {
         ...base,
         recovery: 'mark-lines',
-        message: '購物車裡有品項在這個取餐時間無法供應，請移除標示的品項或改選時間。',
+        message: dineIn
+          ? '購物車裡有品項現在無法供應，請移除標示的品項。'
+          : '購物車裡有品項在這個取餐時間無法供應，請移除標示的品項或改選時間。',
         lines: (problem.lineErrors ?? []).map((error) => ({ line: error.line, code: error.code })),
       };
     case 'invalid-order': {
@@ -141,7 +153,9 @@ export function describeSubmitFailure(
       return {
         ...base,
         recovery: 'stop',
-        message: `店家暫停接受線上點餐，請稍後再試或來電 ${shopPhone}。`,
+        message: dineIn
+          ? '店家暫停接受線上點餐，請洽店員。'
+          : `店家暫停接受線上點餐，請稍後再試或來電 ${shopPhone}。`,
       };
     case 'too-many-pending':
       return {
@@ -149,7 +163,15 @@ export function describeSubmitFailure(
         recovery: 'stop',
         message:
           serverMessage ||
-          `這支電話已經有多筆等待店家確認的訂單，請等店家處理後再訂，或來電 ${shopPhone}。`,
+          (dineIn
+            ? '這桌已經有多筆等待店家確認的訂單，請等店家確認後再加點，或洽店員。'
+            : `這支電話已經有多筆等待店家確認的訂單，請等店家處理後再訂，或來電 ${shopPhone}。`),
+      };
+    case 'table-not-found':
+      return {
+        ...base,
+        recovery: 'table-gone',
+        message: serverMessage || '這個桌號的 QR code 已失效，請洽店員。',
       };
     case 'rate-limited':
       return {

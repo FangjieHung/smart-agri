@@ -32,6 +32,11 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
         delivery => OrderingShopJson.WriteDelivery(delivery).GetHashCode(StringComparison.Ordinal),
         delivery => delivery);
 
+    private static readonly ValueComparer<OrderingDineInSettings?> DineInComparer = new(
+        (left, right) => OrderingShopJson.WriteDineIn(left) == OrderingShopJson.WriteDineIn(right),
+        dineIn => OrderingShopJson.WriteDineIn(dineIn).GetHashCode(StringComparison.Ordinal),
+        dineIn => dineIn);
+
     public void Configure(EntityTypeBuilder<OrderingShop> builder)
     {
         builder.ToTable("OrderingShops", table =>
@@ -55,6 +60,10 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
                 "(NOT \"Delivery\" OR \"DeliverySettings\" IS NOT NULL) AND (NOT \"DeliveryAsap\" OR \"Delivery\")");
             table.HasCheckConstraint(
                 "CK_OrderingShops_DeliverySettings", "\"DeliverySettings\" IS NULL OR jsonb_typeof(\"DeliverySettings\") = 'object'");
+            // #402: dine-in needs its tables.
+            table.HasCheckConstraint(
+                "CK_OrderingShops_DineIn",
+                "(NOT \"DineIn\" OR \"DineInSettings\" IS NOT NULL) AND (\"DineInSettings\" IS NULL OR jsonb_typeof(\"DineInSettings\") = 'object')");
         });
         builder.HasKey(shop => shop.Id);
         builder.Property(shop => shop.Id).ValueGeneratedNever();
@@ -80,6 +89,13 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
                     json => json == null ? null : OrderingShopJson.ReadDelivery(json)),
                 DeliveryComparer)
             .HasColumnType("jsonb");
+        builder.Property(shop => shop.DineInSettings)
+            .HasConversion(
+                new ValueConverter<OrderingDineInSettings?, string?>(
+                    dineIn => dineIn == null ? null : OrderingShopJson.WriteDineIn(dineIn),
+                    json => json == null ? null : OrderingShopJson.ReadDineIn(json)),
+                DineInComparer)
+            .HasColumnType("jsonb");
         builder.Property(shop => shop.AsapPrepBand)
             .HasConversion<WireNameConverter<AsapPrepBand>>()
             .HasMaxLength(16)
@@ -90,6 +106,9 @@ internal sealed class OrderingShopConfiguration : IEntityTypeConfiguration<Order
         builder.Ignore(shop => shop.Hours);
         builder.Ignore(shop => shop.DeliveryOffered);
         builder.Ignore(shop => shop.DeliveryHours);
+        builder.Ignore(shop => shop.DineInOffered);
+        builder.Ignore(shop => shop.DineInHours);
+        builder.Ignore(shop => shop.DineInBusinessHours);
         builder.HasIndex(shop => shop.OrganizationId).IsUnique();
         builder.HasIndex(shop => shop.Slug).IsUnique().HasDatabaseName(SlugIndex);
     }
@@ -188,6 +207,14 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
             table.HasCheckConstraint(
                 "CK_OrderingOrders_Asap",
                 "(\"ServiceType\" IN ('takeout-asap', 'delivery-asap')) = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
+            // #402: a dine-in order has its table and session, and no phone or Email; only it is accepted automatically, by no member.
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_DineIn",
+                "(\"ServiceType\" = 'dine-in') = (\"TableId\" IS NOT NULL AND \"TableName\" IS NOT NULL AND \"TableSessionId\" IS NOT NULL) "
+                + "AND (\"ServiceType\" <> 'dine-in' OR (\"CustomerPhone\" = '' AND \"CustomerEmail\" IS NULL))");
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_AutoAccepted",
+                "NOT \"AutoAccepted\" OR (\"ServiceType\" = 'dine-in' AND \"AcceptedAt\" IS NOT NULL AND \"AcceptedByAccountId\" IS NULL)");
             // #401: a delivery order has its zone and address (an empty address once cleared); the fee is in the total.
             table.HasCheckConstraint(
                 "CK_OrderingOrders_Delivery",
@@ -235,6 +262,8 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
         builder.Property(order => order.DeliveryZoneName).HasMaxLength(OrderingDeliverySettings.ZoneNameMaxLength);
         builder.Property(order => order.DeliveryAddress).HasMaxLength(OrderingContact.AddressMaxLength);
         builder.Property(order => order.DeliveryNote).HasMaxLength(OrderingContact.DeliveryNoteMaxLength);
+        builder.Property(order => order.TableId).HasMaxLength(MenuLimits.IdMaxLength);
+        builder.Property(order => order.TableName).HasMaxLength(OrderingDineInSettings.TableNameMaxLength);
         builder.Property(order => order.Lines)
             .HasConversion(
                 new ValueConverter<IReadOnlyList<OrderingOrderLine>, string>(
@@ -262,6 +291,7 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
         builder.Ignore(order => order.CanCancel);
         builder.Ignore(order => order.AllowedActions);
         builder.Ignore(order => order.Delivery);
+        builder.Ignore(order => order.Table);
         builder.HasIndex(order => new { order.OrganizationId, order.BusinessDate, order.Number }).IsUnique().HasDatabaseName(NumberIndex);
         builder.HasIndex(order => new { order.OrganizationId, order.SubmissionKey }).IsUnique().HasDatabaseName(SubmissionKeyIndex);
         builder.HasIndex(order => order.StatusTokenHash).IsUnique();
@@ -270,6 +300,9 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
         builder.HasIndex(order => new { order.OrganizationId, order.CustomerPhone, order.Status });
         // The admin's lists by status (#399).
         builder.HasIndex(order => new { order.OrganizationId, order.Status, order.StatusChangedAt });
+        // A table session's orders and a table's pending limit (#402).
+        builder.HasIndex(order => new { order.OrganizationId, order.TableSessionId });
+        builder.HasIndex(order => new { order.OrganizationId, order.TableId, order.Status });
         // The retention's sweep of orders whose personal data is still kept (#400).
         builder.HasIndex(order => new { order.OrganizationId, order.PersonalDataClearedAt, order.PickupAt });
     }
@@ -278,4 +311,60 @@ internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<Orde
 
     private static IReadOnlyList<OrderingOrderLine> ReadLines(string json) =>
         JsonSerializer.Deserialize<List<OrderingOrderLine>>(json, LineJson) ?? [];
+}
+
+/// <summary>
+/// Table <c>OrderingTables</c> (#402): the QR code token of each table, unique across all organizations (it is looked up
+/// within the shop of the page's slug); at most one active row per <c>(OrganizationId, TableId)</c> — a deactivated row keeps
+/// its old token, which no longer works.
+/// </summary>
+internal sealed class OrderingTableConfiguration : IEntityTypeConfiguration<OrderingTable>
+{
+    public void Configure(EntityTypeBuilder<OrderingTable> builder)
+    {
+        builder.ToTable("OrderingTables", table =>
+            table.HasCheckConstraint("CK_OrderingTables_Token", $"length(\"Token\") = {OrderingTable.TokenLength}"));
+        builder.HasKey(table => table.Id);
+        builder.Property(table => table.Id).ValueGeneratedNever();
+        builder.Property(table => table.TableId).HasMaxLength(MenuLimits.IdMaxLength).IsRequired();
+        builder.Property(table => table.Name).HasMaxLength(OrderingDineInSettings.TableNameMaxLength).IsRequired();
+        builder.Property(table => table.Token).HasMaxLength(OrderingTable.TokenLength).IsFixedLength().IsRequired();
+        builder.Ignore(table => table.IsActive);
+        builder.HasIndex(table => table.Token).IsUnique();
+        builder.HasIndex(table => new { table.OrganizationId, table.TableId })
+            .IsUnique()
+            .HasFilter("\"DeactivatedAt\" IS NULL")
+            .HasDatabaseName("IX_OrderingTables_OrganizationId_TableId_Active");
+    }
+}
+
+/// <summary>
+/// Table <c>OrderingTableSessions</c> (#402): at most one open session per <c>(OrganizationId, TableId)</c> (a unique index
+/// over the open ones); <c>Version</c> is the concurrency token of 〔已結帳〕.
+/// </summary>
+internal sealed class OrderingTableSessionConfiguration : IEntityTypeConfiguration<OrderingTableSession>
+{
+    /// <summary>The unique index over the open sessions.</summary>
+    public const string OpenIndex = "IX_OrderingTableSessions_OrganizationId_TableId_Open";
+
+    public void Configure(EntityTypeBuilder<OrderingTableSession> builder)
+    {
+        builder.ToTable("OrderingTableSessions", table =>
+        {
+            table.HasCheckConstraint("CK_OrderingTableSessions_Version", "\"Version\" >= 1");
+            table.HasCheckConstraint(
+                "CK_OrderingTableSessions_Closed", "(\"ClosedAt\" IS NULL) = (\"ClosedByAccountId\" IS NULL)");
+        });
+        builder.HasKey(session => session.Id);
+        builder.Property(session => session.Id).ValueGeneratedNever();
+        builder.Property(session => session.TableId).HasMaxLength(MenuLimits.IdMaxLength).IsRequired();
+        builder.Property(session => session.TableName).HasMaxLength(OrderingDineInSettings.TableNameMaxLength).IsRequired();
+        builder.Property(session => session.Version).IsConcurrencyToken();
+        builder.Ignore(session => session.IsOpen);
+        builder.HasIndex(session => new { session.OrganizationId, session.TableId })
+            .IsUnique()
+            .HasFilter("\"ClosedAt\" IS NULL")
+            .HasDatabaseName(OpenIndex);
+        builder.HasIndex(session => new { session.OrganizationId, session.UpdatedAt });
+    }
 }

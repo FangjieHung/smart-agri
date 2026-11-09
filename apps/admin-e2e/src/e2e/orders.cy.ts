@@ -1,8 +1,9 @@
 import { auditA11y, loginAs } from '../support/a11y';
 
 /**
- * 線上點餐的後台（issue #399，mock 模式）：王記麵店的示範訂單——待確認 #016（預約）與 #015（儘快）、處理中 #014、#013
- * 與外送 #010（#401）、今日完成 #012 與 #011。老闆與內部同仁有「處理線上點餐」；外部客戶沒有，側欄不顯示、頁面顯示沒有權限。
+ * 線上點餐的後台（issue #399，mock 模式）：王記麵店的示範訂單——待確認 #016（預約）與 #015（儘快）、處理中 #014、#013、
+ * 外送 #010（#401）與 A1 桌的內用 #008、#009（#402，自動接單），今日完成 #012 與 #011。老闆與內部同仁有「處理線上點餐」；
+ * 外部客戶沒有，側欄不顯示、頁面顯示沒有權限。
  */
 describe('orders', () => {
   const navLink = '.app-sidenav a[href="/app/orders"]';
@@ -68,6 +69,37 @@ describe('orders', () => {
     cy.get('[data-orders-notice]').should('contain', '#010 已標示為已出發。');
   });
 
+  it('shows table A1 with its dine-in orders and closes it with 〔已結帳〕 after confirming the total (#402)', () => {
+    loginAs('SMB 管理者');
+    cy.visit('/app/orders');
+    cy.get(`#main-content [data-orders-column="active"] ${card('009')}`).scrollIntoView().should('be.visible').within(() => {
+      cy.get('[data-service="dine-in"]').should('have.text', '內用・A1');
+      cy.get('.order__name').should('have.text', '小明');
+      cy.get('a[href^="tel:"]').should('not.exist');
+      cy.get('.order__outcome').should('contain', '自動接單');
+      cy.get('[data-action="ready"]').should('have.text', '已出餐');
+    });
+
+    cy.get('#main-content [data-table-session="A1"]').scrollIntoView().should('be.visible').within(() => {
+      cy.get('.table__order').should('have.length', 2);
+      cy.get('[data-table-total]').should('have.text', 'NT$410');
+      cy.get('[data-table-checkout]').should('have.text', '已結帳').click();
+    });
+    cy.get('[role="dialog"]').should('be.visible').within(() => {
+      cy.get('#table-checkout-confirm-title').should('have.text', 'A1 共 NT$410，確定已結帳？');
+      cy.focused().should('have.text', '返回');
+      cy.get('.table-checkout-confirm').click();
+    });
+    cy.get('[role="dialog"]').should('not.exist');
+    cy.get('[data-table-session]').should('not.exist');
+    cy.get('#main-content [data-table-sessions]').should('contain', '目前沒有用餐中的桌子');
+    cy.focused().should('have.id', 'orders-tables-title');
+    cy.get('[data-orders-notice]').should('contain', 'A1 已結帳（NT$410），這桌的訂單已完成。');
+    cy.get(`[data-orders-column="done"] ${card('008')}`).should('contain', '已完成');
+    cy.get(`[data-orders-column="done"] ${card('009')}`).should('contain', '已完成');
+    cy.get(`[data-orders-column="active"] ${card('009')}`).should('not.exist');
+  });
+
   it('declines with a reason and a note the customer will see', () => {
     loginAs('內部使用者');
     cy.visit('/app/orders');
@@ -111,6 +143,13 @@ describe('orders', () => {
     cy.get('[data-orders-tab="active"]').click();
     cy.get(card('014')).scrollIntoView().should('be.visible');
     cy.get(card('016')).should('not.be.visible');
+
+    // 內用桌次與〔已結帳〕的對話框在手機上也不會讓整頁橫向捲動（#402）。
+    cy.get('#main-content [data-table-session="A1"] [data-table-checkout]').scrollIntoView().should('be.visible');
+    cy.document().its('documentElement').then((root) => expect(root.scrollWidth).to.be.at.most(root.clientWidth));
+    cy.get('[data-table-checkout]').click();
+    cy.get('[role="dialog"]').should('be.visible');
+    cy.document().its('documentElement').then((root) => expect(root.scrollWidth).to.be.at.most(root.clientWidth));
   });
 
   it('hides 點餐 from an account without 處理線上點餐 and shows no permission on the page', () => {
@@ -121,7 +160,7 @@ describe('orders', () => {
     cy.get('#main-content').contains('無法使用線上點餐').should('be.visible');
   });
 
-  it('has no critical or serious accessibility violations on the page and both dialogs', () => {
+  it('has no critical or serious accessibility violations on the page and the three dialogs', () => {
     loginAs('SMB 管理者');
     cy.visit('/app/orders');
     cy.get('#main-content').contains('button', '暫停接單').should('be.visible');
@@ -137,6 +176,12 @@ describe('orders', () => {
 
     cy.get(`${card('016')} [data-action="decline"]`).click();
     cy.get('[data-order-dialog="decline"]').should('be.visible');
+    auditA11y();
+    cy.focused().trigger('keydown', { key: 'Escape' });
+    cy.get('[data-order-dialog]').should('not.exist');
+
+    cy.get('#main-content [data-table-checkout]').scrollIntoView().click();
+    cy.get('[role="dialog"] .table-checkout-confirm').should('be.visible');
     auditA11y();
   });
 });

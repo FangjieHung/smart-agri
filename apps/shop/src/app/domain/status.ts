@@ -1,15 +1,47 @@
 import type { CancelReason, Canceller, DeclineReason, Order, OrderStatus } from '../api/types';
 
+/** 取餐方式的大類：外帶、外送（#401）、內用（#402）。 */
+export type ServiceKind = 'takeout' | 'delivery' | 'dine-in';
+
+/** 訂單的取餐方式大類。舊的錄製回應沒有 `table` 時看 `serviceType`。 */
+export function serviceKind(order: {
+  serviceType?: Order['serviceType'];
+  table?: Order['table'];
+}): ServiceKind {
+  if (order.serviceType === 'dine-in' || order.table) return 'dine-in';
+  return isDeliveryOrder(order) ? 'delivery' : 'takeout';
+}
+
 /**
  * 訂單狀態的白話說法（標題與補充）。`cancelledBy` 是 `shop` 時是店家取消（#399）。外送（#401）的 `ready`
- * 是「已出發」，付款是貨到付款。
+ * 是「已出發」，付款是貨到付款；內用（#402）用餐後至櫃台結帳，`completed` 是店家按了〔已結帳〕，
+ * `autoAccepted` 是店家設定內用訂單送出即接單。
  */
 export function statusWords(
   status: OrderStatus,
   cancelledBy: Canceller | null = null,
-  delivery = false,
+  service: ServiceKind = 'takeout',
+  autoAccepted = false,
 ): { title: string; detail: string } {
-  if (delivery) {
+  if (service === 'dine-in') {
+    switch (status) {
+      case 'accepted':
+        return {
+          title: autoAccepted ? '已自動接單，餐點準備中' : '店家已接單，餐點準備中',
+          detail: '這個頁面會自動更新。',
+        };
+      case 'ready':
+        return { title: '已出餐', detail: '請慢用。' };
+      case 'completed':
+        return { title: '已結帳，謝謝光臨', detail: '歡迎再來。' };
+      case 'expired':
+        return {
+          title: '店家未能及時確認，訂單已自動取消',
+          detail: '這筆訂單不會製作。需要的話請重新點餐或洽店員。',
+        };
+    }
+  }
+  if (service === 'delivery') {
     switch (status) {
       case 'accepted':
         return { title: '店家已接單，正在準備', detail: '餐點會外送到您填的地址，送達時付款。' };
@@ -35,7 +67,10 @@ export function statusWords(
       };
     case 'cancelled':
       return cancelledBy === 'shop'
-        ? { title: '店家已取消這筆訂單', detail: '這筆訂單不會製作，也不需要付款。有問題請來電店家。' }
+        ? {
+            title: '店家已取消這筆訂單',
+            detail: '這筆訂單不會製作，也不需要付款。有問題請來電店家。',
+          }
         : { title: '訂單已取消', detail: '這筆訂單不會製作，也不需要付款。' };
     case 'expired':
       return {
@@ -51,8 +86,11 @@ export const PROGRESS_STEPS = ['已送出', '店家確認', '準備中', '可以
 /** 外送的進度條步驟（#401）。 */
 export const DELIVERY_STEPS = ['已送出', '店家確認', '準備中', '已出發'] as const;
 
+/** 內用的進度條步驟（#402）。 */
+export const DINE_IN_STEPS = ['已送出', '店家確認', '準備中', '已出餐'] as const;
+
 /** 這筆訂單是外送（#401）。舊的錄製回應沒有 `delivery` 時看 `serviceType`。 */
-export const isDeliveryOrder = (order: Pick<Order, 'serviceType'>): boolean =>
+export const isDeliveryOrder = (order: { serviceType?: Order['serviceType'] }): boolean =>
   order.serviceType === 'delivery-scheduled' || order.serviceType === 'delivery-asap';
 
 /** 目前走到第幾步（從 0 起）；不會製作的訂單是 `null`。 */

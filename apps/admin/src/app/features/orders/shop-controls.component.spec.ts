@@ -17,7 +17,8 @@ const NOW = Date.parse('2026-11-07T03:40:00Z');
 const summary: OrderingSummaryView = {
   now: new Date(NOW).toISOString(), businessDate: '2026-11-07', timeZone: 'Asia/Taipei', shopName: '王記麵店', slug: 'wangji-noodles',
   pendingCount: 0, activeCount: 0, latestOrderAt: null, changedAt: null, paused: false, asapBand: '15-30',
-  asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true, delivery: false, deliveryAsap: false }, menuVersion: 1, shopVersion: 1,
+  asap: { minMinutes: 15, maxMinutes: 30 }, services: { takeoutScheduled: true, takeoutAsap: true, delivery: false, deliveryAsap: false, dineIn: false }, menuVersion: 1, shopVersion: 1,
+  openTableCount: 0,
 };
 
 const menu: OrderingMenuView = {

@@ -16,6 +16,7 @@ namespace SmartAgri.Api.Ordering;
 /// <param name="DeliveryZoneId">Delivery (#401): the zone chosen; its fee and minimum are the shop's under the lock.</param>
 /// <param name="DeliveryAddress">Delivery: trimmed, checked.</param>
 /// <param name="DeliveryNote">Delivery: trimmed, checked; <see langword="null"/> when empty.</param>
+/// <param name="TableToken">Dine-in (#402): the <c>X-Ordering-Table</c> header as sent; the table is the shop's under the lock.</param>
 public sealed record OrderingSubmission(
     Guid OrganizationId,
     OrderingServiceType ServiceType,
@@ -31,7 +32,8 @@ public sealed record OrderingSubmission(
     string SubmissionKey,
     string? DeliveryZoneId = null,
     string? DeliveryAddress = null,
-    string? DeliveryNote = null);
+    string? DeliveryNote = null,
+    string? TableToken = null);
 
 /// <summary>How a submission went.</summary>
 public enum OrderingSubmitOutcome
@@ -76,6 +78,12 @@ public enum OrderingSubmitOutcome
 
     /// <summary>The phone already has <see cref="OrderingOrder.MaxPendingPerPhone"/> pending orders at the shop.</summary>
     TooManyPending,
+
+    /// <summary>Dine-in (#402): no active table of the shop has that token, or the shop does not offer dine-in.</summary>
+    TableNotFound,
+
+    /// <summary>Dine-in (#402): the table already has <see cref="OrderingDineInSettings.MaxPendingPerTable"/> pending orders.</summary>
+    TooManyPendingAtTable,
 }
 
 public sealed record OrderingSubmitResult(
@@ -261,13 +269,20 @@ public sealed class OrderingOrders
         }
 
         var shop = await dbContext.OrderingShops.AsNoTracking().SingleAsync(cancellationToken);
+        var dineIn = submission.ServiceType == OrderingServiceType.DineIn;
+        OrderingTable? table = null;
+        if (dineIn && (table = await ActiveTableAsync(dbContext, shop, submission.TableToken, cancellationToken)) is null)
+        {
+            return new OrderingSubmitResult(OrderingSubmitOutcome.TableNotFound);
+        }
+
         if (shop.Paused)
         {
             return new OrderingSubmitResult(OrderingSubmitOutcome.Paused);
         }
 
         var channel = submission.ServiceType.Channel();
-        var hours = shop.HoursFor(channel);
+        var hours = dineIn ? shop.DineInBusinessHours : shop.HoursFor(channel);
         DeliveryZone? zone = null;
         if (channel == OrderingChannel.Delivery)
         {
@@ -286,7 +301,18 @@ public sealed class OrderingOrders
         DateOnly businessDate;
         DateTimeOffset pickupAt;
         AsapEstimate? asap = null;
-        if (submission.ServiceType.IsAsap())
+        if (dineIn)
+        {
+            // No time chosen: inside the dine-in hours now, picked up (numbered, expired, retained) as of now.
+            if (!OrderingDineIn.IsOpen(hours, now))
+            {
+                return new OrderingSubmitResult(OrderingSubmitOutcome.ServiceUnavailable);
+            }
+
+            businessDate = OrderingOrder.AsapBusinessDate(hours, now);
+            pickupAt = now;
+        }
+        else if (submission.ServiceType.IsAsap())
         {
             if ((asap = OrderingSlots.Asap(shop, now, channel)) is null)
             {
@@ -349,12 +375,43 @@ public sealed class OrderingOrders
             return new OrderingSubmitResult(OrderingSubmitOutcome.BelowMinimum, Zone: zone, Shortfall: (int)(zone.MinimumSubtotal - cart.Subtotal));
         }
 
-        var pending = await dbContext.OrderingOrders.CountAsync(
-            order => order.CustomerPhone == submission.Phone && order.Status == OrderingOrderStatus.Pending && order.PickupAt >= now,
-            cancellationToken);
-        if (pending >= OrderingOrder.MaxPendingPerPhone)
+        if (table is not null)
         {
-            return new OrderingSubmitResult(OrderingSubmitOutcome.TooManyPending);
+            // #402: a table's pending limit instead of a phone's (dine-in has no phone).
+            var pendingAtTable = await dbContext.OrderingOrders.CountAsync(
+                order => order.TableId == table.TableId && order.Status == OrderingOrderStatus.Pending, cancellationToken);
+            if (pendingAtTable >= shop.DineInSettings!.MaxPendingPerTable)
+            {
+                return new OrderingSubmitResult(OrderingSubmitOutcome.TooManyPendingAtTable);
+            }
+        }
+        else
+        {
+            var pending = await dbContext.OrderingOrders.CountAsync(
+                order => order.CustomerPhone == submission.Phone && order.Status == OrderingOrderStatus.Pending && order.PickupAt >= now,
+                cancellationToken);
+            if (pending >= OrderingOrder.MaxPendingPerPhone)
+            {
+                return new OrderingSubmitResult(OrderingSubmitOutcome.TooManyPending);
+            }
+        }
+
+        // #402: the table's open session, or a new one; under the shop's lock, as a close is, so the order never joins a session
+        // that is being closed.
+        OrderingTableSession? session = null;
+        if (table is not null)
+        {
+            session = await dbContext.OrderingTableSessions.SingleOrDefaultAsync(
+                candidate => candidate.TableId == table.TableId && candidate.ClosedAt == null, cancellationToken);
+            if (session is null)
+            {
+                session = OrderingTableSession.Open(table, now);
+                dbContext.OrderingTableSessions.Add(session);
+            }
+            else
+            {
+                session.Join(now);
+            }
         }
 
         var number = (await dbContext.OrderingOrders
@@ -365,10 +422,21 @@ public sealed class OrderingOrders
             submission.OrganizationId, submission.ServiceType, businessDate, number, pickupAt, asap, submission.Name, submission.Phone,
             submission.Email, submission.OrderComment, submission.Tableware, cart.Lines, menu.Version, token, submission.SubmissionKey,
             hours, shop.PendingTimeoutMinutes, now,
-            zone is null ? null : new OrderingOrderDelivery(zone.Id, zone.Name, zone.Fee, submission.DeliveryAddress!, submission.DeliveryNote));
+            zone is null ? null : new OrderingOrderDelivery(zone.Id, zone.Name, zone.Fee, submission.DeliveryAddress!, submission.DeliveryNote),
+            table is null ? null : new OrderingOrderTable(table.TableId, table.Name, session!.Id));
+        var autoAccepted = table is not null && shop.DineInSettings!.AutoAccept;
+        if (autoAccepted)
+        {
+            // #402: 「自動接單」 in the same transaction; no expiry then.
+            stored.AcceptAutomatically(now);
+        }
+
         dbContext.OrderingOrders.Add(stored);
-        // #400: nobody answering it by ExpiresAt expires it (OrderingExpireOrderJob), stored with the order.
-        dbContext.BackgroundJobs.Add(ExpiryJob(stored, now));
+        if (!autoAccepted)
+        {
+            // #400: nobody answering it by ExpiresAt expires it (OrderingExpireOrderJob), stored with the order.
+            dbContext.BackgroundJobs.Add(ExpiryJob(stored, now));
+        }
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -383,9 +451,25 @@ public sealed class OrderingOrders
             return new OrderingSubmitResult(OrderingSubmitOutcome.Duplicate, first);
         }
 
+        if (autoAccepted)
+        {
+            // The outcomes seam as for a member's 〔接單〕 (a dine-in order has no Email, so nothing is sent today).
+            _outcomes.Decided(dbContext, stored, now);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+
         await transaction.CommitAsync(cancellationToken);
         return new OrderingSubmitResult(OrderingSubmitOutcome.Stored, stored, token);
     }
+
+    /// <summary>The active table of <paramref name="token"/> when the shop offers dine-in (#402); <see langword="null"/>
+    /// otherwise (a malformed token, a deactivated table, another shop's token).</summary>
+    internal static async Task<OrderingTable?> ActiveTableAsync(
+        AppDbContext dbContext, OrderingShop shop, string? token, CancellationToken cancellationToken) =>
+        shop.DineInOffered && OrderingTable.IsToken(token)
+            ? await dbContext.OrderingTables.AsNoTracking()
+                .SingleOrDefaultAsync(table => table.Token == token && table.DeactivatedAt == null, cancellationToken)
+            : null;
 
     /// <summary>
     /// Cancels the order of <paramref name="token"/> while it is pending: a compare-and-set on its <c>Version</c> (the

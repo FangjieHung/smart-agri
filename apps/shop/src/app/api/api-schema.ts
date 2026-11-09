@@ -8891,6 +8891,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/ordering/{slug}/table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The table of the QR code token in the X-Ordering-Table header, and its open session (dine-in)
+         * @description 404 shop-not-found, or table-not-found for a missing or malformed header, a token the shop has no active table of (a removed or regenerated table, another shop's token) or a shop that does not offer dine-in.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: {
+                    "X-Ordering-Table"?: string;
+                };
+                path: {
+                    slug: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingTableView"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingProblem"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/ordering/{slug}/orders": {
         parameters: {
             query?: never;
@@ -8902,12 +8961,14 @@ export interface paths {
         put?: never;
         /**
          * Send an order: priced by the server, never by the client
-         * @description 201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. 404 shop-not-found. 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). 429 too-many-pending, or rate-limited with Retry-After.
+         * @description 201 with the status token (given only here) and the order. 400 (the framework's answer) when the body is not JSON of this shape. Dine-in: the table's token in the X-Ordering-Table header. 404 shop-not-found, table-not-found (dine-in). 409 duplicate-submission (orderNumber), shop-paused, service-unavailable, slot-unavailable, slot-full, menu-changed (menuVersion), items-unavailable (lineErrors). 422 invalid-order (errors, lineErrors), unknown-zone (delivery: no such zone), below-minimum (delivery: minimumSubtotal, shortfall). 429 too-many-pending (a phone's, or a table's for dine-in), or rate-limited with Retry-After.
          */
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header?: {
+                    "X-Ordering-Table"?: string;
+                };
                 path: {
                     slug: string;
                 };
@@ -9378,6 +9439,145 @@ export interface paths {
          * @description 200 with the order as it is now. 409 order-changed (the order is not at the version sent) or action-not-allowed (its status does not allow this), both with the order as it is now. 422 for a missing version or reason, a note too long or missing with other, or a promised time out of range.
          */
         post: operations["OrderingOrderCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The open table sessions (dine-in): each table's orders until 〔已結帳〕 */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffTablesView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordering/tables/sessions/{sessionId}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 〔已結帳〕: close a table session and complete its accepted and ready orders
+         * @description 200 with the closed session. 409 session-changed (another order joined, or it was closed, since the version sent) or table-has-pending (an order is still pending), both with the session as it is now. 403 ordering for a session the organization does not have. 422 for a missing version.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OrderingCloseSessionRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrderingStaffTableSessionView"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/problem+json": components["schemas"]["OrderingStaffTableConflict"];
+                    };
+                };
+                /** @description Unprocessable Entity */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -11321,6 +11521,10 @@ export interface components {
             availability: null | components["schemas"]["OrderingAvailabilityView"];
             items: components["schemas"]["OrderingItemView"][];
         };
+        OrderingCloseSessionRequest: {
+            /** Format: int32 */
+            version: null | number;
+        };
         OrderingCustomerRequest: {
             name: null | string;
             phone: null | string;
@@ -11362,6 +11566,13 @@ export interface components {
             fee: number;
             address: string;
             note: null | string;
+        };
+        OrderingDineInInfoView: {
+            note: null | string;
+            autoAccept: boolean;
+            open: components["schemas"]["OrderingOpenView"];
+            canOrder: boolean;
+            orderingHours: components["schemas"]["OrderingDayHoursView"][];
         };
         OrderingGroupView: {
             id: string;
@@ -11480,6 +11691,9 @@ export interface components {
         };
         /** @enum {unknown} */
         OrderingOrderStatus: "pending" | "accepted" | "ready" | "completed" | "declined" | "cancelled" | "expired" | null;
+        OrderingOrderTableView: {
+            name: string;
+        };
         OrderingOrderView: {
             /** Format: int32 */
             number: number;
@@ -11516,6 +11730,8 @@ export interface components {
             /** Format: int32 */
             deliveryFee: number;
             delivery: null | components["schemas"]["OrderingDeliveryView"];
+            table: null | components["schemas"]["OrderingOrderTableView"];
+            autoAccepted: boolean;
         };
         OrderingPauseRequest: {
             paused: null | boolean;
@@ -11556,9 +11772,10 @@ export interface components {
             takeoutAsap: boolean;
             delivery: boolean;
             deliveryAsap: boolean;
+            dineIn: boolean;
         };
         /** @enum {unknown} */
-        OrderingServiceType: "takeout-scheduled" | "takeout-asap" | "delivery-scheduled" | "delivery-asap";
+        OrderingServiceType: "takeout-scheduled" | "takeout-asap" | "delivery-scheduled" | "delivery-asap" | "dine-in";
         OrderingShopCancelRequest: {
             /** Format: int32 */
             version: null | number;
@@ -11586,6 +11803,7 @@ export interface components {
             orderingHours: components["schemas"]["OrderingDayHoursView"][];
             limits: components["schemas"]["OrderingLimitsView"];
             delivery: null | components["schemas"]["OrderingDeliveryInfoView"];
+            dineIn: null | components["schemas"]["OrderingDineInInfoView"];
         };
         OrderingSlotRulesView: {
             /** Format: int32 */
@@ -11665,6 +11883,12 @@ export interface components {
             view: string;
             orders: components["schemas"]["OrderingStaffOrderView"][];
         };
+        OrderingStaffOrderTableView: {
+            id: string;
+            name: string;
+            /** Format: uuid */
+            sessionId: string;
+        };
         OrderingStaffOrderView: {
             /** Format: uuid */
             id: string;
@@ -11711,6 +11935,8 @@ export interface components {
             /** Format: int32 */
             deliveryFee: number;
             delivery: null | components["schemas"]["OrderingDeliveryView"];
+            table: null | components["schemas"]["OrderingStaffOrderTableView"];
+            autoAccepted: boolean;
         };
         OrderingStaffStepView: {
             /** Format: date-time */
@@ -11740,6 +11966,40 @@ export interface components {
             menuVersion: number;
             /** Format: int32 */
             shopVersion: number;
+            /** Format: int32 */
+            openTableCount: number;
+        };
+        OrderingStaffTableConflict: {
+            type: string;
+            title: string;
+            /** Format: int32 */
+            status: number;
+            reason: string;
+            message: string;
+            session: components["schemas"]["OrderingStaffTableSessionView"];
+        };
+        OrderingStaffTableSessionView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            version: number;
+            tableId: string;
+            tableName: string;
+            /** Format: date-time */
+            openedAt: string;
+            /** Format: int32 */
+            total: number;
+            /** Format: int32 */
+            pendingCount: number;
+            orders: components["schemas"]["OrderingStaffOrderView"][];
+            /** Format: date-time */
+            closedAt: null | string;
+            closedBy: null | components["schemas"]["OrderingStaffMemberView"];
+        };
+        OrderingStaffTablesView: {
+            /** Format: date-time */
+            now: string;
+            sessions: components["schemas"]["OrderingStaffTableSessionView"][];
         };
         OrderingStepRequest: {
             /** Format: int32 */
@@ -11748,6 +12008,34 @@ export interface components {
         OrderingSubmittedView: {
             token: string;
             order: components["schemas"]["OrderingOrderView"];
+        };
+        OrderingTableItemView: {
+            name: string;
+            /** Format: int32 */
+            quantity: number;
+        };
+        OrderingTableOrderView: {
+            displayNumber: string;
+            status: components["schemas"]["OrderingOrderStatus"];
+            /** Format: int32 */
+            total: number;
+            /** Format: date-time */
+            createdAt: string;
+            items: components["schemas"]["OrderingTableItemView"][];
+        };
+        OrderingTableSessionView: {
+            /** Format: date-time */
+            openedAt: string;
+            /** Format: int32 */
+            orderCount: number;
+            /** Format: int32 */
+            total: number;
+            orders: components["schemas"]["OrderingTableOrderView"][];
+        };
+        OrderingTableView: {
+            name: string;
+            canOrder: boolean;
+            session: null | components["schemas"]["OrderingTableSessionView"];
         };
         OrderingZoneView: {
             id: string;

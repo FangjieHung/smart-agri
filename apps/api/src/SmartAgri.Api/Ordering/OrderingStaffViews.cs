@@ -14,8 +14,9 @@ namespace SmartAgri.Api.Ordering;
 /// <param name="ActiveCount">處理中 orders: accepted and ready (any pickup day).</param>
 /// <param name="LatestOrderAt">When the newest order was sent; <see langword="null"/> before the first. A newer value than
 /// the one the page saw last means a new order arrived (play the sound).</param>
-/// <param name="ChangedAt">When any order last changed status (sent, answered, cancelled by its customer …); a newer value
-/// than the one the page saw last means its lists are stale.</param>
+/// <param name="ChangedAt">When any order last changed status (sent, answered, cancelled by its customer …) or a table session
+/// opened, got an order or was closed (#402); a newer value than the one the page saw last means its lists are stale.</param>
+/// <param name="OpenTableCount">Open table sessions (#402): tables that have ordered and not paid yet.</param>
 /// <param name="ShopVersion">Goes up with every change of the shop's switches and item states (and imports).</param>
 /// <param name="Asap">The current ASAP estimate for <see cref="AsapBand"/>, whether or not ASAP is possible right now.</param>
 public sealed record OrderingStaffSummaryView(
@@ -33,7 +34,8 @@ public sealed record OrderingStaffSummaryView(
     OrderingAsapView Asap,
     OrderingServicesView Services,
     int MenuVersion,
-    int ShopVersion)
+    int ShopVersion,
+    int OpenTableCount)
 {
     public static OrderingStaffSummaryView Of(OrderingStaffSummary summary, DateTimeOffset now)
     {
@@ -55,7 +57,8 @@ public sealed record OrderingStaffSummaryView(
             new OrderingAsapView(lower, upper),
             OrderingServicesView.Of(shop),
             summary.MenuVersion,
-            shop.Version);
+            shop.Version,
+            summary.OpenTableCount);
     }
 }
 
@@ -93,6 +96,9 @@ public sealed record OrderingStaffCancellationView(
 /// <param name="DeliveryFee">運費 in <see cref="Total"/> (#401); 0 for takeout.</param>
 /// <param name="Delivery">A delivery order's zone, fee, full address (empty once cleared) and note (#401);
 /// <see langword="null"/> for takeout.</param>
+/// <param name="Table">A dine-in order's table and session (#402); <see langword="null"/> otherwise. Its customer name is an
+/// optional 稱呼 (may be empty), its phone empty.</param>
+/// <param name="AutoAccepted">Accepted by 「自動接單」 as it was sent (#402): <see cref="Accepted"/> has no member.</param>
 public sealed record OrderingStaffOrderView(
     Guid Id,
     int Number,
@@ -125,7 +131,9 @@ public sealed record OrderingStaffOrderView(
     DateTimeOffset ExpiresAt,
     DateTimeOffset? PersonalDataClearedAt,
     int DeliveryFee,
-    OrderingDeliveryView? Delivery)
+    OrderingDeliveryView? Delivery,
+    OrderingStaffOrderTableView? Table,
+    bool AutoAccepted)
 {
     public static OrderingStaffOrderView Of(OrderingOrder order, IReadOnlyDictionary<Guid, string> members)
     {
@@ -171,9 +179,68 @@ public sealed record OrderingStaffOrderView(
             order.ExpiresAt,
             order.PersonalDataClearedAt,
             order.DeliveryFee,
-            OrderingDeliveryView.Of(order));
+            OrderingDeliveryView.Of(order),
+            order.Table is { } table ? new OrderingStaffOrderTableView(table.TableId, table.TableName, table.SessionId) : null,
+            order.AutoAccepted);
     }
 }
+
+/// <summary>A dine-in order's table (its id and name when the order was sent) and the session it joined (#402).</summary>
+public sealed record OrderingStaffOrderTableView(string Id, string Name, Guid SessionId);
+
+/// <summary><c>GET /api/v1/ordering/tables</c> (#402): the open table sessions, the oldest first.</summary>
+public sealed record OrderingStaffTablesView(DateTimeOffset Now, IReadOnlyList<OrderingStaffTableSessionView> Sessions);
+
+/// <summary>A table session as the staff see it (#402).</summary>
+/// <param name="Version">Send it with 〔已結帳〕: refused (<c>409 session-changed</c>) when another order joined since.</param>
+/// <param name="TableName">The table's name when the session opened.</param>
+/// <param name="Total">What its orders come to: pending, accepted, ready and completed ones (not declined, cancelled or expired).</param>
+/// <param name="PendingCount">Orders still pending: 〔已結帳〕 is refused (<c>409 table-has-pending</c>) until they are answered.</param>
+/// <param name="Orders">Every order of the session, the oldest first.</param>
+/// <param name="ClosedAt">〔已結帳〕; <see langword="null"/> while open.</param>
+/// <param name="ClosedBy">Who pressed 〔已結帳〕.</param>
+public sealed record OrderingStaffTableSessionView(
+    Guid Id,
+    int Version,
+    string TableId,
+    string TableName,
+    DateTimeOffset OpenedAt,
+    int Total,
+    int PendingCount,
+    IReadOnlyList<OrderingStaffOrderView> Orders,
+    DateTimeOffset? ClosedAt,
+    OrderingStaffMemberView? ClosedBy)
+{
+    public static OrderingStaffTableSessionView Of(OrderingSessionOrders entry, IReadOnlyDictionary<Guid, string> members)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(members);
+        var session = entry.Session;
+        return new OrderingStaffTableSessionView(
+            session.Id,
+            session.Version,
+            session.TableId,
+            session.TableName,
+            session.OpenedAt,
+            OrderingTableSession.Total(entry.Orders),
+            entry.Orders.Count(order => order.Status == OrderingOrderStatus.Pending),
+            [.. entry.Orders.Select(order => OrderingStaffOrderView.Of(order, members))],
+            session.ClosedAt,
+            session.ClosedByAccountId is { } id && members.TryGetValue(id, out var name) ? new OrderingStaffMemberView(id, name) : null);
+    }
+}
+
+/// <summary><c>POST /api/v1/ordering/tables/sessions/{sessionId}/close</c> (#402): 〔已結帳〕.</summary>
+/// <param name="Version">The session's version the member saw.</param>
+public sealed record OrderingCloseSessionRequest(int? Version);
+
+/// <summary>
+/// <c>409</c> of 〔已結帳〕 (#402): <see cref="Reason"/> <c>session-changed</c> (another order joined, or someone closed it,
+/// since the member looked) or <c>table-has-pending</c> (an order is still pending: accept or decline it first), and the
+/// session as it is now — show it instead.
+/// </summary>
+public sealed record OrderingStaffTableConflict(
+    string Type, string Title, int Status, string Reason, string Message, OrderingStaffTableSessionView Session);
 
 /// <summary><c>GET /api/v1/ordering/items</c>: the current menu's items with what the staff switched.</summary>
 public sealed record OrderingStaffMenuView(DateTimeOffset Now, int MenuVersion, IReadOnlyList<OrderingStaffCategoryView> Categories);

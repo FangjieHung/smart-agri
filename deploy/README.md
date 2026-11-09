@@ -2156,3 +2156,51 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 - **通知信**：外送訂單的信寫「外送」「預計送達」與「貨到付款」，只寫**區域名稱**，**不寫地址**與給外送的備註。
 - **個資**：地址與給外送的備註和姓名、電話一樣，在送達時間滿 90 天後清除（第 18.3 節）；區域名稱與運費保留作為統計。
   api 的紀錄不寫地址。
+
+### 18.5 內用掃碼（#402）
+
+每張桌子一個 QR code；顧客掃碼直接點餐（不選時間），可以多次加點，用餐後在櫃台結帳。同一桌還沒結帳的訂單是一個「桌次」，
+後台「點餐」頁的「內用」依桌號合併顯示並加總，店員收完錢按〔已結帳〕結束桌次，之後同一個 QR code 開始新的桌次。
+
+- **設定**（`shop` 段）：`services.dineIn: true`，再加上 `dineIn`：
+
+  ```json
+  "dineIn": {
+    "tables": [{ "id": "a1", "name": "A1" }, { "id": "window-1", "name": "窗邊 1" }],
+    "autoAccept": false,
+    "orderingHours": { "mon": [], "tue": [{ "open": "11:00", "close": "14:00" }], "…": [] },
+    "note": "用餐後請至櫃台結帳，可用現金或 LINE Pay。",
+    "maxPendingPerTable": 5
+  }
+  ```
+
+  - `tables`：1–200 張桌子。`id` 小寫英數與 `-`、不能重複，**之後不要改**（QR code 跟著它）；`name` 一行、最多 20 字（「A1」「窗邊 2」）。
+  - `autoAccept`（選填，預設 `false`）：`true` 時內用訂單一送出就是「已接單」（後台顯示「自動接單」），不會逾時取消。
+  - `orderingHours`（選填）：內用點餐的時間，格式同可點餐時間；不填就和外帶一樣。暫停接單、售完、分類供應時間都照常適用。
+  - `note`（選填，最多 300 字）：顧客結帳與訂單頁的付款說明（內用時取代 `notices.checkout`，那段通常寫的是外帶的取餐付款）；不填顯示「用餐後至櫃台結帳」。
+  - `maxPendingPerTable`（選填，1–20，預設 5）：同一桌最多幾筆等待確認的訂單（內用不問電話，所以用桌號限制）。
+  - 關掉內用（`services.dineIn: false`）時 `dineIn` 段可以留著：桌號與 QR code 都保留，但掃了會顯示「已失效」，重新開放後恢復。
+- **QR code 與網址**：伺服器在桌號第一次出現在匯入檔時產生一個隨機代碼（token），之後重新匯入都不變；從檔案拿掉的桌號立刻失效，
+  同一個 `id` 再加回來會拿到**新的**代碼（要重新列印）。網址是 `https://<平台網址>/order/<slug>/table#<代碼>`：代碼在 `#` 後面，
+  瀏覽器不會把它送到伺服器的網址裡（API 從 `X-Ordering-Table` 標頭讀），所以不會出現在紀錄或追蹤裡。代碼原樣存在資料庫
+  （它本來就印在桌上給大家看），只能用來向那一桌點餐、看那一桌這次的品項與金額，看不到任何人的稱呼或備註。
+
+  ```sh
+  # 列出每一桌的網址（有設定 PublicChannels:PublicBaseUrl 才是完整網址，否則只有路徑）
+  docker compose --env-file .env -f deploy/docker-compose.yml run --rm api ordering-shop tables --organization <組織代碼>
+  # 某一桌的 QR code 被拍走或貼紙壞了：換一個新代碼（舊的立刻失效，要重新列印那一桌）
+  docker compose --env-file .env -f deploy/docker-compose.yml run --rm api ordering-shop tables --organization <組織代碼> --regenerate a1
+  # 印 QR code：寫成可列印的 HTML（A4，每頁 6 張：店名、桌號、QR code、「掃描點餐，用餐後至櫃台結帳」）
+  docker compose --env-file .env -f deploy/docker-compose.yml run --rm -v "$PWD:/out" api \
+    ordering-shop tables --organization <組織代碼> --html /out/tables.html
+  ```
+
+  `--html` 需要先設定 `PublicChannels:PublicBaseUrl`（QR code 要指向完整網址）。用瀏覽器開啟 HTML 後列印（紙張 A4、邊界「無」或「預設」皆可），
+  沿虛線剪下護貝。印好後用手機掃一張確認會打開那一桌的點餐頁。輸出含每一桌的代碼，不要貼到公開的地方。
+- **顧客端**：掃碼後頁首顯示「內用・桌號 A1」，不選取餐方式與時間；結帳只問「稱呼（選填）」與訂單備註，付款寫「用餐後至櫃台結帳」
+  （或 `note`）。送出後的訂單頁有〔繼續加點〕回菜單（桌號保留在這個瀏覽器分頁），菜單上方顯示這桌已點幾筆、共多少錢。
+  QR code 失效或桌號被拿掉時顯示「這個桌號的 QR code 已失效，請洽店員」。內用不寄通知信（沒有 Email）。
+- **後台**：內用訂單和其他訂單一樣出現在「待確認」（自動接單的直接到「處理中」），卡片寫「內用・A1」，〔可取餐〕叫〔已出餐〕。三欄下面的「內用桌次」列出還沒結帳的桌次：
+  桌號、開始時間、每一筆訂單與狀態、合計；按〔已結帳〕確認金額後結束桌次，已接單與已出餐的訂單一併變成「完成」。
+  還有待確認的訂單時不能結帳（先接單或婉拒）；確認對話框開著時同一桌又送來新訂單，會提示重新確認金額。
+- **個資**：內用的稱呼與備註和其他訂單一樣，在送出時間滿 90 天後清除（第 18.3 節）；桌號與桌次不含個資。

@@ -39,7 +39,13 @@ public sealed record OrderingImportParseResult(OrderingImport? Import, IReadOnly
 /// least one on; <c>deliveryAsap</c> only with <c>delivery</c>), <c>orderingHours</c> (the 統籌助理 settings' <c>weeklyHours</c>
 /// format and rules), and optional <c>slotMinutes</c>, <c>daysAhead</c>, <c>minLeadMinutes</c>, <c>maxOrdersPerSlot</c> (or
 /// <c>null</c>), <c>showOrderComment</c>, <c>showTableware</c>, <c>pendingTimeoutMinutes</c> (#400), <c>delivery</c> (#401,
-/// required when <c>services.delivery</c> is on).
+/// required when <c>services.delivery</c> is on), <c>dineIn</c> (#402, required when <c>services.dineIn</c> is on).
+/// </para>
+/// <para>
+/// <c>dineIn</c>: <c>{ tables: [{ id, name }], autoAccept?, orderingHours?, note?, maxPendingPerTable? }</c> — 1 to
+/// <see cref="OrderingDineInSettings.MaxTables"/> tables with unique ids, the name one line of at most
+/// <see cref="OrderingDineInSettings.TableNameMaxLength"/>; auto-accept default false; hours as <c>orderingHours</c> (default:
+/// those); a note of at most 300 characters; 1–20 pending orders per table (default 5).
 /// </para>
 /// <para>
 /// <c>delivery</c>: <c>{ zones: [{ id, name, fee, minimumSubtotal? }], orderingHours?, minLeadMinutes?, asapExtraMinutes?,
@@ -67,12 +73,16 @@ public static partial class OrderingShopJson
     private static readonly string[] ShopFields =
     [
         "slug", "name", "timeZone", "phone", "address", "notices", "services", "orderingHours", "slotMinutes", "daysAhead",
-        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes", "delivery",
+        "minLeadMinutes", "maxOrdersPerSlot", "showOrderComment", "showTableware", "pendingTimeoutMinutes", "delivery", "dineIn",
     ];
 
     private static readonly string[] NoticeFields = ["reminder", "checkout"];
 
-    private static readonly string[] ServiceFields = ["takeoutScheduled", "takeoutAsap", "delivery", "deliveryAsap"];
+    private static readonly string[] ServiceFields = ["takeoutScheduled", "takeoutAsap", "delivery", "deliveryAsap", "dineIn"];
+
+    private static readonly string[] DineInFields = ["tables", "autoAccept", "orderingHours", "note", "maxPendingPerTable"];
+
+    private static readonly string[] TableFields = ["id", "name"];
 
     private static readonly string[] DeliveryFields = ["zones", "orderingHours", "minLeadMinutes", "asapExtraMinutes", "note"];
 
@@ -213,6 +223,61 @@ public static partial class OrderingShopJson
         return reader.Errors.Count == 0 && delivery is not null
             ? delivery
             : throw new FormatException($"The stored delivery settings are not: {string.Join("; ", reader.Errors.Select(error => error.Path))}");
+    }
+
+    /// <summary><paramref name="dineIn"/> as compact JSON in the file's <c>dineIn</c> format (#402), written the same way every
+    /// time; <c>null</c> for none.</summary>
+    public static string WriteDineIn(OrderingDineInSettings? dineIn)
+    {
+        if (dineIn is null)
+        {
+            return "null";
+        }
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, Compact))
+        {
+            writer.WriteStartObject();
+            writer.WriteStartArray("tables");
+            foreach (var table in dineIn.Tables)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("id", table.Id);
+                writer.WriteString("name", table.Name);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteBoolean("autoAccept", dineIn.AutoAccept);
+            if (dineIn.OrderingHours is { } hours)
+            {
+                writer.WritePropertyName("orderingHours");
+                writer.WriteRawValue(ShopSettingsJson.WriteWeeklyHours(hours));
+            }
+
+            if (dineIn.Note is { } note)
+            {
+                writer.WriteString("note", note);
+            }
+
+            writer.WriteNumber("maxPendingPerTable", dineIn.MaxPendingPerTable);
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>Reads a stored <c>dineIn</c> section (#402): only its shape is checked. Throws <see cref="FormatException"/>
+    /// when the shape is wrong.</summary>
+    public static OrderingDineInSettings ReadDineIn(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        using var document = JsonDocument.Parse(json);
+        var reader = new Reader(strict: false);
+        var dineIn = reader.DineIn(document.RootElement, Child(Child(RootPath, "shop"), "dineIn"));
+        return reader.Errors.Count == 0 && dineIn is not null
+            ? dineIn
+            : throw new FormatException($"The stored dine-in settings are not: {string.Join("; ", reader.Errors.Select(error => error.Path))}");
     }
 
     private static void Write(Utf8JsonWriter writer, MenuCategory category)
@@ -438,9 +503,10 @@ public static partial class OrderingShopJson
                 var asap = RequiredBoolean(serviceProperties, servicesPath, "takeoutAsap");
                 var delivers = OptionalBoolean(serviceProperties, servicesPath, "delivery", fallback: false);
                 var deliversAsap = OptionalBoolean(serviceProperties, servicesPath, "deliveryAsap", fallback: false);
-                if (scheduled is not null && asap is not null && delivers is not null && deliversAsap is not null)
+                var dinesIn = OptionalBoolean(serviceProperties, servicesPath, "dineIn", fallback: false);
+                if (scheduled is not null && asap is not null && delivers is not null && deliversAsap is not null && dinesIn is not null)
                 {
-                    services = new OrderingServices(scheduled.Value, asap.Value, delivers.Value, deliversAsap.Value);
+                    services = new OrderingServices(scheduled.Value, asap.Value, delivers.Value, deliversAsap.Value, dinesIn.Value);
                     if (!services.Any)
                     {
                         Rule(servicesPath, "至少要開放一種取餐方式（暫停接單請在後台切換）。");
@@ -505,13 +571,121 @@ public static partial class OrderingShopJson
                 deliveryRead = false;
             }
 
+            OrderingDineInSettings? dineIn = null;
+            var dineInRead = true;
+            var dineInPath = Child(path, "dineIn");
+            if (properties.TryGetValue("dineIn", out var dineInElement) && dineInElement.ValueKind != JsonValueKind.Null)
+            {
+                dineIn = DineIn(dineInElement, dineInPath);
+                dineInRead = dineIn is not null;
+            }
+            else if (services is { DineIn: true })
+            {
+                Error(dineInPath, "開放內用時必填：桌號清單，例如 { \"tables\": [{ \"id\": \"a1\", \"name\": \"A1\" }] }。");
+                dineInRead = false;
+            }
+
             complete &= slotMinutes is not null && daysAhead is not null && minLead is not null && maxOrdersRead
-                && showComment is not null && showTableware is not null && timeout is not null && deliveryRead;
+                && showComment is not null && showTableware is not null && timeout is not null && deliveryRead && dineInRead;
             return complete
                 ? new OrderingShopSettings(
                     slug!, name!, timeZoneId, phone!, address, reminder, checkout, services!, hours!, slotMinutes!.Value,
-                    daysAhead!.Value, minLead!.Value, maxOrders, showComment!.Value, showTableware!.Value, timeout!.Value, delivery)
+                    daysAhead!.Value, minLead!.Value, maxOrders, showComment!.Value, showTableware!.Value, timeout!.Value, delivery, dineIn)
                 : null;
+        }
+
+        /// <summary>The <c>dineIn</c> section (#402).</summary>
+        public OrderingDineInSettings? DineIn(JsonElement element, string path)
+        {
+            var properties = Properties(element, path, DineInFields);
+            if (properties is null)
+            {
+                return null;
+            }
+
+            var tablesPath = Child(path, "tables");
+            List<DiningTable>? tables = null;
+            if (!properties.TryGetValue("tables", out var tablesElement))
+            {
+                Error(tablesPath, "缺少這個欄位：至少一張桌子，例如 [{ \"id\": \"a1\", \"name\": \"A1\" }]。");
+            }
+            else if (Array(tablesElement, tablesPath) is { } elements)
+            {
+                if (elements.Count == 0)
+                {
+                    Rule(tablesPath, "至少要有一張桌子；不提供內用請把 services.dineIn 設成 false。");
+                }
+                else if (elements.Count > OrderingDineInSettings.MaxTables)
+                {
+                    Rule(tablesPath, $"最多 {OrderingDineInSettings.MaxTables} 張桌子（目前 {elements.Count} 張）。");
+                }
+
+                tables = [];
+                var ids = new Dictionary<string, string>(StringComparer.Ordinal);
+                for (var index = 0; index < elements.Count; index++)
+                {
+                    if (Table(elements[index], Item(tablesPath, index), ids) is { } table)
+                    {
+                        tables?.Add(table);
+                    }
+                    else
+                    {
+                        tables = null;
+                    }
+                }
+            }
+
+            var complete = tables is not null;
+            var autoAccept = OptionalBoolean(properties, path, "autoAccept", fallback: false);
+            WeeklyHours? hours = null;
+            if (properties.TryGetValue("orderingHours", out var hoursElement) && hoursElement.ValueKind != JsonValueKind.Null)
+            {
+                var hoursPath = Child(path, "orderingHours");
+                if (strict)
+                {
+                    var hoursErrors = new List<ShopSettingsError>();
+                    hours = ShopSettingsJson.ParseWeeklyHours(hoursElement, hoursPath, hoursErrors);
+                    Errors.AddRange(hoursErrors.Select(error => new OrderingImportError(error.Path, error.Message)));
+                }
+                else
+                {
+                    try
+                    {
+                        hours = ShopSettingsJson.ReadWeeklyHours(hoursElement.GetRawText());
+                    }
+                    catch (Exception exception) when (exception is FormatException or JsonException or InvalidOperationException)
+                    {
+                        Error(hoursPath, "不是每週時間。");
+                    }
+                }
+
+                complete &= hours is not null;
+            }
+
+            var (note, noteRead) = OptionalText(properties, path, "note", OrderingDineInSettings.NoteMaxLength, multiLine: true);
+            var maxPending = Integer(
+                properties, path, "maxPendingPerTable", OrderingDineInSettings.DefaultMaxPendingPerTable, 1,
+                OrderingDineInSettings.MaxMaxPendingPerTable);
+            complete &= autoAccept is not null && noteRead && maxPending is not null;
+            return complete ? new OrderingDineInSettings(tables!, autoAccept!.Value, hours, note, maxPending!.Value) : null;
+        }
+
+        private DiningTable? Table(JsonElement element, string path, Dictionary<string, string> ids)
+        {
+            var properties = Properties(element, path, TableFields);
+            if (properties is null)
+            {
+                return null;
+            }
+
+            var id = Id(properties, path, ids, "桌號");
+            var name = RequiredString(properties, path, "name");
+            if (name is not null)
+            {
+                SingleLine(name, Child(path, "name"), OrderingDineInSettings.TableNameMaxLength);
+            }
+
+            return id is not null && name is not null ? new DiningTable(id, name) : null;
         }
 
         /// <summary>The <c>delivery</c> section (#401).</summary>

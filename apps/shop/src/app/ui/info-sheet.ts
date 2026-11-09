@@ -36,7 +36,7 @@ import { Sheet } from './sheet';
             <dt>現在</dt>
             <dd>{{ status().label }}，{{ status().detail }}</dd>
           </dl>
-          <h3 class="sub">線上點餐時間</h3>
+          <h3 class="sub">{{ store.isTable() ? '內用點餐時間' : '線上點餐時間' }}</h3>
           <table class="hours">
             <tbody>
               @for (day of hours(); track day.key) {
@@ -110,7 +110,10 @@ export class InfoSheet {
 
   protected readonly status = computed(() => {
     const shop = this.store.shop();
-    return shop ? openStatus(shop) : { open: false, label: '', detail: '' };
+    // 桌號模式（內用，#402）看內用的時間。
+    const dineIn = this.store.isTable() ? shop?.dineIn : null;
+    if (!shop) return { open: false, label: '', detail: '' };
+    return openStatus(dineIn ? { ...shop, open: dineIn.open } : shop);
   });
 
   protected readonly hours = computed(() => {
@@ -118,7 +121,8 @@ export class InfoSheet {
     if (!shop) return [];
     const todayIndex = (new Date(`${this.store.today()}T00:00:00Z`).getUTCDay() + 6) % 7;
     return DAY_KEYS.map((key, index) => {
-      const periods = shop.orderingHours.find((day) => day.day === key)?.periods ?? [];
+      const week = (this.store.isTable() ? shop.dineIn?.orderingHours : null) ?? shop.orderingHours;
+      const periods = week.find((day) => day.day === key)?.periods ?? [];
       return {
         key,
         name: weekdayName(key),

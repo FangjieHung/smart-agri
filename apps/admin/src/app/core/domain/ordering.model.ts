@@ -20,6 +20,9 @@ export type OrderingOrderStatus = NonNullable<components['schemas']['OrderingOrd
 export type OrderingDeclineReason = NonNullable<components['schemas']['OrderingDeclineReason']>;
 export type OrderingDeliveryView = components['schemas']['OrderingDeliveryView'];
 export type OrderingCancelReason = NonNullable<components['schemas']['OrderingCancelReason']>;
+export type OrderingTablesView = components['schemas']['OrderingStaffTablesView'];
+export type OrderingTableSessionView = components['schemas']['OrderingStaffTableSessionView'];
+export type OrderingTableConflictView = components['schemas']['OrderingStaffTableConflict'];
 
 /** 清單的三種檢視（`GET orders?view=`）。 */
 export type OrderingListView = 'pending' | 'active' | 'done';
@@ -44,7 +47,24 @@ export const ORDERING_SERVICE_LABELS: Readonly<Record<OrderingServiceType, strin
   'takeout-asap': '外帶即時',
   'delivery-scheduled': '外送預約',
   'delivery-asap': '外送即時',
+  'dine-in': '內用',
 };
+
+/** 內用（#402）：掃桌上的 QR code 點餐，不選時間、沒有電話；〔可取餐〕叫〔已出餐〕。 */
+export function isDineIn(serviceType: string): boolean {
+  return serviceType === 'dine-in';
+}
+
+/** 卡片上的取餐方式：內用加上桌號「內用・A1」（#402）。 */
+export function serviceLabel(order: Pick<OrderingOrderView, 'serviceType' | 'table'>): string {
+  const label = ORDERING_SERVICE_LABELS[order.serviceType] ?? order.serviceType;
+  return isDineIn(order.serviceType) && order.table ? `${label}・${order.table.name}` : label;
+}
+
+/** `ready` 的說法：外帶「可取餐」、外送「已出發」（#401）、內用「已出餐」（#402）。 */
+export function readyWord(serviceType: string): '可取餐' | '已出發' | '已出餐' {
+  return isDelivery(serviceType) ? '已出發' : isDineIn(serviceType) ? '已出餐' : '可取餐';
+}
 
 /** 外送（預約或儘快，#401）：〔可取餐〕叫〔已出發〕，時間是預計送達。 */
 export function isDelivery(serviceType: string): boolean {
@@ -66,15 +86,15 @@ export const ORDERING_STATUS_LABELS: Readonly<Record<OrderingOrderStatus, string
   expired: '逾時未處理',
 };
 
-/** 卡片上的狀態文字：取消分成顧客與店家；外送單的「可取餐」是「已出發」（#401）。 */
+/** 卡片上的狀態文字：取消分成顧客與店家；「可取餐」在外送單是「已出發」（#401）、內用是「已出餐」（#402）。 */
 export function statusLabel(order: Pick<OrderingOrderView, 'status' | 'cancelled' | 'serviceType'>): string {
   if (order.status === null) return '';
   if (order.status === 'cancelled') return order.cancelled?.by === 'shop' ? '店家已取消' : '顧客已取消';
-  if (order.status === 'ready' && isDelivery(order.serviceType)) return '已出發';
+  if (order.status === 'ready') return readyWord(order.serviceType);
   return ORDERING_STATUS_LABELS[order.status];
 }
 
-/** 按鈕文字；〔可取餐〕在外送單是〔已出發〕（#401）。 */
+/** 按鈕文字；〔可取餐〕在外送單是〔已出發〕（#401）、內用是〔已出餐〕（#402）。 */
 export function actionLabel(action: OrderingOrderAction, serviceType: string): string {
   switch (action) {
     case 'accept':
@@ -82,7 +102,7 @@ export function actionLabel(action: OrderingOrderAction, serviceType: string): s
     case 'decline':
       return '婉拒';
     case 'ready':
-      return isDelivery(serviceType) ? '已出發' : '可取餐';
+      return readyWord(serviceType);
     case 'complete':
       return '完成';
     case 'cancel':
@@ -166,6 +186,16 @@ export function mapsSearchUrl(address: string): string {
 /** 新台幣整數元：「NT$1,245」。 */
 export function priceText(amount: number): string {
   return `NT$${amount.toLocaleString('en-US')}`;
+}
+
+/** 一筆內用訂單的品項簡述：「紅燒牛肉麵 ×2、鮮肉餛飩湯」（桌次清單用，選項不列）。 */
+export function itemsBrief(lines: readonly OrderingOrderLine[]): string {
+  return lines.map((row) => `${row.itemName}${row.quantity > 1 ? ` ×${row.quantity}` : ''}`).join('、');
+}
+
+/** 桌次裡不算進合計的訂單（與後端 `OrderingTableSession.Total` 相同）：婉拒、取消、逾時。 */
+export function countsInTableTotal(status: OrderingOrderStatus | null): boolean {
+  return status !== 'declined' && status !== 'cancelled' && status !== 'expired';
 }
 
 /** 卡片的排序：待確認新的在前；處理中依給顧客的時間（接單前是顧客選的時間）早的在前；完成依結束時間新的在前。 */

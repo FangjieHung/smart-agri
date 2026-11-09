@@ -391,6 +391,28 @@ describe('Dine-in: menu page (#402)', () => {
     expect(root.querySelector('button.item')).toBeNull();
     fixture.destroy();
   });
+
+  it("does not show the shop's reminder, which is written for takeout; the takeout menu still does", async () => {
+    const { store } = setup({
+      'GET /menu': ok(menu(1)),
+      'GET /table': ok(tableView()),
+    });
+    const withReminder = shopInfo({
+      notices: { reminder: '外帶餐點請於取餐時間後 15 分鐘內取餐。', checkout: null },
+    });
+    tableMode(store, withReminder);
+    const { fixture, root, text } = render(MenuPage);
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(text('table-name')).toBe('內用・桌號 A1');
+    expect(root.querySelector('[data-testid="reminder"]')).toBeNull();
+
+    store.tableToken.set(null);
+    fixture.detectChanges();
+    await settle(fixture);
+    expect(text('reminder')).toContain('外帶餐點請於取餐時間後 15 分鐘內取餐。');
+    fixture.destroy();
+  });
 });
 
 describe('Dine-in: checkout (#402)', () => {

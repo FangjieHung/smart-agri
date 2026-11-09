@@ -97,8 +97,8 @@
       </div>
     }
 
-    @if (shop.notices.reminder) {
-      <details class="reminder">
+    @if (shop.notices.reminder && !store.isTable()) {
+      <details class="reminder" data-testid="reminder">
         <summary>
           <span class="reminder__label">提醒事項</span>
           <span class="reminder__preview">{{ reminderPreview() }}</span>

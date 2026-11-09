@@ -2039,8 +2039,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 ## 18. 線上點餐（#397 起）
 
 線上點餐是獨立的模組，**不需要**統籌助理：每家店（組織）一份**點餐設定**與**菜單**，用 `ordering-shop` 匯入。
-設計與後續的工作單見 `docs/plans/2026-11-06-online-ordering.md`。目前（#397）只有設定與菜單；顧客點餐網頁（#398）、
-後台接單（#399）等完成之前，匯入的設定不會對外顯示。
+設計與後續的工作單見 `docs/plans/2026-11-06-online-ordering.md`。#398 起顧客可以在 `/order/<slug>` 點餐（第 18.2 節）；
+後台接單（#399）完成之前，店員還看不到訂單。
 
 ### 18.1 點餐設定與菜單：`ordering-shop`
 
@@ -2080,3 +2080,16 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env run --rm api 
 
 結束代碼：`0` 完成；`1` 找不到組織、這家店還沒有點餐設定（`show`）或寫入失敗；`2` 參數錯誤、設定檔不正確或網址代號已被別家店使用。
 每次匯入**有變更**時，組織紀錄會記一筆 `ordering-shop-updated`，只記哪些欄位改了與菜單版本，不記店名、公告或菜單內容。
+
+### 18.2 顧客點餐網頁 `/order/<slug>`（#398）
+
+- **網址**：`<PUBLIC_BASE_URL>/order/<slug>`；訂單狀態頁是 `/order/<slug>/o#<token>`（送出訂單時產生的隨機長字串，只顯示一次；放在 `#` 後面，瀏覽器不會送到伺服器，所以不會出現在 api 的紀錄裡）。
+  映像內含點餐網頁（`apps/shop`，設定 `Shop__RootPath=wwwroot/shop`，設為空字串就不提供）。反向代理只轉特定路徑時，`/order/` 也要轉給 api。
+- 網頁呼叫的公開 API 在 `/api/v1/public/ordering/<slug>/…`，只接受同一個網址來源的瀏覽器請求（別的網站的頁面送出會被拒絕）。
+- **頻率限制**（每個用戶端 IP、不分店家）：讀取店家、菜單、時段、訂單狀態（狀態頁每 10 秒更新一次）與取消合計每分鐘 120 次
+  （`PublicChannels__RateLimits__OrderingRequestsPerIpPerMinute`）；送出訂單每分鐘 10 次（`…__OrderingSubmissionsPerIpPerMinute`）。
+  代理後面一定要設 `TRUSTED_PROXIES`（第 5 節）。
+- **防亂下單**：同一支電話在同一家店最多 3 筆「等待店家確認」且取餐時間還沒到的訂單；每次結帳帶一個送出代碼，重送只算一筆；
+  價格一律由伺服器依目前菜單計算，送出時再檢查時段、菜單版本、售完與分類供應時間。
+- **保存的資料與紀錄**：訂單存在 `OrderingOrders`（姓名、電話、Email、備註、明細快照、金額）。api 的紀錄**不寫**顧客的姓名、電話、
+  Email、備註或狀態頁的 token，只寫訂單 ID、組織、訂單號碼、品項數與金額。個資的保存期限清理是 #400 的工作，在那之前不會自動刪除。

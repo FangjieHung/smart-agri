@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
@@ -126,4 +127,82 @@ internal sealed class OrderingItemStateConfiguration : IEntityTypeConfiguration<
             .IsRequired();
         builder.HasIndex(state => new { state.OrganizationId, state.ItemId }).IsUnique();
     }
+}
+
+/// <summary>
+/// Table <c>OrderingOrders</c> (#398): unique <c>(OrganizationId, BusinessDate, Number)</c> (the day's order numbers),
+/// <c>(OrganizationId, SubmissionKey)</c> (a form sent twice) and <c>StatusTokenHash</c> (the status page's token, looked
+/// up within the shop of the page's slug). <c>Lines</c> is the priced snapshot as a <c>jsonb</c> array; <c>Version</c> is
+/// the concurrency token of the status changes.
+/// </summary>
+internal sealed class OrderingOrderConfiguration : IEntityTypeConfiguration<OrderingOrder>
+{
+    /// <summary>The unique index on <c>(OrganizationId, BusinessDate, Number)</c>.</summary>
+    public const string NumberIndex = "IX_OrderingOrders_OrganizationId_BusinessDate_Number";
+
+    /// <summary>The unique index on <c>(OrganizationId, SubmissionKey)</c>.</summary>
+    public const string SubmissionKeyIndex = "IX_OrderingOrders_OrganizationId_SubmissionKey";
+
+    private static readonly JsonSerializerOptions LineJson = new(JsonSerializerDefaults.Web);
+
+    private static readonly ValueComparer<IReadOnlyList<OrderingOrderLine>> LinesComparer = new(
+        (left, right) => WriteLines(left!) == WriteLines(right!),
+        lines => WriteLines(lines).GetHashCode(StringComparison.Ordinal),
+        lines => lines);
+
+    public void Configure(EntityTypeBuilder<OrderingOrder> builder)
+    {
+        builder.ToTable("OrderingOrders", table =>
+        {
+            table.HasCheckConstraint("CK_OrderingOrders_Lines", "jsonb_typeof(\"Lines\") = 'array'");
+            table.HasCheckConstraint("CK_OrderingOrders_Number", "\"Number\" >= 1");
+            table.HasCheckConstraint("CK_OrderingOrders_Version", "\"Version\" >= 1");
+            table.HasCheckConstraint("CK_OrderingOrders_Total", "\"Subtotal\" >= 0 AND \"Total\" >= \"Subtotal\"");
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_Asap",
+                "(\"ServiceType\" = 'takeout-asap') = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
+            table.HasCheckConstraint(
+                "CK_OrderingOrders_CancelledAt", "(\"Status\" = 'cancelled') = (\"CancelledAt\" IS NOT NULL)");
+        });
+        builder.HasKey(order => order.Id);
+        builder.Property(order => order.Id).ValueGeneratedNever();
+        builder.Property(order => order.ServiceType)
+            .HasConversion<WireNameConverter<OrderingServiceType>>()
+            .HasMaxLength(24)
+            .IsRequired();
+        builder.Property(order => order.Status)
+            .HasConversion<WireNameConverter<OrderingOrderStatus>>()
+            .HasMaxLength(16)
+            .IsRequired();
+        builder.Property(order => order.Version).IsConcurrencyToken();
+        builder.Property(order => order.CustomerName).HasMaxLength(OrderingContact.NameMaxLength).IsRequired();
+        builder.Property(order => order.CustomerPhone).HasMaxLength(ReservationContact.PhoneMaxLength).IsRequired();
+        builder.Property(order => order.CustomerEmail).HasMaxLength(ReservationContact.EmailMaxLength);
+        builder.Property(order => order.OrderComment).HasMaxLength(OrderingContact.OrderCommentMaxLength);
+        builder.Property(order => order.Lines)
+            .HasConversion(
+                new ValueConverter<IReadOnlyList<OrderingOrderLine>, string>(
+                    lines => WriteLines(lines),
+                    json => ReadLines(json)),
+                LinesComparer)
+            .HasColumnType("jsonb")
+            .IsRequired();
+        builder.Property(order => order.StatusTokenHash)
+            .HasMaxLength(OrderingOrder.StatusTokenHashLength)
+            .IsFixedLength()
+            .IsRequired();
+        builder.Property(order => order.SubmissionKey).HasMaxLength(OrderingOrder.SubmissionKeyLength).IsRequired();
+        builder.Ignore(order => order.CanCancel);
+        builder.HasIndex(order => new { order.OrganizationId, order.BusinessDate, order.Number }).IsUnique().HasDatabaseName(NumberIndex);
+        builder.HasIndex(order => new { order.OrganizationId, order.SubmissionKey }).IsUnique().HasDatabaseName(SubmissionKeyIndex);
+        builder.HasIndex(order => order.StatusTokenHash).IsUnique();
+        // The slot counts and the pending-per-phone limit.
+        builder.HasIndex(order => new { order.OrganizationId, order.PickupAt });
+        builder.HasIndex(order => new { order.OrganizationId, order.CustomerPhone, order.Status });
+    }
+
+    private static string WriteLines(IReadOnlyList<OrderingOrderLine> lines) => JsonSerializer.Serialize(lines, LineJson);
+
+    private static IReadOnlyList<OrderingOrderLine> ReadLines(string json) =>
+        JsonSerializer.Deserialize<List<OrderingOrderLine>>(json, LineJson) ?? [];
 }

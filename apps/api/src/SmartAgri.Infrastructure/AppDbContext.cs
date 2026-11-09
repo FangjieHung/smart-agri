@@ -255,6 +255,9 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
     /// <summary>Menu items the staff took off: 今日售完 or 停售 (#397).</summary>
     public DbSet<OrderingItemState> OrderingItemStates => Set<OrderingItemState>();
 
+    /// <summary>The orders customers sent from the shops' ordering pages (#398).</summary>
+    public DbSet<OrderingOrder> OrderingOrders => Set<OrderingOrder>();
+
     /// <summary>The model-call audit log (M2 plan, Slice 7): no content, ever.</summary>
     public DbSet<ModelInvocation> ModelInvocations => Set<ModelInvocation>();
 
@@ -455,6 +458,7 @@ public class AppDbContext : IdentityUserContext<Account, Guid, AccountClaim, Acc
         modelBuilder.ApplyConfiguration(new OrderingShopConfiguration());
         modelBuilder.ApplyConfiguration(new OrderingMenuConfiguration());
         modelBuilder.ApplyConfiguration(new OrderingItemStateConfiguration());
+        modelBuilder.ApplyConfiguration(new OrderingOrderConfiguration());
 
         // Model-call audit log (M2 plan, Slice 7).
         modelBuilder.ApplyConfiguration(new ModelInvocationConfiguration());

@@ -3148,6 +3148,128 @@ namespace SmartAgri.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SmartAgri.Domain.Ordering.OrderingOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("AsapMaxMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("AsapMinMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("BusinessDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("CustomerPhone")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Lines")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("MenuVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Number")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OrderComment")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("OrganizationId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("PickupAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ServiceType")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("StatusTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character(64)")
+                        .IsFixedLength();
+
+                    b.Property<string>("SubmissionKey")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)");
+
+                    b.Property<int>("Subtotal")
+                        .HasColumnType("integer");
+
+                    b.Property<bool?>("Tableware")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Total")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StatusTokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "PickupAt");
+
+                    b.HasIndex("OrganizationId", "SubmissionKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_OrderingOrders_OrganizationId_SubmissionKey");
+
+                    b.HasIndex("OrganizationId", "BusinessDate", "Number")
+                        .IsUnique()
+                        .HasDatabaseName("IX_OrderingOrders_OrganizationId_BusinessDate_Number");
+
+                    b.HasIndex("OrganizationId", "CustomerPhone", "Status");
+
+                    b.ToTable("OrderingOrders", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_OrderingOrders_Asap", "(\"ServiceType\" = 'takeout-asap') = (\"AsapMinMinutes\" IS NOT NULL AND \"AsapMaxMinutes\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_CancelledAt", "(\"Status\" = 'cancelled') = (\"CancelledAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_Lines", "jsonb_typeof(\"Lines\") = 'array'");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_Number", "\"Number\" >= 1");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_Total", "\"Subtotal\" >= 0 AND \"Total\" >= \"Subtotal\"");
+
+                            t.HasCheckConstraint("CK_OrderingOrders_Version", "\"Version\" >= 1");
+                        });
+                });
+
             modelBuilder.Entity("SmartAgri.Domain.Ordering.OrderingShop", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4699,6 +4821,15 @@ namespace SmartAgri.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("SmartAgri.Domain.Ordering.OrderingMenu", b =>
+                {
+                    b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("SmartAgri.Domain.Ordering.OrderingOrder", b =>
                 {
                     b.HasOne("SmartAgri.Domain.Organizations.Organization", null)
                         .WithMany()

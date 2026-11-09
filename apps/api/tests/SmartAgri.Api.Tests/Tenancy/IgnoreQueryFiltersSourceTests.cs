@@ -15,8 +15,9 @@ namespace SmartAgri.Api.Tests.Tenancy;
 /// allowed domains), and when the 統籌助理's shared LINE account finds whose message it is — the
 /// shops a LINE user is bound to with their store names, and the shop of a binding code
 /// (<c>CoordinatorLookup</c>, #372, #373) — or an owner opens an authorization link (the link's id and shop, #377), or a
-/// customer opens a shop's reservation page (the shop of a slug, also whether an import's slug is taken, #389) —
-/// all before any organization exists.</item>
+/// customer opens a shop's reservation page (the shop of a slug, also whether an import's slug is taken, #389) — or a
+/// customer opens a shop's online-ordering page (the shop of a slug, <c>OrderingLookup</c>, #398) — all before any
+/// organization exists.</item>
 /// <item>Raw SQL, which neither the filter nor the write guard sees: only claiming
 /// background jobs across organizations (<c>JobClaimer</c>, M2 plan §3).</item>
 /// <item>Acting for a background job's organization: only the job runner.</item>
@@ -35,7 +36,7 @@ public class IgnoreQueryFiltersSourceTests
         ["FromSql", "SqlQuery", "ExecuteSql", "NpgsqlCommand", "NpgsqlBatch", "CreateCommand", "GetDbConnection"];
 
     [Fact]
-    public void IgnoreQueryFilters_appears_only_in_AccountLookup_PublicAssistantLookup_PublicWebsiteChannelLookup_and_CoordinatorLookup()
+    public void IgnoreQueryFilters_appears_only_in_AccountLookup_PublicAssistantLookup_PublicWebsiteChannelLookup_CoordinatorLookup_and_OrderingLookup()
     {
         Occurrences(Token)
             .Select(occurrence => occurrence[..occurrence.LastIndexOf(':')])
@@ -51,6 +52,7 @@ public class IgnoreQueryFiltersSourceTests
                     "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
                     "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
                     "SmartAgri.Infrastructure/Coordinator/CoordinatorLookup.cs",
+                    "SmartAgri.Infrastructure/Ordering/OrderingLookup.cs",
                 ]);
     }
 

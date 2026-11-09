@@ -38,6 +38,7 @@ timeout_seconds="${SMOKE_TIMEOUT_SECONDS:-180}"
 project="smartagri-smoke-$(date +%Y%m%d%H%M%S)-$$"
 base_url="http://127.0.0.1:${port}"
 admin_marker='<title>AI 助理工作台</title>'
+shop_marker='<base href="/order/">'
 
 step() { printf 'smoke-test: %s\n' "$*"; }
 fail() {
@@ -245,6 +246,15 @@ check_admin() { # path
 check_admin /
 # A deep link the browser reloads: every GET that is not the api's own path gets the admin.
 check_admin /app/home
+
+# The online-ordering app (#398): /order/{slug} and its status page (/order/{slug}/o#<token>) get apps/shop's index.html.
+for path in /order/smoke-shop /order/smoke-shop/o; do
+  result="$(fetch "$path")"
+  [ "${result%% *}" = 200 ] || fail "GET $path answered ${result%% *}, not 200 (the ordering app)"
+  grep -qF "$shop_marker" "$work/body" \
+    || fail "GET $path is not the ordering app's index.html (no $shop_marker): is apps/shop copied into the image?"
+  step "ok   $path 200, the ordering app's index.html"
+done
 
 result="$(fetch /embed.js)"
 [ "${result%% *}" = 200 ] || fail "GET /embed.js answered ${result%% *}, not 200 (the embed loader)"

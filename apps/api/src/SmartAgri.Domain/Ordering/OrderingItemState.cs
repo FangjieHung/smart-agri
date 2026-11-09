@@ -5,6 +5,7 @@ using SmartAgri.Domain.Organizations;
 namespace SmartAgri.Domain.Ordering;
 
 /// <summary>Why an item cannot be ordered (design D7).</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<OrderingItemStateKind>))]
 public enum OrderingItemStateKind
 {
     /// <summary>今日售完: back by itself when the next business day's ordering hours open.</summary>

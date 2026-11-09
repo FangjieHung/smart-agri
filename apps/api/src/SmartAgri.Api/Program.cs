@@ -21,6 +21,7 @@ using SmartAgri.Api.Notifications;
 using SmartAgri.Api.Observability;
 using SmartAgri.Api.PublicChannels;
 using SmartAgri.Api.Operations;
+using SmartAgri.Api.Ordering;
 using SmartAgri.Api.Organizations;
 using SmartAgri.Api.Reports;
 using SmartAgri.Api.Setup;
@@ -58,6 +59,7 @@ builder.Services.AddOrganizationTokenUsage();
 builder.Services.AddLineMessaging(builder.Configuration);
 builder.Services.AddLineWebhook();
 builder.Services.AddStoreCoordinator(builder.Configuration);
+builder.Services.AddOnlineOrdering();
 builder.Services.AddOptions<SmartAgri.Api.PublicChannels.WidgetOptions>()
     .Bind(builder.Configuration.GetSection(SmartAgri.Api.PublicChannels.WidgetOptions.SectionName));
 builder.Services.AddSingleton<SmartAgri.Api.PublicChannels.WidgetIndexTemplate>();
@@ -241,6 +243,15 @@ if (args is [SmartAgriCommands.CoordinatorShop, .. var coordinatorShopArgs])
     return;
 }
 
+// `ordering-shop` is one-shot too, in any environment: import a shop's online-ordering settings and menu from a JSON file
+// or standard input (validated whole first; nothing written on any error; a changed menu becomes the next version) or print
+// a summary of them, and exit (#397).
+if (args is [SmartAgriCommands.OrderingShop, .. var orderingShopArgs])
+{
+    Environment.ExitCode = await OrderingShopCommand.RunAsync(app.Services, orderingShopArgs, Console.In, Console.Out, Console.Error);
+    return;
+}
+
 // `coordinator-commands` is one-shot too, in any environment: list a shop's latest confirmed 統籌助理 commands and
 // how each action went (no announcement text, LINE ids masked to their last four characters), and exit (#375).
 if (args is [SmartAgriCommands.CoordinatorCommands, .. var coordinatorCommandsArgs])
@@ -377,6 +388,7 @@ internal static class SmartAgriCommands
     public const string CoordinatorCommands = "coordinator-commands";
     public const string CoordinatorReservations = "coordinator-reservations";
     public const string CoordinatorQuota = "coordinator-quota";
+    public const string OrderingShop = "ordering-shop";
 }
 
 namespace SmartAgri.Api
